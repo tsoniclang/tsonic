@@ -310,6 +310,107 @@ const createTempVariableDeclaration = (
   ],
 });
 
+const lowerMemberAccessAssignmentWithYields = (
+  assignment: Extract<IrExpression, { kind: "assignment" }>,
+  ctx: LoweringContext,
+  positionLabels: {
+    readonly object: string;
+    readonly property: string;
+    readonly right: string;
+  }
+):
+  | {
+      readonly leadingStatements: readonly IrStatement[];
+      readonly loweredAssignment: Extract<IrExpression, { kind: "assignment" }>;
+    }
+  | undefined => {
+  if (assignment.left.kind !== "memberAccess") {
+    return undefined;
+  }
+
+  const loweredObject = lowerExpressionWithYields(
+    assignment.left.object,
+    ctx,
+    positionLabels.object,
+    assignment.left.object.inferredType
+  );
+  if (!loweredObject) {
+    return undefined;
+  }
+
+  const leadingStatements: IrStatement[] = [...loweredObject.prelude];
+  const objectTempName = allocateYieldTempName(ctx);
+  leadingStatements.push(
+    createTempVariableDeclaration(
+      objectTempName,
+      loweredObject.expression,
+      loweredObject.expression.inferredType
+    )
+  );
+
+  let loweredProperty: IrExpression | string = assignment.left.property;
+  if (typeof assignment.left.property !== "string") {
+    const loweredPropertyExpr = lowerExpressionWithYields(
+      assignment.left.property,
+      ctx,
+      positionLabels.property,
+      assignment.left.property.inferredType
+    );
+    if (!loweredPropertyExpr) {
+      return undefined;
+    }
+
+    leadingStatements.push(...loweredPropertyExpr.prelude);
+    const propertyTempName = allocateYieldTempName(ctx);
+    leadingStatements.push(
+      createTempVariableDeclaration(
+        propertyTempName,
+        loweredPropertyExpr.expression,
+        loweredPropertyExpr.expression.inferredType
+      )
+    );
+    loweredProperty = { kind: "identifier", name: propertyTempName };
+  }
+
+  let loweredRight: IrExpression = assignment.right;
+  if (assignment.right.kind === "yield" && !assignment.right.delegate) {
+    const receiveTempName = allocateYieldTempName(ctx);
+    leadingStatements.push(
+      createYieldStatement(
+        assignment.right,
+        { kind: "identifierPattern", name: receiveTempName },
+        assignment.right.inferredType
+      )
+    );
+    loweredRight = { kind: "identifier", name: receiveTempName };
+  } else if (containsYield(assignment.right)) {
+    const loweredRightExpr = lowerExpressionWithYields(
+      assignment.right,
+      ctx,
+      positionLabels.right,
+      assignment.right.inferredType
+    );
+    if (!loweredRightExpr) {
+      return undefined;
+    }
+    leadingStatements.push(...loweredRightExpr.prelude);
+    loweredRight = loweredRightExpr.expression;
+  }
+
+  return {
+    leadingStatements,
+    loweredAssignment: {
+      ...assignment,
+      left: {
+        ...assignment.left,
+        object: { kind: "identifier", name: objectTempName },
+        property: loweredProperty,
+      },
+      right: loweredRight,
+    },
+  };
+};
+
 type LoweredExpressionWithYields = {
   readonly prelude: readonly IrStatement[];
   readonly expression: IrExpression;
@@ -687,204 +788,161 @@ const processStatement = (
       }
 
       // Pattern 3: x = yield expr; (assignment with yield on right)
-      if (
-        expr.kind === "assignment" &&
-        expr.right.kind === "yield" &&
-        !expr.right.delegate
-      ) {
-        // Compound assignment (x += yield y) needs a temporary receive target,
-        // then an explicit compound update statement.
-        if (expr.operator !== "=") {
-          if (
-            expr.left.kind !== "identifierPattern" &&
-            expr.left.kind !== "identifier" &&
-            expr.left.kind !== "memberAccess"
-          ) {
-            emitUnsupportedYieldDiagnostic(
-              ctx,
-              "compound assignment to complex target",
-              expr.right.sourceSpan
-            );
+      if (expr.kind === "assignment") {
+        if (
+          expr.operator === "=" &&
+          expr.left.kind === "memberAccess" &&
+          ((expr.right.kind === "yield" && !expr.right.delegate) ||
+            containsYield(expr.left))
+        ) {
+          const loweredMemberAssignment = lowerMemberAccessAssignmentWithYields(
+            expr,
+            ctx,
+            {
+              object: "assignment target object",
+              property: "assignment target property",
+              right: "assignment value",
+            }
+          );
+          if (!loweredMemberAssignment) {
             return stmt;
           }
+          return [
+            ...loweredMemberAssignment.leadingStatements,
+            {
+              kind: "expressionStatement",
+              expression: loweredMemberAssignment.loweredAssignment,
+            },
+          ];
+        }
 
-          if (
-            expr.left.kind === "identifierPattern" ||
-            expr.left.kind === "identifier"
-          ) {
-            const tempName = allocateYieldTempName(ctx);
-            const leftExpr =
-              expr.left.kind === "identifierPattern"
-                ? ({ kind: "identifier", name: expr.left.name } as const)
-                : expr.left;
+        if (expr.right.kind === "yield" && !expr.right.delegate) {
+          // Compound assignment (x += yield y) needs a temporary receive target,
+          // then an explicit compound update statement.
+          if (expr.operator !== "=") {
+            if (
+              expr.left.kind !== "identifierPattern" &&
+              expr.left.kind !== "identifier" &&
+              expr.left.kind !== "memberAccess"
+            ) {
+              emitUnsupportedYieldDiagnostic(
+                ctx,
+                "compound assignment to complex target",
+                expr.right.sourceSpan
+              );
+              return stmt;
+            }
 
+            if (
+              expr.left.kind === "identifierPattern" ||
+              expr.left.kind === "identifier"
+            ) {
+              const tempName = allocateYieldTempName(ctx);
+              const leftExpr =
+                expr.left.kind === "identifierPattern"
+                  ? ({ kind: "identifier", name: expr.left.name } as const)
+                  : expr.left;
+
+              return [
+                createYieldStatement(
+                  expr.right,
+                  { kind: "identifierPattern", name: tempName },
+                  expr.right.inferredType
+                ),
+                {
+                  kind: "expressionStatement",
+                  expression: {
+                    ...expr,
+                    left: leftExpr,
+                    right: { kind: "identifier", name: tempName },
+                  },
+                },
+              ];
+            }
+
+            const loweredObject = lowerExpressionWithYields(
+              expr.left.object,
+              ctx,
+              "compound assignment target object",
+              expr.left.object.inferredType
+            );
+            if (!loweredObject) {
+              return stmt;
+            }
+            const objectTempName = allocateYieldTempName(ctx);
+            const leadingStatements: IrStatement[] = [
+              ...loweredObject.prelude,
+              createTempVariableDeclaration(
+                objectTempName,
+                loweredObject.expression,
+                loweredObject.expression.inferredType
+              ),
+            ];
+
+            let propertyExpr: IrExpression | string = expr.left.property;
+            if (typeof expr.left.property !== "string") {
+              const loweredProperty = lowerExpressionWithYields(
+                expr.left.property,
+                ctx,
+                "compound assignment target property",
+                expr.left.property.inferredType
+              );
+              if (!loweredProperty) {
+                return stmt;
+              }
+              leadingStatements.push(...loweredProperty.prelude);
+              const propertyTempName = allocateYieldTempName(ctx);
+              leadingStatements.push(
+                createTempVariableDeclaration(
+                  propertyTempName,
+                  loweredProperty.expression,
+                  loweredProperty.expression.inferredType
+                )
+              );
+              propertyExpr = { kind: "identifier", name: propertyTempName };
+            }
+
+            const receiveTempName = allocateYieldTempName(ctx);
             return [
+              ...leadingStatements,
               createYieldStatement(
                 expr.right,
-                { kind: "identifierPattern", name: tempName },
+                { kind: "identifierPattern", name: receiveTempName },
                 expr.right.inferredType
               ),
               {
                 kind: "expressionStatement",
                 expression: {
                   ...expr,
-                  left: leftExpr,
-                  right: { kind: "identifier", name: tempName },
+                  left: {
+                    ...expr.left,
+                    object: { kind: "identifier", name: objectTempName },
+                    property: propertyExpr,
+                  },
+                  right: { kind: "identifier", name: receiveTempName },
                 },
               },
             ];
           }
 
-          const loweredObject = lowerExpressionWithYields(
-            expr.left.object,
-            ctx,
-            "compound assignment target object",
-            expr.left.object.inferredType
-          );
-          if (!loweredObject) {
-            return stmt;
-          }
-          const objectTempName = allocateYieldTempName(ctx);
-          const leadingStatements: IrStatement[] = [
-            ...loweredObject.prelude,
-            createTempVariableDeclaration(
-              objectTempName,
-              loweredObject.expression,
-              loweredObject.expression.inferredType
-            ),
-          ];
-
-          let propertyExpr: IrExpression | string = expr.left.property;
-          if (typeof expr.left.property !== "string") {
-            const loweredProperty = lowerExpressionWithYields(
-              expr.left.property,
-              ctx,
-              "compound assignment target property",
-              expr.left.property.inferredType
-            );
-            if (!loweredProperty) {
-              return stmt;
-            }
-            leadingStatements.push(...loweredProperty.prelude);
-            const propertyTempName = allocateYieldTempName(ctx);
-            leadingStatements.push(
-              createTempVariableDeclaration(
-                propertyTempName,
-                loweredProperty.expression,
-                loweredProperty.expression.inferredType
-              )
-            );
-            propertyExpr = { kind: "identifier", name: propertyTempName };
-          }
-
-          const receiveTempName = allocateYieldTempName(ctx);
-          return [
-            ...leadingStatements,
-            createYieldStatement(
+          // Extract the target pattern
+          const receiveTarget = toReceivePattern(expr.left);
+          if (receiveTarget) {
+            return createYieldStatement(
               expr.right,
-              { kind: "identifierPattern", name: receiveTempName },
+              receiveTarget,
               expr.right.inferredType
-            ),
-            {
-              kind: "expressionStatement",
-              expression: {
-                ...expr,
-                left: {
-                  ...expr.left,
-                  object: { kind: "identifier", name: objectTempName },
-                  property: propertyExpr,
-                },
-                right: { kind: "identifier", name: receiveTempName },
-              },
-            },
-          ];
-        }
+            );
+          }
 
-        // Extract the target pattern
-        const receiveTarget = toReceivePattern(expr.left);
-        if (receiveTarget) {
-          return createYieldStatement(
-            expr.right,
-            receiveTarget,
-            expr.right.inferredType
-          );
-        }
-
-        if (expr.left.kind === "memberAccess") {
-          const loweredObject = lowerExpressionWithYields(
-            expr.left.object,
+          // Assignment to member expression or other LHS - not supported
+          emitUnsupportedYieldDiagnostic(
             ctx,
-            "assignment target object",
-            expr.left.object.inferredType
+            "assignment to complex target",
+            expr.right.sourceSpan
           );
-          if (!loweredObject) {
-            return stmt;
-          }
-
-          const objectTempName = allocateYieldTempName(ctx);
-          const leadingStatements: IrStatement[] = [
-            ...loweredObject.prelude,
-            createTempVariableDeclaration(
-              objectTempName,
-              loweredObject.expression,
-              loweredObject.expression.inferredType
-            ),
-          ];
-
-          let propertyExpr: IrExpression | string = expr.left.property;
-          if (typeof expr.left.property !== "string") {
-            const loweredProperty = lowerExpressionWithYields(
-              expr.left.property,
-              ctx,
-              "assignment target property",
-              expr.left.property.inferredType
-            );
-            if (!loweredProperty) {
-              return stmt;
-            }
-
-            leadingStatements.push(...loweredProperty.prelude);
-            const propertyTempName = allocateYieldTempName(ctx);
-            leadingStatements.push(
-              createTempVariableDeclaration(
-                propertyTempName,
-                loweredProperty.expression,
-                loweredProperty.expression.inferredType
-              )
-            );
-            propertyExpr = { kind: "identifier", name: propertyTempName };
-          }
-
-          const receiveTempName = allocateYieldTempName(ctx);
-          return [
-            ...leadingStatements,
-            createYieldStatement(
-              expr.right,
-              { kind: "identifierPattern", name: receiveTempName },
-              expr.right.inferredType
-            ),
-            {
-              kind: "expressionStatement",
-              expression: {
-                ...expr,
-                left: {
-                  ...expr.left,
-                  object: { kind: "identifier", name: objectTempName },
-                  property: propertyExpr,
-                },
-                right: { kind: "identifier", name: receiveTempName },
-              },
-            },
-          ];
+          return stmt;
         }
-
-        // Assignment to member expression or other LHS - not supported
-        emitUnsupportedYieldDiagnostic(
-          ctx,
-          "assignment to complex target",
-          expr.right.sourceSpan
-        );
-        return stmt;
       }
 
       // Check for yield in unsupported positions
@@ -1094,11 +1152,17 @@ const processStatement = (
         if (
           initializer.kind === "assignment" &&
           initializer.operator === "=" &&
-          initializer.right.kind === "yield" &&
-          !initializer.right.delegate
+          ((initializer.right.kind === "yield" &&
+            !initializer.right.delegate) ||
+            (initializer.left.kind === "memberAccess" &&
+              containsYield(initializer.left)))
         ) {
           const receiveTarget = toReceivePattern(initializer.left);
-          if (receiveTarget) {
+          if (
+            receiveTarget &&
+            initializer.right.kind === "yield" &&
+            !initializer.right.delegate
+          ) {
             leadingStatements.push(
               createYieldStatement(
                 initializer.right,
@@ -1107,83 +1171,33 @@ const processStatement = (
               )
             );
             initializer = undefined;
-          } else if (initializer.left.kind === "memberAccess") {
-            const loweredObject = lowerExpressionWithYields(
-              initializer.left.object,
+          } else if (receiveTarget) {
+            emitUnsupportedYieldDiagnostic(
               ctx,
-              "for loop initializer target object",
-              initializer.left.object.inferredType
+              "for loop initializer",
+              initializer.right.sourceSpan
             );
-            if (!loweredObject) {
+          } else if (initializer.left.kind === "memberAccess") {
+            const loweredMemberAssignment =
+              lowerMemberAccessAssignmentWithYields(initializer, ctx, {
+                object: "for loop initializer target object",
+                property: "for loop initializer target property",
+                right: "for loop initializer value",
+              });
+            if (!loweredMemberAssignment) {
               emitUnsupportedYieldDiagnostic(
                 ctx,
                 "for loop initializer",
                 initializer.right.sourceSpan
               );
             } else {
-              const objectTempName = allocateYieldTempName(ctx);
-              leadingStatements.push(...loweredObject.prelude);
               leadingStatements.push(
-                createTempVariableDeclaration(
-                  objectTempName,
-                  loweredObject.expression,
-                  loweredObject.expression.inferredType
-                )
+                ...loweredMemberAssignment.leadingStatements
               );
-
-              let propertyExpr: IrExpression | string =
-                initializer.left.property;
-              let propertyLoweringFailed = false;
-              if (typeof initializer.left.property !== "string") {
-                const loweredProperty = lowerExpressionWithYields(
-                  initializer.left.property,
-                  ctx,
-                  "for loop initializer target property",
-                  initializer.left.property.inferredType
-                );
-                if (!loweredProperty) {
-                  emitUnsupportedYieldDiagnostic(
-                    ctx,
-                    "for loop initializer",
-                    initializer.right.sourceSpan
-                  );
-                  propertyLoweringFailed = true;
-                } else {
-                  leadingStatements.push(...loweredProperty.prelude);
-                  const propertyTempName = allocateYieldTempName(ctx);
-                  leadingStatements.push(
-                    createTempVariableDeclaration(
-                      propertyTempName,
-                      loweredProperty.expression,
-                      loweredProperty.expression.inferredType
-                    )
-                  );
-                  propertyExpr = { kind: "identifier", name: propertyTempName };
-                }
-              }
-
-              if (!propertyLoweringFailed) {
-                const receiveTempName = allocateYieldTempName(ctx);
-                leadingStatements.push(
-                  createYieldStatement(
-                    initializer.right,
-                    { kind: "identifierPattern", name: receiveTempName },
-                    initializer.right.inferredType
-                  )
-                );
-                leadingStatements.push({
-                  kind: "expressionStatement",
-                  expression: {
-                    ...initializer,
-                    left: {
-                      ...initializer.left,
-                      object: { kind: "identifier", name: objectTempName },
-                      property: propertyExpr,
-                    },
-                    right: { kind: "identifier", name: receiveTempName },
-                  },
-                });
-              }
+              leadingStatements.push({
+                kind: "expressionStatement",
+                expression: loweredMemberAssignment.loweredAssignment,
+              });
               initializer = undefined;
             }
           } else {
