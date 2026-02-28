@@ -22,7 +22,7 @@
  * - `const x = cond ? (yield a) : (yield b)` → temp + branch-lowered yields
  *
  * Unsupported patterns (emit TSN6101 diagnostic):
- * - `(yield x) = y` - yield on assignment target side
+ * - assignment target forms that cannot be lowered as a deterministic l-value
  */
 
 import {
@@ -506,8 +506,45 @@ const lowerExpressionWithYields = (
           expr.left.kind !== "objectPattern" &&
           containsYield(expr.left)
         ) {
-          emitUnsupportedYieldDiagnostic(ctx, `${position} assignment target`);
-          return undefined;
+          if (expr.left.kind !== "memberAccess") {
+            emitUnsupportedYieldDiagnostic(
+              ctx,
+              `${position} assignment target`
+            );
+            return undefined;
+          }
+
+          const loweredObject = lower(expr.left.object);
+          if (!loweredObject) return undefined;
+
+          let loweredProperty: string | IrExpression = expr.left.property;
+          let propertyPrelude: readonly IrStatement[] = [];
+          if (typeof expr.left.property !== "string") {
+            const loweredPropertyExpr = lower(expr.left.property);
+            if (!loweredPropertyExpr) return undefined;
+            loweredProperty = loweredPropertyExpr.expression;
+            propertyPrelude = loweredPropertyExpr.prelude;
+          }
+
+          const loweredRight = lower(expr.right);
+          if (!loweredRight) return undefined;
+
+          return {
+            prelude: [
+              ...loweredObject.prelude,
+              ...propertyPrelude,
+              ...loweredRight.prelude,
+            ],
+            expression: {
+              ...expr,
+              left: {
+                ...expr.left,
+                object: loweredObject.expression,
+                property: loweredProperty,
+              },
+              right: loweredRight.expression,
+            },
+          };
         }
         const loweredRight = lower(expr.right);
         if (!loweredRight) return undefined;

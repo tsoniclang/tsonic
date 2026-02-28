@@ -16,6 +16,7 @@ import {
   IrModule,
   IrStatement,
   IrExpression,
+  IrExpressionStatement,
   IrBlockStatement,
   IrYieldStatement,
 } from "../types.js";
@@ -715,7 +716,7 @@ describe("Yield Lowering Pass", () => {
   });
 
   describe("Unsupported Patterns (TSN6101)", () => {
-    it("should emit TSN6101 when yield appears inside a non-pattern assignment target", () => {
+    it("should lower yield inside member-access assignment target chains", () => {
       const module = createGeneratorModule([
         {
           kind: "expressionStatement",
@@ -739,6 +740,40 @@ describe("Yield Lowering Pass", () => {
               property: "count",
               isOptional: false,
               isComputed: false,
+            },
+            right: { kind: "literal", value: 2 },
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(3);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("expressionStatement");
+      const finalExpr = (body[2] as IrExpressionStatement).expression;
+      expect(finalExpr.kind).to.equal("assignment");
+      if (finalExpr.kind === "assignment") {
+        expect(finalExpr.left.kind).to.equal("memberAccess");
+      }
+    });
+
+    it("should emit TSN6101 when yield appears in a non-lowerable assignment target", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "binary",
+              operator: "+",
+              left: createYield({ kind: "identifier", name: "lhs" }),
+              right: { kind: "literal", value: 1 },
             },
             right: { kind: "literal", value: 2 },
           },
