@@ -207,9 +207,20 @@ describe("IR Builder - Generic Function Value Lowering", () => {
     expect(innerVar).to.equal(undefined);
   });
 
-  it("does not lower let generic function values", () => {
+  it("lowers never-reassigned let generic function values", () => {
     const body = createTestModule(`
       let id = <T>(x: T): T => x;
+      void id<string>("ok");
+    `);
+
+    expect(findFunctionByName(body, "id")).not.to.equal(undefined);
+    expect(findVariableDeclaration(body, "id")).to.equal(undefined);
+  });
+
+  it("does not lower reassigned let generic function values", () => {
+    const body = createTestModule(`
+      let id = <T>(x: T): T => x;
+      id = <T>(x: T): T => x;
       void id<string>("ok");
     `);
 

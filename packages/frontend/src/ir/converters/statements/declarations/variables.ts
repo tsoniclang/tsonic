@@ -18,6 +18,12 @@ import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { convertTypeParameters, hasExportModifier } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import {
+  collectWrittenSymbols,
+  type GenericFunctionValueNode,
+  getSupportedGenericFunctionValueSymbol,
+  isGenericFunctionValueNode,
+} from "../../../../generic-function-values.js";
+import {
   deriveTypeFromExpression,
   withVariableDeclaratorTypeEnv,
 } from "../../type-env.js";
@@ -92,15 +98,6 @@ const getExpectedTypeForInitializer = (
   return undefined;
 };
 
-type GenericFunctionValueNode = ts.ArrowFunction | ts.FunctionExpression;
-
-const isGenericFunctionValueNode = (
-  node: ts.Expression
-): node is GenericFunctionValueNode =>
-  (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
-  !!node.typeParameters &&
-  node.typeParameters.length > 0;
-
 const resolveGenericFunctionValueReturnType = (
   initializer: IrArrowFunctionExpression | IrFunctionExpression
 ): IrType | undefined => {
@@ -115,17 +112,23 @@ const resolveGenericFunctionValueReturnType = (
 };
 
 const isSupportedGenericFunctionValueDeclaration = (
-  node: ts.VariableStatement,
-  decl: ts.VariableDeclaration
+  decl: ts.VariableDeclaration,
+  checker: ts.TypeChecker,
+  writtenSymbols: ReadonlySet<ts.Symbol>
 ): decl is ts.VariableDeclaration & {
   readonly name: ts.Identifier;
   readonly initializer: GenericFunctionValueNode;
 } => {
-  if (!(node.declarationList.flags & ts.NodeFlags.Const)) return false;
   if (!ts.isIdentifier(decl.name)) return false;
-  if (!decl.initializer) return false;
-  if (!isGenericFunctionValueNode(decl.initializer)) return false;
-  return true;
+  if (!decl.initializer || !isGenericFunctionValueNode(decl.initializer)) {
+    return false;
+  }
+  const symbol = getSupportedGenericFunctionValueSymbol(
+    decl.initializer,
+    checker,
+    writtenSymbols
+  );
+  return symbol !== undefined;
 };
 
 const convertGenericFunctionValueDeclaration = (
@@ -205,11 +208,21 @@ export const convertVariableStatement = (
   let currentCtx = ctx;
   const declarations: IrVariableDeclarator[] = [];
   const loweredStatements: IrStatement[] = [];
+  const writtenSymbols = collectWrittenSymbols(
+    node.getSourceFile(),
+    ctx.checker
+  );
 
   // Convert declarations sequentially so later declarators can refer to earlier ones:
   //   const a = false, b = !a;
   for (const decl of node.declarationList.declarations) {
-    if (isSupportedGenericFunctionValueDeclaration(node, decl)) {
+    if (
+      isSupportedGenericFunctionValueDeclaration(
+        decl,
+        ctx.checker,
+        writtenSymbols
+      )
+    ) {
       const lowered = convertGenericFunctionValueDeclaration(
         node,
         decl,

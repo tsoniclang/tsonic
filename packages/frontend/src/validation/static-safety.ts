@@ -28,6 +28,11 @@ import {
   createDiagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
+import {
+  collectWrittenSymbols,
+  getSupportedGenericFunctionValueSymbol,
+  isGenericFunctionValueNode,
+} from "../generic-function-values.js";
 
 /**
  * Result of basic eligibility check for object literal synthesis.
@@ -306,43 +311,20 @@ const objectLiteralHasContextualType = (
   return false;
 };
 
-type GenericFunctionValueNode = ts.ArrowFunction | ts.FunctionExpression;
-
-const isGenericFunctionValueNode = (
-  node: ts.Node
-): node is GenericFunctionValueNode =>
-  (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
-  !!node.typeParameters &&
-  node.typeParameters.length > 0;
-
-const getSupportedGenericFunctionValueSymbol = (
-  node: GenericFunctionValueNode,
-  checker: ts.TypeChecker
-): ts.Symbol | undefined => {
-  const decl = node.parent;
-  if (!ts.isVariableDeclaration(decl)) return undefined;
-  if (decl.initializer !== node) return undefined;
-  if (!ts.isIdentifier(decl.name)) return undefined;
-
-  const list = decl.parent;
-  if (!ts.isVariableDeclarationList(list)) return undefined;
-  if (!(list.flags & ts.NodeFlags.Const)) return undefined;
-
-  const stmt = list.parent;
-  if (!ts.isVariableStatement(stmt)) return undefined;
-
-  return checker.getSymbolAtLocation(decl.name);
-};
-
 const collectSupportedGenericFunctionValueSymbols = (
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  writtenSymbols: ReadonlySet<ts.Symbol>
 ): ReadonlySet<ts.Symbol> => {
   const symbols = new Set<ts.Symbol>();
 
   const collect = (node: ts.Node): void => {
     if (isGenericFunctionValueNode(node)) {
-      const symbol = getSupportedGenericFunctionValueSymbol(node, checker);
+      const symbol = getSupportedGenericFunctionValueSymbol(
+        node,
+        checker,
+        writtenSymbols
+      );
       if (symbol) symbols.add(symbol);
     }
     ts.forEachChild(node, collect);
@@ -425,8 +407,13 @@ export const validateStaticSafety = (
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
+  const writtenSymbols = collectWrittenSymbols(sourceFile, program.checker);
   const supportedGenericFunctionValueSymbols =
-    collectSupportedGenericFunctionValueSymbols(sourceFile, program.checker);
+    collectSupportedGenericFunctionValueSymbols(
+      sourceFile,
+      program.checker,
+      writtenSymbols
+    );
 
   const visitor = (
     node: ts.Node,
@@ -648,12 +635,14 @@ export const validateStaticSafety = (
 
     // TSN7432:
     // Generic function values are currently supported for `const` declarations
+    // and `let` declarations that are never reassigned,
     // with identifier names and generic arrow/function-expression initializers.
     // Other declaration forms remain hard errors.
     if (isGenericFunctionValueNode(node)) {
       const symbol = getSupportedGenericFunctionValueSymbol(
         node,
-        program.checker
+        program.checker,
+        writtenSymbols
       );
       const isSupported =
         symbol !== undefined &&
@@ -665,9 +654,9 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            "Generic arrow/functions as values are only supported for `const` identifier declarations.",
+            "Generic arrow/functions as values are only supported for `const` or never-reassigned `let` identifier declarations.",
             getNodeLocation(sourceFile, node),
-            "Use `const f = <T>(...) => ...` (or function expression) in a `const` declaration, or rewrite as a named generic function declaration."
+            "Use `const f = <T>(...) => ...`, or `let f = <T>(...) => ...` with no reassignments, or rewrite as a named generic function declaration."
           )
         );
       }

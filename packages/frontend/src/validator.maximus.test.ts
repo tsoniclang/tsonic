@@ -434,6 +434,14 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "module-level let generic value with no reassignment",
+        source: `
+          let id = <T>(x: T): T => x;
+          const s = id<string>("x");
+          void s;
+        `,
+      },
+      {
         name: "generic value passed in monomorphic callable argument context",
         source: `
           const id = <T>(x: T): T => x;
@@ -576,6 +584,14 @@ describe("Maximus Validation Coverage", () => {
           const id = <T>(x: T): T => x;
           const n = id.name;
           void n;
+        `,
+      },
+      {
+        name: "reassigned let generic function value",
+        source: `
+          let id = <T>(x: T): T => x;
+          id = <T>(x: T): T => x;
+          void id<string>("x");
         `,
       },
     ];
