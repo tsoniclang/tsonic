@@ -272,6 +272,19 @@ describe("Type Converter - Symbol Dictionary Keys", () => {
     });
   });
 
+  it("converts Record<string | symbol, V> to dictionaryType with object keys", () => {
+    const converted = convertAlias(
+      "type T = Record<string | symbol, number>;",
+      "T"
+    );
+
+    expect(converted).to.deep.equal({
+      kind: "dictionaryType",
+      keyType: { kind: "referenceType", name: "object" },
+      valueType: { kind: "primitiveType", name: "number" },
+    });
+  });
+
   it("converts symbol-only interface index signatures to dictionaryType with object keys", () => {
     const converted = convertAlias(
       `

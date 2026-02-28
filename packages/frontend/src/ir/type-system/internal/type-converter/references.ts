@@ -115,6 +115,67 @@ const normalizeNamespaceAliasQualifiedName = (typeName: string): string => {
   return typeName.slice(lastDot + 1);
 };
 
+const isSymbolTypeReferenceNode = (node: ts.TypeNode): boolean =>
+  ts.isTypeReferenceNode(node) &&
+  ts.isIdentifier(node.typeName) &&
+  node.typeName.text === "symbol";
+
+const classifyDictionaryKeyTypeNode = (
+  keyTypeNode: ts.TypeNode,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType,
+  binding: Binding
+): IrType | undefined => {
+  const keyNodes = ts.isUnionTypeNode(keyTypeNode)
+    ? keyTypeNode.types
+    : [keyTypeNode];
+
+  let sawString = false;
+  let sawNumber = false;
+  let sawSymbol = false;
+
+  for (const node of keyNodes) {
+    if (node.kind === ts.SyntaxKind.StringKeyword) {
+      sawString = true;
+      continue;
+    }
+    if (node.kind === ts.SyntaxKind.NumberKeyword) {
+      sawNumber = true;
+      continue;
+    }
+    if (
+      node.kind === ts.SyntaxKind.SymbolKeyword ||
+      isSymbolTypeReferenceNode(node)
+    ) {
+      sawSymbol = true;
+      continue;
+    }
+    return undefined;
+  }
+
+  const distinctKinds =
+    (sawString ? 1 : 0) + (sawNumber ? 1 : 0) + (sawSymbol ? 1 : 0);
+
+  if (distinctKinds === 0) {
+    return undefined;
+  }
+
+  if (distinctKinds > 1 || sawSymbol) {
+    return { kind: "referenceType", name: "object" };
+  }
+
+  if (sawNumber) {
+    return convertType(
+      ts.factory.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword),
+      binding
+    );
+  }
+
+  return convertType(
+    ts.factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
+    binding
+  );
+};
+
 /**
  * Per-binding caches for structural extraction and alias-body expansion.
  *
@@ -507,18 +568,12 @@ export const convertTypeReference = (
     // DETERMINISTIC: Only check SyntaxKind - no getTypeAtLocation.
     // If the key is a type alias that resolves to string/number, it falls through
     // to referenceType (the user should use `string` or `number` directly).
-    const isStringKey = keyTypeNode.kind === ts.SyntaxKind.StringKeyword;
-    const isNumberKey = keyTypeNode.kind === ts.SyntaxKind.NumberKeyword;
-    const isSymbolKey =
-      keyTypeNode.kind === ts.SyntaxKind.SymbolKeyword ||
-      (ts.isTypeReferenceNode(keyTypeNode) &&
-        ts.isIdentifier(keyTypeNode.typeName) &&
-        keyTypeNode.typeName.text === "symbol");
-
-    if (isStringKey || isNumberKey || isSymbolKey) {
-      const keyType: IrType = isSymbolKey
-        ? { kind: "referenceType", name: "object" }
-        : convertType(keyTypeNode, binding);
+    const keyType = classifyDictionaryKeyTypeNode(
+      keyTypeNode,
+      convertType,
+      binding
+    );
+    if (keyType) {
       const valueType = convertType(valueTypeNode, binding);
 
       return {
@@ -664,18 +719,13 @@ export const convertTypeReference = (
           if (!keyTypeNode) {
             return { kind: "primitiveType", name: "string" };
           }
-          if (keyTypeNode.kind === ts.SyntaxKind.NumberKeyword) {
-            return { kind: "primitiveType", name: "number" };
-          }
-          if (
-            keyTypeNode.kind === ts.SyntaxKind.SymbolKeyword ||
-            (ts.isTypeReferenceNode(keyTypeNode) &&
-              ts.isIdentifier(keyTypeNode.typeName) &&
-              keyTypeNode.typeName.text === "symbol")
-          ) {
-            return { kind: "referenceType", name: "object" };
-          }
-          return { kind: "primitiveType", name: "string" };
+          return (
+            classifyDictionaryKeyTypeNode(
+              keyTypeNode,
+              convertType,
+              binding
+            ) ?? { kind: "primitiveType", name: "string" }
+          );
         })();
         const valueType = indexSig?.type
           ? convertType(indexSig.type, binding)

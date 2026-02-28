@@ -1296,6 +1296,97 @@ describe("Expression Emission", () => {
     expect(result).to.not.include('dict["x"] != null');
   });
 
+  it("should lower symbol-key dictionary undefined checks to ContainsKey", () => {
+    const dictType: IrType = {
+      kind: "dictionaryType",
+      keyType: { kind: "referenceType", name: "object" },
+      valueType: { kind: "primitiveType", name: "number" },
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "ifStatement",
+          condition: {
+            kind: "binary",
+            operator: "===",
+            left: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "dict",
+                inferredType: dictType,
+              },
+              property: { kind: "identifier", name: "key" },
+              isComputed: true,
+              isOptional: false,
+              accessKind: "dictionary",
+              inferredType: { kind: "primitiveType", name: "number" },
+            },
+            right: { kind: "identifier", name: "undefined" },
+          },
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [],
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("!(dict).ContainsKey(key)");
+    expect(result).to.not.include("dict[key] == null");
+  });
+
+  it("should lower delete on symbol-key dictionary access to Remove", () => {
+    const dictType: IrType = {
+      kind: "dictionaryType",
+      keyType: { kind: "referenceType", name: "object" },
+      valueType: { kind: "primitiveType", name: "number" },
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "unary",
+            operator: "delete",
+            expression: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "dict",
+                inferredType: dictType,
+              },
+              property: { kind: "identifier", name: "key" },
+              isComputed: true,
+              isOptional: false,
+              accessKind: "dictionary",
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("dict.Remove(key);");
+  });
+
   it("should infer arrow function return type from inferredType", () => {
     const module: IrModule = {
       kind: "module",

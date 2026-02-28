@@ -183,4 +183,84 @@ describe("Type Emission", () => {
     );
     expect(result).to.include("return store[key];");
   });
+
+  it("should emit mixed PropertyKey dictionaries as Dictionary<object, T>", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "Test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "set",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "store" },
+              type: {
+                kind: "dictionaryType",
+                keyType: { kind: "referenceType", name: "object" },
+                valueType: { kind: "primitiveType", name: "number" },
+              },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "key" },
+              type: { kind: "referenceType", name: "object" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: { kind: "primitiveType", name: "number" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "assignment",
+                  operator: "=",
+                  left: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "store" },
+                    property: { kind: "identifier", name: "key" },
+                    isOptional: false,
+                    isComputed: true,
+                    accessKind: "dictionary",
+                  },
+                  right: { kind: "identifier", name: "value" },
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include(
+      "global::System.Collections.Generic.Dictionary<object, double> store"
+    );
+    expect(result).to.include("store[key] = value;");
+  });
 });

@@ -275,6 +275,39 @@ describe("Generic Validation", () => {
       );
       expect(symbolDiag).to.equal(undefined);
     });
+
+    it("should allow Record<symbol, V> without TSN7203", () => {
+      const source = `
+        type SymbolMap = Record<symbol, number>;
+        const table: SymbolMap = {} as SymbolMap;
+        void table;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const symbolDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7203"
+      );
+      expect(symbolDiag).to.equal(undefined);
+    });
+
+    it("should allow mixed PropertyKey unions including symbol", () => {
+      const source = `
+        type Key = string | number | symbol;
+        type Map = Record<Key, number>;
+        const table: Map = {} as Map;
+        void table;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const symbolDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7203"
+      );
+      expect(symbolDiag).to.equal(undefined);
+    });
   });
 
   describe("Previously-blocked constructs (now ALLOWED)", () => {

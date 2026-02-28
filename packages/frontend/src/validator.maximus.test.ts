@@ -917,6 +917,32 @@ describe("Maximus Validation Coverage", () => {
           void read;
         `,
       },
+      {
+        name: "mixed string and symbol dictionary key operations",
+        source: `
+          function readMixed(
+            table: Record<string | symbol, number>,
+            key: symbol
+          ): number {
+            table["count"] = 1;
+            table[key] = 2;
+            return table["count"] + table[key];
+          }
+          void readMixed;
+        `,
+      },
+      {
+        name: "symbol-key undefined comparison and delete shape",
+        source: `
+          function prune(table: Record<symbol, number>, key: symbol): boolean {
+            if (table[key] !== undefined) {
+              delete table[key];
+            }
+            return table[key] === undefined;
+          }
+          void prune;
+        `,
+      },
     ];
 
     for (const c of allowCases) {

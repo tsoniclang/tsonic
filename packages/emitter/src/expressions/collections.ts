@@ -860,6 +860,10 @@ const emitDictKeyTypeAst = (keyType: IrType): CSharpTypeAst => {
     }
   }
 
+  if (keyType.kind === "referenceType" && keyType.name === "object") {
+    return { kind: "predefinedType", keyword: "object" };
+  }
+
   throw new Error(
     `ICE: Unsupported dictionary key type reached emitter - validation missed TSN7413. Got: ${JSON.stringify(keyType)}`
   );
