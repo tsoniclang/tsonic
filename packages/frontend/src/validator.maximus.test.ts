@@ -442,6 +442,19 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "outer let generic value with reassigned shadow remains valid",
+        source: `
+          let id = <T>(x: T): T => x;
+          {
+            let id = 1;
+            id = 2;
+            void id;
+          }
+          const s = id<string>("outer");
+          void s;
+        `,
+      },
+      {
         name: "generic value passed in monomorphic callable argument context",
         source: `
           const id = <T>(x: T): T => x;
@@ -592,6 +605,24 @@ describe("Maximus Validation Coverage", () => {
           let id = <T>(x: T): T => x;
           id = <T>(x: T): T => x;
           void id<string>("x");
+        `,
+      },
+      {
+        name: "destructuring-reassigned let generic function value",
+        source: `
+          let id = <T>(x: T): T => x;
+          [id] = [id];
+          void id<string>("x");
+        `,
+      },
+      {
+        name: "for-of-target let generic function value",
+        source: `
+          let id = <T>(x: T): T => x;
+          const handlers = [id];
+          for (id of handlers) {
+            void id<string>("x");
+          }
         `,
       },
     ];

@@ -228,6 +228,46 @@ describe("IR Builder - Generic Function Value Lowering", () => {
     expect(findVariableDeclaration(body, "id")).not.to.equal(undefined);
   });
 
+  it("does not lower destructuring-reassigned let generic function values", () => {
+    const body = createTestModule(`
+      let id = <T>(x: T): T => x;
+      [id] = [id];
+      void id<string>("ok");
+    `);
+
+    expect(findFunctionByName(body, "id")).to.equal(undefined);
+    expect(findVariableDeclaration(body, "id")).not.to.equal(undefined);
+  });
+
+  it("does not lower for-of-target let generic function values", () => {
+    const body = createTestModule(`
+      let id = <T>(x: T): T => x;
+      const fns = [id];
+      for (id of fns) {
+        void id<string>("ok");
+      }
+      void id<string>("ok");
+    `);
+
+    expect(findFunctionByName(body, "id")).to.equal(undefined);
+    expect(findVariableDeclaration(body, "id")).not.to.equal(undefined);
+  });
+
+  it("still lowers let generic function values when only a shadowed symbol is reassigned", () => {
+    const body = createTestModule(`
+      let id = <T>(x: T): T => x;
+      {
+        let id = 1;
+        id = 2;
+        void id;
+      }
+      void id<string>("outer");
+    `);
+
+    expect(findFunctionByName(body, "id")).not.to.equal(undefined);
+    expect(findVariableDeclaration(body, "id")).to.equal(undefined);
+  });
+
   it("lowers generic function declarators inside multi-declarator const statements", () => {
     const body = createTestModule(`
       const id = <T>(x: T): T => x, other = 1;
