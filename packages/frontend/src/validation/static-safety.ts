@@ -45,7 +45,7 @@ type BasicEligibilityResult =
  * Check basic structural eligibility for object literal synthesis.
  *
  * This is a simplified check that doesn't require TypeSystem access.
- * It validates structural constraints (no computed keys, no method shorthand, etc.)
+ * It validates structural constraints (no computed keys, no dynamic receiver method shorthand, etc.)
  * but does NOT validate spread type annotations (that requires TypeSystem).
  *
  * Full eligibility check happens during IR conversion.
@@ -53,6 +53,29 @@ type BasicEligibilityResult =
 const checkBasicSynthesisEligibility = (
   node: ts.ObjectLiteralExpression
 ): BasicEligibilityResult => {
+  const usesDynamicReceiverSemantics = (
+    method: ts.MethodDeclaration
+  ): boolean => {
+    let found = false;
+    const visit = (current: ts.Node): void => {
+      if (found) return;
+      if (
+        current.kind === ts.SyntaxKind.ThisKeyword ||
+        current.kind === ts.SyntaxKind.SuperKeyword ||
+        (ts.isIdentifier(current) && current.text === "arguments")
+      ) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(current, visit);
+    };
+
+    if (method.body) {
+      visit(method.body);
+    }
+    return found;
+  };
+
   for (const prop of node.properties) {
     // Property assignment: check key type
     if (ts.isPropertyAssignment(prop)) {
@@ -92,12 +115,32 @@ const checkBasicSynthesisEligibility = (
       continue;
     }
 
-    // Method declaration: reject (use arrow functions instead)
+    // Method declarations are valid only when they can be represented as
+    // function-valued properties without dynamic receiver semantics.
     if (ts.isMethodDeclaration(prop)) {
-      return {
-        eligible: false,
-        reason: `Method shorthand is not supported. Use arrow function syntax: 'name: () => ...'`,
-      };
+      if (ts.isComputedPropertyName(prop.name)) {
+        const expr = prop.name.expression;
+        if (!ts.isStringLiteral(expr)) {
+          return {
+            eligible: false,
+            reason: `Computed property key is not a string literal`,
+          };
+        }
+      }
+      if (ts.isPrivateIdentifier(prop.name)) {
+        return {
+          eligible: false,
+          reason: `Private identifier (symbol) keys are not supported`,
+        };
+      }
+      if (usesDynamicReceiverSemantics(prop)) {
+        return {
+          eligible: false,
+          reason:
+            "Method shorthand cannot reference this/super/arguments in synthesized types",
+        };
+      }
+      continue;
     }
 
     // Getter/setter: reject

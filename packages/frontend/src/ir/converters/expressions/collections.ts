@@ -371,8 +371,47 @@ export const convertObjectLiteral = (
         kind: "spread",
         expression: convertExpression(prop.expression, ctx, undefined),
       });
+    } else if (ts.isMethodDeclaration(prop)) {
+      const keyName = ts.isIdentifier(prop.name)
+        ? prop.name.text
+        : ts.isStringLiteral(prop.name)
+          ? prop.name.text
+          : undefined;
+
+      const key = ts.isComputedPropertyName(prop.name)
+        ? convertExpression(prop.name.expression, ctx, undefined)
+        : ts.isIdentifier(prop.name)
+          ? prop.name.text
+          : String(prop.name.text);
+
+      const propExpectedType = keyName
+        ? (getPropertyExpectedType(keyName, expectedType, ctx) ??
+          (shouldLowerToDictionary ? dictionaryValueExpectedType : undefined))
+        : shouldLowerToDictionary
+          ? dictionaryValueExpectedType
+          : undefined;
+
+      const methodModifiers = prop.modifiers?.filter(ts.isModifier);
+      const methodAsFunctionExpr = ts.setTextRange(
+        ts.factory.createFunctionExpression(
+          methodModifiers,
+          prop.asteriskToken,
+          undefined,
+          prop.typeParameters,
+          prop.parameters,
+          prop.type,
+          prop.body ?? ts.factory.createBlock([], true)
+        ),
+        prop
+      );
+
+      properties.push({
+        kind: "property",
+        key,
+        value: convertExpression(methodAsFunctionExpr, ctx, propExpectedType),
+        shorthand: false,
+      });
     }
-    // Skip getters/setters/methods for now (can add later if needed)
   });
 
   let contextualType = contextualCandidate;
@@ -398,7 +437,7 @@ export const convertObjectLiteral = (
           "error",
           `Object literal cannot be synthesized: ${eligibility.reason}`,
           getSourceSpan(node),
-          "Use an explicit type annotation, or restructure to use only identifier keys, string literal keys, and arrow functions."
+          "Use an explicit type annotation, or restructure to use only identifier keys, string literal keys, spread identifiers with type annotations, and function-valued properties."
         )
       );
     } else {
@@ -479,7 +518,7 @@ export const convertObjectLiteral = (
             "error",
             `Object literal cannot be synthesized: ${synthesisFailureReason ?? "not supported in this context"}`,
             getSourceSpan(node),
-            "Use an explicit type annotation, or restructure to use only identifier keys, string literal keys, and arrow functions."
+            "Use an explicit type annotation, or restructure to use only identifier keys, string literal keys, spread identifiers with type annotations, and function-valued properties."
           )
         );
       }

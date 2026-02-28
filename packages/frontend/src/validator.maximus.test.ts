@@ -984,4 +984,78 @@ describe("Maximus Validation Coverage", () => {
       });
     }
   });
+
+  describe("Object literal synthesis (TSN7403 narrowing)", () => {
+    const allowCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "method shorthand without dynamic receiver semantics",
+        source: `
+          const point = {
+            add(x: number, y: number): number {
+              return x + y;
+            },
+          };
+          const n = point.add(1, 2);
+          void n;
+        `,
+      },
+      {
+        name: "mixed property assignments and method shorthand",
+        source: `
+          const obj = {
+            base: 2,
+            mul(x: number): number {
+              return x * 2;
+            },
+          };
+          const n = obj.mul(obj.base);
+          void n;
+        `,
+      },
+    ];
+
+    for (const c of allowCases) {
+      it(`allows ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7403")).to.equal(false);
+      });
+    }
+
+    const rejectCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "method shorthand using this",
+        source: `
+          const obj = {
+            base: 2,
+            mul(x: number): number {
+              return this.base * x;
+            },
+          };
+          void obj;
+        `,
+      },
+      {
+        name: "method shorthand using arguments",
+        source: `
+          const obj = {
+            mul(x: number): number {
+              return arguments.length;
+            },
+          };
+          void obj;
+        `,
+      },
+    ];
+
+    for (const c of rejectCases) {
+      it(`rejects ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7403")).to.equal(true);
+      });
+    }
+  });
 });

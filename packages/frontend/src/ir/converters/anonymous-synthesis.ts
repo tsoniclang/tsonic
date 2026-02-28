@@ -12,8 +12,8 @@
  * converted expression's inferredType, not from TS computed types.
  *
  * Eligibility:
- * ✅ Allowed: identifier keys, string literal keys, spreads with typed sources, arrow functions
- * ❌ Rejected: computed keys, symbol keys, method shorthand, getters/setters
+ * ✅ Allowed: identifier keys, string literal keys, spreads with typed sources, function-valued properties
+ * ❌ Rejected: computed keys, symbol keys, getters/setters
  */
 
 import * as ts from "typescript";
@@ -233,7 +233,7 @@ export type EligibilityResult =
  * Eligible:
  * - All property keys are identifiers or string literals
  * - Spread expressions have typed sources (identifiers with type annotations)
- * - No method shorthand (arrow functions are ok)
+ * - Method shorthand is allowed only when it does not rely on dynamic this/super/arguments
  * - No getters/setters
  * - No computed keys with non-literal expressions
  *
@@ -243,6 +243,29 @@ export const checkSynthesisEligibility = (
   node: ts.ObjectLiteralExpression,
   ctx: ProgramContext
 ): EligibilityResult => {
+  const usesDynamicReceiverSemantics = (
+    method: ts.MethodDeclaration
+  ): boolean => {
+    let found = false;
+    const visit = (current: ts.Node): void => {
+      if (found) return;
+      if (
+        current.kind === ts.SyntaxKind.ThisKeyword ||
+        current.kind === ts.SyntaxKind.SuperKeyword ||
+        (ts.isIdentifier(current) && current.text === "arguments")
+      ) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(current, visit);
+    };
+
+    if (method.body) {
+      visit(method.body);
+    }
+    return found;
+  };
+
   for (const prop of node.properties) {
     // Property assignment: check key type
     if (ts.isPropertyAssignment(prop)) {
@@ -305,12 +328,32 @@ export const checkSynthesisEligibility = (
       continue;
     }
 
-    // Method declaration: reject (use arrow functions instead)
+    // Method declarations are valid when they can be represented as function-valued
+    // properties without dynamic receiver semantics.
     if (ts.isMethodDeclaration(prop)) {
-      return {
-        eligible: false,
-        reason: `Method shorthand is not supported. Use arrow function syntax: 'name: () => ...'`,
-      };
+      if (ts.isComputedPropertyName(prop.name)) {
+        const expr = prop.name.expression;
+        if (!ts.isStringLiteral(expr)) {
+          return {
+            eligible: false,
+            reason: `Computed property key is not a string literal`,
+          };
+        }
+      }
+      if (ts.isPrivateIdentifier(prop.name)) {
+        return {
+          eligible: false,
+          reason: `Private identifier (symbol) keys are not supported`,
+        };
+      }
+      if (usesDynamicReceiverSemantics(prop)) {
+        return {
+          eligible: false,
+          reason:
+            "Method shorthand cannot reference this/super/arguments in synthesized types",
+        };
+      }
+      continue;
     }
 
     // Getter/setter: reject
