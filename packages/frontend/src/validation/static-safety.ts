@@ -363,8 +363,7 @@ const isAllowedGenericFunctionValueIdentifierUse = (
     const isMonomorphicCallableType = (type: ts.Type): boolean => {
       if (type.isUnion()) {
         return type.types.every(
-          (member) =>
-            isNullishOnly(member) || isMonomorphicCallableType(member)
+          (member) => isNullishOnly(member) || isMonomorphicCallableType(member)
         );
       }
 

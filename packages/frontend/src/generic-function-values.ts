@@ -90,7 +90,10 @@ const markAssignmentTargetSymbols = (
     return;
   }
 
-  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+  if (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+  ) {
     markAssignmentTargetSymbols(checker, node.left, writes);
   }
 };
@@ -102,7 +105,10 @@ export const collectWrittenSymbols = (
   const writes = new Set<ts.Symbol>();
 
   const visit = (node: ts.Node): void => {
-    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
+    if (
+      ts.isBinaryExpression(node) &&
+      isAssignmentOperator(node.operatorToken.kind)
+    ) {
       markAssignmentTargetSymbols(checker, node.left, writes);
     }
 

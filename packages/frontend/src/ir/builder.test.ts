@@ -569,8 +569,14 @@ describe("IR Builder", () => {
       if (!useFn) return;
 
       const param = useFn.parameters[0];
-      expect(param?.type).to.deep.equal({ kind: "primitiveType", name: "number" });
-      expect(useFn.returnType).to.deep.equal({ kind: "primitiveType", name: "number" });
+      expect(param?.type).to.deep.equal({
+        kind: "primitiveType",
+        name: "number",
+      });
+      expect(useFn.returnType).to.deep.equal({
+        kind: "primitiveType",
+        name: "number",
+      });
     });
 
     it("keeps alias conversion deterministic across alternating compilations", () => {
@@ -599,7 +605,12 @@ describe("IR Builder", () => {
         const test = createTestProgram(source);
         const file = test.testProgram.sourceFiles[0];
         if (!file) throw new Error("Failed to create source file");
-        const result = buildIrModule(file, test.testProgram, test.options, test.ctx);
+        const result = buildIrModule(
+          file,
+          test.testProgram,
+          test.options,
+          test.ctx
+        );
         expect(result.ok).to.equal(true);
         if (!result.ok) throw new Error(result.error.message);
         const useFn = result.value.body.find(

@@ -139,10 +139,15 @@ const structuralMembersCacheByBinding = new WeakMap<
 
 const typeAliasBodyCacheByBinding = new WeakMap<Binding, TypeAliasBodyCache>();
 
-const getStructuralMembersCache = (binding: Binding): StructuralMembersCache => {
+const getStructuralMembersCache = (
+  binding: Binding
+): StructuralMembersCache => {
   let cache = structuralMembersCacheByBinding.get(binding);
   if (!cache) {
-    cache = new Map<number, readonly IrInterfaceMember[] | null | "in-progress">();
+    cache = new Map<
+      number,
+      readonly IrInterfaceMember[] | null | "in-progress"
+    >();
     structuralMembersCacheByBinding.set(binding, cache);
   }
   return cache;

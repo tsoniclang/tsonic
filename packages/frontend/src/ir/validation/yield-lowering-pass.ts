@@ -1098,13 +1098,7 @@ const processStatement = (
           !initializer.right.delegate
         ) {
           const receiveTarget = toReceivePattern(initializer.left);
-          if (!receiveTarget) {
-            emitUnsupportedYieldDiagnostic(
-              ctx,
-              "for loop initializer",
-              initializer.right.sourceSpan
-            );
-          } else {
+          if (receiveTarget) {
             leadingStatements.push(
               createYieldStatement(
                 initializer.right,
@@ -1113,6 +1107,91 @@ const processStatement = (
               )
             );
             initializer = undefined;
+          } else if (initializer.left.kind === "memberAccess") {
+            const loweredObject = lowerExpressionWithYields(
+              initializer.left.object,
+              ctx,
+              "for loop initializer target object",
+              initializer.left.object.inferredType
+            );
+            if (!loweredObject) {
+              emitUnsupportedYieldDiagnostic(
+                ctx,
+                "for loop initializer",
+                initializer.right.sourceSpan
+              );
+            } else {
+              const objectTempName = allocateYieldTempName(ctx);
+              leadingStatements.push(...loweredObject.prelude);
+              leadingStatements.push(
+                createTempVariableDeclaration(
+                  objectTempName,
+                  loweredObject.expression,
+                  loweredObject.expression.inferredType
+                )
+              );
+
+              let propertyExpr: IrExpression | string =
+                initializer.left.property;
+              let propertyLoweringFailed = false;
+              if (typeof initializer.left.property !== "string") {
+                const loweredProperty = lowerExpressionWithYields(
+                  initializer.left.property,
+                  ctx,
+                  "for loop initializer target property",
+                  initializer.left.property.inferredType
+                );
+                if (!loweredProperty) {
+                  emitUnsupportedYieldDiagnostic(
+                    ctx,
+                    "for loop initializer",
+                    initializer.right.sourceSpan
+                  );
+                  propertyLoweringFailed = true;
+                } else {
+                  leadingStatements.push(...loweredProperty.prelude);
+                  const propertyTempName = allocateYieldTempName(ctx);
+                  leadingStatements.push(
+                    createTempVariableDeclaration(
+                      propertyTempName,
+                      loweredProperty.expression,
+                      loweredProperty.expression.inferredType
+                    )
+                  );
+                  propertyExpr = { kind: "identifier", name: propertyTempName };
+                }
+              }
+
+              if (!propertyLoweringFailed) {
+                const receiveTempName = allocateYieldTempName(ctx);
+                leadingStatements.push(
+                  createYieldStatement(
+                    initializer.right,
+                    { kind: "identifierPattern", name: receiveTempName },
+                    initializer.right.inferredType
+                  )
+                );
+                leadingStatements.push({
+                  kind: "expressionStatement",
+                  expression: {
+                    ...initializer,
+                    left: {
+                      ...initializer.left,
+                      object: { kind: "identifier", name: objectTempName },
+                      property: propertyExpr,
+                    },
+                    right: { kind: "identifier", name: receiveTempName },
+                  },
+                });
+              }
+              initializer = undefined;
+            }
+          } else {
+            emitUnsupportedYieldDiagnostic(
+              ctx,
+              "for loop initializer",
+              initializer.right.sourceSpan
+            );
           }
         } else if (initializer.kind === "variableDeclaration") {
           const transformedDecls = initializer.declarations.map((decl) => {

@@ -48,7 +48,9 @@ const isSupportedDynamicImportUsage = (node: ts.CallExpression): boolean => {
   }
 
   const statement = awaitExpr.parent;
-  return ts.isExpressionStatement(statement) && statement.expression === awaitExpr;
+  return (
+    ts.isExpressionStatement(statement) && statement.expression === awaitExpr
+  );
 };
 
 /**
@@ -95,7 +97,7 @@ export const validateUnsupportedFeatures = (
         createDiagnostic(
           "TSN2001",
           "error",
-          "Dynamic import() is only supported in side-effect form: await import(\"./module.js\");",
+          'Dynamic import() is only supported in side-effect form: await import("./module.js");',
           getNodeLocation(sourceFile, node),
           "Use static imports, or use side-effect form with a static string literal specifier."
         )
