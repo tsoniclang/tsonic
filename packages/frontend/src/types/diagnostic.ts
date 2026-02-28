@@ -48,7 +48,7 @@ export type DiagnosticCode =
   | "TSN7106" // Invalid extension method receiver marker
   | "TSN7201" // Recursive structural alias not supported
   | "TSN7202" // Conditional alias cannot be resolved
-  | "TSN7203" // Symbol keys not supported
+  | "TSN7203" // Symbol index signatures not supported (retired)
   | "TSN7204" // Variadic generic interface not supported
   | "TSN7301" // Class cannot implement nominalized interface
   // Static/AOT safety errors (TSN7401-TSN7499)
@@ -60,7 +60,7 @@ export type DiagnosticCode =
   | "TSN7408" // Tuple types not supported (retired)
   | "TSN7409" // 'infer' keyword not supported (retired)
   | "TSN7410" // Intersection types not supported (retired)
-  | "TSN7413" // Dictionary key must be string or number
+  | "TSN7413" // Dictionary key must be string, number, or symbol
   | "TSN7414" // Type cannot be represented in compiler subset
   | "TSN7415" // Nullable union with unconstrained generic type parameter
   | "TSN7416" // new Array() requires explicit type argument

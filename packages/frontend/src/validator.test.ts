@@ -227,8 +227,8 @@ describe("Generic Validation", () => {
     });
   });
 
-  describe("TSN7203 - Symbol Index Signatures (still blocked)", () => {
-    it("should detect symbol index signatures", () => {
+  describe("TSN7203 retired - Symbol index signatures", () => {
+    it("should allow symbol index signatures", () => {
       const source = `
         export interface WithSymbolIndex {
           [key: symbol]: string;
@@ -241,10 +241,7 @@ describe("Generic Validation", () => {
       const symbolDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7203"
       );
-      expect(symbolDiag).not.to.equal(undefined);
-      expect(symbolDiag?.message).to.include(
-        "Symbol keys are not supported in C#"
-      );
+      expect(symbolDiag).to.equal(undefined);
     });
 
     it("should not flag string index signatures", () => {
@@ -756,7 +753,7 @@ describe("Static Safety Validation", () => {
       expect(keyDiag).to.equal(undefined);
     });
 
-    it("should reject Record with symbol key", () => {
+    it("should allow Record with symbol key", () => {
       const source = `
         const d: Record<symbol, string> = {};
       `;
@@ -765,8 +762,39 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
-      expect(keyDiag).not.to.equal(undefined);
-      expect(keyDiag?.message).to.include("string");
+      expect(keyDiag).to.equal(undefined);
+    });
+
+    it("should allow index signature with symbol key", () => {
+      const source = `
+        interface SymIndexed {
+          [key: symbol]: string;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(keyDiag).to.equal(undefined);
+    });
+
+    it("should allow symbol-typed key values in dictionary access", () => {
+      const source = `
+        function read(table: Record<symbol, number>, key: symbol): number {
+          return table[key];
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      const typeDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7414"
+      );
+      expect(keyDiag).to.equal(undefined);
+      expect(typeDiag).to.equal(undefined);
     });
 
     it("should reject Record with object key type", () => {

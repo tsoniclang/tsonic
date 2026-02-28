@@ -104,7 +104,7 @@ export const convertObjectType = (
 
 /**
  * Convert index signature key type to IR type.
- * Only string and number are valid as index signature keys.
+ * Supported key domains are string, number, and symbol.
  */
 const convertKeyType = (typeNode: ts.TypeNode): IrType => {
   if (typeNode.kind === ts.SyntaxKind.StringKeyword) {
@@ -112,6 +112,14 @@ const convertKeyType = (typeNode: ts.TypeNode): IrType => {
   }
   if (typeNode.kind === ts.SyntaxKind.NumberKeyword) {
     return { kind: "primitiveType", name: "number" };
+  }
+  if (
+    typeNode.kind === ts.SyntaxKind.SymbolKeyword ||
+    (ts.isTypeReferenceNode(typeNode) &&
+      ts.isIdentifier(typeNode.typeName) &&
+      typeNode.typeName.text === "symbol")
+  ) {
+    return { kind: "referenceType", name: "object" };
   }
   // Fallback to string for other cases
   return { kind: "primitiveType", name: "string" };

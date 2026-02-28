@@ -509,9 +509,16 @@ export const convertTypeReference = (
     // to referenceType (the user should use `string` or `number` directly).
     const isStringKey = keyTypeNode.kind === ts.SyntaxKind.StringKeyword;
     const isNumberKey = keyTypeNode.kind === ts.SyntaxKind.NumberKeyword;
+    const isSymbolKey =
+      keyTypeNode.kind === ts.SyntaxKind.SymbolKeyword ||
+      (ts.isTypeReferenceNode(keyTypeNode) &&
+        ts.isIdentifier(keyTypeNode.typeName) &&
+        keyTypeNode.typeName.text === "symbol");
 
-    if (isStringKey || isNumberKey) {
-      const keyType = convertType(keyTypeNode, binding);
+    if (isStringKey || isNumberKey || isSymbolKey) {
+      const keyType: IrType = isSymbolKey
+        ? { kind: "referenceType", name: "object" }
+        : convertType(keyTypeNode, binding);
       const valueType = convertType(valueTypeNode, binding);
 
       return {
@@ -653,10 +660,23 @@ export const convertTypeReference = (
         const indexSig = indexSignatures[0];
         const keyParam = indexSig?.parameters[0];
         const keyTypeNode = keyParam?.type;
-        const keyType: IrType =
-          keyTypeNode && keyTypeNode.kind === ts.SyntaxKind.NumberKeyword
-            ? { kind: "primitiveType", name: "number" }
-            : { kind: "primitiveType", name: "string" };
+        const keyType: IrType = (() => {
+          if (!keyTypeNode) {
+            return { kind: "primitiveType", name: "string" };
+          }
+          if (keyTypeNode.kind === ts.SyntaxKind.NumberKeyword) {
+            return { kind: "primitiveType", name: "number" };
+          }
+          if (
+            keyTypeNode.kind === ts.SyntaxKind.SymbolKeyword ||
+            (ts.isTypeReferenceNode(keyTypeNode) &&
+              ts.isIdentifier(keyTypeNode.typeName) &&
+              keyTypeNode.typeName.text === "symbol")
+          ) {
+            return { kind: "referenceType", name: "object" };
+          }
+          return { kind: "primitiveType", name: "string" };
+        })();
         const valueType = indexSig?.type
           ? convertType(indexSig.type, binding)
           : { kind: "anyType" as const };

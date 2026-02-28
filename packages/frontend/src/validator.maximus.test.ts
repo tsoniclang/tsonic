@@ -876,4 +876,86 @@ describe("Maximus Validation Coverage", () => {
       });
     }
   });
+
+  describe("Dictionary key domains (TSN7413 / TSN7203)", () => {
+    const allowCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "Record with symbol key",
+        source: `
+          type Symbols = Record<symbol, number>;
+          const table: Symbols = {} as Symbols;
+          void table;
+        `,
+      },
+      {
+        name: "symbol index signature",
+        source: `
+          interface SymbolMap {
+            [key: symbol]: string;
+          }
+          const table: SymbolMap = {} as SymbolMap;
+          void table;
+        `,
+      },
+      {
+        name: "mixed PropertyKey union",
+        source: `
+          type Dict = Record<string | number | symbol, number>;
+          const value: Dict = {} as Dict;
+          void value;
+        `,
+      },
+      {
+        name: "symbol-typed parameter used for dictionary indexing",
+        source: `
+          function read(table: Record<symbol, number>, key: symbol): number {
+            return table[key];
+          }
+          void read;
+        `,
+      },
+    ];
+
+    for (const c of allowCases) {
+      it(`allows ${c.name}`, () => {
+        const codes = collectCodes(c.source);
+        expect(codes.includes("TSN7413")).to.equal(false);
+        expect(codes.includes("TSN7203")).to.equal(false);
+        expect(codes.includes("TSN7414")).to.equal(false);
+      });
+    }
+
+    const rejectCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "Record with object key type",
+        source: `
+          interface Key { id: string; }
+          type Dict = Record<Key, number>;
+          const value: Dict = {} as Dict;
+          void value;
+        `,
+      },
+      {
+        name: "index signature with object key type",
+        source: `
+          interface Key { id: string; }
+          interface Dict {
+            [key: Key]: number;
+          }
+        `,
+      },
+    ];
+
+    for (const c of rejectCases) {
+      it(`rejects ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7413")).to.equal(true);
+      });
+    }
+  });
 });

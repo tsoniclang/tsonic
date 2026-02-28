@@ -13,10 +13,12 @@ import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
  * IrDictionaryType represents:
  * - `{ [k: string]: T }` → Dictionary<string, T>
  * - `{ [k: number]: T }` → Dictionary<double, T>
+ * - `{ [k: symbol]: T }` → Dictionary<object, T>
  * - `Record<string, T>` → Dictionary<string, T>
  * - `Record<number, T>` → Dictionary<double, T>
+ * - `Record<symbol, T>` → Dictionary<object, T>
  *
- * Allowed key types: string, number (enforced by TSN7413).
+ * Allowed key types: string, number, symbol/object key domain (enforced by TSN7413).
  */
 export const emitDictionaryType = (
   type: IrDictionaryType,
@@ -40,7 +42,7 @@ export const emitDictionaryType = (
 
 /**
  * Emit dictionary key type as CSharpTypeAst.
- * Allowed: string, number (→ double).
+ * Allowed: string, number (→ double), symbol/object (→ object).
  * Unsupported keys trigger ICE - validation should have caught them.
  */
 const emitDictionaryKeyType = (
@@ -54,6 +56,15 @@ const emitDictionaryKeyType = (
       case "number":
         return [{ kind: "predefinedType", keyword: "double" }, context];
     }
+  }
+
+  if (
+    keyType.kind === "referenceType" &&
+    (keyType.name === "object" ||
+      keyType.name === "Symbol" ||
+      keyType.name === "symbol")
+  ) {
+    return [{ kind: "predefinedType", keyword: "object" }, context];
   }
 
   // ICE: Unsupported key type (should have been caught by TSN7413)

@@ -30,6 +30,11 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
       return { kind: "primitiveType", name: "number" };
     case ts.SyntaxKind.BooleanKeyword:
       return { kind: "primitiveType", name: "boolean" };
+    case ts.SyntaxKind.SymbolKeyword:
+      // TypeScript `symbol` is lowered as an opaque object identity handle.
+      // This keeps AOT semantics deterministic without introducing JS runtime symbol
+      // mechanics into the IR type lattice.
+      return { kind: "referenceType", name: "object", typeArguments: [] };
     case ts.SyntaxKind.NullKeyword:
       return { kind: "primitiveType", name: "null" };
     case ts.SyntaxKind.UndefinedKeyword:

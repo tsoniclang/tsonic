@@ -10,7 +10,7 @@
  * - TSN7408: Mixed variadic tuples not supported (retired)
  * - TSN7409: 'infer' keyword not supported (retired)
  * - TSN7410: Intersection types not supported (retired)
- * - TSN7413: Dictionary key must be string or number
+ * - TSN7413: Dictionary key must be string, number, or symbol
  * - TSN7430: Arrow function requires explicit types (escape hatch)
  *
  * This ensures NativeAOT-compatible, predictable-performance output.
@@ -582,9 +582,9 @@ export const validateStaticSafety = (
                 createDiagnostic(
                   "TSN7413",
                   "error",
-                  "Dictionary key type must be 'string' or 'number'. Other key types are not supported.",
+                  "Dictionary key type must be 'string', 'number', or 'symbol'. Other key types are not supported.",
                   getNodeLocation(sourceFile, keyTypeNode),
-                  "Use Record<string, V> or Record<number, V>."
+                  "Use Record<string, V>, Record<number, V>, or Record<symbol, V>."
                 )
               );
             }
@@ -594,7 +594,7 @@ export const validateStaticSafety = (
     }
 
     // TSN7413: Check for unsupported index signature key types
-    // Only string and number are allowed (matches TypeScript's index signature constraints)
+    // string, number, and symbol are allowed (matches TypeScript's PropertyKey constraint)
     if (ts.isIndexSignatureDeclaration(node)) {
       const keyParam = node.parameters[0];
       if (keyParam?.type && !isAllowedKeyType(keyParam.type)) {
@@ -603,9 +603,9 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7413",
             "error",
-            "Index signature key type must be 'string' or 'number'. Other key types are not supported.",
+            "Index signature key type must be 'string', 'number', or 'symbol'. Other key types are not supported.",
             getNodeLocation(sourceFile, keyParam.type),
-            "Use { [key: string]: V } or { [key: number]: V }."
+            "Use { [key: string]: V }, { [key: number]: V }, or { [key: symbol]: V }."
           )
         );
       }
@@ -706,16 +706,17 @@ export const validateStaticSafety = (
 
 /**
  * Check if a type node represents an allowed dictionary key type.
- * Allowed: string, number (matches TypeScript's PropertyKey constraint)
+ * Allowed: string, number, symbol (matches TypeScript's PropertyKey constraint)
  *
  * Note: TypeScript's Record<K, V> only allows K extends keyof any (string | number | symbol).
- * We support string and number. Symbol is rejected via TSN7203.
+ * We support all three PropertyKey primitives.
  */
 const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
   // Direct keywords
   if (
     typeNode.kind === ts.SyntaxKind.StringKeyword ||
-    typeNode.kind === ts.SyntaxKind.NumberKeyword
+    typeNode.kind === ts.SyntaxKind.NumberKeyword ||
+    typeNode.kind === ts.SyntaxKind.SymbolKeyword
   ) {
     return true;
   }
@@ -742,7 +743,7 @@ const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
     const typeName = typeNode.typeName;
     if (ts.isIdentifier(typeName)) {
       const name = typeName.text;
-      if (name === "string" || name === "number") {
+      if (name === "string" || name === "number" || name === "symbol") {
         return true;
       }
     }

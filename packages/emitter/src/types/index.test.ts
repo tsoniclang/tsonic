@@ -116,4 +116,71 @@ describe("Type Emission", () => {
     // Should NOT include using directives - uses global:: FQN
     expect(result).to.not.include("using System.Threading.Tasks");
   });
+
+  it("should emit symbol-key dictionaries as Dictionary<object, T>", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "Test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "get",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "store" },
+              type: {
+                kind: "dictionaryType",
+                keyType: { kind: "referenceType", name: "object" },
+                valueType: { kind: "primitiveType", name: "string" },
+              },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "key" },
+              type: { kind: "referenceType", name: "object" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "memberAccess",
+                  object: { kind: "identifier", name: "store" },
+                  property: { kind: "identifier", name: "key" },
+                  isOptional: false,
+                  isComputed: true,
+                  accessKind: "dictionary",
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include(
+      "global::System.Collections.Generic.Dictionary<object, string> store"
+    );
+    expect(result).to.include("return store[key];");
+  });
 });
