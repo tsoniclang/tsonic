@@ -292,6 +292,69 @@ describe("IR Builder - Generic Function Value Lowering", () => {
     expect(findVariableDeclaration(body, "copy")).not.to.equal(undefined);
   });
 
+  it("lowers const aliases of generic function values into forwarding declarations", () => {
+    const body = createTestModule(`
+      const id = <T>(x: T): T => x;
+      const copy = id;
+      const value = copy<string>("ok");
+      void value;
+    `);
+
+    const original = findFunctionByName(body, "id");
+    const alias = findFunctionByName(body, "copy");
+    expect(original).not.to.equal(undefined);
+    expect(alias).not.to.equal(undefined);
+    expect(findVariableDeclaration(body, "id")).to.equal(undefined);
+    expect(findVariableDeclaration(body, "copy")).to.equal(undefined);
+
+    if (!alias) return;
+    expect(alias.typeParameters).to.have.length(1);
+    expect(alias.parameters).to.have.length(1);
+    expect(alias.body.statements[0]?.kind).to.equal("returnStatement");
+  });
+
+  it("lowers chained const aliases of generic function values", () => {
+    const body = createTestModule(`
+      const id = <T>(x: T): T => x;
+      const copy = id;
+      const finalCopy = copy;
+      const value = finalCopy<string>("ok");
+      void value;
+    `);
+
+    expect(findFunctionByName(body, "id")).not.to.equal(undefined);
+    expect(findFunctionByName(body, "copy")).not.to.equal(undefined);
+    expect(findFunctionByName(body, "finalCopy")).not.to.equal(undefined);
+    expect(findVariableDeclaration(body, "id")).to.equal(undefined);
+    expect(findVariableDeclaration(body, "copy")).to.equal(undefined);
+    expect(findVariableDeclaration(body, "finalCopy")).to.equal(undefined);
+  });
+
+  it("does not lower let aliases that are reassigned", () => {
+    const body = createTestModule(`
+      const id = <T>(x: T): T => x;
+      let copy = id;
+      copy = id;
+      void copy<string>("ok");
+    `);
+
+    expect(findFunctionByName(body, "id")).not.to.equal(undefined);
+    expect(findFunctionByName(body, "copy")).to.equal(undefined);
+    expect(findVariableDeclaration(body, "copy")).not.to.equal(undefined);
+  });
+
+  it("does not lower var aliases", () => {
+    const body = createTestModule(`
+      const id = <T>(x: T): T => x;
+      var copy = id;
+      void copy<string>("ok");
+    `);
+
+    expect(findFunctionByName(body, "id")).not.to.equal(undefined);
+    expect(findFunctionByName(body, "copy")).to.equal(undefined);
+    expect(findVariableDeclaration(body, "copy")).not.to.equal(undefined);
+  });
+
   it("lowers generic function values used in monomorphic conditional return", () => {
     const body = createTestModule(`
       function pick(flag: boolean): (x: number) => number {

@@ -2,6 +2,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
 import {
+  collectSupportedGenericFunctionValueSymbols,
   collectWrittenSymbols,
   getSupportedGenericFunctionValueSymbol,
   isGenericFunctionValueNode,
@@ -85,6 +86,33 @@ const getSupportSymbolForVariable = (
     checker,
     writtenSymbols
   );
+};
+
+const getCollectedSupportedSymbolForVariable = (
+  source: string,
+  variableName: string
+): ts.Symbol | undefined => {
+  const { sourceFile, checker } = createTestProgram(source);
+  const writtenSymbols = collectWrittenSymbols(sourceFile, checker);
+  const supportedSymbols = collectSupportedGenericFunctionValueSymbols(
+    sourceFile,
+    checker,
+    writtenSymbols
+  );
+
+  let symbol: ts.Symbol | undefined;
+  const visit = (node: ts.Node): void => {
+    if (symbol) return;
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      if (node.name.text !== variableName) return;
+      symbol = checker.getSymbolAtLocation(node.name) ?? undefined;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (!symbol) return undefined;
+  return supportedSymbols.has(symbol) ? symbol : undefined;
 };
 
 describe("generic-function-values helper", () => {
@@ -172,6 +200,73 @@ describe("generic-function-values helper", () => {
       void id<string>("ok");
       `,
       "id"
+    );
+
+    expect(symbol).to.equal(undefined);
+  });
+
+  it("supports const aliases to supported generic function values", () => {
+    const symbol = getCollectedSupportedSymbolForVariable(
+      `
+      const id = <T>(x: T): T => x;
+      const copy = id;
+      void copy<string>("ok");
+      `,
+      "copy"
+    );
+
+    expect(symbol).not.to.equal(undefined);
+  });
+
+  it("supports chained const aliases to supported generic function values", () => {
+    const symbol = getCollectedSupportedSymbolForVariable(
+      `
+      const id = <T>(x: T): T => x;
+      const copy = id;
+      const finalCopy = copy;
+      void finalCopy<string>("ok");
+      `,
+      "finalCopy"
+    );
+
+    expect(symbol).not.to.equal(undefined);
+  });
+
+  it("supports let aliases when never reassigned", () => {
+    const symbol = getCollectedSupportedSymbolForVariable(
+      `
+      const id = <T>(x: T): T => x;
+      let copy = id;
+      void copy<string>("ok");
+      `,
+      "copy"
+    );
+
+    expect(symbol).not.to.equal(undefined);
+  });
+
+  it("rejects let aliases with reassignment", () => {
+    const symbol = getCollectedSupportedSymbolForVariable(
+      `
+      const id = <T>(x: T): T => x;
+      let copy = id;
+      copy = id;
+      void copy<string>("ok");
+      `,
+      "copy"
+    );
+
+    expect(symbol).to.equal(undefined);
+  });
+
+  it("rejects var aliases", () => {
+    const symbol = getCollectedSupportedSymbolForVariable(
+      `
+      const id = <T>(x: T): T => x;
+      var copy = id;
+      void copy<string>("ok");
+      `,
+      "copy"
     );
 
     expect(symbol).to.equal(undefined);

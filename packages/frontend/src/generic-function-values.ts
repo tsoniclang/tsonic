@@ -21,6 +21,36 @@ const resolveSymbol = (
   return symbol;
 };
 
+const getVariableDeclarationList = (
+  declaration: ts.VariableDeclaration
+): ts.VariableDeclarationList | undefined => {
+  const list = declaration.parent;
+  if (!ts.isVariableDeclarationList(list)) {
+    return undefined;
+  }
+  return list;
+};
+
+const getConstLetKind = (
+  declaration: ts.VariableDeclaration
+): { readonly isConst: boolean; readonly isLet: boolean } | undefined => {
+  const list = getVariableDeclarationList(declaration);
+  if (!list) return undefined;
+
+  const isConst = (list.flags & ts.NodeFlags.Const) !== 0;
+  const isLet = (list.flags & ts.NodeFlags.Let) !== 0;
+  if (!isConst && !isLet) return undefined;
+  return { isConst, isLet };
+};
+
+const getVariableDeclarationSymbol = (
+  checker: ts.TypeChecker,
+  declaration: ts.VariableDeclaration
+): ts.Symbol | undefined => {
+  if (!ts.isIdentifier(declaration.name)) return undefined;
+  return resolveSymbol(checker, declaration.name);
+};
+
 const isAssignmentOperator = (kind: ts.SyntaxKind): boolean => {
   switch (kind) {
     case ts.SyntaxKind.EqualsToken:
@@ -143,18 +173,103 @@ export const getSupportedGenericFunctionValueSymbol = (
   if (decl.initializer !== node) return undefined;
   if (!ts.isIdentifier(decl.name)) return undefined;
 
-  const list = decl.parent;
-  if (!ts.isVariableDeclarationList(list)) return undefined;
-  const isConst = (list.flags & ts.NodeFlags.Const) !== 0;
-  const isLet = (list.flags & ts.NodeFlags.Let) !== 0;
-  if (!isConst && !isLet) return undefined;
+  const kind = getConstLetKind(decl);
+  if (!kind) return undefined;
 
+  const list = decl.parent;
   const stmt = list.parent;
   if (!ts.isVariableStatement(stmt)) return undefined;
 
-  const symbol = resolveSymbol(checker, decl.name);
+  const symbol = getVariableDeclarationSymbol(checker, decl);
   if (!symbol) return undefined;
-  if (isConst) return symbol;
+  if (kind.isConst) return symbol;
   if (!writtenSymbols.has(symbol)) return symbol;
   return undefined;
+};
+
+const resolveAliasTargetSymbol = (
+  declaration: ts.VariableDeclaration,
+  checker: ts.TypeChecker,
+  supportedSymbols: ReadonlySet<ts.Symbol>
+): ts.Symbol | undefined => {
+  if (!ts.isIdentifier(declaration.name)) return undefined;
+  const kind = getConstLetKind(declaration);
+  if (!kind) return undefined;
+  if (!declaration.initializer || !ts.isIdentifier(declaration.initializer)) {
+    return undefined;
+  }
+
+  const targetSymbol = resolveSymbol(checker, declaration.initializer);
+  if (!targetSymbol) return undefined;
+  if (!supportedSymbols.has(targetSymbol)) return undefined;
+  return targetSymbol;
+};
+
+export const getSupportedGenericFunctionAliasSymbol = (
+  declaration: ts.VariableDeclaration,
+  checker: ts.TypeChecker,
+  writtenSymbols: ReadonlySet<ts.Symbol>,
+  supportedSymbols: ReadonlySet<ts.Symbol>
+): ts.Symbol | undefined => {
+  const kind = getConstLetKind(declaration);
+  if (!kind) return undefined;
+  const targetSymbol = resolveAliasTargetSymbol(
+    declaration,
+    checker,
+    supportedSymbols
+  );
+  if (!targetSymbol) return undefined;
+
+  const symbol = getVariableDeclarationSymbol(checker, declaration);
+  if (!symbol) return undefined;
+  if (kind.isConst) return symbol;
+  if (!writtenSymbols.has(symbol)) return symbol;
+  return undefined;
+};
+
+export const collectSupportedGenericFunctionValueSymbols = (
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+  writtenSymbols: ReadonlySet<ts.Symbol>
+): ReadonlySet<ts.Symbol> => {
+  const symbols = new Set<ts.Symbol>();
+  const declarations: ts.VariableDeclaration[] = [];
+
+  const collect = (node: ts.Node): void => {
+    if (isGenericFunctionValueNode(node)) {
+      const symbol = getSupportedGenericFunctionValueSymbol(
+        node,
+        checker,
+        writtenSymbols
+      );
+      if (symbol) symbols.add(symbol);
+    }
+
+    if (ts.isVariableDeclaration(node)) {
+      declarations.push(node);
+    }
+
+    ts.forEachChild(node, collect);
+  };
+
+  collect(sourceFile);
+
+  let didChange = true;
+  while (didChange) {
+    didChange = false;
+    for (const declaration of declarations) {
+      const aliasSymbol = getSupportedGenericFunctionAliasSymbol(
+        declaration,
+        checker,
+        writtenSymbols,
+        symbols
+      );
+      if (aliasSymbol && !symbols.has(aliasSymbol)) {
+        symbols.add(aliasSymbol);
+        didChange = true;
+      }
+    }
+  }
+
+  return symbols;
 };

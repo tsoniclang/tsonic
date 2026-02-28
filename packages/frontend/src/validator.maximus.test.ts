@@ -424,6 +424,34 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "const alias to generic value with direct generic call",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy = id;
+          const n = copy<number>(1);
+          void n;
+        `,
+      },
+      {
+        name: "chained const aliases to generic value",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy = id;
+          const finalCopy = copy;
+          const n = finalCopy<number>(1);
+          void n;
+        `,
+      },
+      {
+        name: "let alias to generic value without reassignment",
+        source: `
+          const id = <T>(x: T): T => x;
+          let copy = id;
+          const n = copy<number>(1);
+          void n;
+        `,
+      },
+      {
         name: "nested generic arrow value inside function scope with direct call",
         source: `
           function wrap(): void {
@@ -653,6 +681,23 @@ describe("Maximus Validation Coverage", () => {
           for (id of handlers) {
             void id<string>("x");
           }
+        `,
+      },
+      {
+        name: "reassigned let alias to generic function value",
+        source: `
+          const id = <T>(x: T): T => x;
+          let copy = id;
+          copy = id;
+          void copy<string>("x");
+        `,
+      },
+      {
+        name: "var alias to generic function value",
+        source: `
+          const id = <T>(x: T): T => x;
+          var copy = id;
+          void copy<string>("x");
         `,
       },
     ];

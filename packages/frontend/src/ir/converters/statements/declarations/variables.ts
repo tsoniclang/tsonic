@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import {
   IrArrowFunctionExpression,
   IrBlockStatement,
+  IrExpression,
   IrFunctionDeclaration,
   IrFunctionExpression,
   IrType,
@@ -19,6 +20,7 @@ import { convertTypeParameters, hasExportModifier } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import {
   collectWrittenSymbols,
+  collectSupportedGenericFunctionValueSymbols,
   type GenericFunctionValueNode,
   getSupportedGenericFunctionValueSymbol,
   isGenericFunctionValueNode,
@@ -131,6 +133,112 @@ const isSupportedGenericFunctionValueDeclaration = (
   return symbol !== undefined;
 };
 
+const resolveSymbol = (
+  checker: ts.TypeChecker,
+  node: ts.Node
+): ts.Symbol | undefined => {
+  const symbol = checker.getSymbolAtLocation(node);
+  if (!symbol) return undefined;
+  if (symbol.flags & ts.SymbolFlags.Alias) {
+    return checker.getAliasedSymbol(symbol);
+  }
+  return symbol;
+};
+
+const resolveGenericFunctionValueDeclarationFromSymbol = (
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>
+):
+  | {
+      readonly name: string;
+      readonly initializer: GenericFunctionValueNode;
+    }
+  | undefined => {
+  if (seen.has(symbol)) return undefined;
+  seen.add(symbol);
+
+  for (const declaration of symbol.declarations ?? []) {
+    if (!ts.isVariableDeclaration(declaration)) continue;
+    if (!ts.isIdentifier(declaration.name)) continue;
+
+    const initializer = declaration.initializer;
+    if (initializer && isGenericFunctionValueNode(initializer)) {
+      return {
+        name: declaration.name.text,
+        initializer,
+      };
+    }
+
+    if (initializer && ts.isIdentifier(initializer)) {
+      const targetSymbol = resolveSymbol(checker, initializer);
+      if (!targetSymbol) continue;
+      const resolved = resolveGenericFunctionValueDeclarationFromSymbol(
+        targetSymbol,
+        checker,
+        seen
+      );
+      if (resolved) return resolved;
+    }
+  }
+
+  return undefined;
+};
+
+const isSupportedGenericFunctionAliasDeclaration = (
+  decl: ts.VariableDeclaration,
+  checker: ts.TypeChecker,
+  writtenSymbols: ReadonlySet<ts.Symbol>,
+  supportedSymbols: ReadonlySet<ts.Symbol>
+): decl is ts.VariableDeclaration & {
+  readonly name: ts.Identifier;
+  readonly initializer: ts.Identifier;
+} => {
+  if (!ts.isIdentifier(decl.name)) return false;
+  if (!decl.initializer || !ts.isIdentifier(decl.initializer)) return false;
+
+  const declarationList = decl.parent;
+  if (!ts.isVariableDeclarationList(declarationList)) return false;
+  const isConst = (declarationList.flags & ts.NodeFlags.Const) !== 0;
+  const isLet = (declarationList.flags & ts.NodeFlags.Let) !== 0;
+  if (!isConst && !isLet) return false;
+
+  const aliasSymbol = resolveSymbol(checker, decl.name);
+  if (!aliasSymbol) return false;
+  if (!isConst && writtenSymbols.has(aliasSymbol)) return false;
+
+  const targetSymbol = resolveSymbol(checker, decl.initializer);
+  if (!targetSymbol) return false;
+  return supportedSymbols.has(targetSymbol);
+};
+
+const createTypeParameterTypeArgs = (
+  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined
+): readonly IrType[] | undefined => {
+  if (!typeParameters || typeParameters.length === 0) return undefined;
+  return typeParameters.map((typeParameter) => ({
+    kind: "typeParameterType" as const,
+    name: typeParameter.name.text,
+  }));
+};
+
+const createIdentifierArgumentsForParameters = (
+  parameters: IrFunctionDeclaration["parameters"]
+): readonly IrExpression[] | undefined => {
+  const args: IrExpression[] = [];
+  for (const parameter of parameters) {
+    if (parameter.pattern.kind !== "identifierPattern") {
+      return undefined;
+    }
+    args.push({
+      kind: "identifier",
+      name: parameter.pattern.name,
+      inferredType: parameter.type,
+    });
+  }
+  return args;
+};
+
 const convertGenericFunctionValueDeclaration = (
   node: ts.VariableStatement,
   decl: ts.VariableDeclaration & {
@@ -180,6 +288,94 @@ const convertGenericFunctionValueDeclaration = (
   };
 };
 
+const convertGenericFunctionValueAliasDeclaration = (
+  node: ts.VariableStatement,
+  decl: ts.VariableDeclaration & {
+    readonly name: ts.Identifier;
+    readonly initializer: ts.Identifier;
+  },
+  ctx: ProgramContext
+): IrFunctionDeclaration | null => {
+  const targetSymbol = resolveSymbol(ctx.checker, decl.initializer);
+  if (!targetSymbol) return null;
+
+  const target = resolveGenericFunctionValueDeclarationFromSymbol(
+    targetSymbol,
+    ctx.checker,
+    new Set<ts.Symbol>()
+  );
+  if (!target) return null;
+
+  const convertedTarget = convertExpression(target.initializer, ctx, undefined);
+  if (
+    convertedTarget.kind !== "arrowFunction" &&
+    convertedTarget.kind !== "functionExpression"
+  ) {
+    return null;
+  }
+
+  const parameters = convertedTarget.parameters;
+  if (
+    parameters.some(
+      (parameter) => parameter.pattern.kind !== "identifierPattern"
+    )
+  ) {
+    return null;
+  }
+
+  const callArguments = createIdentifierArgumentsForParameters(parameters);
+  if (!callArguments || callArguments.length !== parameters.length) {
+    return null;
+  }
+
+  const typeArguments = createTypeParameterTypeArgs(
+    target.initializer.typeParameters
+  );
+  const returnType = resolveGenericFunctionValueReturnType(convertedTarget);
+
+  const callExpression: IrExpression = {
+    kind: "call",
+    callee: { kind: "identifier", name: target.name },
+    arguments: [...callArguments],
+    isOptional: false,
+    typeArguments,
+    inferredType: returnType,
+  };
+
+  const callStatements: IrStatement[] =
+    returnType?.kind === "voidType"
+      ? [
+          {
+            kind: "expressionStatement",
+            expression: callExpression,
+          },
+        ]
+      : [
+          {
+            kind: "returnStatement",
+            expression: callExpression,
+          },
+        ];
+
+  return {
+    kind: "functionDeclaration",
+    name: decl.name.text,
+    typeParameters: convertTypeParameters(
+      target.initializer.typeParameters,
+      ctx
+    ),
+    parameters,
+    returnType,
+    body: {
+      kind: "blockStatement",
+      statements: callStatements,
+    },
+    isAsync: false,
+    isGenerator: false,
+    isExported: hasExportModifier(node),
+  };
+};
+
 /**
  * Convert variable statement
  *
@@ -212,6 +408,12 @@ export const convertVariableStatement = (
     node.getSourceFile(),
     ctx.checker
   );
+  const supportedGenericFunctionValueSymbols =
+    collectSupportedGenericFunctionValueSymbols(
+      node.getSourceFile(),
+      ctx.checker,
+      writtenSymbols
+    );
 
   // Convert declarations sequentially so later declarators can refer to earlier ones:
   //   const a = false, b = !a;
@@ -230,6 +432,25 @@ export const convertVariableStatement = (
       );
       if (lowered) {
         loweredStatements.push(lowered);
+        continue;
+      }
+    }
+
+    if (
+      isSupportedGenericFunctionAliasDeclaration(
+        decl,
+        ctx.checker,
+        writtenSymbols,
+        supportedGenericFunctionValueSymbols
+      )
+    ) {
+      const loweredAlias = convertGenericFunctionValueAliasDeclaration(
+        node,
+        decl,
+        currentCtx
+      );
+      if (loweredAlias) {
+        loweredStatements.push(loweredAlias);
         continue;
       }
     }

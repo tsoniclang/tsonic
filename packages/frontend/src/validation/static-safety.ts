@@ -30,6 +30,7 @@ import {
 import { getNodeLocation } from "./helpers.js";
 import {
   collectWrittenSymbols,
+  collectSupportedGenericFunctionValueSymbols,
   getSupportedGenericFunctionValueSymbol,
   isGenericFunctionValueNode,
 } from "../generic-function-values.js";
@@ -354,29 +355,6 @@ const objectLiteralHasContextualType = (
   return false;
 };
 
-const collectSupportedGenericFunctionValueSymbols = (
-  sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker,
-  writtenSymbols: ReadonlySet<ts.Symbol>
-): ReadonlySet<ts.Symbol> => {
-  const symbols = new Set<ts.Symbol>();
-
-  const collect = (node: ts.Node): void => {
-    if (isGenericFunctionValueNode(node)) {
-      const symbol = getSupportedGenericFunctionValueSymbol(
-        node,
-        checker,
-        writtenSymbols
-      );
-      if (symbol) symbols.add(symbol);
-    }
-    ts.forEachChild(node, collect);
-  };
-
-  collect(sourceFile);
-  return symbols;
-};
-
 const isAllowedGenericFunctionValueIdentifierUse = (
   node: ts.Identifier,
   checker: ts.TypeChecker
@@ -384,6 +362,18 @@ const isAllowedGenericFunctionValueIdentifierUse = (
   const parent = node.parent;
 
   if (ts.isVariableDeclaration(parent) && parent.name === node) return true;
+  if (
+    ts.isVariableDeclaration(parent) &&
+    parent.initializer === node &&
+    ts.isIdentifier(parent.name)
+  ) {
+    const declarationList = parent.parent;
+    if (ts.isVariableDeclarationList(declarationList)) {
+      const isConst = (declarationList.flags & ts.NodeFlags.Const) !== 0;
+      const isLet = (declarationList.flags & ts.NodeFlags.Let) !== 0;
+      if (isConst || isLet) return true;
+    }
+  }
   if (ts.isCallExpression(parent) && parent.expression === node) return true;
   if (ts.isTypeQueryNode(parent) && parent.exprName === node) return true;
   if (ts.isExportSpecifier(parent)) return true;
@@ -676,9 +666,10 @@ export const validateStaticSafety = (
     // Empty arrays are inferred/erased deterministically by array conversion rules.
 
     // TSN7432:
-    // Generic function values are currently supported for `const` declarations
-    // and `let` declarations that are never reassigned,
-    // with identifier names and generic arrow/function-expression initializers.
+    // Generic function values are supported for:
+    // - direct generic function value declarations (`const` + never-reassigned `let`)
+    // - deterministic alias declarations that point at supported symbols
+    //   (`const` aliases + never-reassigned `let` aliases).
     // Other declaration forms remain hard errors.
     if (isGenericFunctionValueNode(node)) {
       const symbol = getSupportedGenericFunctionValueSymbol(
@@ -696,9 +687,9 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            "Generic arrow/functions as values are only supported for `const` or never-reassigned `let` identifier declarations.",
+            "Generic arrow/functions as values are only supported for `const` or never-reassigned `let` identifier declarations (including deterministic aliases).",
             getNodeLocation(sourceFile, node),
-            "Use `const f = <T>(...) => ...`, or `let f = <T>(...) => ...` with no reassignments, or rewrite as a named generic function declaration."
+            "Use `const f = <T>(...) => ...`, `let f = <T>(...) => ...` with no reassignments, or deterministic alias forms like `const g = f`."
           )
         );
       }
