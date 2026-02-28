@@ -715,6 +715,43 @@ describe("Yield Lowering Pass", () => {
   });
 
   describe("Unsupported Patterns (TSN6101)", () => {
+    it("should emit TSN6101 when yield appears inside a non-pattern assignment target", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: {
+                kind: "assignment",
+                operator: "=",
+                left: {
+                  kind: "memberAccess",
+                  object: createYield({ kind: "identifier", name: "tmpObj" }),
+                  property: "inner",
+                  isOptional: false,
+                  isComputed: false,
+                },
+                right: { kind: "literal", value: 1 },
+              },
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: { kind: "literal", value: 2 },
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.length).to.be.greaterThan(0);
+      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+    });
+
     it("should transform yield in call argument", () => {
       const module = createGeneratorModule([
         {
