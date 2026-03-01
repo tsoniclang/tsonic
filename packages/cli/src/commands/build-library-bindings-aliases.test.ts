@@ -11,6 +11,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -1244,7 +1245,7 @@ describe("build command (library bindings)", function () {
     }
   });
 
-  it("fails deterministically for unresolved keyof/index/template-literal alias surfaces", () => {
+  it("supports keyof/index/template-literal alias surfaces without unresolved any fallback", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-unsupported-"));
 
     try {
@@ -1368,14 +1369,27 @@ describe("build command (library bindings)", function () {
         { cwd: dir, encoding: "utf-8" }
       );
 
-      expect(result.status).to.not.equal(0);
+      expect(result.status).to.equal(0);
       const output = `${result.stderr}\n${result.stdout}`;
-      expect(output).to.include("type alias 'KeyOfUser'");
-      expect(output).to.include("type alias 'ValueOfUser'");
-      expect(output).to.include("type alias 'EventName'");
-      expect(output).to.include("type alias 'EventPayload'");
-      expect(output).to.include("type alias 'RoutePath'");
-      expect(output).to.include("resolved to 'any'");
+      expect(output).to.not.include("resolved to 'any'");
+
+      const facadePath = join(
+        dir,
+        "packages",
+        "lib",
+        "dist",
+        "tsonic",
+        "bindings",
+        "Acme.Lib.d.ts"
+      );
+      expect(existsSync(facadePath)).to.equal(true);
+
+      const facadeText = readFileSync(facadePath, "utf-8");
+      expect(facadeText).to.include("export type KeyOfUser");
+      expect(facadeText).to.include("export type ValueOfUser");
+      expect(facadeText).to.include("export type EventName");
+      expect(facadeText).to.include("export type EventPayload");
+      expect(facadeText).to.include("export type RoutePath");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

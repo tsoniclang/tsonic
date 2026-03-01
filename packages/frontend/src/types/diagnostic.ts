@@ -47,7 +47,6 @@ export type DiagnosticCode =
   | "TSN7105" // Cannot determine required type specialisations
   | "TSN7106" // Invalid extension method receiver marker
   | "TSN7201" // Recursive structural alias not supported
-  | "TSN7202" // Conditional alias cannot be resolved
   | "TSN7203" // Symbol index signatures not supported (retired)
   | "TSN7204" // Variadic generic interface not supported
   | "TSN7301" // Class cannot implement nominalized interface

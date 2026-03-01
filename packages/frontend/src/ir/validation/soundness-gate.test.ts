@@ -151,6 +151,81 @@ describe("IR Soundness Gate", () => {
     });
   });
 
+  describe("Deterministic inference diagnostics", () => {
+    it("emits TSN5201 when call return type recovery fails", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "call",
+              callee: {
+                kind: "identifier",
+                name: "foo",
+                inferredType: {
+                  kind: "functionType",
+                  parameters: [],
+                  returnType: { kind: "primitiveType", name: "number" },
+                },
+              },
+              arguments: [],
+              isOptional: false,
+              inferredType: { kind: "unknownType" },
+            },
+          },
+        ],
+        exports: [],
+      };
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN5201")).to.be.true;
+    });
+
+    it("emits TSN5202 when constructor type argument recovery fails", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "new",
+              callee: {
+                kind: "identifier",
+                name: "Foo_1",
+                inferredType: {
+                  kind: "referenceType",
+                  name: "Foo_1",
+                  resolvedClrType: "global::Test.Foo_1",
+                },
+              },
+              arguments: [],
+              inferredType: { kind: "unknownType" },
+            },
+          },
+        ],
+        exports: [],
+      };
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN5202")).to.be.true;
+    });
+  });
+
   describe("anyType Detection (TSN7414)", () => {
     it("should reject anyType in variable declaration", () => {
       const module = createModuleWithType({ kind: "anyType" });
