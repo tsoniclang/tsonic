@@ -677,4 +677,340 @@ describe("build command (library bindings)", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("preserves Maximus lowered type/value surfaces across dependency bindings", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-maximus-"));
+
+    try {
+      const wsConfigPath = join(dir, "tsonic.workspace.json");
+      mkdirSync(join(dir, "packages", "core", "src"), { recursive: true });
+      mkdirSync(join(dir, "packages", "app", "src"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test",
+            private: true,
+            type: "module",
+            workspaces: ["packages/*"],
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        wsConfigPath,
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/core",
+            private: true,
+            type: "module",
+            exports: {
+              "./package.json": "./package.json",
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            private: true,
+            type: "module",
+            dependencies: {
+              "@acme/core": "workspace:*",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Acme.Core",
+            entryPoint: "src/index.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "Acme.Core",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Acme.App",
+            entryPoint: "src/App.ts",
+            sourceRoot: "src",
+            references: {
+              libraries: [
+                "../core/generated/bin/Release/net10.0/Acme.Core.dll",
+              ],
+            },
+            outputDirectory: "generated",
+            outputName: "Acme.App",
+            output: {
+              type: "executable",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "src", "types.ts"),
+        [
+          `import type { int } from "@tsonic/core/types.js";`,
+          ``,
+          `export type User = { name: string; age: int };`,
+          `export type UserFlags = { [K in keyof User]?: boolean };`,
+          `export type UnwrapPromise<T> = T extends Promise<infer U> ? U : T;`,
+          `export type SymbolScores = Record<symbol, int>;`,
+          ``,
+          `export class UserRecord {`,
+          `  constructor(public name: string, public age: int) {}`,
+          `}`,
+          ``,
+          `export type UserRecordCtorArgs = ConstructorParameters<typeof UserRecord>;`,
+          `export type UserRecordInstance = InstanceType<typeof UserRecord>;`,
+          ``,
+          `export const id = <T>(value: T): T => value;`,
+          ``,
+          `export function projectFlags(user: User): UserFlags {`,
+          `  return { name: user.name.Length > 0, age: user.age > 0 };`,
+          `}`,
+          ``,
+          `export function lookupScore(scores: SymbolScores, key: symbol): int {`,
+          `  return scores[key] ?? 0;`,
+          `}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "src", "runtime.ts"),
+        [
+          `import type { int } from "@tsonic/core/types.js";`,
+          ``,
+          `export function chainScore(seed: Promise<int>): Promise<int> {`,
+          `  return seed`,
+          `    .then((value) => value + 1)`,
+          `    .catch((_error) => 0)`,
+          `    .finally(() => {});`,
+          `}`,
+          ``,
+          `export async function loadSideEffects(): Promise<void> {`,
+          `  await import("./side-effect.ts");`,
+          `}`,
+          ``,
+          `export function* nextValues(start: int): Generator<int, int, int> {`,
+          `  const next = (yield start) + 1;`,
+          `  yield next;`,
+          `  return next + 1;`,
+          `}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "src", "side-effect.ts"),
+        [`export const loaded = true;`, ``].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "src", "index.ts"),
+        [
+          `export type {`,
+          `  User,`,
+          `  UserFlags,`,
+          `  UnwrapPromise,`,
+          `  SymbolScores,`,
+          `  UserRecordCtorArgs,`,
+          `  UserRecordInstance,`,
+          `} from "./types.ts";`,
+          `export { id, UserRecord, projectFlags, lookupScore } from "./types.ts";`,
+          `export { chainScore, loadSideEffects, nextValues } from "./runtime.ts";`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "src", "App.ts"),
+        [
+          `import type { int } from "@tsonic/core/types.js";`,
+          `import { Console } from "@tsonic/dotnet/System.js";`,
+          `import type {`,
+          `  User,`,
+          `  UserFlags,`,
+          `  UnwrapPromise,`,
+          `  UserRecordCtorArgs,`,
+          `  UserRecordInstance,`,
+          `} from "@acme/core/Acme.Core.js";`,
+          `import {`,
+          `  id,`,
+          `  UserRecord,`,
+          `} from "@acme/core/Acme.Core.js";`,
+          ``,
+          `const copied = id<int>(7);`,
+          `const copyAlias = id;`,
+          `const copiedAgain = copyAlias<int>(copied);`,
+          ``,
+          `const ctorArgs: UserRecordCtorArgs = ["Ada", copiedAgain];`,
+          `void ctorArgs;`,
+          `const user: UserRecordInstance = new UserRecord("Ada", copiedAgain);`,
+          `const userView: User = { name: user.name, age: user.age };`,
+          `void userView;`,
+          `const flags: UserFlags = { name: true, age: copiedAgain > 0 };`,
+          ``,
+          `const score = copiedAgain;`,
+          ``,
+          `const settled: UnwrapPromise<Promise<int>> = score;`,
+          ``,
+          `void user;`,
+          `Console.WriteLine(settled);`,
+          `void flags;`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+      linkDir(
+        join(dir, "packages", "core"),
+        join(dir, "node_modules/@acme/core")
+      );
+
+      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+      const buildCore = spawnSync(
+        "node",
+        [
+          cliPath,
+          "build",
+          "--project",
+          "core",
+          "--config",
+          wsConfigPath,
+          "--quiet",
+        ],
+        { cwd: dir, encoding: "utf-8" }
+      );
+      expect(buildCore.status, buildCore.stderr || buildCore.stdout).to.equal(
+        0
+      );
+
+      const buildApp = spawnSync(
+        "node",
+        [
+          cliPath,
+          "build",
+          "--project",
+          "app",
+          "--config",
+          wsConfigPath,
+          "--quiet",
+        ],
+        { cwd: dir, encoding: "utf-8" }
+      );
+      expect(buildApp.status, buildApp.stderr || buildApp.stdout).to.equal(0);
+
+      const bindingsDir = join(
+        dir,
+        "packages",
+        "core",
+        "dist",
+        "tsonic",
+        "bindings"
+      );
+      const collectDts = (root: string): string[] => {
+        const out: string[] = [];
+        for (const entry of readdirSync(root, { withFileTypes: true })) {
+          const entryPath = join(root, entry.name);
+          if (entry.isDirectory()) {
+            out.push(...collectDts(entryPath));
+            continue;
+          }
+          if (entry.isFile() && entry.name.endsWith(".d.ts")) {
+            out.push(entryPath);
+          }
+        }
+        return out;
+      };
+      const allFacadeText = collectDts(bindingsDir)
+        .map((path) => readFileSync(path, "utf-8"))
+        .join("\n");
+
+      expect(allFacadeText).to.include("UserFlags");
+      expect(allFacadeText).to.include("UnwrapPromise");
+      expect(allFacadeText).to.include("UserRecordCtorArgs");
+      expect(allFacadeText).to.include("UserRecordInstance");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
