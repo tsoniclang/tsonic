@@ -134,6 +134,27 @@ const emitStructuralTypeAlias = (
     }
   }
 
+  const hasRequiredMembers = members.some(
+    (m) => m.kind === "propertyDeclaration" && m.modifiers.includes("required")
+  );
+  if (!stmt.isStruct && hasRequiredMembers) {
+    members.unshift({
+      kind: "constructorDeclaration",
+      attributes: [
+        {
+          type: {
+            kind: "identifierType",
+            name: "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute",
+          },
+        },
+      ],
+      modifiers: ["public"],
+      name: aliasName,
+      parameters: [],
+      body: { kind: "blockStatement", statements: [] },
+    });
+  }
+
   const declAst: CSharpTypeDeclarationAst = stmt.isStruct
     ? {
         kind: "structDeclaration",

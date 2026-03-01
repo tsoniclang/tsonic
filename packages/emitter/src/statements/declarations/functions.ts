@@ -30,11 +30,17 @@ const getAsyncBodyReturnType = (
   returnType: IrType | undefined
 ): IrType | undefined => {
   if (!isAsync || !returnType) return returnType;
+  const simpleName =
+    returnType.kind === "referenceType"
+      ? returnType.name.includes(".")
+        ? returnType.name.slice(returnType.name.lastIndexOf(".") + 1)
+        : returnType.name
+      : undefined;
   if (
     returnType.kind === "referenceType" &&
-    (returnType.name === "Promise" ||
-      returnType.name === "Task" ||
-      returnType.name === "ValueTask") &&
+    (simpleName === "Promise" ||
+      simpleName === "Task" ||
+      simpleName === "ValueTask") &&
     returnType.typeArguments?.length === 1
   ) {
     return returnType.typeArguments[0];

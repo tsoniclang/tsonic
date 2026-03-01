@@ -2,6 +2,12 @@ namespace TestCases.common.types.functioncollections
 {
     public class OperationMap
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public OperationMap()
+        {
+
+        }
+
         public required global::System.Func<int, int, int> add { get; set; }
 
         public required global::System.Func<int, int, int> subtract { get; set; }

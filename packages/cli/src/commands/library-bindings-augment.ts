@@ -955,11 +955,14 @@ const typeNodeUsesImportedTypeNames = (
   node: ts.TypeNode,
   typeImportsByLocalName: ReadonlyMap<string, SourceTypeImport>
 ): boolean => {
+  const allowlistedImportSources = new Set<string>(["@tsonic/core/types.js"]);
+
   let found = false;
   const visit = (current: ts.Node): void => {
     if (found) return;
     if (ts.isTypeReferenceNode(current) && ts.isIdentifier(current.typeName)) {
-      if (typeImportsByLocalName.has(current.typeName.text)) {
+      const imported = typeImportsByLocalName.get(current.typeName.text);
+      if (imported && !allowlistedImportSources.has(imported.source.trim())) {
         found = true;
         return;
       }
@@ -1678,7 +1681,18 @@ export const augmentLibraryBindingsFromSource = (
         });
         if (!wrappersResult.ok) return wrappersResult;
         const wrappers = wrappersResult.value;
-        if (wrappers.length === 0 && !sourceMember.isOptional) continue;
+        const canUseSourceTypeText = !typeNodeUsesImportedTypeNames(
+          sourceMember.typeNode,
+          sourceIndex.typeImportsByLocalName
+        );
+
+        if (
+          !canUseSourceTypeText &&
+          wrappers.length === 0 &&
+          !sourceMember.isOptional
+        ) {
+          continue;
+        }
 
         const list =
           overridesByInternalIndex.get(info.internalIndexDtsPath) ?? [];
@@ -1686,6 +1700,10 @@ export const augmentLibraryBindingsFromSource = (
           namespace: m.namespace,
           className: cls.name,
           memberName: member.name,
+          sourceTypeText: canUseSourceTypeText
+            ? sourceMember.typeText
+            : undefined,
+          replaceWithSourceType: canUseSourceTypeText,
           isOptional: sourceMember.isOptional,
           wrappers,
         });

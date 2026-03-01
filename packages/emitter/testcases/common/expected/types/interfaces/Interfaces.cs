@@ -2,6 +2,12 @@ namespace TestCases.common.types.interfaces
 {
     public class User
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public User()
+        {
+
+        }
+
         public required string name { get; set; }
 
         public required string email { get; set; }
@@ -11,6 +17,12 @@ namespace TestCases.common.types.interfaces
 
     public class Point
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public Point()
+        {
+
+        }
+
         public required double x { get; init; }
 
         public required double y { get; init; }

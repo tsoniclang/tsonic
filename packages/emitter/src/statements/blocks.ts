@@ -6,7 +6,7 @@
  * block flattens into its own statements array.
  */
 
-import { IrStatement, IrExpression } from "@tsonic/frontend";
+import { IrStatement, IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitStatementAst } from "../statement-emitter.js";
@@ -17,6 +17,50 @@ import type {
   CSharpBlockStatementAst,
   CSharpExpressionAst,
 } from "../core/format/backend-ast/types.js";
+
+const ASYNC_WRAPPER_NAMES = new Set([
+  "Promise",
+  "PromiseLike",
+  "Task",
+  "ValueTask",
+]);
+
+const isAsyncWrapperType = (
+  type: IrType | undefined,
+  visited: Set<IrType> = new Set()
+): boolean => {
+  if (!type || visited.has(type)) return false;
+  visited.add(type);
+
+  if (type.kind === "referenceType") {
+    const simple = type.name.includes(".")
+      ? type.name.slice(type.name.lastIndexOf(".") + 1)
+      : type.name;
+    if (ASYNC_WRAPPER_NAMES.has(simple)) return true;
+  }
+
+  if (type.kind === "unionType" || type.kind === "intersectionType") {
+    return type.types.some((t) => isAsyncWrapperType(t, visited));
+  }
+
+  return false;
+};
+
+const expressionProducesAsyncWrapper = (expr: IrExpression): boolean => {
+  if (expr.kind === "identifier" || expr.kind === "memberAccess") {
+    return isAsyncWrapperType(expr.inferredType);
+  }
+
+  if (expr.kind === "call" || expr.kind === "new") {
+    if (isAsyncWrapperType(expr.inferredType)) return true;
+    const calleeType = expr.callee.inferredType;
+    if (calleeType?.kind === "functionType") {
+      return isAsyncWrapperType(calleeType.returnType);
+    }
+  }
+
+  return false;
+};
 
 /**
  * Emit a block statement as AST
@@ -121,7 +165,25 @@ export const emitReturnStatementAst = (
       context,
       context.returnType
     );
-    return [[{ kind: "returnStatement", expression: exprAst }], newContext];
+
+    const shouldAutoAwait =
+      context.isAsync &&
+      context.returnType !== undefined &&
+      !isAsyncWrapperType(context.returnType) &&
+      expressionProducesAsyncWrapper(stmt.expression) &&
+      stmt.expression.kind !== "await";
+
+    return [
+      [
+        {
+          kind: "returnStatement",
+          expression: shouldAutoAwait
+            ? { kind: "awaitExpression", expression: exprAst }
+            : exprAst,
+        },
+      ],
+      newContext,
+    ];
   }
 
   return [[{ kind: "returnStatement" }], context];

@@ -11,7 +11,7 @@ import {
   NumericKind,
   NUMERIC_KIND_TO_CSHARP,
 } from "@tsonic/frontend";
-import { EmitterContext, indent, withStatic } from "../../types.js";
+import { EmitterContext, indent, withAsync, withStatic } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitBlockStatementAst } from "../../statements/blocks.js";
 import { emitTypeAst } from "../../type-emitter.js";
@@ -43,11 +43,17 @@ const getAsyncBodyReturnType = (
   returnType: IrType | undefined
 ): IrType | undefined => {
   if (!isAsync || !returnType) return returnType;
+  const simpleName =
+    returnType.kind === "referenceType"
+      ? returnType.name.includes(".")
+        ? returnType.name.slice(returnType.name.lastIndexOf(".") + 1)
+        : returnType.name
+      : undefined;
   if (
     returnType.kind === "referenceType" &&
-    (returnType.name === "Promise" ||
-      returnType.name === "Task" ||
-      returnType.name === "ValueTask") &&
+    (simpleName === "Promise" ||
+      simpleName === "Task" ||
+      simpleName === "ValueTask") &&
     returnType.typeArguments?.length === 1
   ) {
     return returnType.typeArguments[0];
@@ -589,7 +595,7 @@ const emitStaticArrowFieldMembers = (
 
   const bodyBaseContext = seedLocalNameMapFromParameters(
     arrowFunc.parameters,
-    withStatic(indent(paramCtx), false)
+    withAsync(withStatic(indent(paramCtx), false), arrowFunc.isAsync)
   );
 
   const bodyReturnType = getAsyncBodyReturnType(

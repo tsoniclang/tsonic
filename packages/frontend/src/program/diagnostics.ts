@@ -17,6 +17,7 @@ import {
 export const collectTsDiagnostics = (
   program: ts.Program
 ): DiagnosticsCollector => {
+  const checker = program.getTypeChecker();
   const tsDiagnostics = [
     ...program.getConfigFileParsingDiagnostics(),
     ...program.getOptionsDiagnostics(),
@@ -26,16 +27,71 @@ export const collectTsDiagnostics = (
   ];
 
   return tsDiagnostics.reduce((collector, tsDiag) => {
-    const diagnostic = convertTsDiagnostic(tsDiag);
+    const diagnostic = convertTsDiagnostic(tsDiag, checker);
     return diagnostic ? addDiagnostic(collector, diagnostic) : collector;
   }, createDiagnosticsCollector());
+};
+
+const findNodeAtPosition = (
+  sourceFile: ts.SourceFile,
+  position: number
+): ts.Node | undefined => {
+  const visit = (node: ts.Node): ts.Node | undefined => {
+    if (position < node.getFullStart() || position >= node.getEnd()) {
+      return undefined;
+    }
+    const child = ts.forEachChild(node, visit);
+    return child ?? node;
+  };
+  return visit(sourceFile);
+};
+
+const isDictionaryLikeType = (
+  checker: ts.TypeChecker,
+  type: ts.Type
+): boolean =>
+  checker.getIndexTypeOfType(type, ts.IndexKind.String) !== undefined ||
+  checker.getIndexTypeOfType(type, ts.IndexKind.Number) !== undefined;
+
+const shouldIgnoreDictionaryPseudoMemberUnknownDiagnostic = (
+  tsDiag: ts.Diagnostic,
+  checker: ts.TypeChecker
+): boolean => {
+  if (tsDiag.code !== 18046 || !tsDiag.file || tsDiag.start === undefined) {
+    return false;
+  }
+
+  const node = findNodeAtPosition(tsDiag.file, tsDiag.start);
+  if (!node || !ts.isIdentifier(node)) return false;
+
+  const symbol = checker.getSymbolAtLocation(node);
+  if (!symbol) return false;
+
+  return (symbol.declarations ?? []).some((decl) => {
+    if (!ts.isVariableDeclaration(decl)) return false;
+    const initializer = decl.initializer;
+    if (!initializer || !ts.isPropertyAccessExpression(initializer)) {
+      return false;
+    }
+
+    if (
+      initializer.name.text !== "Keys" &&
+      initializer.name.text !== "Values"
+    ) {
+      return false;
+    }
+
+    const receiverType = checker.getTypeAtLocation(initializer.expression);
+    return isDictionaryLikeType(checker, receiverType);
+  });
 };
 
 /**
  * Convert TypeScript diagnostic to Tsonic diagnostic
  */
 export const convertTsDiagnostic = (
-  tsDiag: ts.Diagnostic
+  tsDiag: ts.Diagnostic,
+  checker?: ts.TypeChecker
 ): Diagnostic | null => {
   if (tsDiag.category === ts.DiagnosticCategory.Suggestion) {
     return null; // Ignore suggestions
@@ -58,6 +114,16 @@ export const convertTsDiagnostic = (
     ) {
       return null; // Ignore - will be handled by Tsonic
     }
+  }
+
+  // Dictionary pseudo-members (`Record<K,V>.Keys` / `.Values`) are modeled
+  // by Tsonic. TS can type these as `unknown` (TS18046) because Record has a
+  // string index signature. Ignore only this targeted pattern.
+  if (
+    checker &&
+    shouldIgnoreDictionaryPseudoMemberUnknownDiagnostic(tsDiag, checker)
+  ) {
+    return null;
   }
 
   const severity =

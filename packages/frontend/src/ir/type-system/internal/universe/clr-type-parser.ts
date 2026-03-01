@@ -274,6 +274,64 @@ export const getRightmostPropertyAccessText = (
   return undefined;
 };
 
+const isSymbolTypeNode = (node: ts.TypeNode): boolean =>
+  node.kind === ts.SyntaxKind.SymbolKeyword ||
+  (ts.isTypeReferenceNode(node) &&
+    ts.isIdentifier(node.typeName) &&
+    node.typeName.text === "symbol");
+
+const classifyRecordKeyTypeNode = (
+  keyTypeNode: ts.TypeNode
+): IrType | undefined => {
+  const nodes = ts.isUnionTypeNode(keyTypeNode)
+    ? keyTypeNode.types
+    : [keyTypeNode];
+
+  let sawString = false;
+  let sawNumber = false;
+  let sawSymbol = false;
+
+  for (const node of nodes) {
+    if (node.kind === ts.SyntaxKind.StringKeyword) {
+      sawString = true;
+      continue;
+    }
+    if (node.kind === ts.SyntaxKind.NumberKeyword) {
+      sawNumber = true;
+      continue;
+    }
+    if (isSymbolTypeNode(node)) {
+      sawSymbol = true;
+      continue;
+    }
+    if (ts.isLiteralTypeNode(node)) {
+      if (ts.isStringLiteral(node.literal)) {
+        sawString = true;
+        continue;
+      }
+      if (ts.isNumericLiteral(node.literal)) {
+        sawNumber = true;
+        continue;
+      }
+    }
+    return undefined;
+  }
+
+  const distinctKinds =
+    (sawString ? 1 : 0) + (sawNumber ? 1 : 0) + (sawSymbol ? 1 : 0);
+  if (distinctKinds === 0) return undefined;
+
+  if (distinctKinds > 1 || sawSymbol) {
+    return { kind: "referenceType", name: "object" };
+  }
+
+  if (sawNumber) {
+    return { kind: "primitiveType", name: "number" };
+  }
+
+  return { kind: "primitiveType", name: "string" };
+};
+
 export const dtsTypeNodeToIrType = (
   node: ts.TypeNode,
   inScopeTypeParams: ReadonlySet<string>,
@@ -288,6 +346,28 @@ export const dtsTypeNodeToIrType = (
   if (ts.isTypeReferenceNode(node)) {
     const rawName = getRightmostQualifiedNameText(node.typeName);
     const baseName = stripTsBindgenInstanceSuffix(rawName);
+
+    // Utility: Record<K, V> should lower to dictionaryType in CLR bindings paths too.
+    // Without this, contextual object literals against imported CLR interfaces can carry
+    // unresolved `referenceType("Record")` and fail IR soundness.
+    if (baseName === "Record" && node.typeArguments?.length === 2) {
+      const keyTypeNode = node.typeArguments[0];
+      const valueTypeNode = node.typeArguments[1];
+      if (keyTypeNode && valueTypeNode) {
+        const keyType = classifyRecordKeyTypeNode(keyTypeNode);
+        if (keyType) {
+          return {
+            kind: "dictionaryType",
+            keyType,
+            valueType: dtsTypeNodeToIrType(
+              valueTypeNode,
+              inScopeTypeParams,
+              tsNameToTypeId
+            ),
+          };
+        }
+      }
+    }
 
     // tsbindgen imports CLR numeric aliases from @tsonic/core as type references.
     // For IR purposes, `int` is a distinct primitive type (not referenceType).
@@ -371,6 +451,8 @@ export const dtsTypeNodeToIrType = (
       return { kind: "primitiveType", name: "number" };
     case ts.SyntaxKind.BooleanKeyword:
       return { kind: "primitiveType", name: "boolean" };
+    case ts.SyntaxKind.SymbolKeyword:
+      return { kind: "referenceType", name: "object" };
     case ts.SyntaxKind.VoidKeyword:
       return { kind: "voidType" };
     case ts.SyntaxKind.AnyKeyword:

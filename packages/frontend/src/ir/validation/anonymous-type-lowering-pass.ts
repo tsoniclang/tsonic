@@ -664,6 +664,9 @@ const lowerExpression = (
       case "array":
         return {
           ...expr,
+          inferredType: expr.inferredType
+            ? lowerType(expr.inferredType, ctx)
+            : undefined,
           elements: expr.elements.map((e) =>
             e ? lowerExpression(e, ctx) : undefined
           ),
@@ -921,6 +924,48 @@ const lowerExpression = (
         };
     }
   })();
+
+  // Lower inferred/contextual metadata for all expression kinds so objectType
+  // cannot leak through metadata-only paths (e.g. call/member inferredType).
+  // Identifier expressions are handled explicitly above to avoid rewriting
+  // imported CLR/global placeholders.
+  if (lowered.kind !== "identifier") {
+    let nextExpr: IrExpression = lowered;
+    const inferredType = nextExpr.inferredType;
+    if (
+      inferredType &&
+      !(inferredType.kind === "objectType" && inferredType.members.length === 0)
+    ) {
+      const loweredInferred = lowerType(inferredType, ctx);
+      if (loweredInferred !== inferredType) {
+        nextExpr = { ...nextExpr, inferredType: loweredInferred };
+      }
+    }
+
+    if ("contextualType" in nextExpr) {
+      const contextualExpr = nextExpr as IrExpression & {
+        contextualType?: IrType;
+      };
+      const contextualType = contextualExpr.contextualType;
+      if (
+        contextualType &&
+        !(
+          contextualType.kind === "objectType" &&
+          contextualType.members.length === 0
+        )
+      ) {
+        const loweredContextual = lowerType(contextualType, ctx);
+        if (loweredContextual !== contextualType) {
+          nextExpr = {
+            ...contextualExpr,
+            contextualType: loweredContextual,
+          } as IrExpression;
+        }
+      }
+    }
+    return nextExpr;
+  }
+
   return lowered;
 };
 

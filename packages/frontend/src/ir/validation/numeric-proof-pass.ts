@@ -481,6 +481,32 @@ const proveNarrowing = (
       return undefined;
     }
 
+    // Fallback for explicit narrowing of binary expressions:
+    // if the binary node itself already carries deterministic numeric intent,
+    // accept `(...binary...) as <targetKind>` as an explicit cast for
+    // opaque producer operands (e.g. conversion calls) where operand-level
+    // kind recovery is intentionally conservative.
+    const isOpaqueNumericProducer = (expression: IrExpression): boolean =>
+      expression.kind === "call" ||
+      expression.kind === "memberAccess" ||
+      expression.kind === "await";
+    const inferredBinaryKind =
+      getNumericKindFromType(innerExpr.inferredType) ??
+      (innerExpr.inferredType?.kind === "primitiveType" &&
+      innerExpr.inferredType.name === "number"
+        ? "Double"
+        : undefined);
+    if (
+      inferredBinaryKind !== undefined &&
+      isOpaqueNumericProducer(innerExpr.left) &&
+      isOpaqueNumericProducer(innerExpr.right)
+    ) {
+      return {
+        kind: targetKind,
+        source: { type: "narrowing", from: inferredBinaryKind },
+      };
+    }
+
     // Cannot determine operand kinds
     ctx.diagnostics.push(
       createDiagnostic(

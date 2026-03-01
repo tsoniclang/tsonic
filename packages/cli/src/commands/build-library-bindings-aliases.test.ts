@@ -1239,7 +1239,6 @@ describe("build command (library bindings)", function () {
           `expected generated bindings to contain value export '${value}'`
         ).to.match(new RegExp(`\\b${value}\\b`));
       }
-
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -17,8 +17,13 @@ import {
 } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
-import { substituteTypeArgs } from "./core/semantic/type-resolution.js";
+import {
+  substituteTypeArgs,
+  resolveTypeAlias,
+  stripNullish,
+} from "./core/semantic/type-resolution.js";
 import type { CSharpExpressionAst } from "./core/format/backend-ast/types.js";
+import { renderTypeAst } from "./core/format/backend-ast/utils.js";
 
 // Import expression emitters from specialized modules
 import { emitLiteral } from "./expressions/literals.js";
@@ -245,6 +250,229 @@ const maybeUnwrapNullableValueTypeAst = (
     },
     context,
   ];
+};
+
+const normalizeComparableType = (
+  type: IrType,
+  context: EmitterContext
+): IrType => resolveTypeAlias(stripNullish(type), context);
+
+const areIrTypesEquivalent = (
+  left: IrType,
+  right: IrType,
+  context: EmitterContext
+): boolean => {
+  const a = normalizeComparableType(left, context);
+  const b = normalizeComparableType(right, context);
+
+  if (a.kind !== b.kind) return false;
+
+  switch (a.kind) {
+    case "primitiveType":
+      return a.name === (b as typeof a).name;
+    case "literalType":
+      return a.value === (b as typeof a).value;
+    case "referenceType": {
+      const rb = b as typeof a;
+      if (a.name !== rb.name) return false;
+      const aArgs = a.typeArguments ?? [];
+      const bArgs = rb.typeArguments ?? [];
+      if (aArgs.length !== bArgs.length) return false;
+      for (let i = 0; i < aArgs.length; i++) {
+        const aa = aArgs[i];
+        const bb = bArgs[i];
+        if (!aa || !bb || !areIrTypesEquivalent(aa, bb, context)) return false;
+      }
+      return true;
+    }
+    case "arrayType":
+      return areIrTypesEquivalent(
+        a.elementType,
+        (b as typeof a).elementType,
+        context
+      );
+    case "dictionaryType":
+      return (
+        areIrTypesEquivalent(a.keyType, (b as typeof a).keyType, context) &&
+        areIrTypesEquivalent(a.valueType, (b as typeof a).valueType, context)
+      );
+    case "tupleType": {
+      const rb = b as typeof a;
+      if (a.elementTypes.length !== rb.elementTypes.length) return false;
+      for (let i = 0; i < a.elementTypes.length; i++) {
+        const ae = a.elementTypes[i];
+        const be = rb.elementTypes[i];
+        if (!ae || !be || !areIrTypesEquivalent(ae, be, context)) return false;
+      }
+      return true;
+    }
+    case "functionType": {
+      const rb = b as typeof a;
+      if (a.parameters.length !== rb.parameters.length) return false;
+      for (let i = 0; i < a.parameters.length; i++) {
+        const ap = a.parameters[i];
+        const bp = rb.parameters[i];
+        if (!ap || !bp) return false;
+        if (!ap.type && !bp.type) continue;
+        if (!ap.type || !bp.type) return false;
+        if (!areIrTypesEquivalent(ap.type, bp.type, context)) return false;
+      }
+      return areIrTypesEquivalent(a.returnType, rb.returnType, context);
+    }
+    case "unionType":
+    case "intersectionType": {
+      const rb = b as typeof a;
+      if (a.types.length !== rb.types.length) return false;
+      const used = new Set<number>();
+      for (const at of a.types) {
+        if (!at) return false;
+        let matched = false;
+        for (let i = 0; i < rb.types.length; i++) {
+          if (used.has(i)) continue;
+          const bt = rb.types[i];
+          if (!bt) continue;
+          if (areIrTypesEquivalent(at, bt, context)) {
+            used.add(i);
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) return false;
+      }
+      return true;
+    }
+    case "typeParameterType":
+      return a.name === (b as typeof a).name;
+    case "voidType":
+    case "anyType":
+    case "unknownType":
+    case "neverType":
+      return true;
+    case "objectType": {
+      const rb = b as typeof a;
+      if (a.members.length !== rb.members.length) return false;
+      for (let i = 0; i < a.members.length; i++) {
+        const am = a.members[i];
+        const bm = rb.members[i];
+        if (!am || !bm || am.kind !== bm.kind) return false;
+        if (
+          am.kind === "propertySignature" &&
+          bm.kind === "propertySignature"
+        ) {
+          if (am.name !== bm.name) return false;
+          if (!areIrTypesEquivalent(am.type, bm.type, context)) return false;
+          continue;
+        }
+        if (am.kind === "methodSignature" && bm.kind === "methodSignature") {
+          if (am.name !== bm.name) return false;
+          if (am.parameters.length !== bm.parameters.length) return false;
+          for (let j = 0; j < am.parameters.length; j++) {
+            const ap = am.parameters[j];
+            const bp = bm.parameters[j];
+            if (!ap || !bp) return false;
+            if (!ap.type || !bp.type) return false;
+            if (!areIrTypesEquivalent(ap.type, bp.type, context)) return false;
+          }
+          if (!am.returnType || !bm.returnType) return false;
+          if (!areIrTypesEquivalent(am.returnType, bm.returnType, context))
+            return false;
+          continue;
+        }
+        return false;
+      }
+      return true;
+    }
+  }
+};
+
+const maybeUpcastDictionaryUnionValueAst = (
+  expr: IrExpression,
+  ast: CSharpExpressionAst,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] => {
+  if (!expectedType || !expr.inferredType) return [ast, context];
+
+  const expected = normalizeComparableType(expectedType, context);
+  const actual = normalizeComparableType(expr.inferredType, context);
+  if (expected.kind !== "dictionaryType" || actual.kind !== "dictionaryType") {
+    return [ast, context];
+  }
+
+  if (!areIrTypesEquivalent(expected.keyType, actual.keyType, context)) {
+    return [ast, context];
+  }
+
+  const expectedValue = normalizeComparableType(expected.valueType, context);
+  if (expectedValue.kind !== "unionType") return [ast, context];
+
+  const actualValue = normalizeComparableType(actual.valueType, context);
+  if (areIrTypesEquivalent(expectedValue, actualValue, context)) {
+    return [ast, context];
+  }
+
+  let matchingMemberIndex = -1;
+  for (let i = 0; i < expectedValue.types.length; i++) {
+    const member = expectedValue.types[i];
+    if (!member) continue;
+    if (areIrTypesEquivalent(member, actualValue, context)) {
+      matchingMemberIndex = i + 1;
+      break;
+    }
+  }
+  if (matchingMemberIndex === -1) return [ast, context];
+
+  const [unionValueTypeAst, ctx1] = emitTypeAst(expected.valueType, context);
+  const unionTypeText = renderTypeAst(unionValueTypeAst);
+  const kvpId = "kvp";
+  const keySelector: CSharpExpressionAst = {
+    kind: "lambdaExpression",
+    isAsync: false,
+    parameters: [{ name: kvpId }],
+    body: {
+      kind: "memberAccessExpression",
+      expression: { kind: "identifierExpression", identifier: kvpId },
+      memberName: "Key",
+    },
+  };
+  const valueSelector: CSharpExpressionAst = {
+    kind: "lambdaExpression",
+    isAsync: false,
+    parameters: [{ name: kvpId }],
+    body: {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: unionTypeText,
+        },
+        memberName: `From${matchingMemberIndex}`,
+      },
+      arguments: [
+        {
+          kind: "memberAccessExpression",
+          expression: { kind: "identifierExpression", identifier: kvpId },
+          memberName: "Value",
+        },
+      ],
+    },
+  };
+
+  const converted: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: "global::System.Linq.Enumerable",
+      },
+      memberName: "ToDictionary",
+    },
+    arguments: [ast, keySelector, valueSelector],
+  };
+
+  return [converted, ctx1];
 };
 
 /**
@@ -585,10 +813,16 @@ export const emitExpressionAst = (
     newContext,
     expectedType
   );
-  return maybeUnwrapNullableValueTypeAst(
+  const [dictUpcastAst, dictUpcastContext] = maybeUpcastDictionaryUnionValueAst(
     expr,
     castedAst,
     castedContext,
+    expectedType
+  );
+  return maybeUnwrapNullableValueTypeAst(
+    expr,
+    dictUpcastAst,
+    dictUpcastContext,
     expectedType
   );
 };

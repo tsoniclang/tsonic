@@ -2,11 +2,23 @@ namespace TestCases.common.classes.genericmethods
 {
     public class Wrapper<T>
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public Wrapper()
+        {
+
+        }
+
         public required T value { get; set; }
     }
 
     public class Pair<K, V>
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public Pair()
+        {
+
+        }
+
         public required K key { get; set; }
 
         public required V value { get; set; }
