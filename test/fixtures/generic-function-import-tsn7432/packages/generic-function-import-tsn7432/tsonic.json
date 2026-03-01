@@ -1,0 +1,5 @@
+{
+  "rootNamespace": "GenericFunctionImportTSN7432",
+  "entryPoint": "./src/index.ts",
+  "outputName": "generic-function-import-tsn7432"
+}

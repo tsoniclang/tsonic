@@ -240,3 +240,66 @@ describe("Type Converter - Mapped/Conditional Syntax", () => {
     expect(converted.elementType.kind).to.equal("unknownType");
   });
 });
+
+describe("Type Converter - Symbol Dictionary Keys", () => {
+  it("lowers symbol keyword types to object reference types", () => {
+    const converted = convertAlias("type T = symbol;", "T");
+
+    expect(converted).to.deep.equal({
+      kind: "referenceType",
+      name: "object",
+      typeArguments: [],
+    });
+  });
+
+  it("converts symbol index signatures to dictionaryType with object keys", () => {
+    const converted = convertAlias("type T = { [key: symbol]: number };", "T");
+
+    expect(converted).to.deep.equal({
+      kind: "dictionaryType",
+      keyType: { kind: "referenceType", name: "object" },
+      valueType: { kind: "primitiveType", name: "number" },
+    });
+  });
+
+  it("converts Record<symbol, V> to dictionaryType with object keys", () => {
+    const converted = convertAlias("type T = Record<symbol, number>;", "T");
+
+    expect(converted).to.deep.equal({
+      kind: "dictionaryType",
+      keyType: { kind: "referenceType", name: "object" },
+      valueType: { kind: "primitiveType", name: "number" },
+    });
+  });
+
+  it("converts Record<string | symbol, V> to dictionaryType with object keys", () => {
+    const converted = convertAlias(
+      "type T = Record<string | symbol, number>;",
+      "T"
+    );
+
+    expect(converted).to.deep.equal({
+      kind: "dictionaryType",
+      keyType: { kind: "referenceType", name: "object" },
+      valueType: { kind: "primitiveType", name: "number" },
+    });
+  });
+
+  it("converts symbol-only interface index signatures to dictionaryType with object keys", () => {
+    const converted = convertAlias(
+      `
+        interface SymbolMap {
+          [key: symbol]: number;
+        }
+        type T = SymbolMap;
+      `,
+      "T"
+    );
+
+    expect(converted).to.deep.equal({
+      kind: "dictionaryType",
+      keyType: { kind: "referenceType", name: "object" },
+      valueType: { kind: "primitiveType", name: "number" },
+    });
+  });
+});

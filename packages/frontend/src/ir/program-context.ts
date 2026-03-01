@@ -40,6 +40,13 @@ import {
  */
 export type ProgramContext = {
   /**
+   * TypeScript checker for symbol-only queries in converter-time analyses.
+   *
+   * This must never be used for computed type inference APIs (getTypeAtLocation, etc.).
+   */
+  readonly checker: ts.TypeChecker;
+
+  /**
    * Binding layer for symbol resolution.
    *
    * Provides resolveIdentifier, resolveCallSignature, etc.
@@ -424,6 +431,7 @@ export const createProgramContext = (
   });
 
   return {
+    checker: program.checker,
     binding: program.binding,
     typeSystem,
     metadata: program.metadata,

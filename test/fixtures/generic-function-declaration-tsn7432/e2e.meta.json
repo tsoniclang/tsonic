@@ -1,0 +1,6 @@
+{
+  "description": "Generic function declarations used as values are rejected with TSN7432.",
+  "expectFailure": true,
+  "expectedErrors": ["TSN7432"],
+  "diagnosticCodes": ["TSN7432"]
+}

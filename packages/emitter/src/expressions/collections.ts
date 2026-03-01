@@ -153,6 +153,16 @@ const emitObjectMemberName = (
   return emitCSharpName(memberName, bucketFromMemberKind(kind), context);
 };
 
+const getDeterministicObjectKeyName = (
+  key: string | IrExpression
+): string | undefined => {
+  if (typeof key === "string") return key;
+  if (key.kind === "literal" && typeof key.value === "string") {
+    return key.value;
+  }
+  return undefined;
+};
+
 /**
  * Escape a string for use in a C# string literal.
  */
@@ -498,18 +508,22 @@ export const emitObject = (
     if (prop.kind === "spread") {
       throw new Error("ICE: Spread in object literal but hasSpreads is false");
     } else {
-      const key =
-        typeof prop.key === "string"
-          ? emitObjectMemberName(instantiationType, prop.key, currentContext)
-          : "/* computed */";
-      const propertyExpectedType =
-        typeof prop.key === "string"
-          ? getPropertyType(
-              instantiationType ?? effectiveType,
-              prop.key,
-              currentContext
-            )
-          : undefined;
+      const keyName = getDeterministicObjectKeyName(prop.key);
+      if (!keyName) {
+        throw new Error(
+          "ICE: Unsupported computed property key reached nominal object emission"
+        );
+      }
+      const key = emitObjectMemberName(
+        instantiationType,
+        keyName,
+        currentContext
+      );
+      const propertyExpectedType = getPropertyType(
+        instantiationType ?? effectiveType,
+        keyName,
+        currentContext
+      );
       const [valueAst, newContext] = emitExpressionAst(
         prop.value,
         currentContext,
@@ -577,18 +591,18 @@ const emitObjectWithSpreads = (
       bodyStatements.push(...spreadStatements);
       currentContext = newContext;
     } else {
-      const key =
-        typeof prop.key === "string"
-          ? emitObjectMemberName(targetType, prop.key, currentContext)
-          : "/* computed */";
-      const propertyExpectedType =
-        typeof prop.key === "string"
-          ? getPropertyType(
-              targetType ?? effectiveType,
-              prop.key,
-              currentContext
-            )
-          : undefined;
+      const keyName = getDeterministicObjectKeyName(prop.key);
+      if (!keyName) {
+        throw new Error(
+          "ICE: Unsupported computed property key reached spread object emission"
+        );
+      }
+      const key = emitObjectMemberName(targetType, keyName, currentContext);
+      const propertyExpectedType = getPropertyType(
+        targetType ?? effectiveType,
+        keyName,
+        currentContext
+      );
       const [valueAst, newContext] = emitExpressionAst(
         prop.value,
         currentContext,
@@ -858,6 +872,10 @@ const emitDictKeyTypeAst = (keyType: IrType): CSharpTypeAst => {
       case "number":
         return { kind: "predefinedType", keyword: "double" };
     }
+  }
+
+  if (keyType.kind === "referenceType" && keyType.name === "object") {
+    return { kind: "predefinedType", keyword: "object" };
   }
 
   throw new Error(

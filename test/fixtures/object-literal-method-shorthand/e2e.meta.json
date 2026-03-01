@@ -1,0 +1,3 @@
+{
+  "description": "Object literal method shorthand (identifier and computed string-literal keys) lowers deterministically when no dynamic this/super/arguments are used."
+}

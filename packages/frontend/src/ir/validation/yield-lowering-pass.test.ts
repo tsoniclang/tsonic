@@ -16,6 +16,7 @@ import {
   IrModule,
   IrStatement,
   IrExpression,
+  IrExpressionStatement,
   IrBlockStatement,
   IrYieldStatement,
 } from "../types.js";
@@ -89,6 +90,18 @@ const getGeneratorBody = (module: IrModule): readonly IrStatement[] => {
     return func.body.statements;
   }
   return [];
+};
+
+const getTempNameFromSingleDeclarator = (stmt: IrStatement): string => {
+  expect(stmt.kind).to.equal("variableDeclaration");
+  const decl = (stmt as Extract<IrStatement, { kind: "variableDeclaration" }>)
+    .declarations[0];
+  expect(decl?.name.kind).to.equal("identifierPattern");
+  return (
+    (decl?.name as { kind: "identifierPattern"; name: string }) ?? {
+      name: "",
+    }
+  ).name;
 };
 
 describe("Yield Lowering Pass", () => {
@@ -244,7 +257,7 @@ describe("Yield Lowering Pass", () => {
       expect(yieldStmt.receiveTarget?.kind).to.equal("identifierPattern");
     });
 
-    it("should reject compound assignment with yield", () => {
+    it("should transform compound assignment with yield", () => {
       const module = createGeneratorModule([
         {
           kind: "expressionStatement",
@@ -259,10 +272,380 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics).to.have.length(1);
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
-      expect(result.diagnostics[0]?.message).to.include("compound assignment");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("expressionStatement");
+      const assignmentStmt = body[1] as Extract<
+        IrStatement,
+        { kind: "expressionStatement" }
+      >;
+      expect(assignmentStmt.expression.kind).to.equal("assignment");
+      if (assignmentStmt.expression.kind === "assignment") {
+        expect(assignmentStmt.expression.operator).to.equal("+=");
+        expect(assignmentStmt.expression.right.kind).to.equal("identifier");
+      }
+    });
+
+    it("should transform compound assignment to member target with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "+=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(3);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("expressionStatement");
+
+      const assignmentStmt = body[2] as Extract<
+        IrStatement,
+        { kind: "expressionStatement" }
+      >;
+      expect(assignmentStmt.expression.kind).to.equal("assignment");
+      if (assignmentStmt.expression.kind === "assignment") {
+        expect(assignmentStmt.expression.left.kind).to.equal("memberAccess");
+        if (assignmentStmt.expression.left.kind === "memberAccess") {
+          expect(assignmentStmt.expression.left.object.kind).to.equal(
+            "identifier"
+          );
+          expect(assignmentStmt.expression.left.property).to.equal("count");
+        }
+      }
+    });
+
+    it("should transform compound assignment to computed member target with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "+=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: { kind: "identifier", name: "key" },
+              isOptional: false,
+              isComputed: true,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform compound assignment when target evaluation contains yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "+=",
+            left: {
+              kind: "memberAccess",
+              object: createYield({ kind: "identifier", name: "obj" }),
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform compound assignment when computed property contains yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "+=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: createYield({ kind: "identifier", name: "key" }),
+              isOptional: false,
+              isComputed: true,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(5);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("variableDeclaration");
+      expect(body[3]?.kind).to.equal("yieldStatement");
+      expect(body[4]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform assignment with identifier expression target", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: { kind: "identifier", name: "x" },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      const yieldStmt = body[0] as IrYieldStatement;
+      expect(yieldStmt.kind).to.equal("yieldStatement");
+      expect(yieldStmt.receiveTarget?.kind).to.equal("identifierPattern");
+      expect((yieldStmt.receiveTarget as { name: string }).name).to.equal("x");
+    });
+
+    it("should transform assignment to member target with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(3);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform assignment to computed member target with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: { kind: "identifier", name: "key" },
+              isOptional: false,
+              isComputed: true,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform assignment when target object contains yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: createYield({ kind: "identifier", name: "obj" }),
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform assignment when computed property contains yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: createYield({ kind: "identifier", name: "key" }),
+              isOptional: false,
+              isComputed: true,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(5);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("variableDeclaration");
+      expect(body[3]?.kind).to.equal("yieldStatement");
+      expect(body[4]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform assignment when target object and right expression both contain yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: createYield({ kind: "identifier", name: "obj" }),
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: {
+              kind: "binary",
+              operator: "+",
+              left: createYield({ kind: "literal", value: 5 }),
+              right: { kind: "literal", value: 1 },
+            },
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform assignment when computed property and right expression both contain yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: createYield({ kind: "identifier", name: "key" }),
+              isOptional: false,
+              isComputed: true,
+            },
+            right: {
+              kind: "binary",
+              operator: "+",
+              left: createYield({ kind: "literal", value: 5 }),
+              right: { kind: "literal", value: 1 },
+            },
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(5);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("variableDeclaration");
+      expect(body[3]?.kind).to.equal("yieldStatement");
+      expect(body[4]?.kind).to.equal("expressionStatement");
     });
   });
 
@@ -333,7 +716,102 @@ describe("Yield Lowering Pass", () => {
   });
 
   describe("Unsupported Patterns (TSN6101)", () => {
-    it("should reject yield in call argument", () => {
+    it("should lower yield inside member-access assignment target chains", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: {
+                kind: "assignment",
+                operator: "=",
+                left: {
+                  kind: "memberAccess",
+                  object: createYield({ kind: "identifier", name: "tmpObj" }),
+                  property: "inner",
+                  isOptional: false,
+                  isComputed: false,
+                },
+                right: { kind: "literal", value: 1 },
+              },
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: { kind: "literal", value: 2 },
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(3);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("expressionStatement");
+      const finalExpr = (body[2] as IrExpressionStatement).expression;
+      expect(finalExpr.kind).to.equal("assignment");
+      if (finalExpr.kind === "assignment") {
+        expect(finalExpr.left.kind).to.equal("memberAccess");
+      }
+    });
+
+    it("should emit TSN6101 when yield appears in a non-lowerable assignment target", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "binary",
+              operator: "+",
+              left: createYield({ kind: "identifier", name: "lhs" }),
+              right: { kind: "literal", value: 1 },
+            },
+            right: { kind: "literal", value: 2 },
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.length).to.be.greaterThan(0);
+      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+    });
+
+    it("should emit TSN6101 when yield appears in switch case test expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "switchStatement",
+          expression: { kind: "identifier", name: "value" },
+          cases: [
+            {
+              kind: "switchCase",
+              test: createYield({ kind: "literal", value: 1 }),
+              statements: [{ kind: "breakStatement" }],
+            },
+          ],
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.length).to.be.greaterThan(0);
+      expect(result.diagnostics.some((d) => d.code === "TSN6101")).to.equal(
+        true
+      );
+    });
+
+    it("should transform yield in call argument", () => {
       const module = createGeneratorModule([
         {
           kind: "expressionStatement",
@@ -348,11 +826,15 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("expressionStatement");
     });
 
-    it("should reject nested yield in initializer", () => {
+    it("should transform nested yield in initializer", () => {
       const module = createGeneratorModule([
         {
           kind: "variableDeclaration",
@@ -376,11 +858,101 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
     });
 
-    it("should reject yield in return expression", () => {
+    it("should transform yield in conditional expression condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "x" },
+              initializer: {
+                kind: "conditional",
+                condition: createYield({ kind: "literal", value: true }),
+                whenTrue: { kind: "literal", value: 1 },
+                whenFalse: { kind: "literal", value: 2 },
+                inferredType: { kind: "primitiveType", name: "number" },
+              },
+            },
+          ],
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("ifStatement");
+      expect(body[3]?.kind).to.equal("variableDeclaration");
+    });
+
+    it("should transform yield in conditional expression branches lazily", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "x" },
+              initializer: {
+                kind: "conditional",
+                condition: { kind: "literal", value: true },
+                whenTrue: createYield({ kind: "literal", value: 1 }),
+                whenFalse: createYield({ kind: "literal", value: 2 }),
+                inferredType: { kind: "primitiveType", name: "number" },
+              },
+            },
+          ],
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(3);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("ifStatement");
+      expect(body[2]?.kind).to.equal("variableDeclaration");
+
+      const loweredIf = body[1] as Extract<
+        IrStatement,
+        { kind: "ifStatement" }
+      >;
+      expect(loweredIf.thenStatement.kind).to.equal("blockStatement");
+      expect(loweredIf.elseStatement?.kind).to.equal("blockStatement");
+      const thenStatements =
+        loweredIf.thenStatement.kind === "blockStatement"
+          ? loweredIf.thenStatement.statements
+          : [];
+      const elseStatements =
+        loweredIf.elseStatement?.kind === "blockStatement"
+          ? loweredIf.elseStatement.statements
+          : [];
+      expect(thenStatements[0]?.kind).to.equal("yieldStatement");
+      expect(thenStatements[1]?.kind).to.equal("expressionStatement");
+      expect(elseStatements[0]?.kind).to.equal("yieldStatement");
+      expect(elseStatements[1]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform return yield expression into yield+generatorReturn", () => {
       const module = createGeneratorModule([
         {
           kind: "returnStatement",
@@ -390,11 +962,15 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("generatorReturnStatement");
     });
 
-    it("should reject yield in throw expression", () => {
+    it("should transform throw yield expression into yield+throw", () => {
       const module = createGeneratorModule([
         {
           kind: "throwStatement",
@@ -404,43 +980,695 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("throwStatement");
     });
 
-    it("should reject yield in for loop condition", () => {
+    it("should transform nested yield in return expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "returnStatement",
+          expression: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("generatorReturnStatement");
+    });
+
+    it("should transform for-loop assignment initializer with yield", () => {
       const module = createGeneratorModule([
         {
           kind: "forStatement",
-          condition: createYield({ kind: "literal", value: true }),
+          initializer: {
+            kind: "assignment",
+            operator: "=",
+            left: { kind: "identifierPattern", name: "x" },
+            right: createYield({ kind: "literal", value: 1 }),
+          },
+          condition: { kind: "literal", value: true },
           body: { kind: "blockStatement", statements: [] },
         },
       ]);
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forStatement");
+
+      const loweredFor = body[1] as Extract<
+        IrStatement,
+        { kind: "forStatement" }
+      >;
+      expect(loweredFor.initializer).to.equal(undefined);
     });
 
-    it("should reject yield in for loop update", () => {
+    it("should transform for-loop member assignment initializer with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: createYield({ kind: "literal", value: 1 }),
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("expressionStatement");
+      expect(body[3]?.kind).to.equal("forStatement");
+      const objectTempName = getTempNameFromSingleDeclarator(
+        assertDefined(body[0])
+      );
+      const receiveName = (
+        body[1] as Extract<IrStatement, { kind: "yieldStatement" }>
+      ).receiveTarget as { kind: "identifierPattern"; name: string };
+      const assignExpr = (
+        body[2] as Extract<IrStatement, { kind: "expressionStatement" }>
+      ).expression as Extract<IrExpression, { kind: "assignment" }>;
+      expect(assignExpr.left.kind).to.equal("memberAccess");
+      const left = assignExpr.left as Extract<
+        IrExpression,
+        { kind: "memberAccess" }
+      >;
+      expect(left.object.kind).to.equal("identifier");
+      expect((left.object as { name: string }).name).to.equal(objectTempName);
+      expect(left.property).to.equal("count");
+      expect(assignExpr.right.kind).to.equal("identifier");
+      expect((assignExpr.right as { name: string }).name).to.equal(
+        receiveName.name
+      );
+      const loweredFor = body[3] as Extract<
+        IrStatement,
+        { kind: "forStatement" }
+      >;
+      expect(loweredFor.initializer).to.equal(undefined);
+    });
+
+    it("should transform for-loop computed member assignment initializer with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: { kind: "identifier", name: "key" },
+              isOptional: false,
+              isComputed: true,
+            },
+            right: createYield({ kind: "literal", value: 1 }),
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(5);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+      expect(body[4]?.kind).to.equal("forStatement");
+      const objectTempName = getTempNameFromSingleDeclarator(
+        assertDefined(body[0])
+      );
+      const propertyTempName = getTempNameFromSingleDeclarator(
+        assertDefined(body[1])
+      );
+      const receiveName = (
+        body[2] as Extract<IrStatement, { kind: "yieldStatement" }>
+      ).receiveTarget as { kind: "identifierPattern"; name: string };
+      const assignExpr = (
+        body[3] as Extract<IrStatement, { kind: "expressionStatement" }>
+      ).expression as Extract<IrExpression, { kind: "assignment" }>;
+      expect(assignExpr.left.kind).to.equal("memberAccess");
+      const left = assignExpr.left as Extract<
+        IrExpression,
+        { kind: "memberAccess" }
+      >;
+      expect(left.object.kind).to.equal("identifier");
+      expect((left.object as { name: string }).name).to.equal(objectTempName);
+      expect(typeof left.property).to.not.equal("string");
+      expect((left.property as { kind: string }).kind).to.equal("identifier");
+      expect((left.property as { name: string }).name).to.equal(
+        propertyTempName
+      );
+      expect(assignExpr.right.kind).to.equal("identifier");
+      expect((assignExpr.right as { name: string }).name).to.equal(
+        receiveName.name
+      );
+      const loweredFor = body[4] as Extract<
+        IrStatement,
+        { kind: "forStatement" }
+      >;
+      expect(loweredFor.initializer).to.equal(undefined);
+    });
+
+    it("should transform for-loop member assignment initializer when object evaluation contains yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: createYield({ kind: "identifier", name: "obj" }),
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: createYield({ kind: "literal", value: 1 }),
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(5);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+      expect(body[4]?.kind).to.equal("forStatement");
+      const objectTempName = getTempNameFromSingleDeclarator(
+        assertDefined(body[1])
+      );
+      const objectYieldReceive = (
+        body[0] as Extract<IrStatement, { kind: "yieldStatement" }>
+      ).receiveTarget as { kind: "identifierPattern"; name: string };
+      const objectTempInit = (
+        body[1] as Extract<IrStatement, { kind: "variableDeclaration" }>
+      ).declarations[0]?.initializer as { kind: string; name: string };
+      expect(objectTempInit.kind).to.equal("identifier");
+      expect(objectTempInit.name).to.equal(objectYieldReceive.name);
+      const assignExpr = (
+        body[3] as Extract<IrStatement, { kind: "expressionStatement" }>
+      ).expression as Extract<IrExpression, { kind: "assignment" }>;
+      expect(assignExpr.left.kind).to.equal("memberAccess");
+      const left = assignExpr.left as Extract<
+        IrExpression,
+        { kind: "memberAccess" }
+      >;
+      expect(left.object.kind).to.equal("identifier");
+      expect((left.object as { name: string }).name).to.equal(objectTempName);
+    });
+
+    it("should transform for-loop member assignment initializer when computed property contains yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: createYield({ kind: "identifier", name: "key" }),
+              isOptional: false,
+              isComputed: true,
+            },
+            right: createYield({ kind: "literal", value: 1 }),
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(6);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("variableDeclaration");
+      expect(body[3]?.kind).to.equal("yieldStatement");
+      expect(body[4]?.kind).to.equal("expressionStatement");
+      expect(body[5]?.kind).to.equal("forStatement");
+      const objectTempName = getTempNameFromSingleDeclarator(
+        assertDefined(body[0])
+      );
+      const propertyTempName = getTempNameFromSingleDeclarator(
+        assertDefined(body[2])
+      );
+      const propertyYieldReceive = (
+        body[1] as Extract<IrStatement, { kind: "yieldStatement" }>
+      ).receiveTarget as { kind: "identifierPattern"; name: string };
+      const propertyTempInit = (
+        body[2] as Extract<IrStatement, { kind: "variableDeclaration" }>
+      ).declarations[0]?.initializer as { kind: string; name: string };
+      expect(propertyTempInit.kind).to.equal("identifier");
+      expect(propertyTempInit.name).to.equal(propertyYieldReceive.name);
+      const assignExpr = (
+        body[4] as Extract<IrStatement, { kind: "expressionStatement" }>
+      ).expression as Extract<IrExpression, { kind: "assignment" }>;
+      expect(assignExpr.left.kind).to.equal("memberAccess");
+      const left = assignExpr.left as Extract<
+        IrExpression,
+        { kind: "memberAccess" }
+      >;
+      expect(left.object.kind).to.equal("identifier");
+      expect((left.object as { name: string }).name).to.equal(objectTempName);
+      expect(typeof left.property).to.not.equal("string");
+      expect((left.property as { kind: string }).kind).to.equal("identifier");
+      expect((left.property as { name: string }).name).to.equal(
+        propertyTempName
+      );
+    });
+
+    it("should transform for-loop member assignment initializer when target object and value expression both contain yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: createYield({ kind: "identifier", name: "obj" }),
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: {
+              kind: "binary",
+              operator: "+",
+              left: createYield({ kind: "literal", value: 1 }),
+              right: { kind: "literal", value: 2 },
+            },
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(5);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+      expect(body[4]?.kind).to.equal("forStatement");
+    });
+
+    it("should transform for-loop member assignment initializer when computed property and value expression both contain yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: createYield({ kind: "identifier", name: "key" }),
+              isOptional: false,
+              isComputed: true,
+            },
+            right: {
+              kind: "binary",
+              operator: "+",
+              left: createYield({ kind: "literal", value: 1 }),
+              right: { kind: "literal", value: 2 },
+            },
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(6);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("variableDeclaration");
+      expect(body[3]?.kind).to.equal("yieldStatement");
+      expect(body[4]?.kind).to.equal("expressionStatement");
+      expect(body[5]?.kind).to.equal("forStatement");
+    });
+
+    it("should transform nested yield in for-loop assignment initializer", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "assignment",
+            operator: "=",
+            left: { kind: "identifierPattern", name: "x" },
+            right: {
+              kind: "binary",
+              operator: "+",
+              left: createYield({ kind: "literal", value: 1 }),
+              right: { kind: "literal", value: 2 },
+            },
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forStatement");
+
+      const loweredFor = body[1] as Extract<
+        IrStatement,
+        { kind: "forStatement" }
+      >;
+      expect(loweredFor.initializer?.kind).to.equal("assignment");
+    });
+
+    it("should transform direct yield in for-loop declaration initializer", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "variableDeclaration",
+            declarationKind: "let",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "x" },
+                type: { kind: "primitiveType", name: "number" },
+                initializer: createYield({ kind: "literal", value: 1 }),
+              },
+            ],
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forStatement");
+
+      const loweredFor = body[1] as Extract<
+        IrStatement,
+        { kind: "forStatement" }
+      >;
+      expect(loweredFor.initializer?.kind).to.equal("variableDeclaration");
+      const initDecl = loweredFor.initializer as Extract<
+        IrStatement,
+        { kind: "variableDeclaration" }
+      >;
+      expect(initDecl.declarations[0]?.initializer?.kind).to.equal(
+        "identifier"
+      );
+    });
+
+    it("should transform nested yield in for-loop declaration initializer", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "variableDeclaration",
+            declarationKind: "let",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "x" },
+                type: { kind: "primitiveType", name: "number" },
+                initializer: {
+                  kind: "binary",
+                  operator: "+",
+                  left: createYield({ kind: "literal", value: 1 }),
+                  right: { kind: "literal", value: 2 },
+                },
+              },
+            ],
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forStatement");
+      const loweredFor = body[1] as Extract<
+        IrStatement,
+        { kind: "forStatement" }
+      >;
+      expect(loweredFor.initializer?.kind).to.equal("variableDeclaration");
+      const initDecl = loweredFor.initializer as Extract<
+        IrStatement,
+        { kind: "variableDeclaration" }
+      >;
+      expect(initDecl.declarations[0]?.initializer?.kind).to.equal("binary");
+    });
+
+    it("should transform nested yield in for loop condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          condition: {
+            kind: "logical",
+            operator: "&&",
+            left: createYield({ kind: "literal", value: true }),
+            right: { kind: "literal", value: true },
+          },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(1);
+      expect(body[0]?.kind).to.equal("forStatement");
+    });
+
+    it("should transform nested yield in for loop update", () => {
       const module = createGeneratorModule([
         {
           kind: "forStatement",
           condition: { kind: "literal", value: true },
-          update: createYield({ kind: "literal", value: 1 }),
+          update: {
+            kind: "assignment",
+            operator: "=",
+            left: { kind: "identifierPattern", name: "i" },
+            right: {
+              kind: "binary",
+              operator: "+",
+              left: createYield({ kind: "literal", value: 1 }),
+              right: { kind: "literal", value: 2 },
+            },
+          },
           body: { kind: "blockStatement", statements: [] },
         },
       ]);
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("forStatement");
+    });
+
+    it("should transform nested yield in if condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "ifStatement",
+          condition: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
+          thenStatement: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("ifStatement");
+    });
+
+    it("should transform nested yield in while condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "whileStatement",
+          condition: {
+            kind: "logical",
+            operator: "&&",
+            left: createYield({ kind: "literal", value: true }),
+            right: { kind: "literal", value: true },
+          },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(1);
+      expect(body[0]?.kind).to.equal("whileStatement");
+    });
+
+    it("should transform nested yield in for-of expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forOfStatement",
+          variable: { kind: "identifierPattern", name: "x" },
+          expression: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
+          body: { kind: "blockStatement", statements: [] },
+          isAwait: false,
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forOfStatement");
+    });
+
+    it("should transform nested yield in for-in expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forInStatement",
+          variable: { kind: "identifierPattern", name: "k" },
+          expression: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forInStatement");
     });
   });
 
   describe("Control Flow Structures", () => {
+    it("should transform direct yield in if condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "ifStatement",
+          condition: createYield({ kind: "literal", value: true }),
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: { kind: "literal", value: 1 },
+              },
+            ],
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("ifStatement");
+    });
+
     it("should transform yield inside if statement", () => {
       const module = createGeneratorModule([
         {
@@ -489,6 +1717,166 @@ describe("Yield Lowering Pass", () => {
       expect(result.ok).to.be.true;
     });
 
+    it("should transform direct yield in for loop condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          condition: createYield({ kind: "literal", value: true }),
+          update: {
+            kind: "update",
+            operator: "++",
+            expression: { kind: "identifier", name: "i" },
+            prefix: false,
+          },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(1);
+      const forStmt = body[0] as Extract<IrStatement, { kind: "forStatement" }>;
+      expect(forStmt.condition?.kind).to.equal("literal");
+      expect(forStmt.body.kind).to.equal("blockStatement");
+      const forBody = forStmt.body as IrBlockStatement;
+      expect(forBody.statements[0]?.kind).to.equal("yieldStatement");
+      expect(forBody.statements[1]?.kind).to.equal("ifStatement");
+    });
+
+    it("should transform direct yield in for loop update", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          condition: {
+            kind: "binary",
+            operator: "<",
+            left: { kind: "identifier", name: "i" },
+            right: { kind: "literal", value: 3 },
+          },
+          update: createYield({ kind: "literal", value: 1 }),
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      const forStmt = body[1] as Extract<IrStatement, { kind: "forStatement" }>;
+      expect(forStmt.condition?.kind).to.equal("literal");
+      expect(forStmt.update).to.equal(undefined);
+      expect(forStmt.body.kind).to.equal("blockStatement");
+      const forBody = forStmt.body as IrBlockStatement;
+      expect(forBody.statements[0]?.kind).to.equal("ifStatement");
+      expect(forBody.statements[1]?.kind).to.equal("expressionStatement");
+      expect(forBody.statements[2]?.kind).to.equal("ifStatement");
+    });
+
+    it("should transform direct yield in both for loop condition and update", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          condition: createYield({ kind: "literal", value: true }),
+          update: createYield({ kind: "literal", value: 1 }),
+          body: {
+            kind: "blockStatement",
+            statements: [{ kind: "continueStatement" }],
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      const forStmt = body[1] as Extract<IrStatement, { kind: "forStatement" }>;
+      expect(forStmt.condition?.kind).to.equal("literal");
+      expect(forStmt.update).to.equal(undefined);
+      const forBody = forStmt.body as IrBlockStatement;
+      expect(forBody.statements[0]?.kind).to.equal("ifStatement");
+      expect(forBody.statements[2]?.kind).to.equal("yieldStatement");
+      expect(forBody.statements[3]?.kind).to.equal("ifStatement");
+    });
+
+    it("should transform direct yield in while condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "whileStatement",
+          condition: createYield({ kind: "literal", value: true }),
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: { kind: "literal", value: 1 },
+              },
+            ],
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(1);
+      const whileStmt = body[0] as Extract<
+        IrStatement,
+        { kind: "whileStatement" }
+      >;
+      expect(whileStmt.condition.kind).to.equal("literal");
+      if (whileStmt.condition.kind === "literal") {
+        expect(whileStmt.condition.value).to.equal(true);
+      }
+      expect(whileStmt.body.kind).to.equal("blockStatement");
+      const whileBody = whileStmt.body as IrBlockStatement;
+      expect(whileBody.statements[0]?.kind).to.equal("yieldStatement");
+      expect(whileBody.statements[1]?.kind).to.equal("ifStatement");
+    });
+
+    it("should transform direct yield in for-of expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forOfStatement",
+          variable: { kind: "identifierPattern", name: "x" },
+          expression: createYield({ kind: "array", elements: [] }),
+          body: { kind: "blockStatement", statements: [] },
+          isAwait: false,
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forOfStatement");
+    });
+
+    it("should transform direct yield in for-in expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forInStatement",
+          variable: { kind: "identifierPattern", name: "k" },
+          expression: createYield({ kind: "object", properties: [] }),
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forInStatement");
+    });
+
     it("should transform yield inside switch case", () => {
       const module = createGeneratorModule([
         {
@@ -512,6 +1900,30 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
+    });
+
+    it("should transform direct yield in switch expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "switchStatement",
+          expression: createYield({ kind: "literal", value: 1 }),
+          cases: [
+            {
+              kind: "switchCase",
+              test: { kind: "literal", value: 1 },
+              statements: [{ kind: "breakStatement" }],
+            },
+          ],
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("switchStatement");
     });
 
     it("should transform yield inside try block", () => {
@@ -655,20 +2067,30 @@ describe("Yield Lowering Pass", () => {
       const module1 = createGeneratorModule([
         {
           kind: "returnStatement",
-          expression: createYield({ kind: "literal", value: 1 }),
+          expression: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
         },
       ]);
       const module2 = createGeneratorModule([
         {
           kind: "throwStatement",
-          expression: createYield({ kind: "identifier", name: "err" }),
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "wrap" },
+            arguments: [createYield({ kind: "identifier", name: "err" })],
+            isOptional: false,
+          },
         },
       ]);
 
       const result = runYieldLoweringPass([module1, module2]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics).to.have.length(2);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
     });
   });
 

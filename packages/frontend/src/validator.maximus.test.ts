@@ -423,6 +423,181 @@ describe("Maximus Validation Coverage", () => {
           void marker;
         `,
       },
+      {
+        name: "generic function declaration with direct call",
+        source: `
+          function id<T>(x: T): T { return x; }
+          const n = id<number>(1);
+          void n;
+        `,
+      },
+      {
+        name: "const alias to generic value with direct generic call",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy = id;
+          const n = copy<number>(1);
+          void n;
+        `,
+      },
+      {
+        name: "const alias to generic function declaration with direct call",
+        source: `
+          function id<T>(x: T): T { return x; }
+          const copy = id;
+          const n = copy<number>(1);
+          void n;
+        `,
+      },
+      {
+        name: "chained const aliases to generic value",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy = id;
+          const finalCopy = copy;
+          const n = finalCopy<number>(1);
+          void n;
+        `,
+      },
+      {
+        name: "let alias to generic value without reassignment",
+        source: `
+          const id = <T>(x: T): T => x;
+          let copy = id;
+          const n = copy<number>(1);
+          void n;
+        `,
+      },
+      {
+        name: "nested generic arrow value inside function scope with direct call",
+        source: `
+          function wrap(): void {
+            const id = <T>(x: T): T => x;
+            void id<number>(1);
+          }
+          void wrap;
+        `,
+      },
+      {
+        name: "module-level let generic value with no reassignment",
+        source: `
+          let id = <T>(x: T): T => x;
+          const s = id<string>("x");
+          void s;
+        `,
+      },
+      {
+        name: "outer let generic value with reassigned shadow remains valid",
+        source: `
+          let id = <T>(x: T): T => x;
+          {
+            let id = 1;
+            id = 2;
+            void id;
+          }
+          const s = id<string>("outer");
+          void s;
+        `,
+      },
+      {
+        name: "generic value passed in monomorphic callable argument context",
+        source: `
+          const id = <T>(x: T): T => x;
+          function use(fn: (x: number) => number): number {
+            return fn(1);
+          }
+          const out = use(id);
+          void out;
+        `,
+      },
+      {
+        name: "generic value assigned to monomorphic callable context",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy: (x: number) => number = id;
+          const out = copy(2);
+          void out;
+        `,
+      },
+      {
+        name: "generic value asserted to monomorphic callable context",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy = id as (x: number) => number;
+          const out = copy(2);
+          void out;
+        `,
+      },
+      {
+        name: "generic value in parenthesized monomorphic callable context",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy: (x: number) => number = (id);
+          const out = copy(2);
+          void out;
+        `,
+      },
+      {
+        name: "generic value in typed object/array callable contexts",
+        source: `
+          const id = <T>(x: T): T => x;
+          type Box = { run: (x: number) => number };
+          const box: Box = { run: id };
+          const handlers: Array<(x: number) => number> = [id];
+          const out = box.run(handlers[0]!(3));
+          void out;
+        `,
+      },
+      {
+        name: "generic value in typed object shorthand callable context",
+        source: `
+          const id = <T>(x: T): T => x;
+          type Box = { id: (x: number) => number };
+          const box: Box = { id };
+          const out = box.id(5);
+          void out;
+        `,
+      },
+      {
+        name: "generic value returned through monomorphic callable return type",
+        source: `
+          function make(): (x: number) => number {
+            const id = <T>(x: T): T => x;
+            return id;
+          }
+          const out = make()(4);
+          void out;
+        `,
+      },
+      {
+        name: "generic value in monomorphic callable conditional return",
+        source: `
+          function pick(flag: boolean): (x: number) => number {
+            const id = <T>(x: T): T => x;
+            const inc = (x: number): number => x + 1;
+            return flag ? id : inc;
+          }
+          const out = pick(true)(2);
+          void out;
+        `,
+      },
+      {
+        name: "generic function value as default export expression",
+        source: `
+          const id = <T>(x: T): T => x;
+          export default id;
+          void id<number>(1);
+        `,
+      },
+      {
+        name: "generic function value in multi-declarator const statement",
+        source: `
+          const id = <T>(x: T): T => x, other = 1;
+          const n = id<number>(1);
+          void n;
+          void other;
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -436,15 +611,6 @@ describe("Maximus Validation Coverage", () => {
       readonly source: string;
     }> = [
       {
-        name: "nested generic arrow value inside function scope",
-        source: `
-          function wrap(): void {
-            const id = <T>(x: T): T => x;
-            void id<number>(1);
-          }
-        `,
-      },
-      {
         name: "generic function value used as value (non-call usage)",
         source: `
           const id = <T>(x: T): T => x;
@@ -453,10 +619,10 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
-        name: "multiple declarators in one statement",
+        name: "generic function declaration used as value (non-call usage)",
         source: `
-          const id = <T>(x: T): T => x, other = 1;
-          void other;
+          function id<T>(x: T): T { return x; }
+          void id;
         `,
       },
       {
@@ -468,10 +634,26 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "generic function value assigned to generic callable context",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy: <T>(x: T) => T = id;
+          void copy;
+        `,
+      },
+      {
         name: "generic function value returned from function",
         source: `
           const id = <T>(x: T): T => x;
           function wrap(): unknown { return id; }
+          void wrap;
+        `,
+      },
+      {
+        name: "generic function value returned through generic callable return type",
+        source: `
+          const id = <T>(x: T): T => x;
+          function wrap(): <T>(x: T) => T { return id; }
           void wrap;
         `,
       },
@@ -500,10 +682,46 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
-        name: "generic function value as default export expression",
+        name: "reassigned let generic function value",
+        source: `
+          let id = <T>(x: T): T => x;
+          id = <T>(x: T): T => x;
+          void id<string>("x");
+        `,
+      },
+      {
+        name: "destructuring-reassigned let generic function value",
+        source: `
+          let id = <T>(x: T): T => x;
+          [id] = [id];
+          void id<string>("x");
+        `,
+      },
+      {
+        name: "for-of-target let generic function value",
+        source: `
+          let id = <T>(x: T): T => x;
+          const handlers = [id];
+          for (id of handlers) {
+            void id<string>("x");
+          }
+        `,
+      },
+      {
+        name: "reassigned let alias to generic function value",
         source: `
           const id = <T>(x: T): T => x;
-          export default id;
+          let copy = id;
+          copy = id;
+          void copy<string>("x");
+        `,
+      },
+      {
+        name: "var alias to generic function value",
+        source: `
+          const id = <T>(x: T): T => x;
+          var copy = id;
+          void copy<string>("x");
         `,
       },
     ];
@@ -724,6 +942,244 @@ describe("Maximus Validation Coverage", () => {
     for (const c of allowCases) {
       it(`allows ${c.name}`, () => {
         expect(hasCode(c.source, "TSN7430")).to.equal(false);
+      });
+    }
+  });
+
+  describe("Dictionary key domains (TSN7413 / TSN7203)", () => {
+    const allowCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "Record with symbol key",
+        source: `
+          type Symbols = Record<symbol, number>;
+          const table: Symbols = {} as Symbols;
+          void table;
+        `,
+      },
+      {
+        name: "symbol index signature",
+        source: `
+          interface SymbolMap {
+            [key: symbol]: string;
+          }
+          const table: SymbolMap = {} as SymbolMap;
+          void table;
+        `,
+      },
+      {
+        name: "mixed PropertyKey union",
+        source: `
+          type Dict = Record<string | number | symbol, number>;
+          const value: Dict = {} as Dict;
+          void value;
+        `,
+      },
+      {
+        name: "symbol-typed parameter used for dictionary indexing",
+        source: `
+          function read(table: Record<symbol, number>, key: symbol): number {
+            return table[key];
+          }
+          void read;
+        `,
+      },
+      {
+        name: "mixed string and symbol dictionary key operations",
+        source: `
+          function readMixed(
+            table: Record<string | symbol, number>,
+            key: symbol
+          ): number {
+            table["count"] = 1;
+            table[key] = 2;
+            return table["count"] + table[key];
+          }
+          void readMixed;
+        `,
+      },
+      {
+        name: "symbol-key undefined comparison and delete shape",
+        source: `
+          function prune(table: Record<symbol, number>, key: symbol): boolean {
+            if (table[key] !== undefined) {
+              delete table[key];
+            }
+            return table[key] === undefined;
+          }
+          void prune;
+        `,
+      },
+    ];
+
+    for (const c of allowCases) {
+      it(`allows ${c.name}`, () => {
+        const codes = collectCodes(c.source);
+        expect(codes.includes("TSN7413")).to.equal(false);
+        expect(codes.includes("TSN7203")).to.equal(false);
+        expect(codes.includes("TSN7414")).to.equal(false);
+      });
+    }
+
+    const rejectCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "Record with object key type",
+        source: `
+          interface Key { id: string; }
+          type Dict = Record<Key, number>;
+          const value: Dict = {} as Dict;
+          void value;
+        `,
+      },
+      {
+        name: "index signature with object key type",
+        source: `
+          interface Key { id: string; }
+          interface Dict {
+            [key: Key]: number;
+          }
+        `,
+      },
+    ];
+
+    for (const c of rejectCases) {
+      it(`rejects ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7413")).to.equal(true);
+      });
+    }
+  });
+
+  describe("Object literal synthesis (TSN7403 narrowing)", () => {
+    const allowCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "method shorthand without dynamic receiver semantics",
+        source: `
+          const point = {
+            add(x: number, y: number): number {
+              return x + y;
+            },
+          };
+          const n = point.add(1, 2);
+          void n;
+        `,
+      },
+      {
+        name: "mixed property assignments and method shorthand",
+        source: `
+          const obj = {
+            base: 2,
+            mul(x: number): number {
+              return x * 2;
+            },
+          };
+          const n = obj.mul(obj.base);
+          void n;
+        `,
+      },
+      {
+        name: "computed string-literal method shorthand",
+        source: `
+          const obj = {
+            ["mul"](x: number, y: number): number {
+              return x * y;
+            },
+          };
+          const n = obj.mul(2, 3);
+          void n;
+        `,
+      },
+      {
+        name: "method shorthand in typed generic call argument",
+        source: `
+          interface Ops {
+            add: (x: number, y: number) => number;
+          }
+          function box<T>(x: T): T { return x; }
+          const ops = box<Ops>({
+            add(x: number, y: number): number {
+              return x + y;
+            },
+          });
+          const n = ops.add(1, 2);
+          void n;
+        `,
+      },
+    ];
+
+    for (const c of allowCases) {
+      it(`allows ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7403")).to.equal(false);
+      });
+    }
+
+    const rejectCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "method shorthand using this",
+        source: `
+          const obj = {
+            base: 2,
+            mul(x: number): number {
+              return this.base * x;
+            },
+          };
+          void obj;
+        `,
+      },
+      {
+        name: "method shorthand using arguments",
+        source: `
+          const obj = {
+            mul(x: number): number {
+              return arguments.length;
+            },
+          };
+          void obj;
+        `,
+      },
+      {
+        name: "method shorthand using super",
+        source: `
+          const base = {
+            mul(x: number): number {
+              return x * 2;
+            },
+          };
+          const obj = {
+            __proto__: base,
+            mul(x: number): number {
+              return super.mul(x);
+            },
+          };
+          void obj;
+        `,
+      },
+      {
+        name: "getter shorthand in synthesized object literal",
+        source: `
+          const obj = {
+            get value(): number {
+              return 1;
+            },
+          };
+          void obj;
+        `,
+      },
+    ];
+
+    for (const c of rejectCases) {
+      it(`rejects ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7403")).to.equal(true);
       });
     }
   });

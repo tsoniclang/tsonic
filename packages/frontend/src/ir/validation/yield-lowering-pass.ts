@@ -10,13 +10,19 @@
  * - `x = yield expr;` → IrYieldStatement with receiveTarget = identifierPattern
  * - `const {a, b} = yield expr;` → IrYieldStatement with receiveTarget = objectPattern
  * - `const [a, b] = yield expr;` → IrYieldStatement with receiveTarget = arrayPattern
+ * - `return yield expr;` → IrYieldStatement + IrGeneratorReturnStatement(temp)
+ * - `throw yield expr;` → IrYieldStatement + IrThrowStatement(temp)
+ * - `for (x = yield expr; ... )` → IrYieldStatement + ForStatement(without initializer)
+ * - `for (; yield cond; ... )` → ForStatement(condition=true) + loop-body condition prelude
+ * - `for (...; ...; yield update)` → ForStatement(update=undefined) + loop-body update prelude
+ * - `for (... of yield expr)` / `for (... in yield expr)` → IrYieldStatement + loop over temp
+ * - `if (yield expr) { ... }` → IrYieldStatement + IfStatement(temp)
+ * - `switch (yield expr) { ... }` → IrYieldStatement + SwitchStatement(temp)
+ * - `while (yield expr) { ... }` → While(true) with per-iteration yield+guard
+ * - `const x = cond ? (yield a) : (yield b)` → temp + branch-lowered yields
  *
  * Unsupported patterns (emit TSN6101 diagnostic):
- * - `foo(yield x)` - yield in call argument
- * - `yield x + yield y` - multiple yields in expression
- * - `[yield x, 1]` - yield in array literal
- * - `{a: yield x}` - yield in object literal
- * - `cond ? yield a : b` - yield in ternary
+ * - assignment target forms that cannot be lowered as a deterministic l-value
  */
 
 import {
@@ -54,6 +60,7 @@ type LoweringContext = {
   readonly diagnostics: Diagnostic[];
   /** True if we're inside a generator function */
   readonly inGenerator: boolean;
+  yieldTempCounter: number;
 };
 
 /**
@@ -232,6 +239,24 @@ const createYieldStatement = (
   receivedType,
 });
 
+const toReceivePattern = (
+  target: IrExpression | IrPattern
+): IrPattern | undefined => {
+  if (
+    target.kind === "identifierPattern" ||
+    target.kind === "arrayPattern" ||
+    target.kind === "objectPattern"
+  ) {
+    return target;
+  }
+
+  if (target.kind === "identifier") {
+    return { kind: "identifierPattern", name: target.name };
+  }
+
+  return undefined;
+};
+
 /**
  * Create an IrGeneratorReturnStatement from a return statement's expression.
  * This captures the return value for generators with TReturn.
@@ -262,6 +287,520 @@ const emitUnsupportedYieldDiagnostic = (
   );
 };
 
+const allocateYieldTempName = (ctx: LoweringContext): string => {
+  ctx.yieldTempCounter += 1;
+  return `__tsonic_yield_${ctx.yieldTempCounter}`;
+};
+
+const createTempVariableDeclaration = (
+  name: string,
+  initializer: IrExpression,
+  inferredType?: IrType
+): IrStatement => ({
+  kind: "variableDeclaration",
+  declarationKind: "const",
+  isExported: false,
+  declarations: [
+    {
+      kind: "variableDeclarator",
+      name: { kind: "identifierPattern", name },
+      type: inferredType,
+      initializer,
+    },
+  ],
+});
+
+const lowerMemberAccessAssignmentWithYields = (
+  assignment: Extract<IrExpression, { kind: "assignment" }>,
+  ctx: LoweringContext,
+  positionLabels: {
+    readonly object: string;
+    readonly property: string;
+    readonly right: string;
+  }
+):
+  | {
+      readonly leadingStatements: readonly IrStatement[];
+      readonly loweredAssignment: Extract<IrExpression, { kind: "assignment" }>;
+    }
+  | undefined => {
+  if (assignment.left.kind !== "memberAccess") {
+    return undefined;
+  }
+
+  const loweredObject = lowerExpressionWithYields(
+    assignment.left.object,
+    ctx,
+    positionLabels.object,
+    assignment.left.object.inferredType
+  );
+  if (!loweredObject) {
+    return undefined;
+  }
+
+  const leadingStatements: IrStatement[] = [...loweredObject.prelude];
+  const objectTempName = allocateYieldTempName(ctx);
+  leadingStatements.push(
+    createTempVariableDeclaration(
+      objectTempName,
+      loweredObject.expression,
+      loweredObject.expression.inferredType
+    )
+  );
+
+  let loweredProperty: IrExpression | string = assignment.left.property;
+  if (typeof assignment.left.property !== "string") {
+    const loweredPropertyExpr = lowerExpressionWithYields(
+      assignment.left.property,
+      ctx,
+      positionLabels.property,
+      assignment.left.property.inferredType
+    );
+    if (!loweredPropertyExpr) {
+      return undefined;
+    }
+
+    leadingStatements.push(...loweredPropertyExpr.prelude);
+    const propertyTempName = allocateYieldTempName(ctx);
+    leadingStatements.push(
+      createTempVariableDeclaration(
+        propertyTempName,
+        loweredPropertyExpr.expression,
+        loweredPropertyExpr.expression.inferredType
+      )
+    );
+    loweredProperty = { kind: "identifier", name: propertyTempName };
+  }
+
+  let loweredRight: IrExpression = assignment.right;
+  if (assignment.right.kind === "yield" && !assignment.right.delegate) {
+    const receiveTempName = allocateYieldTempName(ctx);
+    leadingStatements.push(
+      createYieldStatement(
+        assignment.right,
+        { kind: "identifierPattern", name: receiveTempName },
+        assignment.right.inferredType
+      )
+    );
+    loweredRight = { kind: "identifier", name: receiveTempName };
+  } else if (containsYield(assignment.right)) {
+    const loweredRightExpr = lowerExpressionWithYields(
+      assignment.right,
+      ctx,
+      positionLabels.right,
+      assignment.right.inferredType
+    );
+    if (!loweredRightExpr) {
+      return undefined;
+    }
+    leadingStatements.push(...loweredRightExpr.prelude);
+    loweredRight = loweredRightExpr.expression;
+  }
+
+  return {
+    leadingStatements,
+    loweredAssignment: {
+      ...assignment,
+      left: {
+        ...assignment.left,
+        object: { kind: "identifier", name: objectTempName },
+        property: loweredProperty,
+      },
+      right: loweredRight,
+    },
+  };
+};
+
+type LoweredExpressionWithYields = {
+  readonly prelude: readonly IrStatement[];
+  readonly expression: IrExpression;
+};
+
+/**
+ * Lower yield expressions that appear inside larger expression trees into
+ * leading IrYieldStatement nodes plus a rewritten expression that references
+ * temp identifiers.
+ *
+ * This preserves left-to-right evaluation order for supported expression forms.
+ * Unsupported forms emit TSN6101 and return undefined.
+ */
+const lowerExpressionWithYields = (
+  expression: IrExpression,
+  ctx: LoweringContext,
+  position: string,
+  expectedType?: IrType
+): LoweredExpressionWithYields | undefined => {
+  const lower = (
+    expr: IrExpression
+  ): LoweredExpressionWithYields | undefined => {
+    if (!containsYield(expr)) {
+      return { prelude: [], expression: expr };
+    }
+
+    switch (expr.kind) {
+      case "yield": {
+        const tempName = allocateYieldTempName(ctx);
+        return {
+          prelude: [
+            createYieldStatement(
+              expr,
+              { kind: "identifierPattern", name: tempName },
+              expr.inferredType
+            ),
+          ],
+          expression: { kind: "identifier", name: tempName },
+        };
+      }
+
+      case "unary":
+      case "update":
+      case "await":
+      case "spread":
+      case "numericNarrowing":
+      case "typeAssertion":
+      case "asinterface":
+      case "trycast": {
+        const lowered = lower(expr.expression);
+        if (!lowered) return undefined;
+        return {
+          prelude: lowered.prelude,
+          expression: {
+            ...expr,
+            expression: lowered.expression,
+          },
+        };
+      }
+
+      case "stackalloc": {
+        const loweredSize = lower(expr.size);
+        if (!loweredSize) return undefined;
+        return {
+          prelude: loweredSize.prelude,
+          expression: {
+            ...expr,
+            size: loweredSize.expression,
+          },
+        };
+      }
+
+      case "binary":
+      case "logical": {
+        const loweredLeft = lower(expr.left);
+        if (!loweredLeft) return undefined;
+        const loweredRight = lower(expr.right);
+        if (!loweredRight) return undefined;
+        return {
+          prelude: [...loweredLeft.prelude, ...loweredRight.prelude],
+          expression: {
+            ...expr,
+            left: loweredLeft.expression,
+            right: loweredRight.expression,
+          },
+        };
+      }
+
+      case "assignment": {
+        if (
+          expr.left.kind !== "identifierPattern" &&
+          expr.left.kind !== "arrayPattern" &&
+          expr.left.kind !== "objectPattern" &&
+          containsYield(expr.left)
+        ) {
+          if (expr.left.kind !== "memberAccess") {
+            emitUnsupportedYieldDiagnostic(
+              ctx,
+              `${position} assignment target`
+            );
+            return undefined;
+          }
+
+          const loweredObject = lower(expr.left.object);
+          if (!loweredObject) return undefined;
+
+          let loweredProperty: string | IrExpression = expr.left.property;
+          let propertyPrelude: readonly IrStatement[] = [];
+          if (typeof expr.left.property !== "string") {
+            const loweredPropertyExpr = lower(expr.left.property);
+            if (!loweredPropertyExpr) return undefined;
+            loweredProperty = loweredPropertyExpr.expression;
+            propertyPrelude = loweredPropertyExpr.prelude;
+          }
+
+          const loweredRight = lower(expr.right);
+          if (!loweredRight) return undefined;
+
+          return {
+            prelude: [
+              ...loweredObject.prelude,
+              ...propertyPrelude,
+              ...loweredRight.prelude,
+            ],
+            expression: {
+              ...expr,
+              left: {
+                ...expr.left,
+                object: loweredObject.expression,
+                property: loweredProperty,
+              },
+              right: loweredRight.expression,
+            },
+          };
+        }
+        const loweredRight = lower(expr.right);
+        if (!loweredRight) return undefined;
+        return {
+          prelude: loweredRight.prelude,
+          expression: {
+            ...expr,
+            right: loweredRight.expression,
+          },
+        };
+      }
+
+      case "memberAccess": {
+        const loweredObject = lower(expr.object);
+        if (!loweredObject) return undefined;
+        let loweredProperty: IrExpression | string = expr.property;
+        let propertyPrelude: readonly IrStatement[] = [];
+        if (typeof expr.property !== "string") {
+          const loweredPropExpr = lower(expr.property);
+          if (!loweredPropExpr) return undefined;
+          loweredProperty = loweredPropExpr.expression;
+          propertyPrelude = loweredPropExpr.prelude;
+        }
+        return {
+          prelude: [...loweredObject.prelude, ...propertyPrelude],
+          expression: {
+            ...expr,
+            object: loweredObject.expression,
+            property: loweredProperty,
+          },
+        };
+      }
+
+      case "call":
+      case "new": {
+        const loweredCallee = lower(expr.callee);
+        if (!loweredCallee) return undefined;
+        const preludes: IrStatement[] = [...loweredCallee.prelude];
+        const loweredArgs: (
+          | IrExpression
+          | { kind: "spread"; expression: IrExpression }
+        )[] = [];
+        for (const argument of expr.arguments) {
+          if (argument.kind === "spread") {
+            const loweredSpreadExpr = lower(argument.expression);
+            if (!loweredSpreadExpr) return undefined;
+            preludes.push(...loweredSpreadExpr.prelude);
+            loweredArgs.push({
+              kind: "spread",
+              expression: loweredSpreadExpr.expression,
+            });
+          } else {
+            const loweredArg = lower(argument);
+            if (!loweredArg) return undefined;
+            preludes.push(...loweredArg.prelude);
+            loweredArgs.push(loweredArg.expression);
+          }
+        }
+        return {
+          prelude: preludes,
+          expression: {
+            ...expr,
+            callee: loweredCallee.expression,
+            arguments: loweredArgs,
+          },
+        };
+      }
+
+      case "array": {
+        const preludes: IrStatement[] = [];
+        const loweredElements: (
+          | IrExpression
+          | { kind: "spread"; expression: IrExpression }
+          | undefined
+        )[] = [];
+        for (const element of expr.elements) {
+          if (!element) {
+            loweredElements.push(undefined);
+            continue;
+          }
+          if (element.kind === "spread") {
+            const loweredSpreadExpr = lower(element.expression);
+            if (!loweredSpreadExpr) return undefined;
+            preludes.push(...loweredSpreadExpr.prelude);
+            loweredElements.push({
+              kind: "spread",
+              expression: loweredSpreadExpr.expression,
+            });
+            continue;
+          }
+          const loweredElement = lower(element);
+          if (!loweredElement) return undefined;
+          preludes.push(...loweredElement.prelude);
+          loweredElements.push(loweredElement.expression);
+        }
+        return {
+          prelude: preludes,
+          expression: {
+            ...expr,
+            elements: loweredElements,
+          },
+        };
+      }
+
+      case "object": {
+        const preludes: IrStatement[] = [];
+        const loweredProperties = [];
+        for (const property of expr.properties) {
+          if (property.kind === "spread") {
+            const loweredSpreadExpr = lower(property.expression);
+            if (!loweredSpreadExpr) return undefined;
+            preludes.push(...loweredSpreadExpr.prelude);
+            loweredProperties.push({
+              kind: "spread" as const,
+              expression: loweredSpreadExpr.expression,
+            });
+            continue;
+          }
+
+          let loweredKey: string | IrExpression = property.key;
+          if (typeof property.key !== "string") {
+            const loweredKeyExpr = lower(property.key);
+            if (!loweredKeyExpr) return undefined;
+            preludes.push(...loweredKeyExpr.prelude);
+            loweredKey = loweredKeyExpr.expression;
+          }
+
+          const loweredValue = lower(property.value);
+          if (!loweredValue) return undefined;
+          preludes.push(...loweredValue.prelude);
+          loweredProperties.push({
+            kind: "property" as const,
+            key: loweredKey,
+            value: loweredValue.expression,
+            shorthand: property.shorthand,
+          });
+        }
+        return {
+          prelude: preludes,
+          expression: {
+            ...expr,
+            properties: loweredProperties,
+          },
+        };
+      }
+
+      case "templateLiteral": {
+        const preludes: IrStatement[] = [];
+        const loweredExpressions: IrExpression[] = [];
+        for (const templateExpr of expr.expressions) {
+          const loweredTemplateExpr = lower(templateExpr);
+          if (!loweredTemplateExpr) return undefined;
+          preludes.push(...loweredTemplateExpr.prelude);
+          loweredExpressions.push(loweredTemplateExpr.expression);
+        }
+        return {
+          prelude: preludes,
+          expression: {
+            ...expr,
+            expressions: loweredExpressions,
+          },
+        };
+      }
+
+      case "conditional": {
+        const loweredCondition = lower(expr.condition);
+        if (!loweredCondition) return undefined;
+
+        const loweredWhenTrue = lower(expr.whenTrue);
+        if (!loweredWhenTrue) return undefined;
+
+        const loweredWhenFalse = lower(expr.whenFalse);
+        if (!loweredWhenFalse) return undefined;
+
+        const tempType =
+          expr.inferredType ??
+          expectedType ??
+          loweredWhenTrue.expression.inferredType ??
+          loweredWhenFalse.expression.inferredType;
+
+        if (!tempType) {
+          emitUnsupportedYieldDiagnostic(
+            ctx,
+            `${position} conditional expression`,
+            expr.sourceSpan
+          );
+          return undefined;
+        }
+
+        const tempName = allocateYieldTempName(ctx);
+        const tempPattern: IrPattern = {
+          kind: "identifierPattern",
+          name: tempName,
+        };
+
+        const assignTrueStatement: IrStatement = {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: tempPattern,
+            right: loweredWhenTrue.expression,
+          },
+        };
+        const assignFalseStatement: IrStatement = {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: tempPattern,
+            right: loweredWhenFalse.expression,
+          },
+        };
+
+        return {
+          prelude: [
+            ...loweredCondition.prelude,
+            {
+              kind: "variableDeclaration",
+              declarationKind: "let",
+              isExported: false,
+              declarations: [
+                {
+                  kind: "variableDeclarator",
+                  name: tempPattern,
+                  type: tempType,
+                  initializer: { kind: "literal", value: undefined },
+                },
+              ],
+            },
+            {
+              kind: "ifStatement",
+              condition: loweredCondition.expression,
+              thenStatement: {
+                kind: "blockStatement",
+                statements: [...loweredWhenTrue.prelude, assignTrueStatement],
+              },
+              elseStatement: {
+                kind: "blockStatement",
+                statements: [...loweredWhenFalse.prelude, assignFalseStatement],
+              },
+            },
+          ],
+          expression: { kind: "identifier", name: tempName },
+        };
+      }
+
+      default:
+        emitUnsupportedYieldDiagnostic(ctx, position, expr.sourceSpan);
+        return undefined;
+    }
+  };
+
+  return lower(expression);
+};
+
 /**
  * Process a statement in a generator function body.
  * Returns the transformed statement(s) - may return multiple statements
@@ -286,51 +825,180 @@ const processStatement = (
       }
 
       // Pattern 3: x = yield expr; (assignment with yield on right)
-      if (
-        expr.kind === "assignment" &&
-        expr.right.kind === "yield" &&
-        !expr.right.delegate
-      ) {
-        // Only support simple assignment operators (=)
-        if (expr.operator !== "=") {
+      if (expr.kind === "assignment") {
+        if (
+          expr.operator === "=" &&
+          expr.left.kind === "memberAccess" &&
+          ((expr.right.kind === "yield" && !expr.right.delegate) ||
+            containsYield(expr.left))
+        ) {
+          const loweredMemberAssignment = lowerMemberAccessAssignmentWithYields(
+            expr,
+            ctx,
+            {
+              object: "assignment target object",
+              property: "assignment target property",
+              right: "assignment value",
+            }
+          );
+          if (!loweredMemberAssignment) {
+            return stmt;
+          }
+          return [
+            ...loweredMemberAssignment.leadingStatements,
+            {
+              kind: "expressionStatement",
+              expression: loweredMemberAssignment.loweredAssignment,
+            },
+          ];
+        }
+
+        if (expr.right.kind === "yield" && !expr.right.delegate) {
+          // Compound assignment (x += yield y) needs a temporary receive target,
+          // then an explicit compound update statement.
+          if (expr.operator !== "=") {
+            if (
+              expr.left.kind !== "identifierPattern" &&
+              expr.left.kind !== "identifier" &&
+              expr.left.kind !== "memberAccess"
+            ) {
+              emitUnsupportedYieldDiagnostic(
+                ctx,
+                "compound assignment to complex target",
+                expr.right.sourceSpan
+              );
+              return stmt;
+            }
+
+            if (
+              expr.left.kind === "identifierPattern" ||
+              expr.left.kind === "identifier"
+            ) {
+              const tempName = allocateYieldTempName(ctx);
+              const leftExpr =
+                expr.left.kind === "identifierPattern"
+                  ? ({ kind: "identifier", name: expr.left.name } as const)
+                  : expr.left;
+
+              return [
+                createYieldStatement(
+                  expr.right,
+                  { kind: "identifierPattern", name: tempName },
+                  expr.right.inferredType
+                ),
+                {
+                  kind: "expressionStatement",
+                  expression: {
+                    ...expr,
+                    left: leftExpr,
+                    right: { kind: "identifier", name: tempName },
+                  },
+                },
+              ];
+            }
+
+            const loweredObject = lowerExpressionWithYields(
+              expr.left.object,
+              ctx,
+              "compound assignment target object",
+              expr.left.object.inferredType
+            );
+            if (!loweredObject) {
+              return stmt;
+            }
+            const objectTempName = allocateYieldTempName(ctx);
+            const leadingStatements: IrStatement[] = [
+              ...loweredObject.prelude,
+              createTempVariableDeclaration(
+                objectTempName,
+                loweredObject.expression,
+                loweredObject.expression.inferredType
+              ),
+            ];
+
+            let propertyExpr: IrExpression | string = expr.left.property;
+            if (typeof expr.left.property !== "string") {
+              const loweredProperty = lowerExpressionWithYields(
+                expr.left.property,
+                ctx,
+                "compound assignment target property",
+                expr.left.property.inferredType
+              );
+              if (!loweredProperty) {
+                return stmt;
+              }
+              leadingStatements.push(...loweredProperty.prelude);
+              const propertyTempName = allocateYieldTempName(ctx);
+              leadingStatements.push(
+                createTempVariableDeclaration(
+                  propertyTempName,
+                  loweredProperty.expression,
+                  loweredProperty.expression.inferredType
+                )
+              );
+              propertyExpr = { kind: "identifier", name: propertyTempName };
+            }
+
+            const receiveTempName = allocateYieldTempName(ctx);
+            return [
+              ...leadingStatements,
+              createYieldStatement(
+                expr.right,
+                { kind: "identifierPattern", name: receiveTempName },
+                expr.right.inferredType
+              ),
+              {
+                kind: "expressionStatement",
+                expression: {
+                  ...expr,
+                  left: {
+                    ...expr.left,
+                    object: { kind: "identifier", name: objectTempName },
+                    property: propertyExpr,
+                  },
+                  right: { kind: "identifier", name: receiveTempName },
+                },
+              },
+            ];
+          }
+
+          // Extract the target pattern
+          const receiveTarget = toReceivePattern(expr.left);
+          if (receiveTarget) {
+            return createYieldStatement(
+              expr.right,
+              receiveTarget,
+              expr.right.inferredType
+            );
+          }
+
+          // Assignment to member expression or other LHS - not supported
           emitUnsupportedYieldDiagnostic(
             ctx,
-            "compound assignment",
+            "assignment to complex target",
             expr.right.sourceSpan
           );
           return stmt;
         }
-
-        // Extract the target pattern
-        const target = expr.left;
-        if (
-          target.kind === "identifierPattern" ||
-          target.kind === "arrayPattern" ||
-          target.kind === "objectPattern"
-        ) {
-          return createYieldStatement(
-            expr.right,
-            target,
-            expr.right.inferredType
-          );
-        }
-
-        // Assignment to member expression or other LHS - not supported
-        emitUnsupportedYieldDiagnostic(
-          ctx,
-          "assignment to complex target",
-          expr.right.sourceSpan
-        );
-        return stmt;
       }
 
       // Check for yield in unsupported positions
       if (containsYield(expr)) {
-        emitUnsupportedYieldDiagnostic(
+        const lowered = lowerExpressionWithYields(
+          expr,
           ctx,
-          "complex expression",
-          expr.sourceSpan
+          "expression statement"
         );
+        if (!lowered) {
+          return stmt;
+        }
+        return [
+          ...lowered.prelude,
+          {
+            ...stmt,
+            expression: lowered.expression,
+          },
+        ];
       }
 
       return stmt;
@@ -367,16 +1035,31 @@ const processStatement = (
             )
           );
         } else if (decl.initializer && containsYield(decl.initializer)) {
-          // Yield nested in initializer expression - not supported
-          emitUnsupportedYieldDiagnostic(
+          const lowered = lowerExpressionWithYields(
+            decl.initializer,
             ctx,
-            "nested initializer expression",
-            decl.initializer.sourceSpan
+            "variable initializer",
+            decl.type ?? decl.initializer.inferredType
           );
+          if (!lowered) {
+            transformedDeclarations.push({
+              kind: "variableDeclaration",
+              declarationKind: stmt.declarationKind,
+              declarations: [decl],
+              isExported: false,
+            });
+            continue;
+          }
+          transformedDeclarations.push(...lowered.prelude);
           transformedDeclarations.push({
             kind: "variableDeclaration",
             declarationKind: stmt.declarationKind,
-            declarations: [decl],
+            declarations: [
+              {
+                ...decl,
+                initializer: lowered.expression,
+              },
+            ],
             isExported: false,
           });
         } else {
@@ -410,6 +1093,37 @@ const processStatement = (
       };
 
     case "ifStatement":
+      if (containsYield(stmt.condition)) {
+        const loweredCondition = lowerExpressionWithYields(
+          stmt.condition,
+          ctx,
+          "if condition"
+        );
+        if (!loweredCondition) {
+          return {
+            ...stmt,
+            thenStatement: flattenStatement(
+              processStatement(stmt.thenStatement, ctx)
+            ),
+            elseStatement: stmt.elseStatement
+              ? flattenStatement(processStatement(stmt.elseStatement, ctx))
+              : undefined,
+          };
+        }
+        return [
+          ...loweredCondition.prelude,
+          {
+            ...stmt,
+            condition: loweredCondition.expression,
+            thenStatement: flattenStatement(
+              processStatement(stmt.thenStatement, ctx)
+            ),
+            elseStatement: stmt.elseStatement
+              ? flattenStatement(processStatement(stmt.elseStatement, ctx))
+              : undefined,
+          },
+        ];
+      }
       return {
         ...stmt,
         thenStatement: flattenStatement(
@@ -421,48 +1135,379 @@ const processStatement = (
       };
 
     case "whileStatement":
+      if (containsYield(stmt.condition)) {
+        const loweredCondition = lowerExpressionWithYields(
+          stmt.condition,
+          ctx,
+          "while condition"
+        );
+        if (!loweredCondition) {
+          return {
+            ...stmt,
+            body: flattenStatement(processStatement(stmt.body, ctx)),
+          };
+        }
+        const transformedBody = flattenStatement(
+          processStatement(stmt.body, ctx)
+        );
+        const bodyStatements: IrStatement[] = [
+          ...loweredCondition.prelude,
+          {
+            kind: "ifStatement",
+            condition: {
+              kind: "unary",
+              operator: "!",
+              expression: loweredCondition.expression,
+            },
+            thenStatement: { kind: "breakStatement" },
+          },
+        ];
+        if (transformedBody.kind === "blockStatement") {
+          bodyStatements.push(...transformedBody.statements);
+        } else {
+          bodyStatements.push(transformedBody);
+        }
+        return {
+          kind: "whileStatement",
+          condition: { kind: "literal", value: true },
+          body: {
+            kind: "blockStatement",
+            statements: bodyStatements,
+          },
+        };
+      }
       return {
         ...stmt,
         body: flattenStatement(processStatement(stmt.body, ctx)),
       };
 
     case "forStatement": {
-      // Check for yield in initializer - not supported
-      if (stmt.initializer) {
+      const leadingStatements: IrStatement[] = [];
+      let initializer = stmt.initializer;
+
+      if (initializer) {
         if (
-          stmt.initializer.kind === "variableDeclaration" &&
-          stmt.initializer.declarations.some(
-            (d) => d.initializer && containsYield(d.initializer)
-          )
+          initializer.kind === "assignment" &&
+          initializer.operator === "=" &&
+          ((initializer.right.kind === "yield" &&
+            !initializer.right.delegate) ||
+            (initializer.left.kind === "memberAccess" &&
+              containsYield(initializer.left)))
         ) {
-          emitUnsupportedYieldDiagnostic(ctx, "for loop initializer");
-        } else if (
-          stmt.initializer.kind !== "variableDeclaration" &&
-          containsYield(stmt.initializer)
-        ) {
-          emitUnsupportedYieldDiagnostic(ctx, "for loop initializer");
+          const receiveTarget = toReceivePattern(initializer.left);
+          if (
+            receiveTarget &&
+            initializer.right.kind === "yield" &&
+            !initializer.right.delegate
+          ) {
+            leadingStatements.push(
+              createYieldStatement(
+                initializer.right,
+                receiveTarget,
+                initializer.right.inferredType
+              )
+            );
+            initializer = undefined;
+          } else if (receiveTarget) {
+            emitUnsupportedYieldDiagnostic(
+              ctx,
+              "for loop initializer",
+              initializer.right.sourceSpan
+            );
+          } else if (initializer.left.kind === "memberAccess") {
+            const loweredMemberAssignment =
+              lowerMemberAccessAssignmentWithYields(initializer, ctx, {
+                object: "for loop initializer target object",
+                property: "for loop initializer target property",
+                right: "for loop initializer value",
+              });
+            if (!loweredMemberAssignment) {
+              emitUnsupportedYieldDiagnostic(
+                ctx,
+                "for loop initializer",
+                initializer.right.sourceSpan
+              );
+            } else {
+              leadingStatements.push(
+                ...loweredMemberAssignment.leadingStatements
+              );
+              leadingStatements.push({
+                kind: "expressionStatement",
+                expression: loweredMemberAssignment.loweredAssignment,
+              });
+              initializer = undefined;
+            }
+          } else {
+            emitUnsupportedYieldDiagnostic(
+              ctx,
+              "for loop initializer",
+              initializer.right.sourceSpan
+            );
+          }
+        } else if (initializer.kind === "variableDeclaration") {
+          const transformedDecls = initializer.declarations.map((decl) => {
+            if (!decl.initializer || !containsYield(decl.initializer)) {
+              return decl;
+            }
+
+            if (
+              decl.initializer.kind === "yield" &&
+              !decl.initializer.delegate
+            ) {
+              const tempName = allocateYieldTempName(ctx);
+              leadingStatements.push(
+                createYieldStatement(
+                  decl.initializer,
+                  { kind: "identifierPattern", name: tempName },
+                  decl.type ?? decl.initializer.inferredType
+                )
+              );
+              return {
+                ...decl,
+                initializer: {
+                  kind: "identifier",
+                  name: tempName,
+                } as const,
+              };
+            }
+
+            const loweredInitializer = lowerExpressionWithYields(
+              decl.initializer,
+              ctx,
+              "for loop initializer",
+              decl.type ?? decl.initializer.inferredType
+            );
+            if (!loweredInitializer) {
+              return decl;
+            }
+            leadingStatements.push(...loweredInitializer.prelude);
+            return {
+              ...decl,
+              initializer: loweredInitializer.expression,
+            };
+          });
+          initializer = {
+            ...initializer,
+            declarations: transformedDecls,
+          };
+        } else if (containsYield(initializer)) {
+          const loweredInitializer = lowerExpressionWithYields(
+            initializer,
+            ctx,
+            "for loop initializer"
+          );
+          if (loweredInitializer) {
+            leadingStatements.push(...loweredInitializer.prelude);
+            initializer = loweredInitializer.expression;
+          }
         }
       }
-      // Check for yield in condition/update - not supported
-      if (stmt.condition && containsYield(stmt.condition)) {
-        emitUnsupportedYieldDiagnostic(ctx, "for loop condition");
+
+      const loweredCondition =
+        stmt.condition && containsYield(stmt.condition)
+          ? lowerExpressionWithYields(stmt.condition, ctx, "for loop condition")
+          : undefined;
+      const loweredUpdate =
+        stmt.update && containsYield(stmt.update)
+          ? lowerExpressionWithYields(stmt.update, ctx, "for loop update")
+          : undefined;
+
+      const transformedBody = flattenStatement(
+        processStatement(stmt.body, ctx)
+      );
+      if (!loweredCondition && !loweredUpdate) {
+        const transformedFor: IrStatement = {
+          ...stmt,
+          initializer,
+          body: transformedBody,
+        };
+        if (leadingStatements.length === 0) {
+          return transformedFor;
+        }
+        return [...leadingStatements, transformedFor];
       }
-      if (stmt.update && containsYield(stmt.update)) {
-        emitUnsupportedYieldDiagnostic(ctx, "for loop update");
+
+      const bodyStatements: IrStatement[] = [];
+      let updateFirstFlagName: string | undefined;
+      if (loweredUpdate) {
+        updateFirstFlagName = allocateYieldTempName(ctx);
+        leadingStatements.push({
+          kind: "variableDeclaration",
+          declarationKind: "let",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: updateFirstFlagName },
+              type: { kind: "primitiveType", name: "boolean" },
+              initializer: { kind: "literal", value: true },
+            },
+          ],
+        });
+        const updateBodyStatements: IrStatement[] = [...loweredUpdate.prelude];
+        if (!stmt.update || stmt.update.kind !== "yield") {
+          updateBodyStatements.push({
+            kind: "expressionStatement",
+            expression: loweredUpdate.expression,
+          });
+        }
+        bodyStatements.push({
+          kind: "ifStatement",
+          condition: {
+            kind: "unary",
+            operator: "!",
+            expression: { kind: "identifier", name: updateFirstFlagName },
+          },
+          thenStatement: {
+            kind: "blockStatement",
+            statements: updateBodyStatements,
+          },
+        });
+        bodyStatements.push({
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: { kind: "identifierPattern", name: updateFirstFlagName },
+            right: { kind: "literal", value: false },
+          },
+        });
+      }
+
+      if (loweredCondition) {
+        bodyStatements.push(...loweredCondition.prelude);
+        bodyStatements.push({
+          kind: "ifStatement",
+          condition: {
+            kind: "unary",
+            operator: "!",
+            expression: loweredCondition.expression,
+          },
+          thenStatement: { kind: "breakStatement" },
+        });
+      } else if (loweredUpdate && stmt.condition) {
+        bodyStatements.push({
+          kind: "ifStatement",
+          condition: {
+            kind: "unary",
+            operator: "!",
+            expression: stmt.condition,
+          },
+          thenStatement: { kind: "breakStatement" },
+        });
+      }
+
+      if (transformedBody.kind === "blockStatement") {
+        bodyStatements.push(...transformedBody.statements);
+      } else {
+        bodyStatements.push(transformedBody);
+      }
+
+      const transformedFor: IrStatement = {
+        ...stmt,
+        initializer,
+        condition: { kind: "literal", value: true },
+        update: loweredUpdate ? undefined : stmt.update,
+        body: {
+          kind: "blockStatement",
+          statements: bodyStatements,
+        },
+      };
+
+      if (leadingStatements.length === 0) {
+        return transformedFor;
+      }
+      return [...leadingStatements, transformedFor];
+    }
+
+    case "forOfStatement":
+      if (containsYield(stmt.expression)) {
+        const loweredExpression = lowerExpressionWithYields(
+          stmt.expression,
+          ctx,
+          "for-of expression"
+        );
+        if (!loweredExpression) {
+          return {
+            ...stmt,
+            body: flattenStatement(processStatement(stmt.body, ctx)),
+          };
+        }
+        return [
+          ...loweredExpression.prelude,
+          {
+            ...stmt,
+            expression: loweredExpression.expression,
+            body: flattenStatement(processStatement(stmt.body, ctx)),
+          },
+        ];
       }
       return {
         ...stmt,
         body: flattenStatement(processStatement(stmt.body, ctx)),
       };
-    }
 
-    case "forOfStatement":
+    case "forInStatement":
+      if (containsYield(stmt.expression)) {
+        const loweredExpression = lowerExpressionWithYields(
+          stmt.expression,
+          ctx,
+          "for-in expression"
+        );
+        if (!loweredExpression) {
+          return {
+            ...stmt,
+            body: flattenStatement(processStatement(stmt.body, ctx)),
+          };
+        }
+        return [
+          ...loweredExpression.prelude,
+          {
+            ...stmt,
+            expression: loweredExpression.expression,
+            body: flattenStatement(processStatement(stmt.body, ctx)),
+          },
+        ];
+      }
       return {
         ...stmt,
         body: flattenStatement(processStatement(stmt.body, ctx)),
       };
 
     case "switchStatement":
+      if (containsYield(stmt.expression)) {
+        const loweredExpression = lowerExpressionWithYields(
+          stmt.expression,
+          ctx,
+          "switch expression"
+        );
+        if (!loweredExpression) {
+          return {
+            ...stmt,
+            cases: stmt.cases.map((c) => ({
+              ...c,
+              statements: c.statements.flatMap((s) => {
+                const result = processStatement(s, ctx);
+                return Array.isArray(result) ? result : [result];
+              }),
+            })),
+          };
+        }
+        return [
+          ...loweredExpression.prelude,
+          {
+            ...stmt,
+            expression: loweredExpression.expression,
+            cases: stmt.cases.map((c) => ({
+              ...c,
+              statements: c.statements.flatMap((s) => {
+                const result = processStatement(s, ctx);
+                return Array.isArray(result) ? result : [result];
+              }),
+            })),
+          },
+        ];
+      }
       return {
         ...stmt,
         cases: stmt.cases.map((c) => ({
@@ -496,13 +1541,19 @@ const processStatement = (
       };
 
     case "returnStatement":
-      // Check for yield in return expression
       if (stmt.expression && containsYield(stmt.expression)) {
-        emitUnsupportedYieldDiagnostic(
+        const lowered = lowerExpressionWithYields(
+          stmt.expression,
           ctx,
-          "return expression",
-          stmt.expression.sourceSpan
+          "return expression"
         );
+        if (!lowered) {
+          return createGeneratorReturnStatement(stmt.expression);
+        }
+        return [
+          ...lowered.prelude,
+          createGeneratorReturnStatement(lowered.expression),
+        ];
       }
       // Transform return statements in generators to IrGeneratorReturnStatement
       // This captures the return value for generators with TReturn
@@ -510,13 +1561,22 @@ const processStatement = (
       return createGeneratorReturnStatement(stmt.expression);
 
     case "throwStatement":
-      // Check for yield in throw expression
       if (containsYield(stmt.expression)) {
-        emitUnsupportedYieldDiagnostic(
+        const lowered = lowerExpressionWithYields(
+          stmt.expression,
           ctx,
-          "throw expression",
-          stmt.expression.sourceSpan
+          "throw expression"
         );
+        if (!lowered) {
+          return stmt;
+        }
+        return [
+          ...lowered.prelude,
+          {
+            kind: "throwStatement",
+            expression: lowered.expression,
+          },
+        ];
       }
       return stmt;
 
@@ -553,6 +1613,68 @@ const flattenStatement = (
   };
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const collectResidualYieldExpressions = (
+  value: unknown,
+  collected: IrYieldExpression[]
+): void => {
+  if (Array.isArray(value)) {
+    for (const element of value) {
+      collectResidualYieldExpressions(element, collected);
+    }
+    return;
+  }
+
+  if (!isRecord(value)) {
+    return;
+  }
+
+  if (value.kind === "yield") {
+    collected.push(value as unknown as IrYieldExpression);
+    return;
+  }
+
+  for (const nested of Object.values(value)) {
+    collectResidualYieldExpressions(nested, collected);
+  }
+};
+
+const locationKey = (location: SourceLocation): string =>
+  `${location.file}:${location.line}:${location.column}:${location.length}`;
+
+const addResidualYieldDiagnostics = (
+  ctx: LoweringContext,
+  value: unknown
+): void => {
+  const residualYields: IrYieldExpression[] = [];
+  collectResidualYieldExpressions(value, residualYields);
+  if (residualYields.length === 0) {
+    return;
+  }
+
+  const existingTsn6101Locations = new Set<string>(
+    ctx.diagnostics
+      .filter((d) => d.code === "TSN6101")
+      .map((d) => locationKey(d.location ?? moduleLocation(ctx)))
+  );
+
+  for (const residualYield of residualYields) {
+    const location = residualYield.sourceSpan ?? moduleLocation(ctx);
+    const key = locationKey(location);
+    if (existingTsn6101Locations.has(key)) {
+      continue;
+    }
+    emitUnsupportedYieldDiagnostic(
+      ctx,
+      "an unsupported expression form after yield lowering",
+      location
+    );
+    existingTsn6101Locations.add(key);
+  }
+};
+
 /**
  * Process statements in non-generator functions (just recurse into nested generators).
  */
@@ -567,11 +1689,13 @@ const processNonGeneratorStatement = (
           ...ctx,
           inGenerator: true,
         };
+        const loweredBody = flattenStatement(
+          processStatement(stmt.body, generatorCtx)
+        ) as IrBlockStatement;
+        addResidualYieldDiagnostics(generatorCtx, loweredBody);
         return {
           ...stmt,
-          body: flattenStatement(
-            processStatement(stmt.body, generatorCtx)
-          ) as IrBlockStatement,
+          body: loweredBody,
         };
       }
       return {
@@ -676,11 +1800,13 @@ const processClassMember = (
         ...ctx,
         inGenerator: true,
       };
+      const loweredBody = flattenStatement(
+        processStatement(member.body, generatorCtx)
+      ) as IrBlockStatement;
+      addResidualYieldDiagnostics(generatorCtx, loweredBody);
       return {
         ...member,
-        body: flattenStatement(
-          processStatement(member.body, generatorCtx)
-        ) as IrBlockStatement,
+        body: loweredBody,
       };
     }
     return {
@@ -711,6 +1837,7 @@ const processModule = (
     filePath: module.filePath,
     diagnostics: [],
     inGenerator: false,
+    yieldTempCounter: 0,
   };
 
   const processedBody = module.body.map((stmt) => {
@@ -719,11 +1846,13 @@ const processModule = (
         ...ctx,
         inGenerator: true,
       };
+      const loweredBody = flattenStatement(
+        processStatement(stmt.body, generatorCtx)
+      ) as IrBlockStatement;
+      addResidualYieldDiagnostics(generatorCtx, loweredBody);
       return {
         ...stmt,
-        body: flattenStatement(
-          processStatement(stmt.body, generatorCtx)
-        ) as IrBlockStatement,
+        body: loweredBody,
       };
     }
     return processNonGeneratorStatement(stmt, ctx);
@@ -739,13 +1868,15 @@ const processModule = (
           ...ctx,
           inGenerator: true,
         };
+        const loweredBody = flattenStatement(
+          processStatement(exp.declaration.body, generatorCtx)
+        ) as IrBlockStatement;
+        addResidualYieldDiagnostics(generatorCtx, loweredBody);
         return {
           ...exp,
           declaration: {
             ...exp.declaration,
-            body: flattenStatement(
-              processStatement(exp.declaration.body, generatorCtx)
-            ) as IrBlockStatement,
+            body: loweredBody,
           },
         };
       }

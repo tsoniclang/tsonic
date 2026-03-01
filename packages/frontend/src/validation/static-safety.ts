@@ -10,7 +10,7 @@
  * - TSN7408: Mixed variadic tuples not supported (retired)
  * - TSN7409: 'infer' keyword not supported (retired)
  * - TSN7410: Intersection types not supported (retired)
- * - TSN7413: Dictionary key must be string or number
+ * - TSN7413: Dictionary key must be string, number, or symbol
  * - TSN7430: Arrow function requires explicit types (escape hatch)
  *
  * This ensures NativeAOT-compatible, predictable-performance output.
@@ -28,6 +28,14 @@ import {
   createDiagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
+import {
+  collectWrittenSymbols,
+  collectSupportedGenericFunctionValueSymbols,
+  getSupportedGenericFunctionDeclarationSymbol,
+  getSupportedGenericFunctionValueSymbol,
+  isGenericFunctionDeclarationNode,
+  isGenericFunctionValueNode,
+} from "../generic-function-values.js";
 
 /**
  * Result of basic eligibility check for object literal synthesis.
@@ -40,7 +48,7 @@ type BasicEligibilityResult =
  * Check basic structural eligibility for object literal synthesis.
  *
  * This is a simplified check that doesn't require TypeSystem access.
- * It validates structural constraints (no computed keys, no method shorthand, etc.)
+ * It validates structural constraints (no computed keys, no dynamic receiver method shorthand, etc.)
  * but does NOT validate spread type annotations (that requires TypeSystem).
  *
  * Full eligibility check happens during IR conversion.
@@ -48,6 +56,29 @@ type BasicEligibilityResult =
 const checkBasicSynthesisEligibility = (
   node: ts.ObjectLiteralExpression
 ): BasicEligibilityResult => {
+  const usesDynamicReceiverSemantics = (
+    method: ts.MethodDeclaration
+  ): boolean => {
+    let found = false;
+    const visit = (current: ts.Node): void => {
+      if (found) return;
+      if (
+        current.kind === ts.SyntaxKind.ThisKeyword ||
+        current.kind === ts.SyntaxKind.SuperKeyword ||
+        (ts.isIdentifier(current) && current.text === "arguments")
+      ) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(current, visit);
+    };
+
+    if (method.body) {
+      visit(method.body);
+    }
+    return found;
+  };
+
   for (const prop of node.properties) {
     // Property assignment: check key type
     if (ts.isPropertyAssignment(prop)) {
@@ -87,12 +118,32 @@ const checkBasicSynthesisEligibility = (
       continue;
     }
 
-    // Method declaration: reject (use arrow functions instead)
+    // Method declarations are valid only when they can be represented as
+    // function-valued properties without dynamic receiver semantics.
     if (ts.isMethodDeclaration(prop)) {
-      return {
-        eligible: false,
-        reason: `Method shorthand is not supported. Use arrow function syntax: 'name: () => ...'`,
-      };
+      if (ts.isComputedPropertyName(prop.name)) {
+        const expr = prop.name.expression;
+        if (!ts.isStringLiteral(expr)) {
+          return {
+            eligible: false,
+            reason: `Computed property key is not a string literal`,
+          };
+        }
+      }
+      if (ts.isPrivateIdentifier(prop.name)) {
+        return {
+          eligible: false,
+          reason: `Private identifier (symbol) keys are not supported`,
+        };
+      }
+      if (usesDynamicReceiverSemantics(prop)) {
+        return {
+          eligible: false,
+          reason:
+            "Method shorthand cannot reference this/super/arguments in synthesized types",
+        };
+      }
+      continue;
     }
 
     // Getter/setter: reject
@@ -306,63 +357,69 @@ const objectLiteralHasContextualType = (
   return false;
 };
 
-type GenericFunctionValueNode = ts.ArrowFunction | ts.FunctionExpression;
-
-const isGenericFunctionValueNode = (
-  node: ts.Node
-): node is GenericFunctionValueNode =>
-  (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
-  !!node.typeParameters &&
-  node.typeParameters.length > 0;
-
-const getSupportedGenericFunctionValueSymbol = (
-  node: GenericFunctionValueNode,
-  checker: ts.TypeChecker
-): ts.Symbol | undefined => {
-  const decl = node.parent;
-  if (!ts.isVariableDeclaration(decl)) return undefined;
-  if (decl.initializer !== node) return undefined;
-  if (!ts.isIdentifier(decl.name)) return undefined;
-
-  const list = decl.parent;
-  if (!ts.isVariableDeclarationList(list)) return undefined;
-  if (!(list.flags & ts.NodeFlags.Const)) return undefined;
-  if (list.declarations.length !== 1) return undefined;
-
-  const stmt = list.parent;
-  if (!ts.isVariableStatement(stmt)) return undefined;
-  if (!ts.isSourceFile(stmt.parent)) return undefined;
-
-  return checker.getSymbolAtLocation(decl.name);
-};
-
-const collectSupportedGenericFunctionValueSymbols = (
-  sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker
-): ReadonlySet<ts.Symbol> => {
-  const symbols = new Set<ts.Symbol>();
-
-  const collect = (node: ts.Node): void => {
-    if (isGenericFunctionValueNode(node)) {
-      const symbol = getSupportedGenericFunctionValueSymbol(node, checker);
-      if (symbol) symbols.add(symbol);
-    }
-    ts.forEachChild(node, collect);
-  };
-
-  collect(sourceFile);
-  return symbols;
-};
-
 const isAllowedGenericFunctionValueIdentifierUse = (
-  node: ts.Identifier
+  node: ts.Identifier,
+  checker: ts.TypeChecker
 ): boolean => {
   const parent = node.parent;
 
+  if (ts.isFunctionDeclaration(parent) && parent.name === node) return true;
   if (ts.isVariableDeclaration(parent) && parent.name === node) return true;
+  if (ts.isImportSpecifier(parent) && parent.name === node) return true;
+  if (
+    ts.isVariableDeclaration(parent) &&
+    parent.initializer === node &&
+    ts.isIdentifier(parent.name)
+  ) {
+    const declarationList = parent.parent;
+    if (ts.isVariableDeclarationList(declarationList)) {
+      const isConst = (declarationList.flags & ts.NodeFlags.Const) !== 0;
+      const isLet = (declarationList.flags & ts.NodeFlags.Let) !== 0;
+      if (isConst || isLet) return true;
+    }
+  }
   if (ts.isCallExpression(parent) && parent.expression === node) return true;
   if (ts.isTypeQueryNode(parent) && parent.exprName === node) return true;
   if (ts.isExportSpecifier(parent)) return true;
+  if (ts.isExportAssignment(parent) && parent.expression === node) return true;
+
+  const contextualType = checker.getContextualType(node);
+  if (contextualType) {
+    const isNullishOnly = (type: ts.Type): boolean => {
+      const flags = type.getFlags();
+      return (
+        (flags &
+          (ts.TypeFlags.Null |
+            ts.TypeFlags.Undefined |
+            ts.TypeFlags.Void |
+            ts.TypeFlags.Never)) !==
+        0
+      );
+    };
+
+    const isMonomorphicCallableType = (type: ts.Type): boolean => {
+      if (type.isUnion()) {
+        return type.types.every(
+          (member) => isNullishOnly(member) || isMonomorphicCallableType(member)
+        );
+      }
+
+      if (type.isIntersection()) {
+        return type.types.every((member) => isMonomorphicCallableType(member));
+      }
+
+      const signatures = checker.getSignaturesOfType(
+        type,
+        ts.SignatureKind.Call
+      );
+      if (signatures.length === 0) return false;
+      return signatures.every(
+        (sig) => !sig.typeParameters || sig.typeParameters.length === 0
+      );
+    };
+
+    if (isMonomorphicCallableType(contextualType)) return true;
+  }
 
   return false;
 };
@@ -386,8 +443,13 @@ export const validateStaticSafety = (
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
+  const writtenSymbols = collectWrittenSymbols(sourceFile, program.checker);
   const supportedGenericFunctionValueSymbols =
-    collectSupportedGenericFunctionValueSymbols(sourceFile, program.checker);
+    collectSupportedGenericFunctionValueSymbols(
+      sourceFile,
+      program.checker,
+      writtenSymbols
+    );
 
   const visitor = (
     node: ts.Node,
@@ -557,9 +619,9 @@ export const validateStaticSafety = (
                 createDiagnostic(
                   "TSN7413",
                   "error",
-                  "Dictionary key type must be 'string' or 'number'. Other key types are not supported.",
+                  "Dictionary key type must be 'string', 'number', or 'symbol'. Other key types are not supported.",
                   getNodeLocation(sourceFile, keyTypeNode),
-                  "Use Record<string, V> or Record<number, V>."
+                  "Use Record<string, V>, Record<number, V>, or Record<symbol, V>."
                 )
               );
             }
@@ -569,7 +631,7 @@ export const validateStaticSafety = (
     }
 
     // TSN7413: Check for unsupported index signature key types
-    // Only string and number are allowed (matches TypeScript's index signature constraints)
+    // string, number, and symbol are allowed (matches TypeScript's PropertyKey constraint)
     if (ts.isIndexSignatureDeclaration(node)) {
       const keyParam = node.parameters[0];
       if (keyParam?.type && !isAllowedKeyType(keyParam.type)) {
@@ -578,9 +640,9 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7413",
             "error",
-            "Index signature key type must be 'string' or 'number'. Other key types are not supported.",
+            "Index signature key type must be 'string', 'number', or 'symbol'. Other key types are not supported.",
             getNodeLocation(sourceFile, keyParam.type),
-            "Use { [key: string]: V } or { [key: number]: V }."
+            "Use { [key: string]: V }, { [key: number]: V }, or { [key: symbol]: V }."
           )
         );
       }
@@ -608,13 +670,17 @@ export const validateStaticSafety = (
     // Empty arrays are inferred/erased deterministically by array conversion rules.
 
     // TSN7432:
-    // Generic function values are currently supported only for module-level
-    // `const name = <T>(...) => ...` / `const name = function<T>(...) { ... }`
-    // declarations with a single declarator. Other forms remain hard errors.
+    // Generic function symbols are supported for:
+    // - direct generic function value declarations (`const` + never-reassigned `let`)
+    // - direct generic function declarations (`function f<T>(...) { ... }`)
+    // - deterministic alias declarations that point at supported symbols
+    //   (`const` aliases + never-reassigned `let` aliases).
+    // Other declaration forms remain hard errors.
     if (isGenericFunctionValueNode(node)) {
       const symbol = getSupportedGenericFunctionValueSymbol(
         node,
-        program.checker
+        program.checker,
+        writtenSymbols
       );
       const isSupported =
         symbol !== undefined &&
@@ -626,9 +692,31 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            "Generic arrow/functions as values are only supported for module-level single `const` declarations.",
+            "Generic arrow/functions as values are only supported for `const` or never-reassigned `let` identifier declarations (including deterministic aliases).",
             getNodeLocation(sourceFile, node),
-            "Use `const f = <T>(...) => ...` at module scope, or rewrite as a named generic function declaration."
+            "Use `const f = <T>(...) => ...`, `let f = <T>(...) => ...` with no reassignments, or deterministic alias forms like `const g = f`."
+          )
+        );
+      }
+    }
+
+    if (isGenericFunctionDeclarationNode(node)) {
+      const symbol = getSupportedGenericFunctionDeclarationSymbol(
+        node,
+        program.checker
+      );
+      const isSupported =
+        symbol !== undefined &&
+        supportedGenericFunctionValueSymbols.has(symbol);
+      if (!isSupported) {
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN7432",
+            "error",
+            "Generic function declarations are only supported when their symbol remains deterministic in value positions.",
+            getNodeLocation(sourceFile, node),
+            "Use a direct generic call (e.g., `f<T>(...)`) or deterministic const/never-reassigned let aliases."
           )
         );
       }
@@ -639,7 +727,7 @@ export const validateStaticSafety = (
       if (
         symbol &&
         supportedGenericFunctionValueSymbols.has(symbol) &&
-        !isAllowedGenericFunctionValueIdentifierUse(node)
+        !isAllowedGenericFunctionValueIdentifierUse(node, program.checker)
       ) {
         const name = node.text;
         currentCollector = addDiagnostic(
@@ -647,9 +735,9 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            `Generic function value '${name}' is only supported in direct call position.`,
+            `Generic function value '${name}' is only supported in direct call or monomorphic callable-context position.`,
             getNodeLocation(sourceFile, node),
-            "Call the function directly (e.g., `name<T>(...)`) or rewrite to a named generic function declaration."
+            "Call the function directly (e.g., `name<T>(...)`), or use it where a concrete callable type is contextually known (e.g., function argument typed as `(x: number) => number`)."
           )
         );
       }
@@ -679,16 +767,17 @@ export const validateStaticSafety = (
 
 /**
  * Check if a type node represents an allowed dictionary key type.
- * Allowed: string, number (matches TypeScript's PropertyKey constraint)
+ * Allowed: string, number, symbol (matches TypeScript's PropertyKey constraint)
  *
  * Note: TypeScript's Record<K, V> only allows K extends keyof any (string | number | symbol).
- * We support string and number. Symbol is rejected via TSN7203.
+ * We support all three PropertyKey primitives.
  */
 const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
   // Direct keywords
   if (
     typeNode.kind === ts.SyntaxKind.StringKeyword ||
-    typeNode.kind === ts.SyntaxKind.NumberKeyword
+    typeNode.kind === ts.SyntaxKind.NumberKeyword ||
+    typeNode.kind === ts.SyntaxKind.SymbolKeyword
   ) {
     return true;
   }
@@ -715,7 +804,7 @@ const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
     const typeName = typeNode.typeName;
     if (ts.isIdentifier(typeName)) {
       const name = typeName.text;
-      if (name === "string" || name === "number") {
+      if (name === "string" || name === "number" || name === "symbol") {
         return true;
       }
     }

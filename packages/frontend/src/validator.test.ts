@@ -227,8 +227,8 @@ describe("Generic Validation", () => {
     });
   });
 
-  describe("TSN7203 - Symbol Index Signatures (still blocked)", () => {
-    it("should detect symbol index signatures", () => {
+  describe("TSN7203 retired - Symbol index signatures", () => {
+    it("should allow symbol index signatures", () => {
       const source = `
         export interface WithSymbolIndex {
           [key: symbol]: string;
@@ -241,10 +241,7 @@ describe("Generic Validation", () => {
       const symbolDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7203"
       );
-      expect(symbolDiag).not.to.equal(undefined);
-      expect(symbolDiag?.message).to.include(
-        "Symbol keys are not supported in C#"
-      );
+      expect(symbolDiag).to.equal(undefined);
     });
 
     it("should not flag string index signatures", () => {
@@ -268,6 +265,39 @@ describe("Generic Validation", () => {
         interface WithNumberIndex {
           [key: number]: string;
         }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const symbolDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7203"
+      );
+      expect(symbolDiag).to.equal(undefined);
+    });
+
+    it("should allow Record<symbol, V> without TSN7203", () => {
+      const source = `
+        type SymbolMap = Record<symbol, number>;
+        const table: SymbolMap = {} as SymbolMap;
+        void table;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const symbolDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7203"
+      );
+      expect(symbolDiag).to.equal(undefined);
+    });
+
+    it("should allow mixed PropertyKey unions including symbol", () => {
+      const source = `
+        type Key = string | number | symbol;
+        type Map = Record<Key, number>;
+        const table: Map = {} as Map;
+        void table;
       `;
 
       const program = createTestProgram(source);
@@ -456,10 +486,38 @@ describe("Static Safety Validation", () => {
       expect(objDiag).to.equal(undefined);
     });
 
-    it("should reject object literal with method shorthand", () => {
-      // Method shorthand is not eligible for synthesis
+    it("should allow object literal with method shorthand", () => {
       const source = `
-        const a = { foo() { return 1; } };
+        const a = { foo(x: number): number { return x + 1; } };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
+    it("should allow object literal with computed string-literal method key", () => {
+      const source = `
+        const a = { ["foo"](x: number): number { return x + 1; } };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
+    it("should reject object literal method shorthand that uses this", () => {
+      const source = `
+        const a = {
+          x: 1,
+          foo(): number {
+            return this.x;
+          },
+        };
       `;
 
       const program = createTestProgram(source);
@@ -467,7 +525,24 @@ describe("Static Safety Validation", () => {
 
       const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
       expect(objDiag).not.to.equal(undefined);
-      expect(objDiag?.message).to.include("Method shorthand");
+      expect(objDiag?.message).to.include("this/super/arguments");
+    });
+
+    it("should reject object literal method shorthand that uses arguments", () => {
+      const source = `
+        const a = {
+          foo(x: number): number {
+            return arguments.length + x;
+          },
+        };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).not.to.equal(undefined);
+      expect(objDiag?.message).to.include("this/super/arguments");
     });
 
     it("should allow object literal with interface type", () => {
@@ -756,7 +831,7 @@ describe("Static Safety Validation", () => {
       expect(keyDiag).to.equal(undefined);
     });
 
-    it("should reject Record with symbol key", () => {
+    it("should allow Record with symbol key", () => {
       const source = `
         const d: Record<symbol, string> = {};
       `;
@@ -765,8 +840,39 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
-      expect(keyDiag).not.to.equal(undefined);
-      expect(keyDiag?.message).to.include("string");
+      expect(keyDiag).to.equal(undefined);
+    });
+
+    it("should allow index signature with symbol key", () => {
+      const source = `
+        interface SymIndexed {
+          [key: symbol]: string;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(keyDiag).to.equal(undefined);
+    });
+
+    it("should allow symbol-typed key values in dictionary access", () => {
+      const source = `
+        function read(table: Record<symbol, number>, key: symbol): number {
+          return table[key];
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      const typeDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7414"
+      );
+      expect(keyDiag).to.equal(undefined);
+      expect(typeDiag).to.equal(undefined);
     });
 
     it("should reject Record with object key type", () => {

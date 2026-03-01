@@ -1,0 +1,3 @@
+{
+  "description": "Generic function value aliases lower to forwarding function declarations."
+}
