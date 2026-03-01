@@ -15,6 +15,30 @@ import type {
 
 type TypeParamConstraintKind = "class" | "struct" | "unconstrained";
 
+const NON_CONSTRAINT_REFERENCE_TYPES = new Set([
+  // TS/C# primitives and aliases that cannot appear as C# generic constraints.
+  "string",
+  "bool",
+  "char",
+  "byte",
+  "sbyte",
+  "short",
+  "ushort",
+  "int",
+  "uint",
+  "long",
+  "ulong",
+  "nint",
+  "nuint",
+  "int128",
+  "uint128",
+  "half",
+  "float",
+  "double",
+  "decimal",
+  "void",
+]);
+
 const inferTypeParamConstraintKind = (
   tp: IrTypeParameter
 ): TypeParamConstraintKind => {
@@ -52,6 +76,22 @@ const inferTypeParamConstraintKind = (
 
   // Interface/class constraints are not enough to determine reference vs value.
   return "unconstrained";
+};
+
+const isConstraintTypeNodeEmittable = (type: IrType): boolean => {
+  if (type.kind === "typeParameterType") {
+    return true;
+  }
+
+  if (type.kind !== "referenceType") {
+    return false;
+  }
+
+  if (type.name === "object" || type.name === "struct") {
+    return false;
+  }
+
+  return !NON_CONSTRAINT_REFERENCE_TYPES.has(type.name);
 };
 
 /**
@@ -154,16 +194,18 @@ export const emitTypeParametersAst = (
             member.name === "object"
           ) {
             constraintParts.push({ kind: "classConstraint" });
-          } else {
+          } else if (isConstraintTypeNodeEmittable(member)) {
             const [cAst, newContext] = emitTypeAst(member, currentContext);
             currentContext = newContext;
             constraintParts.push({ kind: "typeConstraint", type: cAst });
           }
         }
-        constraintAsts.push({
-          typeParameter: tpName,
-          constraints: constraintParts,
-        });
+        if (constraintParts.length > 0) {
+          constraintAsts.push({
+            typeParameter: tpName,
+            constraints: constraintParts,
+          });
+        }
       } else if (
         tp.constraint.kind === "referenceType" &&
         tp.constraint.name === "struct"
@@ -182,7 +224,7 @@ export const emitTypeParametersAst = (
           typeParameter: tpName,
           constraints: [{ kind: "classConstraint" }],
         });
-      } else {
+      } else if (isConstraintTypeNodeEmittable(tp.constraint)) {
         const [cAst, newContext] = emitTypeAst(tp.constraint, currentContext);
         currentContext = newContext;
         constraintAsts.push({

@@ -149,6 +149,25 @@ describe("End-to-End Integration", () => {
       // Should have function
       expect(csharp).to.match(/public\s+static\s+double\s+getId<T>/);
     });
+
+    it("should not emit invalid C# constraints for primitive-like TS constraints", () => {
+      const source = `
+        export interface User {
+          name: string;
+          age: number;
+        }
+
+        export type UserKey = keyof User;
+        export type UserValue<K extends UserKey> = User[K];
+        export type RoutePath<T extends string> = \`/api/\${T}\`;
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.not.match(/where\s+\w+\s*:\s*string/);
+      expect(csharp).to.not.include("where K : string");
+      expect(csharp).to.not.include("where T : string");
+    });
   });
 
   describe("Interfaces and Type Aliases", () => {

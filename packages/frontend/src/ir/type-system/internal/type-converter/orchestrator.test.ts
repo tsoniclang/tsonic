@@ -241,6 +241,104 @@ describe("Type Converter - Mapped/Conditional Syntax", () => {
   });
 });
 
+describe("Type Converter - Deterministic Type Operators", () => {
+  it("lowers keyof object literal types to a union of key literals", () => {
+    const converted = convertAlias(
+      "type T = keyof { alpha: number; beta: string };",
+      "T"
+    );
+
+    expect(converted).to.deep.equal({
+      kind: "unionType",
+      types: [
+        { kind: "literalType", value: "alpha" },
+        { kind: "literalType", value: "beta" },
+      ],
+    });
+  });
+
+  it("lowers keyof constrained type parameters via their constraint", () => {
+    const converted = convertAlias(
+      "type Keys<T extends { id: number; slug: string }> = keyof T;",
+      "Keys"
+    );
+
+    expect(converted).to.deep.equal({
+      kind: "unionType",
+      types: [
+        { kind: "literalType", value: "id" },
+        { kind: "literalType", value: "slug" },
+      ],
+    });
+  });
+
+  it("resolves indexed-access property lookups with literal keys", () => {
+    const converted = convertAlias(
+      'type T = { id: number; name: string }["id"];',
+      "T"
+    );
+
+    expect(converted).to.deep.equal({ kind: "primitiveType", name: "number" });
+  });
+
+  it("resolves indexed-access unions of literal keys", () => {
+    const converted = convertAlias(
+      'type T = { id: number; name: string }["id" | "name"];',
+      "T"
+    );
+
+    expect(converted).to.deep.equal({
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "string" },
+      ],
+    });
+  });
+
+  it("resolves indexed-access on constrained type parameters", () => {
+    const converted = convertAlias(
+      "type V<T extends { id: number; name: string }, K extends keyof T> = T[K];",
+      "V"
+    );
+
+    expect(converted).to.deep.equal({
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "number" },
+        { kind: "primitiveType", name: "string" },
+      ],
+    });
+  });
+
+  it("expands finite template-literal types to literal unions", () => {
+    const converted = convertAlias('type T = `prefix-${"a" | "b"}`;', "T");
+
+    expect(converted).to.deep.equal({
+      kind: "unionType",
+      types: [
+        { kind: "literalType", value: "prefix-a" },
+        { kind: "literalType", value: "prefix-b" },
+      ],
+    });
+  });
+
+  it("falls back template-literal types to string when expansion is non-finite", () => {
+    const converted = convertAlias("type T<U> = `prefix-${U}`;", "T");
+
+    expect(converted).to.deep.equal({ kind: "primitiveType", name: "string" });
+  });
+
+  it("falls back template-literal types to string when expansion is too large", () => {
+    const converted = convertAlias(
+      'type T = `${"a"|"b"|"c"|"d"|"e"}${"f"|"g"|"h"|"i"|"j"}${"k"|"l"|"m"|"n"|"o"}`;',
+      "T"
+    );
+
+    expect(converted).to.deep.equal({ kind: "primitiveType", name: "string" });
+  });
+});
+
 describe("Type Converter - Symbol Dictionary Keys", () => {
   it("lowers symbol keyword types to object reference types", () => {
     const converted = convertAlias("type T = symbol;", "T");
