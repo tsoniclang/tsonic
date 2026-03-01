@@ -670,12 +670,13 @@ export const validateStaticSafety = (
     // Empty arrays are inferred/erased deterministically by array conversion rules.
 
     // TSN7432:
-    // Generic function symbols are supported for:
+    // Generic function values are supported for deterministic declaration/alias
+    // forms that can be lowered to C# generic method declarations:
     // - direct generic function value declarations (`const` + never-reassigned `let`)
     // - direct generic function declarations (`function f<T>(...) { ... }`)
     // - deterministic alias declarations that point at supported symbols
     //   (`const` aliases + never-reassigned `let` aliases).
-    // Other declaration forms remain hard errors.
+    // Non-deterministic or non-transpilable value-level usages remain hard errors.
     if (isGenericFunctionValueNode(node)) {
       const symbol = getSupportedGenericFunctionValueSymbol(
         node,
@@ -692,9 +693,9 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            "Generic arrow/functions as values are only supported for `const` or never-reassigned `let` identifier declarations (including deterministic aliases).",
+            "Generic function values are only supported in deterministic declaration/alias forms that can lower to C# generic methods.",
             getNodeLocation(sourceFile, node),
-            "Use `const f = <T>(...) => ...`, `let f = <T>(...) => ...` with no reassignments, or deterministic alias forms like `const g = f`."
+            "Use `const f = <T>(...) => ...`, `let f = <T>(...) => ...` with no reassignments, or deterministic aliases like `const g = f`."
           )
         );
       }
@@ -714,7 +715,7 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            "Generic function declarations are only supported when their symbol remains deterministic in value positions.",
+            "Generic function declarations are only supported when their symbol remains deterministic in value positions and lowers to a C# generic method.",
             getNodeLocation(sourceFile, node),
             "Use a direct generic call (e.g., `f<T>(...)`) or deterministic const/never-reassigned let aliases."
           )
@@ -735,7 +736,7 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            `Generic function value '${name}' is only supported in direct call or monomorphic callable-context position.`,
+            `Generic function value '${name}' is only supported in direct call or monomorphic callable-context position where lowering is deterministic.`,
             getNodeLocation(sourceFile, node),
             "Call the function directly (e.g., `name<T>(...)`), or use it where a concrete callable type is contextually known (e.g., function argument typed as `(x: number) => number`)."
           )

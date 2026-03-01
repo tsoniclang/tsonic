@@ -74,7 +74,7 @@ export type DiagnosticCode =
   // Arrow function inference (TSN7430-TSN7439)
   | "TSN7430" // Arrow function requires explicit types (escape hatch)
   | "TSN7431" // Cannot infer arrow return type
-  | "TSN7432" // Generic function value usage unsupported in current lowering shape
+  | "TSN7432" // Generic function value usage unsupported in deterministic C# lowering shapes
   | "TSN7440" // Core intrinsic must resolve to @tsonic/core
   | "TSN7441" // istype<T>(...) must be erased
   | "TSN7442" // Core intrinsic call must be lowered (no runtime call)
