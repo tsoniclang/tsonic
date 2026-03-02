@@ -196,6 +196,9 @@ describe("End-to-End Integration", () => {
 
       // Optional property should be nullable
       expect(csharp).to.match(/public\s+string\?\s+email\s*\{\s*get;\s*set;/);
+      expect(csharp).to.match(
+        /\[global::System\.Diagnostics\.CodeAnalysis\.SetsRequiredMembersAttribute\]\s*public\s+User\s*\(\s*\)/
+      );
     });
 
     it("should compile structural type alias to sealed class", () => {
@@ -216,6 +219,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(
         /public\s+required\s+double\s+y\s*\{\s*get;\s*set;/
       );
+      expect(csharp).to.match(
+        /\[global::System\.Diagnostics\.CodeAnalysis\.SetsRequiredMembersAttribute\]\s*public\s+Point__Alias\s*\(\s*\)/
+      );
     });
 
     it("should compile generic interface", () => {
@@ -232,6 +238,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(/public\s+class\s+Result\s*<T>/);
       expect(csharp).to.match(/public\s+required\s+bool\s+ok/);
       expect(csharp).to.match(/public\s+required\s+T\s+value/);
+      expect(csharp).to.match(
+        /\[global::System\.Diagnostics\.CodeAnalysis\.SetsRequiredMembersAttribute\]\s*public\s+Result\s*\(\s*\)/
+      );
     });
   });
 

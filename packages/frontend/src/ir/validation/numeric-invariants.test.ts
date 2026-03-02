@@ -584,6 +584,44 @@ describe("Numeric Proof Invariants", () => {
       expect(result.ok).to.be.true;
       expect(result.diagnostics).to.have.length(0);
     });
+
+    it("should ACCEPT explicit narrowing when binary expression carries numeric inferredType", () => {
+      // Mirrors IR shape from expressions like:
+      //   const age = (Convert.ToDouble(now) - Convert.ToDouble(ts)) as long;
+      // where operand proofs can be opaque but the binary node itself is already
+      // deterministically typed by earlier inference.
+      const numericCall = (name: string): IrExpression => ({
+        kind: "call",
+        callee: {
+          kind: "identifier",
+          name,
+          inferredType: { kind: "unknownType" },
+        },
+        arguments: [],
+        isOptional: false,
+        inferredType: { kind: "primitiveType", name: "number" },
+      });
+
+      const module = createModule([
+        createVarDecl(
+          "age",
+          narrowTo(
+            {
+              kind: "binary",
+              operator: "-",
+              left: numericCall("toDoubleA"),
+              right: numericCall("toDoubleB"),
+              inferredType: { kind: "primitiveType", name: "number" },
+            },
+            "Int64"
+          )
+        ),
+      ]);
+
+      const result = runNumericProofPass([module]);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+    });
   });
 
   describe("Declared Numeric Types", () => {

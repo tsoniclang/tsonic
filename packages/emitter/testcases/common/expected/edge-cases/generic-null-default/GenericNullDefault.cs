@@ -3,6 +3,12 @@ namespace TestCases.common.edgecases.genericnulldefault
     public class Result<T>
         where T : class
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public Result()
+        {
+
+        }
+
         public required T? value { get; set; }
 
         public required string? error { get; set; }

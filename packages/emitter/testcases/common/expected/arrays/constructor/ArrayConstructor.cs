@@ -2,6 +2,12 @@ namespace TestCases.common.arrays.constructor
 {
     public class User
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public User()
+        {
+
+        }
+
         public required string name { get; set; }
 
         public required int age { get; set; }

@@ -1356,6 +1356,211 @@ describe("Expression Emission", () => {
     expect(result).to.not.include('dict["x"] != null');
   });
 
+  it("should lower dictionary.Keys to a materialized key array", () => {
+    const dictType: IrType = {
+      kind: "dictionaryType",
+      keyType: { kind: "primitiveType", name: "string" },
+      valueType: { kind: "primitiveType", name: "number" },
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "keys" },
+              initializer: {
+                kind: "memberAccess",
+                object: {
+                  kind: "identifier",
+                  name: "dict",
+                  inferredType: dictType,
+                },
+                property: "Keys",
+                isComputed: false,
+                isOptional: false,
+                inferredType: {
+                  kind: "arrayType",
+                  elementType: { kind: "primitiveType", name: "string" },
+                },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      "new global::System.Collections.Generic.List<string>(dict.Keys).ToArray()"
+    );
+  });
+
+  it("should lower dictionary.Values to a materialized value array", () => {
+    const dictType: IrType = {
+      kind: "dictionaryType",
+      keyType: { kind: "primitiveType", name: "string" },
+      valueType: { kind: "referenceType", name: "long" },
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "values" },
+              initializer: {
+                kind: "memberAccess",
+                object: {
+                  kind: "identifier",
+                  name: "dict",
+                  inferredType: dictType,
+                },
+                property: "Values",
+                isComputed: false,
+                isOptional: false,
+                inferredType: {
+                  kind: "arrayType",
+                  elementType: { kind: "referenceType", name: "long" },
+                },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      "new global::System.Collections.Generic.List<long>(dict.Values).ToArray()"
+    );
+  });
+
+  it("should upcast dictionary values into union wrappers for expected dictionary union types", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "widened" },
+              type: {
+                kind: "dictionaryType",
+                keyType: { kind: "primitiveType", name: "string" },
+                valueType: {
+                  kind: "unionType",
+                  types: [
+                    { kind: "referenceType", name: "int" },
+                    { kind: "primitiveType", name: "string" },
+                  ],
+                },
+              },
+              initializer: {
+                kind: "identifier",
+                name: "raw",
+                inferredType: {
+                  kind: "dictionaryType",
+                  keyType: { kind: "primitiveType", name: "string" },
+                  valueType: { kind: "referenceType", name: "int" },
+                },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("global::System.Linq.Enumerable.ToDictionary");
+    expect(result).to.include(
+      "global::Tsonic.Runtime.Union<int, string>.From1"
+    );
+  });
+
+  it("should not upcast when dictionary value type already matches union runtime type", () => {
+    const unionType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "referenceType", name: "int" },
+        { kind: "primitiveType", name: "string" },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "alreadyWide" },
+              type: {
+                kind: "dictionaryType",
+                keyType: { kind: "primitiveType", name: "string" },
+                valueType: unionType,
+              },
+              initializer: {
+                kind: "identifier",
+                name: "input",
+                inferredType: {
+                  kind: "dictionaryType",
+                  keyType: { kind: "primitiveType", name: "string" },
+                  valueType: unionType,
+                },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).not.to.include(
+      "global::System.Linq.Enumerable.ToDictionary"
+    );
+  });
+
   it("should lower symbol-key dictionary undefined checks to ContainsKey", () => {
     const dictType: IrType = {
       kind: "dictionaryType",

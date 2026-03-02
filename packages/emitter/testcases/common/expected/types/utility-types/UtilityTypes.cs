@@ -2,6 +2,12 @@ namespace TestCases.common.types.utilitytypes
 {
     public class Person
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public Person()
+        {
+
+        }
+
         public required string name { get; set; }
 
         public required double age { get; set; }
@@ -27,6 +33,12 @@ namespace TestCases.common.types.utilitytypes
 
     public sealed class RequiredOptionalPerson__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public RequiredOptionalPerson__Alias()
+        {
+
+        }
+
         public required string name { get; set; }
 
         public required double age { get; set; }
@@ -34,6 +46,12 @@ namespace TestCases.common.types.utilitytypes
 
     public sealed class ReadonlyPerson__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public ReadonlyPerson__Alias()
+        {
+
+        }
+
         public required string name { get; init; }
 
         public required double age { get; init; }
@@ -43,11 +61,23 @@ namespace TestCases.common.types.utilitytypes
 
     public sealed class PersonName__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public PersonName__Alias()
+        {
+
+        }
+
         public required string name { get; set; }
     }
 
     public sealed class PersonContact__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public PersonContact__Alias()
+        {
+
+        }
+
         public required string name { get; set; }
 
         public required string email { get; set; }
@@ -55,6 +85,12 @@ namespace TestCases.common.types.utilitytypes
 
     public sealed class PersonWithoutEmail__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public PersonWithoutEmail__Alias()
+        {
+
+        }
+
         public required string name { get; set; }
 
         public required double age { get; set; }
@@ -62,6 +98,12 @@ namespace TestCases.common.types.utilitytypes
 
     public sealed class PersonNameOnly__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public PersonNameOnly__Alias()
+        {
+
+        }
+
         public required string name { get; set; }
     }
 
@@ -85,6 +127,12 @@ namespace TestCases.common.types.utilitytypes
 
     public class MixedPerson
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public MixedPerson()
+        {
+
+        }
+
         public required string name { get; set; }
 
         public double? age { get; set; }
@@ -94,6 +142,12 @@ namespace TestCases.common.types.utilitytypes
 
     public sealed class FullMixedPerson__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public FullMixedPerson__Alias()
+        {
+
+        }
+
         public required string name { get; set; }
 
         public required double age { get; set; }
@@ -119,6 +173,12 @@ namespace TestCases.common.types.utilitytypes
 
     public sealed class OmitFromReadonly__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public OmitFromReadonly__Alias()
+        {
+
+        }
+
         public required string name { get; init; }
 
         public required double age { get; init; }
@@ -140,11 +200,23 @@ namespace TestCases.common.types.utilitytypes
 
     public sealed class ReadonlyWithMethods__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public ReadonlyWithMethods__Alias()
+        {
+
+        }
+
         public required string name { get; init; }
     }
 
     public sealed class StatusMap__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public StatusMap__Alias()
+        {
+
+        }
+
         public required bool pending { get; set; }
 
         public required bool active { get; set; }
@@ -154,6 +226,12 @@ namespace TestCases.common.types.utilitytypes
 
     public sealed class NumericKeys__Alias
     {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public NumericKeys__Alias()
+        {
+
+        }
+
         public required string _1 { get; set; }
 
         public required string _2 { get; set; }

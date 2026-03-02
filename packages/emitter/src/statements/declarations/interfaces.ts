@@ -184,6 +184,30 @@ export const emitInterfaceDeclaration = (
     }
   }
 
+  const classLikeName = escapeCSharpIdentifier(stmt.name);
+  const hasRequiredMembers = members.some(
+    (m) => m.kind === "propertyDeclaration" && m.modifiers.includes("required")
+  );
+  const needsSetsRequiredMembersCtor =
+    !hasMethodSignatures && !stmt.isStruct && hasRequiredMembers;
+  if (needsSetsRequiredMembersCtor) {
+    members.unshift({
+      kind: "constructorDeclaration",
+      attributes: [
+        {
+          type: {
+            kind: "identifierType",
+            name: "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute",
+          },
+        },
+      ],
+      modifiers: ["public"],
+      name: classLikeName,
+      parameters: [],
+      body: { kind: "blockStatement", statements: [] },
+    });
+  }
+
   // Determine C# declaration kind
   const mainDecl: CSharpTypeDeclarationAst = hasMethodSignatures
     ? {
@@ -211,7 +235,7 @@ export const emitInterfaceDeclaration = (
           kind: "classDeclaration",
           attributes: [],
           modifiers,
-          name: escapeCSharpIdentifier(stmt.name),
+          name: classLikeName,
           typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
           interfaces,
           members,

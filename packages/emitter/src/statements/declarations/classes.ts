@@ -12,6 +12,7 @@ import { substituteType } from "../../specialization/substitution.js";
 import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import type {
+  CSharpAttributeAst,
   CSharpTypeDeclarationAst,
   CSharpMemberAst,
   CSharpTypeAst,
@@ -257,6 +258,51 @@ export const emitClassDeclaration = (
     currentContext = newContext;
   }
 
+  const hasRequiredProperties = memberAsts.some(
+    (m) => m.kind === "propertyDeclaration" && m.modifiers.includes("required")
+  );
+  const setsRequiredAttribute: CSharpAttributeAst = {
+    type: {
+      kind: "identifierType",
+      name: "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute",
+    },
+  };
+  const memberAstsWithRequiredCtor = (() => {
+    if (stmt.isStruct || !hasRequiredProperties) return memberAsts;
+    const updatedMembers = memberAsts.map((m) => {
+      if (m.kind !== "constructorDeclaration") return m;
+      const hasSetsRequired = m.attributes.some((a) => {
+        if (a.type.kind !== "identifierType") return false;
+        const name = a.type.name;
+        return (
+          name ===
+            "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute" ||
+          name.endsWith(".SetsRequiredMembersAttribute")
+        );
+      });
+      if (hasSetsRequired) return m;
+      return {
+        ...m,
+        attributes: [setsRequiredAttribute, ...m.attributes],
+      };
+    });
+
+    const hasAnyConstructor = updatedMembers.some(
+      (m) => m.kind === "constructorDeclaration"
+    );
+    if (hasAnyConstructor) return updatedMembers;
+
+    const synthesizedCtor: CSharpMemberAst = {
+      kind: "constructorDeclaration",
+      attributes: [setsRequiredAttribute],
+      modifiers: ["public"],
+      name: escapedClassName,
+      parameters: [],
+      body: { kind: "blockStatement", statements: [] },
+    };
+    return [synthesizedCtor, ...updatedMembers];
+  })();
+
   // Attributes
   const [attrs] = emitAttributes(stmt.attributes, context);
 
@@ -269,7 +315,7 @@ export const emitClassDeclaration = (
         name: escapedClassName,
         typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
         interfaces: implementedInterfaces,
-        members: memberAsts,
+        members: memberAstsWithRequiredCtor,
         constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
       }
     : {
@@ -280,7 +326,7 @@ export const emitClassDeclaration = (
         typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
         baseType,
         interfaces: implementedInterfaces,
-        members: memberAsts,
+        members: memberAstsWithRequiredCtor,
         constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
       };
 

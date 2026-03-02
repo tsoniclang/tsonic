@@ -923,6 +923,47 @@ export const typeOfMember = (
         })()
       : receiver;
 
+  // Built-in dictionary pseudo-members used by TS-side ergonomics.
+  // Record<K, V> lowers to dictionaryType, and callers often use:
+  // - dict.Keys[i]
+  // - dict.Values[i]
+  // - dict.Count / dict.Length
+  //
+  // Resolve these deterministically at TypeSystem level so downstream passes
+  // (numeric proof, element access typing) don't receive unknownType poison.
+  if (effectiveReceiver.kind === "dictionaryType") {
+    if (memberName === "Keys") {
+      return {
+        kind: "arrayType",
+        elementType: effectiveReceiver.keyType,
+      };
+    }
+    if (memberName === "Values") {
+      return {
+        kind: "arrayType",
+        elementType: effectiveReceiver.valueType,
+      };
+    }
+    if (memberName === "Count" || memberName === "Length") {
+      return { kind: "primitiveType", name: "int" };
+    }
+  }
+
+  // Built-in array pseudo-members.
+  // Arrays are structural IR types and may not resolve via nominal lookup.
+  if (effectiveReceiver.kind === "arrayType") {
+    if (memberName === "Length" || memberName === "Count") {
+      return { kind: "primitiveType", name: "int" };
+    }
+  }
+
+  // Tuples behave like fixed-size arrays for length access.
+  if (effectiveReceiver.kind === "tupleType") {
+    if (memberName === "Length" || memberName === "Count") {
+      return { kind: "primitiveType", name: "int" };
+    }
+  }
+
   // 1. Normalize receiver to nominal form
   const normalized = normalizeToNominal(state, effectiveReceiver);
   if (!normalized) {

@@ -618,6 +618,60 @@ export const emitMemberAccess = (
     }
   }
 
+  // Dictionary pseudo-members:
+  // - dict.Keys   -> new List<TKey>(dict.Keys).ToArray()
+  // - dict.Values -> new List<TValue>(dict.Values).ToArray()
+  //
+  // We expose these as array-typed on the frontend, so emit array materialization
+  // here to keep C# behavior aligned with inferred IR types.
+  const resolvedObjectType = objectType
+    ? resolveTypeAlias(stripNullish(objectType), context)
+    : undefined;
+  if (resolvedObjectType?.kind === "dictionaryType") {
+    if (prop === "Keys" || prop === "Values") {
+      const collectionMemberName = emitCSharpName(prop, "properties", context);
+      const sourceCollectionAst: CSharpExpressionAst = {
+        kind: "memberAccessExpression",
+        expression: objectAst,
+        memberName: collectionMemberName,
+      };
+
+      const elementType =
+        prop === "Keys"
+          ? resolvedObjectType.keyType
+          : resolvedObjectType.valueType;
+      const [elementTypeAst, ctxAfterType] = emitTypeAst(
+        elementType,
+        newContext
+      );
+
+      const listTypeAst = {
+        kind: "identifierType",
+        name: "global::System.Collections.Generic.List",
+        typeArguments: [elementTypeAst],
+      } as const;
+
+      const listExprAst: CSharpExpressionAst = {
+        kind: "objectCreationExpression",
+        type: listTypeAst,
+        arguments: [sourceCollectionAst],
+      };
+
+      return [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: listExprAst,
+            memberName: "ToArray",
+          },
+          arguments: [],
+        },
+        ctxAfterType,
+      ];
+    }
+  }
+
   // Regular property access
   const memberName = emitMemberName(
     expr.object,

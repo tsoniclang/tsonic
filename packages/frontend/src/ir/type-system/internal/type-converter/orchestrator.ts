@@ -49,12 +49,17 @@ const getTypeParameterConstraintNode = (
   typeNode: ts.TypeNode,
   binding: Binding
 ): ts.TypeNode | undefined => {
-  if (!ts.isTypeReferenceNode(typeNode) || !ts.isIdentifier(typeNode.typeName)) {
+  if (
+    !ts.isTypeReferenceNode(typeNode) ||
+    !ts.isIdentifier(typeNode.typeName)
+  ) {
     return undefined;
   }
   const declId = binding.resolveTypeReference(typeNode);
   if (!declId) return undefined;
-  const declInfo = (binding as BindingInternal)._getHandleRegistry().getDecl(declId);
+  const declInfo = (binding as BindingInternal)
+    ._getHandleRegistry()
+    .getDecl(declId);
   const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
     | ts.Declaration
     | undefined;
@@ -99,12 +104,15 @@ const resolveKeyofFromType = (type: IrType): IrType => {
   const members = getMembersFromType(type);
   if (members && members.length > 0) {
     return toUnionOrSingle(
-      members.map((m) => ({ kind: "literalType", value: m.name } as IrType))
+      members.map((m) => ({ kind: "literalType", value: m.name }) as IrType)
     );
   }
 
   if (type.kind === "dictionaryType") {
-    if (type.keyType.kind === "primitiveType" && type.keyType.name === "string") {
+    if (
+      type.keyType.kind === "primitiveType" &&
+      type.keyType.name === "string"
+    ) {
       return toUnionOrSingle([
         { kind: "primitiveType", name: "string" },
         { kind: "primitiveType", name: "number" },
@@ -134,7 +142,11 @@ const lookupMemberTypeByKey = (
 ): IrType | undefined => {
   if (type.kind === "tupleType") {
     const index = Number(key);
-    if (Number.isInteger(index) && index >= 0 && index < type.elementTypes.length) {
+    if (
+      Number.isInteger(index) &&
+      index >= 0 &&
+      index < type.elementTypes.length
+    ) {
       const element = type.elementTypes[index];
       return element ?? undefined;
     }
@@ -161,13 +173,17 @@ const resolveIndexedAccessFromTypes = (
 ): IrType => {
   if (objectType.kind === "unionType") {
     return toUnionOrSingle(
-      objectType.types.map((member) => resolveIndexedAccessFromTypes(member, indexType))
+      objectType.types.map((member) =>
+        resolveIndexedAccessFromTypes(member, indexType)
+      )
     );
   }
 
   if (indexType.kind === "unionType") {
     return toUnionOrSingle(
-      indexType.types.map((member) => resolveIndexedAccessFromTypes(objectType, member))
+      indexType.types.map((member) =>
+        resolveIndexedAccessFromTypes(objectType, member)
+      )
     );
   }
 
@@ -226,7 +242,10 @@ const resolveIndexedAccessFromTypes = (
     return { kind: "unknownType" };
   }
 
-  if (indexType.kind === "typeParameterType" || indexType.kind === "unknownType") {
+  if (
+    indexType.kind === "typeParameterType" ||
+    indexType.kind === "unknownType"
+  ) {
     if (objectType.kind === "dictionaryType") {
       return objectType.valueType;
     }
@@ -240,7 +259,9 @@ const resolveIndexedAccessFromTypes = (
   return { kind: "unknownType" };
 };
 
-const finiteTemplateTypeStrings = (type: IrType): readonly string[] | undefined => {
+const finiteTemplateTypeStrings = (
+  type: IrType
+): readonly string[] | undefined => {
   if (type.kind === "literalType") {
     return [String(type.value)];
   }
@@ -264,7 +285,9 @@ const convertTemplateLiteralType = (
   const MAX_COMBINATIONS = 64;
   let current = [node.head.text];
   for (const span of node.templateSpans) {
-    const options = finiteTemplateTypeStrings(convertTypeFn(span.type, binding));
+    const options = finiteTemplateTypeStrings(
+      convertTypeFn(span.type, binding)
+    );
     if (!options || options.length === 0) {
       return { kind: "primitiveType", name: "string" };
     }
@@ -280,7 +303,7 @@ const convertTemplateLiteralType = (
     current = next;
   }
   return toUnionOrSingle(
-    current.map((value) => ({ kind: "literalType", value } as IrType))
+    current.map((value) => ({ kind: "literalType", value }) as IrType)
   );
 };
 
