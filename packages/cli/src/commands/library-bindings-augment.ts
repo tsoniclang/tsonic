@@ -68,6 +68,12 @@ type SourceTypeImport = {
   readonly importedName: string;
 };
 
+type SourceTypeImportBinding = {
+  readonly source: string;
+  readonly importedName: string;
+  readonly localName: string;
+};
+
 type ModuleSourceIndex = {
   readonly fileKey: string;
   readonly wrapperImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
@@ -107,6 +113,11 @@ const printTypeNodeText = (
   return typePrinter
     .printNode(ts.EmitHint.Unspecified, node, sourceFile)
     .trim();
+};
+
+const textContainsIdentifier = (text: string, identifier: string): boolean => {
+  const pattern = new RegExp(String.raw`\b${escapeRegExp(identifier)}\b`);
+  return pattern.test(text);
 };
 
 const ensureUndefinedInType = (typeText: string): string => {
@@ -509,7 +520,7 @@ export const patchInternalIndexBrandMarkersOptional = (
   return { ok: true, value: undefined };
 };
 
-const splitTopLevelTypeArgs = (text: string): string[] => {
+const splitTopLevelCommaSeparated = (text: string): string[] => {
   const parts: string[] = [];
   let depthAngle = 0;
   let depthParen = 0;
@@ -541,6 +552,10 @@ const splitTopLevelTypeArgs = (text: string): string[] => {
 
   parts.push(text.slice(start).trim());
   return parts.filter((p) => p.length > 0);
+};
+
+const splitTopLevelTypeArgs = (text: string): string[] => {
+  return splitTopLevelCommaSeparated(text);
 };
 
 const expandUnionsDeep = (typeText: string): string => {
@@ -582,6 +597,31 @@ const expandUnionsDeep = (typeText: string): string => {
   }
 
   return result;
+};
+
+const collectSourceTypeImportsForSignature = (
+  signature: SourceFunctionSignatureDef,
+  typeImportsByLocalName: ReadonlyMap<string, SourceTypeImport>
+): readonly SourceTypeImportBinding[] => {
+  const required: SourceTypeImportBinding[] = [];
+
+  for (const [localName, imported] of typeImportsByLocalName) {
+    const source = imported.source.trim();
+    // Relative source imports do not map to published facade paths.
+    if (source.startsWith(".") || source.startsWith("/")) continue;
+    const appearsInSignature =
+      textContainsIdentifier(signature.typeParametersText, localName) ||
+      textContainsIdentifier(signature.parametersText, localName) ||
+      textContainsIdentifier(signature.returnTypeText, localName);
+    if (!appearsInSignature) continue;
+    required.push({
+      source,
+      importedName: imported.importedName,
+      localName,
+    });
+  }
+
+  return required.sort((a, b) => a.localName.localeCompare(b.localName));
 };
 
 const patchFacadeWithSourceFunctionSignatures = (
@@ -627,46 +667,48 @@ const patchFacadeWithSourceFunctionSignatures = (
       continue;
     }
 
-    // If no function declaration match, try const Func<...> pattern
-    const constFuncRe = new RegExp(
-      String.raw`^export\s+declare\s+const\s+${escapeRegExp(name)}\s*:\s*Func<([\s\S]+?)>\s*;`,
+    // If no function declaration match, try const callable pattern.
+    const constDeclRe = new RegExp(
+      String.raw`^export\s+declare\s+const\s+${escapeRegExp(name)}\s*:\s*([^;]+);`,
       "m"
     );
-    const constMatch = constFuncRe.exec(next);
+    const constMatch = constDeclRe.exec(next);
     if (!constMatch || !constMatch[1]) continue;
 
-    const funcTypeArgs = splitTopLevelTypeArgs(constMatch[1]);
-    if (funcTypeArgs.length < 2) continue;
+    const constTypeText = constMatch[1].trim();
+    let expectedParamCount: number | undefined;
+    let forcedReturnType: string | undefined;
 
-    // Last arg = return type, remaining args = parameter types
-    const facadeParamTypes = funcTypeArgs.slice(0, -1);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const facadeReturnType = funcTypeArgs[funcTypeArgs.length - 1]!;
+    const funcTypeMatch = /^Func<([\s\S]+)>$/.exec(constTypeText);
+    if (funcTypeMatch?.[1]) {
+      const funcTypeArgs = splitTopLevelTypeArgs(funcTypeMatch[1]);
+      if (funcTypeArgs.length < 2) continue;
 
-    // Use the first source signature for parameter names
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const sourceSig = signatures[0]!;
-    const sourceParams = sourceSig.parametersText
-      .split(",")
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
+      expectedParamCount = funcTypeArgs.length - 1;
+      const lastTypeArg = funcTypeArgs.at(-1);
+      if (!lastTypeArg) continue;
+      forcedReturnType = expandUnionsDeep(lastTypeArg);
+    }
 
-    // If count mismatch, skip patching for this declaration
-    if (sourceParams.length !== facadeParamTypes.length) continue;
+    const replacement = Array.from(
+      new Set(
+        signatures
+          .filter((sig) => {
+            if (expectedParamCount === undefined) return true;
+            const paramCount = splitTopLevelCommaSeparated(
+              sig.parametersText
+            ).length;
+            return paramCount === expectedParamCount;
+          })
+          .map((sig) => {
+            const returnType = forcedReturnType ?? sig.returnTypeText;
+            return `export declare function ${name}${sig.typeParametersText}(${sig.parametersText}): ${returnType};`;
+          })
+      )
+    ).join("\n");
 
-    // Pair source parameter NAMES with facade parameter TYPES
-    const pairedParams = sourceParams.map((param, idx) => {
-      const colonIdx = param.indexOf(":");
-      const paramName =
-        colonIdx >= 0 ? param.slice(0, colonIdx).trim() : param.trim();
-      return `${paramName}: ${facadeParamTypes[idx]}`;
-    });
-
-    const expandedReturnType = expandUnionsDeep(facadeReturnType);
-    const typeParamsText = sourceSig.typeParametersText;
-    const replacement = `export declare function ${name}${typeParamsText}(${pairedParams.join(", ")}): ${expandedReturnType};`;
-
-    next = next.replace(constFuncRe, replacement);
+    if (replacement.length === 0) continue;
+    next = next.replace(constDeclRe, replacement);
   }
 
   if (next !== original) {
@@ -776,6 +818,105 @@ const ensureInternalTypeImportsForFacade = (
     const anchor = internalImportMatch[0];
     next = next.replace(anchor, `${anchor}\n${importLine}`);
   }
+
+  if (next !== original) {
+    writeFileSync(facadeDtsPath, next, "utf-8");
+  }
+
+  return { ok: true, value: undefined };
+};
+
+const ensureSourceTypeImportsForFacade = (
+  facadeDtsPath: string,
+  importsByLocalName: ReadonlyMap<string, SourceTypeImportBinding>
+): Result<void, string> => {
+  if (!existsSync(facadeDtsPath)) {
+    return {
+      ok: false,
+      error: `Facade declaration file not found at ${facadeDtsPath}`,
+    };
+  }
+
+  const original = readFileSync(facadeDtsPath, "utf-8");
+  if (importsByLocalName.size === 0) {
+    return { ok: true, value: undefined };
+  }
+
+  const existingLocals = new Set<string>();
+  const importRe = /^import\s+(.*)\s+from\s+['"][^'"]+['"];\s*$/gm;
+  for (const match of original.matchAll(importRe)) {
+    const clause = match[1]?.trim();
+    if (!clause) continue;
+
+    const nsMatch = /^\*\s+as\s+([A-Za-z_$][\w$]*)$/.exec(clause);
+    if (nsMatch?.[1]) {
+      existingLocals.add(nsMatch[1]);
+      continue;
+    }
+
+    const defaultMatch = /^([A-Za-z_$][\w$]*)$/.exec(clause);
+    if (defaultMatch?.[1]) {
+      existingLocals.add(defaultMatch[1]);
+      continue;
+    }
+
+    const namedMatch = /^(?:type\s+)?\{([^}]*)\}$/.exec(clause);
+    if (namedMatch?.[1]) {
+      for (const specifier of parseNamedImports(namedMatch[1])) {
+        existingLocals.add(specifier.local);
+      }
+    }
+  }
+
+  const grouped = new Map<string, NamedImportSpecifier[]>();
+  for (const binding of Array.from(importsByLocalName.values()).sort((a, b) =>
+    a.localName.localeCompare(b.localName)
+  )) {
+    if (existingLocals.has(binding.localName)) continue;
+
+    const list = grouped.get(binding.source) ?? [];
+    list.push({
+      imported: binding.importedName,
+      local: binding.localName,
+    });
+    grouped.set(binding.source, list);
+  }
+
+  if (grouped.size === 0) {
+    const startMarker = "// Tsonic source function type imports (generated)";
+    const endMarker = "// End Tsonic source function type imports";
+    const next = stripExistingSection(original, startMarker, endMarker);
+    if (next !== original) {
+      writeFileSync(facadeDtsPath, next, "utf-8");
+    }
+    return { ok: true, value: undefined };
+  }
+
+  const lines: string[] = [];
+  for (const [source, specifiers] of Array.from(grouped.entries()).sort(
+    (a, b) => a[0].localeCompare(b[0])
+  )) {
+    const unique = Array.from(
+      new Map(
+        specifiers.map((specifier) => [
+          `${specifier.imported}|${specifier.local}`,
+          specifier,
+        ])
+      ).values()
+    ).sort((a, b) => a.local.localeCompare(b.local));
+    lines.push(
+      `import type { ${unique.map((s) => formatNamedImportSpecifier(s)).join(", ")} } from '${source}';`
+    );
+  }
+
+  const startMarker = "// Tsonic source function type imports (generated)";
+  const endMarker = "// End Tsonic source function type imports";
+  const next = upsertSectionAfterImports(
+    original,
+    startMarker,
+    endMarker,
+    lines.join("\n")
+  );
 
   if (next !== original) {
     writeFileSync(facadeDtsPath, next, "utf-8");
@@ -1743,7 +1884,7 @@ export const augmentLibraryBindingsFromSource = (
   // graph and patching the published internal/index.d.ts:
   // - Re-apply ExtensionMethods wrappers (class + interface members)
   // - Preserve optional (`?`) semantics by allowing `undefined` on patched members
-  // - For exported interfaces, preserve source structural member types when safe
+  // - Preserve TS structural typing on interfaces/type-literal aliases (exported + local)
   const sourceIndexByFileKey = new Map<string, ModuleSourceIndex>();
   for (const m of modules) {
     // Synthetic IR modules (e.g., program-wide anonymous type declarations) do not
@@ -1761,6 +1902,10 @@ export const augmentLibraryBindingsFromSource = (
   const functionSignaturesByFacade = new Map<
     string,
     Map<string, SourceFunctionSignatureDef[]>
+  >();
+  const sourceTypeImportsByFacade = new Map<
+    string,
+    Map<string, SourceTypeImportBinding>
   >();
   for (const m of modules) {
     if (m.filePath.startsWith("__tsonic/")) continue;
@@ -1780,18 +1925,52 @@ export const augmentLibraryBindingsFromSource = (
     const sourceIndex = sourceIndexByFileKey.get(moduleKey);
     if (!sourceIndex) continue;
 
+    const allInterfaces = m.body.filter(
+      (s): s is Extract<IrStatement, { kind: "interfaceDeclaration" }> =>
+        s.kind === "interfaceDeclaration"
+    );
+    const allTypeAliases = m.body.filter(
+      (s): s is Extract<IrStatement, { kind: "typeAliasDeclaration" }> =>
+        s.kind === "typeAliasDeclaration"
+    );
+
     const hasExportedSourceFunctions =
       sourceIndex.exportedFunctionSignaturesByName.size > 0;
     if (
       exportedClasses.length === 0 &&
       exportedInterfaces.length === 0 &&
       exportedAliases.length === 0 &&
+      allInterfaces.length === 0 &&
+      allTypeAliases.length === 0 &&
       !hasExportedSourceFunctions
     )
       continue;
 
     const info =
       facadesByNamespace.get(m.namespace) ?? ensureFacade(m.namespace);
+
+    const brandTargets =
+      brandOptionalTypesByInternalIndex.get(info.internalIndexDtsPath) ??
+      new Set<string>();
+    for (const iface of allInterfaces) {
+      brandTargets.add(iface.name);
+    }
+    for (const alias of allTypeAliases) {
+      const sourceAlias = sourceIndex.typeAliasesByName.get(alias.name);
+      if (!sourceAlias) continue;
+      const aliasType = unwrapParens(sourceAlias.type);
+      if (!ts.isTypeLiteralNode(aliasType)) continue;
+      const arity = sourceAlias.typeParameters.length;
+      const internalAliasName = `${alias.name}__Alias${arity > 0 ? `_${arity}` : ""}`;
+      brandTargets.add(alias.name);
+      brandTargets.add(internalAliasName);
+    }
+    if (brandTargets.size > 0) {
+      brandOptionalTypesByInternalIndex.set(
+        info.internalIndexDtsPath,
+        brandTargets
+      );
+    }
 
     for (const [
       name,
@@ -1805,6 +1984,36 @@ export const augmentLibraryBindingsFromSource = (
       list.push(...signatures);
       byName.set(name, list);
       functionSignaturesByFacade.set(info.facadeDtsPath, byName);
+
+      const importsByLocal =
+        sourceTypeImportsByFacade.get(info.facadeDtsPath) ??
+        new Map<string, SourceTypeImportBinding>();
+      for (const signature of signatures) {
+        for (const binding of collectSourceTypeImportsForSignature(
+          signature,
+          sourceIndex.typeImportsByLocalName
+        )) {
+          const existing = importsByLocal.get(binding.localName);
+          if (existing) {
+            if (
+              existing.source !== binding.source ||
+              existing.importedName !== binding.importedName
+            ) {
+              return {
+                ok: false,
+                error:
+                  `Conflicting source type import alias '${binding.localName}' while augmenting ${info.facadeDtsPath}.\n` +
+                  `- ${existing.importedName} from '${existing.source}'\n` +
+                  `- ${binding.importedName} from '${binding.source}'\n` +
+                  `Fix: disambiguate source type imports for exported function signatures.`,
+              };
+            }
+            continue;
+          }
+          importsByLocal.set(binding.localName, binding);
+        }
+      }
+      sourceTypeImportsByFacade.set(info.facadeDtsPath, importsByLocal);
     }
 
     for (const cls of exportedClasses) {
@@ -1899,15 +2108,6 @@ export const augmentLibraryBindingsFromSource = (
         });
         overridesByInternalIndex.set(info.internalIndexDtsPath, list);
       }
-
-      const brandTargets =
-        brandOptionalTypesByInternalIndex.get(info.internalIndexDtsPath) ??
-        new Set<string>();
-      brandTargets.add(iface.name);
-      brandOptionalTypesByInternalIndex.set(
-        info.internalIndexDtsPath,
-        brandTargets
-      );
     }
 
     for (const alias of exportedAliases) {
@@ -1915,18 +2115,8 @@ export const augmentLibraryBindingsFromSource = (
       if (!sourceAlias) continue;
       const aliasType = unwrapParens(sourceAlias.type);
       if (!ts.isTypeLiteralNode(aliasType)) continue;
-
       const arity = sourceAlias.typeParameters.length;
       const internalAliasName = `${alias.name}__Alias${arity > 0 ? `_${arity}` : ""}`;
-
-      const brandTargets =
-        brandOptionalTypesByInternalIndex.get(info.internalIndexDtsPath) ??
-        new Set<string>();
-      brandTargets.add(internalAliasName);
-      brandOptionalTypesByInternalIndex.set(
-        info.internalIndexDtsPath,
-        brandTargets
-      );
 
       for (const member of aliasType.members) {
         if (!ts.isPropertySignature(member)) continue;
@@ -1987,6 +2177,14 @@ export const augmentLibraryBindingsFromSource = (
     const result = patchFacadeWithSourceFunctionSignatures(
       facadePath,
       signaturesByName
+    );
+    if (!result.ok) return result;
+  }
+
+  for (const [facadePath, importsByLocalName] of sourceTypeImportsByFacade) {
+    const result = ensureSourceTypeImportsForFacade(
+      facadePath,
+      importsByLocalName
     );
     if (!result.ok) return result;
   }
