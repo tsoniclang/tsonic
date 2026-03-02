@@ -14,6 +14,14 @@ import type {
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 
+const isNominalMarkerProperty = (name: string): boolean => {
+  return (
+    name === "__brand" ||
+    name.startsWith("__tsonic_type_") ||
+    name.startsWith("__tsonic_iface_")
+  );
+};
+
 /**
  * Emit a type alias declaration as CSharpTypeDeclarationAst | null.
  *
@@ -79,6 +87,7 @@ const emitStructuralTypeAlias = (
   if (stmt.type.kind === "objectType") {
     for (const member of stmt.type.members) {
       if (member.kind !== "propertySignature") continue;
+      if (isNominalMarkerProperty(member.name)) continue;
       reservedTypeParamNames.add(
         emitCSharpName(member.name, "properties", context)
       );
@@ -95,6 +104,7 @@ const emitStructuralTypeAlias = (
   if (stmt.type.kind === "objectType") {
     for (const member of stmt.type.members) {
       if (member.kind !== "propertySignature") continue;
+      if (isNominalMarkerProperty(member.name)) continue;
 
       const propModifiers: string[] = ["public"];
       if (!member.isOptional) {

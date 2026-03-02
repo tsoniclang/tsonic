@@ -222,4 +222,51 @@ describe("Type Aliases (spec/16 §3)", () => {
       "public required PersonData__Alias[] items { get; set; }"
     );
   });
+
+  it("should not emit nominal marker properties in structural aliases", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/types.ts",
+      namespace: "MyApp",
+      className: "types",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "typeAliasDeclaration",
+          name: "ProbeBoxRequired",
+          typeParameters: undefined,
+          type: {
+            kind: "objectType",
+            members: [
+              {
+                kind: "propertySignature",
+                name: "__tsonic_type_MyApp_ProbeBoxRequired",
+                type: { kind: "neverType" },
+                isOptional: true,
+                isReadonly: true,
+              },
+              {
+                kind: "propertySignature",
+                name: "value",
+                type: { kind: "primitiveType", name: "number" },
+                isOptional: false,
+                isReadonly: false,
+              },
+            ],
+          },
+          isStruct: false,
+          isExported: true,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("public sealed class ProbeBoxRequired__Alias");
+    expect(result).to.include("public required double value { get; set; }");
+    expect(result).to.not.include("__tsonic_type_MyApp_ProbeBoxRequired");
+    expect(result).to.not.include("void __tsonic_type_");
+  });
 });

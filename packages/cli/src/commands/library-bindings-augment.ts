@@ -42,6 +42,7 @@ type MemberOverride = {
   readonly sourceTypeText?: string;
   readonly replaceWithSourceType?: boolean;
   readonly isOptional?: boolean;
+  readonly emitOptionalPropertySyntax?: boolean;
   readonly wrappers: readonly WrapperImport[];
 };
 
@@ -384,6 +385,42 @@ const patchInternalIndexWithMemberOverrides = (
         };
       }
 
+      if (
+        o.isOptional &&
+        o.emitOptionalPropertySyntax &&
+        !o.memberName.startsWith("__tsonic_type_")
+      ) {
+        const baseType =
+          (o.replaceWithSourceType ? o.sourceTypeText : undefined) ??
+          getterMatch?.[2] ??
+          setterMatch?.[2] ??
+          "";
+        const nextType = applyWrappersToBaseType(baseType, o.wrappers);
+        const matchForIndent = getterMatch ?? setterMatch;
+        const indent = matchForIndent?.[0].match(/^\s*/)?.[0] ?? "    ";
+        const optionalPropertyLine = `${indent}${o.memberName}?: ${nextType};`;
+
+        if (getterMatch && setterMatch) {
+          const getterStart = getterMatch.index ?? 0;
+          const setterStart = setterMatch.index ?? 0;
+          const start = Math.min(getterStart, setterStart);
+          const getterEnd = getterStart + getterMatch[0].length;
+          const setterEnd = setterStart + setterMatch[0].length;
+          const end = Math.max(getterEnd, setterEnd);
+          body = body.slice(0, start) + optionalPropertyLine + body.slice(end);
+          continue;
+        }
+
+        if (getterMatch) {
+          body = body.replace(getterRe, optionalPropertyLine);
+          continue;
+        }
+        if (setterMatch) {
+          body = body.replace(setterRe, optionalPropertyLine);
+          continue;
+        }
+      }
+
       if (getterMatch) {
         const baseType =
           (o.replaceWithSourceType ? o.sourceTypeText : undefined) ??
@@ -630,6 +667,114 @@ const patchFacadeWithSourceFunctionSignatures = (
     const replacement = `export declare function ${name}${typeParamsText}(${pairedParams.join(", ")}): ${expandedReturnType};`;
 
     next = next.replace(constFuncRe, replacement);
+  }
+
+  if (next !== original) {
+    writeFileSync(facadeDtsPath, next, "utf-8");
+  }
+
+  return { ok: true, value: undefined };
+};
+
+type NamedImportSpecifier = {
+  readonly imported: string;
+  readonly local: string;
+};
+
+const parseNamedImports = (
+  namedImportsText: string
+): readonly NamedImportSpecifier[] => {
+  return namedImportsText
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .map((part) => {
+      const source = part.replace(/^\s*type\s+/, "");
+      const asMatch =
+        /^\s*([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)\s*$/.exec(source);
+      if (asMatch && asMatch[1] && asMatch[2]) {
+        return { imported: asMatch[1], local: asMatch[2] };
+      }
+      const identMatch = /^\s*([A-Za-z_$][\w$]*)\s*$/.exec(source);
+      if (identMatch && identMatch[1]) {
+        return { imported: identMatch[1], local: identMatch[1] };
+      }
+      return undefined;
+    })
+    .filter(
+      (specifier): specifier is NamedImportSpecifier => specifier !== undefined
+    );
+};
+
+const formatNamedImportSpecifier = (
+  specifier: NamedImportSpecifier
+): string => {
+  if (specifier.imported === specifier.local) {
+    return specifier.local;
+  }
+  return `${specifier.imported} as ${specifier.local}`;
+};
+
+const ensureInternalTypeImportsForFacade = (
+  facadeDtsPath: string
+): Result<void, string> => {
+  if (!existsSync(facadeDtsPath)) {
+    return {
+      ok: false,
+      error: `Facade declaration file not found at ${facadeDtsPath}`,
+    };
+  }
+
+  const original = readFileSync(facadeDtsPath, "utf-8");
+  const internalImportRe =
+    /^import\s+\*\s+as\s+Internal\s+from\s+['"]([^'"]+)['"];\s*$/m;
+  const internalImportMatch = internalImportRe.exec(original);
+  if (!internalImportMatch || !internalImportMatch[1]) {
+    return { ok: true, value: undefined };
+  }
+  const internalSpecifier = internalImportMatch[1];
+
+  const exportFromInternalRe = new RegExp(
+    String.raw`^export\s+\{([^}]*)\}\s+from\s+['"]${escapeRegExp(internalSpecifier)}['"];\s*$`,
+    "gm"
+  );
+  const neededTypeSpecifiers = new Map<string, NamedImportSpecifier>();
+  for (const match of original.matchAll(exportFromInternalRe)) {
+    const named = match[1];
+    if (!named) continue;
+    for (const specifier of parseNamedImports(named)) {
+      neededTypeSpecifiers.set(specifier.local, specifier);
+    }
+  }
+
+  if (neededTypeSpecifiers.size === 0) {
+    return { ok: true, value: undefined };
+  }
+
+  const existingTypeImportRe = new RegExp(
+    String.raw`^import\s+type\s+\{([^}]*)\}\s+from\s+['"]${escapeRegExp(internalSpecifier)}['"];\s*$`,
+    "m"
+  );
+  const existingTypeImportMatch = existingTypeImportRe.exec(original);
+  if (existingTypeImportMatch && existingTypeImportMatch[1]) {
+    for (const specifier of parseNamedImports(existingTypeImportMatch[1])) {
+      neededTypeSpecifiers.set(specifier.local, specifier);
+    }
+  }
+
+  const sortedSpecifiers = Array.from(neededTypeSpecifiers.values()).sort(
+    (a, b) => a.local.localeCompare(b.local)
+  );
+  const importLine = `import type { ${sortedSpecifiers
+    .map((specifier) => formatNamedImportSpecifier(specifier))
+    .join(", ")} } from '${internalSpecifier}';`;
+
+  let next = original;
+  if (existingTypeImportMatch && existingTypeImportMatch[0]) {
+    next = next.replace(existingTypeImportRe, importLine);
+  } else if (internalImportMatch[0]) {
+    const anchor = internalImportMatch[0];
+    next = next.replace(anchor, `${anchor}\n${importLine}`);
   }
 
   if (next !== original) {
@@ -1749,6 +1894,7 @@ export const augmentLibraryBindingsFromSource = (
             : undefined,
           replaceWithSourceType: canUseSourceTypeText,
           isOptional: sourceMember.isOptional,
+          emitOptionalPropertySyntax: true,
           wrappers,
         });
         overridesByInternalIndex.set(info.internalIndexDtsPath, list);
@@ -1842,6 +1988,11 @@ export const augmentLibraryBindingsFromSource = (
       facadePath,
       signaturesByName
     );
+    if (!result.ok) return result;
+  }
+
+  for (const info of facadesByNamespace.values()) {
+    const result = ensureInternalTypeImportsForFacade(info.facadeDtsPath);
     if (!result.ok) return result;
   }
 
