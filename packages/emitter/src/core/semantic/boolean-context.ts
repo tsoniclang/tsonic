@@ -16,7 +16,11 @@ import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { allocateLocalName } from "../format/local-names.js";
 import { substituteTypeArgs } from "./type-resolution.js";
-import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpPatternAst,
+  CSharpTypeAst,
+} from "../format/backend-ast/types.js";
 
 export type EmitExprAstFn = (
   expr: IrExpression,
@@ -157,32 +161,155 @@ const literalExpr = (text: string): CSharpExpressionAst => ({
   text,
 });
 
-/**
- * Build the canonical JS-like truthiness switch expression text for a temp variable.
- * This is a constant template that only depends on the temp variable name.
- */
-const buildTruthySwitchText = (tmp: string): string =>
-  `${tmp} switch { ` +
-  `bool => (bool)${tmp}, ` +
-  `string => ((string)${tmp}).Length != 0, ` +
-  `sbyte => (sbyte)${tmp} != 0, ` +
-  `byte => (byte)${tmp} != 0, ` +
-  `short => (short)${tmp} != 0, ` +
-  `ushort => (ushort)${tmp} != 0, ` +
-  `int => (int)${tmp} != 0, ` +
-  `uint => (uint)${tmp} != 0U, ` +
-  `long => (long)${tmp} != 0L, ` +
-  `ulong => (ulong)${tmp} != 0UL, ` +
-  `nint => (nint)${tmp} != 0, ` +
-  `nuint => (nuint)${tmp} != 0, ` +
-  `global::System.Int128 => (global::System.Int128)${tmp} != 0, ` +
-  `global::System.UInt128 => (global::System.UInt128)${tmp} != 0, ` +
-  `global::System.Half => ((global::System.Half)${tmp}) != (global::System.Half)0 && !global::System.Half.IsNaN((global::System.Half)${tmp}), ` +
-  `float => ((float)${tmp}) != 0f && !float.IsNaN((float)${tmp}), ` +
-  `double => ((double)${tmp}) != 0d && !double.IsNaN((double)${tmp}), ` +
-  `decimal => (decimal)${tmp} != 0m, ` +
-  `char => (char)${tmp} != '\\0', ` +
-  `_ => true }`;
+const predefinedType = (keyword: string): CSharpTypeAst => ({
+  kind: "predefinedType",
+  keyword,
+});
+
+const identifierType = (name: string): CSharpTypeAst => ({
+  kind: "identifierType",
+  name,
+});
+
+const castExpr = (
+  type: CSharpTypeAst,
+  expression: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "castExpression",
+  type,
+  expression,
+});
+
+const typePattern = (type: CSharpTypeAst): CSharpPatternAst => ({
+  kind: "typePattern",
+  type,
+});
+
+const notEqualsExpr = (
+  left: CSharpExpressionAst,
+  right: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "binaryExpression",
+  operatorToken: "!=",
+  left,
+  right,
+});
+
+const andExpr = (
+  left: CSharpExpressionAst,
+  right: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "binaryExpression",
+  operatorToken: "&&",
+  left,
+  right,
+});
+
+const notExpr = (operand: CSharpExpressionAst): CSharpExpressionAst => ({
+  kind: "prefixUnaryExpression",
+  operatorToken: "!",
+  operand,
+});
+
+const staticMemberExpr = (
+  typeName: string,
+  memberName: string
+): CSharpExpressionAst => ({
+  kind: "memberAccessExpression",
+  expression: identifierExpr(typeName),
+  memberName,
+});
+
+const callExpr = (
+  callee: CSharpExpressionAst,
+  args: readonly CSharpExpressionAst[]
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: callee,
+  arguments: args,
+});
+
+const makeSwitchArm = (
+  pattern: CSharpPatternAst,
+  expression: CSharpExpressionAst
+): {
+  readonly pattern: CSharpPatternAst;
+  readonly expression: CSharpExpressionAst;
+} => ({ pattern, expression });
+
+const buildTruthySwitchAst = (tmp: string): CSharpExpressionAst => {
+  const tmpExpr = identifierExpr(tmp);
+
+  const typedNonZeroArm = (
+    type: CSharpTypeAst,
+    zeroLiteralText: string
+  ): {
+    readonly pattern: CSharpPatternAst;
+    readonly expression: CSharpExpressionAst;
+  } =>
+    makeSwitchArm(
+      typePattern(type),
+      notEqualsExpr(castExpr(type, tmpExpr), literalExpr(zeroLiteralText))
+    );
+
+  const floatLikeArm = (
+    type: CSharpTypeAst,
+    isNaNStaticTypeName: string,
+    zeroLiteralText: string
+  ): {
+    readonly pattern: CSharpPatternAst;
+    readonly expression: CSharpExpressionAst;
+  } => {
+    const casted = castExpr(type, tmpExpr);
+    const nonZero = notEqualsExpr(casted, literalExpr(zeroLiteralText));
+    const isNaNCall = callExpr(
+      staticMemberExpr(isNaNStaticTypeName, "IsNaN"),
+      [castExpr(type, tmpExpr)]
+    );
+    return makeSwitchArm(typePattern(type), andExpr(nonZero, notExpr(isNaNCall)));
+  };
+
+  return {
+    kind: "switchExpression",
+    governingExpression: tmpExpr,
+    arms: [
+      makeSwitchArm(typePattern(predefinedType("bool")), castExpr(predefinedType("bool"), tmpExpr)),
+      makeSwitchArm(
+        typePattern(predefinedType("string")),
+        notEqualsExpr(
+          {
+            kind: "memberAccessExpression",
+            expression: castExpr(predefinedType("string"), tmpExpr),
+            memberName: "Length",
+          },
+          literalExpr("0")
+        )
+      ),
+      typedNonZeroArm(predefinedType("sbyte"), "0"),
+      typedNonZeroArm(predefinedType("byte"), "0"),
+      typedNonZeroArm(predefinedType("short"), "0"),
+      typedNonZeroArm(predefinedType("ushort"), "0"),
+      typedNonZeroArm(predefinedType("int"), "0"),
+      typedNonZeroArm(predefinedType("uint"), "0U"),
+      typedNonZeroArm(predefinedType("long"), "0L"),
+      typedNonZeroArm(predefinedType("ulong"), "0UL"),
+      typedNonZeroArm(predefinedType("nint"), "0"),
+      typedNonZeroArm(predefinedType("nuint"), "0"),
+      typedNonZeroArm(identifierType("global::System.Int128"), "0"),
+      typedNonZeroArm(identifierType("global::System.UInt128"), "0"),
+      floatLikeArm(
+        identifierType("global::System.Half"),
+        "global::System.Half",
+        "(global::System.Half)0"
+      ),
+      floatLikeArm(predefinedType("float"), "global::System.Single", "0f"),
+      floatLikeArm(predefinedType("double"), "global::System.Double", "0d"),
+      typedNonZeroArm(predefinedType("decimal"), "0m"),
+      typedNonZeroArm(predefinedType("char"), "'\\0'"),
+      makeSwitchArm({ kind: "discardPattern" }, literalExpr("true")),
+    ],
+  };
+};
 
 // ============================================================
 // Runtime truthiness (AST-native)
@@ -215,7 +342,7 @@ const emitRuntimeTruthinessConditionAst = (
 
   const switchExpr: CSharpExpressionAst = {
     kind: "parenthesizedExpression",
-    expression: literalExpr(buildTruthySwitchText(tmp)),
+    expression: buildTruthySwitchAst(tmp),
   };
 
   return [

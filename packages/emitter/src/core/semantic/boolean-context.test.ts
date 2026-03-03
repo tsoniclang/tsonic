@@ -91,7 +91,7 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
       const [floatText] = toText(floatExpr, idAst("f"), ctx);
       expect(floatText).to.include("float =>");
       expect(floatText).to.include("!= 0f");
-      expect(floatText).to.include("!float.IsNaN");
+      expect(floatText).to.include("System.Single.IsNaN");
       expect(floatText).to.not.include("!= null");
 
       const charExpr = id("c", ref("System.Char"));
