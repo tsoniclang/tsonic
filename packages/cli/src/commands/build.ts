@@ -13,7 +13,9 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
+import * as ts from "typescript";
 import type { ResolvedConfig, Result } from "../types.js";
 import { generateCommand } from "./generate.js";
 import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
@@ -29,6 +31,7 @@ import {
   tsbindgenGenerate,
   type AddCommandOptions,
 } from "./add-common.js";
+import { VERSION } from "../cli/constants.js";
 
 type ProjectAssets = {
   readonly targets?: Record<string, unknown>;
@@ -43,6 +46,11 @@ type AssemblyNameConflict = {
   readonly assemblyName: string;
   readonly library: string;
   readonly assetPath: string;
+};
+
+type ProjectPackageMetadata = {
+  readonly name: string;
+  readonly version: string;
 };
 
 const readProjectAssets = (
@@ -287,6 +295,218 @@ const listGeneratedBindingsLibDirs = (
 
   libs.sort((a, b) => a.localeCompare(b));
   return libs;
+};
+
+const readProjectPackageMetadata = (
+  projectRoot: string,
+  outputName: string
+): ProjectPackageMetadata => {
+  const packageJsonPath = join(projectRoot, "package.json");
+  if (!existsSync(packageJsonPath)) {
+    return { name: outputName, version: "0.0.0" };
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+      readonly name?: unknown;
+      readonly version?: unknown;
+    };
+    const name =
+      typeof parsed.name === "string" && parsed.name.trim().length > 0
+        ? parsed.name.trim()
+        : outputName;
+    const version =
+      typeof parsed.version === "string" && parsed.version.trim().length > 0
+        ? parsed.version.trim()
+        : "0.0.0";
+    return { name, version };
+  } catch {
+    return { name: outputName, version: "0.0.0" };
+  }
+};
+
+const writeAikyaPackageManifest = (
+  config: ResolvedConfig
+): Result<void, string> => {
+  const distRoot = join(config.projectRoot, "dist");
+  const bindingsRoot = join(distRoot, "tsonic", "bindings");
+  if (!existsSync(bindingsRoot)) {
+    return {
+      ok: false,
+      error:
+        `Aikya manifest write failed: bindings root is missing at ${bindingsRoot}.\n` +
+        `Build did not produce library bindings.`,
+    };
+  }
+
+  const packageMeta = readProjectPackageMetadata(
+    config.projectRoot,
+    config.outputName
+  );
+  const runtimePackageId = config.outputConfig.package?.id ?? config.outputName;
+  const runtimePackageVersion =
+    config.outputConfig.package?.version ?? packageMeta.version;
+  const manifestDir = join(distRoot, "tsonic");
+  const manifestPath = join(manifestDir, "package-manifest.json");
+  const facades = existsSync(join(bindingsRoot, "index.d.ts"))
+    ? ["index.d.ts"]
+    : [];
+  const runtimeNugetPackagesRaw = [
+    { id: runtimePackageId, version: runtimePackageVersion },
+    ...config.packageReferences.map((pkg) => ({
+      id: pkg.id,
+      version: pkg.version,
+    })),
+  ];
+  const seenRuntimeNuget = new Set<string>();
+  const runtimeNugetPackages = runtimeNugetPackagesRaw
+    .filter((pkg) => {
+      const key = `${pkg.id.toLowerCase()}::${pkg.version}`;
+      if (seenRuntimeNuget.has(key)) return false;
+      seenRuntimeNuget.add(key);
+      return true;
+    })
+    .sort(
+      (a, b) => a.id.localeCompare(b.id) || a.version.localeCompare(b.version)
+    );
+
+  const manifest = {
+    schemaVersion: 1,
+    kind: "tsonic-library",
+    npmPackage: packageMeta.name,
+    npmVersion: packageMeta.version,
+    producer: {
+      tool: "tsonic",
+      version: VERSION,
+      mode: "aikya-firstparty",
+    },
+    runtime: {
+      nugetPackages: runtimeNugetPackages,
+      frameworkReferences: config.frameworkReferences,
+      assemblies: [config.outputName],
+      runtimePackages: [packageMeta.name],
+    },
+    typing: {
+      bindingsRoot: "tsonic/bindings",
+      facades,
+    },
+    dotnet: {
+      frameworkReferences: config.frameworkReferences,
+      packageReferences: config.packageReferences,
+    },
+  } as const;
+
+  try {
+    mkdirSync(manifestDir, { recursive: true });
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+    return { ok: true, value: undefined };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to write Aikya package manifest: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
+
+const listTypeScriptSourceInputs = (sourceRoot: string): readonly string[] => {
+  const out: string[] = [];
+  const visit = (dir: string): void => {
+    const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+    for (const entry of entries) {
+      const absolute = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolute);
+        continue;
+      }
+      if (
+        entry.isFile() &&
+        (absolute.endsWith(".ts") ||
+          absolute.endsWith(".mts") ||
+          absolute.endsWith(".cts")) &&
+        !absolute.endsWith(".d.ts")
+      ) {
+        out.push(absolute);
+      }
+    }
+  };
+  if (existsSync(sourceRoot)) {
+    visit(sourceRoot);
+  }
+  return out;
+};
+
+const formatTsDiagnostics = (
+  diagnostics: readonly ts.Diagnostic[],
+  cwd: string
+): string => {
+  const host: ts.FormatDiagnosticsHost = {
+    getCanonicalFileName: (fileName) => fileName,
+    getCurrentDirectory: () => cwd,
+    getNewLine: () => "\n",
+  };
+  return ts.formatDiagnosticsWithColorAndContext(diagnostics, host).trim();
+};
+
+const emitLibraryTypeDeclarations = (
+  config: ResolvedConfig
+): Result<void, string> => {
+  const sourceRoot = resolve(config.projectRoot, config.sourceRoot);
+  const sourceFiles = listTypeScriptSourceInputs(sourceRoot);
+  if (sourceFiles.length === 0) {
+    return {
+      ok: false,
+      error: `No TypeScript source files found under sourceRoot: ${sourceRoot}`,
+    };
+  }
+
+  const distDir = join(config.projectRoot, "dist");
+  mkdirSync(distDir, { recursive: true });
+
+  const compilerOptions: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    declaration: true,
+    emitDeclarationOnly: true,
+    noEmitOnError: true,
+    allowImportingTsExtensions: true,
+    noCheck: true,
+    skipLibCheck: true,
+    outDir: distDir,
+    rootDir: sourceRoot,
+    typeRoots: config.typeRoots.map((p) => resolve(config.workspaceRoot, p)),
+  };
+
+  const host = ts.createCompilerHost(compilerOptions, true);
+  const program = ts.createProgram({
+    rootNames: sourceFiles,
+    options: compilerOptions,
+    host,
+  });
+
+  const preEmitDiagnostics = ts.getPreEmitDiagnostics(program);
+  if (preEmitDiagnostics.length > 0) {
+    return {
+      ok: false,
+      error:
+        `Type declaration emit failed before emit.\n` +
+        formatTsDiagnostics(preEmitDiagnostics, config.projectRoot),
+    };
+  }
+
+  const emitResult = program.emit(undefined, undefined, undefined, true);
+  if (emitResult.emitSkipped || emitResult.diagnostics.length > 0) {
+    return {
+      ok: false,
+      error:
+        `Type declaration emit failed.\n` +
+        formatTsDiagnostics(emitResult.diagnostics, config.projectRoot),
+    };
+  }
+
+  return { ok: true, value: undefined };
 };
 
 const generateLibraryBindings = (
@@ -678,6 +898,16 @@ const buildLibrary = (
     const bindingsResult = generateLibraryBindings(config);
     if (!bindingsResult.ok) {
       return { ok: false, error: bindingsResult.error };
+    }
+
+    const declarationEmitResult = emitLibraryTypeDeclarations(config);
+    if (!declarationEmitResult.ok) {
+      return { ok: false, error: declarationEmitResult.error };
+    }
+
+    const manifestResult = writeAikyaPackageManifest(config);
+    if (!manifestResult.ok) {
+      return { ok: false, error: manifestResult.error };
     }
 
     return {

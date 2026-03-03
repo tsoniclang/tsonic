@@ -28,6 +28,7 @@ import { removeNugetCommand } from "../commands/remove-nuget.js";
 import { updateNugetCommand } from "../commands/update-nuget.js";
 import { restoreCommand } from "../commands/restore.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
+import { applyAikyaWorkspaceOverlay } from "../aikya/bindings.js";
 import { VERSION } from "./constants.js";
 import { showHelp } from "./help.js";
 import { parseArgs } from "./parser.js";
@@ -160,6 +161,25 @@ export const runCli = async (args: string[]): Promise<number> => {
     return 1;
   }
   let rawWorkspaceConfig = workspaceConfigResult.value;
+
+  const commandNeedsAikyaOverlay =
+    parsed.command === "generate" ||
+    parsed.command === "build" ||
+    parsed.command === "run" ||
+    parsed.command === "pack" ||
+    parsed.command === "test";
+
+  if (commandNeedsAikyaOverlay) {
+    const overlay = applyAikyaWorkspaceOverlay(
+      workspaceRoot,
+      rawWorkspaceConfig
+    );
+    if (!overlay.ok) {
+      console.error(`Error: ${overlay.error}`);
+      return 1;
+    }
+    rawWorkspaceConfig = overlay.value.config;
+  }
 
   // Add/restore commands operate on the WORKSPACE config.
   if (parsed.command === "add:npm") {

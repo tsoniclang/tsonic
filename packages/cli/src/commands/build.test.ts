@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -120,6 +121,20 @@ describe("build command (library bindings ref dirs)", function () {
       const projectRoot = join(dir, "packages", "app");
       mkdirSync(join(projectRoot, "src"), { recursive: true });
       writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app-lib",
+            version: "1.2.3",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
         join(projectRoot, "src", "index.ts"),
         `export function main(): void { }\n`,
         "utf-8"
@@ -166,6 +181,35 @@ describe("build command (library bindings ref dirs)", function () {
       expect(
         existsSync(join(projectRoot, "dist", "tsonic", "bindings"))
       ).to.equal(true);
+      const declarationPath = join(projectRoot, "dist", "index.d.ts");
+      expect(existsSync(declarationPath)).to.equal(true);
+      const declarationText = readFileSync(declarationPath, "utf-8");
+      expect(declarationText).to.include("export declare function main(): void;");
+
+      const aikyaManifestPath = join(
+        projectRoot,
+        "dist",
+        "tsonic",
+        "package-manifest.json"
+      );
+      expect(existsSync(aikyaManifestPath)).to.equal(true);
+      const aikyaManifest = JSON.parse(
+        readFileSync(aikyaManifestPath, "utf-8")
+      ) as Record<string, unknown>;
+      expect(aikyaManifest["schemaVersion"]).to.equal(1);
+      expect(aikyaManifest["kind"]).to.equal("tsonic-library");
+      expect(aikyaManifest["npmPackage"]).to.equal("@acme/app-lib");
+      expect(aikyaManifest["npmVersion"]).to.equal("1.2.3");
+      const runtime = aikyaManifest["runtime"] as
+        | {
+            nugetPackages: { id: string; version: string }[];
+            assemblies: string[];
+          }
+        | undefined;
+      expect(runtime?.nugetPackages?.some((x) => x.id === "App")).to.equal(
+        true
+      );
+      expect(runtime?.assemblies).to.deep.equal(["App"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
