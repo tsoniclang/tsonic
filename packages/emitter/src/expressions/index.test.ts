@@ -378,6 +378,138 @@ describe("Expression Emission", () => {
     expect(result).not.to.include("path.split");
   });
 
+  it("should rewrite js-surface array functional calls via LINQ", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "nums",
+                inferredType: {
+                  kind: "arrayType",
+                  elementType: { kind: "primitiveType", name: "int" },
+                },
+              },
+              property: "map",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [{ kind: "identifier", name: "doubleIt" }],
+            isOptional: false,
+            inferredType: {
+              kind: "arrayType",
+              elementType: { kind: "primitiveType", name: "int" },
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "js" });
+
+    expect(result).to.include(
+      "global::System.Linq.Enumerable.Select(nums, doubleIt)"
+    );
+    expect(result).to.include("global::System.Linq.Enumerable.ToArray(");
+    expect(result).not.to.include("new global::Tsonic.JSRuntime.JSArray");
+  });
+
+  it("should rewrite js-surface reduce/reduceRight/join via deterministic CLR calls", () => {
+    const numsExpr = {
+      kind: "identifier",
+      name: "nums",
+      inferredType: {
+        kind: "arrayType",
+        elementType: { kind: "primitiveType", name: "int" },
+      },
+    } as const;
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: numsExpr,
+              property: "reduce",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [
+              { kind: "identifier", name: "sum" },
+              { kind: "literal", value: 0 },
+            ],
+            isOptional: false,
+          },
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: numsExpr,
+              property: "reduceRight",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [
+              { kind: "identifier", name: "sum" },
+              { kind: "literal", value: 0 },
+            ],
+            isOptional: false,
+          },
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: numsExpr,
+              property: "join",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "js" });
+    expect(result).to.include(
+      "global::System.Linq.Enumerable.Aggregate(nums, 0, sum)"
+    );
+    expect(result).to.include(
+      "global::System.Linq.Enumerable.Aggregate(global::System.Linq.Enumerable.Reverse(nums), 0, sum)"
+    );
+    expect(result).to.include('global::System.String.Join(",", nums)');
+    expect(result).not.to.include("new global::Tsonic.JSRuntime.JSArray");
+  });
+
   it("should emit fluent LINQ extension method calls (required for EF query precompilation)", () => {
     const module: IrModule = {
       kind: "module",
@@ -1035,6 +1167,174 @@ describe("Expression Emission", () => {
 
     // Should emit regular property access
     expect(result).to.include("obj.property");
+  });
+
+  it("should emit array Length for js/node surfaces when binding provides lowercase length", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "nums",
+              inferredType: {
+                kind: "arrayType",
+                elementType: { kind: "primitiveType", name: "int" },
+              },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+            memberBinding: {
+              assembly: "Tsonic.JSRuntime",
+              type: "Tsonic.JSRuntime.JSArray",
+              member: "length",
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const jsResult = emitModule(module, { surface: "js" });
+    expect(jsResult).to.include("nums.Length");
+    expect(jsResult).not.to.include("nums.length");
+
+    const nodeResult = emitModule(module, { surface: "nodejs" });
+    expect(nodeResult).to.include("nums.Length");
+    expect(nodeResult).not.to.include("nums.length");
+  });
+
+  it("should emit array Length for js/node surfaces without member binding", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "nums",
+              inferredType: {
+                kind: "arrayType",
+                elementType: { kind: "primitiveType", name: "int" },
+              },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const jsResult = emitModule(module, { surface: "js" });
+    expect(jsResult).to.include("nums.Length");
+    expect(jsResult).not.to.include("nums.length");
+
+    const nodeResult = emitModule(module, { surface: "nodejs" });
+    expect(nodeResult).to.include("nums.Length");
+    expect(nodeResult).not.to.include("nums.length");
+  });
+
+  it("should emit array Length for js/node surfaces when array type is referenceType", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "nums",
+              inferredType: {
+                kind: "referenceType",
+                name: "Array",
+                typeArguments: [{ kind: "primitiveType", name: "int" }],
+              },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const jsResult = emitModule(module, { surface: "js" });
+    expect(jsResult).to.include("nums.Length");
+    expect(jsResult).not.to.include("nums.length");
+
+    const nodeResult = emitModule(module, { surface: "nodejs" });
+    expect(nodeResult).to.include("nums.Length");
+    expect(nodeResult).not.to.include("nums.length");
+  });
+
+  it("should emit array Length for js/node surfaces with member binding and ReadonlyArray referenceType", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "nums",
+              inferredType: {
+                kind: "referenceType",
+                name: "ReadonlyArray",
+                typeArguments: [{ kind: "primitiveType", name: "int" }],
+              },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+            memberBinding: {
+              assembly: "Tsonic.JSRuntime",
+              type: "Tsonic.JSRuntime.JSArray",
+              member: "length",
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const jsResult = emitModule(module, { surface: "js" });
+    expect(jsResult).to.include("nums.Length");
+    expect(jsResult).not.to.include("nums.length");
+
+    const nodeResult = emitModule(module, { surface: "nodejs" });
+    expect(nodeResult).to.include("nums.Length");
+    expect(nodeResult).not.to.include("nums.length");
   });
 
   it("should project CLR Union_n member access deterministically", () => {

@@ -28,14 +28,14 @@ const SURFACE_PROFILES: Readonly<Record<SurfaceMode, SurfaceProfile>> = {
     extends: ["clr"],
     requiredTypeRoots: ["node_modules/@tsonic/js"],
     requiredNpmPackages: ["@tsonic/js"],
-    useStandardLib: true,
+    useStandardLib: false,
   },
   nodejs: {
     mode: "nodejs",
     extends: ["js"],
     requiredTypeRoots: ["node_modules/@tsonic/nodejs"],
     requiredNpmPackages: ["@tsonic/nodejs"],
-    useStandardLib: true,
+    useStandardLib: false,
   },
 };
 

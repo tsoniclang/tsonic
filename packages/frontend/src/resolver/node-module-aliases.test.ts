@@ -8,10 +8,44 @@ describe("Node Module Aliases", () => {
   it("should canonicalize all supported node aliases", () => {
     const cases: Array<{
       readonly specifier: string;
-      readonly moduleName: "fs" | "path" | "crypto" | "os" | "process";
+      readonly moduleName:
+        | "assert"
+        | "buffer"
+        | "child_process"
+        | "crypto"
+        | "dgram"
+        | "dns"
+        | "events"
+        | "fs"
+        | "net"
+        | "os"
+        | "path"
+        | "process"
+        | "querystring"
+        | "readline"
+        | "stream"
+        | "timers"
+        | "tls"
+        | "url"
+        | "util"
+        | "zlib";
     }> = [
+      { specifier: "node:assert", moduleName: "assert" },
+      { specifier: "assert", moduleName: "assert" },
+      { specifier: "node:buffer", moduleName: "buffer" },
+      { specifier: "buffer", moduleName: "buffer" },
+      { specifier: "node:child_process", moduleName: "child_process" },
+      { specifier: "child_process", moduleName: "child_process" },
+      { specifier: "node:dgram", moduleName: "dgram" },
+      { specifier: "dgram", moduleName: "dgram" },
+      { specifier: "node:dns", moduleName: "dns" },
+      { specifier: "dns", moduleName: "dns" },
+      { specifier: "node:events", moduleName: "events" },
+      { specifier: "events", moduleName: "events" },
       { specifier: "node:fs", moduleName: "fs" },
       { specifier: "fs", moduleName: "fs" },
+      { specifier: "node:net", moduleName: "net" },
+      { specifier: "net", moduleName: "net" },
       { specifier: "node:path", moduleName: "path" },
       { specifier: "path", moduleName: "path" },
       { specifier: "node:crypto", moduleName: "crypto" },
@@ -20,6 +54,22 @@ describe("Node Module Aliases", () => {
       { specifier: "os", moduleName: "os" },
       { specifier: "node:process", moduleName: "process" },
       { specifier: "process", moduleName: "process" },
+      { specifier: "node:querystring", moduleName: "querystring" },
+      { specifier: "querystring", moduleName: "querystring" },
+      { specifier: "node:readline", moduleName: "readline" },
+      { specifier: "readline", moduleName: "readline" },
+      { specifier: "node:stream", moduleName: "stream" },
+      { specifier: "stream", moduleName: "stream" },
+      { specifier: "node:timers", moduleName: "timers" },
+      { specifier: "timers", moduleName: "timers" },
+      { specifier: "node:tls", moduleName: "tls" },
+      { specifier: "tls", moduleName: "tls" },
+      { specifier: "node:url", moduleName: "url" },
+      { specifier: "url", moduleName: "url" },
+      { specifier: "node:util", moduleName: "util" },
+      { specifier: "util", moduleName: "util" },
+      { specifier: "node:zlib", moduleName: "zlib" },
+      { specifier: "zlib", moduleName: "zlib" },
     ];
 
     for (const testCase of cases) {
@@ -34,6 +84,6 @@ describe("Node Module Aliases", () => {
   it("should return undefined for unsupported modules", () => {
     expect(resolveNodeModuleAlias("node:http")).to.equal(undefined);
     expect(resolveNodeModuleAlias("http")).to.equal(undefined);
-    expect(resolveNodeModuleAlias("node:buffer")).to.equal(undefined);
+    expect(resolveNodeModuleAlias("node:vm")).to.equal(undefined);
   });
 });

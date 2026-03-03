@@ -101,6 +101,8 @@ export type TypeAliasIndex = {
  * Options for C# code generation
  */
 export type EmitterOptions = {
+  /** Surface mode used during frontend compilation. */
+  readonly surface?: "clr" | "js" | "nodejs";
   /** Root namespace for the application */
   readonly rootNamespace: string;
   /**

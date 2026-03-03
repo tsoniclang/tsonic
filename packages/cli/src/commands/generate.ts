@@ -287,6 +287,7 @@ export const generateCommand = (
 
     // Emit C# code
     const emitResult = emitCSharpFiles(irResult.value, {
+      surface: config.surface,
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries, // Only non-DLL libraries (type roots)

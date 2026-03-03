@@ -143,6 +143,34 @@ describe("Module Resolver", () => {
       }
     });
 
+    it("should resolve extended node aliases in nodejs surface", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/nodejs-bindings.json", {
+        bindings: {
+          "@tsonic/nodejs/index.js": {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.url",
+          },
+        },
+      });
+
+      const result = resolveImport(
+        "node:url",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        {
+          bindings,
+          surface: "nodejs",
+        }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.resolvedClrType).to.equal("nodejs.url");
+      }
+    });
+
     it("should resolve bare node module aliases in nodejs surface", () => {
       const bindings = new BindingRegistry();
       bindings.addBindings("/test/nodejs-bindings.json", {

@@ -1,0 +1,39 @@
+import { Console } from "@tsonic/dotnet/System.js";
+
+export function main(): void {
+  const value = "  hello,world  ".trim();
+  const upper: string = value.toUpperCase();
+  const parsed = JSON.parse<{ value: number }>('{"value":42}');
+  const now = new Date();
+  const rounded = Math.round(3.6);
+  const regex = new RegExp("HELLO");
+  const matched = regex.test(upper);
+  const map = new Map<string, number>();
+  map.set("value", rounded);
+  const set = new Set<string>();
+  set.add(upper);
+  const p = parseInt("123");
+  const nums = [1, 2, 3, 4];
+  const doubled = nums.map((x) => x * 2);
+  const filtered = doubled.filter((x) => x > 2);
+  const total = filtered.reduce((a, b) => a + b, 0);
+  const totalFromRight = filtered.reduceRight((a, b) => a + b, 0);
+  const joined = filtered.join(",");
+  const joinedDefault = filtered.join();
+
+  console.log(
+    upper,
+    parsed.value,
+    now.toISOString(),
+    matched,
+    map.get("value"),
+    set.has(upper),
+    p,
+    nums.length,
+    joined,
+    joinedDefault,
+    total,
+    totalFromRight
+  );
+  Console.WriteLine(upper);
+}

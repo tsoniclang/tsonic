@@ -19,7 +19,7 @@ describe("CLI Surface Profiles", () => {
       "node_modules/@tsonic/js",
     ]);
     expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/js"]);
-    expect(caps.useStandardLib).to.equal(true);
+    expect(caps.useStandardLib).to.equal(false);
   });
 
   it("should resolve nodejs capabilities as js + nodejs", () => {
@@ -33,7 +33,7 @@ describe("CLI Surface Profiles", () => {
       "@tsonic/js",
       "@tsonic/nodejs",
     ]);
-    expect(caps.useStandardLib).to.equal(true);
+    expect(caps.useStandardLib).to.equal(false);
   });
 
   it("should validate surface mode strings", () => {

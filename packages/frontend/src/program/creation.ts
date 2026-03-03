@@ -17,21 +17,12 @@ import { collectTsDiagnostics } from "./diagnostics.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "../ir/binding/index.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
-
-const JS_SURFACE_SHIM_FILE = "__tsonic_surface_js__.d.ts";
-
-const JS_SURFACE_NODE_MODULE_SHIMS = `
-declare module "node:fs" { export { fs } from "@tsonic/nodejs/index.js"; }
-declare module "fs" { export { fs } from "@tsonic/nodejs/index.js"; }
-declare module "node:path" { export { path } from "@tsonic/nodejs/index.js"; }
-declare module "path" { export { path } from "@tsonic/nodejs/index.js"; }
-declare module "node:crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
-declare module "crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
-declare module "node:os" { export { os } from "@tsonic/nodejs/index.js"; }
-declare module "os" { export { os } from "@tsonic/nodejs/index.js"; }
-declare module "node:process" { export { process } from "@tsonic/nodejs/index.js"; }
-declare module "process" { export { process } from "@tsonic/nodejs/index.js"; }
-`;
+import {
+  JS_SURFACE_GLOBALS_SHIMS,
+  JS_SURFACE_NODE_MODULE_SHIMS,
+} from "../surface/js-surface-shims.js";
+const JS_SURFACE_GLOBALS_SHIM_FILE = "__tsonic_surface_globals__.d.ts";
+const JS_SURFACE_NODE_SHIM_FILE = "__tsonic_surface_node_modules__.d.ts";
 
 /**
  * Recursively scan a directory for .d.ts files
@@ -79,8 +70,6 @@ export const createCompilerOptions = (
     rootDir: options.sourceRoot,
   };
 
-  // When JS surface or useStandardLib is enabled, disable noLib to use TypeScript's built-in types.
-  // This is useful for tests that don't have access to BCL bindings
   if (options.useStandardLib || surfaceCapabilities.useStandardLib) {
     return {
       ...baseConfig,
@@ -218,15 +207,20 @@ export const createProgram = (
 
   // Combine source files, declaration files, and namespace index files
   // Note: globals.d.ts should be in the BCL bindings directory (typeRoots)
-  const syntheticJsSurfaceShim = path.resolve(
+  const syntheticJsSurfaceGlobalsShim = path.resolve(
     options.projectRoot,
-    JS_SURFACE_SHIM_FILE
+    JS_SURFACE_GLOBALS_SHIM_FILE
+  );
+  const syntheticJsSurfaceNodeShim = path.resolve(
+    options.projectRoot,
+    JS_SURFACE_NODE_SHIM_FILE
   );
   const allFiles = [
     ...absolutePaths,
     ...declarationFiles,
     ...namespaceIndexFiles,
-    ...(nodeAliasSurface ? [syntheticJsSurfaceShim] : []),
+    ...(jsRuntimeSurface ? [syntheticJsSurfaceGlobalsShim] : []),
+    ...(nodeAliasSurface ? [syntheticJsSurfaceNodeShim] : []),
   ];
 
   const tsOptions = createCompilerOptions(options);
@@ -258,7 +252,17 @@ export const createProgram = (
     onError?: (message: string) => void,
     shouldCreateNewSourceFile?: boolean
   ): ts.SourceFile | undefined => {
-    if (nodeAliasSurface && fileName === syntheticJsSurfaceShim) {
+    if (jsRuntimeSurface && fileName === syntheticJsSurfaceGlobalsShim) {
+      return ts.createSourceFile(
+        fileName,
+        JS_SURFACE_GLOBALS_SHIMS,
+        languageVersion,
+        true,
+        ts.ScriptKind.TS
+      );
+    }
+
+    if (nodeAliasSurface && fileName === syntheticJsSurfaceNodeShim) {
       return ts.createSourceFile(
         fileName,
         JS_SURFACE_NODE_MODULE_SHIMS,
@@ -508,22 +512,22 @@ export const createProgram = (
         Map: {
           kind: "global",
           assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.Map_2",
+          type: "Tsonic.JSRuntime.Map",
         },
         Set: {
           kind: "global",
           assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.Set_1",
+          type: "Tsonic.JSRuntime.Set",
         },
         WeakMap: {
           kind: "global",
           assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.WeakMap_2",
+          type: "Tsonic.JSRuntime.WeakMap",
         },
         WeakSet: {
           kind: "global",
           assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.WeakSet_1",
+          type: "Tsonic.JSRuntime.WeakSet",
         },
         parseInt: {
           kind: "global",

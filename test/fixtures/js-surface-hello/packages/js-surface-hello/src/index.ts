@@ -6,5 +6,7 @@ export function main(): void {
   const parsed = parseInt("42");
 
   Console.WriteLine(upper);
-  Console.WriteLine(parsed.ToString());
+  if (parsed !== undefined) {
+    Console.WriteLine(parsed.ToString());
+  }
 }

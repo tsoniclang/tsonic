@@ -10,7 +10,7 @@ import * as path from "node:path";
 import { createCompilerOptions, createProgram } from "./creation.js";
 
 describe("Program Creation", () => {
-  it("should enable TypeScript standard lib in js surface mode", () => {
+  it("should keep noLib mode in js surface mode", () => {
     const options = createCompilerOptions({
       projectRoot: "/tmp/app",
       sourceRoot: "/tmp/app/src",
@@ -18,10 +18,10 @@ describe("Program Creation", () => {
       surface: "js",
     });
 
-    expect(options.noLib).to.equal(false);
+    expect(options.noLib).to.equal(true);
   });
 
-  it("should enable TypeScript standard lib in nodejs surface mode", () => {
+  it("should keep noLib mode in nodejs surface mode", () => {
     const options = createCompilerOptions({
       projectRoot: "/tmp/app",
       sourceRoot: "/tmp/app/src",
@@ -29,7 +29,7 @@ describe("Program Creation", () => {
       surface: "nodejs",
     });
 
-    expect(options.noLib).to.equal(false);
+    expect(options.noLib).to.equal(true);
   });
 
   it("should resolve @tsonic/* imports from the project root (global install)", () => {
@@ -240,6 +240,59 @@ describe("Program Creation", () => {
           0
         )
       ).to.not.equal(undefined);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should typecheck compiler-owned js globals in noLib mode", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-js-globals-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        [
+          'const m = "  hi  ".trim().toUpperCase();',
+          'const hasNeedle = m.includes("H");',
+          "const when = new Date();",
+          "const parsed = JSON.parse<{ ok: boolean }>('{\"ok\":true}');",
+          "const s = new Set<string>();",
+          "s.add(m);",
+          "const mp = new Map<string, number>();",
+          "mp.set(m, 42);",
+          "const nums = [1, 2, 3, 4];",
+          "const doubled = nums.map((x) => x * 2);",
+          "const filtered = doubled.filter((x) => x > 2);",
+          "const total = filtered.reduce((a, b) => a + b, 0);",
+          "console.log(when.toISOString(), parsed.ok, hasNeedle, mp.get(m), s.has(m));",
+          'console.log(nums.length, doubled.join(","), total);',
+          'export const ok = parseInt("42");',
+        ].join("\n")
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "js",
+      });
+
+      expect(result.ok).to.equal(true);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

@@ -19,7 +19,7 @@ describe("Frontend Surface Profiles", () => {
       "node_modules/@tsonic/globals",
       "node_modules/@tsonic/js",
     ]);
-    expect(caps.useStandardLib).to.equal(true);
+    expect(caps.useStandardLib).to.equal(false);
     expect(caps.enableJsBuiltins).to.equal(true);
     expect(caps.enableNodeModuleAliases).to.equal(false);
   });
@@ -31,7 +31,7 @@ describe("Frontend Surface Profiles", () => {
       "node_modules/@tsonic/js",
       "node_modules/@tsonic/nodejs",
     ]);
-    expect(caps.useStandardLib).to.equal(true);
+    expect(caps.useStandardLib).to.equal(false);
     expect(caps.enableJsBuiltins).to.equal(true);
     expect(caps.enableNodeModuleAliases).to.equal(true);
   });
