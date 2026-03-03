@@ -91,7 +91,7 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
       const [floatText] = toText(floatExpr, idAst("f"), ctx);
       expect(floatText).to.include("float =>");
       expect(floatText).to.include("!= 0f");
-      expect(floatText).to.include("!float.IsNaN");
+      expect(floatText).to.include("System.Single.IsNaN");
       expect(floatText).to.not.include("!= null");
 
       const charExpr = id("c", ref("System.Char"));
@@ -154,6 +154,54 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
       expect(anyText).to.include("string =>");
       expect(anyText).to.not.include("!= null");
       expect(anyNext.tempVarId).to.equal(1);
+    });
+
+    it("covers every runtime truthiness switch arm deterministically", () => {
+      const ctx = createContext({ tempVarId: 0 });
+      const expr = id("x", { kind: "unknownType" } as IrType);
+      const [text, next] = toText(expr, idAst("x"), ctx);
+      const tmp = "__tsonic_truthy_1";
+
+      const orderedArmFragments = [
+        `bool => (bool)${tmp}`,
+        `string => ((string)${tmp}).Length != 0`,
+        `sbyte => (sbyte)${tmp} != 0`,
+        `byte => (byte)${tmp} != 0`,
+        `short => (short)${tmp} != 0`,
+        `ushort => (ushort)${tmp} != 0`,
+        `int => (int)${tmp} != 0`,
+        `uint => (uint)${tmp} != 0U`,
+        `long => (long)${tmp} != 0L`,
+        `ulong => (ulong)${tmp} != 0UL`,
+        `nint => (nint)${tmp} != 0`,
+        `nuint => (nuint)${tmp} != 0`,
+        `global::System.Int128 => (global::System.Int128)${tmp} != 0`,
+        `global::System.UInt128 => (global::System.UInt128)${tmp} != 0`,
+        `global::System.Half => (global::System.Half)${tmp} != (global::System.Half)0`,
+        `!global::System.Half.IsNaN((global::System.Half)${tmp})`,
+        `float => (float)${tmp} != 0f`,
+        `!global::System.Single.IsNaN((float)${tmp})`,
+        `double => (double)${tmp} != 0d`,
+        `!global::System.Double.IsNaN((double)${tmp})`,
+        `decimal => (decimal)${tmp} != 0m`,
+        `char => (char)${tmp} != '\\0'`,
+        `_ => true`,
+      ];
+
+      let previousIndex = -1;
+      for (const fragment of orderedArmFragments) {
+        const idx = text.indexOf(fragment);
+        expect(idx, `missing switch arm fragment: ${fragment}`).to.not.equal(-1);
+        expect(
+          idx,
+          `switch arm fragment out of order: ${fragment}`
+        ).to.be.greaterThan(previousIndex);
+        previousIndex = idx;
+      }
+
+      expect(text).to.include(`${tmp} switch {`);
+      expect(text).to.not.include("!= null");
+      expect(next.tempVarId).to.equal(1);
     });
 
     it("treats comparisons as inherently boolean (no truthiness rewriting)", () => {
