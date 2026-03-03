@@ -656,9 +656,25 @@ const patchFacadeWithSourceFunctionSignatures = (
       const replacement = Array.from(
         new Set(
           signatures.map((sig) => {
-            const returnType = sig.returnTypeText.includes("{")
-              ? expandUnionsDeep(existingReturnType)
-              : sig.returnTypeText;
+            const existingIsUnknown = existingReturnType === "unknown";
+            const existingHasAnon = /__Anon_/.test(existingReturnType);
+            const existingHasGenericAritySuffix =
+              /\b[A-Za-z_$][\w$]*_\d+\s*</.test(existingReturnType);
+            const returnType = (() => {
+              if (!sig.returnTypeText.includes("{")) {
+                return sig.returnTypeText;
+              }
+              if (existingIsUnknown) {
+                return sig.returnTypeText;
+              }
+              if (existingHasAnon) {
+                return expandUnionsDeep(existingReturnType);
+              }
+              if (existingHasGenericAritySuffix) {
+                return sig.returnTypeText;
+              }
+              return expandUnionsDeep(existingReturnType);
+            })();
             return `export declare function ${name}${sig.typeParametersText}(${sig.parametersText}): ${returnType};`;
           })
         )
@@ -1520,10 +1536,16 @@ const printIrType = (type: IrType, ctx: TypePrinterContext): string => {
 
 const renderExportedTypeAlias = (
   stmt: Extract<IrStatement, { kind: "typeAliasDeclaration" }>,
-  internalIndexDts: string
-): Result<string, string> => {
+  internalIndexDts: string,
+  _sourceAlias: SourceTypeAliasDef | undefined
+): Result<
+  {
+    readonly line: string;
+    readonly internalAliasImport?: string;
+  },
+  string
+> => {
   const typeParams = printTypeParameters(stmt.typeParameters);
-
   if (stmt.type.kind === "objectType") {
     const arity = stmt.typeParameters?.length ?? 0;
     const internalName = `${stmt.name}__Alias${arity > 0 ? `_${arity}` : ""}`;
@@ -1547,12 +1569,18 @@ const renderExportedTypeAlias = (
 
     return {
       ok: true,
-      value: `export type ${stmt.name}${typeParams} = Internal.${internalName}${typeArgs};`,
+      value: {
+        line: `export type ${stmt.name}${typeParams} = ${internalName}${typeArgs};`,
+        internalAliasImport: internalName,
+      },
     };
   }
 
   const rhs = printIrType(stmt.type, { parentPrecedence: 0 });
-  return { ok: true, value: `export type ${stmt.name}${typeParams} = ${rhs};` };
+  return {
+    ok: true,
+    value: { line: `export type ${stmt.name}${typeParams} = ${rhs};` },
+  };
 };
 
 /**
@@ -1737,7 +1765,14 @@ export const augmentLibraryBindingsFromSource = (
   };
 
   // 1) Per-namespace exported type aliases (including non-structural aliases).
-  const exportedAliasesByNamespace = new Map<string, string[]>();
+  const exportedAliasesByNamespace = new Map<
+    string,
+    {
+      readonly lines: string[];
+      readonly internalAliasImports: Set<string>;
+    }
+  >();
+  const sourceIndexByFileKeyForAliases = new Map<string, ModuleSourceIndex>();
   for (const m of modules) {
     const isExportedTypeAlias = (
       stmt: IrStatement
@@ -1752,31 +1787,73 @@ export const augmentLibraryBindingsFromSource = (
     const internalIndexDts = existsSync(info.internalIndexDtsPath)
       ? readFileSync(info.internalIndexDtsPath, "utf-8")
       : "";
+    const moduleKey = normalizeModuleFileKey(m.filePath);
+    const sourceIndex = (() => {
+      const cached = sourceIndexByFileKeyForAliases.get(moduleKey);
+      if (cached) return { ok: true as const, value: cached };
+      const absolutePath = resolve(absoluteSourceRoot, moduleKey);
+      const indexed = buildModuleSourceIndex(absolutePath, moduleKey);
+      if (!indexed.ok) return indexed;
+      sourceIndexByFileKeyForAliases.set(moduleKey, indexed.value);
+      return indexed;
+    })();
+    if (!sourceIndex.ok) return sourceIndex;
 
     for (const stmt of exportedAliases) {
-      const rendered = renderExportedTypeAlias(stmt, internalIndexDts);
+      const rendered = renderExportedTypeAlias(
+        stmt,
+        internalIndexDts,
+        sourceIndex.value.typeAliasesByName.get(stmt.name)
+      );
       if (!rendered.ok) return rendered;
 
-      const list = exportedAliasesByNamespace.get(m.namespace) ?? [];
-      list.push(rendered.value);
-      exportedAliasesByNamespace.set(m.namespace, list);
+      const current = exportedAliasesByNamespace.get(m.namespace) ?? {
+        lines: [],
+        internalAliasImports: new Set<string>(),
+      };
+      current.lines.push(rendered.value.line);
+      if (rendered.value.internalAliasImport) {
+        current.internalAliasImports.add(rendered.value.internalAliasImport);
+      }
+      exportedAliasesByNamespace.set(m.namespace, current);
     }
   }
 
   const aliasStart = "// Tsonic source type aliases (generated)";
   const aliasEnd = "// End Tsonic source type aliases";
-  for (const [ns, lines] of exportedAliasesByNamespace) {
+  const aliasImportsStart = "// Tsonic source alias imports (generated)";
+  const aliasImportsEnd = "// End Tsonic source alias imports";
+  for (const [ns, aliasData] of exportedAliasesByNamespace) {
     const info = facadesByNamespace.get(ns);
     if (!info) continue;
-    if (lines.length === 0) continue;
+    if (aliasData.lines.length === 0) continue;
 
-    const unique = Array.from(new Set(lines)).sort((a, b) =>
+    const unique = Array.from(new Set(aliasData.lines)).sort((a, b) =>
       a.localeCompare(b)
     );
     const body = unique.join("\n");
 
     const current = readFileSync(info.facadeDtsPath, "utf-8");
-    const next = upsertSection(current, aliasStart, aliasEnd, body);
+    const internalImportMatch = current.match(
+      /^import\s+\*\s+as\s+Internal\s+from\s+['"](.+)['"];\s*$/m
+    );
+    let next = current;
+    if (internalImportMatch?.[1] && aliasData.internalAliasImports.size > 0) {
+      const internalAliasImportLine = `import type { ${Array.from(
+        aliasData.internalAliasImports
+      )
+        .sort((a, b) => a.localeCompare(b))
+        .join(", ")} } from '${internalImportMatch[1]}';`;
+      next = upsertSectionAfterImports(
+        next,
+        aliasImportsStart,
+        aliasImportsEnd,
+        internalAliasImportLine
+      );
+    } else {
+      next = stripExistingSection(next, aliasImportsStart, aliasImportsEnd);
+    }
+    next = upsertSectionAfterImports(next, aliasStart, aliasEnd, body);
     writeFileSync(info.facadeDtsPath, next, "utf-8");
   }
 

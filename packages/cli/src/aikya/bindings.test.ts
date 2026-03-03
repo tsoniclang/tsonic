@@ -58,7 +58,9 @@ const writeInstalledPackage = (
     ...(opts.optionalDependencies
       ? { optionalDependencies: opts.optionalDependencies }
       : {}),
-    ...(opts.peerDependencies ? { peerDependencies: opts.peerDependencies } : {}),
+    ...(opts.peerDependencies
+      ? { peerDependencies: opts.peerDependencies }
+      : {}),
   });
 
   if (opts.legacyBindings !== undefined) {
@@ -233,21 +235,26 @@ describe("aikya bindings", function () {
   it("errors with TSN8A02 when runtime nuget package version is invalid", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-runtime-version-"));
     try {
-      const pkgRoot = writeInstalledPackage(dir, "bad-runtime-version", "1.0.0", {
-        bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "bad-runtime-version",
-          npmVersion: "1.0.0",
-          runtime: {
-            nugetPackages: [{ id: "Bad.Runtime", version: "" }],
+      const pkgRoot = writeInstalledPackage(
+        dir,
+        "bad-runtime-version",
+        "1.0.0",
+        {
+          bindingsRoot: "tsonic/bindings",
+          aikyaManifest: {
+            schemaVersion: 1,
+            kind: "tsonic-library",
+            npmPackage: "bad-runtime-version",
+            npmVersion: "1.0.0",
+            runtime: {
+              nugetPackages: [{ id: "Bad.Runtime", version: "" }],
+            },
+            typing: {
+              bindingsRoot: "tsonic/bindings",
+            },
           },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
-          },
-        },
-      });
+        }
+      );
 
       const result = resolveInstalledPackageBindingsManifest(pkgRoot);
       expect(result.ok).to.equal(false);
@@ -337,7 +344,9 @@ describe("aikya bindings", function () {
   });
 
   it("discovers transitive manifests through installed dependency graph", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-discover-transitive-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-aikya-discover-transitive-")
+    );
     try {
       writeJson(join(dir, "package.json"), {
         name: "workspace",

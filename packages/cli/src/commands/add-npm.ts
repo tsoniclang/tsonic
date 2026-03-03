@@ -118,7 +118,13 @@ const writeNormalizedBindingsManifest = (
   packageName: string,
   manifest: NormalizedBindingsManifest
 ): Result<void, string> => {
-  const outDir = join(workspaceRoot, ".tsonic", "manifests", "npm", packageName);
+  const outDir = join(
+    workspaceRoot,
+    ".tsonic",
+    "manifests",
+    "npm",
+    packageName
+  );
   const outPath = join(outDir, "tsonic.bindings.normalized.json");
   try {
     mkdirSync(outDir, { recursive: true });

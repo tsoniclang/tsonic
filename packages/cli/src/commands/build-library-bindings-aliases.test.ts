@@ -314,6 +314,28 @@ describe("build command (library bindings)", function () {
         /readonly\s+Numbers:\s+__TsonicExt_Tasks<__TsonicExt_Linq</
       );
 
+      const rootBindingsPath = join(bindingsDir, "Test.Lib", "bindings.json");
+      expect(existsSync(rootBindingsPath)).to.equal(true);
+      const rootBindings = JSON.parse(
+        readFileSync(rootBindingsPath, "utf-8")
+      ) as {
+        namespace?: unknown;
+        producer?: { tool?: unknown; mode?: unknown };
+        exports?: Record<string, unknown>;
+        types?: Array<{ clrName?: unknown }>;
+      };
+      expect(rootBindings.namespace).to.equal("Test.Lib");
+      expect(rootBindings.producer?.tool).to.equal("tsonic");
+      expect(rootBindings.producer?.mode).to.equal("aikya-firstparty");
+      expect(Object.keys(rootBindings.exports ?? {})).to.include("ok");
+      expect(Object.keys(rootBindings.exports ?? {})).to.include("err");
+      expect(Object.keys(rootBindings.exports ?? {})).to.include("loadConfig");
+      expect(
+        (rootBindings.types ?? []).some(
+          (entry) => entry.clrName === "Test.Lib.QueryHolder"
+        )
+      ).to.equal(true);
+
       // Namespace facade for the "types" module must include TS-level aliases.
       expect(typesContent).to.include("Tsonic source type aliases (generated)");
       expect(typesContent).to.include("export type Id = string;");
@@ -522,6 +544,15 @@ describe("build command (library bindings)", function () {
         [
           `import type { int } from "@tsonic/core/types.js";`,
           ``,
+          `export class BuildRequest {`,
+          `  destinationDir: string = "";`,
+          `  buildDrafts: boolean = false;`,
+          `}`,
+          ``,
+          `export class ServeRequest extends BuildRequest {`,
+          `  host: string = "127.0.0.1";`,
+          `}`,
+          ``,
           `export class Entity {`,
           `  Maybe?: int;`,
           `}`,
@@ -542,7 +573,7 @@ describe("build command (library bindings)", function () {
         [
           `export type { Ok, Err, Result } from "./types.ts";`,
           `export { ok, err, renderMarkdownDomain } from "./types.ts";`,
-          `export { Entity, dispatch } from "./contracts.ts";`,
+          `export { BuildRequest, ServeRequest, Entity, dispatch } from "./contracts.ts";`,
           `export type { DomainEvent } from "./contracts.ts";`,
           ``,
         ].join("\n"),
@@ -553,11 +584,16 @@ describe("build command (library bindings)", function () {
         join(dir, "packages", "app", "src", "App.ts"),
         [
           `import type { int } from "@tsonic/core/types.js";`,
-          `import { Entity, dispatch, renderMarkdownDomain, err } from "@acme/core/Acme.Core.js";`,
+          `import { Entity, ServeRequest, dispatch, renderMarkdownDomain, err } from "@acme/core/Acme.Core.js";`,
           ``,
           `const entity = new Entity();`,
           `const maybe: int | undefined = undefined;`,
           `entity.Maybe = maybe;`,
+          ``,
+          `const serveReq = new ServeRequest();`,
+          `serveReq.destinationDir = "out";`,
+          `serveReq.buildDrafts = true;`,
+          `serveReq.host = "localhost";`,
           ``,
           `const eventData: Record<string, unknown> = { id: "evt-1" };`,
           `dispatch({ type: "evt", data: eventData });`,
@@ -626,6 +662,34 @@ describe("build command (library bindings)", function () {
       );
       expect(buildApp.status, buildApp.stderr || buildApp.stdout).to.equal(0);
 
+      const rootBindingsPath = join(
+        dir,
+        "packages",
+        "core",
+        "dist",
+        "tsonic",
+        "bindings",
+        "Acme.Core",
+        "bindings.json"
+      );
+      expect(existsSync(rootBindingsPath)).to.equal(true);
+      const rootBindings = JSON.parse(
+        readFileSync(rootBindingsPath, "utf-8")
+      ) as {
+        producer?: { tool?: unknown; mode?: unknown };
+        exports?: Record<string, unknown>;
+        types?: Array<{ clrName?: unknown }>;
+      };
+      expect(rootBindings.producer?.tool).to.equal("tsonic");
+      expect(rootBindings.producer?.mode).to.equal("aikya-firstparty");
+      expect(Object.keys(rootBindings.exports ?? {})).to.include(
+        "renderMarkdownDomain"
+      );
+      expect(Object.keys(rootBindings.exports ?? {})).to.include("dispatch");
+      expect(
+        (rootBindings.types ?? []).some((t) => t.clrName === "Acme.Core.Entity")
+      ).to.equal(true);
+
       const coreTypesFacade = readFileSync(
         join(
           dir,
@@ -674,6 +738,9 @@ describe("build command (library bindings)", function () {
         /set Maybe\(value: [^)]+undefined\)\s*;/
       );
       expect(coreEntitiesInternal).to.include("data: Record<string, unknown>");
+      expect(coreEntitiesInternal).to.match(
+        /interface\s+ServeRequest\$instance\s+extends\s+BuildRequest/
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1152,6 +1219,21 @@ describe("build command (library bindings)", function () {
         "tsonic",
         "bindings"
       );
+      const rootBindingsPath = join(bindingsDir, "Acme.Core", "bindings.json");
+      expect(existsSync(rootBindingsPath)).to.equal(true);
+      const rootBindings = JSON.parse(
+        readFileSync(rootBindingsPath, "utf-8")
+      ) as {
+        producer?: { tool?: unknown; mode?: unknown };
+        exports?: Record<string, unknown>;
+      };
+      expect(rootBindings.producer?.tool).to.equal("tsonic");
+      expect(rootBindings.producer?.mode).to.equal("aikya-firstparty");
+      expect(Object.keys(rootBindings.exports ?? {})).to.include(
+        "projectFlags"
+      );
+      expect(Object.keys(rootBindings.exports ?? {})).to.include("createBox");
+
       const collectDts = (root: string): string[] => {
         const out: string[] = [];
         for (const entry of readdirSync(root, { withFileTypes: true })) {

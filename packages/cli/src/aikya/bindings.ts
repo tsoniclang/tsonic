@@ -60,7 +60,10 @@ const AIKYA_DIAGNOSTIC = {
 
 const normalizeId = (id: string): string => id.trim().toLowerCase();
 
-const errorWithCode = (code: string, message: string): Result<never, string> => {
+const errorWithCode = (
+  code: string,
+  message: string
+): Result<never, string> => {
   return { ok: false, error: `${code}: ${message}` };
 };
 
@@ -73,11 +76,12 @@ const readJsonObject = (
 ): Result<Record<string, unknown>, string> => {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return errorWithCode(
-        parseErrorCode,
-        `Expected JSON object at ${path}`
-      );
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      return errorWithCode(parseErrorCode, `Expected JSON object at ${path}`);
     }
     return { ok: true, value: parsed as Record<string, unknown> };
   } catch (error) {
@@ -349,7 +353,8 @@ export const mergeFrameworkReferences = (
       continue;
     }
 
-    const currentTypes = typeof current === "string" ? undefined : current.types;
+    const currentTypes =
+      typeof current === "string" ? undefined : current.types;
     const nextTypes = typeof ref === "string" ? undefined : ref.types;
 
     if (
@@ -507,18 +512,26 @@ const collectRuntimePackagesFromLegacy = (
   }
 
   const collectTypesPackage = (
-    refs: readonly FrameworkReferenceConfig[] | readonly PackageReferenceConfig[]
+    refs:
+      | readonly FrameworkReferenceConfig[]
+      | readonly PackageReferenceConfig[]
   ): void => {
     for (const ref of refs) {
       if (typeof ref === "string") continue;
-      if (typeof ref.types === "string" && ref.types.trim()) set.add(ref.types.trim());
+      if (typeof ref.types === "string" && ref.types.trim())
+        set.add(ref.types.trim());
     }
   };
 
-  collectTypesPackage((dotnet?.frameworkReferences ?? []) as readonly FrameworkReferenceConfig[]);
-  collectTypesPackage((dotnet?.packageReferences ?? []) as readonly PackageReferenceConfig[]);
   collectTypesPackage(
-    (testDotnet?.frameworkReferences ?? []) as readonly FrameworkReferenceConfig[]
+    (dotnet?.frameworkReferences ?? []) as readonly FrameworkReferenceConfig[]
+  );
+  collectTypesPackage(
+    (dotnet?.packageReferences ?? []) as readonly PackageReferenceConfig[]
+  );
+  collectTypesPackage(
+    (testDotnet?.frameworkReferences ??
+      []) as readonly FrameworkReferenceConfig[]
   );
   collectTypesPackage(
     (testDotnet?.packageReferences ?? []) as readonly PackageReferenceConfig[]
@@ -527,7 +540,9 @@ const collectRuntimePackagesFromLegacy = (
   return [...set].sort((a, b) => normalizeId(a).localeCompare(normalizeId(b)));
 };
 
-const parseAikyaProducer = (value: unknown): Result<AikyaProducer | undefined, string> => {
+const parseAikyaProducer = (
+  value: unknown
+): Result<AikyaProducer | undefined, string> => {
   if (value === undefined) return { ok: true, value: undefined };
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return errorWithCode(
@@ -697,7 +712,8 @@ const resolveFromAikyaManifest = (
       `typing must be an object at ${path}`
     );
   }
-  const bindingsRoot = (typing as { readonly bindingsRoot?: unknown }).bindingsRoot;
+  const bindingsRoot = (typing as { readonly bindingsRoot?: unknown })
+    .bindingsRoot;
   if (typeof bindingsRoot !== "string" || bindingsRoot.trim().length === 0) {
     return errorWithCode(
       AIKYA_DIAGNOSTIC.invalidSchema,
@@ -713,7 +729,11 @@ const resolveFromAikyaManifest = (
   }
 
   const runtime = manifest.runtime;
-  if (runtime === null || typeof runtime !== "object" || Array.isArray(runtime)) {
+  if (
+    runtime === null ||
+    typeof runtime !== "object" ||
+    Array.isArray(runtime)
+  ) {
     return errorWithCode(
       AIKYA_DIAGNOSTIC.missingRuntimeMapping,
       `runtime must be an object at ${path}`
@@ -739,7 +759,10 @@ const resolveFromAikyaManifest = (
 
   const dotnetParsed = parseManifestDotnet(manifest.dotnet, "dotnet");
   if (!dotnetParsed.ok) return dotnetParsed;
-  const testDotnetParsed = parseManifestDotnet(manifest.testDotnet, "testDotnet");
+  const testDotnetParsed = parseManifestDotnet(
+    manifest.testDotnet,
+    "testDotnet"
+  );
   if (!testDotnetParsed.ok) return testDotnetParsed;
 
   const mergedDotnetPackages = mergePackageReferences(
@@ -750,7 +773,8 @@ const resolveFromAikyaManifest = (
   if (!mergedDotnetPackages.ok) return mergedDotnetPackages;
 
   const mergedDotnetFramework = mergeFrameworkReferences(
-    (dotnetParsed.value?.frameworkReferences ?? []) as FrameworkReferenceConfig[],
+    (dotnetParsed.value?.frameworkReferences ??
+      []) as FrameworkReferenceConfig[],
     runtimeFramework.value as FrameworkReferenceConfig[],
     AIKYA_DIAGNOSTIC.conflictingRuntime
   );
@@ -840,11 +864,15 @@ const resolveFromLegacyBindingsManifest = (
       `Invalid tsonic.bindings.json surfaceMode: ${String(surfaceModeRaw)}`
     );
   }
-  const surfaceMode = (surfaceModeRaw as ManifestSurfaceMode | undefined) ?? "clr";
+  const surfaceMode =
+    (surfaceModeRaw as ManifestSurfaceMode | undefined) ?? "clr";
 
   const dotnetParsed = parseManifestDotnet(manifest.dotnet, "dotnet");
   if (!dotnetParsed.ok) return dotnetParsed;
-  const testDotnetParsed = parseManifestDotnet(manifest.testDotnet, "testDotnet");
+  const testDotnetParsed = parseManifestDotnet(
+    manifest.testDotnet,
+    "testDotnet"
+  );
   if (!testDotnetParsed.ok) return testDotnetParsed;
 
   const dotnet = canonicalizeManifestDotnet(dotnetParsed.value);
@@ -863,7 +891,9 @@ const resolveFromLegacyBindingsManifest = (
       packageVersion,
       surfaceMode,
       assemblyName:
-        typeof manifest.assemblyName === "string" ? manifest.assemblyName : undefined,
+        typeof manifest.assemblyName === "string"
+          ? manifest.assemblyName
+          : undefined,
       assemblyVersion:
         typeof manifest.assemblyVersion === "string"
           ? manifest.assemblyVersion
@@ -896,7 +926,10 @@ const readInstalledPackageInfo = (
     };
   }
 
-  const parsed = readJsonObject(packageJsonPath, AIKYA_DIAGNOSTIC.invalidSchema);
+  const parsed = readJsonObject(
+    packageJsonPath,
+    AIKYA_DIAGNOSTIC.invalidSchema
+  );
   if (!parsed.ok) return parsed;
   const name = parsed.value.name;
   const version = parsed.value.version;
@@ -950,7 +983,10 @@ const listWorkspaceDependencyNames = (
   if (!existsSync(packageJsonPath)) {
     return { ok: true, value: [] };
   }
-  const parsed = readJsonObject(packageJsonPath, AIKYA_DIAGNOSTIC.invalidSchema);
+  const parsed = readJsonObject(
+    packageJsonPath,
+    AIKYA_DIAGNOSTIC.invalidSchema
+  );
   if (!parsed.ok) return parsed;
 
   const dependencies = parsed.value.dependencies;
@@ -960,10 +996,13 @@ const listWorkspaceDependencyNames = (
   const names = new Set<string>();
   for (const name of collectDependencyNames(dependencies)) names.add(name);
   for (const name of collectDependencyNames(devDependencies)) names.add(name);
-  for (const name of collectDependencyNames(optionalDependencies)) names.add(name);
+  for (const name of collectDependencyNames(optionalDependencies))
+    names.add(name);
   return {
     ok: true,
-    value: [...names].sort((a, b) => normalizeId(a).localeCompare(normalizeId(b))),
+    value: [...names].sort((a, b) =>
+      normalizeId(a).localeCompare(normalizeId(b))
+    ),
   };
 };
 
@@ -984,7 +1023,10 @@ const readInstalledPackageDependencyNames = (
   packageRoot: string
 ): Result<readonly string[], string> => {
   const packageJsonPath = join(packageRoot, "package.json");
-  const parsed = readJsonObject(packageJsonPath, AIKYA_DIAGNOSTIC.invalidSchema);
+  const parsed = readJsonObject(
+    packageJsonPath,
+    AIKYA_DIAGNOSTIC.invalidSchema
+  );
   if (!parsed.ok) return parsed;
 
   const dependencies = parsed.value.dependencies;
@@ -993,12 +1035,15 @@ const readInstalledPackageDependencyNames = (
 
   const names = new Set<string>();
   for (const name of collectDependencyNames(dependencies)) names.add(name);
-  for (const name of collectDependencyNames(optionalDependencies)) names.add(name);
+  for (const name of collectDependencyNames(optionalDependencies))
+    names.add(name);
   for (const name of collectDependencyNames(peerDependencies)) names.add(name);
 
   return {
     ok: true,
-    value: [...names].sort((a, b) => normalizeId(a).localeCompare(normalizeId(b))),
+    value: [...names].sort((a, b) =>
+      normalizeId(a).localeCompare(normalizeId(b))
+    ),
   };
 };
 
@@ -1113,7 +1158,8 @@ export const mergeManifestIntoWorkspaceConfig = (
 
   const mergedTestFramework = mergeFrameworkReferences(
     (testDotnet.frameworkReferences ?? []) as FrameworkReferenceConfig[],
-    (manifest.testDotnet?.frameworkReferences ?? []) as FrameworkReferenceConfig[],
+    (manifest.testDotnet?.frameworkReferences ??
+      []) as FrameworkReferenceConfig[],
     conflictCode
   );
   if (!mergedTestFramework.ok) return mergedTestFramework;
@@ -1163,10 +1209,13 @@ export const mergeManifestIntoWorkspaceConfig = (
 export const applyAikyaWorkspaceOverlay = (
   workspaceRoot: string,
   config: TsonicWorkspaceConfig
-): Result<{
-  readonly config: TsonicWorkspaceConfig;
-  readonly manifests: readonly NormalizedBindingsManifest[];
-}, string> => {
+): Result<
+  {
+    readonly config: TsonicWorkspaceConfig;
+    readonly manifests: readonly NormalizedBindingsManifest[];
+  },
+  string
+> => {
   const manifests = discoverWorkspaceBindingsManifests(workspaceRoot);
   if (!manifests.ok) return manifests;
 

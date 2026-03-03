@@ -54,7 +54,7 @@ describe("build command (library bindings ref dirs)", function () {
         "utf-8"
       );
 
-      // Provide required standard bindings packages and tsbindgen (no network).
+      // Provide required standard bindings packages (no network).
       linkDir(
         join(repoRoot, "node_modules/@tsonic/globals"),
         join(dir, "node_modules/@tsonic/globals")
@@ -66,10 +66,6 @@ describe("build command (library bindings ref dirs)", function () {
       linkDir(
         join(repoRoot, "node_modules/@tsonic/dotnet"),
         join(dir, "node_modules/@tsonic/dotnet")
-      );
-      linkDir(
-        join(repoRoot, "node_modules/@tsonic/tsbindgen"),
-        join(dir, "node_modules/@tsonic/tsbindgen")
       );
 
       // Build a tiny external dependency DLL (Dep.dll) OUTSIDE the library output folder.
@@ -184,7 +180,9 @@ describe("build command (library bindings ref dirs)", function () {
       const declarationPath = join(projectRoot, "dist", "index.d.ts");
       expect(existsSync(declarationPath)).to.equal(true);
       const declarationText = readFileSync(declarationPath, "utf-8");
-      expect(declarationText).to.include("export declare function main(): void;");
+      expect(declarationText).to.include(
+        "export declare function main(): void;"
+      );
 
       const aikyaManifestPath = join(
         projectRoot,
