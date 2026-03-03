@@ -11,13 +11,19 @@ import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "../ir/binding/index.js";
+import type { SurfaceMode } from "../program/types.js";
 
 type ValidationResult = ReturnType<typeof createDiagnosticsCollector>;
+
+type TestProgramOptions = {
+  readonly surface?: SurfaceMode;
+};
 
 const createTestProgram = (
   source: string,
   fileName = "/test/test.ts",
-  sourceRoot = "/test"
+  sourceRoot = "/test",
+  options?: TestProgramOptions
 ): TsonicProgram & { readonly sourceFile: ts.SourceFile } => {
   const sourceFile = ts.createSourceFile(
     fileName,
@@ -65,6 +71,7 @@ const createTestProgram = (
       projectRoot: sourceRoot,
       sourceRoot,
       rootNamespace: "Test",
+      surface: options?.surface,
     },
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
@@ -79,9 +86,15 @@ const createTestProgram = (
 const runValidation = (
   sourceText: string,
   fileName?: string,
-  sourceRoot?: string
+  sourceRoot?: string,
+  options?: TestProgramOptions
 ): ValidationResult => {
-  const testProgram = createTestProgram(sourceText, fileName, sourceRoot);
+  const testProgram = createTestProgram(
+    sourceText,
+    fileName,
+    sourceRoot,
+    options
+  );
   return validateImports(
     testProgram.sourceFile,
     testProgram,
@@ -161,5 +174,177 @@ describe("validateImports", () => {
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  it("allows canonical node module named imports in nodejs surface", () => {
+    const testProgram = createTestProgram(
+      `
+        import { fs } from "node:fs";
+        void fs;
+      `,
+      "/test/node-valid.ts",
+      "/test",
+      { surface: "nodejs" }
+    );
+    testProgram.bindings.addBindings("/test/node-bindings.json", {
+      bindings: {
+        "@tsonic/nodejs/index.js": {
+          kind: "module",
+          assembly: "nodejs",
+          type: "nodejs.fs$instance",
+        },
+      },
+    });
+
+    const result = validateImports(
+      testProgram.sourceFile,
+      testProgram,
+      createDiagnosticsCollector()
+    );
+
+    expect(result.hasErrors).to.equal(false);
+    expect(codes(result)).to.deep.equal([]);
+  });
+
+  it("rejects unsupported named member imports from node aliases with TSN1004", () => {
+    const testProgram = createTestProgram(
+      `
+        import { readFileSync } from "node:fs";
+        void readFileSync;
+      `,
+      "/test/node-invalid-member.ts",
+      "/test",
+      { surface: "nodejs" }
+    );
+    testProgram.bindings.addBindings("/test/node-bindings.json", {
+      bindings: {
+        "@tsonic/nodejs/index.js": {
+          kind: "module",
+          assembly: "nodejs",
+          type: "nodejs.fs$instance",
+        },
+      },
+    });
+
+    const result = validateImports(
+      testProgram.sourceFile,
+      testProgram,
+      createDiagnosticsCollector()
+    );
+
+    expect(result.hasErrors).to.equal(true);
+    expect(codes(result)).to.include("TSN1004");
+    expect(result.diagnostics[0]?.message).to.include(
+      "Unsupported member import"
+    );
+  });
+
+  it("rejects default imports from node aliases with TSN1004", () => {
+    const testProgram = createTestProgram(
+      `
+        import fs from "node:fs";
+        void fs;
+      `,
+      "/test/node-default-import.ts",
+      "/test",
+      { surface: "nodejs" }
+    );
+    testProgram.bindings.addBindings("/test/node-bindings.json", {
+      bindings: {
+        "@tsonic/nodejs/index.js": {
+          kind: "module",
+          assembly: "nodejs",
+          type: "nodejs.fs$instance",
+        },
+      },
+    });
+
+    const result = validateImports(
+      testProgram.sourceFile,
+      testProgram,
+      createDiagnosticsCollector()
+    );
+
+    expect(result.hasErrors).to.equal(true);
+    expect(codes(result)).to.include("TSN1004");
+    expect(result.diagnostics[0]?.message).to.include(
+      "Default import is not supported"
+    );
+  });
+
+  it("rejects unsupported named member imports from bare node aliases with TSN1004", () => {
+    const testProgram = createTestProgram(
+      `
+        import { join } from "path";
+        void join;
+      `,
+      "/test/node-bare-invalid-member.ts",
+      "/test",
+      { surface: "nodejs" }
+    );
+    testProgram.bindings.addBindings("/test/node-bindings.json", {
+      bindings: {
+        "@tsonic/nodejs/index.js": {
+          kind: "module",
+          assembly: "nodejs",
+          type: "nodejs.path$instance",
+        },
+      },
+    });
+
+    const result = validateImports(
+      testProgram.sourceFile,
+      testProgram,
+      createDiagnosticsCollector()
+    );
+
+    expect(result.hasErrors).to.equal(true);
+    expect(codes(result)).to.include("TSN1004");
+    expect(result.diagnostics[0]?.message).to.include(
+      "Unsupported member import"
+    );
+  });
+
+  it("reports multiple node import diagnostics in one pass", () => {
+    const testProgram = createTestProgram(
+      `
+        import { readFileSync } from "node:fs";
+        import badPath from "node:path";
+        void readFileSync;
+        void badPath;
+      `,
+      "/test/node-multi-diagnostics.ts",
+      "/test",
+      { surface: "nodejs" }
+    );
+    testProgram.bindings.addBindings("/test/node-bindings.json", {
+      bindings: {
+        "@tsonic/nodejs/index.js": {
+          kind: "module",
+          assembly: "nodejs",
+          type: "nodejs.fs$instance",
+        },
+      },
+    });
+
+    const result = validateImports(
+      testProgram.sourceFile,
+      testProgram,
+      createDiagnosticsCollector()
+    );
+
+    expect(result.hasErrors).to.equal(true);
+    expect(codes(result).filter((code) => code === "TSN1004").length).to.equal(
+      2
+    );
+    const messages = result.diagnostics.map((diag) => diag.message);
+    expect(
+      messages.some((message) => message.includes("Unsupported member import"))
+    ).to.equal(true);
+    expect(
+      messages.some((message) =>
+        message.includes("Default import is not supported")
+      )
+    ).to.equal(true);
   });
 });

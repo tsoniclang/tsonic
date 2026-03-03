@@ -46,7 +46,6 @@ export const getTypePackageInfo = (
   const surfaceCapabilities = resolveSurfaceCapabilities(surface);
   const packages = [
     CLI_PACKAGE,
-    { name: "@tsonic/core", version: "latest" },
     { name: "@tsonic/globals", version: "latest" },
   ];
 
@@ -152,7 +151,14 @@ const npmInstallDev = (
 ): Result<void, string> => {
   const result = spawnSync(
     "npm",
-    ["install", "--save-dev", spec, "--no-fund", "--no-audit"],
+    [
+      "install",
+      "--save-dev",
+      spec,
+      "--no-fund",
+      "--no-audit",
+      "--legacy-peer-deps",
+    ],
     {
       cwd: workspaceRoot,
       stdio: "inherit",

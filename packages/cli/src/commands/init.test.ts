@@ -12,13 +12,13 @@ import { getTypePackageInfo, initWorkspace } from "./init.js";
 describe("Init Command", () => {
   describe("getTypePackageInfo", () => {
     describe("default (no options)", () => {
-      it("should return cli, core, and globals packages", () => {
+      it("should return cli and globals packages", () => {
         const result = getTypePackageInfo();
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("tsonic");
-        expect(packageNames).to.include("@tsonic/core");
         expect(packageNames).to.include("@tsonic/globals");
+        expect(packageNames).to.not.include("@tsonic/core");
       });
 
       it("should set typeRoots to globals", () => {

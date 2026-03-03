@@ -1,0 +1,9 @@
+{
+  "expectFailure": true,
+  "description": "nodejs surface only supports canonical module-container named imports for node aliases.",
+  "expectedErrors": [
+    "TSN1004",
+    "Unsupported member import \"readFileSync\"",
+    "Unsupported module import: node:http"
+  ]
+}
