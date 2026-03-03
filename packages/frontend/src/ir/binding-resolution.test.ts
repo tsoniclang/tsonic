@@ -611,6 +611,156 @@ describe("Binding Resolution in IR", () => {
   });
 
   describe("Extension Method Binding Resolution", () => {
+    it("should resolve js-surface extension methods by receiver type fallback", () => {
+      const source = `
+        interface String { trim(): string; }
+
+        export function test(s: string): string {
+          return s.trim();
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.String",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "trim",
+                normalizedSignature:
+                  "trim|(System.String):System.String|static=true",
+                parameterCount: 1,
+                declaringClrType: "Tsonic.JSRuntime.String",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const jsProgram = {
+        ...testProgram,
+        options: {
+          ...testProgram.options,
+          surface: "js" as const,
+        },
+      };
+
+      const ctx = createProgramContext(jsProgram, options);
+
+      const result = buildIrModule(sourceFile, jsProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[0];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression)
+        return;
+      if (returnStmt.expression.kind !== "call") return;
+      if (returnStmt.expression.callee.kind !== "memberAccess") return;
+
+      expect(returnStmt.expression.callee.memberBinding).to.not.equal(
+        undefined
+      );
+      expect(
+        returnStmt.expression.callee.memberBinding?.isExtensionMethod
+      ).to.equal(true);
+      expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
+        "Tsonic.JSRuntime.String"
+      );
+      expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
+        "trim"
+      );
+    });
+
+    it("should inherit js-surface extension fallback in nodejs surface", () => {
+      const source = `
+        interface String { trim(): string; }
+
+        export function test(s: string): string {
+          return s.trim();
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.String",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "trim",
+                normalizedSignature:
+                  "trim|(System.String):System.String|static=true",
+                parameterCount: 1,
+                declaringClrType: "Tsonic.JSRuntime.String",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const jsProgram = {
+        ...testProgram,
+        options: {
+          ...testProgram.options,
+          surface: "nodejs" as const,
+        },
+      };
+
+      const ctx = createProgramContext(jsProgram, options);
+
+      const result = buildIrModule(sourceFile, jsProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[0];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression)
+        return;
+      if (returnStmt.expression.kind !== "call") return;
+      if (returnStmt.expression.callee.kind !== "memberAccess") return;
+
+      expect(returnStmt.expression.callee.memberBinding).to.not.equal(
+        undefined
+      );
+      expect(
+        returnStmt.expression.callee.memberBinding?.isExtensionMethod
+      ).to.equal(true);
+      expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
+        "Tsonic.JSRuntime.String"
+      );
+      expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
+        "trim"
+      );
+    });
+
     it("should resolve instance-style tsbindgen extension methods via __Ext_* container", () => {
       const source = `
         interface IEnumerable_1<T> {}
@@ -779,6 +929,142 @@ describe("Binding Resolution in IR", () => {
         "value",
         "out",
       ]);
+    });
+
+    it("should resolve js-surface number receiver extensions by primitive fallback", () => {
+      const source = `
+        interface Number { toFixed(fractionDigits?: number): string; }
+
+        export function test(n: number): string {
+          return n.toFixed(2);
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.Number",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "toFixed",
+                normalizedSignature:
+                  "toFixed|(System.Double,System.Int32):System.String|static=true",
+                parameterCount: 2,
+                declaringClrType: "Tsonic.JSRuntime.Number",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const jsProgram = {
+        ...testProgram,
+        options: {
+          ...testProgram.options,
+          surface: "js" as const,
+        },
+      };
+
+      const ctx = createProgramContext(jsProgram, options);
+      const result = buildIrModule(sourceFile, jsProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const fn = module.body[0];
+      if (fn?.kind !== "functionDeclaration") return;
+      const ret = fn.body.statements[0];
+      if (ret?.kind !== "returnStatement" || !ret.expression) return;
+      if (ret.expression.kind !== "call") return;
+      if (ret.expression.callee.kind !== "memberAccess") return;
+
+      expect(ret.expression.callee.memberBinding).to.not.equal(undefined);
+      expect(ret.expression.callee.memberBinding?.type).to.equal(
+        "Tsonic.JSRuntime.Number"
+      );
+      expect(ret.expression.callee.memberBinding?.member).to.equal("toFixed");
+      expect(ret.expression.callee.memberBinding?.isExtensionMethod).to.equal(
+        true
+      );
+    });
+
+    it("should resolve js-surface array receiver extensions by array fallback candidates", () => {
+      const source = `
+        interface Array<T> { join(separator?: string): string; }
+
+        export function test(xs: number[]): string {
+          return xs.join(",");
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.Array",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "join",
+                normalizedSignature:
+                  "join|(JSArray_1,System.String):System.String|static=true",
+                parameterCount: 2,
+                declaringClrType: "Tsonic.JSRuntime.Array",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const jsProgram = {
+        ...testProgram,
+        options: {
+          ...testProgram.options,
+          surface: "js" as const,
+        },
+      };
+
+      const ctx = createProgramContext(jsProgram, options);
+      const result = buildIrModule(sourceFile, jsProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const fn = module.body[0];
+      if (fn?.kind !== "functionDeclaration") return;
+      const ret = fn.body.statements[0];
+      if (ret?.kind !== "returnStatement" || !ret.expression) return;
+      if (ret.expression.kind !== "call") return;
+      if (ret.expression.callee.kind !== "memberAccess") return;
+
+      expect(ret.expression.callee.memberBinding).to.not.equal(undefined);
+      expect(ret.expression.callee.memberBinding?.type).to.equal(
+        "Tsonic.JSRuntime.Array"
+      );
+      expect(ret.expression.callee.memberBinding?.member).to.equal("join");
+      expect(ret.expression.callee.memberBinding?.isExtensionMethod).to.equal(
+        true
+      );
     });
   });
 

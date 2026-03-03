@@ -83,4 +83,164 @@ describe("Import Handling", () => {
     expect(result).to.not.include("using MyApp.services;");
     expect(result).to.not.include("using MyApp.models;");
   });
+
+  it("should lower named imports from module bindings to static CLR members", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "node:fs",
+          isLocal: false,
+          isClr: false,
+          resolvedClrType: "nodejs.fs",
+          specifiers: [
+            {
+              kind: "named",
+              name: "readFileSync",
+              localName: "readFileSync",
+              isType: false,
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "readFileSync",
+            },
+            arguments: [{ kind: "literal", value: "README.md" }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include('global::nodejs.fs.readFileSync("README.md")');
+  });
+
+  it("should lower node module object imports to namespace bindings", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "node:fs",
+          isLocal: false,
+          isClr: false,
+          resolvedClrType: "nodejs.fs",
+          specifiers: [
+            {
+              kind: "named",
+              name: "fs",
+              localName: "fs",
+              isType: false,
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "fs",
+              },
+              property: "existsSync",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [{ kind: "literal", value: "." }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("global::nodejs.fs");
+    expect(result).to.match(
+      /global::nodejs\.fs\.[A-Za-z_][A-Za-z0-9_]*\("\."\)/
+    );
+  });
+
+  it("should lower namespace imports from node aliases to module CLR namespaces", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "node:path",
+          isLocal: false,
+          isClr: false,
+          resolvedClrType: "nodejs.path",
+          specifiers: [
+            {
+              kind: "namespace",
+              localName: "pathMod",
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "memberAccess",
+                object: {
+                  kind: "identifier",
+                  name: "pathMod",
+                },
+                property: "posix",
+                isComputed: false,
+                isOptional: false,
+              },
+              property: "join",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [
+              { kind: "literal", value: "a" },
+              { kind: "literal", value: "b" },
+            ],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("global::nodejs.path");
+    expect(result).to.match(
+      /global::nodejs\.path\.[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\("a", "b"\)/
+    );
+  });
 });

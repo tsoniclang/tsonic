@@ -24,7 +24,11 @@ export const extractImport = (
     specifier,
     sourceFile.fileName,
     program.options.sourceRoot,
-    { clrResolver: program.clrResolver, bindings: program.bindings }
+    {
+      clrResolver: program.clrResolver,
+      bindings: program.bindings,
+      surface: program.options.surface,
+    }
   );
 
   const importedNames: { readonly name: string; readonly alias?: string }[] =
@@ -106,7 +110,11 @@ export const extractDynamicImport = (
     specifier,
     sourceFile.fileName,
     program.options.sourceRoot,
-    { clrResolver: program.clrResolver, bindings: program.bindings }
+    {
+      clrResolver: program.clrResolver,
+      bindings: program.bindings,
+      surface: program.options.surface,
+    }
   );
 
   if (!result.ok || !result.value.isLocal) {

@@ -277,6 +277,18 @@ describe("CLI Parser", () => {
         expect(result.command).to.equal("restore");
         expect(result.options.strict).to.equal(true);
       });
+
+      it("should parse --surface option", () => {
+        const result = parseArgs(["init", "--surface", "js"]);
+        expect(result.command).to.equal("init");
+        expect(result.options.surface).to.equal("js");
+      });
+
+      it("should parse --surface nodejs option", () => {
+        const result = parseArgs(["init", "--surface", "nodejs"]);
+        expect(result.command).to.equal("init");
+        expect(result.options.surface).to.equal("nodejs");
+      });
     });
 
     describe("Program Arguments", () => {

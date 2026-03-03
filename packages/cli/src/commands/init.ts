@@ -13,8 +13,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { addNpmCommand } from "./add-npm.js";
+import {
+  isSurfaceMode,
+  resolveSurfaceCapabilities,
+} from "../surface/profiles.js";
 import type {
   Result,
+  SurfaceMode,
   TsonicProjectConfig,
   TsonicWorkspaceConfig,
 } from "../types.js";
@@ -22,6 +28,7 @@ import type {
 type InitOptions = {
   readonly skipTypes?: boolean;
   readonly typesVersion?: string;
+  readonly surface?: SurfaceMode;
 };
 
 type TypePackageInfo = {
@@ -33,17 +40,22 @@ type TypePackageInfo = {
 const CLI_PACKAGE = { name: "tsonic", version: "latest" };
 
 export const getTypePackageInfo = (
-  _options: Record<string, never> = {}
+  options: { readonly surface?: SurfaceMode } = {}
 ): TypePackageInfo => {
+  const surface = options.surface ?? "clr";
+  const surfaceCapabilities = resolveSurfaceCapabilities(surface);
   const packages = [
     CLI_PACKAGE,
-    { name: "@tsonic/core", version: "latest" },
     { name: "@tsonic/globals", version: "latest" },
   ];
 
+  for (const pkgName of surfaceCapabilities.requiredNpmPackages) {
+    packages.push({ name: pkgName, version: "latest" });
+  }
+
   return {
     packages,
-    typeRoots: ["node_modules/@tsonic/globals"],
+    typeRoots: surfaceCapabilities.requiredTypeRoots,
   };
 };
 
@@ -69,6 +81,12 @@ const SAMPLE_MAIN_TS = `import { Console } from "@tsonic/dotnet/System.js";
 
 export function main(): void {
   Console.WriteLine("Hello from Tsonic!");
+}
+`;
+
+const SAMPLE_MAIN_TS_JS = `export function main(): void {
+  const message = "  Hello from Tsonic JS surface!  ".trim();
+  console.log(message);
 }
 `;
 
@@ -133,7 +151,14 @@ const npmInstallDev = (
 ): Result<void, string> => {
   const result = spawnSync(
     "npm",
-    ["install", "--save-dev", spec, "--no-fund", "--no-audit"],
+    [
+      "install",
+      "--save-dev",
+      spec,
+      "--no-fund",
+      "--no-audit",
+      "--legacy-peer-deps",
+    ],
     {
       cwd: workspaceRoot,
       stdio: "inherit",
@@ -150,6 +175,12 @@ export const initWorkspace = (
   workspaceRoot: string,
   options: InitOptions = {}
 ): Result<void, string> => {
+  const surface = options.surface ?? "clr";
+  if (!isSurfaceMode(surface)) {
+    return { ok: false, error: `Invalid surface: ${surface}` };
+  }
+  const surfaceCapabilities = resolveSurfaceCapabilities(surface);
+
   const workspaceConfigPath = join(workspaceRoot, "tsonic.workspace.json");
   if (existsSync(workspaceConfigPath)) {
     return {
@@ -174,11 +205,14 @@ export const initWorkspace = (
     createOrUpdateRootPackageJson(workspaceRoot);
 
     // Workspace config (deps live here)
+    const typeInfo = getTypePackageInfo({ surface });
+
     let workspaceConfig: TsonicWorkspaceConfig = {
       $schema: "https://tsonic.org/schema/workspace/v1.json",
       dotnetVersion: "net10.0",
+      surface,
       dotnet: {
-        typeRoots: ["node_modules/@tsonic/globals"],
+        typeRoots: surfaceCapabilities.requiredTypeRoots,
         libraries: [],
         frameworkReferences: [],
         packageReferences: [],
@@ -189,7 +223,6 @@ export const initWorkspace = (
     const shouldInstallTypes = options.skipTypes !== true;
 
     if (shouldInstallTypes) {
-      const typeInfo = getTypePackageInfo();
       for (const pkg of typeInfo.packages) {
         const version = options.typesVersion ?? pkg.version;
         const r = npmInstallDev(workspaceRoot, `${pkg.name}@${version}`);
@@ -198,6 +231,17 @@ export const initWorkspace = (
     }
 
     writeWorkspaceConfig(workspaceRoot, workspaceConfig);
+
+    // Surface-specific package manifests may inject required .NET package refs.
+    // Reuse the authoritative add-npm workflow instead of duplicating merge logic.
+    if (shouldInstallTypes) {
+      for (const pkgName of surfaceCapabilities.requiredNpmPackages) {
+        const addResult = addNpmCommand(pkgName, workspaceConfigPath, {
+          quiet: true,
+        });
+        if (!addResult.ok) return addResult;
+      }
+    }
 
     // Project package.json (minimal)
     const projectPkgJson = join(projectRoot, "package.json");
@@ -232,7 +276,11 @@ export const initWorkspace = (
     // Sample source
     const appTsPath = join(projectRoot, "src", "App.ts");
     if (!existsSync(appTsPath)) {
-      writeFileSync(appTsPath, SAMPLE_MAIN_TS, "utf-8");
+      writeFileSync(
+        appTsPath,
+        surface === "clr" ? SAMPLE_MAIN_TS : SAMPLE_MAIN_TS_JS,
+        "utf-8"
+      );
     }
 
     // Root .gitignore

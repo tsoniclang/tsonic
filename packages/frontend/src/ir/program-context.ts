@@ -18,6 +18,7 @@ import type { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import type { BindingRegistry } from "../program/bindings.js";
 import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import type { TsonicProgram } from "../program.js";
+import type { SurfaceMode } from "../program/types.js";
 import type { IrBuildOptions } from "./builder/types.js";
 import type { Diagnostic } from "../types/diagnostic.js";
 import { buildNominalEnv } from "./type-system/internal/nominal-env.js";
@@ -39,6 +40,11 @@ import {
  * INVARIANT: One program → one context. No global state.
  */
 export type ProgramContext = {
+  /**
+   * Selected language surface mode for this compilation.
+   */
+  readonly surface: SurfaceMode;
+
   /**
    * TypeScript checker for symbol-only queries in converter-time analyses.
    *
@@ -431,6 +437,7 @@ export const createProgramContext = (
   });
 
   return {
+    surface: program.options.surface ?? "clr",
     checker: program.checker,
     binding: program.binding,
     typeSystem,

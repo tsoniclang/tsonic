@@ -116,6 +116,7 @@ export const runCli = async (args: string[]): Promise<number> => {
     const result = initWorkspace(process.cwd(), {
       skipTypes: parsed.options.skipTypes,
       typesVersion: parsed.options.typesVersion,
+      surface: parsed.options.surface,
     });
     if (!result.ok) {
       console.error(`Error: ${result.error}`);

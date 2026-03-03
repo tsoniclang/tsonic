@@ -10,6 +10,7 @@ import {
   createDiagnostic,
 } from "../types/diagnostic.js";
 import { resolveImport } from "../resolver.js";
+import { resolveNodeModuleAlias } from "../resolver/node-module-aliases.js";
 import { getNodeLocation } from "./helpers.js";
 
 /**
@@ -20,20 +21,28 @@ export const validateImports = (
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
-  const visitor = (node: ts.Node): DiagnosticsCollector => {
+  let currentCollector = collector;
+  const visitor = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node)) {
-      return validateImportDeclaration(node, sourceFile, program, collector);
+      currentCollector = validateImportDeclaration(
+        node,
+        sourceFile,
+        program,
+        currentCollector
+      );
+      return;
     }
 
     if (ts.isImportTypeNode(node)) {
       // Supported: type-only imports are erased at runtime.
-      return collector;
+      return;
     }
 
-    return ts.forEachChild(node, visitor) ?? collector;
+    ts.forEachChild(node, visitor);
   };
 
-  return visitor(sourceFile);
+  visitor(sourceFile);
+  return currentCollector;
 };
 
 /**
@@ -63,12 +72,53 @@ export const validateImportDeclaration = (
     importPath,
     sourceFile.fileName,
     program.options.sourceRoot,
-    { clrResolver: program.clrResolver, bindings: program.bindings }
+    {
+      clrResolver: program.clrResolver,
+      bindings: program.bindings,
+      surface: program.options.surface,
+    }
   );
 
   if (!result.ok) {
     const location = getNodeLocation(sourceFile, node.moduleSpecifier);
     return addDiagnostic(collector, { ...result.error, location });
+  }
+
+  const nodeAlias = resolveNodeModuleAlias(importPath);
+  if (nodeAlias) {
+    if (node.importClause?.name) {
+      return addDiagnostic(
+        collector,
+        createDiagnostic(
+          "TSN1004",
+          "error",
+          `Default import is not supported for "${importPath}"`,
+          getNodeLocation(sourceFile, node.importClause.name),
+          `Use named import: import { ${nodeAlias.moduleName} } from "${importPath}";`
+        )
+      );
+    }
+
+    if (
+      node.importClause?.namedBindings &&
+      ts.isNamedImports(node.importClause.namedBindings)
+    ) {
+      for (const spec of node.importClause.namedBindings.elements) {
+        const importedName = (spec.propertyName ?? spec.name).text;
+        if (importedName !== nodeAlias.moduleName) {
+          return addDiagnostic(
+            collector,
+            createDiagnostic(
+              "TSN1004",
+              "error",
+              `Unsupported member import "${importedName}" from "${importPath}"`,
+              getNodeLocation(sourceFile, spec),
+              `Only "${nodeAlias.moduleName}" is exported from "${importPath}" in the Tsonic Node surface`
+            )
+          );
+        }
+      }
+    }
   }
 
   // Check for default imports from local modules (we might want to restrict this)

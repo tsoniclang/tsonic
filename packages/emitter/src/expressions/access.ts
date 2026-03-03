@@ -299,6 +299,14 @@ const isStaticTypeReference = (
   return true;
 };
 
+const isJsLikeSurface = (context: EmitterContext): boolean =>
+  context.options.surface === "js" || context.options.surface === "nodejs";
+
+const isJsArrayLikeType = (type: IrType | undefined): boolean =>
+  type?.kind === "arrayType" ||
+  (type?.kind === "referenceType" &&
+    (type.name === "Array" || type.name === "ReadonlyArray"));
+
 /**
  * Emit a member access expression as CSharpExpressionAst
  */
@@ -459,6 +467,32 @@ export const emitMemberAccess = (
   if (expr.memberBinding) {
     const { type, member } = expr.memberBinding;
     const escapedMember = escapeCSharpIdentifier(member);
+
+    if (
+      isJsLikeSurface(context) &&
+      member === "length" &&
+      isJsArrayLikeType(expr.object.inferredType)
+    ) {
+      const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+      if (expr.isOptional) {
+        return [
+          {
+            kind: "conditionalMemberAccessExpression",
+            expression: objectAst,
+            memberName: "Length",
+          },
+          newContext,
+        ];
+      }
+      return [
+        {
+          kind: "memberAccessExpression",
+          expression: objectAst,
+          memberName: "Length",
+        },
+        newContext,
+      ];
+    }
 
     if (isStaticTypeReference(expr, context)) {
       // Static access: emit full CLR type and member with global:: prefix
@@ -676,7 +710,11 @@ export const emitMemberAccess = (
   const memberName = emitMemberName(
     expr.object,
     objectType,
-    prop,
+    isJsLikeSurface(context) &&
+      prop === "length" &&
+      isJsArrayLikeType(objectType)
+      ? "Length"
+      : prop,
     context,
     usage
   );

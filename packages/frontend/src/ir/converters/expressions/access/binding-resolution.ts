@@ -8,7 +8,7 @@
 import * as ts from "typescript";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { IrMemberExpression } from "../../../types.js";
+import { IrMemberExpression, IrType } from "../../../types.js";
 import { getSourceSpan } from "../helpers.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
@@ -17,6 +17,7 @@ import type { MemberBinding } from "../../../../program/bindings.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
 import { loadBindingsFromPath } from "../../../../program/bindings.js";
+import { resolveSurfaceCapabilities } from "../../../../surface/profiles.js";
 import { extractTypeName } from "./member-resolution.js";
 
 /**
@@ -362,7 +363,8 @@ export const resolveHierarchicalBindingFromMemberId = (
 export const resolveExtensionMethodsBinding = (
   node: ts.PropertyAccessExpression,
   propertyName: string,
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  receiverType?: IrType
 ): IrMemberExpression["memberBinding"] => {
   const memberId = ctx.binding.resolvePropertyAccess(node);
   if (!memberId) return undefined;
@@ -435,6 +437,10 @@ export const resolveExtensionMethodsBinding = (
           if (ts.isQualifiedName(tn)) return tn.right.text;
         }
 
+        if (current.kind === ts.SyntaxKind.StringKeyword) return "String";
+        if (current.kind === ts.SyntaxKind.NumberKeyword) return "Double";
+        if (current.kind === ts.SyntaxKind.BooleanKeyword) return "Boolean";
+
         return undefined;
       };
 
@@ -454,6 +460,31 @@ export const resolveExtensionMethodsBinding = (
   })();
 
   if (!resolved) {
+    const surfaceCapabilities = resolveSurfaceCapabilities(ctx.surface);
+    const jsSurfaceResolved =
+      surfaceCapabilities.enableJsBuiltins && receiverType
+        ? resolveJsSurfaceExtensionBinding(
+            ctx,
+            receiverType,
+            propertyName,
+            callArgumentCount
+          )
+        : undefined;
+
+    if (jsSurfaceResolved) {
+      return {
+        assembly: jsSurfaceResolved.binding.assembly,
+        type: jsSurfaceResolved.binding.type,
+        member: jsSurfaceResolved.binding.member,
+        parameterModifiers:
+          jsSurfaceResolved.parameterModifiers &&
+          jsSurfaceResolved.parameterModifiers.length > 0
+            ? jsSurfaceResolved.parameterModifiers
+            : undefined,
+        isExtensionMethod: jsSurfaceResolved.isExtensionMethod,
+      };
+    }
+
     // Airplane-grade: if the TS surface indicates this member comes from an extension-method
     // module, failing to attach a CLR binding would emit an instance call that cannot exist
     // at runtime. Treat as a hard error rather than miscompiling.
@@ -504,4 +535,64 @@ export const resolveExtensionMethodsBinding = (
         : undefined,
     isExtensionMethod: resolved.isExtensionMethod,
   };
+};
+
+const JS_SURFACE_NAMESPACE_KEY = "Tsonic_JSRuntime";
+
+const getJsSurfaceReceiverCandidates = (
+  receiverType: IrType
+): readonly string[] => {
+  if (receiverType.kind === "primitiveType") {
+    switch (receiverType.name) {
+      case "string":
+        return ["String", "string"];
+      case "number":
+        return ["Double", "double", "number"];
+      case "int":
+        return ["Int32", "int"];
+      case "boolean":
+        return ["Boolean", "bool", "boolean"];
+      default:
+        return [receiverType.name];
+    }
+  }
+
+  if (receiverType.kind === "referenceType") {
+    const candidates = new Set<string>([receiverType.name]);
+    const clrName =
+      receiverType.resolvedClrType ?? receiverType.typeId?.clrName;
+    if (clrName) {
+      const simple = clrName.includes(".")
+        ? clrName.slice(clrName.lastIndexOf(".") + 1)
+        : clrName;
+      candidates.add(simple);
+    }
+    return Array.from(candidates);
+  }
+
+  if (receiverType.kind === "arrayType") {
+    return ["Array", "JSArray_1", "List_1"];
+  }
+
+  return [];
+};
+
+const resolveJsSurfaceExtensionBinding = (
+  ctx: ProgramContext,
+  receiverType: IrType,
+  propertyName: string,
+  callArgumentCount?: number
+) => {
+  for (const receiverCandidate of getJsSurfaceReceiverCandidates(
+    receiverType
+  )) {
+    const resolved = ctx.bindings.resolveExtensionMethodByKey(
+      JS_SURFACE_NAMESPACE_KEY,
+      receiverCandidate,
+      propertyName,
+      callArgumentCount
+    );
+    if (resolved) return resolved;
+  }
+  return undefined;
 };

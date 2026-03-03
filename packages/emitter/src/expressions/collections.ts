@@ -163,6 +163,17 @@ const getDeterministicObjectKeyName = (
   return undefined;
 };
 
+const isObjectRootTypeAst = (typeAst: CSharpTypeAst): boolean => {
+  if (typeAst.kind === "predefinedType") {
+    return typeAst.keyword === "object";
+  }
+  if (typeAst.kind === "identifierType") {
+    const normalized = typeAst.name.replace(/^global::/, "");
+    return normalized === "object" || normalized === "System.Object";
+  }
+  return false;
+};
+
 /**
  * Escape a string for use in a C# string literal.
  */
@@ -489,6 +500,14 @@ export const emitObject = (
   // Strip nullable wrapper for object construction
   const safeTypeAst: CSharpTypeAst =
     typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
+
+  if (isObjectRootTypeAst(safeTypeAst)) {
+    return emitDictionaryLiteral(expr, currentContext, {
+      kind: "dictionaryType",
+      keyType: { kind: "primitiveType", name: "string" },
+      valueType: { kind: "unknownType" },
+    });
+  }
 
   // Check if object has spreads - use IIFE pattern
   if (expr.hasSpreads) {

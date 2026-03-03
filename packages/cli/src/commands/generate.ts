@@ -30,6 +30,7 @@ import {
   type AssemblyReference,
 } from "@tsonic/backend";
 import type { ResolvedConfig, Result } from "../types.js";
+import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 
 /**
  * Find project .csproj file in current directory
@@ -193,6 +194,7 @@ export const generateCommand = (
     frameworkReferences,
     packageReferences,
   } = config;
+  const surfaceCapabilities = resolveSurfaceCapabilities(config.surface);
 
   // For libraries, entry point is optional
   if (!entryPoint && config.outputConfig.type !== "library") {
@@ -254,6 +256,8 @@ export const generateCommand = (
       sourceRoot: absoluteSourceRoot,
       rootNamespace,
       typeRoots: allTypeRoots,
+      surface: config.surface,
+      useStandardLib: surfaceCapabilities.useStandardLib,
       verbose: config.verbose,
     };
     const graphResult = buildModuleDependencyGraph(
@@ -283,6 +287,7 @@ export const generateCommand = (
 
     // Emit C# code
     const emitResult = emitCSharpFiles(irResult.value, {
+      surface: config.surface,
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries, // Only non-DLL libraries (type roots)

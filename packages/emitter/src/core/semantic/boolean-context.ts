@@ -262,18 +262,23 @@ const buildTruthySwitchAst = (tmp: string): CSharpExpressionAst => {
   } => {
     const casted = castExpr(type, tmpExpr);
     const nonZero = notEqualsExpr(casted, literalExpr(zeroLiteralText));
-    const isNaNCall = callExpr(
-      staticMemberExpr(isNaNStaticTypeName, "IsNaN"),
-      [castExpr(type, tmpExpr)]
+    const isNaNCall = callExpr(staticMemberExpr(isNaNStaticTypeName, "IsNaN"), [
+      castExpr(type, tmpExpr),
+    ]);
+    return makeSwitchArm(
+      typePattern(type),
+      andExpr(nonZero, notExpr(isNaNCall))
     );
-    return makeSwitchArm(typePattern(type), andExpr(nonZero, notExpr(isNaNCall)));
   };
 
   return {
     kind: "switchExpression",
     governingExpression: tmpExpr,
     arms: [
-      makeSwitchArm(typePattern(predefinedType("bool")), castExpr(predefinedType("bool"), tmpExpr)),
+      makeSwitchArm(
+        typePattern(predefinedType("bool")),
+        castExpr(predefinedType("bool"), tmpExpr)
+      ),
       makeSwitchArm(
         typePattern(predefinedType("string")),
         notEqualsExpr(

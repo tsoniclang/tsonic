@@ -13,6 +13,8 @@ import type { Binding } from "../binding/index.js";
 import type { TypeAuthority } from "../type-system/type-system.js";
 import { createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
+import { resolveNodeModuleAlias } from "../../resolver/node-module-aliases.js";
+import { resolveSurfaceCapabilities } from "../../surface/profiles.js";
 
 const getSourceSpan = (
   node: ts.Node
@@ -47,7 +49,12 @@ export const extractImports = (
       ts.isImportDeclaration(node) &&
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
-      const source = node.moduleSpecifier.text;
+      const originalSource = node.moduleSpecifier.text;
+      const surfaceCapabilities = resolveSurfaceCapabilities(ctx.surface);
+      const source = surfaceCapabilities.enableNodeModuleAliases
+        ? (resolveNodeModuleAlias(originalSource)?.canonicalSpecifier ??
+          originalSource)
+        : originalSource;
       const isLocal = source.startsWith(".") || source.startsWith("/");
 
       // Use import-driven resolution to detect CLR imports

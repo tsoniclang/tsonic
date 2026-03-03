@@ -96,7 +96,12 @@ export const convertMemberExpression = (
 
     // Try to resolve hierarchical binding
     const memberBinding =
-      resolveExtensionMethodsBinding(node, propertyName, ctx) ??
+      resolveExtensionMethodsBinding(
+        node,
+        propertyName,
+        ctx,
+        object.inferredType
+      ) ??
       resolveHierarchicalBindingFromMemberId(node, propertyName, ctx) ??
       resolveHierarchicalBinding(object, propertyName, ctx);
 

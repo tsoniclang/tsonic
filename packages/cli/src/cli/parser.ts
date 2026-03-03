@@ -2,7 +2,7 @@
  * CLI argument parser
  */
 
-import type { CliOptions } from "../types.js";
+import type { CliOptions, SurfaceMode } from "../types.js";
 
 /**
  * Parse CLI arguments
@@ -129,6 +129,12 @@ export const parseArgs = (
         break;
       case "--types-version":
         options.typesVersion = args[++i] ?? "";
+        break;
+      case "--surface":
+        {
+          const raw = args[++i] ?? "";
+          options.surface = raw as SurfaceMode;
+        }
         break;
       case "-O":
       case "--optimize":
