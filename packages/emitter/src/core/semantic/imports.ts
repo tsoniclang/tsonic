@@ -90,6 +90,18 @@ export const processImports = (
       // No module map = single file compilation, no import bindings needed
     }
 
+    // Module bindings (e.g., node:* aliases mapped to @tsonic/nodejs/index.js)
+    if (!imp.isLocal && !imp.isClr && imp.resolvedClrType) {
+      const moduleClrType = `global::${imp.resolvedClrType}`;
+      for (const spec of imp.specifiers) {
+        const binding = createModuleImportBinding(spec, moduleClrType);
+        if (binding) {
+          importBindings.set(binding.localName, binding.importBinding);
+        }
+      }
+      return ctx;
+    }
+
     // External packages not supported in MVP
     return ctx;
   }, context);
@@ -277,5 +289,55 @@ const createImportBinding = (
     };
   }
 
+  return null;
+};
+
+const createModuleImportBinding = (
+  spec: IrImportSpecifier,
+  moduleClrType: string
+): { localName: string; importBinding: ImportBinding } | null => {
+  const localName = spec.localName;
+  const moduleObjectExports = new Set([
+    "fs",
+    "path",
+    "crypto",
+    "os",
+    "process",
+  ]);
+
+  if (spec.kind === "namespace") {
+    return {
+      localName,
+      importBinding: {
+        kind: "namespace",
+        clrName: moduleClrType,
+      },
+    };
+  }
+
+  if (spec.kind === "named") {
+    // Canonical case: import { fs } from "node:fs"  -> bind local fs to module container type.
+    if (moduleObjectExports.has(spec.name)) {
+      return {
+        localName,
+        importBinding: {
+          kind: "namespace",
+          clrName: moduleClrType,
+        },
+      };
+    }
+
+    // Value import passthrough: import { readFileSync as read } ...
+    return {
+      localName,
+      importBinding: {
+        kind: "value",
+        clrName: moduleClrType,
+        member: spec.name,
+      },
+    };
+  }
+
+  // Default import of module bindings is unsupported.
   return null;
 };

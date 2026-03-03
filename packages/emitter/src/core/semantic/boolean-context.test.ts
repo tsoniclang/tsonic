@@ -191,7 +191,9 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
       let previousIndex = -1;
       for (const fragment of orderedArmFragments) {
         const idx = text.indexOf(fragment);
-        expect(idx, `missing switch arm fragment: ${fragment}`).to.not.equal(-1);
+        expect(idx, `missing switch arm fragment: ${fragment}`).to.not.equal(
+          -1
+        );
         expect(
           idx,
           `switch arm fragment out of order: ${fragment}`

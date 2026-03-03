@@ -18,10 +18,15 @@ import type {
   PackageReferenceConfig,
   ResolvedConfig,
   Result,
+  SurfaceMode,
   TsonicOutputConfig,
   TsonicProjectConfig,
   TsonicWorkspaceConfig,
 } from "./types.js";
+import {
+  isSurfaceMode,
+  resolveSurfaceCapabilities,
+} from "./surface/profiles.js";
 
 export const WORKSPACE_CONFIG_FILE = "tsonic.workspace.json";
 export const PROJECT_CONFIG_FILE = "tsonic.json";
@@ -70,6 +75,13 @@ export const loadWorkspaceConfig = (
     return {
       ok: false,
       error: `${WORKSPACE_CONFIG_FILE}: 'dotnetVersion' is required`,
+    };
+  }
+
+  if (config.surface !== undefined && !isSurfaceMode(config.surface)) {
+    return {
+      ok: false,
+      error: `${WORKSPACE_CONFIG_FILE}: 'surface' must be "clr", "js", or "nodejs"`,
     };
   }
 
@@ -570,14 +582,23 @@ export const resolveConfig = (
   projectRoot: string,
   entryFile?: string
 ): ResolvedConfig => {
+  const surface: SurfaceMode = workspaceConfig.surface ?? "clr";
+  const surfaceCapabilities = resolveSurfaceCapabilities(surface);
   const entryPoint = entryFile ?? projectConfig.entryPoint;
   const sourceRoot =
     cliOptions.src ??
     projectConfig.sourceRoot ??
     (entryPoint ? dirname(entryPoint) : "src");
 
-  const defaultTypeRoots = ["node_modules/@tsonic/globals"];
-  const typeRoots = workspaceConfig.dotnet?.typeRoots ?? defaultTypeRoots;
+  const configuredTypeRoots = workspaceConfig.dotnet?.typeRoots;
+  const baseTypeRoots =
+    configuredTypeRoots ?? surfaceCapabilities.requiredTypeRoots;
+  const typeRoots = Array.from(
+    new Set<string>([
+      ...baseTypeRoots,
+      ...surfaceCapabilities.requiredTypeRoots,
+    ])
+  );
 
   const configLibraries = (workspaceConfig.dotnet?.libraries ?? []).map(
     (p: LibraryReferenceConfig) => (typeof p === "string" ? p : p.path)
@@ -616,6 +637,7 @@ export const resolveConfig = (
     outputName: cliOptions.out ?? projectConfig.outputName ?? "app",
     rid: cliOptions.rid ?? workspaceConfig.rid ?? detectRid(),
     dotnetVersion: workspaceConfig.dotnetVersion,
+    surface,
     optimize:
       cliOptions.optimize ??
       projectConfig.optimize ??

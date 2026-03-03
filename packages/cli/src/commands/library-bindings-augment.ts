@@ -18,6 +18,7 @@ import {
   type Diagnostic,
 } from "@tsonic/frontend";
 import type { ResolvedConfig, Result } from "../types.js";
+import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import * as ts from "typescript";
 
 type FacadeInfo = {
@@ -1652,6 +1653,7 @@ export const augmentLibraryBindingsFromSource = (
 
   const absoluteEntryPoint = resolve(config.projectRoot, entryPoint);
   const absoluteSourceRoot = resolve(config.projectRoot, config.sourceRoot);
+  const surfaceCapabilities = resolveSurfaceCapabilities(config.surface);
 
   const typeLibraries = config.libraries.filter((lib) => !lib.endsWith(".dll"));
   const allTypeRoots = [...config.typeRoots, ...typeLibraries].map((p) =>
@@ -1663,6 +1665,8 @@ export const augmentLibraryBindingsFromSource = (
     sourceRoot: absoluteSourceRoot,
     rootNamespace: config.rootNamespace,
     typeRoots: allTypeRoots,
+    surface: config.surface,
+    useStandardLib: surfaceCapabilities.useStandardLib,
     verbose: false,
   };
 

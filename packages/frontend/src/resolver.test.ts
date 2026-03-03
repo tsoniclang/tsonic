@@ -12,6 +12,7 @@ import {
   getNamespaceFromPath,
   getClassNameFromPath,
 } from "./resolver.js";
+import { BindingRegistry } from "./program/bindings.js";
 
 describe("Module Resolver", () => {
   describe("resolveImport", () => {
@@ -109,6 +110,120 @@ describe("Module Resolver", () => {
       if (!result.ok) {
         expect(result.error.code).to.equal("TSN1004");
         expect(result.error.message).to.include("Cannot find module");
+      }
+    });
+
+    it("should resolve node: aliases to canonical nodejs binding in nodejs surface", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/nodejs-bindings.json", {
+        bindings: {
+          "@tsonic/nodejs/index.js": {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.fs",
+          },
+        },
+      });
+
+      const result = resolveImport(
+        "node:fs",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        {
+          bindings,
+          surface: "nodejs",
+        }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.isLocal).to.equal(false);
+        expect(result.value.isClr).to.equal(false);
+        expect(result.value.resolvedClrType).to.equal("nodejs.fs");
+      }
+    });
+
+    it("should resolve bare node module aliases in nodejs surface", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/nodejs-bindings.json", {
+        bindings: {
+          "@tsonic/nodejs/index.js": {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.path",
+          },
+        },
+      });
+
+      const result = resolveImport(
+        "path",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        {
+          bindings,
+          surface: "nodejs",
+        }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.resolvedClrType).to.equal("nodejs.path");
+      }
+    });
+
+    it("should reject node aliases in js surface", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/nodejs-bindings.json", {
+        bindings: {
+          "@tsonic/nodejs/index.js": {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.fs",
+          },
+        },
+      });
+
+      const result = resolveImport(
+        "node:fs",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        {
+          bindings,
+          surface: "js",
+        }
+      );
+
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error.code).to.equal("TSN1004");
+      }
+    });
+
+    it("should reject node aliases outside nodejs surface", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/nodejs-bindings.json", {
+        bindings: {
+          "@tsonic/nodejs/index.js": {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.fs",
+          },
+        },
+      });
+
+      const result = resolveImport(
+        "node:fs",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        {
+          bindings,
+          surface: "clr",
+        }
+      );
+
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error.code).to.equal("TSN1004");
       }
     });
   });

@@ -12,6 +12,9 @@ import { isLocalImport } from "../types/module.js";
 import { ResolvedModule } from "./types.js";
 import { ClrBindingsResolver } from "./clr-bindings-resolver.js";
 import type { BindingRegistry } from "../program/bindings.js";
+import { resolveNodeModuleAlias } from "./node-module-aliases.js";
+import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+import type { SurfaceMode } from "../program/types.js";
 
 /**
  * Options for import resolution
@@ -19,6 +22,7 @@ import type { BindingRegistry } from "../program/bindings.js";
 export type ResolveImportOptions = {
   readonly clrResolver?: ClrBindingsResolver;
   readonly bindings?: BindingRegistry;
+  readonly surface?: SurfaceMode;
 };
 
 /**
@@ -35,16 +39,28 @@ export const resolveImport = (
   sourceRoot: string,
   opts?: ResolveImportOptions
 ): Result<ResolvedModule, Diagnostic> => {
+  const surface = opts?.surface ?? "clr";
+  const surfaceCapabilities = resolveSurfaceCapabilities(surface);
+  const nodeAlias = surfaceCapabilities.enableNodeModuleAliases
+    ? resolveNodeModuleAlias(importSpecifier)
+    : undefined;
+  const canonicalImportSpecifier =
+    nodeAlias?.canonicalSpecifier ?? importSpecifier;
+
   const clrResolver = opts?.clrResolver;
   const bindings = opts?.bindings;
 
-  if (isLocalImport(importSpecifier)) {
-    return resolveLocalImport(importSpecifier, containingFile, sourceRoot);
+  if (isLocalImport(canonicalImportSpecifier)) {
+    return resolveLocalImport(
+      canonicalImportSpecifier,
+      containingFile,
+      sourceRoot
+    );
   }
 
   // Use import-driven resolution for CLR imports (if resolver provided)
   if (clrResolver) {
-    const clrResolution = clrResolver.resolve(importSpecifier);
+    const clrResolution = clrResolver.resolve(canonicalImportSpecifier);
     if (clrResolution.isClr) {
       return ok({
         resolvedPath: "", // No file path for CLR imports
@@ -59,7 +75,7 @@ export const resolveImport = (
   // Check if this is a module binding (e.g., Node.js API)
   // Only if bindings registry is provided
   if (bindings) {
-    const binding = bindings.getBinding(importSpecifier);
+    const binding = bindings.getBinding(canonicalImportSpecifier);
     if (binding && binding.kind === "module") {
       return ok({
         resolvedPath: "", // No file path for bound modules

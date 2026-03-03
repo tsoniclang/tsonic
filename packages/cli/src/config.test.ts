@@ -102,6 +102,107 @@ describe("Config", () => {
       expect(result.packageReferences).to.deep.equal([]);
     });
 
+    it("should default surface to clr", () => {
+      const workspaceConfig = makeWorkspaceConfig();
+      const projectConfig = makeProjectConfig();
+
+      const result = resolveConfig(
+        workspaceConfig,
+        projectConfig,
+        {},
+        WORKSPACE_ROOT,
+        PROJECT_ROOT
+      );
+
+      expect(result.surface).to.equal("clr");
+    });
+
+    it("should resolve js surface from workspace config", () => {
+      const workspaceConfig = makeWorkspaceConfig({ surface: "js" });
+      const projectConfig = makeProjectConfig();
+
+      const result = resolveConfig(
+        workspaceConfig,
+        projectConfig,
+        {},
+        WORKSPACE_ROOT,
+        PROJECT_ROOT
+      );
+
+      expect(result.surface).to.equal("js");
+      expect(result.typeRoots).to.deep.equal([
+        "node_modules/@tsonic/globals",
+        "node_modules/@tsonic/js",
+      ]);
+    });
+
+    it("should resolve nodejs surface from workspace config", () => {
+      const workspaceConfig = makeWorkspaceConfig({ surface: "nodejs" });
+      const projectConfig = makeProjectConfig();
+
+      const result = resolveConfig(
+        workspaceConfig,
+        projectConfig,
+        {},
+        WORKSPACE_ROOT,
+        PROJECT_ROOT
+      );
+
+      expect(result.surface).to.equal("nodejs");
+      expect(result.typeRoots).to.deep.equal([
+        "node_modules/@tsonic/globals",
+        "node_modules/@tsonic/js",
+        "node_modules/@tsonic/nodejs",
+      ]);
+    });
+
+    it("should append required js-surface typeRoots when partially configured", () => {
+      const workspaceConfig = makeWorkspaceConfig({
+        surface: "js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/globals"],
+        },
+      });
+      const projectConfig = makeProjectConfig();
+
+      const result = resolveConfig(
+        workspaceConfig,
+        projectConfig,
+        {},
+        WORKSPACE_ROOT,
+        PROJECT_ROOT
+      );
+
+      expect(result.typeRoots).to.deep.equal([
+        "node_modules/@tsonic/globals",
+        "node_modules/@tsonic/js",
+      ]);
+    });
+
+    it("should append required nodejs-surface typeRoots when partially configured", () => {
+      const workspaceConfig = makeWorkspaceConfig({
+        surface: "nodejs",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/globals"],
+        },
+      });
+      const projectConfig = makeProjectConfig();
+
+      const result = resolveConfig(
+        workspaceConfig,
+        projectConfig,
+        {},
+        WORKSPACE_ROOT,
+        PROJECT_ROOT
+      );
+
+      expect(result.typeRoots).to.deep.equal([
+        "node_modules/@tsonic/globals",
+        "node_modules/@tsonic/js",
+        "node_modules/@tsonic/nodejs",
+      ]);
+    });
+
     it("should preserve frameworkReferences and packageReferences from workspace.dotnet", () => {
       const workspaceConfig = makeWorkspaceConfig({
         dotnet: {
@@ -545,6 +646,7 @@ describe("Config", () => {
       expect(result.typeRoots).to.deep.equal([
         "custom/path/types",
         "another/path/types",
+        "node_modules/@tsonic/globals",
       ]);
     });
 

@@ -4,6 +4,8 @@
 
 import type { OutputType, PackageMetadata } from "@tsonic/backend";
 
+export type SurfaceMode = "clr" | "js" | "nodejs";
+
 /**
  * Output configuration in tsonic.json
  */
@@ -122,6 +124,13 @@ export type TsonicWorkspaceConfig = {
    */
   readonly dotnetVersion: string;
   /**
+   * Language surface for TypeScript authoring.
+   * - "clr": deterministic noLib CLR-first surface (default)
+   * - "js": JS-idiomatic language/runtime surface (no Node host aliases)
+   * - "nodejs": Node host profile (extends js)
+   */
+  readonly surface?: SurfaceMode;
+  /**
    * Default Runtime Identifier (RID) for native builds. Optional.
    */
   readonly rid?: string;
@@ -206,6 +215,7 @@ export type CliOptions = {
   // Project init options
   skipTypes?: boolean;
   typesVersion?: string;
+  surface?: SurfaceMode;
   // Output type options
   type?: OutputType;
   targetFramework?: string;
@@ -231,6 +241,7 @@ export type ResolvedConfig = {
   readonly outputName: string;
   readonly rid: string;
   readonly dotnetVersion: string;
+  readonly surface: SurfaceMode;
   readonly optimize: "size" | "speed";
   readonly outputConfig: TsonicOutputConfig;
   readonly stripSymbols: boolean;

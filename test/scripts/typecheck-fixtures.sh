@@ -165,6 +165,40 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
 
   out_file="$tmp_dir/$fixture_name.log"
 
+  surface_mode="$(
+    node -e '
+      const fs = require("node:fs");
+      const p = process.argv[1];
+      try {
+        const cfg = JSON.parse(fs.readFileSync(p, "utf8"));
+        process.stdout.write(String(cfg.surface ?? "clr"));
+      } catch {
+        process.stdout.write("clr");
+      }
+    ' "$fixture_dir/tsonic.workspace.json"
+  )"
+
+  no_lib_value="true"
+  js_surface_shim=""
+  if [ "$surface_mode" = "js" ] || [ "$surface_mode" = "nodejs" ]; then
+    no_lib_value="false"
+  fi
+  if [ "$surface_mode" = "nodejs" ]; then
+    js_surface_shim="$tmp_dir/$fixture_name.js-surface-shim.d.ts"
+    cat >"$js_surface_shim" <<EOF
+declare module "node:fs" { export { fs } from "@tsonic/nodejs/index.js"; }
+declare module "fs" { export { fs } from "@tsonic/nodejs/index.js"; }
+declare module "node:path" { export { path } from "@tsonic/nodejs/index.js"; }
+declare module "path" { export { path } from "@tsonic/nodejs/index.js"; }
+declare module "node:crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
+declare module "crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
+declare module "node:os" { export { os } from "@tsonic/nodejs/index.js"; }
+declare module "os" { export { os } from "@tsonic/nodejs/index.js"; }
+declare module "node:process" { export { process } from "@tsonic/nodejs/index.js"; }
+declare module "process" { export { process } from "@tsonic/nodejs/index.js"; }
+EOF
+  fi
+
   # Build a minimal per-fixture tsconfig that:
   # - Uses noLib mode (Tsonic environment)
   # - Includes @tsonic/globals explicitly (no automatic @types/* pickup)
@@ -175,7 +209,7 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
 {
   "compilerOptions": {
     "noEmit": true,
-    "noLib": true,
+    "noLib": $no_lib_value,
     "types": [],
     "module": "nodenext",
     "moduleResolution": "nodenext",
@@ -207,7 +241,11 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   },
   "files": [
     "$GLOBALS_INDEX",
-    "$entry"
+    "$entry"$(
+      if [ -n "$js_surface_shim" ]; then
+        printf ',\n    "%s"' "$js_surface_shim"
+      fi
+    )
   ]
 }
 EOF

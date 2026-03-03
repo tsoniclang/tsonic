@@ -16,6 +16,22 @@ import { loadBindings } from "./bindings.js";
 import { collectTsDiagnostics } from "./diagnostics.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "../ir/binding/index.js";
+import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+
+const JS_SURFACE_SHIM_FILE = "__tsonic_surface_js__.d.ts";
+
+const JS_SURFACE_NODE_MODULE_SHIMS = `
+declare module "node:fs" { export { fs } from "@tsonic/nodejs/index.js"; }
+declare module "fs" { export { fs } from "@tsonic/nodejs/index.js"; }
+declare module "node:path" { export { path } from "@tsonic/nodejs/index.js"; }
+declare module "path" { export { path } from "@tsonic/nodejs/index.js"; }
+declare module "node:crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
+declare module "crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
+declare module "node:os" { export { os } from "@tsonic/nodejs/index.js"; }
+declare module "os" { export { os } from "@tsonic/nodejs/index.js"; }
+declare module "node:process" { export { process } from "@tsonic/nodejs/index.js"; }
+declare module "process" { export { process } from "@tsonic/nodejs/index.js"; }
+`;
 
 /**
  * Recursively scan a directory for .d.ts files
@@ -54,15 +70,18 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
 export const createCompilerOptions = (
   options: CompilerOptions
 ): ts.CompilerOptions => {
+  const surfaceCapabilities = resolveSurfaceCapabilities(
+    options.surface ?? "clr"
+  );
   const baseConfig: ts.CompilerOptions = {
     ...defaultTsConfig,
     ...(options.strict === undefined ? {} : { strict: options.strict }),
     rootDir: options.sourceRoot,
   };
 
-  // When useStandardLib is true, disable noLib to use TypeScript's built-in types
+  // When JS surface or useStandardLib is enabled, disable noLib to use TypeScript's built-in types.
   // This is useful for tests that don't have access to BCL bindings
-  if (options.useStandardLib) {
+  if (options.useStandardLib || surfaceCapabilities.useStandardLib) {
     return {
       ...baseConfig,
       noLib: false,
@@ -80,6 +99,10 @@ export const createProgram = (
   filePaths: readonly string[],
   options: CompilerOptions
 ): Result<TsonicProgram, DiagnosticsCollector> => {
+  const surface = options.surface ?? "clr";
+  const surfaceCapabilities = resolveSurfaceCapabilities(surface);
+  const jsRuntimeSurface = surfaceCapabilities.enableJsBuiltins;
+  const nodeAliasSurface = surfaceCapabilities.enableNodeModuleAliases;
   const absolutePaths = filePaths.map((fp) => path.resolve(fp));
   const compilerContainingFile = fileURLToPath(import.meta.url);
   // creation.ts lives at: <repoRoot>/packages/frontend/src/program/creation.ts
@@ -121,10 +144,15 @@ export const createProgram = (
   // Prefer sibling checkout (dev) or fall back to installed package.
   const mandatoryTypeRoot = resolveTsonicPackageRoot("globals");
 
-  // Get declaration files from type roots
-  // Inject mandatory type root first, then user-provided roots
+  // Get declaration files from type roots.
   const userTypeRoots = options.typeRoots ?? [];
-  const resolvedUserTypeRoots = userTypeRoots.map((typeRoot) => {
+  const requestedTypeRoots = Array.from(
+    new Set<string>([
+      ...userTypeRoots,
+      ...surfaceCapabilities.requiredTypeRoots,
+    ])
+  );
+  const resolvedRequestedTypeRoots = requestedTypeRoots.map((typeRoot) => {
     const absoluteRoot = path.isAbsolute(typeRoot)
       ? typeRoot
       : path.resolve(options.projectRoot, typeRoot);
@@ -143,13 +171,9 @@ export const createProgram = (
 
     return resolveTsonicPackageRoot(pkgDirName) ?? absoluteRoot;
   });
-  const typeRoots = options.useStandardLib
-    ? resolvedUserTypeRoots
-    : mandatoryTypeRoot
-      ? Array.from(new Set([mandatoryTypeRoot, ...resolvedUserTypeRoots]))
-      : resolvedUserTypeRoots.length > 0
-        ? resolvedUserTypeRoots
-        : ["node_modules/@tsonic/globals"];
+  const typeRoots = mandatoryTypeRoot
+    ? Array.from(new Set([mandatoryTypeRoot, ...resolvedRequestedTypeRoots]))
+    : resolvedRequestedTypeRoots;
 
   // Debug log typeRoots
   if (options.verbose && typeRoots.length > 0) {
@@ -194,10 +218,15 @@ export const createProgram = (
 
   // Combine source files, declaration files, and namespace index files
   // Note: globals.d.ts should be in the BCL bindings directory (typeRoots)
+  const syntheticJsSurfaceShim = path.resolve(
+    options.projectRoot,
+    JS_SURFACE_SHIM_FILE
+  );
   const allFiles = [
     ...absolutePaths,
     ...declarationFiles,
     ...namespaceIndexFiles,
+    ...(nodeAliasSurface ? [syntheticJsSurfaceShim] : []),
   ];
 
   const tsOptions = createCompilerOptions(options);
@@ -229,6 +258,16 @@ export const createProgram = (
     onError?: (message: string) => void,
     shouldCreateNewSourceFile?: boolean
   ): ts.SourceFile | undefined => {
+    if (nodeAliasSurface && fileName === syntheticJsSurfaceShim) {
+      return ts.createSourceFile(
+        fileName,
+        JS_SURFACE_NODE_MODULE_SHIMS,
+        languageVersion,
+        true,
+        ts.ScriptKind.TS
+      );
+    }
+
     // Check if this is a .NET namespace being imported
     const baseName = path.basename(fileName, path.extname(fileName));
     const declarationPath = namespaceFiles.get(baseName);
@@ -437,6 +476,82 @@ export const createProgram = (
       },
     },
   });
+
+  if (jsRuntimeSurface) {
+    bindings.addBindings("tsonic:js-surface-builtins", {
+      bindings: {
+        console: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.console",
+        },
+        Math: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.Math",
+        },
+        JSON: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.JSON",
+        },
+        Date: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.Date",
+        },
+        RegExp: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.RegExp",
+        },
+        Map: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.Map_2",
+        },
+        Set: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.Set_1",
+        },
+        WeakMap: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.WeakMap_2",
+        },
+        WeakSet: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.WeakSet_1",
+        },
+        parseInt: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.Globals",
+          csharpName: "Globals.parseInt",
+        },
+        parseFloat: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.Globals",
+          csharpName: "Globals.parseFloat",
+        },
+        isFinite: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.Globals",
+          csharpName: "Globals.isFinite",
+        },
+        isNaN: {
+          kind: "global",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.Globals",
+          csharpName: "Globals.isNaN",
+        },
+      },
+    });
+  }
 
   // Create resolver for import-driven CLR namespace discovery
   // Uses projectRoot (not sourceRoot) to resolve packages from node_modules
