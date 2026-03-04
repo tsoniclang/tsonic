@@ -1,5 +1,5 @@
-import { fs } from "node:fs";
-import { crypto } from "node:crypto";
+import * as fs from "node:fs";
+import * as crypto from "node:crypto";
 
 export function describeFileState(filePath: string): string {
   const present = fs.existsSync(filePath);

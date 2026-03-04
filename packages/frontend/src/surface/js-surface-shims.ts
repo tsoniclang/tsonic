@@ -1,3 +1,7 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import * as ts from "typescript";
+
 export const JS_SURFACE_GLOBALS_SHIMS = `
 import type { int, long, double } from "@tsonic/core/types.js";
 import type { List } from "@tsonic/dotnet/System.Collections.Generic.js";
@@ -288,6 +292,91 @@ declare global {
 export {};
 `;
 
+const NODE_MODULE_ALIASES: ReadonlyArray<readonly [string, string]> = [
+  ["assert", "assert"],
+  ["buffer", "buffer"],
+  ["child_process", "child_process"],
+  ["crypto", "crypto"],
+  ["dgram", "dgram"],
+  ["dns", "dns"],
+  ["events", "events"],
+  ["fs", "fs"],
+  ["net", "net"],
+  ["os", "os"],
+  ["path", "path"],
+  ["process", "process"],
+  ["querystring", "querystring"],
+  ["readline", "readline"],
+  ["stream", "stream"],
+  ["timers", "timers"],
+  ["tls", "tls"],
+  ["url", "url"],
+  ["util", "util"],
+  ["zlib", "zlib"],
+];
+
+const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+const collectNodeModuleMembers = (
+  nodejsPackageRoot: string
+): ReadonlyMap<string, readonly string[]> | undefined => {
+  const internalIndexPath =
+    [
+      join(nodejsPackageRoot, "index", "internal", "index.d.ts"),
+      join(
+        nodejsPackageRoot,
+        "versions",
+        "10",
+        "index",
+        "internal",
+        "index.d.ts"
+      ),
+    ].find((candidate) => existsSync(candidate)) ?? null;
+  if (!internalIndexPath) return undefined;
+
+  const source = ts.createSourceFile(
+    internalIndexPath,
+    readFileSync(internalIndexPath, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+
+  const members = new Map<string, string[]>();
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isClassDeclaration(node) && node.name) {
+      const className = node.name.text;
+      if (className.endsWith("$instance")) {
+        const moduleName = className.slice(0, -"$instance".length);
+        const collected = new Set<string>();
+        for (const member of node.members) {
+          const modifiers = ts.canHaveModifiers(member)
+            ? ts.getModifiers(member)
+            : undefined;
+          const staticMember = modifiers?.some(
+            (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
+          );
+          if (!staticMember || !member.name) continue;
+          if (ts.isIdentifier(member.name)) {
+            collected.add(member.name.text);
+          } else if (ts.isStringLiteral(member.name)) {
+            collected.add(member.name.text);
+          }
+        }
+        members.set(
+          moduleName,
+          [...collected].sort((a, b) => a.localeCompare(b))
+        );
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(source);
+  return members;
+};
+
 export const JS_SURFACE_NODE_MODULE_SHIMS = `
 declare module "node:assert" { export { assert } from "@tsonic/nodejs/index.js"; }
 declare module "assert" { export { assert } from "@tsonic/nodejs/index.js"; }
@@ -330,3 +419,46 @@ declare module "util" { export { util } from "@tsonic/nodejs/index.js"; }
 declare module "node:zlib" { export { zlib } from "@tsonic/nodejs/index.js"; }
 declare module "zlib" { export { zlib } from "@tsonic/nodejs/index.js"; }
 `;
+
+const renderNodeModuleDeclaration = (
+  specifier: string,
+  moduleName: string,
+  members: readonly string[] | undefined
+): string => {
+  if (!members || members.length === 0) {
+    return `declare module "${specifier}" { export { ${moduleName} } from "@tsonic/nodejs/index.js"; }`;
+  }
+
+  const exports = members
+    .filter((member) => IDENTIFIER_RE.test(member))
+    .map(
+      (member) =>
+        `  export const ${member}: typeof import("@tsonic/nodejs/index.js").${moduleName}.${member};`
+    )
+    .join("\n");
+
+  return `declare module "${specifier}" {\n${exports}\n}`;
+};
+
+export const buildJsSurfaceNodeModuleShims = (
+  nodejsPackageRoot: string | undefined
+): string => {
+  if (!nodejsPackageRoot) return JS_SURFACE_NODE_MODULE_SHIMS;
+
+  const membersByModule = collectNodeModuleMembers(nodejsPackageRoot);
+  if (!membersByModule) return JS_SURFACE_NODE_MODULE_SHIMS;
+
+  const declarations: string[] = [];
+  for (const [specifier, moduleName] of NODE_MODULE_ALIASES) {
+    const canonicalSpecifier = `node:${specifier}`;
+    const members = membersByModule.get(moduleName);
+    declarations.push(
+      renderNodeModuleDeclaration(canonicalSpecifier, moduleName, members)
+    );
+    declarations.push(
+      `declare module "${specifier}" { export * from "${canonicalSpecifier}"; }`
+    );
+  }
+
+  return declarations.join("\n");
+};

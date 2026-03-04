@@ -94,31 +94,15 @@ export const validateImportDeclaration = (
           "error",
           `Default import is not supported for "${importPath}"`,
           getNodeLocation(sourceFile, node.importClause.name),
-          `Use named import: import { ${nodeAlias.moduleName} } from "${importPath}";`
+          `Use namespace or named import: import * as ${nodeAlias.moduleName} from "${importPath}";`
         )
       );
     }
 
-    if (
-      node.importClause?.namedBindings &&
-      ts.isNamedImports(node.importClause.namedBindings)
-    ) {
-      for (const spec of node.importClause.namedBindings.elements) {
-        const importedName = (spec.propertyName ?? spec.name).text;
-        if (importedName !== nodeAlias.moduleName) {
-          return addDiagnostic(
-            collector,
-            createDiagnostic(
-              "TSN1004",
-              "error",
-              `Unsupported member import "${importedName}" from "${importPath}"`,
-              getNodeLocation(sourceFile, spec),
-              `Only "${nodeAlias.moduleName}" is exported from "${importPath}" in the Tsonic Node surface`
-            )
-          );
-        }
-      }
-    }
+    // Named/namespace imports from node aliases are supported in nodejs surface.
+    // Examples:
+    // - import { join } from "node:path"
+    // - import * as path from "node:path"
   }
 
   // Check for default imports from local modules (we might want to restrict this)

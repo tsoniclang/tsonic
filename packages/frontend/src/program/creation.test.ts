@@ -137,7 +137,7 @@ describe("Program Creation", () => {
       const entryPath = path.join(srcDir, "index.ts");
       fs.writeFileSync(
         entryPath,
-        'import { fs } from "node:fs";\nexport const x = fs.readFileSync("a.txt");\n'
+        'import { readFileSync } from "node:fs";\nexport const x = readFileSync("a.txt");\n'
       );
 
       const result = createProgram([entryPath], {

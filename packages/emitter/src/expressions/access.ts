@@ -302,10 +302,13 @@ const isStaticTypeReference = (
 const isJsLikeSurface = (context: EmitterContext): boolean =>
   context.options.surface === "js" || context.options.surface === "nodejs";
 
-const isJsArrayLikeType = (type: IrType | undefined): boolean =>
+const isJsLengthLikeType = (type: IrType | undefined): boolean =>
   type?.kind === "arrayType" ||
+  (type?.kind === "primitiveType" && type.name === "string") ||
   (type?.kind === "referenceType" &&
-    (type.name === "Array" || type.name === "ReadonlyArray"));
+    (type.name === "Array" ||
+      type.name === "ReadonlyArray" ||
+      type.name === "string"));
 
 /**
  * Emit a member access expression as CSharpExpressionAst
@@ -471,7 +474,7 @@ export const emitMemberAccess = (
     if (
       isJsLikeSurface(context) &&
       member === "length" &&
-      isJsArrayLikeType(expr.object.inferredType)
+      isJsLengthLikeType(expr.object.inferredType)
     ) {
       const [objectAst, newContext] = emitExpressionAst(expr.object, context);
       if (expr.isOptional) {
@@ -712,7 +715,7 @@ export const emitMemberAccess = (
     objectType,
     isJsLikeSurface(context) &&
       prop === "length" &&
-      isJsArrayLikeType(objectType)
+      isJsLengthLikeType(objectType)
       ? "Length"
       : prop,
     context,

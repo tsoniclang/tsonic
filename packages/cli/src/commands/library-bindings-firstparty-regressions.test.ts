@@ -143,10 +143,7 @@ describe("library bindings first-party regressions", function () {
 
       writeFileSync(
         join(dir, "packages", "lib", "src", "types", "result.ts"),
-        [
-          `export type Success<T> = { ok: true; value: T };`,
-          ``,
-        ].join("\n"),
+        [`export type Success<T> = { ok: true; value: T };`, ``].join("\n"),
         "utf-8"
       );
 
@@ -251,7 +248,9 @@ describe("library bindings first-party regressions", function () {
         }>;
       };
 
-      const methods = (bindings.types ?? []).flatMap((type) => type.methods ?? []);
+      const methods = (bindings.types ?? []).flatMap(
+        (type) => type.methods ?? []
+      );
       const onlyTrue = methods.find((method) => method.clrName === "onlyTrue");
       expect(onlyTrue).to.not.equal(undefined);
       const signature = onlyTrue?.normalizedSignature ?? "";
@@ -263,9 +262,15 @@ describe("library bindings first-party regressions", function () {
   });
 
   it("keeps source alias surfaces free of synthetic helper tokens", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-alias-tokens-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-lib-bindings-alias-tokens-")
+    );
     try {
-      const wsConfigPath = writeLibraryScaffold(dir, "Acme.Alias", "Acme.Alias");
+      const wsConfigPath = writeLibraryScaffold(
+        dir,
+        "Acme.Alias",
+        "Acme.Alias"
+      );
       mkdirSync(join(dir, "packages", "lib", "src", "types"), {
         recursive: true,
       });
@@ -411,5 +416,4 @@ describe("library bindings first-party regressions", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
 });

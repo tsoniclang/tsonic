@@ -49,12 +49,12 @@ export const extractImports = (
       ts.isImportDeclaration(node) &&
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
-      const originalSource = node.moduleSpecifier.text;
       const surfaceCapabilities = resolveSurfaceCapabilities(ctx.surface);
-      const source = surfaceCapabilities.enableNodeModuleAliases
-        ? (resolveNodeModuleAlias(originalSource)?.canonicalSpecifier ??
-          originalSource)
-        : originalSource;
+      const originalSource = node.moduleSpecifier.text;
+      const nodeModuleAlias = surfaceCapabilities.enableNodeModuleAliases
+        ? resolveNodeModuleAlias(originalSource)
+        : undefined;
+      const source = nodeModuleAlias?.canonicalSpecifier ?? originalSource;
       const isLocal = source.startsWith(".") || source.startsWith("/");
 
       // Use import-driven resolution to detect CLR imports
@@ -72,7 +72,13 @@ export const extractImports = (
 
       // Check for module binding (Node.js API, etc.)
       const moduleBinding = ctx.bindings.getBinding(source);
-      const hasModuleBinding = moduleBinding?.kind === "module";
+      const moduleBindingType =
+        moduleBinding?.kind === "module"
+          ? moduleBinding.type
+          : nodeModuleAlias && resolvedNamespace
+            ? `${resolvedNamespace}.${nodeModuleAlias.moduleName}`
+            : undefined;
+      const hasModuleBinding = moduleBindingType !== undefined;
 
       const specifiers = extractImportSpecifiers(
         node,
@@ -248,7 +254,8 @@ export const extractImports = (
 
       // Assembly comes from CLR resolution (bindings.json) or module binding
       const resolvedAssembly =
-        clrAssembly ?? (hasModuleBinding ? moduleBinding.assembly : undefined);
+        clrAssembly ??
+        (moduleBinding?.kind === "module" ? moduleBinding.assembly : undefined);
 
       imports.push({
         kind: "import",
@@ -257,7 +264,7 @@ export const extractImports = (
         isClr,
         specifiers: resolvedSpecifiers,
         resolvedNamespace,
-        resolvedClrType: hasModuleBinding ? moduleBinding.type : undefined,
+        resolvedClrType: moduleBindingType,
         resolvedAssembly,
       });
     }

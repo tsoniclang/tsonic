@@ -243,4 +243,51 @@ describe("Import Handling", () => {
       /global::nodejs\.path\.[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\("a", "b"\)/
     );
   });
+
+  it("prefers module binding lowering when import is both CLR-resolved and module-bound", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "node:path",
+          isLocal: false,
+          isClr: true,
+          resolvedNamespace: "nodejs",
+          resolvedClrType: "nodejs.path",
+          specifiers: [
+            {
+              kind: "named",
+              name: "join",
+              localName: "join",
+              isType: false,
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "join" },
+            arguments: [
+              { kind: "literal", value: "a" },
+              { kind: "literal", value: "b" },
+            ],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include('global::nodejs.path.join("a", "b")');
+    expect(result).not.to.include("ICE: Missing resolvedClrValue");
+  });
 });

@@ -1,5 +1,3 @@
-import { Console } from "@tsonic/dotnet/System.js";
-
 export function main(): void {
   const value = "  hello,world  ".trim();
   const upper: string = value.toUpperCase();
@@ -35,5 +33,4 @@ export function main(): void {
     total,
     totalFromRight
   );
-  Console.WriteLine(upper);
 }

@@ -6,8 +6,8 @@ declare module "node:http" {
   export const http: unknown;
 }
 
-import { readFileSync } from "node:fs";
+import fs from "node:fs";
 import { http } from "node:http";
 
-export const badNodeImports = readFileSync;
+export const badNodeImports = fs;
 void http;

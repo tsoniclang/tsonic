@@ -250,6 +250,51 @@ describe("IR Builder", () => {
       expect(ctx.diagnostics.some((d) => d.code === "TSN4004")).to.equal(true);
     });
 
+    it("treats node alias named imports as module-bound values without TSN4004", () => {
+      const source = `
+        import { join } from "node:path";
+        void join;
+      `;
+
+      const { testProgram, ctx, options: baseOptions } = createTestProgram(
+        source
+      );
+      const options = { ...baseOptions, surface: "nodejs" as const };
+      (ctx as { surface?: "nodejs" }).surface = "nodejs";
+
+      (
+        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
+      ).clrResolver = {
+        resolve: (s: string) =>
+          s === "@tsonic/nodejs/index.js"
+            ? {
+                isClr: true,
+                packageName: "@tsonic/nodejs",
+                resolvedNamespace: "nodejs",
+                bindingsPath: "/x/bindings.json",
+                assembly: "nodejs",
+              }
+            : { isClr: false },
+      };
+
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(ctx.diagnostics.some((d) => d.code === "TSN4004")).to.equal(false);
+      const imp = result.value.imports[0];
+      if (!imp) throw new Error("Missing import");
+      expect(imp.source).to.equal("@tsonic/nodejs/index.js");
+      expect(imp.resolvedClrType).to.equal("nodejs.path");
+      const spec = imp.specifiers[0];
+      if (!spec || spec.kind !== "named") throw new Error("Missing named spec");
+      expect(spec.name).to.equal("join");
+      expect(spec.resolvedClrValue).to.equal(undefined);
+    });
+
     it("should not detect bare imports as .NET without package bindings", () => {
       // Import-driven resolution: bare imports like "System.IO" are only detected as .NET
       // if they come from a package with bindings.json. Without an actual package,
