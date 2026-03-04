@@ -871,8 +871,11 @@ describe("build command (library bindings)", function () {
       writeFileSync(
         join(dir, "packages", "lib", "src", "config.ts"),
         [
-          `export type { LoadedConfig } from "./config/index.ts";`,
-          `export { loadSiteConfig } from "./config/index.ts";`,
+          `import type { LoadedConfig as LoadedConfigLocal } from "./config/index.ts";`,
+          `import { loadSiteConfig as loadSiteConfigLocal } from "./config/index.ts";`,
+          ``,
+          `export type { LoadedConfigLocal as LoadedConfig };`,
+          `export { loadSiteConfigLocal as loadSiteConfig };`,
           ``,
         ].join("\n"),
         "utf-8"

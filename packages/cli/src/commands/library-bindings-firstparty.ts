@@ -444,7 +444,8 @@ const classifyDeclarationKind = (
 };
 
 const collectModuleExports = (
-  module: IrModule
+  module: IrModule,
+  modulesByFileKey: ReadonlyMap<string, IrModule>
 ): Result<readonly ExportedSymbol[], string> => {
   const exportedSymbols: ExportedSymbol[] = [];
   const seen = new Set<string>();
@@ -515,15 +516,13 @@ const collectModuleExports = (
 
     if (item.kind === "reexport") continue;
 
-    const declaration = resolveModuleLocalDeclaration(module, item.localName);
-    if (!declaration) {
-      return {
-        ok: false,
-        error:
-          `Named export '${item.name}' in ${module.filePath} could not resolve local symbol '${item.localName}'.\n` +
-          "First-party bindings generation requires resolvable named exports.",
-      };
-    }
+    const resolved = resolveExportedDeclaration(
+      module,
+      item.name,
+      modulesByFileKey
+    );
+    if (!resolved.ok) return resolved;
+    const declaration = resolved.value.declaration;
     const declarationName = declarationNameOf(declaration);
     if (!declarationName && declaration.kind !== "variableDeclaration") {
       return {
@@ -541,7 +540,7 @@ const collectModuleExports = (
     if (!declarationKind.ok) return declarationKind;
     pushExport({
       exportName: item.name,
-      localName: item.localName,
+      localName: resolved.value.clrName,
       kind: declarationKind.value,
       declaration,
     });
@@ -1677,7 +1676,7 @@ const collectNamespacePlans = (
         }
       }
 
-      const moduleExports = collectModuleExports(module);
+      const moduleExports = collectModuleExports(module, modulesByFileKey);
       if (!moduleExports.ok) return moduleExports;
       const containerMethods: ModuleContainerEntry["methods"] = [];
       const containerVariables: ModuleContainerEntry["variables"] = [];
