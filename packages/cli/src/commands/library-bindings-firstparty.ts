@@ -129,6 +129,12 @@ type ExportedSymbol = {
   readonly declaration: IrStatement;
 };
 
+type ResolvedExportDeclaration = {
+  readonly declaration: IrStatement;
+  readonly module: IrModule;
+  readonly clrName: string;
+};
+
 type ModuleContainerEntry = {
   readonly module: IrModule;
   readonly methods: {
@@ -410,27 +416,36 @@ const resolveModuleLocalDeclaration = (
 };
 
 const classifyDeclarationKind = (
-  statement: IrStatement
-): ExportedSymbolKind => {
+  statement: IrStatement,
+  filePath: string,
+  exportName: string
+): Result<ExportedSymbolKind, string> => {
   switch (statement.kind) {
     case "functionDeclaration":
-      return "function";
+      return { ok: true, value: "function" };
     case "variableDeclaration":
-      return "variable";
+      return { ok: true, value: "variable" };
     case "classDeclaration":
-      return "class";
+      return { ok: true, value: "class" };
     case "interfaceDeclaration":
-      return "interface";
+      return { ok: true, value: "interface" };
     case "enumDeclaration":
-      return "enum";
+      return { ok: true, value: "enum" };
     case "typeAliasDeclaration":
-      return "typeAlias";
+      return { ok: true, value: "typeAlias" };
     default:
-      return "variable";
+      return {
+        ok: false,
+        error:
+          `Unsupported export '${exportName}' in ${filePath}: ${statement.kind}.\n` +
+          "First-party bindings generation requires explicit support for each exported declaration kind.",
+      };
   }
 };
 
-const collectModuleExports = (module: IrModule): readonly ExportedSymbol[] => {
+const collectModuleExports = (
+  module: IrModule
+): Result<readonly ExportedSymbol[], string> => {
   const exportedSymbols: ExportedSymbol[] = [];
   const seen = new Set<string>();
 
@@ -442,11 +457,27 @@ const collectModuleExports = (module: IrModule): readonly ExportedSymbol[] => {
   };
 
   for (const item of module.exports) {
+    if (item.kind === "default") {
+      return {
+        ok: false,
+        error:
+          `Unsupported default export in ${module.filePath}.\n` +
+          "First-party bindings generation currently requires named/declaration exports for deterministic namespace facades.",
+      };
+    }
+
     if (item.kind === "declaration") {
       const declaration = item.declaration;
       if (declaration.kind === "variableDeclaration") {
         for (const declarator of declaration.declarations) {
-          if (declarator.name.kind !== "identifierPattern") continue;
+          if (declarator.name.kind !== "identifierPattern") {
+            return {
+              ok: false,
+              error:
+                `Unsupported exported variable declarator in ${module.filePath}: ${declarator.name.kind}.\n` +
+                "First-party bindings generation requires identifier-based exported variables.",
+            };
+          }
           const localName = declarator.name.name;
           pushExport({
             exportName: localName,
@@ -459,31 +490,69 @@ const collectModuleExports = (module: IrModule): readonly ExportedSymbol[] => {
       }
 
       const declarationName = declarationNameOf(declaration);
-      if (!declarationName) continue;
+      if (!declarationName) {
+        return {
+          ok: false,
+          error:
+            `Unsupported exported declaration in ${module.filePath}: ${declaration.kind}.\n` +
+            "First-party bindings generation requires explicit support for each exported declaration kind.",
+        };
+      }
+      const declarationKind = classifyDeclarationKind(
+        declaration,
+        module.filePath,
+        declarationName
+      );
+      if (!declarationKind.ok) return declarationKind;
       pushExport({
         exportName: declarationName,
         localName: declarationName,
-        kind: classifyDeclarationKind(declaration),
+        kind: declarationKind.value,
         declaration,
       });
       continue;
     }
 
-    if (item.kind !== "named") continue;
+    if (item.kind === "reexport") continue;
 
     const declaration = resolveModuleLocalDeclaration(module, item.localName);
-    if (!declaration) continue;
+    if (!declaration) {
+      return {
+        ok: false,
+        error:
+          `Named export '${item.name}' in ${module.filePath} could not resolve local symbol '${item.localName}'.\n` +
+          "First-party bindings generation requires resolvable named exports.",
+      };
+    }
+    const declarationName = declarationNameOf(declaration);
+    if (!declarationName && declaration.kind !== "variableDeclaration") {
+      return {
+        ok: false,
+        error:
+          `Unsupported named export '${item.name}' in ${module.filePath}: ${declaration.kind}.\n` +
+          "First-party bindings generation requires explicit support for each exported declaration kind.",
+      };
+    }
+    const declarationKind = classifyDeclarationKind(
+      declaration,
+      module.filePath,
+      item.name
+    );
+    if (!declarationKind.ok) return declarationKind;
     pushExport({
       exportName: item.name,
       localName: item.localName,
-      kind: classifyDeclarationKind(declaration),
+      kind: declarationKind.value,
       declaration,
     });
   }
 
-  return exportedSymbols.sort((left, right) =>
-    left.exportName.localeCompare(right.exportName)
-  );
+  return {
+    ok: true,
+    value: exportedSymbols.sort((left, right) =>
+      left.exportName.localeCompare(right.exportName)
+    ),
+  };
 };
 
 const moduleNamespacePath = (namespace: string): string => {
@@ -505,6 +574,178 @@ const resolveReexportModuleKey = (
   return normalizeModuleFileKey(
     posix.normalize(posix.join(fromDir, fromModule))
   );
+};
+
+const isRelativeModuleSpecifier = (specifier: string): boolean =>
+  specifier.startsWith(".") || specifier.startsWith("/");
+
+const resolveImportedLocalDeclaration = (
+  module: IrModule,
+  localName: string,
+  modulesByFileKey: ReadonlyMap<string, IrModule>,
+  visited: ReadonlySet<string>
+): Result<ResolvedExportDeclaration, string> => {
+  for (const importEntry of module.imports) {
+    for (const specifier of importEntry.specifiers) {
+      if (specifier.localName !== localName) continue;
+      if (specifier.kind === "namespace") {
+        return {
+          ok: false,
+          error:
+            `Unable to re-export '${localName}' from ${module.filePath}: namespace imports are not supported for first-party bindings generation.`,
+        };
+      }
+      if (!importEntry.isLocal) {
+        return {
+          ok: false,
+          error:
+            `Unsupported re-export in ${module.filePath}: '${localName}' resolves to non-local module '${importEntry.source}'.\n` +
+            "First-party bindings generation currently supports only local source-module exports.",
+        };
+      }
+      const targetModule = modulesByFileKey.get(
+        resolveReexportModuleKey(module.filePath, importEntry.source)
+      );
+      if (!targetModule) {
+        return {
+          ok: false,
+          error:
+            `Unable to resolve local import target for '${localName}' in ${module.filePath}: '${importEntry.source}'.\n` +
+            "First-party bindings generation requires local import targets to resolve deterministically.",
+        };
+      }
+      const importedName =
+        specifier.kind === "named" ? specifier.name : "default";
+      return resolveExportedDeclaration(
+        targetModule,
+        importedName,
+        modulesByFileKey,
+        visited
+      );
+    }
+  }
+  return {
+    ok: false,
+    error:
+      `Unable to resolve local symbol '${localName}' in ${module.filePath}.\n` +
+      "First-party bindings generation requires resolvable local exports and aliases.",
+  };
+};
+
+const resolveExportedDeclaration = (
+  module: IrModule,
+  exportName: string,
+  modulesByFileKey: ReadonlyMap<string, IrModule>,
+  visited: ReadonlySet<string> = new Set()
+): Result<ResolvedExportDeclaration, string> => {
+  const cycleKey = `${normalizeModuleFileKey(module.filePath)}::${exportName}`;
+  if (visited.has(cycleKey)) {
+    return {
+      ok: false,
+      error:
+        `Cyclic re-export detected while resolving '${exportName}' in ${module.filePath}.\n` +
+        "First-party bindings generation requires acyclic local re-export graphs.",
+    };
+  }
+  const nextVisited = new Set(visited);
+  nextVisited.add(cycleKey);
+
+  for (const item of module.exports) {
+    if (item.kind === "declaration") {
+      const declaration = item.declaration;
+      if (declaration.kind === "variableDeclaration") {
+        for (const declarator of declaration.declarations) {
+          if (declarator.name.kind !== "identifierPattern") continue;
+          if (declarator.name.name !== exportName) continue;
+          return {
+            ok: true,
+            value: {
+              declaration,
+              module,
+              clrName: declarator.name.name,
+            },
+          };
+        }
+        continue;
+      }
+      const declarationName = declarationNameOf(declaration);
+      if (declarationName !== exportName) continue;
+      return {
+        ok: true,
+        value: {
+          declaration,
+          module,
+          clrName: declarationName,
+        },
+      };
+    }
+
+    if (item.kind === "named") {
+      if (item.name !== exportName) continue;
+      const declaration = resolveModuleLocalDeclaration(module, item.localName);
+      if (declaration) {
+        return {
+          ok: true,
+          value: {
+            declaration,
+            module,
+            clrName: item.localName,
+          },
+        };
+      }
+      return resolveImportedLocalDeclaration(
+        module,
+        item.localName,
+        modulesByFileKey,
+        nextVisited
+      );
+    }
+
+    if (item.kind === "reexport") {
+      if (item.name !== exportName) continue;
+      if (!isRelativeModuleSpecifier(item.fromModule)) {
+        return {
+          ok: false,
+          error:
+            `Unsupported re-export in ${module.filePath}: '${item.name}' from '${item.fromModule}'.\n` +
+            "First-party bindings generation currently supports only relative re-exports from local source modules.",
+        };
+      }
+      const targetModule = modulesByFileKey.get(
+        resolveReexportModuleKey(module.filePath, item.fromModule)
+      );
+      if (!targetModule) {
+        return {
+          ok: false,
+          error:
+            `Unable to resolve local re-export target for '${item.name}' in ${module.filePath}: '${item.fromModule}'.\n` +
+            "First-party bindings generation requires local re-export targets to resolve deterministically.",
+        };
+      }
+      return resolveExportedDeclaration(
+        targetModule,
+        item.originalName,
+        modulesByFileKey,
+        nextVisited
+      );
+    }
+
+    if (item.kind === "default" && exportName === "default") {
+      return {
+        ok: false,
+        error:
+          `Unsupported default export in ${module.filePath}.\n` +
+          "First-party bindings generation currently requires named/declaration exports for deterministic namespace facades.",
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    error:
+      `Unable to resolve exported symbol '${exportName}' in ${module.filePath}.\n` +
+      "First-party bindings generation requires explicit resolvable exports.",
+  };
 };
 
 const moduleNamespaceToInternalSpecifier = (namespace: string): string => {
@@ -1372,35 +1613,39 @@ const collectNamespacePlans = (
     )) {
       for (const exportItem of module.exports) {
         if (exportItem.kind !== "reexport") continue;
-        const targetModule = modulesByFileKey.get(
-          resolveReexportModuleKey(module.filePath, exportItem.fromModule)
+        const resolved = resolveExportedDeclaration(
+          module,
+          exportItem.name,
+          modulesByFileKey
         );
-        if (!targetModule) continue;
-        const declaration = resolveModuleLocalDeclaration(
-          targetModule,
-          exportItem.originalName
+        if (!resolved.ok) return resolved;
+        const declaration = resolved.value.declaration;
+        const declarationModule = resolved.value.module;
+        const exportKind = classifyDeclarationKind(
+          declaration,
+          declarationModule.filePath,
+          exportItem.name
         );
-        if (!declaration) continue;
-        const exportKind = classifyDeclarationKind(declaration);
-        if (exportKind === "function") {
+        if (!exportKind.ok) return exportKind;
+        if (exportKind.value === "function") {
           exportsMap.set(exportItem.name, {
             kind: "method",
-            clrName: exportItem.originalName,
+            clrName: resolved.value.clrName,
             declaringClrType: toClrTypeName(
-              targetModule.namespace,
-              targetModule.className
+              declarationModule.namespace,
+              declarationModule.className
             ),
             declaringAssemblyName: assemblyName,
           });
           continue;
         }
-        if (exportKind === "variable") {
+        if (exportKind.value === "variable") {
           exportsMap.set(exportItem.name, {
             kind: "field",
-            clrName: exportItem.originalName,
+            clrName: resolved.value.clrName,
             declaringClrType: toClrTypeName(
-              targetModule.namespace,
-              targetModule.className
+              declarationModule.namespace,
+              declarationModule.className
             ),
             declaringAssemblyName: assemblyName,
           });
@@ -1408,31 +1653,32 @@ const collectNamespacePlans = (
         }
 
         if (
-          exportKind === "class" ||
-          exportKind === "interface" ||
-          exportKind === "enum" ||
-          exportKind === "typeAlias"
+          exportKind.value === "class" ||
+          exportKind.value === "interface" ||
+          exportKind.value === "enum" ||
+          exportKind.value === "typeAlias"
         ) {
           if (
-            exportKind === "typeAlias" &&
+            exportKind.value === "typeAlias" &&
             declaration.kind === "typeAliasDeclaration" &&
             declaration.type.kind !== "objectType"
           ) {
             continue;
           }
-          const typeKey = `${exportItem.originalName}|${exportKind}`;
+          const typeKey = `${declarationModule.filePath}|${resolved.value.clrName}|${exportKind.value}`;
           if (seenTypeDeclarationKeys.has(typeKey)) continue;
           seenTypeDeclarationKeys.add(typeKey);
           typeDeclarations.push({
             exportName: exportItem.name,
-            localName: exportItem.originalName,
-            kind: exportKind,
+            localName: resolved.value.clrName,
+            kind: exportKind.value,
             declaration,
           });
         }
       }
 
       const moduleExports = collectModuleExports(module);
+      if (!moduleExports.ok) return moduleExports;
       const containerMethods: ModuleContainerEntry["methods"] = [];
       const containerVariables: ModuleContainerEntry["variables"] = [];
 
@@ -1452,7 +1698,7 @@ const collectNamespacePlans = (
         }
       }
 
-      for (const symbol of moduleExports) {
+      for (const symbol of moduleExports.value) {
         if (
           symbol.kind === "class" ||
           symbol.kind === "interface" ||
