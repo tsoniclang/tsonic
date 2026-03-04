@@ -179,6 +179,161 @@ describe("aikya bindings", function () {
     }
   });
 
+  it("errors with TSN8A01 when producer.tool is invalid", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-producer-tool-"));
+    try {
+      const pkgRoot = writeInstalledPackage(dir, "bad-producer-tool", "1.0.0", {
+        bindingsRoot: "tsonic/bindings",
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "bad-producer-tool",
+          npmVersion: "1.0.0",
+          runtime: {
+            nugetPackages: [{ id: "Bad.Runtime", version: "1.0.0" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+          producer: {
+            tool: "custom-tool",
+            version: "1.0.0",
+            mode: "aikya-firstparty",
+          },
+        },
+      });
+
+      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
+      expect(result.ok).to.equal(false);
+      expect(result.ok ? "" : result.error).to.match(/^TSN8A01:/);
+      expect(result.ok ? "" : result.error).to.include("producer.tool");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("errors with TSN8A01 when producer.mode is invalid", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-producer-mode-"));
+    try {
+      const pkgRoot = writeInstalledPackage(dir, "bad-producer-mode", "1.0.0", {
+        bindingsRoot: "tsonic/bindings",
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "bad-producer-mode",
+          npmVersion: "1.0.0",
+          runtime: {
+            nugetPackages: [{ id: "Bad.Runtime", version: "1.0.0" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+          producer: {
+            tool: "tsonic",
+            version: "1.0.0",
+            mode: "invalid-mode",
+          },
+        },
+      });
+
+      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
+      expect(result.ok).to.equal(false);
+      expect(result.ok ? "" : result.error).to.match(/^TSN8A01:/);
+      expect(result.ok ? "" : result.error).to.include("producer.mode");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("errors with TSN8A01 when npmPackage does not match installed package name", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-package-mismatch-"));
+    try {
+      const pkgRoot = writeInstalledPackage(dir, "actual-package", "1.0.0", {
+        bindingsRoot: "tsonic/bindings",
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "manifest-package",
+          npmVersion: "1.0.0",
+          runtime: {
+            nugetPackages: [{ id: "Bad.Runtime", version: "1.0.0" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+        },
+      });
+
+      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
+      expect(result.ok).to.equal(false);
+      expect(result.ok ? "" : result.error).to.match(/^TSN8A01:/);
+      expect(result.ok ? "" : result.error).to.include("npmPackage mismatch");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("collects deterministic nugetDependencies across dotnet and testDotnet sections", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-nuget-deps-"));
+    try {
+      const pkgRoot = writeInstalledPackage(dir, "@acme/deps", "3.1.0", {
+        bindingsRoot: "tsonic/bindings",
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "@acme/deps",
+          npmVersion: "3.1.0",
+          runtime: {
+            nugetPackages: [{ id: "Acme.Runtime", version: "3.1.0" }],
+            frameworkReferences: ["Microsoft.AspNetCore.App"],
+            runtimePackages: ["@tsonic/dotnet"],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+          dotnet: {
+            packageReferences: [{ id: "Acme.Core", version: "1.2.3" }],
+          },
+          testDotnet: {
+            packageReferences: [{ id: "Acme.Testing", version: "9.9.9" }],
+          },
+        },
+      });
+
+      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
+      expect(result.ok).to.equal(true);
+
+      const manifest = result.ok ? result.value : null;
+      expect(manifest).to.not.equal(null);
+      expect(manifest?.dotnet?.packageReferences).to.deep.equal([
+        { id: "Acme.Core", version: "1.2.3" },
+        { id: "Acme.Runtime", version: "3.1.0" },
+      ]);
+      expect(manifest?.dotnet?.frameworkReferences).to.deep.equal([
+        "Microsoft.AspNetCore.App",
+      ]);
+      expect(manifest?.testDotnet?.packageReferences).to.deep.equal([
+        { id: "Acme.Testing", version: "9.9.9" },
+      ]);
+      expect(manifest?.runtimePackages).to.deep.equal([
+        "@acme/deps",
+        "@tsonic/dotnet",
+      ]);
+
+      const dependencyKeys = (manifest?.nugetDependencies ?? []).map(
+        (dep) => `${dep.source}:${dep.id}@${dep.version ?? ""}`
+      );
+      expect(dependencyKeys).to.deep.equal([
+        "dotnet.framework:Microsoft.AspNetCore.App@",
+        "dotnet.package:Acme.Core@1.2.3",
+        "dotnet.package:Acme.Runtime@3.1.0",
+        "testDotnet.package:Acme.Testing@9.9.9",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("errors with TSN8A04 when bindingsRoot path does not exist", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-no-bindings-root-"));
     try {

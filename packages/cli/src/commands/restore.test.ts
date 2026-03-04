@@ -179,6 +179,69 @@ describe("restore command", function () {
     }
   });
 
+  it("ignores built-in runtime assemblies even when DLL file name is custom", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-runtime-alias-"));
+    try {
+      mkdirSync(join(dir, "src"), { recursive: true });
+      mkdirSync(join(dir, "libs"), { recursive: true });
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "tsonic.workspace.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+            dotnet: {
+              libraries: ["libs/runtime-alias.dll"],
+              frameworkReferences: [],
+              packageReferences: [],
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      copyFileSync(
+        join(repoRoot, "packages/cli/runtime/Tsonic.Runtime.dll"),
+        join(dir, "libs/runtime-alias.dll")
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), {
+        quiet: true,
+      });
+      expect(result.ok).to.equal(true);
+
+      expect(
+        existsSync(join(dir, "node_modules", "runtime-alias-types"))
+      ).to.equal(false);
+      expect(
+        existsSync(join(dir, "node_modules", "tsonic-runtime-types"))
+      ).to.equal(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("generates bindings for DLLs that reference Tsonic.Runtime without requiring libs/Tsonic.Runtime.dll", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-dll-runtime-"));
     try {
