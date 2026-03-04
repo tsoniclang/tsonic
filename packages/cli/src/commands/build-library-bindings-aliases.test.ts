@@ -836,12 +836,9 @@ describe("build command (library bindings)", function () {
 
       writeFileSync(
         join(dir, "packages", "lib", "src", "config", "loaded-config.ts"),
-        [
-          `export interface LoadedConfig {`,
-          `  title: string;`,
-          `}`,
-          ``,
-        ].join("\n"),
+        [`export interface LoadedConfig {`, `  title: string;`, `}`, ``].join(
+          "\n"
+        ),
         "utf-8"
       );
 
@@ -1323,7 +1320,7 @@ describe("build command (library bindings)", function () {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const coreEntitiesInternal = readFileSync(entityInternalPath!, "utf-8");
       expect(coreEntitiesInternal).to.match(
-        /set Maybe\(value: [^)]+undefined\)\s*;/
+        /(set Maybe\(value: [^)]+undefined\)\s*;|Maybe: [^;]+undefined\s*;)/
       );
       expect(coreEntitiesInternal).to.include("data: Record<string, unknown>");
       expect(coreEntitiesInternal).to.match(

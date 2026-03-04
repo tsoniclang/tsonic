@@ -1,4 +1,10 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, posix, resolve } from "node:path";
 import type {
   CompilerOptions,
@@ -13,12 +19,10 @@ import type {
   IrTypeParameter,
 } from "@tsonic/frontend";
 import { buildModuleDependencyGraph } from "@tsonic/frontend";
+import * as ts from "typescript";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import type { ResolvedConfig, Result } from "../types.js";
-import {
-  augmentLibraryBindingsFromSource,
-  overlayDependencyBindings,
-} from "./library-bindings-augment.js";
+import { overlayDependencyBindings } from "./library-bindings-augment.js";
 
 type FirstPartyBindingsMethod = {
   readonly stableId: string;
@@ -129,6 +133,7 @@ type ExportedSymbol = {
   readonly declaration: IrStatement;
   readonly declaringNamespace: string;
   readonly declaringClassName: string;
+  readonly declaringFilePath: string;
 };
 
 type ResolvedExportDeclaration = {
@@ -161,10 +166,70 @@ type ModuleContainerEntry = {
   }[];
 };
 
+type SourceTypeImport = {
+  readonly source: string;
+  readonly importedName: string;
+};
+
+type SourceTypeAliasDef = {
+  readonly typeParametersText: string;
+  readonly typeParameterNames: readonly string[];
+  readonly type: ts.TypeNode;
+  readonly typeText: string;
+};
+
+type SourceMemberTypeDef = {
+  readonly typeNode: ts.TypeNode;
+  readonly typeText: string;
+  readonly isOptional: boolean;
+};
+
+type SourceFunctionSignatureDef = {
+  readonly typeParametersText: string;
+  readonly parametersText: string;
+  readonly returnTypeText: string;
+};
+
+type ModuleSourceIndex = {
+  readonly fileKey: string;
+  readonly wrapperImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
+  readonly typeImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
+  readonly typeAliasesByName: ReadonlyMap<string, SourceTypeAliasDef>;
+  readonly exportedFunctionSignaturesByName: ReadonlyMap<
+    string,
+    readonly SourceFunctionSignatureDef[]
+  >;
+  readonly memberTypesByClassAndMember: ReadonlyMap<
+    string,
+    ReadonlyMap<string, SourceMemberTypeDef>
+  >;
+};
+
+type WrapperImport = {
+  readonly source: string;
+  readonly importedName: string;
+  readonly localName: string;
+  readonly aliasName: string;
+};
+
+type MemberOverride = {
+  readonly className: string;
+  readonly memberName: string;
+  readonly sourceTypeText?: string;
+  readonly replaceWithSourceType?: boolean;
+  readonly isOptional?: boolean;
+  readonly emitOptionalPropertySyntax?: boolean;
+  readonly wrappers: readonly WrapperImport[];
+};
+
 type NamespacePlan = {
   readonly namespace: string;
   readonly typeDeclarations: readonly ExportedSymbol[];
   readonly moduleContainers: readonly ModuleContainerEntry[];
+  readonly sourceAliasLines: readonly string[];
+  readonly sourceAliasInternalImports: readonly string[];
+  readonly memberOverrides: readonly MemberOverride[];
+  readonly wrapperImports: readonly WrapperImport[];
   readonly valueExports: readonly {
     readonly exportName: string;
     readonly binding: FirstPartyBindingsExport;
@@ -175,6 +240,7 @@ type NamespacePlan = {
             IrStatement,
             { kind: "functionDeclaration" }
           >;
+          readonly sourceSignatures?: readonly SourceFunctionSignatureDef[];
         }
       | {
           readonly kind: "variable";
@@ -194,6 +260,40 @@ type NamespacePlan = {
 
 const primitiveImportLine =
   "import type { sbyte, byte, short, ushort, int, uint, long, ulong, int128, uint128, half, float, double, decimal, nint, nuint, char } from '@tsonic/core/types.js';";
+
+const typePrinter = ts.createPrinter({ removeComments: true });
+
+const printTypeNodeText = (
+  node: ts.TypeNode,
+  sourceFile: ts.SourceFile
+): string => {
+  return typePrinter
+    .printNode(ts.EmitHint.Unspecified, node, sourceFile)
+    .trim();
+};
+
+const ensureUndefinedInType = (typeText: string): string => {
+  const trimmed = typeText.trim();
+  if (/\bundefined\b/.test(trimmed)) return trimmed;
+  return `${trimmed} | undefined`;
+};
+
+const applyWrappersToBaseType = (
+  baseType: string,
+  wrappers: readonly WrapperImport[]
+): string => {
+  let expr = baseType.trim();
+  for (const w of wrappers.slice().reverse()) {
+    expr = `${w.aliasName}<${expr}>`;
+  }
+  return expr;
+};
+
+const getPropertyNameText = (name: ts.PropertyName): string | undefined => {
+  if (ts.isIdentifier(name)) return name.text;
+  if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  return undefined;
+};
 
 const sanitizeForBrand = (value: string): string => {
   const normalized = value.replace(/[^A-Za-z0-9_]/g, "_");
@@ -241,9 +341,15 @@ const renderReferenceType = (
       arityMatch &&
       arityMatch[1] &&
       Number(arityMatch[1]) === typeArguments.length &&
-      !normalizedName.includes("__Alias_")
+      !normalizedName.includes("__Alias_") &&
+      !normalizedName.includes("__")
     ) {
       normalizedName = normalizedName.slice(0, -arityMatch[0].length);
+    } else if (
+      normalizedName.endsWith("_") &&
+      !normalizedName.includes("__Alias_")
+    ) {
+      normalizedName = normalizedName.slice(0, -1);
     }
   }
   if (!typeArguments || typeArguments.length === 0) return normalizedName;
@@ -496,6 +602,7 @@ const collectModuleExports = (
             declaration,
             declaringNamespace: module.namespace,
             declaringClassName: module.className,
+            declaringFilePath: module.filePath,
           });
         }
         continue;
@@ -523,6 +630,7 @@ const collectModuleExports = (
         declaration,
         declaringNamespace: module.namespace,
         declaringClassName: module.className,
+        declaringFilePath: module.filePath,
       });
       continue;
     }
@@ -558,6 +666,7 @@ const collectModuleExports = (
       declaration,
       declaringNamespace: resolved.value.module.namespace,
       declaringClassName: resolved.value.module.className,
+      declaringFilePath: resolved.value.module.filePath,
     });
   }
 
@@ -578,6 +687,39 @@ const normalizeModuleFileKey = (filePath: string): string => {
     .replace(/\\/g, "/")
     .replace(/^(\.\/)+/, "")
     .replace(/^\/+/, "");
+};
+
+const resolveLocalModuleFile = (
+  fromModule: string,
+  fromFile: string,
+  modulesByFile: ReadonlyMap<string, IrModule>
+): IrModule | undefined => {
+  const dir = posix.dirname(fromFile);
+
+  const candidates: string[] = [];
+  const raw = fromModule.startsWith("/")
+    ? posix.normalize(fromModule.slice(1))
+    : posix.normalize(posix.join(dir, fromModule));
+  candidates.push(raw);
+
+  if (raw.endsWith(".js")) {
+    candidates.push(raw.replace(/\.js$/, ".ts"));
+  }
+
+  if (!raw.endsWith(".ts") && !raw.endsWith(".js")) {
+    candidates.push(raw + ".ts");
+    candidates.push(raw + ".js");
+    candidates.push(posix.join(raw, "index.ts"));
+    candidates.push(posix.join(raw, "index.js"));
+  }
+
+  for (const cand of candidates) {
+    const normalized = normalizeModuleFileKey(cand);
+    const found = modulesByFile.get(normalized);
+    if (found) return found;
+  }
+
+  return undefined;
 };
 
 const resolveReexportModuleKey = (
@@ -605,8 +747,7 @@ const resolveImportedLocalDeclaration = (
       if (specifier.kind === "namespace") {
         return {
           ok: false,
-          error:
-            `Unable to re-export '${localName}' from ${module.filePath}: namespace imports are not supported for first-party bindings generation.`,
+          error: `Unable to re-export '${localName}' from ${module.filePath}: namespace imports are not supported for first-party bindings generation.`,
         };
       }
       if (!importEntry.isLocal) {
@@ -762,6 +903,434 @@ const resolveExportedDeclaration = (
   };
 };
 
+const buildModuleSourceIndex = (
+  absoluteFilePath: string,
+  fileKey: string
+): Result<ModuleSourceIndex, string> => {
+  if (!existsSync(absoluteFilePath)) {
+    return {
+      ok: false,
+      error: `Failed to read source file for bindings generation: ${absoluteFilePath}`,
+    };
+  }
+
+  const content = readFileSync(absoluteFilePath, "utf-8");
+  const scriptKind = absoluteFilePath.endsWith(".tsx")
+    ? ts.ScriptKind.TSX
+    : absoluteFilePath.endsWith(".js")
+      ? ts.ScriptKind.JS
+      : ts.ScriptKind.TS;
+  const sourceFile = ts.createSourceFile(
+    absoluteFilePath,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind
+  );
+
+  const wrapperImportsByLocalName = new Map<string, SourceTypeImport>();
+  const typeImportsByLocalName = new Map<string, SourceTypeImport>();
+  const typeAliasesByName = new Map<string, SourceTypeAliasDef>();
+  const exportedFunctionSignaturesByName = new Map<
+    string,
+    SourceFunctionSignatureDef[]
+  >();
+  const memberTypesByClassAndMember = new Map<
+    string,
+    Map<string, SourceMemberTypeDef>
+  >();
+
+  const printTypeParametersText = (
+    typeParameters: readonly ts.TypeParameterDeclaration[] | undefined
+  ): string => {
+    if (!typeParameters || typeParameters.length === 0) return "";
+    return `<${typeParameters.map((tp) => tp.getText(sourceFile)).join(", ")}>`;
+  };
+
+  const printParameterText = (param: ts.ParameterDeclaration): string => {
+    const rest = param.dotDotDotToken ? "..." : "";
+    const name = param.name.getText(sourceFile);
+    const optional = param.questionToken ? "?" : "";
+    const type = param.type
+      ? printTypeNodeText(param.type, sourceFile)
+      : "unknown";
+    return `${rest}${name}${optional}: ${type}`;
+  };
+
+  const addExportedFunctionSignature = (
+    name: string,
+    signature: SourceFunctionSignatureDef
+  ): void => {
+    const signatures = exportedFunctionSignaturesByName.get(name) ?? [];
+    signatures.push(signature);
+    exportedFunctionSignaturesByName.set(name, signatures);
+  };
+
+  for (const stmt of sourceFile.statements) {
+    if (ts.isImportDeclaration(stmt)) {
+      const moduleSpecifier = ts.isStringLiteral(stmt.moduleSpecifier)
+        ? stmt.moduleSpecifier.text
+        : undefined;
+      if (!moduleSpecifier) continue;
+
+      const clause = stmt.importClause;
+      if (!clause) continue;
+
+      const namedBindings = clause.namedBindings;
+      if (!namedBindings || !ts.isNamedImports(namedBindings)) continue;
+
+      for (const spec of namedBindings.elements) {
+        const localName = spec.name.text;
+        const importedName = (spec.propertyName ?? spec.name).text;
+        const isTypeOnly = clause.isTypeOnly || spec.isTypeOnly;
+        if (!isTypeOnly) continue;
+
+        typeImportsByLocalName.set(localName, {
+          source: moduleSpecifier,
+          importedName,
+        });
+        if (importedName === "ExtensionMethods") {
+          wrapperImportsByLocalName.set(localName, {
+            source: moduleSpecifier,
+            importedName,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (ts.isTypeAliasDeclaration(stmt)) {
+      const aliasName = stmt.name.text;
+      const typeParameterNames = (stmt.typeParameters ?? []).map(
+        (tp) => tp.name.text
+      );
+      typeAliasesByName.set(aliasName, {
+        typeParametersText: printTypeParametersText(stmt.typeParameters),
+        typeParameterNames,
+        type: stmt.type,
+        typeText: printTypeNodeText(stmt.type, sourceFile),
+      });
+      continue;
+    }
+
+    if (ts.isFunctionDeclaration(stmt)) {
+      const hasExport = stmt.modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+      );
+      if (!hasExport || !stmt.name || !stmt.type) continue;
+      const parametersText = stmt.parameters.map(printParameterText).join(", ");
+      addExportedFunctionSignature(stmt.name.text, {
+        typeParametersText: printTypeParametersText(stmt.typeParameters),
+        parametersText,
+        returnTypeText: printTypeNodeText(stmt.type, sourceFile),
+      });
+      continue;
+    }
+
+    if (ts.isVariableStatement(stmt)) {
+      const hasExport = stmt.modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+      );
+      if (!hasExport) continue;
+      for (const declaration of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name)) continue;
+        const exportName = declaration.name.text;
+        const initializer = declaration.initializer;
+        if (!initializer) continue;
+        if (
+          !ts.isArrowFunction(initializer) &&
+          !ts.isFunctionExpression(initializer)
+        ) {
+          continue;
+        }
+        if (!initializer.type) continue;
+        const parametersText = initializer.parameters
+          .map(printParameterText)
+          .join(", ");
+        addExportedFunctionSignature(exportName, {
+          typeParametersText: printTypeParametersText(
+            initializer.typeParameters
+          ),
+          parametersText,
+          returnTypeText: printTypeNodeText(initializer.type, sourceFile),
+        });
+      }
+      continue;
+    }
+
+    if (ts.isClassDeclaration(stmt) && stmt.name) {
+      const className = stmt.name.text;
+      const members =
+        memberTypesByClassAndMember.get(className) ??
+        new Map<string, SourceMemberTypeDef>();
+
+      for (const member of stmt.members) {
+        if (ts.isGetAccessorDeclaration(member)) {
+          if (!member.name || !member.type) continue;
+          const name = getPropertyNameText(member.name);
+          if (!name) continue;
+          members.set(name, {
+            typeNode: member.type,
+            typeText: printTypeNodeText(member.type, sourceFile),
+            isOptional: false,
+          });
+          continue;
+        }
+
+        if (ts.isPropertyDeclaration(member)) {
+          if (!member.name || !member.type) continue;
+          const name = getPropertyNameText(member.name);
+          if (!name) continue;
+          members.set(name, {
+            typeNode: member.type,
+            typeText: printTypeNodeText(member.type, sourceFile),
+            isOptional: member.questionToken !== undefined,
+          });
+        }
+      }
+
+      if (members.size > 0) {
+        memberTypesByClassAndMember.set(className, members);
+      }
+      continue;
+    }
+
+    if (ts.isInterfaceDeclaration(stmt)) {
+      const interfaceName = stmt.name.text;
+      const members =
+        memberTypesByClassAndMember.get(interfaceName) ??
+        new Map<string, SourceMemberTypeDef>();
+
+      for (const member of stmt.members) {
+        if (!ts.isPropertySignature(member)) continue;
+        if (!member.name || !member.type) continue;
+        const name = getPropertyNameText(member.name);
+        if (!name) continue;
+
+        members.set(name, {
+          typeNode: member.type,
+          typeText: printTypeNodeText(member.type, sourceFile),
+          isOptional: member.questionToken !== undefined,
+        });
+      }
+
+      if (members.size > 0) {
+        memberTypesByClassAndMember.set(interfaceName, members);
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    value: {
+      fileKey,
+      wrapperImportsByLocalName,
+      typeImportsByLocalName,
+      typeAliasesByName,
+      exportedFunctionSignaturesByName,
+      memberTypesByClassAndMember,
+    },
+  };
+};
+
+const typeNodeUsesImportedTypeNames = (
+  node: ts.TypeNode,
+  typeImportsByLocalName: ReadonlyMap<string, SourceTypeImport>
+): boolean => {
+  const allowlistedImportSources = new Set<string>(["@tsonic/core/types.js"]);
+
+  let found = false;
+  const visit = (current: ts.Node): void => {
+    if (found) return;
+    if (ts.isTypeReferenceNode(current) && ts.isIdentifier(current.typeName)) {
+      const imported = typeImportsByLocalName.get(current.typeName.text);
+      if (imported && !allowlistedImportSources.has(imported.source.trim())) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+};
+
+const unwrapParens = (node: ts.TypeNode): ts.TypeNode => {
+  let current = node;
+  while (ts.isParenthesizedTypeNode(current)) {
+    current = current.type;
+  }
+  return current;
+};
+
+const collectExtensionWrapperImportsFromSourceType = (opts: {
+  readonly startModuleKey: string;
+  readonly typeNode: ts.TypeNode;
+  readonly sourceIndexByFileKey: ReadonlyMap<string, ModuleSourceIndex>;
+  readonly modulesByFileKey: ReadonlyMap<string, IrModule>;
+}): Result<readonly WrapperImport[], string> => {
+  const wrappers: WrapperImport[] = [];
+
+  let currentModuleKey = opts.startModuleKey;
+  let currentNode: ts.TypeNode = opts.typeNode;
+  let subst = new Map<string, ts.TypeNode>();
+  const aliasStack: string[] = [];
+
+  while (true) {
+    currentNode = unwrapParens(currentNode);
+    if (!ts.isTypeReferenceNode(currentNode)) break;
+    if (!ts.isIdentifier(currentNode.typeName)) break;
+
+    const ident = currentNode.typeName.text;
+    const info = opts.sourceIndexByFileKey.get(currentModuleKey);
+    if (!info) break;
+
+    const substituted = subst.get(ident);
+    if (substituted) {
+      currentNode = substituted;
+      continue;
+    }
+
+    const expandAlias = (
+      aliasKey: string,
+      alias: SourceTypeAliasDef,
+      typeArgs: readonly ts.TypeNode[]
+    ): void => {
+      if (aliasStack.includes(aliasKey)) return;
+      aliasStack.push(aliasKey);
+
+      if (alias.typeParameterNames.length === typeArgs.length) {
+        const next = new Map(subst);
+        for (let i = 0; i < alias.typeParameterNames.length; i += 1) {
+          const paramName = alias.typeParameterNames[i];
+          const arg = typeArgs[i];
+          if (!paramName || !arg) continue;
+          next.set(paramName, arg);
+        }
+        subst = next;
+      }
+
+      currentNode = alias.type;
+    };
+
+    const localAlias = info.typeAliasesByName.get(ident);
+    if (localAlias) {
+      expandAlias(
+        `${currentModuleKey}:${ident}`,
+        localAlias,
+        currentNode.typeArguments ?? []
+      );
+      continue;
+    }
+
+    const imported = info.typeImportsByLocalName.get(ident);
+    if (
+      imported &&
+      (imported.source.startsWith(".") || imported.source.startsWith("/"))
+    ) {
+      const targetModule = resolveLocalModuleFile(
+        imported.source,
+        currentModuleKey,
+        opts.modulesByFileKey
+      );
+      if (targetModule) {
+        const targetKey = normalizeModuleFileKey(targetModule.filePath);
+        const targetInfo = opts.sourceIndexByFileKey.get(targetKey);
+        const targetAlias = targetInfo?.typeAliasesByName.get(
+          imported.importedName
+        );
+        if (targetAlias) {
+          currentModuleKey = targetKey;
+          expandAlias(
+            `${targetKey}:${imported.importedName}`,
+            targetAlias,
+            currentNode.typeArguments ?? []
+          );
+          continue;
+        }
+      }
+    }
+
+    const wrapperImport = info.wrapperImportsByLocalName.get(ident);
+    if (!wrapperImport) break;
+    const args = currentNode.typeArguments ?? [];
+    if (args.length !== 1) {
+      return {
+        ok: false,
+        error:
+          `ExtensionMethods wrapper '${ident}' must have exactly 1 type argument.\n` +
+          `Found: ${args.length} in ${currentModuleKey}.`,
+      };
+    }
+
+    wrappers.push({
+      source: wrapperImport.source,
+      importedName: wrapperImport.importedName,
+      localName: ident,
+      aliasName: `__TsonicExt_${ident}`,
+    });
+
+    const nextNode = args[0];
+    if (!nextNode) {
+      return {
+        ok: false,
+        error: `ExtensionMethods wrapper '${ident}' is missing its type argument in ${currentModuleKey}.`,
+      };
+    }
+    currentNode = nextNode;
+  }
+
+  return { ok: true, value: wrappers };
+};
+
+const classifyExportKind = (
+  module: IrModule,
+  name: string
+): "type" | "value" | "unknown" => {
+  const isNamed = (
+    stmt: IrStatement & { readonly name?: unknown }
+  ): stmt is IrStatement & { readonly name: string } =>
+    typeof stmt.name === "string";
+
+  const findDecl = (): IrStatement | undefined => {
+    for (const stmt of module.body) {
+      if (
+        !("isExported" in stmt) ||
+        (stmt as { isExported?: unknown }).isExported !== true
+      )
+        continue;
+
+      if (isNamed(stmt) && stmt.name === name) return stmt;
+      if (stmt.kind === "variableDeclaration") {
+        for (const decl of stmt.declarations) {
+          if (
+            decl.name.kind === "identifierPattern" &&
+            decl.name.name === name
+          ) {
+            return stmt;
+          }
+        }
+      }
+    }
+    return undefined;
+  };
+
+  const decl = findDecl();
+  if (!decl) return "unknown";
+  switch (decl.kind) {
+    case "typeAliasDeclaration":
+    case "interfaceDeclaration":
+      return "type";
+    case "classDeclaration":
+    case "enumDeclaration":
+    case "functionDeclaration":
+    case "variableDeclaration":
+      return "value";
+    default:
+      return "unknown";
+  }
+};
+
 const moduleNamespaceToInternalSpecifier = (namespace: string): string => {
   const nsPath = moduleNamespacePath(namespace);
   return `./${nsPath}/internal/index.js`;
@@ -819,7 +1388,10 @@ const toSignatureType = (
     case "primitiveType":
       return primitiveSignatureType(type.name);
     case "literalType":
-      return typeof type.value === "string" ? "System.String" : "System.Double";
+      if (typeof type.value === "string") return "System.String";
+      if (typeof type.value === "boolean") return "System.Boolean";
+      if (typeof type.value === "number") return "System.Double";
+      return "System.Object";
     case "voidType":
       return "System.Void";
     case "neverType":
@@ -948,7 +1520,8 @@ const makeMethodBinding = (opts: {
 
 const renderClassInternal = (
   declaration: IrClassDeclaration,
-  namespace: string
+  namespace: string,
+  memberOverrides: ReadonlyMap<string, MemberOverride>
 ): readonly string[] => {
   const lines: string[] = [];
   const typeParameterScope = (declaration.typeParameters ?? []).map(
@@ -1002,6 +1575,7 @@ const renderClassInternal = (
       continue;
     }
     if (member.kind === "propertyDeclaration") {
+      const memberOverride = memberOverrides.get(member.name);
       const hasAccessorBody =
         member.getterBody !== undefined || member.setterBody !== undefined;
       const hasGetter = hasAccessorBody
@@ -1010,18 +1584,24 @@ const renderClassInternal = (
       const hasSetter = hasAccessorBody
         ? member.setterBody !== undefined
         : !member.isReadonly;
-      const memberType = renderPortableType(member.type);
+      const baseType =
+        (memberOverride?.replaceWithSourceType
+          ? memberOverride.sourceTypeText
+          : undefined) ?? renderPortableType(member.type);
+      const wrappedType = applyWrappersToBaseType(
+        baseType,
+        memberOverride?.wrappers ?? []
+      );
+      const memberType =
+        memberOverride?.isOptional === true
+          ? ensureUndefinedInType(wrappedType)
+          : wrappedType;
 
       if (hasGetter && !hasSetter) {
         lines.push(`    readonly ${member.name}: ${memberType};`);
         continue;
       }
-      if (hasGetter) {
-        lines.push(`    get ${member.name}(): ${memberType};`);
-      }
-      if (hasSetter) {
-        lines.push(`    set ${member.name}(value: ${memberType});`);
-      }
+      lines.push(`    ${member.name}: ${memberType};`);
     }
   }
 
@@ -1066,7 +1646,8 @@ const renderClassInternal = (
 
 const renderInterfaceInternal = (
   declaration: IrInterfaceDeclaration,
-  namespace: string
+  namespace: string,
+  memberOverrides: ReadonlyMap<string, MemberOverride>
 ): readonly string[] => {
   const lines: string[] = [];
   const typeParameterScope = (declaration.typeParameters ?? []).map(
@@ -1091,7 +1672,7 @@ const renderInterfaceInternal = (
   lines.push(
     `export interface ${declaration.name}$instance${typeParameters}${extendsClause} {`
   );
-  lines.push(`    readonly ${markerName}: never;`);
+  lines.push(`    readonly ${markerName}?: never;`);
   for (const member of declaration.members) {
     if (member.kind === "methodSignature") {
       lines.push(
@@ -1105,10 +1686,25 @@ const renderInterfaceInternal = (
       continue;
     }
     if (member.kind === "propertySignature") {
-      const optionalMark = member.isOptional ? "?" : "";
-      lines.push(
-        `    ${member.name}${optionalMark}: ${renderPortableType(member.type)};`
+      const memberOverride = memberOverrides.get(member.name);
+      const optionalBySource =
+        memberOverride?.emitOptionalPropertySyntax === true &&
+        memberOverride.isOptional === true &&
+        !member.name.startsWith("__tsonic_type_");
+      const optionalMark = optionalBySource || member.isOptional ? "?" : "";
+      const baseType =
+        (memberOverride?.replaceWithSourceType
+          ? memberOverride.sourceTypeText
+          : undefined) ?? renderPortableType(member.type);
+      const wrappedType = applyWrappersToBaseType(
+        baseType,
+        memberOverride?.wrappers ?? []
       );
+      const memberType =
+        memberOverride?.isOptional && !optionalBySource
+          ? ensureUndefinedInType(wrappedType)
+          : wrappedType;
+      lines.push(`    ${member.name}${optionalMark}: ${memberType};`);
     }
   }
   lines.push("}");
@@ -1135,7 +1731,8 @@ const renderEnumInternal = (
 
 const renderStructuralAliasInternal = (
   declaration: IrTypeAliasDeclaration,
-  namespace: string
+  namespace: string,
+  memberOverrides: ReadonlyMap<string, MemberOverride>
 ): readonly string[] => {
   if (declaration.type.kind !== "objectType") return [];
 
@@ -1148,7 +1745,7 @@ const renderStructuralAliasInternal = (
   lines.push(
     `export interface ${internalAliasName}$instance${typeParameters} {`
   );
-  lines.push(`    readonly ${markerName}: never;`);
+  lines.push(`    readonly ${markerName}?: never;`);
   for (const member of declaration.type.members) {
     if (member.kind === "methodSignature") {
       lines.push(
@@ -1162,10 +1759,21 @@ const renderStructuralAliasInternal = (
       continue;
     }
     if (member.kind === "propertySignature") {
+      const memberOverride = memberOverrides.get(member.name);
       const optionalMark = member.isOptional ? "?" : "";
-      lines.push(
-        `    ${member.name}${optionalMark}: ${renderPortableType(member.type)};`
+      const baseType =
+        (memberOverride?.replaceWithSourceType
+          ? memberOverride.sourceTypeText
+          : undefined) ?? renderPortableType(member.type);
+      const wrappedType = applyWrappersToBaseType(
+        baseType,
+        memberOverride?.wrappers ?? []
       );
+      const memberType =
+        memberOverride?.isOptional === true
+          ? ensureUndefinedInType(wrappedType)
+          : wrappedType;
+      lines.push(`    ${member.name}${optionalMark}: ${memberType};`);
     }
   }
   lines.push("}");
@@ -1575,7 +2183,8 @@ const buildTypeBindingFromContainer = (
 const collectNamespacePlans = (
   modules: readonly IrModule[],
   assemblyName: string,
-  rootNamespace: string
+  rootNamespace: string,
+  sourceIndexByFileKey: ReadonlyMap<string, ModuleSourceIndex>
 ): Result<readonly NamespacePlan[], string> => {
   const modulesByNamespace = new Map<string, IrModule[]>();
   modulesByNamespace.set(rootNamespace, []);
@@ -1616,6 +2225,7 @@ const collectNamespacePlans = (
                 IrStatement,
                 { kind: "functionDeclaration" }
               >;
+              readonly sourceSignatures?: readonly SourceFunctionSignatureDef[];
             }
           | {
               readonly kind: "variable";
@@ -1633,33 +2243,37 @@ const collectNamespacePlans = (
       }
     >();
     const seenTypeDeclarationKeys = new Set<string>();
-    const registerValueExport = (
-      valueExport: {
-        readonly exportName: string;
-        readonly binding: FirstPartyBindingsExport;
-        readonly facade:
-          | {
-              readonly kind: "function";
-              readonly declaration: Extract<
-                IrStatement,
-                { kind: "functionDeclaration" }
-              >;
-            }
-          | {
-              readonly kind: "variable";
-              readonly declarator:
-                | {
-                    readonly kind: "variableDeclarator";
-                    readonly name: {
-                      readonly kind: "identifierPattern";
-                      readonly name: string;
-                    };
-                    readonly type?: IrType;
-                  }
-                | undefined;
-            };
-      }
-    ): Result<void, string> => {
+    const sourceAliasLines = new Set<string>();
+    const sourceAliasInternalImports = new Set<string>();
+    const memberOverrides: MemberOverride[] = [];
+    const wrapperImportByAlias = new Map<string, WrapperImport>();
+
+    const registerValueExport = (valueExport: {
+      readonly exportName: string;
+      readonly binding: FirstPartyBindingsExport;
+      readonly facade:
+        | {
+            readonly kind: "function";
+            readonly declaration: Extract<
+              IrStatement,
+              { kind: "functionDeclaration" }
+            >;
+            readonly sourceSignatures?: readonly SourceFunctionSignatureDef[];
+          }
+        | {
+            readonly kind: "variable";
+            readonly declarator:
+              | {
+                  readonly kind: "variableDeclarator";
+                  readonly name: {
+                    readonly kind: "identifierPattern";
+                    readonly name: string;
+                  };
+                  readonly type?: IrType;
+                }
+              | undefined;
+          };
+    }): Result<void, string> => {
       const existing = valueExportsMap.get(valueExport.exportName);
       if (!existing) {
         valueExportsMap.set(valueExport.exportName, valueExport);
@@ -1672,13 +2286,21 @@ const collectNamespacePlans = (
           valueExport.binding.declaringClrType &&
         existing.binding.declaringAssemblyName ===
           valueExport.binding.declaringAssemblyName;
-      const normalizeFunctionFacade = (
-        declaration: Extract<IrStatement, { kind: "functionDeclaration" }>
-      ): string => {
-        const typeParametersText = printTypeParameters(declaration.typeParameters);
+      const normalizeFunctionFacade = (facade: {
+        readonly declaration: Extract<
+          IrStatement,
+          { kind: "functionDeclaration" }
+        >;
+        readonly sourceSignatures?: readonly SourceFunctionSignatureDef[];
+      }): string => {
+        const declaration = facade.declaration;
+        const typeParametersText = printTypeParameters(
+          declaration.typeParameters
+        );
         const typeParameterNames =
-          declaration.typeParameters?.map((typeParameter) => typeParameter.name) ??
-          [];
+          declaration.typeParameters?.map(
+            (typeParameter) => typeParameter.name
+          ) ?? [];
         const parametersText = renderUnknownParameters(
           declaration.parameters,
           typeParameterNames
@@ -1687,7 +2309,14 @@ const collectNamespacePlans = (
           declaration.returnType,
           typeParameterNames
         );
-        return `${typeParametersText}(${parametersText}):${returnTypeText}`;
+        const sourceSignatures = (facade.sourceSignatures ?? [])
+          .map(
+            (signature) =>
+              `${signature.typeParametersText}(${signature.parametersText}):${signature.returnTypeText}`
+          )
+          .sort((left, right) => left.localeCompare(right))
+          .join("||");
+        return `${typeParametersText}(${parametersText}):${returnTypeText}|source=${sourceSignatures}`;
       };
       const normalizeVariableFacade = (
         declarator:
@@ -1708,8 +2337,8 @@ const collectNamespacePlans = (
           valueExport.facade.kind === "function"
         ) {
           return (
-            normalizeFunctionFacade(existing.facade.declaration) ===
-            normalizeFunctionFacade(valueExport.facade.declaration)
+            normalizeFunctionFacade(existing.facade) ===
+            normalizeFunctionFacade(valueExport.facade)
           );
         }
         if (
@@ -1734,9 +2363,241 @@ const collectNamespacePlans = (
       };
     };
 
+    const registerWrapperImports = (
+      wrappers: readonly WrapperImport[],
+      moduleFilePath: string
+    ): Result<void, string> => {
+      for (const wrapper of wrappers) {
+        const existing = wrapperImportByAlias.get(wrapper.aliasName);
+        if (existing) {
+          if (
+            existing.source !== wrapper.source ||
+            existing.importedName !== wrapper.importedName
+          ) {
+            return {
+              ok: false,
+              error:
+                `Conflicting wrapper import alias '${wrapper.aliasName}' while generating ${moduleFilePath}.\n` +
+                `- ${existing.importedName} from '${existing.source}'\n` +
+                `- ${wrapper.importedName} from '${wrapper.source}'\n` +
+                "Disambiguate ExtensionMethods aliases in source code.",
+            };
+          }
+          continue;
+        }
+        wrapperImportByAlias.set(wrapper.aliasName, wrapper);
+      }
+      return { ok: true, value: undefined };
+    };
+
     for (const module of moduleList.sort((left, right) =>
       left.filePath.localeCompare(right.filePath)
     )) {
+      const moduleKey = normalizeModuleFileKey(module.filePath);
+      const sourceIndex = sourceIndexByFileKey.get(moduleKey);
+
+      if (sourceIndex) {
+        const exportedAliasDecls = module.body.filter(
+          (
+            stmt
+          ): stmt is Extract<IrStatement, { kind: "typeAliasDeclaration" }> =>
+            stmt.kind === "typeAliasDeclaration" && stmt.isExported
+        );
+
+        for (const alias of exportedAliasDecls) {
+          const sourceAlias = sourceIndex.typeAliasesByName.get(alias.name);
+          const sourceTypeParams =
+            sourceAlias?.typeParametersText ??
+            printTypeParameters(alias.typeParameters);
+          if (alias.type.kind === "objectType") {
+            const arity = alias.typeParameters?.length ?? 0;
+            const internalName = `${alias.name}__Alias${arity > 0 ? `_${arity}` : ""}`;
+            const typeArgs =
+              sourceAlias && sourceAlias.typeParameterNames.length > 0
+                ? `<${sourceAlias.typeParameterNames.join(", ")}>`
+                : alias.typeParameters && alias.typeParameters.length > 0
+                  ? `<${alias.typeParameters.map((tp) => tp.name).join(", ")}>`
+                  : "";
+            sourceAliasLines.add(
+              `export type ${alias.name}${sourceTypeParams} = ${internalName}${typeArgs};`
+            );
+            sourceAliasInternalImports.add(internalName);
+            continue;
+          }
+
+          const rhs = renderPortableType(
+            alias.type,
+            alias.typeParameters?.map((tp) => tp.name) ?? []
+          );
+          const shouldPreferSourceAliasText =
+            sourceAlias !== undefined &&
+            !typeNodeUsesImportedTypeNames(
+              sourceAlias.type,
+              sourceIndex.typeImportsByLocalName
+            ) &&
+            /__\d+\b|\$instance\b/.test(rhs);
+          sourceAliasLines.add(
+            `export type ${alias.name}${sourceTypeParams} = ${
+              shouldPreferSourceAliasText ? sourceAlias.typeText : rhs
+            };`
+          );
+        }
+
+        const exportedClasses = module.body.filter(
+          (stmt): stmt is Extract<IrStatement, { kind: "classDeclaration" }> =>
+            stmt.kind === "classDeclaration" && stmt.isExported
+        );
+        const exportedInterfaces = module.body.filter(
+          (
+            stmt
+          ): stmt is Extract<IrStatement, { kind: "interfaceDeclaration" }> =>
+            stmt.kind === "interfaceDeclaration" && stmt.isExported
+        );
+        const exportedAliases = module.body.filter(
+          (
+            stmt
+          ): stmt is Extract<IrStatement, { kind: "typeAliasDeclaration" }> =>
+            stmt.kind === "typeAliasDeclaration" && stmt.isExported
+        );
+
+        for (const cls of exportedClasses) {
+          const sourceMembers = sourceIndex.memberTypesByClassAndMember.get(
+            cls.name
+          );
+          if (!sourceMembers) continue;
+          for (const member of cls.members) {
+            if (member.kind !== "propertyDeclaration") continue;
+            if (member.isStatic || member.accessibility === "private") continue;
+            const sourceMember = sourceMembers.get(member.name);
+            if (!sourceMember) continue;
+            const wrappersResult = collectExtensionWrapperImportsFromSourceType(
+              {
+                startModuleKey: moduleKey,
+                typeNode: sourceMember.typeNode,
+                sourceIndexByFileKey,
+                modulesByFileKey,
+              }
+            );
+            if (!wrappersResult.ok) return wrappersResult;
+            const wrappers = wrappersResult.value;
+            const canUseSourceTypeText = !typeNodeUsesImportedTypeNames(
+              sourceMember.typeNode,
+              sourceIndex.typeImportsByLocalName
+            );
+            if (
+              !canUseSourceTypeText &&
+              wrappers.length === 0 &&
+              !sourceMember.isOptional
+            ) {
+              continue;
+            }
+            const wrapperRegistered = registerWrapperImports(
+              wrappers,
+              module.filePath
+            );
+            if (!wrapperRegistered.ok) return wrapperRegistered;
+            memberOverrides.push({
+              className: cls.name,
+              memberName: member.name,
+              sourceTypeText: canUseSourceTypeText
+                ? sourceMember.typeText
+                : undefined,
+              replaceWithSourceType: canUseSourceTypeText,
+              isOptional: sourceMember.isOptional,
+              wrappers,
+            });
+          }
+        }
+
+        for (const iface of exportedInterfaces) {
+          const sourceMembers = sourceIndex.memberTypesByClassAndMember.get(
+            iface.name
+          );
+          if (!sourceMembers) continue;
+          for (const member of iface.members) {
+            if (member.kind !== "propertySignature") continue;
+            const sourceMember = sourceMembers.get(member.name);
+            if (!sourceMember) continue;
+            const wrappersResult = collectExtensionWrapperImportsFromSourceType(
+              {
+                startModuleKey: moduleKey,
+                typeNode: sourceMember.typeNode,
+                sourceIndexByFileKey,
+                modulesByFileKey,
+              }
+            );
+            if (!wrappersResult.ok) return wrappersResult;
+            const wrappers = wrappersResult.value;
+            const canUseSourceTypeText = !typeNodeUsesImportedTypeNames(
+              sourceMember.typeNode,
+              sourceIndex.typeImportsByLocalName
+            );
+            if (!canUseSourceTypeText && wrappers.length === 0) continue;
+            const wrapperRegistered = registerWrapperImports(
+              wrappers,
+              module.filePath
+            );
+            if (!wrapperRegistered.ok) return wrapperRegistered;
+            memberOverrides.push({
+              className: iface.name,
+              memberName: member.name,
+              sourceTypeText: canUseSourceTypeText
+                ? sourceMember.typeText
+                : undefined,
+              replaceWithSourceType: canUseSourceTypeText,
+              isOptional: sourceMember.isOptional,
+              emitOptionalPropertySyntax: true,
+              wrappers,
+            });
+          }
+        }
+
+        for (const alias of exportedAliases) {
+          const sourceAlias = sourceIndex.typeAliasesByName.get(alias.name);
+          if (!sourceAlias) continue;
+          const aliasType = unwrapParens(sourceAlias.type);
+          if (!ts.isTypeLiteralNode(aliasType)) continue;
+          const arity = sourceAlias.typeParameterNames.length;
+          const internalAliasName = `${alias.name}__Alias${arity > 0 ? `_${arity}` : ""}`;
+          for (const member of aliasType.members) {
+            if (!ts.isPropertySignature(member)) continue;
+            if (!member.name || !member.type) continue;
+            const memberName = getPropertyNameText(member.name);
+            if (!memberName) continue;
+            const wrappersResult = collectExtensionWrapperImportsFromSourceType(
+              {
+                startModuleKey: moduleKey,
+                typeNode: member.type,
+                sourceIndexByFileKey,
+                modulesByFileKey,
+              }
+            );
+            if (!wrappersResult.ok) return wrappersResult;
+            const wrappers = wrappersResult.value;
+            const canUseSourceTypeText = !typeNodeUsesImportedTypeNames(
+              member.type,
+              sourceIndex.typeImportsByLocalName
+            );
+            if (!canUseSourceTypeText && wrappers.length === 0) continue;
+            const wrapperRegistered = registerWrapperImports(
+              wrappers,
+              module.filePath
+            );
+            if (!wrapperRegistered.ok) return wrapperRegistered;
+            memberOverrides.push({
+              className: internalAliasName,
+              memberName,
+              sourceTypeText: canUseSourceTypeText
+                ? printTypeNodeText(member.type, member.getSourceFile())
+                : undefined,
+              replaceWithSourceType: canUseSourceTypeText,
+              isOptional: member.questionToken !== undefined,
+              wrappers,
+            });
+          }
+        }
+      }
+
       for (const exportItem of module.exports) {
         if (exportItem.kind !== "reexport") continue;
         const resolved = resolveExportedDeclaration(
@@ -1755,12 +2616,13 @@ const collectNamespacePlans = (
         if (!exportKind.ok) return exportKind;
         if (exportKind.value === "function") {
           const functionDeclaration =
-            declaration.kind === "functionDeclaration" ? declaration : undefined;
+            declaration.kind === "functionDeclaration"
+              ? declaration
+              : undefined;
           if (!functionDeclaration) {
             return {
               ok: false,
-              error:
-                `Invalid function export '${exportItem.name}' in ${declarationModule.filePath}: expected function declaration.`,
+              error: `Invalid function export '${exportItem.name}' in ${declarationModule.filePath}: expected function declaration.`,
             };
           }
           const registered = registerValueExport({
@@ -1777,6 +2639,12 @@ const collectNamespacePlans = (
             facade: {
               kind: "function",
               declaration: functionDeclaration,
+              sourceSignatures:
+                sourceIndexByFileKey
+                  .get(normalizeModuleFileKey(declarationModule.filePath))
+                  ?.exportedFunctionSignaturesByName.get(
+                    resolved.value.clrName
+                  ) ?? [],
             },
           });
           if (!registered.ok) return registered;
@@ -1784,12 +2652,13 @@ const collectNamespacePlans = (
         }
         if (exportKind.value === "variable") {
           const declarationStatement =
-            declaration.kind === "variableDeclaration" ? declaration : undefined;
+            declaration.kind === "variableDeclaration"
+              ? declaration
+              : undefined;
           if (!declarationStatement) {
             return {
               ok: false,
-              error:
-                `Invalid variable export '${exportItem.name}' in ${declarationModule.filePath}: expected variable declaration.`,
+              error: `Invalid variable export '${exportItem.name}' in ${declarationModule.filePath}: expected variable declaration.`,
             };
           }
           const declarator = declarationStatement.declarations.find(
@@ -1837,7 +2706,7 @@ const collectNamespacePlans = (
           ) {
             continue;
           }
-          const typeKey = `${declarationModule.filePath}|${resolved.value.clrName}|${exportKind.value}`;
+          const typeKey = `${declarationModule.namespace}|${declarationModule.className}|${resolved.value.clrName}|${exportKind.value}`;
           if (seenTypeDeclarationKeys.has(typeKey)) continue;
           seenTypeDeclarationKeys.add(typeKey);
           typeDeclarations.push({
@@ -1847,6 +2716,7 @@ const collectNamespacePlans = (
             declaration,
             declaringNamespace: declarationModule.namespace,
             declaringClassName: declarationModule.className,
+            declaringFilePath: declarationModule.filePath,
           });
         }
       }
@@ -1870,6 +2740,7 @@ const collectNamespacePlans = (
             declaration: statement,
             declaringNamespace: module.namespace,
             declaringClassName: module.className,
+            declaringFilePath: module.filePath,
           });
         }
       }
@@ -1925,6 +2796,11 @@ const collectNamespacePlans = (
             facade: {
               kind: "function",
               declaration: functionDeclaration,
+              sourceSignatures:
+                sourceIndexByFileKey
+                  .get(normalizeModuleFileKey(symbol.declaringFilePath))
+                  ?.exportedFunctionSignaturesByName.get(symbol.localName) ??
+                [],
             },
           });
           if (!registered.ok) return registered;
@@ -2004,6 +2880,20 @@ const collectNamespacePlans = (
       moduleContainers: moduleContainers.sort((left, right) =>
         left.module.className.localeCompare(right.module.className)
       ),
+      sourceAliasLines: Array.from(sourceAliasLines.values()).sort(
+        (left, right) => left.localeCompare(right)
+      ),
+      sourceAliasInternalImports: Array.from(
+        sourceAliasInternalImports.values()
+      ).sort((left, right) => left.localeCompare(right)),
+      memberOverrides: memberOverrides.sort((left, right) => {
+        const classCmp = left.className.localeCompare(right.className);
+        if (classCmp !== 0) return classCmp;
+        return left.memberName.localeCompare(right.memberName);
+      }),
+      wrapperImports: Array.from(wrapperImportByAlias.values()).sort(
+        (left, right) => left.aliasName.localeCompare(right.aliasName)
+      ),
       valueExports: Array.from(valueExportsMap.values()).sort((left, right) =>
         left.exportName.localeCompare(right.exportName)
       ),
@@ -2018,10 +2908,88 @@ const collectNamespacePlans = (
   };
 };
 
+const collectEntrypointReexports = (
+  entryModule: IrModule,
+  modulesByFileKey: ReadonlyMap<string, IrModule>
+): Result<
+  {
+    readonly dtsStatements: readonly string[];
+    readonly jsValueStatements: readonly string[];
+  },
+  string
+> => {
+  const grouped = new Map<string, string[]>();
+
+  for (const exported of entryModule.exports) {
+    if (exported.kind !== "reexport") continue;
+    const targetModule = resolveLocalModuleFile(
+      exported.fromModule,
+      entryModule.filePath,
+      modulesByFileKey
+    );
+    if (!targetModule) {
+      return {
+        ok: false,
+        error: `Failed to resolve re-export '${exported.name}' from '${exported.fromModule}' in ${entryModule.filePath}.`,
+      };
+    }
+    if (targetModule.namespace === entryModule.namespace) continue;
+
+    const kind = classifyExportKind(targetModule, exported.originalName);
+    if (kind === "unknown") {
+      return {
+        ok: false,
+        error: `Failed to classify re-export '${exported.name}' from '${exported.fromModule}' in ${entryModule.filePath}.`,
+      };
+    }
+    const moduleSpecifier = `./${moduleNamespacePath(targetModule.namespace)}.js`;
+    const key = `${moduleSpecifier}|${kind}`;
+    const specifier =
+      exported.name === exported.originalName
+        ? exported.name
+        : `${exported.originalName} as ${exported.name}`;
+    const list = grouped.get(key) ?? [];
+    list.push(specifier);
+    grouped.set(key, list);
+  }
+
+  const dtsStatements: string[] = [];
+  const jsValueStatements: string[] = [];
+  for (const [key, specs] of Array.from(grouped.entries()).sort((a, b) =>
+    a[0].localeCompare(b[0])
+  )) {
+    const [moduleSpecifier, kind] = key.split("|") as [
+      string,
+      "type" | "value",
+    ];
+    const unique = Array.from(new Set(specs)).sort((a, b) =>
+      a.localeCompare(b)
+    );
+    if (kind === "type") {
+      dtsStatements.push(
+        `export type { ${unique.join(", ")} } from '${moduleSpecifier}';`
+      );
+      continue;
+    }
+    const statement = `export { ${unique.join(", ")} } from '${moduleSpecifier}';`;
+    dtsStatements.push(statement);
+    jsValueStatements.push(statement);
+  }
+
+  return {
+    ok: true,
+    value: { dtsStatements, jsValueStatements },
+  };
+};
+
 const writeNamespaceArtifacts = (
   config: ResolvedConfig,
   outDir: string,
-  plan: NamespacePlan
+  plan: NamespacePlan,
+  entrypointReexports?: {
+    readonly dtsStatements: readonly string[];
+    readonly jsValueStatements: readonly string[];
+  }
 ): Result<void, string> => {
   const namespacePath = moduleNamespacePath(plan.namespace);
   const namespaceDir = join(outDir, namespacePath);
@@ -2034,11 +3002,36 @@ const writeNamespaceArtifacts = (
   const bindingsPath = join(namespaceDir, "bindings.json");
 
   const internalLines: string[] = [];
+  const memberOverridesByClass = new Map<string, Map<string, MemberOverride>>();
+  for (const override of plan.memberOverrides) {
+    const byMember =
+      memberOverridesByClass.get(override.className) ??
+      new Map<string, MemberOverride>();
+    byMember.set(override.memberName, override);
+    memberOverridesByClass.set(override.className, byMember);
+  }
+
   internalLines.push("// Generated by Tsonic - Source bindings");
   internalLines.push(`// Namespace: ${plan.namespace}`);
   internalLines.push(`// Assembly: ${config.outputName}`);
   internalLines.push("");
   internalLines.push(primitiveImportLine);
+  if (plan.wrapperImports.length > 0) {
+    internalLines.push("");
+    internalLines.push("// Tsonic source member type imports (generated)");
+    for (const wrapperImport of plan.wrapperImports) {
+      if (wrapperImport.importedName === wrapperImport.aliasName) {
+        internalLines.push(
+          `import type { ${wrapperImport.importedName} } from '${wrapperImport.source}';`
+        );
+        continue;
+      }
+      internalLines.push(
+        `import type { ${wrapperImport.importedName} as ${wrapperImport.aliasName} } from '${wrapperImport.source}';`
+      );
+    }
+    internalLines.push("// End Tsonic source member type imports");
+  }
   internalLines.push("");
 
   const typeBindings: FirstPartyBindingsType[] = [];
@@ -2049,7 +3042,11 @@ const writeNamespaceArtifacts = (
       symbol.declaration.kind === "classDeclaration"
     ) {
       internalLines.push(
-        ...renderClassInternal(symbol.declaration, plan.namespace)
+        ...renderClassInternal(
+          symbol.declaration,
+          plan.namespace,
+          memberOverridesByClass.get(symbol.declaration.name) ?? new Map()
+        )
       );
       typeBindings.push(
         buildTypeBindingFromClass(
@@ -2066,7 +3063,11 @@ const writeNamespaceArtifacts = (
       symbol.declaration.kind === "interfaceDeclaration"
     ) {
       internalLines.push(
-        ...renderInterfaceInternal(symbol.declaration, plan.namespace)
+        ...renderInterfaceInternal(
+          symbol.declaration,
+          plan.namespace,
+          memberOverridesByClass.get(symbol.declaration.name) ?? new Map()
+        )
       );
       typeBindings.push(
         buildTypeBindingFromInterface(
@@ -2098,7 +3099,17 @@ const writeNamespaceArtifacts = (
       symbol.declaration.kind === "typeAliasDeclaration"
     ) {
       internalLines.push(
-        ...renderStructuralAliasInternal(symbol.declaration, plan.namespace)
+        ...renderStructuralAliasInternal(
+          symbol.declaration,
+          plan.namespace,
+          memberOverridesByClass.get(
+            `${symbol.declaration.name}__Alias${
+              (symbol.declaration.typeParameters?.length ?? 0) > 0
+                ? `_${symbol.declaration.typeParameters?.length ?? 0}`
+                : ""
+            }`
+          ) ?? new Map()
+        )
       );
       const binding = buildTypeBindingFromStructuralAlias(
         symbol.declaration,
@@ -2140,12 +3151,26 @@ const writeNamespaceArtifacts = (
       continue;
     }
     const isValueType = symbol.kind === "class" || symbol.kind === "enum";
+    const isSyntheticAnonymousClass =
+      symbol.kind === "class" && symbol.localName.startsWith("__Anon_");
     if (isValueType) {
       const specifier =
         symbol.exportName === symbol.localName
           ? symbol.exportName
           : `${symbol.localName} as ${symbol.exportName}`;
-      facadeLines.push(`export { ${specifier} } from '${internalSpecifier}';`);
+      if (!isSyntheticAnonymousClass) {
+        facadeLines.push(
+          `export { ${specifier} } from '${internalSpecifier}';`
+        );
+      }
+      facadeLines.push(
+        `export type { ${specifier} } from '${internalSpecifier}';`
+      );
+      if (symbol.kind === "class") {
+        facadeLines.push(
+          `export type { ${symbol.localName}$instance } from '${internalSpecifier}';`
+        );
+      }
       continue;
     }
 
@@ -2156,6 +3181,11 @@ const writeNamespaceArtifacts = (
     facadeLines.push(
       `export type { ${specifier} } from '${internalSpecifier}';`
     );
+    if (symbol.kind === "interface") {
+      facadeLines.push(
+        `export type { ${symbol.localName}$instance } from '${internalSpecifier}';`
+      );
+    }
   }
 
   for (const container of plan.moduleContainers) {
@@ -2165,6 +3195,44 @@ const writeNamespaceArtifacts = (
   }
 
   const valueBindings = new Map<string, FirstPartyBindingsExport>();
+
+  const localTypeImports = new Set<string>();
+  for (const symbol of plan.typeDeclarations) {
+    if (symbol.kind === "typeAlias") continue;
+    localTypeImports.add(symbol.localName);
+    if (symbol.kind === "class" || symbol.kind === "interface") {
+      localTypeImports.add(`${symbol.localName}$instance`);
+    }
+  }
+  for (const internalImport of plan.sourceAliasInternalImports) {
+    localTypeImports.add(internalImport);
+  }
+
+  if (localTypeImports.size > 0) {
+    facadeLines.push("");
+    facadeLines.push("// Tsonic source alias imports (generated)");
+    facadeLines.push(
+      `import type { ${Array.from(localTypeImports.values())
+        .sort((left, right) => left.localeCompare(right))
+        .join(", ")} } from '${internalSpecifier}';`
+    );
+    facadeLines.push("// End Tsonic source alias imports");
+  }
+
+  if (plan.sourceAliasLines.length > 0) {
+    facadeLines.push("");
+    facadeLines.push("// Tsonic source type aliases (generated)");
+    facadeLines.push(...plan.sourceAliasLines);
+    facadeLines.push("// End Tsonic source type aliases");
+  }
+
+  if (entrypointReexports && entrypointReexports.dtsStatements.length > 0) {
+    facadeLines.push("");
+    facadeLines.push("// Tsonic entrypoint re-exports (generated)");
+    facadeLines.push(...entrypointReexports.dtsStatements);
+    facadeLines.push("// End Tsonic entrypoint re-exports");
+  }
+
   for (const valueExport of plan.valueExports) {
     valueBindings.set(valueExport.exportName, valueExport.binding);
     if (valueExport.facade.kind === "function") {
@@ -2199,7 +3267,9 @@ const writeNamespaceArtifacts = (
   if (
     plan.typeDeclarations.length === 0 &&
     plan.moduleContainers.length === 0 &&
-    plan.valueExports.length === 0
+    plan.valueExports.length === 0 &&
+    plan.sourceAliasLines.length === 0 &&
+    (!entrypointReexports || entrypointReexports.dtsStatements.length === 0)
   ) {
     facadeLines.push("export {};");
   }
@@ -2217,6 +3287,15 @@ const writeNamespaceArtifacts = (
       "// Generated by Tsonic - Source bindings",
       "// Module Stub - Do Not Execute",
       "",
+      ...(entrypointReexports &&
+      entrypointReexports.jsValueStatements.length > 0
+        ? [
+            "// Tsonic entrypoint value re-exports (generated)",
+            ...entrypointReexports.jsValueStatements,
+            "// End Tsonic entrypoint value re-exports",
+            "",
+          ]
+        : []),
       "throw new Error(",
       `  'Cannot import CLR namespace ${plan.namespace} in JavaScript runtime. ' +`,
       "  'This module provides TypeScript type definitions only. ' +",
@@ -2309,26 +3388,49 @@ export const generateFirstPartyLibraryBindings = (
   rmSync(bindingsOutDir, { recursive: true, force: true });
   mkdirSync(bindingsOutDir, { recursive: true });
 
+  const modulesByFileKey = new Map<string, IrModule>();
+  for (const module of graphResult.value.modules) {
+    modulesByFileKey.set(normalizeModuleFileKey(module.filePath), module);
+  }
+
+  const sourceIndexByFileKey = new Map<string, ModuleSourceIndex>();
+  for (const module of graphResult.value.modules) {
+    if (module.filePath.startsWith("__tsonic/")) continue;
+    const moduleKey = normalizeModuleFileKey(module.filePath);
+    const absolutePath = resolve(absoluteSourceRoot, moduleKey);
+    const indexed = buildModuleSourceIndex(absolutePath, moduleKey);
+    if (!indexed.ok) return indexed;
+    sourceIndexByFileKey.set(moduleKey, indexed.value);
+  }
+
   const plansResult = collectNamespacePlans(
     graphResult.value.modules,
     config.outputName,
-    config.rootNamespace
+    config.rootNamespace,
+    sourceIndexByFileKey
   );
   if (!plansResult.ok) return plansResult;
 
+  const entrypointReexportsResult = collectEntrypointReexports(
+    graphResult.value.entryModule,
+    modulesByFileKey
+  );
+  if (!entrypointReexportsResult.ok) return entrypointReexportsResult;
+
   for (const plan of plansResult.value) {
-    const result = writeNamespaceArtifacts(config, bindingsOutDir, plan);
+    const result = writeNamespaceArtifacts(
+      config,
+      bindingsOutDir,
+      plan,
+      plan.namespace === graphResult.value.entryModule.namespace
+        ? entrypointReexportsResult.value
+        : undefined
+    );
     if (!result.ok) return result;
   }
 
   const overlayResult = overlayDependencyBindings(config, bindingsOutDir);
   if (!overlayResult.ok) return overlayResult;
-
-  const augmentResult = augmentLibraryBindingsFromSource(
-    config,
-    bindingsOutDir
-  );
-  if (!augmentResult.ok) return augmentResult;
 
   return { ok: true, value: undefined };
 };

@@ -7,5 +7,8 @@ const BUILT_IN_RUNTIME_DLLS = new Set(
 export const isBuiltInRuntimeDllName = (dllFileName: string): boolean =>
   BUILT_IN_RUNTIME_DLLS.has(dllFileName.toLowerCase());
 
+export const isBuiltInRuntimeAssemblyName = (assemblyName: string): boolean =>
+  isBuiltInRuntimeDllName(`${assemblyName}.dll`);
+
 export const isBuiltInRuntimeDllPath = (pathLike: string): boolean =>
   isBuiltInRuntimeDllName(basename(pathLike));
