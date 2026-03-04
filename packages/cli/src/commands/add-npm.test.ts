@@ -59,7 +59,13 @@ const readWorkspaceConfig = (dir: string): any => {
 const writeLocalNpmPackage = (
   workspaceRoot: string,
   relDir: string,
-  pkg: { readonly name: string; readonly manifest?: unknown }
+  pkg: {
+    readonly name: string;
+    readonly manifest?: unknown;
+    readonly aikyaManifest?: unknown;
+    readonly bindingsRoot?: string;
+    readonly dependencies?: Readonly<Record<string, string>>;
+  }
 ): string => {
   const pkgRoot = join(workspaceRoot, relDir);
   mkdirSync(pkgRoot, { recursive: true });
@@ -72,6 +78,7 @@ const writeLocalNpmPackage = (
         private: true,
         version: "1.0.0",
         type: "module",
+        ...(pkg.dependencies ? { dependencies: pkg.dependencies } : {}),
       },
       null,
       2
@@ -85,6 +92,19 @@ const writeLocalNpmPackage = (
       JSON.stringify(pkg.manifest, null, 2) + "\n",
       "utf-8"
     );
+  }
+
+  if (pkg.aikyaManifest !== undefined) {
+    mkdirSync(join(pkgRoot, "tsonic"), { recursive: true });
+    writeFileSync(
+      join(pkgRoot, "tsonic", "package-manifest.json"),
+      JSON.stringify(pkg.aikyaManifest, null, 2) + "\n",
+      "utf-8"
+    );
+  }
+
+  if (pkg.bindingsRoot) {
+    mkdirSync(join(pkgRoot, pkg.bindingsRoot), { recursive: true });
   }
 
   return pkgRoot;
@@ -222,7 +242,7 @@ describe("add npm", function () {
     }
   });
 
-  it("errors when the npm package lacks tsonic.bindings.json", () => {
+  it("errors when the npm package lacks both supported manifest contracts", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-missing-"));
     try {
       const configPath = writeWorkspaceConfig(dir);
@@ -232,9 +252,7 @@ describe("add npm", function () {
         quiet: true,
       });
       expect(result.ok).to.equal(false);
-      expect(result.ok ? "" : result.error).to.match(
-        /Missing tsonic\.bindings\.json/
-      );
+      expect(result.ok ? "" : result.error).to.match(/Missing manifest/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -337,6 +355,189 @@ describe("add npm", function () {
 
       const secondBytes = readFileSync(normalizedManifestPath, "utf-8");
       expect(secondBytes).to.equal(firstBytes);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("supports Aikya package-manifest and injects runtime NuGet references", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-aikya-"));
+    try {
+      const configPath = writeWorkspaceConfig(dir);
+      const pkgName = "@acme/node";
+      writeLocalNpmPackage(dir, "local/acme-node", {
+        name: pkgName,
+        bindingsRoot: "tsonic/bindings",
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: pkgName,
+          npmVersion: "1.0.0",
+          runtime: {
+            nugetPackages: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
+            frameworkReferences: ["Microsoft.AspNetCore.App"],
+            runtimePackages: ["@tsonic/dotnet"],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+          producer: {
+            tool: "tsonic",
+            version: "0.0.70",
+            mode: "aikya-firstparty",
+          },
+        },
+      });
+
+      const result = addNpmCommand("./local/acme-node", configPath, {
+        quiet: true,
+      });
+      expect(result.ok).to.equal(true);
+      expect(result.ok ? result.value.packageName : "").to.equal(pkgName);
+
+      const cfg = readWorkspaceConfig(dir);
+      expect(cfg.dotnet.frameworkReferences).to.deep.equal([
+        "Microsoft.AspNetCore.App",
+      ]);
+      expect(cfg.dotnet.packageReferences).to.deep.equal([
+        { id: "Acme.Node.Runtime", version: "1.0.0" },
+      ]);
+
+      const normalizedManifestPath = join(
+        dir,
+        ".tsonic",
+        "manifests",
+        "npm",
+        pkgName,
+        "tsonic.bindings.normalized.json"
+      );
+      const normalizedManifest = JSON.parse(
+        readFileSync(normalizedManifestPath, "utf-8")
+      ) as Record<string, unknown>;
+      expect(normalizedManifest["sourceManifest"]).to.equal("aikya");
+      expect(normalizedManifest["packageName"]).to.equal(pkgName);
+      expect(normalizedManifest["bindingsRoot"]).to.equal("tsonic/bindings");
+      expect(normalizedManifest["runtimePackages"]).to.deep.equal([
+        "@acme/node",
+        "@tsonic/dotnet",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves transitive Aikya manifests and injects all runtime NuGet references", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-aikya-transitive-"));
+    try {
+      const configPath = writeWorkspaceConfig(dir);
+
+      writeLocalNpmPackage(dir, "local/acme-child", {
+        name: "acme-child",
+        bindingsRoot: "tsonic/bindings",
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "acme-child",
+          npmVersion: "1.0.0",
+          runtime: {
+            nugetPackages: [{ id: "Acme.Child.Runtime", version: "1.0.0" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+          producer: {
+            tool: "tsonic",
+            version: "0.0.70",
+            mode: "aikya-firstparty",
+          },
+        },
+      });
+
+      writeLocalNpmPackage(dir, "local/acme-parent", {
+        name: "acme-parent",
+        dependencies: {
+          "acme-child": "file:../acme-child",
+        },
+        bindingsRoot: "tsonic/bindings",
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "acme-parent",
+          npmVersion: "1.0.0",
+          runtime: {
+            nugetPackages: [{ id: "Acme.Parent.Runtime", version: "1.0.0" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+          producer: {
+            tool: "tsonic",
+            version: "0.0.70",
+            mode: "aikya-firstparty",
+          },
+        },
+      });
+
+      const result = addNpmCommand("./local/acme-parent", configPath, {
+        quiet: true,
+      });
+      expect(result.ok).to.equal(true);
+      expect(result.ok ? result.value.packageName : "").to.equal("acme-parent");
+
+      const cfg = readWorkspaceConfig(dir);
+      expect(cfg.dotnet.packageReferences).to.deep.equal([
+        { id: "Acme.Child.Runtime", version: "1.0.0" },
+        { id: "Acme.Parent.Runtime", version: "1.0.0" },
+      ]);
+
+      const childManifest = join(
+        dir,
+        ".tsonic",
+        "manifests",
+        "npm",
+        "acme-child",
+        "tsonic.bindings.normalized.json"
+      );
+      const parentManifest = join(
+        dir,
+        ".tsonic",
+        "manifests",
+        "npm",
+        "acme-parent",
+        "tsonic.bindings.normalized.json"
+      );
+      expect(existsSync(childManifest)).to.equal(true);
+      expect(existsSync(parentManifest)).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits TSN8A04 when Aikya manifest bindingsRoot is missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-aikya-root-"));
+    try {
+      const configPath = writeWorkspaceConfig(dir);
+      writeLocalNpmPackage(dir, "local/acme-node", {
+        name: "@acme/node",
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "@acme/node",
+          npmVersion: "1.0.0",
+          runtime: {
+            nugetPackages: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+        },
+      });
+
+      const result = addNpmCommand("./local/acme-node", configPath, {
+        quiet: true,
+      });
+      expect(result.ok).to.equal(false);
+      expect(result.ok ? "" : result.error).to.match(/^TSN8A04:/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

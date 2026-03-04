@@ -330,4 +330,145 @@ describe("CLI regressions (run/build)", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("fails fast with TSN8A02 when an installed Aikya manifest has unresolved runtime mapping", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-runtime-invalid-"));
+    const rid = detectRid();
+    try {
+      mkdirSync(join(dir, "packages", "app", "src"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "workspace",
+            private: true,
+            type: "module",
+            devDependencies: {
+              "@acme/bad-runtime": "1.0.0",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "tsonic.workspace.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+            rid,
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "package.json"),
+        JSON.stringify(
+          { name: "app", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Aikya.BadRuntime",
+            entryPoint: "src/index.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "aikya-bad-runtime",
+            output: {
+              nativeAot: false,
+              singleFile: false,
+              trimmed: false,
+              selfContained: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "src", "index.ts"),
+        `export function main(): void {}\n`,
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+
+      const badPkgDir = join(dir, "node_modules", "@acme", "bad-runtime");
+      mkdirSync(join(badPkgDir, "tsonic", "bindings"), { recursive: true });
+      writeFileSync(
+        join(badPkgDir, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/bad-runtime",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(badPkgDir, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-library",
+            npmPackage: "@acme/bad-runtime",
+            npmVersion: "1.0.0",
+            runtime: {
+              nugetPackages: [{ id: "Bad.Runtime", version: "" }],
+            },
+            typing: {
+              bindingsRoot: "tsonic/bindings",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      const exitCode = await runCli([
+        "generate",
+        "--project",
+        "app",
+        "--config",
+        join(dir, "tsonic.workspace.json"),
+        "--quiet",
+      ]);
+      expect(exitCode).to.equal(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

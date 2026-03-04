@@ -314,6 +314,28 @@ describe("build command (library bindings)", function () {
         /readonly\s+Numbers:\s+__TsonicExt_Tasks<__TsonicExt_Linq</
       );
 
+      const rootBindingsPath = join(bindingsDir, "Test.Lib", "bindings.json");
+      expect(existsSync(rootBindingsPath)).to.equal(true);
+      const rootBindings = JSON.parse(
+        readFileSync(rootBindingsPath, "utf-8")
+      ) as {
+        namespace?: unknown;
+        producer?: { tool?: unknown; mode?: unknown };
+        exports?: Record<string, unknown>;
+        types?: Array<{ clrName?: unknown }>;
+      };
+      expect(rootBindings.namespace).to.equal("Test.Lib");
+      expect(rootBindings.producer?.tool).to.equal("tsonic");
+      expect(rootBindings.producer?.mode).to.equal("aikya-firstparty");
+      expect(Object.keys(rootBindings.exports ?? {})).to.include("ok");
+      expect(Object.keys(rootBindings.exports ?? {})).to.include("err");
+      expect(Object.keys(rootBindings.exports ?? {})).to.include("loadConfig");
+      expect(
+        (rootBindings.types ?? []).some(
+          (entry) => entry.clrName === "Test.Lib.QueryHolder"
+        )
+      ).to.equal(true);
+
       // Namespace facade for the "types" module must include TS-level aliases.
       expect(typesContent).to.include("Tsonic source type aliases (generated)");
       expect(typesContent).to.include("export type Id = string;");
@@ -358,6 +380,572 @@ describe("build command (library bindings)", function () {
       expect(rootJs).to.include("ok");
       expect(rootJs).to.include("err");
       expect(rootJs).to.include("loadConfig");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails fast when a library source uses default exports (unsupported for first-party namespace facades)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-default-"));
+
+    try {
+      const wsConfigPath = join(dir, "tsonic.workspace.json");
+      mkdirSync(join(dir, "packages", "lib", "src"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        wsConfigPath,
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "package.json"),
+        JSON.stringify(
+          {
+            name: "lib",
+            private: true,
+            type: "module",
+            exports: {
+              "./package.json": "./package.json",
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Test.Lib",
+            entryPoint: "src/index.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "Test.Lib",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "index.ts"),
+        [`const value = 1;`, `export default value;`, ``].join("\n"),
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+
+      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+      const result = spawnSync(
+        "node",
+        [
+          cliPath,
+          "build",
+          "--project",
+          "lib",
+          "--config",
+          wsConfigPath,
+          "--quiet",
+        ],
+        { cwd: dir, encoding: "utf-8" }
+      );
+
+      expect(result.status).to.not.equal(0);
+      const combinedOutput = `${result.stderr}\n${result.stdout}`;
+      expect(combinedOutput).to.include("Unsupported default export");
+      expect(combinedOutput).to.include("First-party bindings generation");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails fast when a library source re-exports from a non-local module specifier", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-reexport-"));
+
+    try {
+      const wsConfigPath = join(dir, "tsonic.workspace.json");
+      mkdirSync(join(dir, "packages", "lib", "src"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        wsConfigPath,
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "package.json"),
+        JSON.stringify(
+          {
+            name: "lib",
+            private: true,
+            type: "module",
+            exports: {
+              "./package.json": "./package.json",
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Test.Lib",
+            entryPoint: "src/index.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "Test.Lib",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "index.ts"),
+        [`export { Console } from "@tsonic/dotnet/System.js";`, ``].join("\n"),
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+
+      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+      const result = spawnSync(
+        "node",
+        [
+          cliPath,
+          "build",
+          "--project",
+          "lib",
+          "--config",
+          wsConfigPath,
+          "--quiet",
+        ],
+        { cwd: dir, encoding: "utf-8" }
+      );
+
+      expect(result.status).to.not.equal(0);
+      const combinedOutput = `${result.stderr}\n${result.stdout}`;
+      expect(combinedOutput).to.include("Unsupported re-export");
+      expect(combinedOutput).to.include(
+        "supports only relative re-exports from local source modules"
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails fast when a library source exports destructuring declarators", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-destructure-"));
+
+    try {
+      const wsConfigPath = join(dir, "tsonic.workspace.json");
+      mkdirSync(join(dir, "packages", "lib", "src"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        wsConfigPath,
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "package.json"),
+        JSON.stringify(
+          {
+            name: "lib",
+            private: true,
+            type: "module",
+            exports: {
+              "./package.json": "./package.json",
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Test.Lib",
+            entryPoint: "src/index.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "Test.Lib",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "index.ts"),
+        [
+          `const source = { value: 1 };`,
+          `export const { value } = source;`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+
+      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+      const result = spawnSync(
+        "node",
+        [
+          cliPath,
+          "build",
+          "--project",
+          "lib",
+          "--config",
+          wsConfigPath,
+          "--quiet",
+        ],
+        { cwd: dir, encoding: "utf-8" }
+      );
+
+      expect(result.status).to.not.equal(0);
+      const combinedOutput = `${result.stderr}\n${result.stdout}`;
+      expect(combinedOutput).to.include(
+        "Unsupported exported variable declarator"
+      );
+      expect(combinedOutput).to.include(
+        "requires identifier-based exported variables"
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves local re-export chains transitively for both types and values", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-chain-"));
+
+    try {
+      const wsConfigPath = join(dir, "tsonic.workspace.json");
+      mkdirSync(join(dir, "packages", "lib", "src", "config"), {
+        recursive: true,
+      });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        wsConfigPath,
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "package.json"),
+        JSON.stringify(
+          {
+            name: "lib",
+            private: true,
+            type: "module",
+            exports: {
+              "./package.json": "./package.json",
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Test.Lib",
+            entryPoint: "src/index.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "Test.Lib",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "config", "loaded-config.ts"),
+        [`export interface LoadedConfig {`, `  title: string;`, `}`, ``].join(
+          "\n"
+        ),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "config", "loader.ts"),
+        [
+          `import type { LoadedConfig } from "./loaded-config.ts";`,
+          ``,
+          `export function loadSiteConfig(): LoadedConfig {`,
+          `  return { title: "site" };`,
+          `}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "config", "index.ts"),
+        [
+          `export type { LoadedConfig } from "./loaded-config.ts";`,
+          `export { loadSiteConfig } from "./loader.ts";`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "config.ts"),
+        [
+          `import type { LoadedConfig as LoadedConfigLocal } from "./config/index.ts";`,
+          `import { loadSiteConfig as loadSiteConfigLocal } from "./config/index.ts";`,
+          ``,
+          `export type { LoadedConfigLocal as LoadedConfig };`,
+          `export { loadSiteConfigLocal as loadSiteConfig };`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "index.ts"),
+        [
+          `export type { LoadedConfig } from "./config.ts";`,
+          `export { loadSiteConfig } from "./config.ts";`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+
+      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+      const result = spawnSync(
+        "node",
+        [
+          cliPath,
+          "build",
+          "--project",
+          "lib",
+          "--config",
+          wsConfigPath,
+          "--quiet",
+        ],
+        { cwd: dir, encoding: "utf-8" }
+      );
+
+      expect(result.status).to.equal(0, result.stderr || result.stdout);
+
+      const bindingsRoot = join(
+        dir,
+        "packages",
+        "lib",
+        "dist",
+        "tsonic",
+        "bindings"
+      );
+      const facade = readFileSync(join(bindingsRoot, "Test.Lib.d.ts"), "utf-8");
+      const internal = readFileSync(
+        join(bindingsRoot, "Test.Lib", "internal", "index.d.ts"),
+        "utf-8"
+      );
+      const rootBindings = JSON.parse(
+        readFileSync(join(bindingsRoot, "Test.Lib", "bindings.json"), "utf-8")
+      ) as {
+        readonly exports?: Record<
+          string,
+          { readonly kind: "method" | "property" | "field" }
+        >;
+      };
+
+      expect(facade).to.include("export type { LoadedConfig }");
+      expect(facade).to.match(
+        /export declare function loadSiteConfig\(\):\s*LoadedConfig/
+      );
+      expect(internal).to.match(/interface\s+LoadedConfig\$instance/);
+      expect(rootBindings.exports?.loadSiteConfig?.kind).to.equal("method");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -522,6 +1110,27 @@ describe("build command (library bindings)", function () {
         [
           `import type { int } from "@tsonic/core/types.js";`,
           ``,
+          `export class BuildRequest {`,
+          `  destinationDir: string = "";`,
+          `  buildDrafts: boolean = false;`,
+          `}`,
+          ``,
+          `export class ServeRequest extends BuildRequest {`,
+          `  host: string = "127.0.0.1";`,
+          `}`,
+          ``,
+          `export interface ContractBase {`,
+          `  requestId: string;`,
+          `}`,
+          ``,
+          `export interface ContractDerived extends ContractBase {`,
+          `  payload: string;`,
+          `}`,
+          ``,
+          `export function getRequestId(contract: ContractDerived): string {`,
+          `  return contract.requestId;`,
+          `}`,
+          ``,
           `export class Entity {`,
           `  Maybe?: int;`,
           `}`,
@@ -542,8 +1151,8 @@ describe("build command (library bindings)", function () {
         [
           `export type { Ok, Err, Result } from "./types.ts";`,
           `export { ok, err, renderMarkdownDomain } from "./types.ts";`,
-          `export { Entity, dispatch } from "./contracts.ts";`,
-          `export type { DomainEvent } from "./contracts.ts";`,
+          `export { BuildRequest, ServeRequest, getRequestId, Entity, dispatch } from "./contracts.ts";`,
+          `export type { ContractBase, ContractDerived, DomainEvent } from "./contracts.ts";`,
           ``,
         ].join("\n"),
         "utf-8"
@@ -553,11 +1162,23 @@ describe("build command (library bindings)", function () {
         join(dir, "packages", "app", "src", "App.ts"),
         [
           `import type { int } from "@tsonic/core/types.js";`,
-          `import { Entity, dispatch, renderMarkdownDomain, err } from "@acme/core/Acme.Core.js";`,
+          `import { Entity, ServeRequest, getRequestId, dispatch, renderMarkdownDomain, err } from "@acme/core/Acme.Core.js";`,
+          `import type { ContractDerived } from "@acme/core/Acme.Core.js";`,
           ``,
           `const entity = new Entity();`,
           `const maybe: int | undefined = undefined;`,
           `entity.Maybe = maybe;`,
+          ``,
+          `const serveReq = new ServeRequest();`,
+          `serveReq.destinationDir = "out";`,
+          `serveReq.buildDrafts = true;`,
+          `serveReq.host = "localhost";`,
+          ``,
+          `const contract: ContractDerived = { requestId: "r-1", payload: "ok" };`,
+          `const requestId = getRequestId(contract);`,
+          `if (requestId.Length === 0) {`,
+          `  err("missing request id");`,
+          `}`,
           ``,
           `const eventData: Record<string, unknown> = { id: "evt-1" };`,
           `dispatch({ type: "evt", data: eventData });`,
@@ -626,6 +1247,34 @@ describe("build command (library bindings)", function () {
       );
       expect(buildApp.status, buildApp.stderr || buildApp.stdout).to.equal(0);
 
+      const rootBindingsPath = join(
+        dir,
+        "packages",
+        "core",
+        "dist",
+        "tsonic",
+        "bindings",
+        "Acme.Core",
+        "bindings.json"
+      );
+      expect(existsSync(rootBindingsPath)).to.equal(true);
+      const rootBindings = JSON.parse(
+        readFileSync(rootBindingsPath, "utf-8")
+      ) as {
+        producer?: { tool?: unknown; mode?: unknown };
+        exports?: Record<string, unknown>;
+        types?: Array<{ clrName?: unknown }>;
+      };
+      expect(rootBindings.producer?.tool).to.equal("tsonic");
+      expect(rootBindings.producer?.mode).to.equal("aikya-firstparty");
+      expect(Object.keys(rootBindings.exports ?? {})).to.include(
+        "renderMarkdownDomain"
+      );
+      expect(Object.keys(rootBindings.exports ?? {})).to.include("dispatch");
+      expect(
+        (rootBindings.types ?? []).some((t) => t.clrName === "Acme.Core.Entity")
+      ).to.equal(true);
+
       const coreTypesFacade = readFileSync(
         join(
           dir,
@@ -671,9 +1320,15 @@ describe("build command (library bindings)", function () {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const coreEntitiesInternal = readFileSync(entityInternalPath!, "utf-8");
       expect(coreEntitiesInternal).to.match(
-        /set Maybe\(value: [^)]+undefined\)\s*;/
+        /(set Maybe\(value: [^)]+undefined\)\s*;|Maybe: [^;]+undefined\s*;)/
       );
       expect(coreEntitiesInternal).to.include("data: Record<string, unknown>");
+      expect(coreEntitiesInternal).to.match(
+        /interface\s+ServeRequest\$instance\s+extends\s+BuildRequest/
+      );
+      expect(coreEntitiesInternal).to.match(
+        /interface\s+ContractDerived\$instance\s+extends\s+ContractBase/
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1152,6 +1807,21 @@ describe("build command (library bindings)", function () {
         "tsonic",
         "bindings"
       );
+      const rootBindingsPath = join(bindingsDir, "Acme.Core", "bindings.json");
+      expect(existsSync(rootBindingsPath)).to.equal(true);
+      const rootBindings = JSON.parse(
+        readFileSync(rootBindingsPath, "utf-8")
+      ) as {
+        producer?: { tool?: unknown; mode?: unknown };
+        exports?: Record<string, unknown>;
+      };
+      expect(rootBindings.producer?.tool).to.equal("tsonic");
+      expect(rootBindings.producer?.mode).to.equal("aikya-firstparty");
+      expect(Object.keys(rootBindings.exports ?? {})).to.include(
+        "projectFlags"
+      );
+      expect(Object.keys(rootBindings.exports ?? {})).to.include("createBox");
+
       const collectDts = (root: string): string[] => {
         const out: string[] = [];
         for (const entry of readdirSync(root, { withFileTypes: true })) {

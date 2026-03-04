@@ -22,7 +22,10 @@ import type {
   Result,
   TsonicWorkspaceConfig,
 } from "../types.js";
-import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
+import {
+  isBuiltInRuntimeAssemblyName,
+  isBuiltInRuntimeDllPath,
+} from "../dotnet/runtime-dlls.js";
 import { loadWorkspaceConfig } from "../config.js";
 import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
 import {
@@ -1061,6 +1064,7 @@ export const restoreCommand = (
 
     const requiredFrameworkRefs = new Set<string>();
     const nonFramework = closure.resolvedAssemblies.filter((asm) => {
+      if (isBuiltInRuntimeAssemblyName(asm.name)) return false;
       const runtimeDir = runtimes.find((rt) => pathIsWithin(asm.path, rt.dir));
       if (!runtimeDir) return true;
       if (runtimeDir.name !== "Microsoft.NETCore.App")
