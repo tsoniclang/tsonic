@@ -944,6 +944,9 @@ describe("build command (library bindings)", function () {
       };
 
       expect(facade).to.include("export type { LoadedConfig }");
+      expect(facade).to.match(
+        /export declare function loadSiteConfig\(\):\s*LoadedConfig/
+      );
       expect(internal).to.match(/interface\s+LoadedConfig\$instance/);
       expect(rootBindings.exports?.loadSiteConfig?.kind).to.equal("method");
     } finally {

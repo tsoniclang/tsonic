@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, posix, resolve } from "node:path";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join, posix, resolve } from "node:path";
 import type {
   CompilerOptions,
   IrClassDeclaration,
@@ -127,6 +127,8 @@ type ExportedSymbol = {
   readonly localName: string;
   readonly kind: ExportedSymbolKind;
   readonly declaration: IrStatement;
+  readonly declaringNamespace: string;
+  readonly declaringClassName: string;
 };
 
 type ResolvedExportDeclaration = {
@@ -163,24 +165,31 @@ type NamespacePlan = {
   readonly namespace: string;
   readonly typeDeclarations: readonly ExportedSymbol[];
   readonly moduleContainers: readonly ModuleContainerEntry[];
-  readonly exportedFunctions: readonly {
+  readonly valueExports: readonly {
     readonly exportName: string;
-    readonly declaration: Extract<IrStatement, { kind: "functionDeclaration" }>;
-  }[];
-  readonly exportedVariables: readonly {
-    readonly exportName: string;
-    readonly declarator:
+    readonly binding: FirstPartyBindingsExport;
+    readonly facade:
       | {
-          readonly kind: "variableDeclarator";
-          readonly name: {
-            readonly kind: "identifierPattern";
-            readonly name: string;
-          };
-          readonly type?: IrType;
+          readonly kind: "function";
+          readonly declaration: Extract<
+            IrStatement,
+            { kind: "functionDeclaration" }
+          >;
         }
-      | undefined;
+      | {
+          readonly kind: "variable";
+          readonly declarator:
+            | {
+                readonly kind: "variableDeclarator";
+                readonly name: {
+                  readonly kind: "identifierPattern";
+                  readonly name: string;
+                };
+                readonly type?: IrType;
+              }
+            | undefined;
+        };
   }[];
-  readonly exportsMap: Readonly<Record<string, FirstPartyBindingsExport>>;
 };
 
 const primitiveImportLine =
@@ -485,6 +494,8 @@ const collectModuleExports = (
             localName,
             kind: "variable",
             declaration,
+            declaringNamespace: module.namespace,
+            declaringClassName: module.className,
           });
         }
         continue;
@@ -510,6 +521,8 @@ const collectModuleExports = (
         localName: declarationName,
         kind: declarationKind.value,
         declaration,
+        declaringNamespace: module.namespace,
+        declaringClassName: module.className,
       });
       continue;
     }
@@ -543,6 +556,8 @@ const collectModuleExports = (
       localName: resolved.value.clrName,
       kind: declarationKind.value,
       declaration,
+      declaringNamespace: resolved.value.module.namespace,
+      declaringClassName: resolved.value.module.className,
     });
   }
 
@@ -1559,9 +1574,11 @@ const buildTypeBindingFromContainer = (
 
 const collectNamespacePlans = (
   modules: readonly IrModule[],
-  assemblyName: string
+  assemblyName: string,
+  rootNamespace: string
 ): Result<readonly NamespacePlan[], string> => {
   const modulesByNamespace = new Map<string, IrModule[]>();
+  modulesByNamespace.set(rootNamespace, []);
   const modulesByFileKey = new Map<string, IrModule>();
   for (const module of modules) {
     const syntheticAnonymousModule =
@@ -1587,25 +1604,135 @@ const collectNamespacePlans = (
   )) {
     const typeDeclarations: ExportedSymbol[] = [];
     const moduleContainers: ModuleContainerEntry[] = [];
-    const exportedFunctions: {
-      exportName: string;
-      declaration: Extract<IrStatement, { kind: "functionDeclaration" }>;
-    }[] = [];
-    const exportedVariables: {
-      exportName: string;
-      declarator:
-        | {
-            readonly kind: "variableDeclarator";
-            readonly name: {
-              readonly kind: "identifierPattern";
-              readonly name: string;
+    const valueExportsMap = new Map<
+      string,
+      {
+        readonly exportName: string;
+        readonly binding: FirstPartyBindingsExport;
+        readonly facade:
+          | {
+              readonly kind: "function";
+              readonly declaration: Extract<
+                IrStatement,
+                { kind: "functionDeclaration" }
+              >;
+            }
+          | {
+              readonly kind: "variable";
+              readonly declarator:
+                | {
+                    readonly kind: "variableDeclarator";
+                    readonly name: {
+                      readonly kind: "identifierPattern";
+                      readonly name: string;
+                    };
+                    readonly type?: IrType;
+                  }
+                | undefined;
             };
-            readonly type?: IrType;
-          }
-        | undefined;
-    }[] = [];
-    const exportsMap = new Map<string, FirstPartyBindingsExport>();
+      }
+    >();
     const seenTypeDeclarationKeys = new Set<string>();
+    const registerValueExport = (
+      valueExport: {
+        readonly exportName: string;
+        readonly binding: FirstPartyBindingsExport;
+        readonly facade:
+          | {
+              readonly kind: "function";
+              readonly declaration: Extract<
+                IrStatement,
+                { kind: "functionDeclaration" }
+              >;
+            }
+          | {
+              readonly kind: "variable";
+              readonly declarator:
+                | {
+                    readonly kind: "variableDeclarator";
+                    readonly name: {
+                      readonly kind: "identifierPattern";
+                      readonly name: string;
+                    };
+                    readonly type?: IrType;
+                  }
+                | undefined;
+            };
+      }
+    ): Result<void, string> => {
+      const existing = valueExportsMap.get(valueExport.exportName);
+      if (!existing) {
+        valueExportsMap.set(valueExport.exportName, valueExport);
+        return { ok: true, value: undefined };
+      }
+      const sameBinding =
+        existing.binding.kind === valueExport.binding.kind &&
+        existing.binding.clrName === valueExport.binding.clrName &&
+        existing.binding.declaringClrType ===
+          valueExport.binding.declaringClrType &&
+        existing.binding.declaringAssemblyName ===
+          valueExport.binding.declaringAssemblyName;
+      const normalizeFunctionFacade = (
+        declaration: Extract<IrStatement, { kind: "functionDeclaration" }>
+      ): string => {
+        const typeParametersText = printTypeParameters(declaration.typeParameters);
+        const typeParameterNames =
+          declaration.typeParameters?.map((typeParameter) => typeParameter.name) ??
+          [];
+        const parametersText = renderUnknownParameters(
+          declaration.parameters,
+          typeParameterNames
+        );
+        const returnTypeText = renderPortableType(
+          declaration.returnType,
+          typeParameterNames
+        );
+        return `${typeParametersText}(${parametersText}):${returnTypeText}`;
+      };
+      const normalizeVariableFacade = (
+        declarator:
+          | {
+              readonly kind: "variableDeclarator";
+              readonly name: {
+                readonly kind: "identifierPattern";
+                readonly name: string;
+              };
+              readonly type?: IrType;
+            }
+          | undefined
+      ): string => renderPortableType(declarator?.type);
+      const sameFacade = (() => {
+        if (existing.facade.kind !== valueExport.facade.kind) return false;
+        if (
+          existing.facade.kind === "function" &&
+          valueExport.facade.kind === "function"
+        ) {
+          return (
+            normalizeFunctionFacade(existing.facade.declaration) ===
+            normalizeFunctionFacade(valueExport.facade.declaration)
+          );
+        }
+        if (
+          existing.facade.kind === "variable" &&
+          valueExport.facade.kind === "variable"
+        ) {
+          return (
+            normalizeVariableFacade(existing.facade.declarator) ===
+            normalizeVariableFacade(valueExport.facade.declarator)
+          );
+        }
+        return false;
+      })();
+      if (sameBinding && sameFacade) {
+        return { ok: true, value: undefined };
+      }
+      return {
+        ok: false,
+        error:
+          `Conflicting value export '${valueExport.exportName}' in namespace ${namespace}.\n` +
+          "First-party bindings generation requires each exported value name to map deterministically to exactly one CLR member.",
+      };
+    };
 
     for (const module of moduleList.sort((left, right) =>
       left.filePath.localeCompare(right.filePath)
@@ -1627,27 +1754,73 @@ const collectNamespacePlans = (
         );
         if (!exportKind.ok) return exportKind;
         if (exportKind.value === "function") {
-          exportsMap.set(exportItem.name, {
-            kind: "method",
-            clrName: resolved.value.clrName,
-            declaringClrType: toClrTypeName(
-              declarationModule.namespace,
-              declarationModule.className
-            ),
-            declaringAssemblyName: assemblyName,
+          const functionDeclaration =
+            declaration.kind === "functionDeclaration" ? declaration : undefined;
+          if (!functionDeclaration) {
+            return {
+              ok: false,
+              error:
+                `Invalid function export '${exportItem.name}' in ${declarationModule.filePath}: expected function declaration.`,
+            };
+          }
+          const registered = registerValueExport({
+            exportName: exportItem.name,
+            binding: {
+              kind: "method",
+              clrName: resolved.value.clrName,
+              declaringClrType: toClrTypeName(
+                declarationModule.namespace,
+                declarationModule.className
+              ),
+              declaringAssemblyName: assemblyName,
+            },
+            facade: {
+              kind: "function",
+              declaration: functionDeclaration,
+            },
           });
+          if (!registered.ok) return registered;
           continue;
         }
         if (exportKind.value === "variable") {
-          exportsMap.set(exportItem.name, {
-            kind: "field",
-            clrName: resolved.value.clrName,
-            declaringClrType: toClrTypeName(
-              declarationModule.namespace,
-              declarationModule.className
-            ),
-            declaringAssemblyName: assemblyName,
+          const declarationStatement =
+            declaration.kind === "variableDeclaration" ? declaration : undefined;
+          if (!declarationStatement) {
+            return {
+              ok: false,
+              error:
+                `Invalid variable export '${exportItem.name}' in ${declarationModule.filePath}: expected variable declaration.`,
+            };
+          }
+          const declarator = declarationStatement.declarations.find(
+            (candidate) =>
+              candidate.name.kind === "identifierPattern" &&
+              candidate.name.name === resolved.value.clrName
+          );
+          const registered = registerValueExport({
+            exportName: exportItem.name,
+            binding: {
+              kind: "field",
+              clrName: resolved.value.clrName,
+              declaringClrType: toClrTypeName(
+                declarationModule.namespace,
+                declarationModule.className
+              ),
+              declaringAssemblyName: assemblyName,
+            },
+            facade: {
+              kind: "variable",
+              declarator:
+                declarator && declarator.name.kind === "identifierPattern"
+                  ? {
+                      kind: declarator.kind,
+                      name: declarator.name,
+                      type: declarator.type,
+                    }
+                  : undefined,
+            },
           });
+          if (!registered.ok) return registered;
           continue;
         }
 
@@ -1672,6 +1845,8 @@ const collectNamespacePlans = (
             localName: resolved.value.clrName,
             kind: exportKind.value,
             declaration,
+            declaringNamespace: declarationModule.namespace,
+            declaringClassName: declarationModule.className,
           });
         }
       }
@@ -1693,6 +1868,8 @@ const collectNamespacePlans = (
             localName: statement.name,
             kind: "class",
             declaration: statement,
+            declaringNamespace: module.namespace,
+            declaringClassName: module.className,
           });
         }
       }
@@ -1711,7 +1888,7 @@ const collectNamespacePlans = (
           ) {
             continue;
           }
-          const key = `${symbol.localName}|${symbol.kind}`;
+          const key = `${symbol.declaringNamespace}|${symbol.declaringClassName}|${symbol.localName}|${symbol.kind}`;
           if (!seenTypeDeclarationKeys.has(key)) {
             seenTypeDeclarationKeys.add(key);
             typeDeclarations.push(symbol);
@@ -1724,21 +1901,33 @@ const collectNamespacePlans = (
               ? symbol.declaration
               : undefined;
           if (!functionDeclaration) continue;
-          containerMethods.push({
+          const isLocalContainerMember =
+            symbol.declaringNamespace === module.namespace &&
+            symbol.declaringClassName === module.className;
+          if (isLocalContainerMember) {
+            containerMethods.push({
+              exportName: symbol.exportName,
+              localName: symbol.localName,
+              declaration: functionDeclaration,
+            });
+          }
+          const registered = registerValueExport({
             exportName: symbol.exportName,
-            localName: symbol.localName,
-            declaration: functionDeclaration,
+            binding: {
+              kind: "method",
+              clrName: symbol.localName,
+              declaringClrType: toClrTypeName(
+                symbol.declaringNamespace,
+                symbol.declaringClassName
+              ),
+              declaringAssemblyName: assemblyName,
+            },
+            facade: {
+              kind: "function",
+              declaration: functionDeclaration,
+            },
           });
-          exportedFunctions.push({
-            exportName: symbol.exportName,
-            declaration: functionDeclaration,
-          });
-          exportsMap.set(symbol.exportName, {
-            kind: "method",
-            clrName: symbol.localName,
-            declaringClrType: toClrTypeName(namespace, module.className),
-            declaringAssemblyName: assemblyName,
-          });
+          if (!registered.ok) return registered;
           continue;
         }
 
@@ -1753,36 +1942,48 @@ const collectNamespacePlans = (
               candidate.name.kind === "identifierPattern" &&
               candidate.name.name === symbol.localName
           );
-          containerVariables.push({
+          const isLocalContainerMember =
+            symbol.declaringNamespace === module.namespace &&
+            symbol.declaringClassName === module.className;
+          if (isLocalContainerMember) {
+            containerVariables.push({
+              exportName: symbol.exportName,
+              localName: symbol.localName,
+              declaration,
+              declarator:
+                declarator && declarator.name.kind === "identifierPattern"
+                  ? {
+                      kind: declarator.kind,
+                      name: declarator.name,
+                      type: declarator.type,
+                    }
+                  : undefined,
+            });
+          }
+          const registered = registerValueExport({
             exportName: symbol.exportName,
-            localName: symbol.localName,
-            declaration,
-            declarator:
-              declarator && declarator.name.kind === "identifierPattern"
-                ? {
-                    kind: declarator.kind,
-                    name: declarator.name,
-                    type: declarator.type,
-                  }
-                : undefined,
+            binding: {
+              kind: "field",
+              clrName: symbol.localName,
+              declaringClrType: toClrTypeName(
+                symbol.declaringNamespace,
+                symbol.declaringClassName
+              ),
+              declaringAssemblyName: assemblyName,
+            },
+            facade: {
+              kind: "variable",
+              declarator:
+                declarator && declarator.name.kind === "identifierPattern"
+                  ? {
+                      kind: declarator.kind,
+                      name: declarator.name,
+                      type: declarator.type,
+                    }
+                  : undefined,
+            },
           });
-          exportedVariables.push({
-            exportName: symbol.exportName,
-            declarator:
-              declarator && declarator.name.kind === "identifierPattern"
-                ? {
-                    kind: declarator.kind,
-                    name: declarator.name,
-                    type: declarator.type,
-                  }
-                : undefined,
-          });
-          exportsMap.set(symbol.exportName, {
-            kind: "field",
-            clrName: symbol.localName,
-            declaringClrType: toClrTypeName(namespace, module.className),
-            declaringAssemblyName: assemblyName,
-          });
+          if (!registered.ok) return registered;
         }
       }
 
@@ -1803,16 +2004,8 @@ const collectNamespacePlans = (
       moduleContainers: moduleContainers.sort((left, right) =>
         left.module.className.localeCompare(right.module.className)
       ),
-      exportedFunctions: exportedFunctions.sort((left, right) =>
+      valueExports: Array.from(valueExportsMap.values()).sort((left, right) =>
         left.exportName.localeCompare(right.exportName)
-      ),
-      exportedVariables: exportedVariables.sort((left, right) =>
-        left.exportName.localeCompare(right.exportName)
-      ),
-      exportsMap: Object.fromEntries(
-        Array.from(exportsMap.entries()).sort((left, right) =>
-          left[0].localeCompare(right[0])
-        )
       ),
     });
   }
@@ -1971,31 +2164,34 @@ const writeNamespaceArtifacts = (
     );
   }
 
-  for (const fn of plan.exportedFunctions) {
-    const typeParametersText = printTypeParameters(
-      fn.declaration.typeParameters
-    );
-    const typeParameterNames =
-      fn.declaration.typeParameters?.map(
-        (typeParameter) => typeParameter.name
-      ) ?? [];
-    const parametersText = renderUnknownParameters(
-      fn.declaration.parameters,
-      typeParameterNames
-    );
-    const returnTypeText = renderPortableType(
-      fn.declaration.returnType,
-      typeParameterNames
-    );
-    facadeLines.push(
-      `export declare function ${fn.exportName}${typeParametersText}(${parametersText}): ${returnTypeText};`
-    );
-  }
+  const valueBindings = new Map<string, FirstPartyBindingsExport>();
+  for (const valueExport of plan.valueExports) {
+    valueBindings.set(valueExport.exportName, valueExport.binding);
+    if (valueExport.facade.kind === "function") {
+      const typeParametersText = printTypeParameters(
+        valueExport.facade.declaration.typeParameters
+      );
+      const typeParameterNames =
+        valueExport.facade.declaration.typeParameters?.map(
+          (typeParameter) => typeParameter.name
+        ) ?? [];
+      const parametersText = renderUnknownParameters(
+        valueExport.facade.declaration.parameters,
+        typeParameterNames
+      );
+      const returnTypeText = renderPortableType(
+        valueExport.facade.declaration.returnType,
+        typeParameterNames
+      );
+      facadeLines.push(
+        `export declare function ${valueExport.exportName}${typeParametersText}(${parametersText}): ${returnTypeText};`
+      );
+      continue;
+    }
 
-  for (const variable of plan.exportedVariables) {
     facadeLines.push(
-      `export declare const ${variable.exportName}: ${renderPortableType(
-        variable.declarator?.type
+      `export declare const ${valueExport.exportName}: ${renderPortableType(
+        valueExport.facade.declarator?.type
       )};`
     );
   }
@@ -2003,8 +2199,7 @@ const writeNamespaceArtifacts = (
   if (
     plan.typeDeclarations.length === 0 &&
     plan.moduleContainers.length === 0 &&
-    plan.exportedFunctions.length === 0 &&
-    plan.exportedVariables.length === 0
+    plan.valueExports.length === 0
   ) {
     facadeLines.push("export {};");
   }
@@ -2039,7 +2234,13 @@ const writeNamespaceArtifacts = (
       left.clrName.localeCompare(right.clrName)
     ),
     exports:
-      Object.keys(plan.exportsMap).length > 0 ? plan.exportsMap : undefined,
+      valueBindings.size > 0
+        ? Object.fromEntries(
+            Array.from(valueBindings.entries()).sort((left, right) =>
+              left[0].localeCompare(right[0])
+            )
+          )
+        : undefined,
     producer: {
       tool: "tsonic",
       mode: "aikya-firstparty",
@@ -2110,7 +2311,8 @@ export const generateFirstPartyLibraryBindings = (
 
   const plansResult = collectNamespacePlans(
     graphResult.value.modules,
-    config.outputName
+    config.outputName,
+    config.rootNamespace
   );
   if (!plansResult.ok) return plansResult;
 
@@ -2127,32 +2329,6 @@ export const generateFirstPartyLibraryBindings = (
     bindingsOutDir
   );
   if (!augmentResult.ok) return augmentResult;
-
-  // Ensure root namespace facade exists when source-level augmentation emitted only
-  // root-level re-exports.
-  const rootFacade = join(
-    bindingsOutDir,
-    `${moduleNamespacePath(config.rootNamespace)}.d.ts`
-  );
-  if (!existsSync(rootFacade)) {
-    const internalSpecifier = moduleNamespaceToInternalSpecifier(
-      config.rootNamespace
-    );
-    mkdirSync(dirname(rootFacade), { recursive: true });
-    writeFileSync(
-      rootFacade,
-      [
-        `// Namespace: ${config.rootNamespace}`,
-        "// Generated by Tsonic - Source bindings",
-        "",
-        `import * as Internal from '${internalSpecifier}';`,
-        "",
-        "export {};",
-        "",
-      ].join("\n"),
-      "utf-8"
-    );
-  }
 
   return { ok: true, value: undefined };
 };
