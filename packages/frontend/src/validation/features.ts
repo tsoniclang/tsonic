@@ -32,27 +32,6 @@ const isSupportedImportMetaUsage = (node: ts.MetaProperty): boolean => {
 const isDynamicImportCall = (node: ts.CallExpression): boolean =>
   node.expression.kind === ts.SyntaxKind.ImportKeyword;
 
-const isSupportedDynamicImportUsage = (node: ts.CallExpression): boolean => {
-  if (!isDynamicImportCall(node)) return false;
-  if (node.arguments.length !== 1) return false;
-
-  const [arg] = node.arguments;
-  if (!arg) return false;
-  const isStaticSpecifier =
-    ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg);
-  if (!isStaticSpecifier) return false;
-
-  const awaitExpr = node.parent;
-  if (!ts.isAwaitExpression(awaitExpr) || awaitExpr.expression !== node) {
-    return false;
-  }
-
-  const statement = awaitExpr.parent;
-  return (
-    ts.isExpressionStatement(statement) && statement.expression === awaitExpr
-  );
-};
-
 /**
  * Validate that unsupported features are not used
  */
@@ -88,18 +67,14 @@ export const validateUnsupportedFeatures = (
     }
 
     if (ts.isCallExpression(node) && isDynamicImportCall(node)) {
-      if (isSupportedDynamicImportUsage(node)) {
-        ts.forEachChild(node, visitor);
-        return;
-      }
       collector = addDiagnostic(
         collector,
         createDiagnostic(
           "TSN2001",
           "error",
-          'Dynamic import() is only supported in side-effect form: await import("./module.js");',
+          "Dynamic import() is not supported in strict AOT mode",
           getNodeLocation(sourceFile, node),
-          "Use static imports, or use side-effect form with a static string literal specifier."
+          "Use static import declarations."
         )
       );
     }

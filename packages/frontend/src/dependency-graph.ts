@@ -8,7 +8,6 @@ export { buildDependencyGraph } from "./graph/builder.js";
 export {
   extractModuleInfo,
   extractImport,
-  extractDynamicImport,
   extractExport,
 } from "./graph/extraction.js";
 export { checkCircularDependencies } from "./graph/circular.js";

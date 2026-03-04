@@ -207,15 +207,21 @@ describe("validateUnsupportedFeatures", () => {
       );
     });
 
-    it("allows dynamic import() in side-effect form", () => {
+    it("rejects dynamic import() in side-effect form", () => {
       const result = runValidation(`
         async function load() {
           await import("./module.js");
         }
       `);
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
-        false
+      expect(
+        hasDiagnostic(
+          result,
+          "TSN2001",
+          "Dynamic import() is not supported in strict AOT mode"
+        )
+      ).to.equal(
+        true
       );
     });
 
@@ -240,9 +246,9 @@ describe("validateUnsupportedFeatures", () => {
       expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
     });
 
-    it("does not reject import type queries", () => {
+    it("does not reject import type declarations", () => {
       const result = runValidation(`
-        type Foo = import("./module.js").Foo;
+        import type { Foo } from "./module.js";
         const x: Foo | undefined = undefined;
         console.log(x);
       `);

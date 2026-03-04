@@ -173,12 +173,11 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
-        name: "dynamic import side-effect form",
+        name: "import type query",
         source: `
-          async function load() {
-            await import("./module.js");
-          }
-          void load();
+          import type { Value } from "./module.js";
+          const value: Value | undefined = undefined;
+          void value;
         `,
       },
       {

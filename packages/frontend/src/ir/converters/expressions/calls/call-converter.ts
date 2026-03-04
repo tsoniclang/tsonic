@@ -364,9 +364,9 @@ export const convertCallExpression = (
     };
   }
 
-  // Dynamic import() is lowered deterministically by the emitter for supported
-  // side-effect forms. Preserve it as a normal call with a stable Promise<unknown>
-  // return type so validation/soundness can reason about it without unknown-type leaks.
+  // Dynamic import expressions are preserved as normal calls with a stable
+  // Promise<unknown> inferred type so frontend validation can report deterministic
+  // diagnostics without unknown-type leaks.
   if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
     const typeArguments = extractTypeArguments(node, ctx);
     const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);

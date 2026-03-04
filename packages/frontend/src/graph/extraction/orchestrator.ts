@@ -7,7 +7,7 @@ import { TsonicProgram } from "../../program.js";
 import { ModuleInfo, Import, Export } from "../../types/module.js";
 import { getNamespaceFromPath, getClassNameFromPath } from "../../resolver.js";
 import { hasExportModifier, isTopLevelCode } from "../helpers.js";
-import { extractDynamicImport, extractImport } from "./imports.js";
+import { extractImport } from "./imports.js";
 import { extractExport } from "./exports.js";
 
 /**
@@ -39,13 +39,6 @@ export const extractModuleInfo = (
       const imp = extractImport(node, sourceFile, program);
       if (imp) {
         addImport(imp);
-      }
-    }
-
-    if (ts.isCallExpression(node)) {
-      const dynamicImp = extractDynamicImport(node, sourceFile, program);
-      if (dynamicImp) {
-        addImport(dynamicImp);
       }
     }
 

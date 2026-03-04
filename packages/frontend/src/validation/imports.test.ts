@@ -117,9 +117,9 @@ describe("validateImports", () => {
     expect(codes(result)).to.deep.equal([]);
   });
 
-  it("allows inline import type queries", () => {
+  it("allows import type declarations for language intrinsics", () => {
     const result = runValidation(`
-      type StackAlloc = import("@tsonic/core/lang.js").stackalloc;
+      import type { stackalloc as StackAlloc } from "@tsonic/core/lang.js";
       const f: StackAlloc | undefined = undefined;
       void f;
     `);

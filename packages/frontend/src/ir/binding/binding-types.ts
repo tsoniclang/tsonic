@@ -19,6 +19,7 @@ import type {
   TypeParameterNode,
   SignatureTypePredicate,
   ClassMemberNames,
+  HandleRegistry,
 } from "../type-system/internal/handle-types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -211,7 +212,7 @@ export type BindingInternal = Binding & {
    * Only createTypeSystem() should call this to access declaration info.
    * All other code should use TypeSystem queries instead.
    */
-  _getHandleRegistry(): import("../type-system/internal/handle-types.js").HandleRegistry;
+  _getHandleRegistry(): HandleRegistry;
 };
 
 /**
