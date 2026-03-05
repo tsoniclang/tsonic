@@ -4,7 +4,7 @@
 
 import type { OutputType, PackageMetadata } from "@tsonic/backend";
 
-export type SurfaceMode = "clr" | "js" | "nodejs";
+export type SurfaceMode = string;
 
 /**
  * Output configuration in tsonic.json
@@ -126,8 +126,8 @@ export type TsonicWorkspaceConfig = {
   /**
    * Language surface for TypeScript authoring.
    * - "clr": deterministic noLib CLR-first surface (default)
-   * - "js": JS-idiomatic language/runtime surface (no Node host aliases)
-   * - "nodejs": Node host profile (extends js)
+   * - any other value: exact npm package name providing `tsonic.surface.json`
+   *   (for example: "@tsonic/js", "@tsonic/nodejs", "@acme/surface-web")
    */
   readonly surface?: SurfaceMode;
   /**
@@ -142,7 +142,7 @@ export type TsonicWorkspaceConfig = {
   readonly dotnet?: {
     /**
      * Ambient type roots for TypeScript compilation (globals, etc).
-     * Defaults to ["node_modules/@tsonic/globals"] when omitted.
+     * Surface type roots are additive; compiler core roots are always injected.
      */
     readonly typeRoots?: readonly string[];
     /**

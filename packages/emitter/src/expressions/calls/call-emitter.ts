@@ -25,7 +25,6 @@ import {
   isAsyncWrapperType,
 } from "./call-analysis.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
-import { getJsArrayMethodRule } from "./js-array-rules.js";
 import type {
   CSharpBlockStatementAst,
   CSharpCatchClauseAst,
@@ -61,65 +60,37 @@ const wrapIntCast = (
       }
     : expr;
 
-const isJsSurfaceMode = (context: EmitterContext): boolean =>
-  context.options.surface === "js" || context.options.surface === "nodejs";
+const stripClrGenericArity = (typeName: string): string =>
+  typeName.replace(/`\d+$/, "");
 
-const isJsArrayReceiverType = (type: IrType | undefined): boolean =>
-  !!type &&
-  (type.kind === "arrayType" ||
-    (type.kind === "referenceType" &&
-      (type.name === "Array" || type.name === "ReadonlyArray")));
-
-const getJsArrayElementType = (
-  type: IrType | undefined
-): IrType | undefined => {
-  if (!type) return undefined;
-  if (type.kind === "arrayType") return type.elementType;
-  if (
-    type.kind === "referenceType" &&
-    (type.name === "Array" || type.name === "ReadonlyArray")
-  ) {
-    return type.typeArguments?.[0];
-  }
-  return undefined;
-};
-
-const invokeStatic = (
-  typeName: string,
-  methodName: string,
-  args: readonly CSharpExpressionAst[]
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "identifierExpression",
-      identifier: typeName,
-    },
-    memberName: methodName,
-  },
-  arguments: args,
-});
-
-const emitJsArrayInteropCall = (
+const emitArrayWrapperInteropCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  if (!isJsSurfaceMode(context)) return undefined;
   if (expr.isOptional) return undefined;
   if (expr.callee.kind !== "memberAccess") return undefined;
-  if (expr.callee.isComputed || expr.callee.memberBinding) return undefined;
+  if (expr.callee.isComputed) return undefined;
   if (typeof expr.callee.property !== "string") return undefined;
 
-  const methodName = expr.callee.property;
-  const rule = getJsArrayMethodRule(methodName);
-  if (!rule) return undefined;
+  const binding = expr.callee.memberBinding;
+  if (!binding || binding.isExtensionMethod) return undefined;
 
   const receiverType = expr.callee.object.inferredType;
-  if (!isJsArrayReceiverType(receiverType)) return undefined;
+  if (!receiverType || receiverType.kind !== "arrayType") return undefined;
 
-  const elementType = getJsArrayElementType(receiverType);
-  if (!elementType) return undefined;
+  const bindingType = binding.type;
+  if (
+    bindingType === "System.Array" ||
+    bindingType === "global::System.Array" ||
+    bindingType.startsWith("System.Array`") ||
+    bindingType.startsWith("global::System.Array`")
+  ) {
+    return undefined;
+  }
+
+  const arityText = bindingType.match(/`(\d+)$/)?.[1];
+  const genericArity = arityText ? Number.parseInt(arityText, 10) : 0;
+  if (genericArity > 1) return undefined;
 
   let currentContext = context;
   const [receiverAst, receiverContext] = emitExpressionAst(
@@ -128,18 +99,22 @@ const emitJsArrayInteropCall = (
   );
   currentContext = receiverContext;
 
-  const [elementTypeAst, typeContext] = emitTypeAst(
-    elementType,
-    currentContext
-  );
-  currentContext = typeContext;
+  let typeArguments: readonly CSharpTypeAst[] | undefined;
+  if (genericArity === 1) {
+    const [elementTypeAst, elementTypeContext] = emitTypeAst(
+      receiverType.elementType,
+      currentContext
+    );
+    currentContext = elementTypeContext;
+    typeArguments = [elementTypeAst];
+  }
 
   const wrapperAst: CSharpExpressionAst = {
     kind: "objectCreationExpression",
     type: {
       kind: "identifierType",
-      name: "global::Tsonic.JSRuntime.JSArray",
-      typeArguments: [elementTypeAst],
+      name: `global::${stripClrGenericArity(bindingType)}`,
+      typeArguments,
     },
     arguments: [receiverAst],
   };
@@ -151,137 +126,31 @@ const emitJsArrayInteropCall = (
   );
   currentContext = argContext;
 
-  if (rule.strategy.kind === "linqSelectToArray") {
-    if (argAsts.length >= rule.strategy.minArgs) {
-      const selectCall = invokeStatic(
-        "global::System.Linq.Enumerable",
-        "Select",
-        [receiverAst, argAsts[0] as CSharpExpressionAst]
-      );
-      return [
-        wrapIntCast(
-          needsIntCast(expr, methodName),
-          invokeStatic("global::System.Linq.Enumerable", "ToArray", [
-            selectCall,
-          ])
-        ),
-        currentContext,
-      ];
-    }
-  } else if (rule.strategy.kind === "linqWhereToArray") {
-    if (argAsts.length >= rule.strategy.minArgs) {
-      const whereCall = invokeStatic(
-        "global::System.Linq.Enumerable",
-        "Where",
-        [receiverAst, argAsts[0] as CSharpExpressionAst]
-      );
-      return [
-        wrapIntCast(
-          needsIntCast(expr, methodName),
-          invokeStatic("global::System.Linq.Enumerable", "ToArray", [whereCall])
-        ),
-        currentContext,
-      ];
-    }
-  } else if (rule.strategy.kind === "linqAggregate") {
-    if (argAsts.length >= rule.strategy.minArgs) {
-      const aggregateArgs: CSharpExpressionAst[] =
-        argAsts.length >= 2
-          ? [
-              receiverAst,
-              argAsts[1] as CSharpExpressionAst,
-              argAsts[0] as CSharpExpressionAst,
-            ]
-          : [receiverAst, argAsts[0] as CSharpExpressionAst];
-
-      return [
-        wrapIntCast(
-          needsIntCast(expr, methodName),
-          invokeStatic(
-            "global::System.Linq.Enumerable",
-            "Aggregate",
-            aggregateArgs
-          )
-        ),
-        currentContext,
-      ];
-    }
-  } else if (rule.strategy.kind === "linqAggregateReverse") {
-    if (argAsts.length >= rule.strategy.minArgs) {
-      const reversedSource = invokeStatic(
-        "global::System.Linq.Enumerable",
-        "Reverse",
-        [receiverAst]
-      );
-
-      const aggregateArgs: CSharpExpressionAst[] =
-        argAsts.length >= 2
-          ? [
-              reversedSource,
-              argAsts[1] as CSharpExpressionAst,
-              argAsts[0] as CSharpExpressionAst,
-            ]
-          : [reversedSource, argAsts[0] as CSharpExpressionAst];
-
-      return [
-        wrapIntCast(
-          needsIntCast(expr, methodName),
-          invokeStatic(
-            "global::System.Linq.Enumerable",
-            "Aggregate",
-            aggregateArgs
-          )
-        ),
-        currentContext,
-      ];
-    }
-  } else if (rule.strategy.kind === "stringJoin") {
-    const separator: CSharpExpressionAst = (argAsts[0] as
-      | CSharpExpressionAst
-      | undefined) ?? {
-      kind: "literalExpression",
-      text: JSON.stringify(rule.strategy.defaultSeparator),
-    };
-    return [
-      wrapIntCast(
-        needsIntCast(expr, methodName),
-        invokeStatic("global::System.String", "Join", [separator, receiverAst])
-      ),
-      currentContext,
-    ];
-  }
-
   const invocation: CSharpExpressionAst = {
     kind: "invocationExpression",
     expression: {
       kind: "memberAccessExpression",
       expression: wrapperAst,
-      memberName: methodName,
+      memberName: binding.member,
     },
     arguments: argAsts,
   };
 
-  const producesArray =
-    rule.returnsArray ||
-    expr.inferredType?.kind === "arrayType" ||
-    (expr.inferredType?.kind === "referenceType" &&
-      (expr.inferredType.name === "Array" ||
-        expr.inferredType.name === "ReadonlyArray"));
-
-  const resultAst: CSharpExpressionAst = producesArray
-    ? {
-        kind: "invocationExpression",
-        expression: {
-          kind: "memberAccessExpression",
-          expression: invocation,
-          memberName: "toArray",
-        },
-        arguments: [],
-      }
-    : invocation;
+  const resultAst: CSharpExpressionAst =
+    expr.inferredType?.kind === "arrayType"
+      ? {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: invocation,
+            memberName: "toArray",
+          },
+          arguments: [],
+        }
+      : invocation;
 
   return [
-    wrapIntCast(needsIntCast(expr, methodName), resultAst),
+    wrapIntCast(needsIntCast(expr, expr.callee.property), resultAst),
     currentContext,
   ];
 };
@@ -1302,9 +1171,9 @@ export const emitCall = (
     ];
   }
 
-  const jsArrayInteropCall = emitJsArrayInteropCall(expr, context);
-  if (jsArrayInteropCall) {
-    return jsArrayInteropCall;
+  const arrayWrapperInteropCall = emitArrayWrapperInteropCall(expr, context);
+  if (arrayWrapperInteropCall) {
+    return arrayWrapperInteropCall;
   }
 
   // Regular function call

@@ -261,23 +261,28 @@ describe("IR Builder", () => {
         ctx,
         options: baseOptions,
       } = createTestProgram(source);
-      const options = { ...baseOptions, surface: "nodejs" as const };
-      (ctx as { surface?: "nodejs" }).surface = "nodejs";
+      const options = { ...baseOptions, surface: "@tsonic/nodejs" as const };
+      (ctx as { surface?: "@tsonic/nodejs" }).surface = "@tsonic/nodejs";
 
       (
         ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
       ).clrResolver = {
-        resolve: (s: string) =>
-          s === "@tsonic/nodejs/index.js"
-            ? {
-                isClr: true,
-                packageName: "@tsonic/nodejs",
-                resolvedNamespace: "nodejs",
-                bindingsPath: "/x/bindings.json",
-                assembly: "nodejs",
-              }
-            : { isClr: false },
+        resolve: () => ({ isClr: false }),
       };
+      ctx.bindings.addBindings("/x/node-modules.json", {
+        bindings: {
+          "node:path": {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.path",
+          },
+          path: {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.path",
+          },
+        },
+      });
       ctx.bindings.addBindings("/x/node-types.json", {
         namespace: "nodejs",
         types: [
@@ -301,7 +306,7 @@ describe("IR Builder", () => {
       expect(ctx.diagnostics.some((d) => d.code === "TSN4004")).to.equal(false);
       const imp = result.value.imports[0];
       if (!imp) throw new Error("Missing import");
-      expect(imp.source).to.equal("@tsonic/nodejs/index.js");
+      expect(imp.source).to.equal("node:path");
       expect(imp.resolvedClrType).to.equal("nodejs.path");
       const spec = imp.specifiers[0];
       if (!spec || spec.kind !== "named") throw new Error("Missing named spec");

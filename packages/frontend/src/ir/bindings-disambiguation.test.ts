@@ -22,6 +22,216 @@ import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js"
 import { createBinding } from "./binding/index.js";
 
 describe("CLR member binding disambiguation", () => {
+  it("should disambiguate collisions by nearest simple bindings.json (Console.log)", () => {
+    const tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-bindings-disambiguation-")
+    );
+
+    const dtsDir = path.join(tmpRoot, "js");
+    fs.mkdirSync(dtsDir, { recursive: true });
+
+    const bindingsJsonPath = path.join(dtsDir, "bindings.json");
+    fs.writeFileSync(
+      bindingsJsonPath,
+      JSON.stringify(
+        {
+          bindings: {
+            console: {
+              kind: "global",
+              assembly: "Tsonic.JSRuntime",
+              type: "Tsonic.JSRuntime.console",
+            },
+          },
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const dtsFileName = path.join(dtsDir, "globals.d.ts");
+    const dtsSource = `
+      declare global {
+        interface Console {
+          log(message: string): void;
+        }
+        const console: Console;
+      }
+      export {};
+    `;
+
+    const fileName = path.join(tmpRoot, "sample.ts");
+    const source = `
+      export function test(): void {
+        console.log("ok");
+      }
+    `;
+
+    const libFileName = path.join(tmpRoot, "lib.d.ts");
+    const libSource = `
+      interface Function {}
+      interface Object {}
+      interface String {}
+      interface Boolean {}
+      interface Number {}
+      interface IArguments {}
+      type PropertyKey = string | number | symbol;
+    `;
+
+    const sourceFile = ts.createSourceFile(
+      fileName,
+      source,
+      ts.ScriptTarget.ES2022,
+      true,
+      ts.ScriptKind.TS
+    );
+    const dtsFile = ts.createSourceFile(
+      dtsFileName,
+      dtsSource,
+      ts.ScriptTarget.ES2022,
+      true,
+      ts.ScriptKind.TS
+    );
+    const libFile = ts.createSourceFile(
+      libFileName,
+      libSource,
+      ts.ScriptTarget.ES2022,
+      true,
+      ts.ScriptKind.TS
+    );
+
+    const fileMap = new Map<string, ts.SourceFile>([
+      [fileName, sourceFile],
+      [dtsFileName, dtsFile],
+      [libFileName, libFile],
+    ]);
+
+    const program = ts.createProgram(
+      [fileName, dtsFileName],
+      {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ES2022,
+      },
+      {
+        getSourceFile: (name) => fileMap.get(name),
+        writeFile: () => {},
+        getCurrentDirectory: () => tmpRoot,
+        getDirectories: () => [],
+        fileExists: (name) => fileMap.has(name),
+        readFile: (name) => fileMap.get(name)?.text,
+        getCanonicalFileName: (f) => f,
+        useCaseSensitiveFileNames: () => true,
+        getNewLine: () => "\n",
+        getDefaultLibFileName: () => libFileName,
+      }
+    );
+
+    const checker = program.getTypeChecker();
+
+    const bindings = new BindingRegistry();
+    bindings.addBindings("/test/jsruntime.json", {
+      namespace: "Tsonic.JSRuntime",
+      types: [
+        {
+          clrName: "Tsonic.JSRuntime.console",
+          assemblyName: "Tsonic.JSRuntime",
+          methods: [
+            {
+              clrName: "log",
+              normalizedSignature:
+                "log|(System.String):System.Void|static=false",
+              parameterCount: 1,
+              declaringClrType: "Tsonic.JSRuntime.console",
+              declaringAssemblyName: "Tsonic.JSRuntime",
+            },
+          ],
+          properties: [],
+          fields: [],
+        },
+      ],
+    });
+
+    bindings.addBindings("/test/nodejs.json", {
+      namespace: "nodejs",
+      types: [
+        {
+          clrName: "nodejs.console",
+          assemblyName: "nodejs",
+          methods: [
+            {
+              clrName: "log",
+              normalizedSignature:
+                "log|(System.String):System.Void|static=false",
+              parameterCount: 1,
+              declaringClrType: "nodejs.console",
+              declaringAssemblyName: "nodejs",
+            },
+          ],
+          properties: [],
+          fields: [],
+        },
+      ],
+    });
+
+    const testProgram = {
+      program,
+      checker,
+      options: {
+        projectRoot: tmpRoot,
+        sourceRoot: tmpRoot,
+        rootNamespace: "TestApp",
+        strict: true,
+      },
+      sourceFiles: [sourceFile],
+      declarationSourceFiles: [dtsFile],
+      metadata: new DotnetMetadataRegistry(),
+      bindings,
+      clrResolver: createClrBindingsResolver(tmpRoot),
+      binding: createBinding(checker),
+    };
+
+    const ctx = createProgramContext(testProgram, {
+      sourceRoot: tmpRoot,
+      rootNamespace: "TestApp",
+    });
+
+    const irResult = buildIrModule(
+      sourceFile,
+      testProgram,
+      testProgram.options,
+      ctx
+    );
+    if (!irResult.ok) {
+      throw new Error(
+        `IR build MUST succeed for simple-manifest disambiguation test, got: ${JSON.stringify(irResult.error)}`
+      );
+    }
+
+    const funcDecl = irResult.value.body[0];
+    if (funcDecl?.kind !== "functionDeclaration") {
+      throw new Error("Expected function declaration");
+    }
+
+    const exprStmt = funcDecl.body.statements[0];
+    if (exprStmt?.kind !== "expressionStatement") {
+      throw new Error("Expected expression statement");
+    }
+
+    const callExpr = exprStmt.expression;
+    if (callExpr.kind !== "call") {
+      throw new Error("Expected call expression");
+    }
+
+    const callee = callExpr.callee;
+    if (callee.kind !== "memberAccess") {
+      throw new Error("Expected member access callee");
+    }
+
+    expect(callee.memberBinding).to.not.equal(undefined);
+    expect(callee.memberBinding?.type).to.equal("Tsonic.JSRuntime.console");
+    expect(callee.memberBinding?.member).to.equal("log");
+  });
+
   it("should disambiguate collisions by nearest bindings.json (Server.listen)", () => {
     const tmpRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-bindings-disambiguation-")

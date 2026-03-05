@@ -1,8 +1,8 @@
 /**
  * Binding Loader - package discovery + loading functions
  *
- * Discovers and loads binding manifest files from @tsonic packages
- * and other configured type roots.
+ * Discovers and loads binding manifest files from configured type roots and
+ * their dependency graphs.
  */
 
 import * as fs from "node:fs";
@@ -36,7 +36,7 @@ export const scanForDeclarationFiles = (dir: string): readonly string[] => {
 };
 
 /**
- * Load bindings from a package directory and recursively from its @tsonic/* dependencies.
+ * Load bindings from a package directory and recursively from its dependencies.
  *
  * This supports the common "namespace facade" layout:
  * - `System.d.ts` (or `index.d.ts`) at the package root
@@ -47,7 +47,8 @@ export const scanForDeclarationFiles = (dir: string): readonly string[] => {
 const loadBindingsFromPackage = (
   registry: BindingRegistry,
   packageRoot: string,
-  visited: Set<string>
+  visited: Set<string>,
+  forceDependencyTraversal = false
 ): void => {
   // Avoid cycles
   const absoluteRoot = path.resolve(packageRoot);
@@ -62,9 +63,13 @@ const loadBindingsFromPackage = (
   }
 
   const rootEntries = fs.readdirSync(absoluteRoot, { withFileTypes: true });
+  let discoveredBindingsInPackage = false;
 
   // Strategy 1: root-level bindings.json (simple/global bindings)
   const rootBindingsPath = path.join(absoluteRoot, "bindings.json");
+  if (fs.existsSync(rootBindingsPath)) {
+    discoveredBindingsInPackage = true;
+  }
   loadBindingsFromPath(registry, rootBindingsPath);
 
   // Strategy 2: Namespace/bindings.json for each Namespace.d.ts facade
@@ -79,32 +84,62 @@ const loadBindingsFromPackage = (
     const bindingsPath = path.join(namespaceDir, "bindings.json");
 
     if (fs.existsSync(bindingsPath)) {
+      discoveredBindingsInPackage = true;
       loadBindingsFromPath(registry, bindingsPath);
     }
   }
 
-  // Strategy 3: Recursively load bindings from @tsonic/* dependencies
-  // This is crucial for packages like @tsonic/globals that depend on @tsonic/dotnet
+  const hasBindingsManifest = fs.existsSync(
+    path.join(absoluteRoot, "tsonic.bindings.json")
+  );
+  const hasSurfaceManifest = fs.existsSync(
+    path.join(absoluteRoot, "tsonic.surface.json")
+  );
+  const shouldTraverseDependencies =
+    forceDependencyTraversal ||
+    discoveredBindingsInPackage ||
+    hasBindingsManifest ||
+    hasSurfaceManifest;
+
+  // Strategy 3: Recursively load bindings from dependency packages.
+  // This is generic (no package-name hardcoding): if a package participates in
+  // Tsonic bindings/surface manifests, its dependency tree is eligible.
+  // Top-level typeRoots always traverse once to discover transitive bindings.
   const packageJsonPath = path.join(absoluteRoot, "package.json");
-  if (fs.existsSync(packageJsonPath)) {
+  if (shouldTraverseDependencies && fs.existsSync(packageJsonPath)) {
     try {
       const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
-      const deps = packageJson.dependencies || {};
-
-      for (const depName of Object.keys(deps)) {
-        // Only follow @tsonic/* dependencies to load their bindings
-        if (depName.startsWith("@tsonic/")) {
-          // Find the dependency in node_modules
-          // Try sibling node_modules first (hoisted), then nested
-          const nodeModulesDir = path.dirname(path.dirname(absoluteRoot));
-          const hoistedPath = path.join(nodeModulesDir, depName);
-          const nestedPath = path.join(absoluteRoot, "node_modules", depName);
-
-          if (fs.existsSync(hoistedPath)) {
-            loadBindingsFromPackage(registry, hoistedPath, visited);
-          } else if (fs.existsSync(nestedPath)) {
-            loadBindingsFromPackage(registry, nestedPath, visited);
+      const dependencyNames = new Set<string>();
+      const dependencyBuckets = [
+        packageJson.dependencies,
+        packageJson.optionalDependencies,
+        packageJson.peerDependencies,
+      ];
+      for (const bucket of dependencyBuckets) {
+        if (
+          bucket !== null &&
+          typeof bucket === "object" &&
+          !Array.isArray(bucket)
+        ) {
+          for (const depName of Object.keys(
+            bucket as Record<string, unknown>
+          )) {
+            dependencyNames.add(depName);
           }
+        }
+      }
+
+      for (const depName of dependencyNames) {
+        // Find the dependency in node_modules
+        // Try sibling node_modules first (hoisted), then nested
+        const nodeModulesDir = path.dirname(path.dirname(absoluteRoot));
+        const hoistedPath = path.join(nodeModulesDir, depName);
+        const nestedPath = path.join(absoluteRoot, "node_modules", depName);
+
+        if (fs.existsSync(hoistedPath)) {
+          loadBindingsFromPackage(registry, hoistedPath, visited, false);
+        } else if (fs.existsSync(nestedPath)) {
+          loadBindingsFromPackage(registry, nestedPath, visited, false);
         }
       }
     } catch {
@@ -120,14 +155,14 @@ const loadBindingsFromPackage = (
  * - Root-level `bindings.json` (simple/global bindings)
  * - `Namespace.d.ts` + `Namespace/bindings.json` (namespace facade)
  *
- * Also recursively loads bindings from @tsonic/* dependencies of typeRoot packages.
+ * Also recursively loads bindings from dependency packages.
  */
 export const loadBindings = (typeRoots: readonly string[]): BindingRegistry => {
   const registry = new BindingRegistry();
   const visited = new Set<string>();
 
   for (const typeRoot of typeRoots) {
-    loadBindingsFromPackage(registry, typeRoot, visited);
+    loadBindingsFromPackage(registry, typeRoot, visited, true);
   }
 
   return registry;

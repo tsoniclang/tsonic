@@ -220,9 +220,7 @@ describe("validateUnsupportedFeatures", () => {
           "TSN2001",
           "Dynamic import() is not supported in strict AOT mode"
         )
-      ).to.equal(
-        true
-      );
+      ).to.equal(true);
     });
 
     it("rejects dynamic import() side-effect form with non-literal specifier", () => {

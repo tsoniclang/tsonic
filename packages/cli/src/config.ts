@@ -23,10 +23,7 @@ import type {
   TsonicProjectConfig,
   TsonicWorkspaceConfig,
 } from "./types.js";
-import {
-  isSurfaceMode,
-  resolveSurfaceCapabilities,
-} from "./surface/profiles.js";
+import { resolveSurfaceCapabilities } from "./surface/profiles.js";
 
 export const WORKSPACE_CONFIG_FILE = "tsonic.workspace.json";
 export const PROJECT_CONFIG_FILE = "tsonic.json";
@@ -78,10 +75,13 @@ export const loadWorkspaceConfig = (
     };
   }
 
-  if (config.surface !== undefined && !isSurfaceMode(config.surface)) {
+  if (
+    config.surface !== undefined &&
+    (typeof config.surface !== "string" || config.surface.trim().length === 0)
+  ) {
     return {
       ok: false,
-      error: `${WORKSPACE_CONFIG_FILE}: 'surface' must be "clr", "js", or "nodejs"`,
+      error: `${WORKSPACE_CONFIG_FILE}: 'surface' must be a non-empty string`,
     };
   }
 
@@ -583,7 +583,9 @@ export const resolveConfig = (
   entryFile?: string
 ): ResolvedConfig => {
   const surface: SurfaceMode = workspaceConfig.surface ?? "clr";
-  const surfaceCapabilities = resolveSurfaceCapabilities(surface);
+  const surfaceCapabilities = resolveSurfaceCapabilities(surface, {
+    workspaceRoot,
+  });
   const entryPoint = entryFile ?? projectConfig.entryPoint;
   const sourceRoot =
     cliOptions.src ??

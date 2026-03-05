@@ -14,10 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { addNpmCommand } from "./add-npm.js";
-import {
-  isSurfaceMode,
-  resolveSurfaceCapabilities,
-} from "../surface/profiles.js";
+import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import type {
   Result,
   SurfaceMode,
@@ -40,21 +37,31 @@ type TypePackageInfo = {
 const CLI_PACKAGE = { name: "tsonic", version: "latest" };
 
 export const getTypePackageInfo = (
-  options: { readonly surface?: SurfaceMode } = {}
+  options: {
+    readonly surface?: SurfaceMode;
+    readonly workspaceRoot?: string;
+  } = {}
 ): TypePackageInfo => {
   const surface = options.surface ?? "clr";
-  const surfaceCapabilities = resolveSurfaceCapabilities(surface);
-  const packages = [
-    CLI_PACKAGE,
-    { name: "@tsonic/globals", version: "latest" },
-  ];
+  const surfaceCapabilities = resolveSurfaceCapabilities(surface, {
+    workspaceRoot: options.workspaceRoot,
+  });
+  const packages = [CLI_PACKAGE];
 
   for (const pkgName of surfaceCapabilities.requiredNpmPackages) {
     packages.push({ name: pkgName, version: "latest" });
   }
 
+  const uniquePackages: { name: string; version: string }[] = [];
+  const seen = new Set<string>();
+  for (const pkg of packages) {
+    if (seen.has(pkg.name)) continue;
+    seen.add(pkg.name);
+    uniquePackages.push(pkg);
+  }
+
   return {
-    packages,
+    packages: uniquePackages,
     typeRoots: surfaceCapabilities.requiredTypeRoots,
   };
 };
@@ -176,10 +183,6 @@ export const initWorkspace = (
   options: InitOptions = {}
 ): Result<void, string> => {
   const surface = options.surface ?? "clr";
-  if (!isSurfaceMode(surface)) {
-    return { ok: false, error: `Invalid surface: ${surface}` };
-  }
-  const surfaceCapabilities = resolveSurfaceCapabilities(surface);
 
   const workspaceConfigPath = join(workspaceRoot, "tsonic.workspace.json");
   if (existsSync(workspaceConfigPath)) {
@@ -205,14 +208,14 @@ export const initWorkspace = (
     createOrUpdateRootPackageJson(workspaceRoot);
 
     // Workspace config (deps live here)
-    const typeInfo = getTypePackageInfo({ surface });
+    const typeInfo = getTypePackageInfo({ surface, workspaceRoot });
 
     let workspaceConfig: TsonicWorkspaceConfig = {
       $schema: "https://tsonic.org/schema/workspace/v1.json",
       dotnetVersion: "net10.0",
       surface,
       dotnet: {
-        typeRoots: surfaceCapabilities.requiredTypeRoots,
+        typeRoots: typeInfo.typeRoots,
         libraries: [],
         frameworkReferences: [],
         packageReferences: [],
@@ -221,14 +224,42 @@ export const initWorkspace = (
 
     // Install type declarations at workspace root
     const shouldInstallTypes = options.skipTypes !== true;
+    const installedPackageNames = new Set<string>();
 
     if (shouldInstallTypes) {
       for (const pkg of typeInfo.packages) {
         const version = options.typesVersion ?? pkg.version;
         const r = npmInstallDev(workspaceRoot, `${pkg.name}@${version}`);
         if (!r.ok) return r;
+        installedPackageNames.add(pkg.name);
       }
     }
+
+    let surfaceCapabilities = resolveSurfaceCapabilities(surface, {
+      workspaceRoot,
+    });
+
+    if (shouldInstallTypes) {
+      for (const pkgName of surfaceCapabilities.requiredNpmPackages) {
+        if (installedPackageNames.has(pkgName)) continue;
+        const version = options.typesVersion ?? "latest";
+        const r = npmInstallDev(workspaceRoot, `${pkgName}@${version}`);
+        if (!r.ok) return r;
+        installedPackageNames.add(pkgName);
+      }
+
+      surfaceCapabilities = resolveSurfaceCapabilities(surface, {
+        workspaceRoot,
+      });
+    }
+
+    workspaceConfig = {
+      ...workspaceConfig,
+      dotnet: {
+        ...(workspaceConfig.dotnet ?? {}),
+        typeRoots: surfaceCapabilities.requiredTypeRoots,
+      },
+    };
 
     writeWorkspaceConfig(workspaceRoot, workspaceConfig);
 

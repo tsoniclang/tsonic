@@ -611,7 +611,7 @@ describe("Binding Resolution in IR", () => {
   });
 
   describe("Extension Method Binding Resolution", () => {
-    it("should resolve js-surface extension methods by receiver type fallback", () => {
+    it("should resolve primitive receiver extension methods via bindings", () => {
       const source = `
         interface String { trim(): string; }
 
@@ -625,7 +625,7 @@ describe("Binding Resolution in IR", () => {
         namespace: "Tsonic.JSRuntime",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.String",
+            clrName: "System.String",
             assemblyName: "Tsonic.JSRuntime",
             methods: [
               {
@@ -633,7 +633,7 @@ describe("Binding Resolution in IR", () => {
                 normalizedSignature:
                   "trim|(System.String):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.String",
+                declaringClrType: "Tsonic.JSRuntime.StringExtensions",
                 declaringAssemblyName: "Tsonic.JSRuntime",
                 isExtensionMethod: true,
               },
@@ -644,21 +644,11 @@ describe("Binding Resolution in IR", () => {
         ],
       });
 
-      const { testProgram, options } = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const jsProgram = {
-        ...testProgram,
-        options: {
-          ...testProgram.options,
-          surface: "js" as const,
-        },
-      };
-
-      const ctx = createProgramContext(jsProgram, options);
-
-      const result = buildIrModule(sourceFile, jsProgram, options, ctx);
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
@@ -679,14 +669,14 @@ describe("Binding Resolution in IR", () => {
         returnStmt.expression.callee.memberBinding?.isExtensionMethod
       ).to.equal(true);
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.String"
+        "Tsonic.JSRuntime.StringExtensions"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
         "trim"
       );
     });
 
-    it("should inherit js-surface extension fallback in nodejs surface", () => {
+    it("should resolve the same extension methods regardless of selected surface", () => {
       const source = `
         interface String { trim(): string; }
 
@@ -700,7 +690,7 @@ describe("Binding Resolution in IR", () => {
         namespace: "Tsonic.JSRuntime",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.String",
+            clrName: "System.String",
             assemblyName: "Tsonic.JSRuntime",
             methods: [
               {
@@ -708,7 +698,7 @@ describe("Binding Resolution in IR", () => {
                 normalizedSignature:
                   "trim|(System.String):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.String",
+                declaringClrType: "Tsonic.JSRuntime.StringExtensions",
                 declaringAssemblyName: "Tsonic.JSRuntime",
                 isExtensionMethod: true,
               },
@@ -727,7 +717,7 @@ describe("Binding Resolution in IR", () => {
         ...testProgram,
         options: {
           ...testProgram.options,
-          surface: "nodejs" as const,
+          surface: "@tsonic/nodejs" as const,
         },
       };
 
@@ -754,7 +744,7 @@ describe("Binding Resolution in IR", () => {
         returnStmt.expression.callee.memberBinding?.isExtensionMethod
       ).to.equal(true);
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.String"
+        "Tsonic.JSRuntime.StringExtensions"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
         "trim"
@@ -931,7 +921,7 @@ describe("Binding Resolution in IR", () => {
       ]);
     });
 
-    it("should resolve js-surface number receiver extensions by primitive fallback", () => {
+    it("should resolve numeric primitive extension methods via bindings", () => {
       const source = `
         interface Number { toFixed(fractionDigits?: number): string; }
 
@@ -945,7 +935,7 @@ describe("Binding Resolution in IR", () => {
         namespace: "Tsonic.JSRuntime",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.Number",
+            clrName: "System.Double",
             assemblyName: "Tsonic.JSRuntime",
             methods: [
               {
@@ -953,7 +943,7 @@ describe("Binding Resolution in IR", () => {
                 normalizedSignature:
                   "toFixed|(System.Double,System.Int32):System.String|static=true",
                 parameterCount: 2,
-                declaringClrType: "Tsonic.JSRuntime.Number",
+                declaringClrType: "Tsonic.JSRuntime.NumberExtensions",
                 declaringAssemblyName: "Tsonic.JSRuntime",
                 isExtensionMethod: true,
               },
@@ -964,20 +954,11 @@ describe("Binding Resolution in IR", () => {
         ],
       });
 
-      const { testProgram, options } = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const jsProgram = {
-        ...testProgram,
-        options: {
-          ...testProgram.options,
-          surface: "js" as const,
-        },
-      };
-
-      const ctx = createProgramContext(jsProgram, options);
-      const result = buildIrModule(sourceFile, jsProgram, options, ctx);
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
@@ -991,7 +972,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(ret.expression.callee.memberBinding).to.not.equal(undefined);
       expect(ret.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.Number"
+        "Tsonic.JSRuntime.NumberExtensions"
       );
       expect(ret.expression.callee.memberBinding?.member).to.equal("toFixed");
       expect(ret.expression.callee.memberBinding?.isExtensionMethod).to.equal(
@@ -999,7 +980,7 @@ describe("Binding Resolution in IR", () => {
       );
     });
 
-    it("should resolve js-surface array receiver extensions by array fallback candidates", () => {
+    it("should resolve array receiver extension methods via bindings", () => {
       const source = `
         interface Array<T> { join(separator?: string): string; }
 
@@ -1013,15 +994,15 @@ describe("Binding Resolution in IR", () => {
         namespace: "Tsonic.JSRuntime",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.Array",
+            clrName: "System.Array",
             assemblyName: "Tsonic.JSRuntime",
             methods: [
               {
                 clrName: "join",
                 normalizedSignature:
-                  "join|(JSArray_1,System.String):System.String|static=true",
+                  "join|(System.Array,System.String):System.String|static=true",
                 parameterCount: 2,
-                declaringClrType: "Tsonic.JSRuntime.Array",
+                declaringClrType: "Tsonic.JSRuntime.ArrayExtensions",
                 declaringAssemblyName: "Tsonic.JSRuntime",
                 isExtensionMethod: true,
               },
@@ -1032,20 +1013,11 @@ describe("Binding Resolution in IR", () => {
         ],
       });
 
-      const { testProgram, options } = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const jsProgram = {
-        ...testProgram,
-        options: {
-          ...testProgram.options,
-          surface: "js" as const,
-        },
-      };
-
-      const ctx = createProgramContext(jsProgram, options);
-      const result = buildIrModule(sourceFile, jsProgram, options, ctx);
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
@@ -1059,7 +1031,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(ret.expression.callee.memberBinding).to.not.equal(undefined);
       expect(ret.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.Array"
+        "Tsonic.JSRuntime.ArrayExtensions"
       );
       expect(ret.expression.callee.memberBinding?.member).to.equal("join");
       expect(ret.expression.callee.memberBinding?.isExtensionMethod).to.equal(

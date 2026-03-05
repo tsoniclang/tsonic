@@ -120,14 +120,28 @@ const attachNodejsSurfaceBindings = (
       fields: [],
     })),
   });
+  const bindings = Object.fromEntries(
+    uniqueModules.flatMap((moduleName) => [
+      [
+        `node:${moduleName}`,
+        {
+          kind: "module" as const,
+          assembly: "nodejs",
+          type: `nodejs.${moduleName}`,
+        },
+      ],
+      [
+        moduleName,
+        {
+          kind: "module" as const,
+          assembly: "nodejs",
+          type: `nodejs.${moduleName}`,
+        },
+      ],
+    ])
+  );
   testProgram.bindings.addBindings("/test/node-bindings.json", {
-    bindings: {
-      "@tsonic/nodejs/index.js": {
-        kind: "module",
-        assembly: "nodejs",
-        type: `nodejs.${uniqueModules[0] ?? "fs"}`,
-      },
-    },
+    bindings,
   });
 };
 
@@ -202,7 +216,7 @@ describe("validateImports", () => {
     }
   });
 
-  it("allows canonical node module named imports in nodejs surface", () => {
+  it("allows canonical node module named imports when module bindings exist", () => {
     const testProgram = createTestProgram(
       `
         import { fs } from "node:fs";
@@ -210,7 +224,7 @@ describe("validateImports", () => {
       `,
       "/test/node-valid.ts",
       "/test",
-      { surface: "nodejs" }
+      { surface: "@tsonic/nodejs" }
     );
     attachNodejsSurfaceBindings(testProgram, ["fs"]);
 
@@ -224,7 +238,7 @@ describe("validateImports", () => {
     expect(codes(result)).to.deep.equal([]);
   });
 
-  it("allows named member imports from node aliases", () => {
+  it("allows named member imports from node aliases when module bindings exist", () => {
     const testProgram = createTestProgram(
       `
         import { readFileSync } from "node:fs";
@@ -232,7 +246,7 @@ describe("validateImports", () => {
       `,
       "/test/node-invalid-member.ts",
       "/test",
-      { surface: "nodejs" }
+      { surface: "@tsonic/nodejs" }
     );
     attachNodejsSurfaceBindings(testProgram, ["fs"]);
 
@@ -254,7 +268,7 @@ describe("validateImports", () => {
       `,
       "/test/node-default-import.ts",
       "/test",
-      { surface: "nodejs" }
+      { surface: "@tsonic/nodejs" }
     );
     attachNodejsSurfaceBindings(testProgram, ["fs"]);
 
@@ -271,7 +285,7 @@ describe("validateImports", () => {
     );
   });
 
-  it("allows named member imports from bare node aliases", () => {
+  it("allows named member imports from bare node aliases when module bindings exist", () => {
     const testProgram = createTestProgram(
       `
         import { join } from "path";
@@ -279,7 +293,7 @@ describe("validateImports", () => {
       `,
       "/test/node-bare-invalid-member.ts",
       "/test",
-      { surface: "nodejs" }
+      { surface: "@tsonic/nodejs" }
     );
     attachNodejsSurfaceBindings(testProgram, ["path"]);
 
@@ -293,7 +307,7 @@ describe("validateImports", () => {
     expect(codes(result)).to.deep.equal([]);
   });
 
-  it("allows namespace imports from node aliases", () => {
+  it("allows namespace imports from node aliases when module bindings exist", () => {
     const testProgram = createTestProgram(
       `
         import * as path from "node:path";
@@ -301,7 +315,7 @@ describe("validateImports", () => {
       `,
       "/test/node-namespace-import.ts",
       "/test",
-      { surface: "nodejs" }
+      { surface: "@tsonic/nodejs" }
     );
     attachNodejsSurfaceBindings(testProgram, ["path"]);
 
@@ -323,7 +337,7 @@ describe("validateImports", () => {
       `,
       "/test/node-multi-diagnostics.ts",
       "/test",
-      { surface: "nodejs" }
+      { surface: "@tsonic/nodejs" }
     );
     attachNodejsSurfaceBindings(testProgram, ["path", "fs"]);
 
@@ -345,7 +359,7 @@ describe("validateImports", () => {
     ).to.equal(true);
   });
 
-  it("rejects node aliases when nodejs CLR bindings are missing", () => {
+  it("rejects node aliases when module bindings are missing", () => {
     const testProgram = createTestProgram(
       `
         import { fs } from "node:fs";
@@ -353,18 +367,8 @@ describe("validateImports", () => {
       `,
       "/test/node-missing-bindings.ts",
       "/test",
-      { surface: "nodejs" }
+      { surface: "@tsonic/nodejs" }
     );
-    testProgram.bindings.addBindings("/test/node-bindings.json", {
-      bindings: {
-        "@tsonic/nodejs/index.js": {
-          kind: "module",
-          assembly: "nodejs",
-          type: "nodejs.fs",
-        },
-      },
-    });
-
     const result = validateImports(
       testProgram.sourceFile,
       testProgram,

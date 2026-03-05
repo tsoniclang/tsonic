@@ -27,6 +27,10 @@ export class BindingRegistry {
 
   // Simple format: global/module bindings for identifiers like console, Math, fs
   private readonly simpleBindings = new Map<string, SimpleBindingDescriptor>();
+  private readonly simpleBindingsLowercase = new Map<
+    string,
+    SimpleBindingDescriptor
+  >();
 
   // Hierarchical format: namespace/type/member bindings
   private readonly namespaces = new Map<string, NamespaceBinding>();
@@ -513,6 +517,7 @@ export class BindingRegistry {
       // Simple format: global/module bindings
       for (const [name, descriptor] of Object.entries(manifest.bindings)) {
         this.simpleBindings.set(name, descriptor);
+        this.simpleBindingsLowercase.set(name.toLowerCase(), descriptor);
       }
     }
   }
@@ -521,7 +526,10 @@ export class BindingRegistry {
    * Look up a simple global/module binding
    */
   getBinding(name: string): SimpleBindingDescriptor | undefined {
-    return this.simpleBindings.get(name);
+    return (
+      this.simpleBindings.get(name) ??
+      this.simpleBindingsLowercase.get(name.toLowerCase())
+    );
   }
 
   /**
@@ -561,6 +569,18 @@ export class BindingRegistry {
       return this.members.get(`${ownerAlias}.${memberAlias}`);
     }
 
+    const mappedAlias = this.resolveSimpleBindingAlias(typeAlias);
+    if (mappedAlias) {
+      const mapped = this.members.get(`${mappedAlias}.${memberAlias}`);
+      if (mapped) return mapped;
+
+      if (mappedAlias.endsWith("$protected")) {
+        const ownerAlias = mappedAlias.slice(0, -"$protected".length);
+        const owner = this.members.get(`${ownerAlias}.${memberAlias}`);
+        if (owner) return owner;
+      }
+    }
+
     return undefined;
   }
 
@@ -585,6 +605,20 @@ export class BindingRegistry {
       const ownerKey = `${ownerAlias}.${memberAlias}`;
       const owner = this.memberOverloads.get(ownerKey);
       if (owner && owner.length > 0) return owner;
+    }
+
+    const mappedAlias = this.resolveSimpleBindingAlias(typeAlias);
+    if (mappedAlias) {
+      const mappedKey = `${mappedAlias}.${memberAlias}`;
+      const mapped = this.memberOverloads.get(mappedKey);
+      if (mapped && mapped.length > 0) return mapped;
+
+      if (mappedAlias.endsWith("$protected")) {
+        const ownerAlias = mappedAlias.slice(0, -"$protected".length);
+        const ownerKey = `${ownerAlias}.${memberAlias}`;
+        const owner = this.memberOverloads.get(ownerKey);
+        if (owner && owner.length > 0) return owner;
+      }
     }
 
     return undefined;
@@ -643,6 +677,7 @@ export class BindingRegistry {
   clear(): void {
     this.loadedBindingFiles.clear();
     this.simpleBindings.clear();
+    this.simpleBindingsLowercase.clear();
     this.namespaces.clear();
     this.types.clear();
     this.members.clear();
@@ -652,6 +687,16 @@ export class BindingRegistry {
     this.tsbindgenExports.clear();
     this.tsSupertypes.clear();
     this.clrTypeNames.clear();
+  }
+
+  private resolveSimpleBindingAlias(typeAlias: string): string | undefined {
+    const descriptor =
+      this.simpleBindings.get(typeAlias) ??
+      this.simpleBindingsLowercase.get(typeAlias.toLowerCase());
+    if (!descriptor) return undefined;
+    const mapped = tsbindgenClrTypeNameToTsTypeName(descriptor.type);
+    if (!mapped || mapped === typeAlias) return undefined;
+    return mapped;
   }
 }
 

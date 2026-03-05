@@ -321,6 +321,35 @@ const listTypeScriptSourceInputs = (sourceRoot: string): readonly string[] => {
   return out;
 };
 
+const listDeclarationFiles = (roots: readonly string[]): readonly string[] => {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const visit = (dir: string): void => {
+    const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+    for (const entry of entries) {
+      const absolute = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolute);
+        continue;
+      }
+      if (entry.isFile() && absolute.endsWith(".d.ts") && !seen.has(absolute)) {
+        seen.add(absolute);
+        out.push(absolute);
+      }
+    }
+  };
+
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    visit(root);
+  }
+
+  return out;
+};
+
 const formatTsDiagnostics = (
   diagnostics: readonly ts.Diagnostic[],
   cwd: string
@@ -348,6 +377,14 @@ const emitLibraryTypeDeclarations = (
   const distDir = join(config.projectRoot, "dist");
   mkdirSync(distDir, { recursive: true });
 
+  const resolvedTypeRoots = config.typeRoots.map((p) =>
+    resolve(config.workspaceRoot, p)
+  );
+  const declarationFiles = listDeclarationFiles(resolvedTypeRoots);
+  const rootNames = Array.from(
+    new Set<string>([...sourceFiles, ...declarationFiles])
+  );
+
   const compilerOptions: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.NodeNext,
@@ -360,12 +397,12 @@ const emitLibraryTypeDeclarations = (
     skipLibCheck: true,
     outDir: distDir,
     rootDir: sourceRoot,
-    typeRoots: config.typeRoots.map((p) => resolve(config.workspaceRoot, p)),
+    types: [],
   };
 
   const host = ts.createCompilerHost(compilerOptions, true);
   const program = ts.createProgram({
-    rootNames: sourceFiles,
+    rootNames,
     options: compilerOptions,
     host,
   });

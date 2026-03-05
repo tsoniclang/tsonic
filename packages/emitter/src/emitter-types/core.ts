@@ -102,7 +102,7 @@ export type TypeAliasIndex = {
  */
 export type EmitterOptions = {
   /** Surface mode used during frontend compilation. */
-  readonly surface?: "clr" | "js" | "nodejs";
+  readonly surface?: string;
   /** Root namespace for the application */
   readonly rootNamespace: string;
   /**

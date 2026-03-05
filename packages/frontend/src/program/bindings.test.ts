@@ -124,6 +124,115 @@ describe("Binding System", () => {
       expect(registry.getBinding("fs")).not.to.equal(undefined);
     });
 
+    it("should resolve simple bindings case-insensitively", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/manifest.json", {
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "Tsonic.Runtime",
+            type: "Tsonic.Runtime.console",
+          },
+        },
+      });
+
+      const upper = registry.getBinding("Console");
+      expect(upper).to.deep.equal({
+        kind: "global",
+        assembly: "Tsonic.Runtime",
+        type: "Tsonic.Runtime.console",
+      });
+    });
+
+    it("should resolve member overloads via simple binding type alias mapping", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/simple.json", {
+        bindings: {
+          Console: {
+            kind: "global",
+            assembly: "Acme.Runtime",
+            type: "Acme.Runtime.console",
+          },
+        },
+      });
+
+      registry.addBindings("/test/acme/bindings.json", {
+        namespace: "Acme.Runtime",
+        types: [
+          {
+            clrName: "Acme.Runtime.console",
+            assemblyName: "Acme.Runtime",
+            methods: [
+              {
+                clrName: "log",
+                declaringClrType: "Acme.Runtime.console",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const overloads = registry.getMemberOverloads("Console", "log");
+      expect(overloads).to.not.equal(undefined);
+      expect(overloads?.length).to.equal(1);
+      expect(overloads?.[0]?.binding.type).to.equal("Acme.Runtime.console");
+      expect(overloads?.[0]?.binding.member).to.equal("log");
+    });
+
+    it("should resolve generic array aliases via simple binding type mapping", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/simple-array.json", {
+        bindings: {
+          Array: {
+            kind: "global",
+            assembly: "Acme.Runtime",
+            type: "Acme.Runtime.JSArray`1",
+          },
+        },
+      });
+
+      registry.addBindings("/test/acme-array/bindings.json", {
+        namespace: "Acme.Runtime",
+        types: [
+          {
+            clrName: "Acme.Runtime.JSArray`1",
+            assemblyName: "Acme.Runtime",
+            methods: [
+              {
+                clrName: "map",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            properties: [
+              {
+                clrName: "length",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            fields: [],
+          },
+        ],
+      });
+
+      const mapOverloads = registry.getMemberOverloads("Array", "map");
+      expect(mapOverloads).to.not.equal(undefined);
+      expect(mapOverloads?.[0]?.binding.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
+
+      const lengthOverloads = registry.getMemberOverloads("Array", "length");
+      expect(lengthOverloads).to.not.equal(undefined);
+      expect(lengthOverloads?.[0]?.binding.member).to.equal("length");
+    });
+
     it("should resolve tsbindgen extension methods for instance-style calls", () => {
       const registry = new BindingRegistry();
 
@@ -314,6 +423,148 @@ describe("Binding System", () => {
 
       const fsBinding = registry.getBinding("fs");
       expect(fsBinding?.kind).to.equal("module");
+    });
+
+    it("should load transitive bindings from non-@tsonic dependencies", () => {
+      const workspaceRoot = path.join(tempDir, "workspace");
+      const surfaceRoot = path.join(
+        workspaceRoot,
+        "node_modules",
+        "@acme",
+        "surface-web"
+      );
+      const runtimeRoot = path.join(
+        workspaceRoot,
+        "node_modules",
+        "@acme",
+        "runtime"
+      );
+
+      fs.mkdirSync(surfaceRoot, { recursive: true });
+      fs.mkdirSync(runtimeRoot, { recursive: true });
+
+      fs.writeFileSync(
+        path.join(surfaceRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/surface-web",
+            version: "1.0.0",
+            dependencies: {
+              "@acme/runtime": "1.0.0",
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(surfaceRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "web",
+            extends: ["clr"],
+          },
+          null,
+          2
+        )
+      );
+
+      fs.writeFileSync(
+        path.join(runtimeRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/runtime",
+            version: "1.0.0",
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(runtimeRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              runtimeLog: {
+                kind: "global",
+                assembly: "Acme.Runtime",
+                type: "Acme.Runtime.Log",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const registry = loadBindings([surfaceRoot]);
+      const binding = registry.getBinding("runtimeLog");
+      expect(binding).to.deep.equal({
+        kind: "global",
+        assembly: "Acme.Runtime",
+        type: "Acme.Runtime.Log",
+      });
+    });
+
+    it("should traverse top-level dependency graph even when the root package has no bindings", () => {
+      const workspaceRoot = path.join(tempDir, "workspace-no-bindings-root");
+      const rootPkg = path.join(workspaceRoot, "node_modules", "@acme", "root");
+      const depPkg = path.join(workspaceRoot, "node_modules", "@acme", "dep");
+
+      fs.mkdirSync(rootPkg, { recursive: true });
+      fs.mkdirSync(depPkg, { recursive: true });
+
+      fs.writeFileSync(
+        path.join(rootPkg, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/root",
+            version: "1.0.0",
+            dependencies: {
+              "@acme/dep": "1.0.0",
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      fs.writeFileSync(
+        path.join(depPkg, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/dep",
+            version: "1.0.0",
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(depPkg, "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              depGlobal: {
+                kind: "global",
+                assembly: "Acme.Dep",
+                type: "Acme.Dep.Global",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const registry = loadBindings([rootPkg]);
+      const binding = registry.getBinding("depGlobal");
+      expect(binding).to.deep.equal({
+        kind: "global",
+        assembly: "Acme.Dep",
+        type: "Acme.Dep.Global",
+      });
     });
   });
 

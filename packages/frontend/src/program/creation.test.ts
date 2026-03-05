@@ -15,7 +15,7 @@ describe("Program Creation", () => {
       projectRoot: "/tmp/app",
       sourceRoot: "/tmp/app/src",
       rootNamespace: "App",
-      surface: "js",
+      surface: "@tsonic/js",
     });
 
     expect(options.noLib).to.equal(true);
@@ -26,10 +26,49 @@ describe("Program Creation", () => {
       projectRoot: "/tmp/app",
       sourceRoot: "/tmp/app/src",
       rootNamespace: "App",
-      surface: "nodejs",
+      surface: "@tsonic/nodejs",
     });
 
     expect(options.noLib).to.equal(true);
+  });
+
+  it("should allow mutable array index writes in clr surface mode", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-clr-array-write-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        [
+          "const values: number[] = [1, 2, 3];",
+          "values[0] = 42;",
+          "export const first = values[0];",
+        ].join("\n")
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+      });
+
+      expect(result.ok).to.equal(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("should resolve @tsonic/* imports from the project root (global install)", () => {
@@ -97,7 +136,7 @@ describe("Program Creation", () => {
     }
   });
 
-  it("should support node: module shims in nodejs surface mode", () => {
+  it("should resolve node module imports from package-provided declarations and bindings", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-js-surface-")
     );
@@ -127,22 +166,34 @@ describe("Program Creation", () => {
       );
       fs.writeFileSync(
         path.join(nodejsRoot, "index.d.ts"),
-        "export declare const fs: { readFileSync(path: string): string; };\n"
+        'declare module "node:fs" { export const readFileSync: (path: string) => string; }\n'
       );
       fs.writeFileSync(
         path.join(nodejsRoot, "index.js"),
         "export const fs = {};\n"
       );
-      const nodejsInternalDir = path.join(nodejsRoot, "index", "internal");
+      const nodejsInternalDir = path.join(nodejsRoot, "index");
       fs.mkdirSync(nodejsInternalDir, { recursive: true });
       fs.writeFileSync(
-        path.join(nodejsInternalDir, "index.d.ts"),
-        `
-export declare const fs: typeof fs$instance;
-export abstract class fs$instance {
-  static readFileSync(path: string): string;
-}
-`
+        path.join(nodejsRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              "node:fs": {
+                kind: "module",
+                assembly: "nodejs",
+                type: "nodejs.fs",
+              },
+              fs: {
+                kind: "module",
+                assembly: "nodejs",
+                type: "nodejs.fs",
+              },
+            },
+          },
+          null,
+          2
+        )
       );
 
       const entryPath = path.join(srcDir, "index.ts");
@@ -155,16 +206,95 @@ export abstract class fs$instance {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "nodejs",
+        surface: "@tsonic/nodejs",
         typeRoots: [],
       });
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(result.value.bindings.getBinding("console")?.kind).to.equal(
-        "global"
+      const nodeFs = result.value.bindings.getBinding("node:fs");
+      expect(nodeFs?.kind).to.equal("module");
+      if (nodeFs?.kind === "module") {
+        expect(nodeFs.type).to.equal("nodejs.fs");
+      }
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should include declaration files from custom non-@tsonic surface packages", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-custom-surface-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
       );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const surfaceRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@acme",
+        "surface-web"
+      );
+      fs.mkdirSync(surfaceRoot, { recursive: true });
+
+      fs.writeFileSync(
+        path.join(surfaceRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/surface-web", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(surfaceRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@acme/surface-web",
+            extends: [],
+            requiredTypeRoots: ["."],
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(surfaceRoot, "index.d.ts"),
+        "declare global { interface String { shout(): string; } }\nexport {};\n"
+      );
+      fs.writeFileSync(path.join(surfaceRoot, "index.js"), "export {};\n");
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(entryPath, 'export const x = "hello".shout();\n');
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@acme/surface-web",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const expectedDts = path.resolve(path.join(surfaceRoot, "index.d.ts"));
+      expect(
+        result.value.declarationSourceFiles.some(
+          (sf) => path.resolve(sf.fileName) === expectedDts
+        )
+      ).to.equal(true);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -198,7 +328,10 @@ export abstract class fs$instance {
           2
         )
       );
-      fs.writeFileSync(path.join(jsRoot, "index.d.ts"), "export {};\n");
+      fs.writeFileSync(
+        path.join(jsRoot, "index.d.ts"),
+        "declare global { interface String { trim(): string; } }\nexport {};\n"
+      );
       fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
       fs.writeFileSync(
         path.join(jsRoot, "index", "bindings.json"),
@@ -237,7 +370,7 @@ export abstract class fs$instance {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "js",
+        surface: "@tsonic/js",
       });
 
       expect(result.ok).to.equal(true);
@@ -256,7 +389,7 @@ export abstract class fs$instance {
     }
   });
 
-  it("should typecheck compiler-owned js globals in noLib mode", () => {
+  it("should typecheck package-provided js globals in noLib mode", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-js-globals-")
     );
@@ -273,6 +406,47 @@ export abstract class fs$instance {
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
+      const jsRoot = path.join(tempDir, "node_modules/@tsonic/js");
+      fs.mkdirSync(jsRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(jsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsRoot, "index.d.ts"),
+        `
+declare global {
+  interface String {
+    trim(): string;
+    toUpperCase(): string;
+    includes(search: string): boolean;
+  }
+
+  interface Array<T> {
+    readonly length: number;
+    map<TResult>(callback: (value: T) => TResult): TResult[];
+    filter(callback: (value: T) => boolean): T[];
+    reduce<TResult>(
+      callback: (previousValue: TResult, currentValue: T) => TResult,
+      initialValue: TResult
+    ): TResult;
+    join(separator?: string): string;
+  }
+
+  const console: {
+    log(...data: unknown[]): void;
+  };
+
+  function parseInt(value: string): number;
+}
+
+export {};
+`
+      );
 
       const entryPath = path.join(srcDir, "index.ts");
       fs.writeFileSync(
@@ -280,18 +454,12 @@ export abstract class fs$instance {
         [
           'const m = "  hi  ".trim().toUpperCase();',
           'const hasNeedle = m.includes("H");',
-          "const when = new Date();",
-          "const parsed = JSON.parse<{ ok: boolean }>('{\"ok\":true}');",
-          "const s = new Set<string>();",
-          "s.add(m);",
-          "const mp = new Map<string, number>();",
-          "mp.set(m, 42);",
           "const nums = [1, 2, 3, 4];",
           "const doubled = nums.map((x) => x * 2);",
           "const filtered = doubled.filter((x) => x > 2);",
           "const total = filtered.reduce((a, b) => a + b, 0);",
-          "console.log(when.toISOString(), parsed.ok, hasNeedle, mp.get(m), s.has(m));",
-          'console.log(nums.length, doubled.join(","), total);',
+          "console.log(hasNeedle);",
+          'console.log(nums.length, doubled.join(","), total, m);',
           'export const ok = parseInt("42");',
         ].join("\n")
       );
@@ -300,7 +468,158 @@ export abstract class fs$instance {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "js",
+        surface: "@tsonic/js",
+      });
+
+      expect(result.ok).to.equal(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should keep JS surface free of CLR string members", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-js-no-clr-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const jsRoot = path.join(tempDir, "node_modules/@tsonic/js");
+      fs.mkdirSync(jsRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(jsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsRoot, "index.d.ts"),
+        "declare global { interface String { trim(): string; } }\nexport {};\n"
+      );
+      fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
+      fs.writeFileSync(
+        path.join(jsRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["."],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(entryPath, 'export const bad = "  hi  ".Trim();\n');
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+
+      expect(result.ok).to.equal(false);
+      if (result.ok) return;
+      expect(result.error.hasErrors).to.equal(true);
+      expect(
+        result.error.diagnostics.some((diagnostic) =>
+          diagnostic.message.includes("Property 'Trim' does not exist")
+        )
+      ).to.equal(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should expose CLR string members on clr surface via compiler declarations", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-clr-members-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const dotnetRoot = path.join(tempDir, "node_modules/@tsonic/dotnet");
+      const dotnetInternalRoot = path.join(dotnetRoot, "System/internal");
+      fs.mkdirSync(dotnetInternalRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(dotnetRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/dotnet", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(dotnetInternalRoot, "index.d.ts"),
+        `
+export interface Array$instance {}
+export interface __Array$views {}
+export interface String$instance { Trim(): string; }
+export interface __String$views {}
+export interface Double$instance {}
+export interface __Double$views {}
+export interface Boolean$instance {}
+export interface __Boolean$views {}
+export interface Object$instance {}
+`
+      );
+      fs.writeFileSync(
+        path.join(dotnetInternalRoot, "index.js"),
+        "export {};\n"
+      );
+      fs.writeFileSync(
+        path.join(dotnetRoot, "System.Collections.d.ts"),
+        "export interface IEnumerator {}\n"
+      );
+      fs.writeFileSync(
+        path.join(dotnetRoot, "System.Collections.js"),
+        "export {};\n"
+      );
+      fs.writeFileSync(
+        path.join(dotnetRoot, "System.Collections.Generic.d.ts"),
+        "export interface IEnumerable<T> {}\nexport interface IEnumerator<T> {}\n"
+      );
+      fs.writeFileSync(
+        path.join(dotnetRoot, "System.Collections.Generic.js"),
+        "export {};\n"
+      );
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(entryPath, 'export const ok = "  hi  ".Trim();\n');
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "clr",
       });
 
       expect(result.ok).to.equal(true);
