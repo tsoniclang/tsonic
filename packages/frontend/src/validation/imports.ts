@@ -10,7 +10,6 @@ import {
   createDiagnostic,
 } from "../types/diagnostic.js";
 import { resolveImport } from "../resolver.js";
-import { resolveNodeModuleAlias } from "../resolver/node-module-aliases.js";
 import { getNodeLocation } from "./helpers.js";
 
 /**
@@ -75,7 +74,6 @@ export const validateImportDeclaration = (
     {
       clrResolver: program.clrResolver,
       bindings: program.bindings,
-      surface: program.options.surface,
     }
   );
 
@@ -84,25 +82,24 @@ export const validateImportDeclaration = (
     return addDiagnostic(collector, { ...result.error, location });
   }
 
-  const nodeAlias = resolveNodeModuleAlias(importPath, program.bindings);
-  if (nodeAlias) {
-    if (node.importClause?.name) {
-      return addDiagnostic(
-        collector,
-        createDiagnostic(
-          "TSN1004",
-          "error",
-          `Default import is not supported for "${importPath}"`,
-          getNodeLocation(sourceFile, node.importClause.name),
-          `Use namespace or named import: import * as ${nodeAlias.moduleName} from "${importPath}";`
-        )
-      );
-    }
-
-    // Named/namespace imports from node aliases are supported in nodejs surface.
-    // Examples:
-    // - import { join } from "node:path"
-    // - import * as path from "node:path"
+  // Bound modules are namespace-like CLR containers. Default import has no
+  // deterministic CLR target, so only named/namespace imports are allowed.
+  if (
+    node.importClause?.name &&
+    !result.value.isLocal &&
+    !result.value.isClr &&
+    result.value.resolvedClrType
+  ) {
+    return addDiagnostic(
+      collector,
+      createDiagnostic(
+        "TSN1004",
+        "error",
+        `Default import is not supported for "${importPath}"`,
+        getNodeLocation(sourceFile, node.importClause.name),
+        "Use namespace or named imports instead."
+      )
+    );
   }
 
   // Check for default imports from local modules (we might want to restrict this)

@@ -194,7 +194,9 @@ export const generateCommand = (
     frameworkReferences,
     packageReferences,
   } = config;
-  const surfaceCapabilities = resolveSurfaceCapabilities(config.surface);
+  const surfaceCapabilities = resolveSurfaceCapabilities(config.surface, {
+    workspaceRoot,
+  });
 
   // For libraries, entry point is optional
   if (!entryPoint && config.outputConfig.type !== "library") {

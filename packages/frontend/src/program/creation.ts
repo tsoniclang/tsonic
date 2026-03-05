@@ -8,11 +8,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { Result, ok, error } from "../types/result.js";
-import {
-  createDiagnostic,
-  createDiagnosticsCollector,
-  DiagnosticsCollector,
-} from "../types/diagnostic.js";
+import { DiagnosticsCollector } from "../types/diagnostic.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
 import { defaultTsConfig } from "./config.js";
 import { loadDotnetMetadata } from "./metadata.js";
@@ -21,13 +17,227 @@ import { collectTsDiagnostics } from "./diagnostics.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "../ir/binding/index.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+
+const CORE_GLOBALS_DECLARATIONS = `
+declare global {
+  class Error {
+    name: string;
+    message: string;
+    stack?: string;
+    constructor(message?: string);
+  }
+
+  interface Function {
+    prototype: any;
+  }
+
+  interface CallableFunction extends Function {}
+  interface NewableFunction extends Function {}
+  interface IArguments {}
+  interface RegExp {}
+  interface ImportMeta {}
+
+  interface String {}
+  interface Number {}
+  interface Boolean {}
+
+  interface Object {
+    constructor: Function;
+  }
+
+  interface SymbolConstructor {
+    readonly iterator: symbol;
+    readonly asyncIterator: symbol;
+    readonly hasInstance: symbol;
+    readonly isConcatSpreadable: symbol;
+    readonly species: symbol;
+    readonly toPrimitive: symbol;
+    readonly toStringTag: symbol;
+  }
+
+  const Symbol: SymbolConstructor;
+
+  type PropertyKey = string | number | symbol;
+
+  interface Array<T> {
+    [n: number]: T;
+    readonly length: number;
+    [Symbol.iterator](): IterableIterator<T>;
+  }
+
+  interface ReadonlyArray<T> {
+    readonly [n: number]: T;
+    readonly length: number;
+    [Symbol.iterator](): IterableIterator<T>;
+  }
+
+  interface ArrayConstructor {
+    new <T>(size?: number): T[];
+  }
+
+  const Array: ArrayConstructor;
+
+  type Partial<T> = { [P in keyof T]?: T[P] };
+  type Required<T> = { [P in keyof T]-?: T[P] };
+  type Readonly<T> = { readonly [P in keyof T]: T[P] };
+  type Pick<T, K extends keyof T> = { [P in K]: T[P] };
+  type Record<K extends keyof any, T> = { [P in K]: T };
+  type Exclude<T, U> = T extends U ? never : T;
+  type Extract<T, U> = T extends U ? T : never;
+  type Omit<T, K extends keyof any> = Pick<T, Exclude<keyof T, K>>;
+  type NonNullable<T> = T extends null | undefined ? never : T;
+  type Parameters<T extends (...args: any) => any> = T extends (...args: infer P) => any ? P : never;
+  type ConstructorParameters<T extends new (...args: any) => any> = T extends new (...args: infer P) => any ? P : never;
+  type ReturnType<T extends (...args: any) => any> = T extends (...args: any) => infer R ? R : any;
+  type InstanceType<T extends new (...args: any) => any> = T extends new (...args: any) => infer R ? R : any;
+  type Awaited<T> = T extends PromiseLike<infer U> ? Awaited<U> : T;
+
+  interface Promise<T> {
+    then<TResult1 = T, TResult2 = never>(
+      onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+      onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null
+    ): Promise<TResult1 | TResult2>;
+    catch<TResult = never>(
+      onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null
+    ): Promise<T | TResult>;
+    finally(onfinally?: (() => void) | undefined | null): Promise<T>;
+  }
+
+  interface PromiseLike<T> {
+    then<TResult1 = T, TResult2 = never>(
+      onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+      onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null
+    ): PromiseLike<TResult1 | TResult2>;
+  }
+
+  interface PromiseConstructor {
+    new <T>(executor: (resolve: (value: T | PromiseLike<T>) => void, reject: (reason?: any) => void) => void): Promise<T>;
+    resolve(): Promise<void>;
+    resolve<T>(value: T | PromiseLike<T>): Promise<T>;
+    reject<T = never>(reason?: any): Promise<T>;
+    all<T>(values: readonly (T | PromiseLike<T>)[]): Promise<T[]>;
+    race<T>(values: readonly (T | PromiseLike<T>)[]): Promise<T>;
+  }
+
+  const Promise: PromiseConstructor;
+
+  interface Iterator<T, TReturn = any, TNext = undefined> {
+    next(...args: [] | [TNext]): IteratorResult<T, TReturn>;
+    return?(value?: TReturn): IteratorResult<T, TReturn>;
+    throw?(e?: any): IteratorResult<T, TReturn>;
+  }
+
+  interface IteratorResult<T, TReturn = any> {
+    done: boolean;
+    value: T | TReturn;
+  }
+
+  interface IteratorYieldResult<T> {
+    done: false;
+    value: T;
+  }
+
+  interface IteratorReturnResult<TReturn> {
+    done: true;
+    value: TReturn;
+  }
+
+  interface Iterable<T, TReturn = any, TNext = undefined> {
+    [Symbol.iterator](): Iterator<T, TReturn, TNext>;
+  }
+
+  interface IterableIterator<T, TReturn = any, TNext = undefined>
+    extends Iterator<T, TReturn, TNext> {
+    [Symbol.iterator](): IterableIterator<T, TReturn, TNext>;
+  }
+
+  interface AsyncIterator<T, TReturn = any, TNext = undefined> {
+    next(...args: [] | [TNext]): Promise<IteratorResult<T, TReturn>>;
+    return?(value?: TReturn | PromiseLike<TReturn>): Promise<IteratorResult<T, TReturn>>;
+    throw?(e?: any): Promise<IteratorResult<T, TReturn>>;
+  }
+
+  interface AsyncIterable<T, TReturn = any, TNext = undefined> {
+    [Symbol.asyncIterator](): AsyncIterator<T, TReturn, TNext>;
+  }
+
+  interface AsyncIterableIterator<T, TReturn = any, TNext = undefined>
+    extends AsyncIterator<T, TReturn, TNext> {
+    [Symbol.asyncIterator](): AsyncIterableIterator<T, TReturn, TNext>;
+  }
+
+  interface Generator<T = unknown, TReturn = any, TNext = unknown>
+    extends Iterator<T, TReturn, TNext> {
+    next(...args: [] | [TNext]): IteratorResult<T, TReturn>;
+    return(value: TReturn): IteratorResult<T, TReturn>;
+    throw(e: any): IteratorResult<T, TReturn>;
+    [Symbol.iterator](): Generator<T, TReturn, TNext>;
+  }
+
+  interface AsyncGenerator<T = unknown, TReturn = any, TNext = unknown>
+    extends AsyncIterator<T, TReturn, TNext> {
+    next(...args: [] | [TNext]): Promise<IteratorResult<T, TReturn>>;
+    return(value: TReturn | PromiseLike<TReturn>): Promise<IteratorResult<T, TReturn>>;
+    throw(e: any): Promise<IteratorResult<T, TReturn>>;
+    [Symbol.asyncIterator](): AsyncGenerator<T, TReturn, TNext>;
+  }
+
+  interface TemplateStringsArray extends ReadonlyArray<string> {
+    readonly raw: readonly string[];
+  }
+
+  type Uppercase<S extends string> = intrinsic;
+  type Lowercase<S extends string> = intrinsic;
+  type Capitalize<S extends string> = intrinsic;
+  type Uncapitalize<S extends string> = intrinsic;
+}
+
+export {};
+`.trim();
+
+const CLR_GLOBALS_DECLARATIONS = `
+import type { char } from "@tsonic/core/types.js";
 import {
-  JS_SURFACE_GLOBALS_SHIMS,
-  buildJsSurfaceNodeModuleShims,
-} from "../surface/js-surface-shims.js";
-import { JS_SURFACE_BUILTIN_BINDINGS } from "../surface/js-surface-builtins.js";
-const JS_SURFACE_GLOBALS_SHIM_FILE = "__tsonic_surface_globals__.d.ts";
-const JS_SURFACE_NODE_SHIM_FILE = "__tsonic_surface_node_modules__.d.ts";
+  Array$instance, __Array$views,
+  String$instance, __String$views,
+  Double$instance, __Double$views,
+  Boolean$instance, __Boolean$views,
+  Object$instance
+} from "@tsonic/dotnet/System/internal/index.js";
+import type { IEnumerator } from "@tsonic/dotnet/System.Collections.js";
+import type {
+  IEnumerable,
+  IEnumerator as IEnumeratorT
+} from "@tsonic/dotnet/System.Collections.Generic.js";
+
+declare global {
+  interface Array<T> extends Array$instance, __Array$views, IEnumerable<T> {
+    [n: number]: T;
+    [Symbol.iterator](): IterableIterator<T>;
+    GetEnumerator(): IEnumeratorT<T>;
+  }
+
+  interface ReadonlyArray<T> extends Array$instance, __Array$views, IEnumerable<T> {
+    readonly [n: number]: T;
+    [Symbol.iterator](): IterableIterator<T>;
+    GetEnumerator(): IEnumeratorT<T>;
+  }
+
+  interface ArrayConstructor {
+    new <T>(size?: number): T[];
+  }
+
+  interface String extends String$instance, __String$views {
+    readonly [index: number]: char;
+  }
+
+  interface Number extends Double$instance, __Double$views {}
+  interface Boolean extends Boolean$instance, __Boolean$views {}
+  interface Object extends Object$instance {}
+}
+
+export {};
+`.trim();
 
 /**
  * Recursively scan a directory for .d.ts files
@@ -67,7 +277,8 @@ export const createCompilerOptions = (
   options: CompilerOptions
 ): ts.CompilerOptions => {
   const surfaceCapabilities = resolveSurfaceCapabilities(
-    options.surface ?? "clr"
+    options.surface ?? "clr",
+    { projectRoot: options.projectRoot }
   );
   const baseConfig: ts.CompilerOptions = {
     ...defaultTsConfig,
@@ -94,9 +305,9 @@ export const createProgram = (
   options: CompilerOptions
 ): Result<TsonicProgram, DiagnosticsCollector> => {
   const surface = options.surface ?? "clr";
-  const surfaceCapabilities = resolveSurfaceCapabilities(surface);
-  const jsRuntimeSurface = surfaceCapabilities.enableJsBuiltins;
-  const nodeAliasSurface = surfaceCapabilities.enableNodeModuleAliases;
+  const surfaceCapabilities = resolveSurfaceCapabilities(surface, {
+    projectRoot: options.projectRoot,
+  });
   const absolutePaths = filePaths.map((fp) => path.resolve(fp));
   const compilerContainingFile = fileURLToPath(import.meta.url);
   // creation.ts lives at: <repoRoot>/packages/frontend/src/program/creation.ts
@@ -107,19 +318,61 @@ export const createProgram = (
 
   const require = createRequire(import.meta.url);
 
-  const resolveTsonicPackageRoot = (pkgDirName: string): string | undefined => {
-    const siblingRoot = path.resolve(path.join(repoRoot, "..", pkgDirName));
-    const pkgJson = path.join(siblingRoot, "package.json");
-    if (fs.existsSync(pkgJson)) {
-      try {
-        const parsed = JSON.parse(fs.readFileSync(pkgJson, "utf-8")) as {
-          readonly name?: unknown;
-        };
-        if (parsed.name === `@tsonic/${pkgDirName}`) return siblingRoot;
-      } catch {
-        // Ignore invalid package.json.
-      }
+  const readPackageName = (pkgJsonPath: string): string | undefined => {
+    if (!fs.existsSync(pkgJsonPath)) return undefined;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8")) as {
+        readonly name?: unknown;
+      };
+      return typeof parsed.name === "string" ? parsed.name : undefined;
+    } catch {
+      return undefined;
     }
+  };
+
+  const resolveSiblingTsonicPackageRoot = (
+    pkgDirName: string
+  ): string | undefined => {
+    const expectedName = `@tsonic/${pkgDirName}`;
+    const siblingRepoRoot = path.resolve(path.join(repoRoot, "..", pkgDirName));
+
+    const repoPackageName = readPackageName(
+      path.join(siblingRepoRoot, "package.json")
+    );
+    if (repoPackageName === expectedName) return siblingRepoRoot;
+
+    const versionsRoot = path.join(siblingRepoRoot, "versions");
+    if (!fs.existsSync(versionsRoot)) return undefined;
+
+    const versionDirs = fs
+      .readdirSync(versionsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((left, right) => {
+        const leftNum = Number.parseInt(left, 10);
+        const rightNum = Number.parseInt(right, 10);
+        const leftIsNum = Number.isFinite(leftNum);
+        const rightIsNum = Number.isFinite(rightNum);
+        if (leftIsNum && rightIsNum) return rightNum - leftNum;
+        if (leftIsNum) return -1;
+        if (rightIsNum) return 1;
+        return right.localeCompare(left);
+      });
+
+    for (const versionDir of versionDirs) {
+      const candidateRoot = path.join(versionsRoot, versionDir);
+      const candidateName = readPackageName(
+        path.join(candidateRoot, "package.json")
+      );
+      if (candidateName === expectedName) return candidateRoot;
+    }
+
+    return undefined;
+  };
+
+  const resolveTsonicPackageRoot = (pkgDirName: string): string | undefined => {
+    const siblingRoot = resolveSiblingTsonicPackageRoot(pkgDirName);
+    if (siblingRoot) return siblingRoot;
 
     // Fall back to compiler-owned installation (keeps stdlib typings coherent)
     try {
@@ -134,48 +387,6 @@ export const createProgram = (
     return undefined;
   };
 
-  const nodejsPackageRoot = nodeAliasSurface
-    ? resolveTsonicPackageRoot("nodejs")
-    : undefined;
-  if (nodeAliasSurface && !nodejsPackageRoot) {
-    const collector = createDiagnosticsCollector();
-    return error({
-      ...collector,
-      diagnostics: [
-        createDiagnostic(
-          "TSN1004",
-          "error",
-          'Node.js surface requires "@tsonic/nodejs" to be installed.',
-          undefined,
-          "Run: tsonic add npm @tsonic/nodejs"
-        ),
-      ],
-      hasErrors: true,
-    });
-  }
-  const nodeSurfaceModuleShims =
-    buildJsSurfaceNodeModuleShims(nodejsPackageRoot);
-  if (nodeAliasSurface && nodeSurfaceModuleShims.trim() === "") {
-    const collector = createDiagnosticsCollector();
-    return error({
-      ...collector,
-      diagnostics: [
-        createDiagnostic(
-          "TSN1004",
-          "error",
-          "Failed to synthesize Node.js module shims from @tsonic/nodejs declarations.",
-          undefined,
-          "Ensure @tsonic/nodejs package files are intact and regenerate bindings."
-        ),
-      ],
-      hasErrors: true,
-    });
-  }
-
-  // Mandatory, compiler-owned type root (never optional).
-  // Prefer sibling checkout (dev) or fall back to installed package.
-  const mandatoryTypeRoot = resolveTsonicPackageRoot("globals");
-
   // Get declaration files from type roots.
   const userTypeRoots = options.typeRoots ?? [];
   const requestedTypeRoots = Array.from(
@@ -189,23 +400,27 @@ export const createProgram = (
       ? typeRoot
       : path.resolve(options.projectRoot, typeRoot);
 
-    if (fs.existsSync(absoluteRoot)) return absoluteRoot;
-
-    // If the typeRoot points at a missing @tsonic package under node_modules,
-    // try to resolve it from the compiler install or a sibling checkout.
+    // For @tsonic/* type roots, prefer compiler-owned package roots (sibling
+    // checkout or compiler installation) so the active compiler and language
+    // surfaces stay coherent during development and test runs.
+    //
+    // If no compiler-owned package is available, fall back to the project's
+    // resolved node_modules path.
     const match = typeRoot.match(
       /(?:^|[/\\\\])node_modules[/\\\\]@tsonic[/\\\\]([^/\\\\]+)[/\\\\]?$/
     );
-    if (!match) return absoluteRoot;
+    if (match) {
+      const pkgDirName = match[1];
+      if (pkgDirName) {
+        const compilerOwned = resolveTsonicPackageRoot(pkgDirName);
+        if (compilerOwned) return compilerOwned;
+      }
+    }
 
-    const pkgDirName = match[1];
-    if (!pkgDirName) return absoluteRoot;
-
-    return resolveTsonicPackageRoot(pkgDirName) ?? absoluteRoot;
+    if (fs.existsSync(absoluteRoot)) return absoluteRoot;
+    return absoluteRoot;
   });
-  const typeRoots = mandatoryTypeRoot
-    ? Array.from(new Set([mandatoryTypeRoot, ...resolvedRequestedTypeRoots]))
-    : resolvedRequestedTypeRoots;
+  const typeRoots = resolvedRequestedTypeRoots;
 
   // Debug log typeRoots
   if (options.verbose && typeRoots.length > 0) {
@@ -248,28 +463,58 @@ export const createProgram = (
     }
   }
 
-  // Combine source files, declaration files, and namespace index files
-  // Note: globals.d.ts should be in the BCL bindings directory (typeRoots)
-  const syntheticJsSurfaceGlobalsShim = path.resolve(
+  const coreGlobalsVirtualPath = path.join(
     options.projectRoot,
-    JS_SURFACE_GLOBALS_SHIM_FILE
+    ".tsonic",
+    "__core_globals__.d.ts"
   );
-  const syntheticJsSurfaceNodeShim = path.resolve(
+  const clrGlobalsVirtualPath = path.join(
     options.projectRoot,
-    JS_SURFACE_NODE_SHIM_FILE
+    ".tsonic",
+    "__clr_globals__.d.ts"
   );
+
+  const virtualDeclarationSources = new Map<string, string>([
+    [path.resolve(coreGlobalsVirtualPath), CORE_GLOBALS_DECLARATIONS],
+  ]);
+  if (surfaceCapabilities.includesClr) {
+    virtualDeclarationSources.set(
+      path.resolve(clrGlobalsVirtualPath),
+      CLR_GLOBALS_DECLARATIONS
+    );
+  }
+  const virtualDeclarationFiles = Array.from(virtualDeclarationSources.keys());
+
+  // Combine source files, declaration files, namespace index files, and
+  // compiler-owned virtual declarations.
   const allFiles = [
     ...absolutePaths,
     ...declarationFiles,
     ...namespaceIndexFiles,
-    ...(jsRuntimeSurface ? [syntheticJsSurfaceGlobalsShim] : []),
-    ...(nodeAliasSurface ? [syntheticJsSurfaceNodeShim] : []),
+    ...virtualDeclarationFiles,
   ];
 
   const tsOptions = createCompilerOptions(options);
 
   // Create custom compiler host with virtual .NET module declarations
   const host = ts.createCompilerHost(tsOptions);
+  const normalizeVirtualFilePath = (filePath: string): string =>
+    path.resolve(filePath);
+  const getVirtualDeclarationText = (filePath: string): string | undefined =>
+    virtualDeclarationSources.get(normalizeVirtualFilePath(filePath));
+
+  const originalFileExists = host.fileExists;
+  host.fileExists = (fileName: string): boolean => {
+    if (getVirtualDeclarationText(fileName) !== undefined) return true;
+    return originalFileExists(fileName);
+  };
+
+  const originalReadFile = host.readFile;
+  host.readFile = (fileName: string): string | undefined => {
+    const virtualText = getVirtualDeclarationText(fileName);
+    if (virtualText !== undefined) return virtualText;
+    return originalReadFile(fileName);
+  };
 
   // Map of .NET namespace names to their declaration file paths
   const namespaceFiles = new Map<string, string>();
@@ -295,24 +540,9 @@ export const createProgram = (
     onError?: (message: string) => void,
     shouldCreateNewSourceFile?: boolean
   ): ts.SourceFile | undefined => {
-    if (jsRuntimeSurface && fileName === syntheticJsSurfaceGlobalsShim) {
-      return ts.createSourceFile(
-        fileName,
-        JS_SURFACE_GLOBALS_SHIMS,
-        languageVersion,
-        true,
-        ts.ScriptKind.TS
-      );
-    }
-
-    if (nodeAliasSurface && fileName === syntheticJsSurfaceNodeShim) {
-      return ts.createSourceFile(
-        fileName,
-        nodeSurfaceModuleShims,
-        languageVersion,
-        true,
-        ts.ScriptKind.TS
-      );
+    const virtualText = getVirtualDeclarationText(fileName);
+    if (virtualText !== undefined) {
+      return ts.createSourceFile(fileName, virtualText, languageVersion, true);
     }
 
     // Check if this is a .NET namespace being imported
@@ -397,9 +627,8 @@ export const createProgram = (
           const subpath = match[2];
           if (!pkgDirName || !subpath) return undefined;
 
-          const siblingRoot = path.resolve(
-            path.join(repoRoot, "..", pkgDirName)
-          );
+          const siblingRoot = resolveSiblingTsonicPackageRoot(pkgDirName);
+          if (!siblingRoot) return undefined;
 
           const jsPath = path.join(siblingRoot, subpath);
           const dtsPath = jsPath.endsWith(".js")
@@ -461,50 +690,14 @@ export const createProgram = (
       (sf) => !sf.isDeclarationFile && absolutePaths.includes(sf.fileName)
     );
 
-  // Declaration files for TypeRegistry - include all @tsonic/* package declarations
-  // This includes:
-  // - @tsonic/globals (globals like String, Array, Promise)
-  // - @tsonic/dotnet (BCL type definitions like String$instance, Array$instance)
-  // - @tsonic/core (type aliases like int, long, etc.)
-  // - Any other @tsonic/* dependencies
-  // We need all of these for proper heritage chain resolution (e.g., String extends String$instance)
-  const packageRootCache = new Map<string, boolean>();
-  const isInTsonicPackage = (filePath: string): boolean => {
-    let dir = path.dirname(filePath);
-
-    while (true) {
-      const cached = packageRootCache.get(dir);
-      if (cached !== undefined) return cached;
-
-      const pkgJson = path.join(dir, "package.json");
-      if (fs.existsSync(pkgJson)) {
-        try {
-          const parsed = JSON.parse(fs.readFileSync(pkgJson, "utf-8")) as {
-            readonly name?: unknown;
-          };
-          const ok =
-            typeof parsed.name === "string" &&
-            parsed.name.startsWith("@tsonic/");
-          packageRootCache.set(dir, ok);
-          return ok;
-        } catch {
-          packageRootCache.set(dir, false);
-          return false;
-        }
-      }
-
-      const parent = path.dirname(dir);
-      if (parent === dir) {
-        packageRootCache.set(dir, false);
-        return false;
-      }
-      dir = parent;
-    }
-  };
-
+  // Declaration files for TypeRegistry:
+  // include all declarations in the program. ProgramContext later filters out
+  // CLR metadata packages that are represented in the CLR catalog.
+  // This keeps surface support generic: custom non-@tsonic surface packages are
+  // available to the frontend without any package-name allowlist.
   const declarationSourceFiles = program
     .getSourceFiles()
-    .filter((sf) => sf.isDeclarationFile && isInTsonicPackage(sf.fileName));
+    .filter((sf) => sf.isDeclarationFile);
 
   // Load .NET metadata files
   const metadata = loadDotnetMetadata(typeRoots);
@@ -523,13 +716,6 @@ export const createProgram = (
       },
     },
   });
-
-  if (jsRuntimeSurface) {
-    bindings.addBindings(
-      "tsonic:js-surface-builtins",
-      JS_SURFACE_BUILTIN_BINDINGS
-    );
-  }
 
   // Create resolver for import-driven CLR namespace discovery
   // Uses projectRoot (not sourceRoot) to resolve packages from node_modules

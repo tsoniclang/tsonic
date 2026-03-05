@@ -18,7 +18,10 @@ import {
 import { emitCSharpName } from "../naming-policy.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
-import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../core/format/backend-ast/types.js";
 
 // ============================================================================
 // CONTRACT: Emitter ONLY consumes proof markers.
@@ -64,6 +67,9 @@ const bucketFromMemberKind = (kind: string): MemberAccessBucket => {
 
 const stripGlobalPrefix = (name: string): string =>
   name.startsWith("global::") ? name.slice("global::".length) : name;
+
+const stripClrGenericArity = (typeName: string): string =>
+  typeName.replace(/`\d+$/, "");
 
 const getMemberAccessNarrowKey = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>
@@ -299,26 +305,6 @@ const isStaticTypeReference = (
   return true;
 };
 
-const isJsLikeSurface = (context: EmitterContext): boolean =>
-  context.options.surface === "js" || context.options.surface === "nodejs";
-
-const isJsLengthLikeType = (type: IrType | undefined): boolean =>
-  type?.kind === "arrayType" ||
-  (type?.kind === "primitiveType" && type.name === "string") ||
-  (type?.kind === "referenceType" &&
-    (type.name === "Array" ||
-      type.name === "ReadonlyArray" ||
-      type.name === "string"));
-
-const shouldRewriteJsLength = (
-  memberName: string,
-  receiverType: IrType | undefined,
-  context: EmitterContext
-): boolean =>
-  isJsLikeSurface(context) &&
-  memberName === "length" &&
-  isJsLengthLikeType(receiverType);
-
 /**
  * Emit a member access expression as CSharpExpressionAst
  */
@@ -479,30 +465,108 @@ export const emitMemberAccess = (
   if (expr.memberBinding) {
     const { type, member } = expr.memberBinding;
     const escapedMember = escapeCSharpIdentifier(member);
+    const bindingTypeLeaf = stripClrGenericArity(type).split(".").pop();
 
-    if (shouldRewriteJsLength(member, expr.object.inferredType, context)) {
-      const [objectAst, newContext] = emitExpressionAst(expr.object, context);
-      if (expr.isOptional) {
+    const receiverType = expr.object.inferredType;
+    if (
+      usage === "value" &&
+      receiverType?.kind === "arrayType" &&
+      !expr.memberBinding.isExtensionMethod &&
+      !(
+        type === "System.Array" ||
+        type === "global::System.Array" ||
+        type.startsWith("System.Array`") ||
+        type.startsWith("global::System.Array`")
+      )
+    ) {
+      const arityText = type.match(/`(\d+)$/)?.[1];
+      const genericArity = arityText ? Number.parseInt(arityText, 10) : 0;
+      if (genericArity <= 1) {
+        const [objectAst, withObject] = emitExpressionAst(expr.object, context);
+        let currentContext = withObject;
+
+        let wrapperTypeArguments: readonly CSharpTypeAst[] | undefined;
+        if (genericArity === 1) {
+          const [elementTypeAst, withElementType] = emitTypeAst(
+            receiverType.elementType,
+            currentContext
+          );
+          currentContext = withElementType;
+          wrapperTypeArguments = [elementTypeAst];
+        }
+
+        const wrapperAst: CSharpExpressionAst = {
+          kind: "objectCreationExpression",
+          type: {
+            kind: "identifierType",
+            name: `global::${stripClrGenericArity(type)}`,
+            typeArguments: wrapperTypeArguments,
+          },
+          arguments: [objectAst],
+        };
+
+        if (expr.isOptional) {
+          return [
+            {
+              kind: "conditionalMemberAccessExpression",
+              expression: wrapperAst,
+              memberName: escapedMember,
+            },
+            currentContext,
+          ];
+        }
+
         return [
           {
-            kind: "conditionalMemberAccessExpression",
-            expression: objectAst,
-            memberName: "Length",
+            kind: "memberAccessExpression",
+            expression: wrapperAst,
+            memberName: escapedMember,
           },
-          newContext,
+          currentContext,
         ];
       }
+    }
+
+    if (usage === "value" && expr.memberBinding.isExtensionMethod) {
+      const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+      const extensionCallAst: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: `global::${type}.${escapedMember}`,
+        },
+        arguments: [objectAst],
+      };
+
+      if (!expr.isOptional) {
+        return [extensionCallAst, newContext];
+      }
+
       return [
         {
-          kind: "memberAccessExpression",
-          expression: objectAst,
-          memberName: "Length",
+          kind: "conditionalExpression",
+          condition: {
+            kind: "binaryExpression",
+            operatorToken: "==",
+            left: objectAst,
+            right: { kind: "literalExpression", text: "null" },
+          },
+          whenTrue: { kind: "defaultExpression" },
+          whenFalse: extensionCallAst,
         },
         newContext,
       ];
     }
 
-    if (isStaticTypeReference(expr, context)) {
+    const isGlobalSimpleBindingAccess = (() => {
+      if (expr.object.kind !== "identifier") return false;
+      const isLocal = context.localNameMap?.has(expr.object.name) ?? false;
+      if (isLocal) return false;
+      if (!bindingTypeLeaf) return false;
+      return bindingTypeLeaf === expr.object.name;
+    })();
+
+    if (isStaticTypeReference(expr, context) || isGlobalSimpleBindingAccess) {
       // Static access: emit full CLR type and member with global:: prefix
       return [
         {
@@ -718,7 +782,7 @@ export const emitMemberAccess = (
   const memberName = emitMemberName(
     expr.object,
     objectType,
-    shouldRewriteJsLength(prop, objectType, context) ? "Length" : prop,
+    prop,
     context,
     usage
   );

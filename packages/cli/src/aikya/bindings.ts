@@ -15,7 +15,7 @@ export type ManifestDotnet = {
   readonly msbuildProperties?: Readonly<Record<string, string>>;
 };
 
-export type ManifestSurfaceMode = "clr" | "js" | "nodejs";
+export type ManifestSurfaceMode = string;
 
 export type AikyaProducer = {
   readonly tool: "tsonic" | "tsbindgen";
@@ -68,7 +68,7 @@ const errorWithCode = (
 };
 
 const isSurfaceMode = (value: unknown): value is ManifestSurfaceMode =>
-  value === "clr" || value === "js" || value === "nodejs";
+  typeof value === "string" && value.trim().length > 0;
 
 const readJsonObject = (
   path: string,
@@ -865,7 +865,7 @@ const resolveFromLegacyBindingsManifest = (
     );
   }
   const surfaceMode =
-    (surfaceModeRaw as ManifestSurfaceMode | undefined) ?? "clr";
+    (surfaceModeRaw as ManifestSurfaceMode | undefined)?.trim() ?? "clr";
 
   const dotnetParsed = parseManifestDotnet(manifest.dotnet, "dotnet");
   if (!dotnetParsed.ok) return dotnetParsed;

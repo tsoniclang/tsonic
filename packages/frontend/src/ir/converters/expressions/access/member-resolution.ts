@@ -272,6 +272,12 @@ export const extractTypeName = (
     return name;
   }
 
+  // Treat TS arrays as Array for binding lookup so surface packages can
+  // bind Array<T> members declaratively (no compiler hardcoding).
+  if (inferredType.kind === "arrayType") {
+    return "Array";
+  }
+
   // Handle intersection types: TypeName$instance & __TypeName$views
   // This happens when TypeScript expands a type alias to its underlying intersection
   // during property access (e.g., listener.prefixes returns HttpListenerPrefixCollection

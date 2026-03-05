@@ -51,8 +51,19 @@ export const loadDotnetMetadata = (
     for (const bindingsPath of bindingsFiles) {
       try {
         const content = fs.readFileSync(bindingsPath, "utf-8");
-        const bindingsFile = JSON.parse(content) as TsbindgenBindingsFile;
-        registry.loadBindingsFile(bindingsPath, bindingsFile);
+        const parsed = JSON.parse(content) as unknown;
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          typeof (parsed as { readonly namespace?: unknown }).namespace ===
+            "string" &&
+          Array.isArray((parsed as { readonly types?: unknown }).types)
+        ) {
+          registry.loadBindingsFile(
+            bindingsPath,
+            parsed as TsbindgenBindingsFile
+          );
+        }
       } catch (err) {
         // Silently skip files that can't be read or parsed
         // In production, we might want to emit a warning diagnostic

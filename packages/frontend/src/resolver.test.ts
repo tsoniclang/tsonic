@@ -23,21 +23,35 @@ describe("Module Resolver", () => {
       extraModuleTypes: readonly string[] = []
     ): BindingRegistry => {
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/nodejs-bindings.json", {
-        bindings: {
-          "@tsonic/nodejs/index.js": {
-            kind: "module",
-            assembly: "nodejs",
-            type: moduleType,
-          },
-        },
-      });
       const moduleNames = Array.from(
         new Set([
           moduleType.replace(/^nodejs\./, ""),
           ...extraModuleTypes.map((t) => t.replace(/^nodejs\./, "")),
         ])
       );
+      const moduleBindings = Object.fromEntries(
+        moduleNames.flatMap((moduleName) => [
+          [
+            `node:${moduleName}`,
+            {
+              kind: "module" as const,
+              assembly: "nodejs",
+              type: `nodejs.${moduleName}`,
+            },
+          ],
+          [
+            moduleName,
+            {
+              kind: "module" as const,
+              assembly: "nodejs",
+              type: `nodejs.${moduleName}`,
+            },
+          ],
+        ])
+      );
+      bindings.addBindings("/test/nodejs-bindings.json", {
+        bindings: moduleBindings,
+      });
       bindings.addBindings("/test/nodejs-types.json", {
         namespace: "nodejs",
         types: moduleNames.map((moduleName) => ({
@@ -145,17 +159,14 @@ describe("Module Resolver", () => {
       }
     });
 
-    it("should resolve node: aliases to canonical nodejs binding in nodejs surface", () => {
+    it("should resolve node: aliases when matching module bindings exist", () => {
       const bindings = createNodeBindings("nodejs.fs");
 
       const result = resolveImport(
         "node:fs",
         path.join(tempDir, "src", "index.ts"),
         sourceRoot,
-        {
-          bindings,
-          surface: "nodejs",
-        }
+        { bindings }
       );
 
       expect(result.ok).to.equal(true);
@@ -166,17 +177,14 @@ describe("Module Resolver", () => {
       }
     });
 
-    it("should resolve extended node aliases in nodejs surface", () => {
+    it("should resolve extended node aliases when module bindings exist", () => {
       const bindings = createNodeBindings("nodejs.url");
 
       const result = resolveImport(
         "node:url",
         path.join(tempDir, "src", "index.ts"),
         sourceRoot,
-        {
-          bindings,
-          surface: "nodejs",
-        }
+        { bindings }
       );
 
       expect(result.ok).to.equal(true);
@@ -185,17 +193,14 @@ describe("Module Resolver", () => {
       }
     });
 
-    it("should resolve bare node module aliases in nodejs surface", () => {
+    it("should resolve bare node module aliases when module bindings exist", () => {
       const bindings = createNodeBindings("nodejs.path");
 
       const result = resolveImport(
         "path",
         path.join(tempDir, "src", "index.ts"),
         sourceRoot,
-        {
-          bindings,
-          surface: "nodejs",
-        }
+        { bindings }
       );
 
       expect(result.ok).to.equal(true);
@@ -204,44 +209,13 @@ describe("Module Resolver", () => {
       }
     });
 
-    it("should reject node aliases in js surface", () => {
-      const bindings = createNodeBindings("nodejs.fs");
-
+    it("should reject node aliases when module bindings are missing", () => {
       const result = resolveImport(
         "node:fs",
         path.join(tempDir, "src", "index.ts"),
         sourceRoot,
         {
-          bindings,
-          surface: "js",
-        }
-      );
-
-      expect(result.ok).to.equal(false);
-      if (!result.ok) {
-        expect(result.error.code).to.equal("TSN1004");
-      }
-    });
-
-    it("should reject node aliases outside nodejs surface", () => {
-      const bindings = new BindingRegistry();
-      bindings.addBindings("/test/nodejs-bindings.json", {
-        bindings: {
-          "@tsonic/nodejs/index.js": {
-            kind: "module",
-            assembly: "nodejs",
-            type: "nodejs.fs",
-          },
-        },
-      });
-
-      const result = resolveImport(
-        "node:fs",
-        path.join(tempDir, "src", "index.ts"),
-        sourceRoot,
-        {
-          bindings,
-          surface: "clr",
+          bindings: new BindingRegistry(),
         }
       );
 

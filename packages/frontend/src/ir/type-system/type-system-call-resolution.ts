@@ -482,14 +482,39 @@ export const computeReceiverSubstitution = (
   const normalized = normalizeToNominal(state, receiverType);
   if (!normalized) return undefined;
 
-  const declaringTypeId = resolveTypeIdByName(state, declaringTypeTsName);
+  const arityHint =
+    normalized.typeArgs.length > 0 ? normalized.typeArgs.length : undefined;
+  const declaringTypeId =
+    resolveTypeIdByName(state, declaringTypeTsName, arityHint) ??
+    resolveTypeIdByName(state, declaringTypeTsName);
   if (!declaringTypeId) return undefined;
 
-  return state.nominalEnv.getInstantiation(
+  const nominalInstantiation = state.nominalEnv.getInstantiation(
     normalized.typeId,
     normalized.typeArgs,
     declaringTypeId
   );
+  if (nominalInstantiation) return nominalInstantiation;
+
+  // Structural fallback for array-backed receiver surfaces:
+  // If the call receiver is `T[]` and the declaring type is a 1-arity generic
+  // wrapper (for example, JS runtime facade wrappers around CLR arrays), map the
+  // declaring type parameter to the receiver element type by position.
+  //
+  // This is deterministic and only applies when nominal instantiation is absent.
+  if (receiverType.kind === "arrayType") {
+    const declaringTypeParams =
+      state.unifiedCatalog.getTypeParameters(declaringTypeId);
+    if (declaringTypeParams.length === 1) {
+      const only = declaringTypeParams[0];
+      if (!only) return undefined;
+      const fallback = new Map<string, IrType>();
+      fallback.set(only.name, receiverType.elementType);
+      return fallback;
+    }
+  }
+
+  return undefined;
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1246,18 +1271,110 @@ export const resolveCall = (
   let workingReturn = rawSig.returnType;
   let workingPredicate = rawSig.typePredicate;
 
+  const collectTypeParameterNames = (
+    type: IrType | undefined,
+    acc: Set<string>
+  ): void => {
+    if (!type) return;
+
+    switch (type.kind) {
+      case "typeParameterType":
+        acc.add(type.name);
+        return;
+      case "arrayType":
+        collectTypeParameterNames(type.elementType, acc);
+        return;
+      case "tupleType":
+        for (const e of type.elementTypes) {
+          collectTypeParameterNames(e, acc);
+        }
+        return;
+      case "dictionaryType":
+        collectTypeParameterNames(type.keyType, acc);
+        collectTypeParameterNames(type.valueType, acc);
+        return;
+      case "referenceType":
+        for (const t of type.typeArguments ?? []) {
+          collectTypeParameterNames(t, acc);
+        }
+        for (const m of type.structuralMembers ?? []) {
+          if (m.kind === "propertySignature") {
+            collectTypeParameterNames(m.type, acc);
+          } else {
+            for (const p of m.parameters) {
+              collectTypeParameterNames(p.type, acc);
+            }
+            collectTypeParameterNames(m.returnType, acc);
+          }
+        }
+        return;
+      case "unionType":
+      case "intersectionType":
+        for (const t of type.types) {
+          collectTypeParameterNames(t, acc);
+        }
+        return;
+      case "functionType":
+        for (const p of type.parameters) {
+          collectTypeParameterNames(p.type, acc);
+        }
+        collectTypeParameterNames(type.returnType, acc);
+        return;
+      default:
+        return;
+    }
+  };
+
+  const collectReceiverGenericNames = (): Set<string> => {
+    const names = new Set<string>();
+    for (const p of workingParams) {
+      collectTypeParameterNames(p, names);
+    }
+    collectTypeParameterNames(workingThisParam, names);
+    collectTypeParameterNames(workingReturn, names);
+    if (workingPredicate) {
+      collectTypeParameterNames(workingPredicate.targetType, names);
+    }
+    for (const methodTp of rawSig.typeParameters) {
+      names.delete(methodTp.name);
+    }
+    return names;
+  };
+
   // 3. Compute receiver substitution (class type params)
   if (
     effectiveReceiverType &&
     rawSig.declaringTypeTsName &&
     rawSig.declaringMemberName
   ) {
-    const receiverSubst = computeReceiverSubstitution(
+    let receiverSubst = computeReceiverSubstitution(
       state,
       effectiveReceiverType,
       rawSig.declaringTypeTsName,
       rawSig.declaringMemberName
     );
+
+    // Array receiver fallback:
+    // Some surfaces model JS-style array methods on generic wrapper declarations
+    // where nominal inheritance metadata may not connect `T[]` to the wrapper's
+    // type parameter. If nominal substitution is unavailable, and exactly one
+    // non-method type parameter remains in the signature, bind it to the array
+    // element type deterministically.
+    if (
+      (!receiverSubst || receiverSubst.size === 0) &&
+      effectiveReceiverType.kind === "arrayType"
+    ) {
+      const receiverGenericNames = collectReceiverGenericNames();
+      if (receiverGenericNames.size === 1) {
+        const [only] = receiverGenericNames;
+        if (only) {
+          receiverSubst = new Map<string, IrType>([
+            [only, effectiveReceiverType.elementType],
+          ]);
+        }
+      }
+    }
+
     if (receiverSubst && receiverSubst.size > 0) {
       workingParams = workingParams.map((p) =>
         p ? irSubstitute(p, receiverSubst) : undefined

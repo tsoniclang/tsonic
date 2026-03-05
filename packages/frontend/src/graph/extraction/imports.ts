@@ -27,7 +27,6 @@ export const extractImport = (
     {
       clrResolver: program.clrResolver,
       bindings: program.bindings,
-      surface: program.options.surface,
     }
   );
 

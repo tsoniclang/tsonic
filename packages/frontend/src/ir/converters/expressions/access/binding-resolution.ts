@@ -8,7 +8,7 @@
 import * as ts from "typescript";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { IrMemberExpression, IrType } from "../../../types.js";
+import { IrMemberExpression } from "../../../types.js";
 import { getSourceSpan } from "../helpers.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
@@ -17,11 +17,6 @@ import type { MemberBinding } from "../../../../program/bindings.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
 import { loadBindingsFromPath } from "../../../../program/bindings.js";
-import {
-  JS_SURFACE_EXTENSION_NAMESPACE_KEY,
-  getJsSurfaceReceiverCandidates,
-} from "../../../../surface/js-extension-contract.js";
-import { resolveSurfaceCapabilities } from "../../../../surface/profiles.js";
 import { extractTypeName } from "./member-resolution.js";
 
 /**
@@ -177,24 +172,70 @@ const disambiguateOverloadsByDeclaringType = (
   })();
 
   if (!raw || typeof raw !== "object") return undefined;
-  const types = (raw as { readonly types?: unknown }).types;
-  if (!Array.isArray(types)) return undefined;
 
-  const typeEntry = types.find((t) => {
-    if (!t || typeof t !== "object") return false;
-    const clrName = (t as { readonly clrName?: unknown }).clrName;
-    if (typeof clrName !== "string") return false;
-    return tsbindgenClrTypeNameToTsTypeName(clrName) === declaringTypeTsName;
-  }) as { readonly clrName?: unknown } | undefined;
-
-  const expectedClrType =
-    typeEntry && typeof typeEntry.clrName === "string"
-      ? typeEntry.clrName
-      : undefined;
+  const expectedClrType = resolveExpectedClrTypeFromBindings(
+    raw as Record<string, unknown>,
+    declaringTypeTsName
+  );
   if (!expectedClrType) return undefined;
 
   const filtered = overloads.filter((m) => m.binding.type === expectedClrType);
   return filtered.length > 0 ? filtered : undefined;
+};
+
+const resolveExpectedClrTypeFromBindings = (
+  raw: Record<string, unknown>,
+  declaringTypeTsName: string
+): string | undefined => {
+  const matchesDeclaringTsName = (clrTypeName: string): boolean => {
+    const tsName = tsbindgenClrTypeNameToTsTypeName(clrTypeName);
+    return (
+      tsName === declaringTypeTsName ||
+      tsName.toLowerCase() === declaringTypeTsName.toLowerCase()
+    );
+  };
+
+  // tsbindgen/full manifest shape
+  const types = raw.types;
+  if (Array.isArray(types)) {
+    const matchingClrTypes = new Set<string>();
+    for (const t of types) {
+      if (!t || typeof t !== "object") continue;
+      const clrName = (t as { readonly clrName?: unknown }).clrName;
+      if (typeof clrName !== "string") continue;
+      if (matchesDeclaringTsName(clrName)) {
+        matchingClrTypes.add(clrName);
+      }
+    }
+
+    if (matchingClrTypes.size === 1) {
+      const [only] = matchingClrTypes;
+      return only;
+    }
+    return undefined;
+  }
+
+  // simple manifest shape: { bindings: { name: { type: "Namespace.Type" } } }
+  const bindings = raw.bindings;
+  if (!bindings || typeof bindings !== "object" || Array.isArray(bindings)) {
+    return undefined;
+  }
+
+  const matchingClrTypes = new Set<string>();
+  for (const descriptor of Object.values(bindings)) {
+    if (!descriptor || typeof descriptor !== "object") continue;
+    const clrType = (descriptor as { readonly type?: unknown }).type;
+    if (typeof clrType !== "string") continue;
+    if (matchesDeclaringTsName(clrType)) {
+      matchingClrTypes.add(clrType);
+    }
+  }
+
+  if (matchingClrTypes.size === 1) {
+    const [only] = matchingClrTypes;
+    return only;
+  }
+  return undefined;
 };
 
 /**
@@ -367,8 +408,7 @@ export const resolveHierarchicalBindingFromMemberId = (
 export const resolveExtensionMethodsBinding = (
   node: ts.PropertyAccessExpression,
   propertyName: string,
-  ctx: ProgramContext,
-  receiverType?: IrType
+  ctx: ProgramContext
 ): IrMemberExpression["memberBinding"] => {
   const memberId = ctx.binding.resolvePropertyAccess(node);
   if (!memberId) return undefined;
@@ -464,31 +504,6 @@ export const resolveExtensionMethodsBinding = (
   })();
 
   if (!resolved) {
-    const surfaceCapabilities = resolveSurfaceCapabilities(ctx.surface);
-    const jsSurfaceResolved =
-      surfaceCapabilities.enableJsBuiltins && receiverType
-        ? resolveJsSurfaceExtensionBinding(
-            ctx,
-            receiverType,
-            propertyName,
-            callArgumentCount
-          )
-        : undefined;
-
-    if (jsSurfaceResolved) {
-      return {
-        assembly: jsSurfaceResolved.binding.assembly,
-        type: jsSurfaceResolved.binding.type,
-        member: jsSurfaceResolved.binding.member,
-        parameterModifiers:
-          jsSurfaceResolved.parameterModifiers &&
-          jsSurfaceResolved.parameterModifiers.length > 0
-            ? jsSurfaceResolved.parameterModifiers
-            : undefined,
-        isExtensionMethod: jsSurfaceResolved.isExtensionMethod,
-      };
-    }
-
     // Airplane-grade: if the TS surface indicates this member comes from an extension-method
     // module, failing to attach a CLR binding would emit an instance call that cannot exist
     // at runtime. Treat as a hard error rather than miscompiling.
@@ -539,24 +554,4 @@ export const resolveExtensionMethodsBinding = (
         : undefined,
     isExtensionMethod: resolved.isExtensionMethod,
   };
-};
-
-const resolveJsSurfaceExtensionBinding = (
-  ctx: ProgramContext,
-  receiverType: IrType,
-  propertyName: string,
-  callArgumentCount?: number
-) => {
-  for (const receiverCandidate of getJsSurfaceReceiverCandidates(
-    receiverType
-  )) {
-    const resolved = ctx.bindings.resolveExtensionMethodByKey(
-      JS_SURFACE_EXTENSION_NAMESPACE_KEY,
-      receiverCandidate,
-      propertyName,
-      callArgumentCount
-    );
-    if (resolved) return resolved;
-  }
-  return undefined;
 };

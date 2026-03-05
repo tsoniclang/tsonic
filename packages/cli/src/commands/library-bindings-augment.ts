@@ -1681,7 +1681,9 @@ export const augmentLibraryBindingsFromSource = (
 
   const absoluteEntryPoint = resolve(config.projectRoot, entryPoint);
   const absoluteSourceRoot = resolve(config.projectRoot, config.sourceRoot);
-  const surfaceCapabilities = resolveSurfaceCapabilities(config.surface);
+  const surfaceCapabilities = resolveSurfaceCapabilities(config.surface, {
+    workspaceRoot: config.workspaceRoot,
+  });
 
   const typeLibraries = config.libraries.filter((lib) => !lib.endsWith(".dll"));
   const allTypeRoots = [...config.typeRoots, ...typeLibraries].map((p) =>

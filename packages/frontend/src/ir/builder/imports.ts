@@ -13,8 +13,6 @@ import type { Binding } from "../binding/index.js";
 import type { TypeAuthority } from "../type-system/type-system.js";
 import { createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
-import { resolveNodeModuleAlias } from "../../resolver/node-module-aliases.js";
-import { resolveSurfaceCapabilities } from "../../surface/profiles.js";
 
 const getSourceSpan = (
   node: ts.Node
@@ -49,12 +47,8 @@ export const extractImports = (
       ts.isImportDeclaration(node) &&
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
-      const surfaceCapabilities = resolveSurfaceCapabilities(ctx.surface);
       const originalSource = node.moduleSpecifier.text;
-      const nodeModuleAlias = surfaceCapabilities.enableNodeModuleAliases
-        ? resolveNodeModuleAlias(originalSource, ctx.bindings)
-        : undefined;
-      const source = nodeModuleAlias?.canonicalSpecifier ?? originalSource;
+      const source = originalSource;
       const isLocal = source.startsWith(".") || source.startsWith("/");
 
       // Use import-driven resolution to detect CLR imports
@@ -73,11 +67,7 @@ export const extractImports = (
       // Check for module binding (Node.js API, etc.)
       const moduleBinding = ctx.bindings.getBinding(source);
       const moduleBindingType =
-        moduleBinding?.kind === "module"
-          ? moduleBinding.type
-          : nodeModuleAlias && resolvedNamespace
-            ? `${resolvedNamespace}.${nodeModuleAlias.moduleName}`
-            : undefined;
+        moduleBinding?.kind === "module" ? moduleBinding.type : undefined;
       const hasModuleBinding = moduleBindingType !== undefined;
 
       const specifiers = extractImportSpecifiers(

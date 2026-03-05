@@ -181,7 +181,7 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   no_lib_value="true"
   js_surface_globals_shim=""
   js_surface_shim=""
-  if [ "$surface_mode" = "js" ] || [ "$surface_mode" = "nodejs" ]; then
+  if [ "$surface_mode" = "@tsonic/js" ] || [ "$surface_mode" = "@tsonic/nodejs" ]; then
     js_surface_globals_shim="$tmp_dir/$fixture_name.js-surface-globals.d.ts"
     cat >"$js_surface_globals_shim" <<EOF
 import type { int, long, double } from "@tsonic/core/types.js";
@@ -346,7 +346,7 @@ declare global {
 export {};
 EOF
   fi
-  if [ "$surface_mode" = "nodejs" ]; then
+  if [ "$surface_mode" = "@tsonic/nodejs" ]; then
     js_surface_shim="$tmp_dir/$fixture_name.js-surface-shim.d.ts"
     cat >"$js_surface_shim" <<EOF
 declare module "node:assert" { export { assert } from "@tsonic/nodejs/index.js"; }

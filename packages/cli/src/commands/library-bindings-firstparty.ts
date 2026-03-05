@@ -3348,7 +3348,9 @@ export const generateFirstPartyLibraryBindings = (
 
   const absoluteEntryPoint = resolve(config.projectRoot, config.entryPoint);
   const absoluteSourceRoot = resolve(config.projectRoot, config.sourceRoot);
-  const surfaceCapabilities = resolveSurfaceCapabilities(config.surface);
+  const surfaceCapabilities = resolveSurfaceCapabilities(config.surface, {
+    workspaceRoot: config.workspaceRoot,
+  });
 
   const typeLibraries = config.libraries.filter(
     (library) => !library.endsWith(".dll")

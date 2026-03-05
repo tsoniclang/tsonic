@@ -9,7 +9,7 @@
  * bindings.json in its namespace directories will be recognized.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -333,12 +333,55 @@ export class ClrBindingsResolver {
 
       const pkgDirName = match[1];
       if (!pkgDirName) return null;
+      const expectedName = `@tsonic/${pkgDirName}`;
       const here = fileURLToPath(import.meta.url);
       // <repoRoot>/packages/frontend/src/resolver/clr-bindings-resolver.ts
       const repoRoot = dirname(dirname(dirname(dirname(dirname(here)))));
-      const siblingRoot = join(repoRoot, "..", pkgDirName);
-      if (!existsSync(join(siblingRoot, "package.json"))) return null;
-      return siblingRoot;
+      const siblingRepoRoot = join(repoRoot, "..", pkgDirName);
+
+      const readPackageName = (pkgJsonPath: string): string | null => {
+        if (!existsSync(pkgJsonPath)) return null;
+        try {
+          const raw = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as {
+            readonly name?: unknown;
+          };
+          return typeof raw.name === "string" ? raw.name : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const repoPackageName = readPackageName(
+        join(siblingRepoRoot, "package.json")
+      );
+      if (repoPackageName === expectedName) return siblingRepoRoot;
+
+      const versionsRoot = join(siblingRepoRoot, "versions");
+      if (!existsSync(versionsRoot)) return null;
+
+      const sorted = readdirSync(versionsRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort((left, right) => {
+          const leftNum = Number.parseInt(left, 10);
+          const rightNum = Number.parseInt(right, 10);
+          const leftIsNum = Number.isFinite(leftNum);
+          const rightIsNum = Number.isFinite(rightNum);
+          if (leftIsNum && rightIsNum) return rightNum - leftNum;
+          if (leftIsNum) return -1;
+          if (rightIsNum) return 1;
+          return right.localeCompare(left);
+        });
+
+      for (const versionDir of sorted) {
+        const candidateRoot = join(versionsRoot, versionDir);
+        const candidateName = readPackageName(
+          join(candidateRoot, "package.json")
+        );
+        if (candidateName === expectedName) return candidateRoot;
+      }
+
+      return null;
     };
 
     const direct = resolveViaRequire(this.require);

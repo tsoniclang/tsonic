@@ -12,9 +12,6 @@ import { isLocalImport } from "../types/module.js";
 import { ResolvedModule } from "./types.js";
 import { ClrBindingsResolver } from "./clr-bindings-resolver.js";
 import type { BindingRegistry } from "../program/bindings.js";
-import { resolveNodeModuleAlias } from "./node-module-aliases.js";
-import { resolveSurfaceCapabilities } from "../surface/profiles.js";
-import type { SurfaceMode } from "../program/types.js";
 
 /**
  * Options for import resolution
@@ -22,7 +19,6 @@ import type { SurfaceMode } from "../program/types.js";
 export type ResolveImportOptions = {
   readonly clrResolver?: ClrBindingsResolver;
   readonly bindings?: BindingRegistry;
-  readonly surface?: SurfaceMode;
 };
 
 /**
@@ -40,14 +36,7 @@ export const resolveImport = (
   opts?: ResolveImportOptions
 ): Result<ResolvedModule, Diagnostic> => {
   const bindings = opts?.bindings;
-  const surface = opts?.surface ?? "clr";
-  const surfaceCapabilities = resolveSurfaceCapabilities(surface);
-  const nodeAlias =
-    surfaceCapabilities.enableNodeModuleAliases && bindings
-      ? resolveNodeModuleAlias(importSpecifier, bindings)
-      : undefined;
-  const canonicalImportSpecifier =
-    nodeAlias?.canonicalSpecifier ?? importSpecifier;
+  const canonicalImportSpecifier = importSpecifier;
 
   const clrResolver = opts?.clrResolver;
 

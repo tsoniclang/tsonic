@@ -644,31 +644,55 @@ export const resolveTypeIdByName = (
   name: string,
   arity?: number
 ): TypeId | undefined => {
-  const direct =
-    state.aliasTable.get(name) ??
-    state.unifiedCatalog.resolveTsName(name) ??
-    state.unifiedCatalog.resolveClrName(name);
+  const directCandidates: TypeId[] = [];
+  const pushCandidate = (candidate: TypeId | undefined): void => {
+    if (!candidate) return;
+    if (
+      directCandidates.some(
+        (existing) => existing.stableId === candidate.stableId
+      )
+    ) {
+      return;
+    }
+    directCandidates.push(candidate);
+  };
 
-  if (arity === undefined) return direct;
+  pushCandidate(state.aliasTable.get(name));
+  pushCandidate(state.unifiedCatalog.resolveTsName(name));
+  pushCandidate(state.unifiedCatalog.resolveClrName(name));
 
-  if (direct) {
-    const directArity = state.unifiedCatalog.getTypeParameters(direct).length;
-    if (directArity === arity) return direct;
+  if (arity === undefined) {
+    return directCandidates[0];
   }
+
+  const matchesArity = (candidate: TypeId): boolean =>
+    state.unifiedCatalog.getTypeParameters(candidate).length === arity;
+
+  const directMatch = directCandidates.find(matchesArity);
+  if (directMatch) return directMatch;
 
   // Facade name without arity suffix → try tsbindgen's structural encoding.
   if (arity > 0) {
     const suffixed = `${name}_${arity}`;
-    const candidate =
-      state.aliasTable.get(suffixed) ??
-      state.unifiedCatalog.resolveTsName(suffixed) ??
-      state.unifiedCatalog.resolveClrName(suffixed);
+    const suffixedCandidates: TypeId[] = [];
+    const pushSuffixedCandidate = (candidate: TypeId | undefined): void => {
+      if (!candidate) return;
+      if (
+        suffixedCandidates.some(
+          (existing) => existing.stableId === candidate.stableId
+        )
+      ) {
+        return;
+      }
+      suffixedCandidates.push(candidate);
+    };
 
-    if (candidate) {
-      const candidateArity =
-        state.unifiedCatalog.getTypeParameters(candidate).length;
-      if (candidateArity === arity) return candidate;
-    }
+    pushSuffixedCandidate(state.aliasTable.get(suffixed));
+    pushSuffixedCandidate(state.unifiedCatalog.resolveTsName(suffixed));
+    pushSuffixedCandidate(state.unifiedCatalog.resolveClrName(suffixed));
+
+    const suffixedMatch = suffixedCandidates.find(matchesArity);
+    if (suffixedMatch) return suffixedMatch;
   }
 
   return undefined;

@@ -506,9 +506,12 @@ export const convertTypeReference = (
   binding: Binding,
   convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType => {
-  const rawTypeName = ts.isIdentifier(node.typeName)
-    ? node.typeName.text
-    : node.typeName.getText();
+  const entityNameToText = (entityName: ts.EntityName): string =>
+    ts.isIdentifier(entityName)
+      ? entityName.text
+      : `${entityNameToText(entityName.left)}.${entityName.right.text}`;
+
+  const rawTypeName = entityNameToText(node.typeName);
   const typeName = normalizeNamespaceAliasQualifiedName(
     normalizeSystemInternalQualifiedName(rawTypeName)
   );
@@ -983,9 +986,7 @@ export const convertTypeReference = (
             !!param &&
             !!param.default &&
             ts.isTypeReferenceNode(param.default) &&
-            (ts.isIdentifier(param.default.typeName)
-              ? param.default.typeName.text
-              : param.default.typeName.getText()) === "__";
+            entityNameToText(param.default.typeName) === "__";
 
           if (
             hasTsbindgenDefaultSentinel &&
@@ -998,9 +999,7 @@ export const convertTypeReference = (
               if (found) return;
 
               if (ts.isTypeReferenceNode(t)) {
-                const raw = ts.isIdentifier(t.typeName)
-                  ? t.typeName.text
-                  : t.typeName.getText();
+                const raw = entityNameToText(t.typeName);
                 const normalized = normalizeNamespaceAliasQualifiedName(
                   normalizeSystemInternalQualifiedName(raw)
                 );
