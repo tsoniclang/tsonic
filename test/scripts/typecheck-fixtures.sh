@@ -185,7 +185,6 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
     js_surface_globals_shim="$tmp_dir/$fixture_name.js-surface-globals.d.ts"
     cat >"$js_surface_globals_shim" <<EOF
 import type { int, long, double } from "@tsonic/core/types.js";
-import type { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 declare global {
   interface String {
@@ -194,7 +193,7 @@ declare global {
     toUpperCase(): string;
     toLowerCase(): string;
     indexOf(searchString: string, position?: int): int;
-    split(separator: string, limit?: int): List<string>;
+    split(separator: string, limit?: int): string[];
     includes(searchString: string, position?: int): boolean;
     startsWith(searchString: string, position?: int): boolean;
     endsWith(searchString: string, endPosition?: int): boolean;

@@ -57,6 +57,30 @@ describe("Frontend Surface Profiles", () => {
         join(projectRoot, "package.json"),
         JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
       );
+      const jsRoot = join(projectRoot, "node_modules", "@tsonic", "js");
+      mkdirSync(jsRoot, { recursive: true });
+      writeFileSync(
+        join(jsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(jsRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["types"],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
       const packageRoot = join(
         projectRoot,
         "node_modules",
@@ -91,19 +115,15 @@ describe("Frontend Surface Profiles", () => {
         projectRoot,
       });
       expect(caps.mode).to.equal("@acme/surface-web");
-      expect(caps.includesClr).to.equal(true);
-      expect(caps.requiredTypeRoots).to.include("node_modules/@tsonic/dotnet");
+      expect(caps.includesClr).to.equal(false);
+      expect(caps.requiredTypeRoots).to.not.include(
+        "node_modules/@tsonic/dotnet"
+      );
       expect(caps.requiredTypeRoots).to.include(resolve(packageRoot, "types"));
       expect(caps.requiredTypeRoots).to.include(
         resolve(packageRoot, "globals")
       );
-      expect(
-        caps.requiredTypeRoots.some(
-          (root) =>
-            root === "node_modules/@tsonic/js" ||
-            /[/\\]js[/\\]versions[/\\]\d+$/.test(root)
-        )
-      ).to.equal(true);
+      expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
       expect(caps.useStandardLib).to.equal(false);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
