@@ -73,7 +73,7 @@ describe("CLI Surface Profiles", () => {
     expect(caps.useStandardLib).to.equal(false);
   });
 
-  it("should load sibling manifest and include clr capabilities from extends chain", () => {
+  it("should prefer installed @tsonic/js manifest without clr inheritance", () => {
     const workspaceRoot = mkdtempSync(
       join(tmpdir(), "tsonic-surface-sibling-")
     );
@@ -82,19 +82,39 @@ describe("CLI Surface Profiles", () => {
         join(workspaceRoot, "package.json"),
         JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
       );
+      const jsRoot = join(workspaceRoot, "node_modules", "@tsonic", "js");
+      mkdirSync(jsRoot, { recursive: true });
+      writeFileSync(
+        join(jsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(jsRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["types"],
+            requiredNpmPackages: ["@tsonic/js"],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { workspaceRoot });
-      expect(caps.requiredNpmPackages).to.deep.equal([
-        "@tsonic/dotnet",
-        "@tsonic/js",
-      ]);
-      expect(
-        caps.requiredTypeRoots.some((root) =>
-          /[/\\]js[/\\]versions[/\\]\d+$/.test(root)
-        )
-      ).to.equal(true);
-      expect(caps.requiredTypeRoots).to.include("node_modules/@tsonic/dotnet");
-      expect(caps.includesClr).to.equal(true);
+      expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/js"]);
+      expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
+      expect(caps.requiredTypeRoots).to.not.include(
+        "node_modules/@tsonic/dotnet"
+      );
+      expect(caps.includesClr).to.equal(false);
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
     }
@@ -108,6 +128,31 @@ describe("CLI Surface Profiles", () => {
       writeFileSync(
         join(workspaceRoot, "package.json"),
         JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
+      );
+      const jsRoot = join(workspaceRoot, "node_modules", "@tsonic", "js");
+      mkdirSync(jsRoot, { recursive: true });
+      writeFileSync(
+        join(jsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(jsRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["types"],
+            requiredNpmPackages: ["@tsonic/js"],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
       );
       const packageRoot = join(
         workspaceRoot,
@@ -144,20 +189,17 @@ describe("CLI Surface Profiles", () => {
         workspaceRoot,
       });
       expect(caps.mode).to.equal("@acme/surface-web");
-      expect(caps.includesClr).to.equal(true);
+      expect(caps.includesClr).to.equal(false);
       expect(caps.requiredNpmPackages).to.deep.equal([
-        "@tsonic/dotnet",
         "@tsonic/js",
         "@acme/surface-web",
         "@acme/runtime",
       ]);
-      expect(
-        caps.requiredTypeRoots.some(
-          (root) =>
-            root === "node_modules/@tsonic/js" ||
-            /[/\\]js[/\\]versions[/\\]\d+$/.test(root)
-        )
-      ).to.equal(true);
+      expect(caps.requiredNpmPackages).to.not.include("@tsonic/dotnet");
+      expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
+      expect(caps.requiredTypeRoots).to.not.include(
+        "node_modules/@tsonic/dotnet"
+      );
       expect(caps.requiredTypeRoots).to.include(resolve(packageRoot, "types"));
       expect(caps.requiredTypeRoots).to.include(
         resolve(packageRoot, "globals")
