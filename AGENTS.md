@@ -63,6 +63,15 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
   - If versions are ahead (local > npm), it runs the full build + full test suite and publishes.
 - If you ever discover npm has a higher version than `main`, do not rewrite history: bump `main` to the next patch and publish from there.
 
+### Publish Need Verification (MANDATORY)
+
+- When asked whether publishing is needed, **do not rely on version numbers alone**.
+- Always verify both:
+  - version comparison (`local` vs `npm`), and
+  - content drift since the last version bump commit for each published package path.
+- Treat this as “needs publish” when package content changed after the last published-version commit, even if `local == npm` (indicates missing version bump).
+- In monorepos, run this check per publishable package (not just once at repo root).
+
 ## Compatibility Policy (IMPORTANT)
 
 - Backward compatibility is not required unless specifically and explicitly requested by the maintainer.
