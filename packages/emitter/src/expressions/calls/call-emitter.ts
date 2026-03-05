@@ -25,6 +25,7 @@ import {
   isAsyncWrapperType,
 } from "./call-analysis.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
+import { getJsArrayMethodRule } from "./js-array-rules.js";
 import type {
   CSharpBlockStatementAst,
   CSharpCatchClauseAst,
@@ -83,36 +84,6 @@ const getJsArrayElementType = (
   return undefined;
 };
 
-const JS_ARRAY_REWRITE_METHODS = new Set([
-  "at",
-  "concat",
-  "every",
-  "filter",
-  "find",
-  "findIndex",
-  "findLast",
-  "findLastIndex",
-  "flat",
-  "forEach",
-  "includes",
-  "indexOf",
-  "join",
-  "lastIndexOf",
-  "map",
-  "reduce",
-  "reduceRight",
-  "slice",
-  "some",
-]);
-
-const JS_ARRAY_METHODS_RETURN_ARRAY = new Set([
-  "concat",
-  "filter",
-  "flat",
-  "map",
-  "slice",
-]);
-
 const invokeStatic = (
   typeName: string,
   methodName: string,
@@ -141,7 +112,8 @@ const emitJsArrayInteropCall = (
   if (typeof expr.callee.property !== "string") return undefined;
 
   const methodName = expr.callee.property;
-  if (!JS_ARRAY_REWRITE_METHODS.has(methodName)) return undefined;
+  const rule = getJsArrayMethodRule(methodName);
+  if (!rule) return undefined;
 
   const receiverType = expr.callee.object.inferredType;
   if (!isJsArrayReceiverType(receiverType)) return undefined;
@@ -179,74 +151,96 @@ const emitJsArrayInteropCall = (
   );
   currentContext = argContext;
 
-  if (methodName === "map" && argAsts.length >= 1) {
-    const selectCall = invokeStatic(
-      "global::System.Linq.Enumerable",
-      "Select",
-      [receiverAst, argAsts[0] as CSharpExpressionAst]
-    );
-    return [
-      wrapIntCast(
-        needsIntCast(expr, methodName),
-        invokeStatic("global::System.Linq.Enumerable", "ToArray", [selectCall])
-      ),
-      currentContext,
-    ];
-  }
-
-  if (methodName === "filter" && argAsts.length >= 1) {
-    const whereCall = invokeStatic("global::System.Linq.Enumerable", "Where", [
-      receiverAst,
-      argAsts[0] as CSharpExpressionAst,
-    ]);
-    return [
-      wrapIntCast(
-        needsIntCast(expr, methodName),
-        invokeStatic("global::System.Linq.Enumerable", "ToArray", [whereCall])
-      ),
-      currentContext,
-    ];
-  }
-
-  if (
-    (methodName === "reduce" || methodName === "reduceRight") &&
-    argAsts.length >= 1
-  ) {
-    const source =
-      methodName === "reduceRight"
-        ? invokeStatic("global::System.Linq.Enumerable", "Reverse", [
-            receiverAst,
+  if (rule.strategy.kind === "linqSelectToArray") {
+    if (argAsts.length >= rule.strategy.minArgs) {
+      const selectCall = invokeStatic(
+        "global::System.Linq.Enumerable",
+        "Select",
+        [receiverAst, argAsts[0] as CSharpExpressionAst]
+      );
+      return [
+        wrapIntCast(
+          needsIntCast(expr, methodName),
+          invokeStatic("global::System.Linq.Enumerable", "ToArray", [
+            selectCall,
           ])
-        : receiverAst;
+        ),
+        currentContext,
+      ];
+    }
+  } else if (rule.strategy.kind === "linqWhereToArray") {
+    if (argAsts.length >= rule.strategy.minArgs) {
+      const whereCall = invokeStatic(
+        "global::System.Linq.Enumerable",
+        "Where",
+        [receiverAst, argAsts[0] as CSharpExpressionAst]
+      );
+      return [
+        wrapIntCast(
+          needsIntCast(expr, methodName),
+          invokeStatic("global::System.Linq.Enumerable", "ToArray", [whereCall])
+        ),
+        currentContext,
+      ];
+    }
+  } else if (rule.strategy.kind === "linqAggregate") {
+    if (argAsts.length >= rule.strategy.minArgs) {
+      const aggregateArgs: CSharpExpressionAst[] =
+        argAsts.length >= 2
+          ? [
+              receiverAst,
+              argAsts[1] as CSharpExpressionAst,
+              argAsts[0] as CSharpExpressionAst,
+            ]
+          : [receiverAst, argAsts[0] as CSharpExpressionAst];
 
-    const aggregateArgs: CSharpExpressionAst[] =
-      argAsts.length >= 2
-        ? [
-            source,
-            argAsts[1] as CSharpExpressionAst,
-            argAsts[0] as CSharpExpressionAst,
-          ]
-        : [source, argAsts[0] as CSharpExpressionAst];
+      return [
+        wrapIntCast(
+          needsIntCast(expr, methodName),
+          invokeStatic(
+            "global::System.Linq.Enumerable",
+            "Aggregate",
+            aggregateArgs
+          )
+        ),
+        currentContext,
+      ];
+    }
+  } else if (rule.strategy.kind === "linqAggregateReverse") {
+    if (argAsts.length >= rule.strategy.minArgs) {
+      const reversedSource = invokeStatic(
+        "global::System.Linq.Enumerable",
+        "Reverse",
+        [receiverAst]
+      );
 
-    return [
-      wrapIntCast(
-        needsIntCast(expr, methodName),
-        invokeStatic(
-          "global::System.Linq.Enumerable",
-          "Aggregate",
-          aggregateArgs
-        )
-      ),
-      currentContext,
-    ];
-  }
+      const aggregateArgs: CSharpExpressionAst[] =
+        argAsts.length >= 2
+          ? [
+              reversedSource,
+              argAsts[1] as CSharpExpressionAst,
+              argAsts[0] as CSharpExpressionAst,
+            ]
+          : [reversedSource, argAsts[0] as CSharpExpressionAst];
 
-  if (methodName === "join") {
+      return [
+        wrapIntCast(
+          needsIntCast(expr, methodName),
+          invokeStatic(
+            "global::System.Linq.Enumerable",
+            "Aggregate",
+            aggregateArgs
+          )
+        ),
+        currentContext,
+      ];
+    }
+  } else if (rule.strategy.kind === "stringJoin") {
     const separator: CSharpExpressionAst = (argAsts[0] as
       | CSharpExpressionAst
       | undefined) ?? {
       kind: "literalExpression",
-      text: '","',
+      text: JSON.stringify(rule.strategy.defaultSeparator),
     };
     return [
       wrapIntCast(
@@ -268,7 +262,7 @@ const emitJsArrayInteropCall = (
   };
 
   const producesArray =
-    JS_ARRAY_METHODS_RETURN_ARRAY.has(methodName) ||
+    rule.returnsArray ||
     expr.inferredType?.kind === "arrayType" ||
     (expr.inferredType?.kind === "referenceType" &&
       (expr.inferredType.name === "Array" ||

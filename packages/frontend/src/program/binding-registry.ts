@@ -39,6 +39,7 @@ export class BindingRegistry {
     Map<string, TsbindgenExport>
   >();
   private readonly tsSupertypes = new Map<string, Set<string>>();
+  private readonly clrTypeNames = new Set<string>();
 
   /**
    * Extension method index for instance-style calls.
@@ -326,6 +327,7 @@ export class BindingRegistry {
 
         // Index types for quick lookup by TS alias
         for (const type of ns.types) {
+          this.clrTypeNames.add(type.name);
           this.types.set(type.alias, type);
 
           // Index members for quick lookup (keyed by "typeAlias.memberAlias")
@@ -457,6 +459,7 @@ export class BindingRegistry {
           kind: kindFromBindings,
           members,
         };
+        this.clrTypeNames.add(tsbType.clrName);
 
         // Index the type by its TS name.
         this.types.set(typeBinding.alias, typeBinding);
@@ -533,6 +536,13 @@ export class BindingRegistry {
    */
   getType(tsAlias: string): TypeBinding | undefined {
     return this.types.get(tsAlias);
+  }
+
+  /**
+   * Check whether a CLR type name exists in loaded bindings.
+   */
+  hasClrTypeName(clrTypeName: string): boolean {
+    return this.clrTypeNames.has(clrTypeName);
   }
 
   /**
@@ -640,6 +650,8 @@ export class BindingRegistry {
     this.clrMemberOverloads.clear();
     this.extensionMethods.clear();
     this.tsbindgenExports.clear();
+    this.tsSupertypes.clear();
+    this.clrTypeNames.clear();
   }
 }
 

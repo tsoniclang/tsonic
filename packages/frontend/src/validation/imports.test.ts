@@ -105,6 +105,32 @@ const runValidation = (
 const codes = (result: ValidationResult): readonly string[] =>
   result.diagnostics.map((diag) => diag.code);
 
+const attachNodejsSurfaceBindings = (
+  testProgram: TsonicProgram,
+  moduleNames: readonly string[]
+): void => {
+  const uniqueModules = Array.from(new Set(moduleNames));
+  testProgram.bindings.addBindings("/test/node-types.json", {
+    namespace: "nodejs",
+    types: uniqueModules.map((moduleName) => ({
+      clrName: `nodejs.${moduleName}`,
+      assemblyName: "nodejs",
+      methods: [],
+      properties: [],
+      fields: [],
+    })),
+  });
+  testProgram.bindings.addBindings("/test/node-bindings.json", {
+    bindings: {
+      "@tsonic/nodejs/index.js": {
+        kind: "module",
+        assembly: "nodejs",
+        type: `nodejs.${uniqueModules[0] ?? "fs"}`,
+      },
+    },
+  });
+};
+
 describe("validateImports", () => {
   it("allows import type declarations from @tsonic/core modules", () => {
     const result = runValidation(`
@@ -186,15 +212,7 @@ describe("validateImports", () => {
       "/test",
       { surface: "nodejs" }
     );
-    testProgram.bindings.addBindings("/test/node-bindings.json", {
-      bindings: {
-        "@tsonic/nodejs/index.js": {
-          kind: "module",
-          assembly: "nodejs",
-          type: "nodejs.fs$instance",
-        },
-      },
-    });
+    attachNodejsSurfaceBindings(testProgram, ["fs"]);
 
     const result = validateImports(
       testProgram.sourceFile,
@@ -216,15 +234,7 @@ describe("validateImports", () => {
       "/test",
       { surface: "nodejs" }
     );
-    testProgram.bindings.addBindings("/test/node-bindings.json", {
-      bindings: {
-        "@tsonic/nodejs/index.js": {
-          kind: "module",
-          assembly: "nodejs",
-          type: "nodejs.fs$instance",
-        },
-      },
-    });
+    attachNodejsSurfaceBindings(testProgram, ["fs"]);
 
     const result = validateImports(
       testProgram.sourceFile,
@@ -246,15 +256,7 @@ describe("validateImports", () => {
       "/test",
       { surface: "nodejs" }
     );
-    testProgram.bindings.addBindings("/test/node-bindings.json", {
-      bindings: {
-        "@tsonic/nodejs/index.js": {
-          kind: "module",
-          assembly: "nodejs",
-          type: "nodejs.fs$instance",
-        },
-      },
-    });
+    attachNodejsSurfaceBindings(testProgram, ["fs"]);
 
     const result = validateImports(
       testProgram.sourceFile,
@@ -279,15 +281,7 @@ describe("validateImports", () => {
       "/test",
       { surface: "nodejs" }
     );
-    testProgram.bindings.addBindings("/test/node-bindings.json", {
-      bindings: {
-        "@tsonic/nodejs/index.js": {
-          kind: "module",
-          assembly: "nodejs",
-          type: "nodejs.path$instance",
-        },
-      },
-    });
+    attachNodejsSurfaceBindings(testProgram, ["path"]);
 
     const result = validateImports(
       testProgram.sourceFile,
@@ -309,15 +303,7 @@ describe("validateImports", () => {
       "/test",
       { surface: "nodejs" }
     );
-    testProgram.bindings.addBindings("/test/node-bindings.json", {
-      bindings: {
-        "@tsonic/nodejs/index.js": {
-          kind: "module",
-          assembly: "nodejs",
-          type: "nodejs.path$instance",
-        },
-      },
-    });
+    attachNodejsSurfaceBindings(testProgram, ["path"]);
 
     const result = validateImports(
       testProgram.sourceFile,
@@ -339,15 +325,7 @@ describe("validateImports", () => {
       "/test",
       { surface: "nodejs" }
     );
-    testProgram.bindings.addBindings("/test/node-bindings.json", {
-      bindings: {
-        "@tsonic/nodejs/index.js": {
-          kind: "module",
-          assembly: "nodejs",
-          type: "nodejs.fs$instance",
-        },
-      },
-    });
+    attachNodejsSurfaceBindings(testProgram, ["path", "fs"]);
 
     const result = validateImports(
       testProgram.sourceFile,
@@ -365,5 +343,35 @@ describe("validateImports", () => {
         message.includes("Default import is not supported")
       )
     ).to.equal(true);
+  });
+
+  it("rejects node aliases when nodejs CLR bindings are missing", () => {
+    const testProgram = createTestProgram(
+      `
+        import { fs } from "node:fs";
+        void fs;
+      `,
+      "/test/node-missing-bindings.ts",
+      "/test",
+      { surface: "nodejs" }
+    );
+    testProgram.bindings.addBindings("/test/node-bindings.json", {
+      bindings: {
+        "@tsonic/nodejs/index.js": {
+          kind: "module",
+          assembly: "nodejs",
+          type: "nodejs.fs",
+        },
+      },
+    });
+
+    const result = validateImports(
+      testProgram.sourceFile,
+      testProgram,
+      createDiagnosticsCollector()
+    );
+
+    expect(result.hasErrors).to.equal(true);
+    expect(codes(result)).to.include("TSN1004");
   });
 });

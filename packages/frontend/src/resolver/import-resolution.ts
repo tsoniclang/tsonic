@@ -39,16 +39,17 @@ export const resolveImport = (
   sourceRoot: string,
   opts?: ResolveImportOptions
 ): Result<ResolvedModule, Diagnostic> => {
+  const bindings = opts?.bindings;
   const surface = opts?.surface ?? "clr";
   const surfaceCapabilities = resolveSurfaceCapabilities(surface);
-  const nodeAlias = surfaceCapabilities.enableNodeModuleAliases
-    ? resolveNodeModuleAlias(importSpecifier)
-    : undefined;
+  const nodeAlias =
+    surfaceCapabilities.enableNodeModuleAliases && bindings
+      ? resolveNodeModuleAlias(importSpecifier, bindings)
+      : undefined;
   const canonicalImportSpecifier =
     nodeAlias?.canonicalSpecifier ?? importSpecifier;
 
   const clrResolver = opts?.clrResolver;
-  const bindings = opts?.bindings;
 
   if (isLocalImport(canonicalImportSpecifier)) {
     return resolveLocalImport(

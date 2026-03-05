@@ -133,6 +133,17 @@ describe("Program Creation", () => {
         path.join(nodejsRoot, "index.js"),
         "export const fs = {};\n"
       );
+      const nodejsInternalDir = path.join(nodejsRoot, "index", "internal");
+      fs.mkdirSync(nodejsInternalDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(nodejsInternalDir, "index.d.ts"),
+        `
+export declare const fs: typeof fs$instance;
+export abstract class fs$instance {
+  static readFileSync(path: string): string;
+}
+`
+      );
 
       const entryPath = path.join(srcDir, "index.ts");
       fs.writeFileSync(

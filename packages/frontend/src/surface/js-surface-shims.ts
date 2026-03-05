@@ -292,30 +292,8 @@ declare global {
 export {};
 `;
 
-const NODE_MODULE_ALIASES: ReadonlyArray<readonly [string, string]> = [
-  ["assert", "assert"],
-  ["buffer", "buffer"],
-  ["child_process", "child_process"],
-  ["crypto", "crypto"],
-  ["dgram", "dgram"],
-  ["dns", "dns"],
-  ["events", "events"],
-  ["fs", "fs"],
-  ["net", "net"],
-  ["os", "os"],
-  ["path", "path"],
-  ["process", "process"],
-  ["querystring", "querystring"],
-  ["readline", "readline"],
-  ["stream", "stream"],
-  ["timers", "timers"],
-  ["tls", "tls"],
-  ["url", "url"],
-  ["util", "util"],
-  ["zlib", "zlib"],
-];
-
 const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const NODE_MODULE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const collectNodeModuleMembers = (
   nodejsPackageRoot: string
@@ -342,123 +320,112 @@ const collectNodeModuleMembers = (
     ts.ScriptKind.TS
   );
 
-  const members = new Map<string, string[]>();
+  const classMembers = new Map<string, readonly string[]>();
+  const exportedConsts = new Set<string>();
 
-  const visit = (node: ts.Node): void => {
-    if (ts.isClassDeclaration(node) && node.name) {
-      const className = node.name.text;
-      if (className.endsWith("$instance")) {
-        const moduleName = className.slice(0, -"$instance".length);
-        const collected = new Set<string>();
-        for (const member of node.members) {
-          const modifiers = ts.canHaveModifiers(member)
-            ? ts.getModifiers(member)
-            : undefined;
-          const staticMember = modifiers?.some(
-            (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
-          );
-          if (!staticMember || !member.name) continue;
-          if (ts.isIdentifier(member.name)) {
-            collected.add(member.name.text);
-          } else if (ts.isStringLiteral(member.name)) {
-            collected.add(member.name.text);
-          }
-        }
-        members.set(
-          moduleName,
-          [...collected].sort((a, b) => a.localeCompare(b))
+  for (const statement of source.statements) {
+    if (ts.isClassDeclaration(statement) && statement.name) {
+      const className = statement.name.text;
+      if (!className.endsWith("$instance")) continue;
+      const moduleName = className.slice(0, -"$instance".length);
+      const collected = new Set<string>();
+      for (const member of statement.members) {
+        const modifiers = ts.canHaveModifiers(member)
+          ? ts.getModifiers(member)
+          : undefined;
+        const staticMember = modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
         );
+        if (!staticMember || !member.name) continue;
+        if (ts.isIdentifier(member.name)) {
+          collected.add(member.name.text);
+        } else if (ts.isStringLiteral(member.name)) {
+          collected.add(member.name.text);
+        }
+      }
+      classMembers.set(
+        moduleName,
+        [...collected].sort((a, b) => a.localeCompare(b))
+      );
+      continue;
+    }
+
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name)) continue;
+        exportedConsts.add(declaration.name.text);
+      }
+      continue;
+    }
+
+    if (ts.isTypeAliasDeclaration(statement)) {
+      const aliasName = statement.name.text;
+      if (!NODE_MODULE_NAME_RE.test(aliasName)) continue;
+      if (!ts.isTypeReferenceNode(statement.type)) continue;
+      const target = statement.type.typeName.getText(source);
+      if (target === `${aliasName}$instance`) {
+        exportedConsts.add(aliasName);
       }
     }
-    ts.forEachChild(node, visit);
-  };
+  }
 
-  visit(source);
-  return members;
+  const moduleMembers = new Map<string, readonly string[]>();
+  for (const moduleName of exportedConsts) {
+    if (!NODE_MODULE_NAME_RE.test(moduleName)) continue;
+    const members = classMembers.get(moduleName);
+    if (!members) continue;
+    moduleMembers.set(moduleName, members);
+  }
+
+  return moduleMembers;
 };
 
-export const JS_SURFACE_NODE_MODULE_SHIMS = `
-declare module "node:assert" { export { assert } from "@tsonic/nodejs/index.js"; }
-declare module "assert" { export { assert } from "@tsonic/nodejs/index.js"; }
-declare module "node:buffer" { export { buffer } from "@tsonic/nodejs/index.js"; }
-declare module "buffer" { export { buffer } from "@tsonic/nodejs/index.js"; }
-declare module "node:child_process" { export { child_process } from "@tsonic/nodejs/index.js"; }
-declare module "child_process" { export { child_process } from "@tsonic/nodejs/index.js"; }
-declare module "node:crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
-declare module "crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
-declare module "node:dgram" { export { dgram } from "@tsonic/nodejs/index.js"; }
-declare module "dgram" { export { dgram } from "@tsonic/nodejs/index.js"; }
-declare module "node:dns" { export { dns } from "@tsonic/nodejs/index.js"; }
-declare module "dns" { export { dns } from "@tsonic/nodejs/index.js"; }
-declare module "node:events" { export { events } from "@tsonic/nodejs/index.js"; }
-declare module "events" { export { events } from "@tsonic/nodejs/index.js"; }
-declare module "node:fs" { export { fs } from "@tsonic/nodejs/index.js"; }
-declare module "fs" { export { fs } from "@tsonic/nodejs/index.js"; }
-declare module "node:net" { export { net } from "@tsonic/nodejs/index.js"; }
-declare module "net" { export { net } from "@tsonic/nodejs/index.js"; }
-declare module "node:os" { export { os } from "@tsonic/nodejs/index.js"; }
-declare module "os" { export { os } from "@tsonic/nodejs/index.js"; }
-declare module "node:path" { export { path } from "@tsonic/nodejs/index.js"; }
-declare module "path" { export { path } from "@tsonic/nodejs/index.js"; }
-declare module "node:process" { export { process } from "@tsonic/nodejs/index.js"; }
-declare module "process" { export { process } from "@tsonic/nodejs/index.js"; }
-declare module "node:querystring" { export { querystring } from "@tsonic/nodejs/index.js"; }
-declare module "querystring" { export { querystring } from "@tsonic/nodejs/index.js"; }
-declare module "node:readline" { export { readline } from "@tsonic/nodejs/index.js"; }
-declare module "readline" { export { readline } from "@tsonic/nodejs/index.js"; }
-declare module "node:stream" { export { stream } from "@tsonic/nodejs/index.js"; }
-declare module "stream" { export { stream } from "@tsonic/nodejs/index.js"; }
-declare module "node:timers" { export { timers } from "@tsonic/nodejs/index.js"; }
-declare module "timers" { export { timers } from "@tsonic/nodejs/index.js"; }
-declare module "node:tls" { export { tls } from "@tsonic/nodejs/index.js"; }
-declare module "tls" { export { tls } from "@tsonic/nodejs/index.js"; }
-declare module "node:url" { export { url } from "@tsonic/nodejs/index.js"; }
-declare module "url" { export { url } from "@tsonic/nodejs/index.js"; }
-declare module "node:util" { export { util } from "@tsonic/nodejs/index.js"; }
-declare module "util" { export { util } from "@tsonic/nodejs/index.js"; }
-declare module "node:zlib" { export { zlib } from "@tsonic/nodejs/index.js"; }
-declare module "zlib" { export { zlib } from "@tsonic/nodejs/index.js"; }
-`;
-
-const renderNodeModuleDeclaration = (
-  specifier: string,
+const buildCanonicalNodeModuleDeclaration = (
   moduleName: string,
   members: readonly string[] | undefined
 ): string => {
-  if (!members || members.length === 0) {
-    return `declare module "${specifier}" { export { ${moduleName} } from "@tsonic/nodejs/index.js"; }`;
-  }
+  const canonicalSpecifier = `node:${moduleName}`;
+  const exports = [
+    `  export { ${moduleName} } from "@tsonic/nodejs/index.js";`,
+    ...(members ?? [])
+      .filter((member) => IDENTIFIER_RE.test(member))
+      .map(
+        (member) =>
+          `  export const ${member}: typeof import("@tsonic/nodejs/index.js").${moduleName}.${member};`
+      ),
+  ].join("\n");
+  return `declare module "${canonicalSpecifier}" {\n${exports}\n}`;
+};
 
-  const exports = members
-    .filter((member) => IDENTIFIER_RE.test(member))
-    .map(
-      (member) =>
-        `  export const ${member}: typeof import("@tsonic/nodejs/index.js").${moduleName}.${member};`
-    )
-    .join("\n");
+const renderNodeModuleDeclarations = (
+  moduleName: string,
+  members: readonly string[] | undefined
+): readonly string[] => [
+  buildCanonicalNodeModuleDeclaration(moduleName, members),
+  `declare module "${moduleName}" { export * from "node:${moduleName}"; }`,
+];
 
-  return `declare module "${specifier}" {\n${exports}\n}`;
+const buildNodeSurfaceModuleShimsFromMembers = (
+  membersByModule: ReadonlyMap<string, readonly string[]>
+): string => {
+  const moduleNames = Array.from(membersByModule.keys()).sort((a, b) =>
+    a.localeCompare(b)
+  );
+
+  const declarations = moduleNames.flatMap((moduleName) =>
+    renderNodeModuleDeclarations(moduleName, membersByModule.get(moduleName))
+  );
+
+  return declarations.join("\n");
 };
 
 export const buildJsSurfaceNodeModuleShims = (
   nodejsPackageRoot: string | undefined
 ): string => {
-  if (!nodejsPackageRoot) return JS_SURFACE_NODE_MODULE_SHIMS;
+  if (!nodejsPackageRoot) return "";
 
   const membersByModule = collectNodeModuleMembers(nodejsPackageRoot);
-  if (!membersByModule) return JS_SURFACE_NODE_MODULE_SHIMS;
+  if (!membersByModule) return "";
 
-  const declarations: string[] = [];
-  for (const [specifier, moduleName] of NODE_MODULE_ALIASES) {
-    const canonicalSpecifier = `node:${specifier}`;
-    const members = membersByModule.get(moduleName);
-    declarations.push(
-      renderNodeModuleDeclaration(canonicalSpecifier, moduleName, members)
-    );
-    declarations.push(
-      `declare module "${specifier}" { export * from "${canonicalSpecifier}"; }`
-    );
-  }
-
-  return declarations.join("\n");
+  return buildNodeSurfaceModuleShimsFromMembers(membersByModule);
 };

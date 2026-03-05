@@ -17,6 +17,10 @@ import type { MemberBinding } from "../../../../program/bindings.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
 import { loadBindingsFromPath } from "../../../../program/bindings.js";
+import {
+  JS_SURFACE_EXTENSION_NAMESPACE_KEY,
+  getJsSurfaceReceiverCandidates,
+} from "../../../../surface/js-extension-contract.js";
 import { resolveSurfaceCapabilities } from "../../../../surface/profiles.js";
 import { extractTypeName } from "./member-resolution.js";
 
@@ -537,46 +541,6 @@ export const resolveExtensionMethodsBinding = (
   };
 };
 
-const JS_SURFACE_NAMESPACE_KEY = "Tsonic_JSRuntime";
-
-const getJsSurfaceReceiverCandidates = (
-  receiverType: IrType
-): readonly string[] => {
-  if (receiverType.kind === "primitiveType") {
-    switch (receiverType.name) {
-      case "string":
-        return ["String", "string"];
-      case "number":
-        return ["Double", "double", "number"];
-      case "int":
-        return ["Int32", "int"];
-      case "boolean":
-        return ["Boolean", "bool", "boolean"];
-      default:
-        return [receiverType.name];
-    }
-  }
-
-  if (receiverType.kind === "referenceType") {
-    const candidates = new Set<string>([receiverType.name]);
-    const clrName =
-      receiverType.resolvedClrType ?? receiverType.typeId?.clrName;
-    if (clrName) {
-      const simple = clrName.includes(".")
-        ? clrName.slice(clrName.lastIndexOf(".") + 1)
-        : clrName;
-      candidates.add(simple);
-    }
-    return Array.from(candidates);
-  }
-
-  if (receiverType.kind === "arrayType") {
-    return ["Array", "JSArray_1", "List_1"];
-  }
-
-  return [];
-};
-
 const resolveJsSurfaceExtensionBinding = (
   ctx: ProgramContext,
   receiverType: IrType,
@@ -587,7 +551,7 @@ const resolveJsSurfaceExtensionBinding = (
     receiverType
   )) {
     const resolved = ctx.bindings.resolveExtensionMethodByKey(
-      JS_SURFACE_NAMESPACE_KEY,
+      JS_SURFACE_EXTENSION_NAMESPACE_KEY,
       receiverCandidate,
       propertyName,
       callArgumentCount

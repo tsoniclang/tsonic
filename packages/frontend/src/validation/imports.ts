@@ -84,7 +84,7 @@ export const validateImportDeclaration = (
     return addDiagnostic(collector, { ...result.error, location });
   }
 
-  const nodeAlias = resolveNodeModuleAlias(importPath);
+  const nodeAlias = resolveNodeModuleAlias(importPath, program.bindings);
   if (nodeAlias) {
     if (node.importClause?.name) {
       return addDiagnostic(

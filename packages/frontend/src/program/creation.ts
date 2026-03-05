@@ -8,7 +8,11 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { Result, ok, error } from "../types/result.js";
-import { DiagnosticsCollector } from "../types/diagnostic.js";
+import {
+  createDiagnostic,
+  createDiagnosticsCollector,
+  DiagnosticsCollector,
+} from "../types/diagnostic.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
 import { defaultTsConfig } from "./config.js";
 import { loadDotnetMetadata } from "./metadata.js";
@@ -21,6 +25,7 @@ import {
   JS_SURFACE_GLOBALS_SHIMS,
   buildJsSurfaceNodeModuleShims,
 } from "../surface/js-surface-shims.js";
+import { JS_SURFACE_BUILTIN_BINDINGS } from "../surface/js-surface-builtins.js";
 const JS_SURFACE_GLOBALS_SHIM_FILE = "__tsonic_surface_globals__.d.ts";
 const JS_SURFACE_NODE_SHIM_FILE = "__tsonic_surface_node_modules__.d.ts";
 
@@ -132,8 +137,40 @@ export const createProgram = (
   const nodejsPackageRoot = nodeAliasSurface
     ? resolveTsonicPackageRoot("nodejs")
     : undefined;
+  if (nodeAliasSurface && !nodejsPackageRoot) {
+    const collector = createDiagnosticsCollector();
+    return error({
+      ...collector,
+      diagnostics: [
+        createDiagnostic(
+          "TSN1004",
+          "error",
+          'Node.js surface requires "@tsonic/nodejs" to be installed.',
+          undefined,
+          "Run: tsonic add npm @tsonic/nodejs"
+        ),
+      ],
+      hasErrors: true,
+    });
+  }
   const nodeSurfaceModuleShims =
     buildJsSurfaceNodeModuleShims(nodejsPackageRoot);
+  if (nodeAliasSurface && nodeSurfaceModuleShims.trim() === "") {
+    const collector = createDiagnosticsCollector();
+    return error({
+      ...collector,
+      diagnostics: [
+        createDiagnostic(
+          "TSN1004",
+          "error",
+          "Failed to synthesize Node.js module shims from @tsonic/nodejs declarations.",
+          undefined,
+          "Ensure @tsonic/nodejs package files are intact and regenerate bindings."
+        ),
+      ],
+      hasErrors: true,
+    });
+  }
 
   // Mandatory, compiler-owned type root (never optional).
   // Prefer sibling checkout (dev) or fall back to installed package.
@@ -488,79 +525,10 @@ export const createProgram = (
   });
 
   if (jsRuntimeSurface) {
-    bindings.addBindings("tsonic:js-surface-builtins", {
-      bindings: {
-        console: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.console",
-        },
-        Math: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.Math",
-        },
-        JSON: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.JSON",
-        },
-        Date: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.Date",
-        },
-        RegExp: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.RegExp",
-        },
-        Map: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.Map",
-        },
-        Set: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.Set",
-        },
-        WeakMap: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.WeakMap",
-        },
-        WeakSet: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.WeakSet",
-        },
-        parseInt: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.Globals",
-          csharpName: "Globals.parseInt",
-        },
-        parseFloat: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.Globals",
-          csharpName: "Globals.parseFloat",
-        },
-        isFinite: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.Globals",
-          csharpName: "Globals.isFinite",
-        },
-        isNaN: {
-          kind: "global",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.Globals",
-          csharpName: "Globals.isNaN",
-        },
-      },
-    });
+    bindings.addBindings(
+      "tsonic:js-surface-builtins",
+      JS_SURFACE_BUILTIN_BINDINGS
+    );
   }
 
   // Create resolver for import-driven CLR namespace discovery

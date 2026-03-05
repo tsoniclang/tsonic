@@ -183,6 +183,57 @@ describe("Import Handling", () => {
     );
   });
 
+  it("should infer module-object namespace imports from resolvedClrType name (no hardcoded module list)", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "node:child_process",
+          isLocal: false,
+          isClr: false,
+          resolvedClrType: "nodejs.child_process",
+          specifiers: [
+            {
+              kind: "named",
+              name: "child_process",
+              localName: "cp",
+              isType: false,
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "cp",
+              },
+              property: "exec",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [{ kind: "literal", value: "echo hi" }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include('global::nodejs.child_process.exec("echo hi")');
+  });
+
   it("should lower namespace imports from node aliases to module CLR namespaces", () => {
     const module: IrModule = {
       kind: "module",
