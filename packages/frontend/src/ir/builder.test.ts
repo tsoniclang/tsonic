@@ -256,9 +256,11 @@ describe("IR Builder", () => {
         void join;
       `;
 
-      const { testProgram, ctx, options: baseOptions } = createTestProgram(
-        source
-      );
+      const {
+        testProgram,
+        ctx,
+        options: baseOptions,
+      } = createTestProgram(source);
       const options = { ...baseOptions, surface: "nodejs" as const };
       (ctx as { surface?: "nodejs" }).surface = "nodejs";
 
@@ -276,6 +278,18 @@ describe("IR Builder", () => {
               }
             : { isClr: false },
       };
+      ctx.bindings.addBindings("/x/node-types.json", {
+        namespace: "nodejs",
+        types: [
+          {
+            clrName: "nodejs.path",
+            assemblyName: "nodejs",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
 
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");

@@ -302,13 +302,15 @@ const createModuleImportBinding = (
   clrNamespace: string | undefined
 ): { localName: string; importBinding: ImportBinding } | null => {
   const localName = spec.localName;
-  const moduleObjectExports = new Set([
-    "fs",
-    "path",
-    "crypto",
-    "os",
-    "process",
-  ]);
+  const normalizedModuleClrType = moduleClrType.startsWith("global::")
+    ? moduleClrType.slice("global::".length)
+    : moduleClrType;
+  const moduleObjectName = (() => {
+    const lastDot = normalizedModuleClrType.lastIndexOf(".");
+    return lastDot >= 0
+      ? normalizedModuleClrType.slice(lastDot + 1)
+      : normalizedModuleClrType;
+  })();
 
   if (spec.kind === "namespace") {
     return {
@@ -341,8 +343,9 @@ const createModuleImportBinding = (
       };
     }
 
-    // Canonical case: import { fs } from "node:fs"  -> bind local fs to module container type.
-    if (moduleObjectExports.has(spec.name)) {
+    // Canonical module-object import:
+    // import { fs } from "node:fs"  -> bind local fs to module container type.
+    if (spec.name === moduleObjectName) {
       return {
         localName,
         importBinding: {

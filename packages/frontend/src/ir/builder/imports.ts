@@ -52,7 +52,7 @@ export const extractImports = (
       const surfaceCapabilities = resolveSurfaceCapabilities(ctx.surface);
       const originalSource = node.moduleSpecifier.text;
       const nodeModuleAlias = surfaceCapabilities.enableNodeModuleAliases
-        ? resolveNodeModuleAlias(originalSource)
+        ? resolveNodeModuleAlias(originalSource, ctx.bindings)
         : undefined;
       const source = nodeModuleAlias?.canonicalSpecifier ?? originalSource;
       const isLocal = source.startsWith(".") || source.startsWith("/");

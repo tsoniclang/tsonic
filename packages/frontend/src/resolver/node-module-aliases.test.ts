@@ -1,34 +1,31 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { resolveNodeModuleAlias } from "./node-module-aliases.js";
+import { BindingRegistry } from "../program/bindings.js";
 
 describe("Node Module Aliases", () => {
   const expectedCanonical = "@tsonic/nodejs/index.js";
+  const makeNodeBindings = (
+    moduleNames: readonly string[]
+  ): BindingRegistry => {
+    const bindings = new BindingRegistry();
+    bindings.addBindings("/test/nodejs/bindings.json", {
+      namespace: "nodejs",
+      types: moduleNames.map((moduleName) => ({
+        clrName: `nodejs.${moduleName}`,
+        assemblyName: "nodejs",
+        methods: [],
+        properties: [],
+        fields: [],
+      })),
+    });
+    return bindings;
+  };
 
   it("should canonicalize all supported node aliases", () => {
     const cases: Array<{
       readonly specifier: string;
-      readonly moduleName:
-        | "assert"
-        | "buffer"
-        | "child_process"
-        | "crypto"
-        | "dgram"
-        | "dns"
-        | "events"
-        | "fs"
-        | "net"
-        | "os"
-        | "path"
-        | "process"
-        | "querystring"
-        | "readline"
-        | "stream"
-        | "timers"
-        | "tls"
-        | "url"
-        | "util"
-        | "zlib";
+      readonly moduleName: string;
     }> = [
       { specifier: "node:assert", moduleName: "assert" },
       { specifier: "assert", moduleName: "assert" },
@@ -71,9 +68,10 @@ describe("Node Module Aliases", () => {
       { specifier: "node:zlib", moduleName: "zlib" },
       { specifier: "zlib", moduleName: "zlib" },
     ];
+    const bindings = makeNodeBindings(cases.map((c) => c.moduleName));
 
     for (const testCase of cases) {
-      const resolved = resolveNodeModuleAlias(testCase.specifier);
+      const resolved = resolveNodeModuleAlias(testCase.specifier, bindings);
       expect(resolved).to.not.equal(undefined);
       if (!resolved) continue;
       expect(resolved.canonicalSpecifier).to.equal(expectedCanonical);
@@ -82,8 +80,18 @@ describe("Node Module Aliases", () => {
   });
 
   it("should return undefined for unsupported modules", () => {
-    expect(resolveNodeModuleAlias("node:http")).to.equal(undefined);
-    expect(resolveNodeModuleAlias("http")).to.equal(undefined);
-    expect(resolveNodeModuleAlias("node:vm")).to.equal(undefined);
+    const bindings = makeNodeBindings(["fs", "path"]);
+    expect(resolveNodeModuleAlias("node:http", bindings)).to.equal(undefined);
+    expect(resolveNodeModuleAlias("http", bindings)).to.equal(undefined);
+    expect(resolveNodeModuleAlias("node:vm", bindings)).to.equal(undefined);
+  });
+
+  it("should reject malformed node specifiers", () => {
+    const bindings = makeNodeBindings(["fs"]);
+    expect(resolveNodeModuleAlias("node:fs/promises", bindings)).to.equal(
+      undefined
+    );
+    expect(resolveNodeModuleAlias("node:", bindings)).to.equal(undefined);
+    expect(resolveNodeModuleAlias("@scope/pkg", bindings)).to.equal(undefined);
   });
 });

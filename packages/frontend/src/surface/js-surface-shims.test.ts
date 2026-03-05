@@ -2,7 +2,6 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import {
   JS_SURFACE_GLOBALS_SHIMS,
-  JS_SURFACE_NODE_MODULE_SHIMS,
   buildJsSurfaceNodeModuleShims,
 } from "./js-surface-shims.js";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -43,25 +42,6 @@ describe("JS Surface Shims", () => {
     expect(JS_SURFACE_GLOBALS_SHIMS).to.not.include("unshift(");
   });
 
-  it("declares node alias modules for both node:* and bare specifiers", () => {
-    const requiredNodeAliases = [
-      'declare module "node:fs" { export { fs } from "@tsonic/nodejs/index.js"; }',
-      'declare module "fs" { export { fs } from "@tsonic/nodejs/index.js"; }',
-      'declare module "node:path" { export { path } from "@tsonic/nodejs/index.js"; }',
-      'declare module "path" { export { path } from "@tsonic/nodejs/index.js"; }',
-      'declare module "node:crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }',
-      'declare module "crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }',
-      'declare module "node:process" { export { process } from "@tsonic/nodejs/index.js"; }',
-      'declare module "process" { export { process } from "@tsonic/nodejs/index.js"; }',
-      'declare module "node:os" { export { os } from "@tsonic/nodejs/index.js"; }',
-      'declare module "os" { export { os } from "@tsonic/nodejs/index.js"; }',
-    ] as const;
-
-    for (const alias of requiredNodeAliases) {
-      expect(JS_SURFACE_NODE_MODULE_SHIMS).to.include(alias);
-    }
-  });
-
   it("builds member-level node module shims when nodejs internal declarations are available", () => {
     const root = mkdtempSync(join(tmpdir(), "tsonic-node-shims-"));
     try {
@@ -74,14 +54,19 @@ export abstract class path$instance {
   static join(...parts: string[]): string;
   static extname(path: string): string;
 }
+export declare const path: typeof path$instance;
 export abstract class fs$instance {
   static existsSync(path: string): boolean;
 }
+export declare const fs: typeof fs$instance;
 `
       );
 
       const generated = buildJsSurfaceNodeModuleShims(root);
       expect(generated).to.include('declare module "node:path" {');
+      expect(generated).to.include(
+        'export { path } from "@tsonic/nodejs/index.js";'
+      );
       expect(generated).to.include(
         'export const join: typeof import("@tsonic/nodejs/index.js").path.join;'
       );
@@ -94,13 +79,42 @@ export abstract class fs$instance {
       expect(generated).to.include(
         'export const existsSync: typeof import("@tsonic/nodejs/index.js").fs.existsSync;'
       );
+      expect(generated).to.not.include('declare module "node:os"');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("falls back to static node module shims when package root is missing", () => {
+  it("discovers node module aliases from tsbindgen type aliases", () => {
+    const root = mkdtempSync(join(tmpdir(), "tsonic-node-shims-tsb-"));
+    try {
+      const internalDir = join(root, "versions", "10", "index", "internal");
+      mkdirSync(internalDir, { recursive: true });
+      writeFileSync(
+        join(internalDir, "index.d.ts"),
+        `
+export abstract class fs$instance {
+  static readFileSync(path: string): string;
+}
+export type fs = fs$instance;
+`
+      );
+
+      const generated = buildJsSurfaceNodeModuleShims(root);
+      expect(generated).to.include('declare module "node:fs" {');
+      expect(generated).to.include(
+        'export const readFileSync: typeof import("@tsonic/nodejs/index.js").fs.readFileSync;'
+      );
+      expect(generated).to.include(
+        'declare module "fs" { export * from "node:fs"; }'
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an empty shim set when package root is missing", () => {
     const generated = buildJsSurfaceNodeModuleShims(undefined);
-    expect(generated).to.equal(JS_SURFACE_NODE_MODULE_SHIMS);
+    expect(generated).to.equal("");
   });
 });

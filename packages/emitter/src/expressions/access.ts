@@ -310,6 +310,15 @@ const isJsLengthLikeType = (type: IrType | undefined): boolean =>
       type.name === "ReadonlyArray" ||
       type.name === "string"));
 
+const shouldRewriteJsLength = (
+  memberName: string,
+  receiverType: IrType | undefined,
+  context: EmitterContext
+): boolean =>
+  isJsLikeSurface(context) &&
+  memberName === "length" &&
+  isJsLengthLikeType(receiverType);
+
 /**
  * Emit a member access expression as CSharpExpressionAst
  */
@@ -471,11 +480,7 @@ export const emitMemberAccess = (
     const { type, member } = expr.memberBinding;
     const escapedMember = escapeCSharpIdentifier(member);
 
-    if (
-      isJsLikeSurface(context) &&
-      member === "length" &&
-      isJsLengthLikeType(expr.object.inferredType)
-    ) {
+    if (shouldRewriteJsLength(member, expr.object.inferredType, context)) {
       const [objectAst, newContext] = emitExpressionAst(expr.object, context);
       if (expr.isOptional) {
         return [
@@ -713,11 +718,7 @@ export const emitMemberAccess = (
   const memberName = emitMemberName(
     expr.object,
     objectType,
-    isJsLikeSurface(context) &&
-      prop === "length" &&
-      isJsLengthLikeType(objectType)
-      ? "Length"
-      : prop,
+    shouldRewriteJsLength(prop, objectType, context) ? "Length" : prop,
     context,
     usage
   );

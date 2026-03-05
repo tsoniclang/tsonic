@@ -18,6 +18,38 @@ describe("Module Resolver", () => {
   describe("resolveImport", () => {
     const tempDir = path.join(os.tmpdir(), "tsonic-test");
     const sourceRoot = tempDir;
+    const createNodeBindings = (
+      moduleType: string,
+      extraModuleTypes: readonly string[] = []
+    ): BindingRegistry => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/nodejs-bindings.json", {
+        bindings: {
+          "@tsonic/nodejs/index.js": {
+            kind: "module",
+            assembly: "nodejs",
+            type: moduleType,
+          },
+        },
+      });
+      const moduleNames = Array.from(
+        new Set([
+          moduleType.replace(/^nodejs\./, ""),
+          ...extraModuleTypes.map((t) => t.replace(/^nodejs\./, "")),
+        ])
+      );
+      bindings.addBindings("/test/nodejs-types.json", {
+        namespace: "nodejs",
+        types: moduleNames.map((moduleName) => ({
+          clrName: `nodejs.${moduleName}`,
+          assemblyName: "nodejs",
+          methods: [],
+          properties: [],
+          fields: [],
+        })),
+      });
+      return bindings;
+    };
 
     before(() => {
       // Create temp directory structure
@@ -114,16 +146,7 @@ describe("Module Resolver", () => {
     });
 
     it("should resolve node: aliases to canonical nodejs binding in nodejs surface", () => {
-      const bindings = new BindingRegistry();
-      bindings.addBindings("/test/nodejs-bindings.json", {
-        bindings: {
-          "@tsonic/nodejs/index.js": {
-            kind: "module",
-            assembly: "nodejs",
-            type: "nodejs.fs",
-          },
-        },
-      });
+      const bindings = createNodeBindings("nodejs.fs");
 
       const result = resolveImport(
         "node:fs",
@@ -144,16 +167,7 @@ describe("Module Resolver", () => {
     });
 
     it("should resolve extended node aliases in nodejs surface", () => {
-      const bindings = new BindingRegistry();
-      bindings.addBindings("/test/nodejs-bindings.json", {
-        bindings: {
-          "@tsonic/nodejs/index.js": {
-            kind: "module",
-            assembly: "nodejs",
-            type: "nodejs.url",
-          },
-        },
-      });
+      const bindings = createNodeBindings("nodejs.url");
 
       const result = resolveImport(
         "node:url",
@@ -172,16 +186,7 @@ describe("Module Resolver", () => {
     });
 
     it("should resolve bare node module aliases in nodejs surface", () => {
-      const bindings = new BindingRegistry();
-      bindings.addBindings("/test/nodejs-bindings.json", {
-        bindings: {
-          "@tsonic/nodejs/index.js": {
-            kind: "module",
-            assembly: "nodejs",
-            type: "nodejs.path",
-          },
-        },
-      });
+      const bindings = createNodeBindings("nodejs.path");
 
       const result = resolveImport(
         "path",
@@ -200,16 +205,7 @@ describe("Module Resolver", () => {
     });
 
     it("should reject node aliases in js surface", () => {
-      const bindings = new BindingRegistry();
-      bindings.addBindings("/test/nodejs-bindings.json", {
-        bindings: {
-          "@tsonic/nodejs/index.js": {
-            kind: "module",
-            assembly: "nodejs",
-            type: "nodejs.fs",
-          },
-        },
-      });
+      const bindings = createNodeBindings("nodejs.fs");
 
       const result = resolveImport(
         "node:fs",
