@@ -32,17 +32,6 @@ export const processImports = (
   const importBindings = new Map<string, ImportBinding>();
 
   const updatedContext = imports.reduce((ctx, imp) => {
-    // CLR imports (from @tsonic/dotnet/* or similar packages)
-    if (imp.isClr && imp.resolvedNamespace) {
-      for (const spec of imp.specifiers) {
-        const binding = createClrImportBinding(spec, imp.resolvedNamespace);
-        if (binding) {
-          importBindings.set(binding.localName, binding.importBinding);
-        }
-      }
-      return ctx;
-    }
-
     if (imp.isLocal) {
       // Local import - build ImportBindings with fully-qualified CLR names
       // NO using directive for local modules
@@ -91,10 +80,25 @@ export const processImports = (
     }
 
     // Module bindings (e.g., node:* aliases mapped to @tsonic/nodejs/index.js)
-    if (!imp.isLocal && !imp.isClr && imp.resolvedClrType) {
+    if (!imp.isLocal && imp.resolvedClrType) {
       const moduleClrType = `global::${imp.resolvedClrType}`;
       for (const spec of imp.specifiers) {
-        const binding = createModuleImportBinding(spec, moduleClrType);
+        const binding = createModuleImportBinding(
+          spec,
+          moduleClrType,
+          imp.resolvedNamespace
+        );
+        if (binding) {
+          importBindings.set(binding.localName, binding.importBinding);
+        }
+      }
+      return ctx;
+    }
+
+    // CLR imports (from @tsonic/dotnet/* or similar packages)
+    if (imp.isClr && imp.resolvedNamespace) {
+      for (const spec of imp.specifiers) {
+        const binding = createClrImportBinding(spec, imp.resolvedNamespace);
         if (binding) {
           importBindings.set(binding.localName, binding.importBinding);
         }
@@ -294,7 +298,8 @@ const createImportBinding = (
 
 const createModuleImportBinding = (
   spec: IrImportSpecifier,
-  moduleClrType: string
+  moduleClrType: string,
+  clrNamespace: string | undefined
 ): { localName: string; importBinding: ImportBinding } | null => {
   const localName = spec.localName;
   const moduleObjectExports = new Set([
@@ -316,6 +321,26 @@ const createModuleImportBinding = (
   }
 
   if (spec.kind === "named") {
+    if (spec.isType === true) {
+      const clrName = spec.resolvedClrType
+        ? `global::${spec.resolvedClrType}`
+        : clrNamespace
+          ? `global::${clrNamespace}.${spec.name}`
+          : undefined;
+      if (!clrName) {
+        throw new Error(
+          `ICE: Missing CLR type mapping for module import type '${spec.name}'.`
+        );
+      }
+      return {
+        localName,
+        importBinding: {
+          kind: "type",
+          clrName,
+        },
+      };
+    }
+
     // Canonical case: import { fs } from "node:fs"  -> bind local fs to module container type.
     if (moduleObjectExports.has(spec.name)) {
       return {

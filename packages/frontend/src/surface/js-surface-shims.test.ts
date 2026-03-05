@@ -3,7 +3,11 @@ import { expect } from "chai";
 import {
   JS_SURFACE_GLOBALS_SHIMS,
   JS_SURFACE_NODE_MODULE_SHIMS,
+  buildJsSurfaceNodeModuleShims,
 } from "./js-surface-shims.js";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 describe("JS Surface Shims", () => {
   it("declares required JS runtime globals", () => {
@@ -56,5 +60,47 @@ describe("JS Surface Shims", () => {
     for (const alias of requiredNodeAliases) {
       expect(JS_SURFACE_NODE_MODULE_SHIMS).to.include(alias);
     }
+  });
+
+  it("builds member-level node module shims when nodejs internal declarations are available", () => {
+    const root = mkdtempSync(join(tmpdir(), "tsonic-node-shims-"));
+    try {
+      const internalDir = join(root, "index", "internal");
+      mkdirSync(internalDir, { recursive: true });
+      writeFileSync(
+        join(internalDir, "index.d.ts"),
+        `
+export abstract class path$instance {
+  static join(...parts: string[]): string;
+  static extname(path: string): string;
+}
+export abstract class fs$instance {
+  static existsSync(path: string): boolean;
+}
+`
+      );
+
+      const generated = buildJsSurfaceNodeModuleShims(root);
+      expect(generated).to.include('declare module "node:path" {');
+      expect(generated).to.include(
+        'export const join: typeof import("@tsonic/nodejs/index.js").path.join;'
+      );
+      expect(generated).to.include(
+        'export const extname: typeof import("@tsonic/nodejs/index.js").path.extname;'
+      );
+      expect(generated).to.include(
+        'declare module "path" { export * from "node:path"; }'
+      );
+      expect(generated).to.include(
+        'export const existsSync: typeof import("@tsonic/nodejs/index.js").fs.existsSync;'
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to static node module shims when package root is missing", () => {
+    const generated = buildJsSurfaceNodeModuleShims(undefined);
+    expect(generated).to.equal(JS_SURFACE_NODE_MODULE_SHIMS);
   });
 });

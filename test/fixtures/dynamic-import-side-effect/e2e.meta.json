@@ -1,3 +1,8 @@
 {
-  "description": "await import(\"./module.js\") in side-effect form lowers deterministically in strict AOT mode."
+  "expectFailure": true,
+  "description": "dynamic import side-effect form is rejected in strict AOT mode.",
+  "expectedErrors": [
+    "TSN2001",
+    "Dynamic import() is not supported in strict AOT mode"
+  ]
 }

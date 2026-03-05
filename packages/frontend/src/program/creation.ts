@@ -19,7 +19,7 @@ import { createBinding } from "../ir/binding/index.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import {
   JS_SURFACE_GLOBALS_SHIMS,
-  JS_SURFACE_NODE_MODULE_SHIMS,
+  buildJsSurfaceNodeModuleShims,
 } from "../surface/js-surface-shims.js";
 const JS_SURFACE_GLOBALS_SHIM_FILE = "__tsonic_surface_globals__.d.ts";
 const JS_SURFACE_NODE_SHIM_FILE = "__tsonic_surface_node_modules__.d.ts";
@@ -128,6 +128,12 @@ export const createProgram = (
 
     return undefined;
   };
+
+  const nodejsPackageRoot = nodeAliasSurface
+    ? resolveTsonicPackageRoot("nodejs")
+    : undefined;
+  const nodeSurfaceModuleShims =
+    buildJsSurfaceNodeModuleShims(nodejsPackageRoot);
 
   // Mandatory, compiler-owned type root (never optional).
   // Prefer sibling checkout (dev) or fall back to installed package.
@@ -265,7 +271,7 @@ export const createProgram = (
     if (nodeAliasSurface && fileName === syntheticJsSurfaceNodeShim) {
       return ts.createSourceFile(
         fileName,
-        JS_SURFACE_NODE_MODULE_SHIMS,
+        nodeSurfaceModuleShims,
         languageVersion,
         true,
         ts.ScriptKind.TS

@@ -117,9 +117,9 @@ describe("validateImports", () => {
     expect(codes(result)).to.deep.equal([]);
   });
 
-  it("allows inline import type queries", () => {
+  it("allows import type declarations for language intrinsics", () => {
     const result = runValidation(`
-      type StackAlloc = import("@tsonic/core/lang.js").stackalloc;
+      import type { stackalloc as StackAlloc } from "@tsonic/core/lang.js";
       const f: StackAlloc | undefined = undefined;
       void f;
     `);
@@ -206,7 +206,7 @@ describe("validateImports", () => {
     expect(codes(result)).to.deep.equal([]);
   });
 
-  it("rejects unsupported named member imports from node aliases with TSN1004", () => {
+  it("allows named member imports from node aliases", () => {
     const testProgram = createTestProgram(
       `
         import { readFileSync } from "node:fs";
@@ -232,11 +232,8 @@ describe("validateImports", () => {
       createDiagnosticsCollector()
     );
 
-    expect(result.hasErrors).to.equal(true);
-    expect(codes(result)).to.include("TSN1004");
-    expect(result.diagnostics[0]?.message).to.include(
-      "Unsupported member import"
-    );
+    expect(result.hasErrors).to.equal(false);
+    expect(codes(result)).to.deep.equal([]);
   });
 
   it("rejects default imports from node aliases with TSN1004", () => {
@@ -272,7 +269,7 @@ describe("validateImports", () => {
     );
   });
 
-  it("rejects unsupported named member imports from bare node aliases with TSN1004", () => {
+  it("allows named member imports from bare node aliases", () => {
     const testProgram = createTestProgram(
       `
         import { join } from "path";
@@ -298,19 +295,44 @@ describe("validateImports", () => {
       createDiagnosticsCollector()
     );
 
-    expect(result.hasErrors).to.equal(true);
-    expect(codes(result)).to.include("TSN1004");
-    expect(result.diagnostics[0]?.message).to.include(
-      "Unsupported member import"
-    );
+    expect(result.hasErrors).to.equal(false);
+    expect(codes(result)).to.deep.equal([]);
   });
 
-  it("reports multiple node import diagnostics in one pass", () => {
+  it("allows namespace imports from node aliases", () => {
     const testProgram = createTestProgram(
       `
-        import { readFileSync } from "node:fs";
+        import * as path from "node:path";
+        void path.join("a", "b");
+      `,
+      "/test/node-namespace-import.ts",
+      "/test",
+      { surface: "nodejs" }
+    );
+    testProgram.bindings.addBindings("/test/node-bindings.json", {
+      bindings: {
+        "@tsonic/nodejs/index.js": {
+          kind: "module",
+          assembly: "nodejs",
+          type: "nodejs.path$instance",
+        },
+      },
+    });
+
+    const result = validateImports(
+      testProgram.sourceFile,
+      testProgram,
+      createDiagnosticsCollector()
+    );
+
+    expect(result.hasErrors).to.equal(false);
+    expect(codes(result)).to.deep.equal([]);
+  });
+
+  it("reports node default-import diagnostics in one pass", () => {
+    const testProgram = createTestProgram(
+      `
         import badPath from "node:path";
-        void readFileSync;
         void badPath;
       `,
       "/test/node-multi-diagnostics.ts",
@@ -335,12 +357,9 @@ describe("validateImports", () => {
 
     expect(result.hasErrors).to.equal(true);
     expect(codes(result).filter((code) => code === "TSN1004").length).to.equal(
-      2
+      1
     );
     const messages = result.diagnostics.map((diag) => diag.message);
-    expect(
-      messages.some((message) => message.includes("Unsupported member import"))
-    ).to.equal(true);
     expect(
       messages.some((message) =>
         message.includes("Default import is not supported")

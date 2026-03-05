@@ -1,9 +1,9 @@
 {
   "expectFailure": true,
-  "description": "nodejs surface only supports canonical module-container named imports for node aliases.",
+  "description": "nodejs surface rejects default imports and unsupported node modules.",
   "expectedErrors": [
     "TSN1004",
-    "Unsupported member import \"readFileSync\"",
+    "Default import is not supported for \"node:fs\"",
     "Unsupported module import: node:http"
   ]
 }

@@ -1554,6 +1554,7 @@ describe("build command (library bindings)", function () {
         join(dir, "packages", "core", "src", "runtime.ts"),
         [
           `import type { int } from "@tsonic/core/types.js";`,
+          `import "./side-effect.ts";`,
           ``,
           `export function chainScore(seed: Promise<int>): Promise<int> {`,
           `  return seed`,
@@ -1562,8 +1563,8 @@ describe("build command (library bindings)", function () {
           `    .finally(() => {});`,
           `}`,
           ``,
-          `export async function loadSideEffects(): Promise<void> {`,
-          `  await import("./side-effect.ts");`,
+          `export function loadSideEffects(): void {`,
+          `  return;`,
           `}`,
           ``,
           `export function* nextValues(start: int): Generator<int, int, int> {`,

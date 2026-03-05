@@ -1337,6 +1337,83 @@ describe("Expression Emission", () => {
     expect(nodeResult).not.to.include("nums.length");
   });
 
+  it("should emit string Length for js/node surfaces without member binding", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "value",
+              inferredType: { kind: "primitiveType", name: "string" },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const jsResult = emitModule(module, { surface: "js" });
+    expect(jsResult).to.include("value.Length");
+    expect(jsResult).not.to.include("value.length");
+
+    const nodeResult = emitModule(module, { surface: "nodejs" });
+    expect(nodeResult).to.include("value.Length");
+    expect(nodeResult).not.to.include("value.length");
+  });
+
+  it("should emit string Length for js/node surfaces when member binding uses lowercase length", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "value",
+              inferredType: { kind: "primitiveType", name: "string" },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+            memberBinding: {
+              assembly: "Tsonic.JSRuntime",
+              type: "Tsonic.JSRuntime.String",
+              member: "length",
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const jsResult = emitModule(module, { surface: "js" });
+    expect(jsResult).to.include("value.Length");
+    expect(jsResult).not.to.include("value.length");
+
+    const nodeResult = emitModule(module, { surface: "nodejs" });
+    expect(nodeResult).to.include("value.Length");
+    expect(nodeResult).not.to.include("value.length");
+  });
+
   it("should project CLR Union_n member access deterministically", () => {
     const unionReference: IrType = {
       kind: "referenceType",

@@ -47,6 +47,7 @@ import type {
   Site,
   TypeSubstitutionMap,
   RawSignatureInfo,
+  NominalLookupResult,
 } from "./type-system-state.js";
 
 // Import split module functions
@@ -486,7 +487,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
    */
   const nominalMemberLookupCache = new Map<
     string,
-    import("./type-system-state.js").NominalLookupResult | null
+    NominalLookupResult | null
   >();
 
   /**

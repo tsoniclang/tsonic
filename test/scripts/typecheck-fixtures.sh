@@ -355,11 +355,27 @@ declare module "node:buffer" { export { buffer } from "@tsonic/nodejs/index.js";
 declare module "buffer" { export { buffer } from "@tsonic/nodejs/index.js"; }
 declare module "node:child_process" { export { child_process } from "@tsonic/nodejs/index.js"; }
 declare module "child_process" { export { child_process } from "@tsonic/nodejs/index.js"; }
-declare module "node:fs" { export { fs } from "@tsonic/nodejs/index.js"; }
+declare module "node:fs" {
+  export { fs } from "@tsonic/nodejs/index.js";
+  export const existsSync: typeof import("@tsonic/nodejs/index.js").fs.existsSync;
+  export const readFileSync: typeof import("@tsonic/nodejs/index.js").fs.readFileSync;
+  export const mkdirSync: typeof import("@tsonic/nodejs/index.js").fs.mkdirSync;
+}
 declare module "fs" { export { fs } from "@tsonic/nodejs/index.js"; }
-declare module "node:path" { export { path } from "@tsonic/nodejs/index.js"; }
+declare module "node:path" {
+  export { path } from "@tsonic/nodejs/index.js";
+  export const join: typeof import("@tsonic/nodejs/index.js").path.join;
+  export const extname: typeof import("@tsonic/nodejs/index.js").path.extname;
+  export const basename: typeof import("@tsonic/nodejs/index.js").path.basename;
+  export const dirname: typeof import("@tsonic/nodejs/index.js").path.dirname;
+  export const parse: typeof import("@tsonic/nodejs/index.js").path.parse;
+  export const resolve: typeof import("@tsonic/nodejs/index.js").path.resolve;
+}
 declare module "path" { export { path } from "@tsonic/nodejs/index.js"; }
-declare module "node:crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
+declare module "node:crypto" {
+  export { crypto } from "@tsonic/nodejs/index.js";
+  export const randomUUID: typeof import("@tsonic/nodejs/index.js").crypto.randomUUID;
+}
 declare module "crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
 declare module "node:dgram" { export { dgram } from "@tsonic/nodejs/index.js"; }
 declare module "dgram" { export { dgram } from "@tsonic/nodejs/index.js"; }
@@ -369,9 +385,16 @@ declare module "node:events" { export { events } from "@tsonic/nodejs/index.js";
 declare module "events" { export { events } from "@tsonic/nodejs/index.js"; }
 declare module "node:net" { export { net } from "@tsonic/nodejs/index.js"; }
 declare module "net" { export { net } from "@tsonic/nodejs/index.js"; }
-declare module "node:os" { export { os } from "@tsonic/nodejs/index.js"; }
+declare module "node:os" {
+  export { os } from "@tsonic/nodejs/index.js";
+  export const homedir: typeof import("@tsonic/nodejs/index.js").os.homedir;
+  export const tmpdir: typeof import("@tsonic/nodejs/index.js").os.tmpdir;
+}
 declare module "os" { export { os } from "@tsonic/nodejs/index.js"; }
-declare module "node:process" { export { process } from "@tsonic/nodejs/index.js"; }
+declare module "node:process" {
+  export { process } from "@tsonic/nodejs/index.js";
+  export const cwd: typeof import("@tsonic/nodejs/index.js").process.cwd;
+}
 declare module "process" { export { process } from "@tsonic/nodejs/index.js"; }
 declare module "node:querystring" { export { querystring } from "@tsonic/nodejs/index.js"; }
 declare module "querystring" { export { querystring } from "@tsonic/nodejs/index.js"; }
