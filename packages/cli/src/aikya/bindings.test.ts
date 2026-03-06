@@ -603,7 +603,7 @@ describe("aikya bindings", function () {
     }
   });
 
-  it("discovers surface-chain manifests even when not listed in workspace package.json", () => {
+  it("discovers installed custom surface chains even when not listed in workspace package.json", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-surface-chain-"));
     try {
       writeJson(join(dir, "package.json"), {
@@ -634,10 +634,10 @@ describe("aikya bindings", function () {
         },
       });
 
-      writeInstalledPackage(dir, "@tsonic/nodejs", "10.0.0", {
+      writeInstalledPackage(dir, "@acme/surface-node", "10.0.0", {
         surfaceManifest: {
           schemaVersion: 1,
-          id: "@tsonic/nodejs",
+          id: "@acme/surface-node",
           extends: ["@tsonic/js"],
           requiredTypeRoots: ["."],
         },
@@ -645,10 +645,10 @@ describe("aikya bindings", function () {
         aikyaManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
-          npmPackage: "@tsonic/nodejs",
+          npmPackage: "@acme/surface-node",
           npmVersion: "10.0.0",
           runtime: {
-            nugetPackages: [{ id: "Tsonic.Nodejs", version: "10.0.0" }],
+            nugetPackages: [{ id: "Acme.Surface.Node", version: "10.0.0" }],
             frameworkReferences: ["Microsoft.AspNetCore.App"],
           },
           typing: {
@@ -659,18 +659,18 @@ describe("aikya bindings", function () {
 
       const manifests = discoverWorkspaceBindingsManifests(
         dir,
-        "@tsonic/nodejs"
+        "@acme/surface-node"
       );
       expect(manifests.ok).to.equal(true);
       const values = manifests.ok ? manifests.value : [];
       expect(values.map((x) => x.packageName)).to.deep.equal([
+        "@acme/surface-node",
         "@tsonic/js",
-        "@tsonic/nodejs",
       ]);
 
       const result = applyAikyaWorkspaceOverlay(dir, {
         ...baseWorkspaceConfig(),
-        surface: "@tsonic/nodejs",
+        surface: "@acme/surface-node",
       });
       expect(result.ok).to.equal(true);
       const cfg = result.ok ? result.value.config : baseWorkspaceConfig();
@@ -678,9 +678,94 @@ describe("aikya bindings", function () {
         "Microsoft.AspNetCore.App",
       ]);
       expect(cfg.dotnet?.packageReferences).to.deep.equal([
+        { id: "Acme.Surface.Node", version: "10.0.0" },
         { id: "Tsonic.JSRuntime", version: "10.0.0" },
-        { id: "Tsonic.Nodejs", version: "10.0.0" },
       ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("merges requiredTypeRoots from regular package manifests into workspace overlay", () => {
+    const manifest: NormalizedBindingsManifest = {
+      bindingVersion: 1,
+      sourceManifest: "legacy",
+      packageName: "@tsonic/nodejs",
+      packageVersion: "10.0.0",
+      surfaceMode: "clr",
+      requiredTypeRoots: [
+        "node_modules/@tsonic/nodejs",
+        "node_modules/@tsonic/nodejs/types",
+      ],
+      runtimePackages: ["@tsonic/nodejs"],
+      nugetDependencies: [],
+      dotnet: {
+        packageReferences: [{ id: "Tsonic.Nodejs", version: "10.0.0" }],
+      },
+    };
+
+    const merged = mergeManifestIntoWorkspaceConfig(
+      baseWorkspaceConfig(),
+      manifest,
+      "TSN8A03"
+    );
+    expect(merged.ok).to.equal(true);
+    if (!merged.ok) return;
+    expect(merged.value.dotnet?.typeRoots).to.deep.equal([
+      "node_modules/@tsonic/nodejs",
+      "node_modules/@tsonic/nodejs/types",
+    ]);
+    expect(merged.value.dotnet?.packageReferences).to.deep.equal([
+      { id: "Tsonic.Nodejs", version: "10.0.0" },
+    ]);
+  });
+
+  it("rejects requiredTypeRoots that escape the package root", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-type-root-escape-"));
+    try {
+      const pkgRoot = writeInstalledPackage(dir, "@acme/node", "1.0.0", {
+        legacyBindings: {
+          bindingVersion: 1,
+          requiredTypeRoots: ["../outside"],
+          dotnet: {
+            packageReferences: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
+          },
+        },
+      });
+
+      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
+      expect(result.ok).to.equal(false);
+      expect(result.ok ? "" : result.error).to.match(/^TSN8A01:/);
+      expect(result.ok ? "" : result.error).to.include("requiredTypeRoots");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects absolute requiredTypeRoots", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-type-root-abs-"));
+    try {
+      const pkgRoot = writeInstalledPackage(dir, "@acme/node", "1.0.0", {
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "@acme/node",
+          npmVersion: "1.0.0",
+          runtime: {
+            nugetPackages: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+          requiredTypeRoots: ["/absolute/root"],
+        },
+        bindingsRoot: "tsonic/bindings",
+      });
+
+      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
+      expect(result.ok).to.equal(false);
+      expect(result.ok ? "" : result.error).to.match(/^TSN8A01:/);
+      expect(result.ok ? "" : result.error).to.include("requiredTypeRoots");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -694,6 +779,7 @@ describe("aikya bindings", function () {
       packageName: "acme-conflict",
       packageVersion: "1.0.0",
       surfaceMode: "clr",
+      requiredTypeRoots: [],
       runtimePackages: ["acme-conflict"],
       nugetDependencies: [],
       dotnet: {

@@ -135,15 +135,70 @@ resolve_surface_package_root() {
   return 1
 }
 
+resolve_declaration_entry_files() {
+  local candidate="$1"
+
+  if [ -f "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  if [ ! -d "$candidate" ]; then
+    return 0
+  fi
+
+  if [ -f "$candidate/index.d.ts" ]; then
+    printf '%s\n' "$candidate/index.d.ts"
+    return 0
+  fi
+
+  if [ -f "$candidate/package.json" ]; then
+    local declared
+    declared="$(
+      node - "$candidate/package.json" <<'EOF'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const packageJsonPath = process.argv[2];
+try {
+  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  const entry = typeof pkg.types === "string"
+    ? pkg.types
+    : typeof pkg.typings === "string"
+      ? pkg.typings
+      : "";
+  if (!entry) {
+    process.stdout.write("");
+    process.exit(0);
+  }
+  if (path.isAbsolute(entry)) {
+    process.stdout.write("");
+    process.exit(0);
+  }
+  process.stdout.write(path.join(path.dirname(packageJsonPath), entry));
+} catch {
+  process.stdout.write("");
+}
+EOF
+    )"
+    if [ -n "$declared" ] && [ -f "$declared" ]; then
+      printf '%s\n' "$declared"
+      return 0
+    fi
+  fi
+
+  return 0
+}
+
 resolve_surface_files() {
   local surface_mode="$1"
   if [ "$surface_mode" = "clr" ]; then
     local globals_root
     globals_root="$(resolve_surface_package_root "@tsonic/globals" || true)"
-    if [ -z "$globals_root" ] || [ ! -f "$globals_root/index.d.ts" ]; then
+    if [ -z "$globals_root" ]; then
       return 1
     fi
-    printf '%s\n' "$globals_root/index.d.ts"
+    resolve_declaration_entry_files "$globals_root"
     return 0
   fi
 
@@ -218,6 +273,64 @@ EOF
   printf '%s\n' "$output"
 }
 
+resolve_workspace_type_root_files() {
+  local workspace_dir="$1"
+  local output
+  output="$(
+      node - "$workspace_dir/tsonic.workspace.json" <<'EOF'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const configPath = process.argv[2];
+try {
+  const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  const roots = Array.isArray(cfg?.dotnet?.typeRoots)
+    ? cfg.dotnet.typeRoots.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+  process.stdout.write(roots.join("\n"));
+} catch {
+  process.stdout.write("");
+}
+EOF
+  )"
+
+  if [ -z "$output" ]; then
+    return 0
+  fi
+
+  local root
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+
+    case "$root" in
+      node_modules/@tsonic/*)
+        local package_name="${root#node_modules/}"
+        local package_root
+        package_root="$(resolve_surface_package_root "$package_name" || true)"
+        if [ -z "$package_root" ]; then
+          echo "FAIL: typeRoot package not found: $package_name" >&2
+          return 1
+        fi
+        resolve_declaration_entry_files "$package_root"
+        ;;
+      *)
+        local resolved_root
+        if [[ "$root" = /* ]]; then
+          resolved_root="$root"
+        else
+          resolved_root="$workspace_dir/$root"
+        fi
+        if [ -f "$resolved_root" ] || [ -d "$resolved_root" ]; then
+          resolve_declaration_entry_files "$resolved_root"
+        else
+          echo "FAIL: typeRoot path not found: $root" >&2
+          return 1
+        fi
+        ;;
+    esac
+  done <<<"$output"
+}
+
 # Ensure stale per-fixture node_modules don't shadow resolution.
 find "$FIXTURES_DIR" -mindepth 2 -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} + 2>/dev/null || true
 
@@ -280,8 +393,22 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
 
   no_lib_value="true"
   mapfile -t surface_files < <(resolve_surface_files "$surface_mode")
+  mapfile -t workspace_type_root_files < <(
+    resolve_workspace_type_root_files "$fixture_dir"
+  )
 
-  if [ ${#surface_files[@]} -eq 0 ]; then
+  declaration_files=()
+  declare -A declaration_seen=()
+  for declaration_file in "${surface_files[@]}" "${workspace_type_root_files[@]}"; do
+    [ -n "$declaration_file" ] || continue
+    if [ -n "${declaration_seen[$declaration_file]:-}" ]; then
+      continue
+    fi
+    declaration_seen[$declaration_file]=1
+    declaration_files+=("$declaration_file")
+  done
+
+  if [ ${#declaration_files[@]} -eq 0 ]; then
     echo "FAIL: surface definitions not found for $surface_mode"
     exit 1
   fi
@@ -327,8 +454,8 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
     }
   },
   "files": [
-$(for surface_file in "${surface_files[@]}"; do
-    printf '    "%s",\n' "$surface_file"
+$(for declaration_file in "${declaration_files[@]}"; do
+    printf '    "%s",\n' "$declaration_file"
   done)    "$entry"
   ]
 }

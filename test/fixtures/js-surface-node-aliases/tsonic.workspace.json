@@ -1,13 +1,18 @@
 {
   "$schema": "https://tsonic.org/schema/workspace/v1.json",
   "dotnetVersion": "net10.0",
-  "surface": "@tsonic/nodejs",
+  "surface": "@tsonic/js",
   "dotnet": {
+    "typeRoots": [
+      "node_modules/@tsonic/nodejs"
+    ],
     "libraries": [
       "../../../packages/cli/runtime/Tsonic.JSRuntime.dll",
       "../../../packages/cli/runtime/nodejs.dll"
     ],
-    "frameworkReferences": [],
+    "frameworkReferences": [
+      "Microsoft.AspNetCore.App"
+    ],
     "packageReferences": []
   }
 }

@@ -888,7 +888,7 @@ describe("Binding Resolution in IR", () => {
         ...testProgram,
         options: {
           ...testProgram.options,
-          surface: "@tsonic/nodejs" as const,
+          surface: "@tsonic/js" as const,
         },
       };
 

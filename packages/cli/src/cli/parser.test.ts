@@ -284,10 +284,10 @@ describe("CLI Parser", () => {
         expect(result.options.surface).to.equal("@tsonic/js");
       });
 
-      it("should parse --surface nodejs option", () => {
-        const result = parseArgs(["init", "--surface", "@tsonic/nodejs"]);
+      it("should parse --surface custom package option", () => {
+        const result = parseArgs(["init", "--surface", "@acme/surface-web"]);
         expect(result.command).to.equal("init");
-        expect(result.options.surface).to.equal("@tsonic/nodejs");
+        expect(result.options.surface).to.equal("@acme/surface-web");
       });
     });
 

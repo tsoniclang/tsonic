@@ -61,7 +61,6 @@ PROJECT INIT OPTIONS:
 EXAMPLES:
   tsonic init
   tsonic init --surface @tsonic/js
-  tsonic init --surface @tsonic/nodejs
   tsonic restore
   tsonic add npm @tsonic/js
   tsonic add npm @tsonic/nodejs

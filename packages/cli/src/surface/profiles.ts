@@ -138,12 +138,6 @@ const getSurfacePackageName = (mode: SurfaceMode): string | undefined => {
   return trimmed;
 };
 
-const getDefaultSurfacePackageName = (
-  mode: SurfaceMode
-): string | undefined => {
-  return getSurfacePackageName(mode);
-};
-
 const resolveSurfacePackage = (
   mode: SurfaceMode,
   workspaceRoot: string
@@ -160,7 +154,10 @@ const resolveSurfacePackage = (
     if (existsSync(join(installed.packageRoot, "tsonic.surface.json"))) {
       return installed;
     }
-    return sibling ?? installed;
+    if (sibling && existsSync(join(sibling.packageRoot, "tsonic.surface.json"))) {
+      return sibling;
+    }
+    return installed;
   } catch {
     if (sibling) return sibling;
     return undefined;
@@ -259,16 +256,11 @@ const getSurfaceProfile = (
     return BUILTIN_SURFACE_PROFILES[mode] as SurfaceProfile;
   }
 
-  const fallbackPackage = getDefaultSurfacePackageName(mode);
-  const fallbackTypeRoot = fallbackPackage
-    ? `node_modules/${fallbackPackage}`
-    : `node_modules/${mode}`;
-
   return {
     mode,
     extends: [],
-    requiredTypeRoots: [fallbackTypeRoot],
-    requiredNpmPackages: fallbackPackage ? [fallbackPackage] : [mode],
+    requiredTypeRoots: [],
+    requiredNpmPackages: [],
     useStandardLib: false,
   };
 };
@@ -311,6 +303,16 @@ export const resolveSurfaceCapabilities = (
     ),
     useStandardLib: chain.some((profile) => profile.useStandardLib),
   };
+};
+
+export const hasResolvedSurfaceProfile = (
+  mode: SurfaceMode | undefined,
+  options: ResolveSurfaceOptions = {}
+): boolean => {
+  const normalizedMode = normalizeSurfaceMode(mode);
+  if (BUILTIN_SURFACE_MODE_SET.has(normalizedMode)) return true;
+  if (!options.workspaceRoot) return false;
+  return loadCustomSurfaceProfile(normalizedMode, options.workspaceRoot) !== undefined;
 };
 
 export const isSurfaceMode = (value: unknown): value is SurfaceMode =>
