@@ -665,15 +665,17 @@ export const createProgram = (
   // Compiler-owned builtin: map TS `Error` to CLR `System.Exception`.
   // This keeps `throw new Error(...)` usable in noLib mode without requiring
   // consumers to import Exception explicitly.
-  bindings.addBindings("tsonic:builtins", {
-    bindings: {
-      Error: {
-        kind: "global",
-        assembly: "System.Private.CoreLib",
-        type: "System.Exception",
+  if (!bindings.getBinding("Error")) {
+    bindings.addBindings("tsonic:builtins", {
+      bindings: {
+        Error: {
+          kind: "global",
+          assembly: "System.Private.CoreLib",
+          type: "System.Exception",
+        },
       },
-    },
-  });
+    });
+  }
 
   // Create resolver for import-driven CLR namespace discovery
   // Uses projectRoot (not sourceRoot) to resolve packages from node_modules

@@ -169,6 +169,12 @@ export type RawSignatureInfo = {
   /** Parameter types (undefined = missing annotation → TSN5201) */
   readonly parameterTypes: readonly (IrType | undefined)[];
 
+  /** Parameter shape metadata needed for arity/rest inference. */
+  readonly parameterFlags: readonly {
+    readonly isRest: boolean;
+    readonly isOptional: boolean;
+  }[];
+
   /** TypeScript `this:` parameter type (if present). Excluded from `parameterTypes`. */
   readonly thisParameterType?: IrType;
 

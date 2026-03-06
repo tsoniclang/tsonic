@@ -149,6 +149,10 @@ export const getRawSignature = (
 
   const rawSig: RawSignatureInfo = {
     parameterTypes,
+    parameterFlags: sigInfo.parameters.map((parameter) => ({
+      isRest: parameter.isRest,
+      isOptional: parameter.isOptional,
+    })),
     thisParameterType,
     returnType,
     parameterModes,
@@ -807,6 +811,33 @@ export const inferMethodTypeArgsFromArguments = (
   return substitution;
 };
 
+const expandParameterTypesForInference = (
+  parameters: readonly { readonly isRest: boolean }[],
+  parameterTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): readonly (IrType | undefined)[] => {
+  const restIndex = parameters.findIndex((parameter) => parameter.isRest);
+  if (restIndex < 0) {
+    return parameterTypes;
+  }
+
+  const restParam = parameters[restIndex];
+  const restType = parameterTypes[restIndex];
+  if (!restParam || !restType) {
+    return parameterTypes;
+  }
+
+  const expanded = parameterTypes.slice(0, restIndex);
+  const restElementType =
+    restType.kind === "arrayType" ? restType.elementType : restType;
+
+  while (expanded.length < argumentCount) {
+    expanded.push(restElementType);
+  }
+
+  return expanded;
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 // mapEntriesEqual — Pure helper for map comparison
 // ─────────────────────────────────────────────────────────────────────────
@@ -1124,10 +1155,15 @@ export const tryResolveCallFromUnifiedCatalog = (
         }
       }
 
-      const paramsForInference =
+      const paramsForInferenceBase =
         callSubst.size > 0
           ? workingParams.map((p) => irSubstitute(p, callSubst))
           : workingParams;
+      const paramsForInference = expandParameterTypesForInference(
+        signature.parameters,
+        paramsForInferenceBase,
+        argTypes.length
+      );
 
       const inferred = inferMethodTypeArgsFromArguments(
         state,
@@ -1469,12 +1505,17 @@ export const resolveCall = (
 
     // 2b) Argument-driven unification (run even when argTypes is empty).
     if (argTypes) {
-      const paramsForInference =
+      const paramsForInferenceBase =
         callSubst.size > 0
           ? workingParams.map((p) =>
               p ? irSubstitute(p, callSubst) : undefined
             )
           : workingParams;
+      const paramsForInference = expandParameterTypesForInference(
+        rawSig.parameterFlags,
+        paramsForInferenceBase,
+        argTypes.length
+      );
 
       const inferred = inferMethodTypeArgsFromArguments(
         state,

@@ -69,6 +69,7 @@ export type SimpleBindingDescriptor = {
   readonly kind: "global" | "module";
   readonly assembly: string;
   readonly type: string;
+  readonly staticType?: string; // Optional: separate CLR type for static member access
   readonly csharpName?: string; // Optional: rename identifier in generated C#
 };
 

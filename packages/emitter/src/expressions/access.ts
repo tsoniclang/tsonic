@@ -592,6 +592,13 @@ export const emitMemberAccess = (
       if (expr.object.kind !== "identifier") return false;
       const isLocal = context.localNameMap?.has(expr.object.name) ?? false;
       if (isLocal) return false;
+      if (
+        expr.object.resolvedClrType !== undefined ||
+        (expr.object.csharpName !== undefined &&
+          expr.object.resolvedAssembly !== undefined)
+      ) {
+        return true;
+      }
       if (!bindingTypeLeaf) return false;
       return bindingTypeLeaf === expr.object.name;
     })();

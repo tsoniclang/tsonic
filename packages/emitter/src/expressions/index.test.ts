@@ -259,6 +259,57 @@ describe("Expression Emission", () => {
     expect(result).not.to.include("using System.Linq");
   });
 
+  it("should emit global static calls through member binding type for surface globals", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "Array",
+                inferredType: {
+                  kind: "referenceType",
+                  name: "ArrayConstructor",
+                },
+                resolvedClrType: "Tsonic.JSRuntime.JSArray`1",
+                resolvedAssembly: "Tsonic.JSRuntime",
+                csharpName: "JSArray",
+              },
+              property: "from",
+              isComputed: false,
+              isOptional: false,
+              memberBinding: {
+                kind: "method",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.JSArrayStatics",
+                member: "from",
+                isExtensionMethod: false,
+              },
+            },
+            arguments: [{ kind: "literal", value: "abc" }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include('global::Tsonic.JSRuntime.JSArrayStatics.from("abc")');
+    expect(result).not.to.include("global::Tsonic.JSRuntime.JSArray.from");
+  });
+
   it("should escape C# keywords in hierarchical member bindings", () => {
     const module: IrModule = {
       kind: "module",
@@ -380,6 +431,51 @@ describe("Expression Emission", () => {
       'global::Tsonic.JSRuntime.String.split(path, "/")'
     );
     expect(result).not.to.include("path.split");
+  });
+
+  it("should lower numeric wrapper extension methods through surface bindings", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "value",
+                inferredType: { kind: "primitiveType", name: "number" },
+              },
+              property: "toString",
+              isComputed: false,
+              isOptional: false,
+              memberBinding: {
+                kind: "method",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.Number",
+                member: "toString",
+                isExtensionMethod: true,
+              },
+            },
+            arguments: [],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("global::Tsonic.JSRuntime.Number.toString(value)");
+    expect(result).not.to.include("value.toString()");
   });
 
   it("should emit fluent LINQ extension method calls (required for EF query precompilation)", () => {

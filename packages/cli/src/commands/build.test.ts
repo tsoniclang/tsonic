@@ -37,6 +37,99 @@ const run = (cwd: string, command: string, args: readonly string[]): void => {
 describe("build command (library bindings ref dirs)", function () {
   this.timeout(10 * 60 * 1000);
 
+  it("prefers local DLL references over duplicate NuGet package references in generated csproj", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-local-dll-wins-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+
+      const runtimeDll = join(repoRoot, "packages/cli/runtime/Tsonic.Runtime.dll");
+      expect(existsSync(runtimeDll)).to.equal(true);
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        dotnet: {
+          libraries: [runtimeDll],
+          frameworkReferences: [],
+          packageReferences: [{ id: "Tsonic.Runtime", version: "0.0.1" }],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        "export function main(): void {}\n",
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveConfig(
+        workspaceConfig,
+        projectConfig,
+        {},
+        dir,
+        projectRoot
+      );
+
+      const gen = generateCommand(config);
+      expect(gen.ok).to.equal(true);
+      if (!gen.ok) return;
+
+      const csprojText = readFileSync(
+        join(projectRoot, "generated", "tsonic.csproj"),
+        "utf-8"
+      );
+
+      expect(csprojText).to.include('<Reference Include="Tsonic.Runtime">');
+      expect(csprojText).to.not.include(
+        '<PackageReference Include="Tsonic.Runtime" Version="0.0.1" />'
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("generates bindings for libraries that reference other DLLs and Tsonic.Runtime without requiring copy-local", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-lib-"));
     try {

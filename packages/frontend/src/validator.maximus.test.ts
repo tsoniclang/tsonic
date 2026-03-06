@@ -1228,6 +1228,19 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "generic rest parameter inference for static helpers",
+        source: `
+          interface ArrayConstructor {
+            of<T>(...items: T[]): T[];
+          }
+
+          declare const Array: ArrayConstructor;
+
+          const xs = Array.of(1, 2, 3);
+          void xs;
+        `,
+      },
+      {
         name: "typed conditional array return with empty literal branch",
         source: `
           function pick(flag: boolean): number[] {
