@@ -10,6 +10,7 @@ import * as path from "node:path";
 import type { BindingFile } from "./binding-types.js";
 import { validateBindingFile } from "./binding-types.js";
 import { BindingRegistry } from "./binding-registry.js";
+import { resolveDependencyPackageRoot } from "./package-roots.js";
 
 /**
  * Recursively scan a directory for .d.ts files
@@ -130,16 +131,12 @@ const loadBindingsFromPackage = (
       }
 
       for (const depName of dependencyNames) {
-        // Find the dependency in node_modules
-        // Try sibling node_modules first (hoisted), then nested
-        const nodeModulesDir = path.dirname(path.dirname(absoluteRoot));
-        const hoistedPath = path.join(nodeModulesDir, depName);
-        const nestedPath = path.join(absoluteRoot, "node_modules", depName);
-
-        if (fs.existsSync(hoistedPath)) {
-          loadBindingsFromPackage(registry, hoistedPath, visited, false);
-        } else if (fs.existsSync(nestedPath)) {
-          loadBindingsFromPackage(registry, nestedPath, visited, false);
+        const dependencyRoot = resolveDependencyPackageRoot(
+          absoluteRoot,
+          depName
+        );
+        if (dependencyRoot) {
+          loadBindingsFromPackage(registry, dependencyRoot, visited, false);
         }
       }
     } catch {

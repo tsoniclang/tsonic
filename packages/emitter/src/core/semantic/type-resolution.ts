@@ -254,17 +254,20 @@ export const getPropertyType = (
 /**
  * Internal helper for property type resolution with cycle detection
  */
-const resolveLocalTypeInfo = (
+export const resolveLocalTypeInfo = (
   ref: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
-): { readonly info: LocalTypeInfo } | undefined => {
+): { readonly info: LocalTypeInfo; readonly namespace: string } | undefined => {
   const lookupName = ref.name.includes(".")
     ? (ref.name.split(".").pop() ?? ref.name)
     : ref.name;
 
   const localHit = context.localTypes?.get(lookupName);
   if (localHit) {
-    return { info: localHit };
+    return {
+      info: localHit,
+      namespace: context.moduleNamespace ?? context.options.rootNamespace,
+    };
   }
 
   const moduleMap = context.options.moduleMap;
@@ -282,7 +285,9 @@ const resolveLocalTypeInfo = (
 
   if (matches.length === 0) return undefined;
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  if (matches.length === 1) return { info: matches[0]!.info };
+  if (matches.length === 1) {
+    return { info: matches[0]!.info, namespace: matches[0]!.namespace };
+  }
 
   const fqn =
     ref.resolvedClrType ?? (ref.name.includes(".") ? ref.name : undefined);
@@ -290,7 +295,12 @@ const resolveLocalTypeInfo = (
     const namespace = fqn.slice(0, fqn.lastIndexOf("."));
     const scoped = matches.filter((m) => m.namespace === namespace);
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    if (scoped.length === 1) return { info: scoped[0]!.info };
+    if (scoped.length === 1) {
+      return {
+        info: scoped[0]!.info,
+        namespace: scoped[0]!.namespace,
+      };
+    }
   }
 
   return undefined;

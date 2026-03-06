@@ -30,6 +30,50 @@ export const resolveHierarchicalBinding = (
 ): IrMemberExpression["memberBinding"] => {
   const registry = ctx.bindings;
 
+  const getWrapperBindingCandidates = (): readonly string[] => {
+    const inferredType = object.inferredType;
+    if (!inferredType) return [];
+
+    const candidates: string[] = [];
+    const pushCandidate = (name: string): void => {
+      if (!candidates.includes(name)) {
+        candidates.push(name);
+      }
+    };
+
+    if (inferredType.kind === "arrayType") {
+      pushCandidate("Array");
+      return candidates;
+    }
+
+    if (inferredType.kind === "primitiveType") {
+      if (inferredType.name === "string") {
+        pushCandidate("String");
+      }
+      if (inferredType.name === "number") {
+        pushCandidate("Number");
+      }
+      if (inferredType.name === "boolean") {
+        pushCandidate("Boolean");
+      }
+      return candidates;
+    }
+
+    if (inferredType.kind === "literalType") {
+      if (typeof inferredType.value === "string") {
+        pushCandidate("String");
+      }
+      if (typeof inferredType.value === "number") {
+        pushCandidate("Number");
+      }
+      if (typeof inferredType.value === "boolean") {
+        pushCandidate("Boolean");
+      }
+    }
+
+    return candidates;
+  };
+
   const toIrMemberBinding = (
     overloads: readonly MemberBinding[]
   ): IrMemberExpression["memberBinding"] => {
@@ -60,6 +104,7 @@ export const resolveHierarchicalBinding = (
     );
 
     return {
+      kind: first.kind,
       assembly: first.binding.assembly,
       type: first.binding.type,
       member: first.binding.member,
@@ -77,6 +122,19 @@ export const resolveHierarchicalBinding = (
 
   // Case 1: object is identifier → check if it's a namespace, then check if property is a type
   if (object.kind === "identifier") {
+    const simpleBinding = ctx.bindings.getBinding(object.name);
+    if (simpleBinding?.staticType) {
+      const staticAlias = tsbindgenClrTypeNameToTsTypeName(
+        simpleBinding.staticType
+      );
+      if (staticAlias) {
+        const overloads = registry.getMemberOverloads(staticAlias, propertyName);
+        if (overloads && overloads.length > 0) {
+          return toIrMemberBinding(overloads);
+        }
+      }
+    }
+
     const namespace = registry.getNamespace(object.name);
     if (namespace) {
       // Found namespace binding, check if property is a type within this namespace
@@ -127,13 +185,16 @@ export const resolveHierarchicalBinding = (
   }
 
   // Case 3: Instance member access (e.g., numbers.add where numbers is List<T>)
-  // Use the object's inferred type to look up the member binding
-  const objectTypeName = extractTypeName(object.inferredType);
+  // Use the object's inferred type, plus any surface wrapper bindings, to look
+  // up the member binding deterministically.
+  const objectTypeCandidates = [
+    ...getWrapperBindingCandidates(),
+    extractTypeName(object.inferredType),
+  ].filter((candidate): candidate is string => typeof candidate === "string");
 
-  if (objectTypeName) {
-    // Look up member by type alias and property name
+  for (const objectTypeName of objectTypeCandidates) {
     const overloads = registry.getMemberOverloads(objectTypeName, propertyName);
-    if (!overloads || overloads.length === 0) return undefined;
+    if (!overloads || overloads.length === 0) continue;
     return toIrMemberBinding(overloads);
   }
 
@@ -267,7 +328,19 @@ export const resolveHierarchicalBindingFromMemberId = (
   };
 
   const typeAlias = normalizeDeclaringType(declaringTypeName);
-  let overloadsAll = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
+  const staticOverloads = (() => {
+    if (!ts.isIdentifier(node.expression)) return undefined;
+    const simpleBinding = ctx.bindings.getBinding(node.expression.text);
+    if (!simpleBinding?.staticType) return undefined;
+    const staticAlias = tsbindgenClrTypeNameToTsTypeName(
+      simpleBinding.staticType
+    );
+    if (!staticAlias) return undefined;
+    return ctx.bindings.getMemberOverloads(staticAlias, propertyName);
+  })();
+
+  let overloadsAll =
+    staticOverloads ?? ctx.bindings.getMemberOverloads(typeAlias, propertyName);
   if (!overloadsAll || overloadsAll.length === 0) {
     const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
     const bindingsPath =
@@ -384,6 +457,7 @@ export const resolveHierarchicalBindingFromMemberId = (
   const modsConsistent = overloads.every((m) => getModifiersKey(m) === modsKey);
 
   return {
+    kind: first.kind,
     assembly: first.binding.assembly,
     type: first.binding.type,
     member: first.binding.member,
@@ -545,6 +619,7 @@ export const resolveExtensionMethodsBinding = (
     : undefined;
 
   return {
+    kind: resolved.kind,
     assembly: resolved.binding.assembly,
     type: resolved.binding.type,
     member: resolved.binding.member,

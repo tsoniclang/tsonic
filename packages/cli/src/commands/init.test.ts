@@ -23,13 +23,16 @@ describe("Init Command", () => {
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("tsonic");
+        expect(packageNames).to.include("@tsonic/globals");
         expect(packageNames).to.include("@tsonic/dotnet");
         expect(packageNames).to.not.include("@tsonic/core");
       });
 
       it("should include clr surface type roots", () => {
         const result = getTypePackageInfo();
-        expect(result.typeRoots).to.deep.equal(["node_modules/@tsonic/dotnet"]);
+        expect(result.typeRoots).to.deep.equal([
+          "node_modules/@tsonic/globals",
+        ]);
       });
     });
 

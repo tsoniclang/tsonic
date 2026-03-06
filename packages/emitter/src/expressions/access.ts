@@ -200,6 +200,35 @@ const resolveReceiverTypeFqn = (
   return undefined;
 };
 
+const resolveArrayLikeReceiver = (
+  receiverType: IrType | undefined,
+  context: EmitterContext
+): Extract<IrType, { kind: "arrayType" }> | undefined => {
+  if (!receiverType) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
+  if (resolved.kind === "arrayType") {
+    return resolved;
+  }
+
+  if (
+    resolved.kind === "referenceType" &&
+    (resolved.name === "Array" || resolved.name === "ReadonlyArray") &&
+    resolved.typeArguments &&
+    resolved.typeArguments.length === 1
+  ) {
+    const elementType = resolved.typeArguments[0];
+    if (!elementType) return undefined;
+    return {
+      kind: "arrayType",
+      elementType,
+      origin: "explicit",
+    };
+  }
+
+  return undefined;
+};
+
 const emitMemberName = (
   receiverExpr: IrExpression,
   receiverType: IrType | undefined,
@@ -468,9 +497,10 @@ export const emitMemberAccess = (
     const bindingTypeLeaf = stripClrGenericArity(type).split(".").pop();
 
     const receiverType = expr.object.inferredType;
+    const arrayLikeReceiver = resolveArrayLikeReceiver(receiverType, context);
     if (
       usage === "value" &&
-      receiverType?.kind === "arrayType" &&
+      arrayLikeReceiver &&
       !expr.memberBinding.isExtensionMethod &&
       !(
         type === "System.Array" ||
@@ -488,7 +518,7 @@ export const emitMemberAccess = (
         let wrapperTypeArguments: readonly CSharpTypeAst[] | undefined;
         if (genericArity === 1) {
           const [elementTypeAst, withElementType] = emitTypeAst(
-            receiverType.elementType,
+            arrayLikeReceiver.elementType,
             currentContext
           );
           currentContext = withElementType;
@@ -562,6 +592,13 @@ export const emitMemberAccess = (
       if (expr.object.kind !== "identifier") return false;
       const isLocal = context.localNameMap?.has(expr.object.name) ?? false;
       if (isLocal) return false;
+      if (
+        expr.object.resolvedClrType !== undefined ||
+        (expr.object.csharpName !== undefined &&
+          expr.object.resolvedAssembly !== undefined)
+      ) {
+        return true;
+      }
       if (!bindingTypeLeaf) return false;
       return bindingTypeLeaf === expr.object.name;
     })();

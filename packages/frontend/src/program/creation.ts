@@ -195,50 +195,6 @@ declare global {
 export {};
 `.trim();
 
-const CLR_GLOBALS_DECLARATIONS = `
-import type { char } from "@tsonic/core/types.js";
-import {
-  Array$instance, __Array$views,
-  String$instance, __String$views,
-  Double$instance, __Double$views,
-  Boolean$instance, __Boolean$views,
-  Object$instance
-} from "@tsonic/dotnet/System/internal/index.js";
-import type { IEnumerator } from "@tsonic/dotnet/System.Collections.js";
-import type {
-  IEnumerable,
-  IEnumerator as IEnumeratorT
-} from "@tsonic/dotnet/System.Collections.Generic.js";
-
-declare global {
-  interface Array<T> extends Array$instance, __Array$views, IEnumerable<T> {
-    [n: number]: T;
-    [Symbol.iterator](): IterableIterator<T>;
-    GetEnumerator(): IEnumeratorT<T>;
-  }
-
-  interface ReadonlyArray<T> extends Array$instance, __Array$views, IEnumerable<T> {
-    readonly [n: number]: T;
-    [Symbol.iterator](): IterableIterator<T>;
-    GetEnumerator(): IEnumeratorT<T>;
-  }
-
-  interface ArrayConstructor {
-    new <T>(size?: number): T[];
-  }
-
-  interface String extends String$instance, __String$views {
-    readonly [index: number]: char;
-  }
-
-  interface Number extends Double$instance, __Double$views {}
-  interface Boolean extends Boolean$instance, __Boolean$views {}
-  interface Object extends Object$instance {}
-}
-
-export {};
-`.trim();
-
 /**
  * Recursively scan a directory for .d.ts files
  */
@@ -261,7 +217,10 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
         continue;
       }
       results.push(...scanForDeclarationFiles(fullPath));
-    } else if (entry.name.endsWith(".d.ts")) {
+    } else if (
+      entry.name.endsWith(".d.ts") &&
+      entry.name !== "core-globals.d.ts"
+    ) {
       results.push(fullPath);
     }
   }
@@ -468,21 +427,9 @@ export const createProgram = (
     ".tsonic",
     "__core_globals__.d.ts"
   );
-  const clrGlobalsVirtualPath = path.join(
-    options.projectRoot,
-    ".tsonic",
-    "__clr_globals__.d.ts"
-  );
-
   const virtualDeclarationSources = new Map<string, string>([
     [path.resolve(coreGlobalsVirtualPath), CORE_GLOBALS_DECLARATIONS],
   ]);
-  if (surfaceCapabilities.includesClr) {
-    virtualDeclarationSources.set(
-      path.resolve(clrGlobalsVirtualPath),
-      CLR_GLOBALS_DECLARATIONS
-    );
-  }
   const virtualDeclarationFiles = Array.from(virtualDeclarationSources.keys());
 
   // Combine source files, declaration files, namespace index files, and
@@ -500,6 +447,8 @@ export const createProgram = (
   const host = ts.createCompilerHost(tsOptions);
   const normalizeVirtualFilePath = (filePath: string): string =>
     path.resolve(filePath);
+  const isPackageCoreGlobalsFile = (filePath: string): boolean =>
+    path.basename(filePath) === "core-globals.d.ts";
   const getVirtualDeclarationText = (filePath: string): string | undefined =>
     virtualDeclarationSources.get(normalizeVirtualFilePath(filePath));
 
@@ -513,6 +462,7 @@ export const createProgram = (
   host.readFile = (fileName: string): string | undefined => {
     const virtualText = getVirtualDeclarationText(fileName);
     if (virtualText !== undefined) return virtualText;
+    if (isPackageCoreGlobalsFile(fileName)) return "export {};\n";
     return originalReadFile(fileName);
   };
 
@@ -543,6 +493,14 @@ export const createProgram = (
     const virtualText = getVirtualDeclarationText(fileName);
     if (virtualText !== undefined) {
       return ts.createSourceFile(fileName, virtualText, languageVersion, true);
+    }
+    if (isPackageCoreGlobalsFile(fileName)) {
+      return ts.createSourceFile(
+        fileName,
+        "export {};\n",
+        languageVersion,
+        true
+      );
     }
 
     // Check if this is a .NET namespace being imported
@@ -707,15 +665,17 @@ export const createProgram = (
   // Compiler-owned builtin: map TS `Error` to CLR `System.Exception`.
   // This keeps `throw new Error(...)` usable in noLib mode without requiring
   // consumers to import Exception explicitly.
-  bindings.addBindings("tsonic:builtins", {
-    bindings: {
-      Error: {
-        kind: "global",
-        assembly: "System.Private.CoreLib",
-        type: "System.Exception",
+  if (!bindings.getBinding("Error")) {
+    bindings.addBindings("tsonic:builtins", {
+      bindings: {
+        Error: {
+          kind: "global",
+          assembly: "System.Private.CoreLib",
+          type: "System.Exception",
+        },
       },
-    },
-  });
+    });
+  }
 
   // Create resolver for import-driven CLR namespace discovery
   // Uses projectRoot (not sourceRoot) to resolve packages from node_modules

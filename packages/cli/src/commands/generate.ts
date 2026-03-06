@@ -41,6 +41,25 @@ const findProjectCsproj = (projectRoot: string): string | null => {
   return csprojFile ? join(projectRoot, csprojFile) : null;
 };
 
+const dedupePackageReferencesAgainstAssemblyReferences = <
+  T extends { readonly id: string }
+>(
+  packageReferences: readonly T[],
+  assemblyReferences: readonly { readonly name: string }[]
+): readonly T[] => {
+  if (packageReferences.length === 0 || assemblyReferences.length === 0) {
+    return packageReferences;
+  }
+
+  const localAssemblyIds = new Set(
+    assemblyReferences.map((reference) => reference.name.toLowerCase())
+  );
+
+  return packageReferences.filter(
+    (reference) => !localAssemblyIds.has(reference.id.toLowerCase())
+  );
+};
+
 /**
  * Find a specific DLL, checking project's lib/ first, then CLI package runtime
  * Returns the absolute path to the DLL or null if not found
@@ -444,6 +463,11 @@ export const generateCommand = (
               config.libraries
             ),
           ];
+      const effectivePackageReferences =
+        dedupePackageReferencesAgainstAssemblyReferences(
+          packageReferences,
+          assemblyReferences
+        );
 
       // Build output configuration
       const outputConfig: ExecutableConfig | LibraryConfig | ConsoleAppConfig =
@@ -487,7 +511,7 @@ export const generateCommand = (
         runtimePath,
         assemblyReferences,
         frameworkReferences,
-        packageReferences,
+        packageReferences: effectivePackageReferences,
         msbuildProperties: config.msbuildProperties,
         outputConfig,
       };

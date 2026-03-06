@@ -608,9 +608,180 @@ describe("Binding Resolution in IR", () => {
       // unknownMember is not in the bindings, so memberBinding should be undefined
       expect(memberExpr.memberBinding).to.equal(undefined);
     });
+
+    it("should resolve simple binding staticType for global static member access", () => {
+      const source = `
+        interface ArrayLike<T> {
+          readonly length: number;
+          readonly [n: number]: T;
+        }
+
+        interface ArrayConstructor {
+          from<T>(source: ArrayLike<T>): T[];
+        }
+
+        declare const Array: ArrayConstructor;
+
+        export function test(values: string[]): string[] {
+          return Array.from(values);
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/simple-array.json", {
+        bindings: {
+          Array: {
+            kind: "global",
+            assembly: "Acme.Runtime",
+            type: "Acme.Runtime.JSArray`1",
+            staticType: "Acme.Runtime.JSArrayStatics",
+          },
+        },
+      });
+
+      bindings.addBindings("/test/acme-array/bindings.json", {
+        namespace: "Acme.Runtime",
+        types: [
+          {
+            clrName: "Acme.Runtime.JSArray`1",
+            assemblyName: "Acme.Runtime",
+            methods: [
+              {
+                clrName: "map",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "Acme.Runtime.JSArrayStatics",
+            assemblyName: "Acme.Runtime",
+            methods: [
+              {
+                clrName: "from",
+                declaringClrType: "Acme.Runtime.JSArrayStatics",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[0];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression)
+        return;
+
+      const callExpr = returnStmt.expression;
+      if (callExpr.kind !== "call") return;
+
+      const memberExpr = callExpr.callee;
+      if (memberExpr.kind !== "memberAccess") return;
+
+      expect(memberExpr.memberBinding).to.not.equal(undefined);
+      expect(memberExpr.memberBinding?.type).to.equal(
+        "Acme.Runtime.JSArrayStatics"
+      );
+      expect(memberExpr.memberBinding?.member).to.equal("from");
+    });
   });
 
   describe("Extension Method Binding Resolution", () => {
+    it("should prefer surface wrapper bindings for numeric primitive instance methods", () => {
+      const source = `
+        interface Number { toString(): string; }
+
+        export function test(value: number): string {
+          return value.toString();
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+        bindings: {
+          Number: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Number",
+          },
+        },
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.Number",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "toString",
+                normalizedSignature:
+                  "toString|(System.Double):System.String|static=true",
+                parameterCount: 1,
+                declaringClrType: "Tsonic.JSRuntime.Number",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "System.Double",
+            assemblyName: "System.Private.CoreLib",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[0];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression)
+        return;
+      if (returnStmt.expression.kind !== "call") return;
+      if (returnStmt.expression.callee.kind !== "memberAccess") return;
+
+      expect(returnStmt.expression.callee.memberBinding).to.not.equal(
+        undefined
+      );
+      expect(
+        returnStmt.expression.callee.memberBinding?.isExtensionMethod
+      ).to.equal(true);
+      expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
+        "Tsonic.JSRuntime.Number"
+      );
+      expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
+        "toString"
+      );
+    });
+
     it("should resolve primitive receiver extension methods via bindings", () => {
       const source = `
         interface String { trim(): string; }

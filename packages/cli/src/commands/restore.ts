@@ -26,6 +26,7 @@ import {
   isBuiltInRuntimeAssemblyName,
   isBuiltInRuntimeDllPath,
 } from "../dotnet/runtime-dlls.js";
+import { applyAikyaWorkspaceOverlay } from "../aikya/bindings.js";
 import { loadWorkspaceConfig } from "../config.js";
 import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
 import {
@@ -244,7 +245,9 @@ export const restoreCommand = (
   const nugetConfigResult = resolveNugetConfigFile(workspaceRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;
   const nugetConfigFile = nugetConfigResult.value;
-  const rawConfig = configResult.value;
+  const overlay = applyAikyaWorkspaceOverlay(workspaceRoot, configResult.value);
+  if (!overlay.ok) return overlay;
+  const rawConfig = overlay.value.config;
   let config = rawConfig;
 
   const tsbindgenDllResult = resolveTsbindgenDllPath(workspaceRoot);

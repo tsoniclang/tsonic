@@ -5,7 +5,7 @@
 # standard TypeScript (no compiler-owned shims).
 #
 # Notes:
-# - Uses `noLib` + `@tsonic/globals` (same baseline environment as Tsonic).
+# - Uses `noLib` + the exact surface package root that the fixture declares.
 # - Ignores negative fixtures (`e2e.meta.json` with expectFailure=true).
 
 set -euo pipefail
@@ -106,17 +106,117 @@ resolve_pkg_root() {
 
 # Prefer sibling checkouts when present (dev workflow), otherwise fall back to
 # installed node_modules packages.
-GLOBALS_ROOT="$(resolve_pkg_root "globals" || true)"
-if [ -n "$GLOBALS_ROOT" ] && [ -f "$GLOBALS_ROOT/index.d.ts" ]; then
-  GLOBALS_INDEX="$GLOBALS_ROOT/index.d.ts"
-else
-  GLOBALS_INDEX="$ROOT_DIR/node_modules/@tsonic/globals/index.d.ts"
-fi
+resolve_surface_package_root() {
+  local package_name="$1"
+  local repo_hint=""
 
-if [ ! -f "$GLOBALS_INDEX" ]; then
-  echo "FAIL: globals definitions not found (expected $GLOBALS_INDEX)"
-  exit 1
-fi
+  case "$package_name" in
+    @tsonic/*)
+      repo_hint="${package_name#@tsonic/}"
+      ;;
+  esac
+
+  if [ -n "$repo_hint" ]; then
+    local sibling_root
+    sibling_root="$(resolve_pkg_root "$repo_hint" || true)"
+    if [ -n "$sibling_root" ] && [ -f "$sibling_root/versions/10/package.json" ]; then
+      echo "$sibling_root/versions/10"
+      return 0
+    fi
+  fi
+
+  local installed_root="$ROOT_DIR/node_modules/$package_name"
+  if [ -f "$installed_root/package.json" ]; then
+    echo "$installed_root"
+    return 0
+  fi
+
+  echo ""
+  return 1
+}
+
+resolve_surface_files() {
+  local surface_mode="$1"
+  if [ "$surface_mode" = "clr" ]; then
+    local globals_root
+    globals_root="$(resolve_surface_package_root "@tsonic/globals" || true)"
+    if [ -z "$globals_root" ] || [ ! -f "$globals_root/index.d.ts" ]; then
+      return 1
+    fi
+    printf '%s\n' "$globals_root/index.d.ts"
+    return 0
+  fi
+
+  local output
+  output="$(
+    node - "$surface_mode" "$ROOT_DIR" <<'EOF'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const surfaceMode = process.argv[2];
+const rootDir = process.argv[3];
+const monorepoParent = path.dirname(rootDir);
+
+const resolveSurfacePackageRoot = (packageName) => {
+  const scoped = packageName.match(/^@tsonic\/([^/]+)$/);
+  if (scoped?.[1]) {
+    const siblingRoot = path.join(monorepoParent, scoped[1], "versions", "10");
+    if (fs.existsSync(path.join(siblingRoot, "package.json"))) {
+      return siblingRoot;
+    }
+  }
+
+  const installedRoot = path.join(rootDir, "node_modules", packageName);
+  if (fs.existsSync(path.join(installedRoot, "package.json"))) {
+    return installedRoot;
+  }
+
+  return undefined;
+};
+
+const seen = new Set();
+const ordered = [];
+
+const visit = (mode) => {
+  if (!mode || seen.has(mode)) return;
+  seen.add(mode);
+  if (mode === "clr") {
+    const globalsRoot = resolveSurfacePackageRoot("@tsonic/globals");
+    if (!globalsRoot) {
+      throw new Error("missing @tsonic/globals");
+    }
+    ordered.push(path.join(globalsRoot, "index.d.ts"));
+    return;
+  }
+
+  const packageRoot = resolveSurfacePackageRoot(mode);
+  if (!packageRoot) {
+    throw new Error(`missing surface package: ${mode}`);
+  }
+
+  const manifestPath = path.join(packageRoot, "tsonic.surface.json");
+  if (fs.existsSync(manifestPath)) {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const extendsList = Array.isArray(manifest.extends)
+      ? manifest.extends.filter((entry) => typeof entry === "string")
+      : [];
+    for (const parent of extendsList) {
+      visit(parent);
+    }
+  }
+
+  ordered.push(path.join(packageRoot, "index.d.ts"));
+};
+
+visit(surfaceMode);
+process.stdout.write(ordered.join("\n"));
+EOF
+  )"
+  if [ -z "$output" ]; then
+    return 1
+  fi
+  printf '%s\n' "$output"
+}
 
 # Ensure stale per-fixture node_modules don't shadow resolution.
 find "$FIXTURES_DIR" -mindepth 2 -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} + 2>/dev/null || true
@@ -179,244 +279,16 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   )"
 
   no_lib_value="true"
-  js_surface_globals_shim=""
-  js_surface_shim=""
-  if [ "$surface_mode" = "@tsonic/js" ] || [ "$surface_mode" = "@tsonic/nodejs" ]; then
-    js_surface_globals_shim="$tmp_dir/$fixture_name.js-surface-globals.d.ts"
-    cat >"$js_surface_globals_shim" <<EOF
-import type { int, long, double } from "@tsonic/core/types.js";
+  mapfile -t surface_files < <(resolve_surface_files "$surface_mode")
 
-declare global {
-  interface String {
-    readonly length: int;
-    trim(): string;
-    toUpperCase(): string;
-    toLowerCase(): string;
-    indexOf(searchString: string, position?: int): int;
-    split(separator: string, limit?: int): string[];
-    includes(searchString: string, position?: int): boolean;
-    startsWith(searchString: string, position?: int): boolean;
-    endsWith(searchString: string, endPosition?: int): boolean;
-    slice(start?: int, end?: int): string;
-    substring(start: int, end?: int): string;
-    replace(searchValue: string, replaceValue: string): string;
-    charAt(index: int): string;
-    charCodeAt(index: int): int;
-  }
-  interface Array<T> {
-    readonly length: int;
-    at(index: int): T;
-    concat(...items: T[]): T[];
-    every(callback: (value: T) => boolean): boolean;
-    filter(callback: (value: T) => boolean): T[];
-    filter(callback: (value: T, index: int) => boolean): T[];
-    find(callback: (value: T) => boolean): T | undefined;
-    find(callback: (value: T, index: int) => boolean): T | undefined;
-    findIndex(callback: (value: T) => boolean): int;
-    findIndex(callback: (value: T, index: int) => boolean): int;
-    findLast(callback: (value: T) => boolean): T | undefined;
-    findLast(callback: (value: T, index: int) => boolean): T | undefined;
-    findLastIndex(callback: (value: T) => boolean): int;
-    findLastIndex(callback: (value: T, index: int) => boolean): int;
-    flat(depth?: int): unknown[];
-    forEach(callback: (value: T) => void): void;
-    forEach(callback: (value: T, index: int) => void): void;
-    includes(searchElement: T): boolean;
-    includes(searchElement: T, fromIndex?: int): boolean;
-    indexOf(searchElement: T, fromIndex?: int): int;
-    join(separator?: string): string;
-    lastIndexOf(searchElement: T, fromIndex?: int): int;
-    map<TResult>(callback: (value: T) => TResult): TResult[];
-    map<TResult>(callback: (value: T, index: int) => TResult): TResult[];
-    reduce(callback: (previousValue: T, currentValue: T) => T): T;
-    reduce<TResult>(callback: (previousValue: TResult, currentValue: T) => TResult, initialValue: TResult): TResult;
-    reduceRight<TResult>(callback: (previousValue: TResult, currentValue: T) => TResult, initialValue: TResult): TResult;
-    slice(start?: int, end?: int): T[];
-    some(callback: (value: T) => boolean): boolean;
-  }
-  interface ReadonlyArray<T> {
-    readonly length: int;
-    at(index: int): T;
-    concat(...items: T[]): T[];
-    every(callback: (value: T) => boolean): boolean;
-    filter(callback: (value: T) => boolean): T[];
-    filter(callback: (value: T, index: int) => boolean): T[];
-    find(callback: (value: T) => boolean): T | undefined;
-    find(callback: (value: T, index: int) => boolean): T | undefined;
-    findIndex(callback: (value: T) => boolean): int;
-    findIndex(callback: (value: T, index: int) => boolean): int;
-    findLast(callback: (value: T) => boolean): T | undefined;
-    findLast(callback: (value: T, index: int) => boolean): T | undefined;
-    findLastIndex(callback: (value: T) => boolean): int;
-    findLastIndex(callback: (value: T, index: int) => boolean): int;
-    flat(depth?: int): unknown[];
-    forEach(callback: (value: T) => void): void;
-    forEach(callback: (value: T, index: int) => void): void;
-    includes(searchElement: T): boolean;
-    includes(searchElement: T, fromIndex?: int): boolean;
-    indexOf(searchElement: T, fromIndex?: int): int;
-    join(separator?: string): string;
-    lastIndexOf(searchElement: T, fromIndex?: int): int;
-    map<TResult>(callback: (value: T) => TResult): TResult[];
-    map<TResult>(callback: (value: T, index: int) => TResult): TResult[];
-    reduce(callback: (previousValue: T, currentValue: T) => T): T;
-    reduce<TResult>(callback: (previousValue: TResult, currentValue: T) => TResult, initialValue: TResult): TResult;
-    reduceRight<TResult>(callback: (previousValue: TResult, currentValue: T) => TResult, initialValue: TResult): TResult;
-    slice(start?: int, end?: int): T[];
-    some(callback: (value: T) => boolean): boolean;
-  }
-  interface Console {
-    log(...data: unknown[]): void;
-    error(...data: unknown[]): void;
-    warn(...data: unknown[]): void;
-    info(...data: unknown[]): void;
-    debug(...data: unknown[]): void;
-  }
-  const console: Console;
-  interface Date {
-    toISOString(): string;
-    getTime(): long;
-  }
-  interface DateConstructor {
-    new (): Date;
-    new (value: string | number | long): Date;
-    now(): long;
-    parse(s: string): long;
-  }
-  const Date: DateConstructor;
-  interface JSON {
-    parse<T = unknown>(text: string): T;
-    stringify(value: unknown, replacer?: unknown, space?: string | number | int): string;
-  }
-  const JSON: JSON;
-  interface Math {
-    round(x: double): double;
-    max(...values: double[]): double;
-    min(...values: double[]): double;
-    random(): double;
-  }
-  const Math: Math;
-  interface RegExpMatchArray extends Array<string> {
-    index?: int;
-    input?: string;
-  }
-  interface RegExp {
-    exec(string: string): RegExpMatchArray | null;
-    test(string: string): boolean;
-  }
-  interface RegExpConstructor {
-    new (pattern: string | RegExp, flags?: string): RegExp;
-    (pattern: string | RegExp, flags?: string): RegExp;
-  }
-  const RegExp: RegExpConstructor;
-  interface Map<K, V> {
-    readonly size: int;
-    clear(): void;
-    delete(key: K): boolean;
-    get(key: K): V | undefined;
-    has(key: K): boolean;
-    set(key: K, value: V): this;
-  }
-  interface MapConstructor {
-    new <K, V>(entries?: readonly (readonly [K, V])[] | null): Map<K, V>;
-  }
-  const Map: MapConstructor;
-  interface Set<T> {
-    readonly size: int;
-    add(value: T): this;
-    clear(): void;
-    delete(value: T): boolean;
-    has(value: T): boolean;
-  }
-  interface SetConstructor {
-    new <T = unknown>(values?: readonly T[] | null): Set<T>;
-  }
-  const Set: SetConstructor;
-  function parseInt(str: string, radix?: int): long | undefined;
-  function parseFloat(str: string): double;
-  function isFinite(value: double): boolean;
-  function isNaN(value: double): boolean;
-  function setTimeout(handler: (...args: unknown[]) => void, timeout?: int, ...args: unknown[]): int;
-  function clearTimeout(id: int): void;
-  function setInterval(handler: (...args: unknown[]) => void, timeout?: int, ...args: unknown[]): int;
-  function clearInterval(id: int): void;
-}
-
-export {};
-EOF
-  fi
-  if [ "$surface_mode" = "@tsonic/nodejs" ]; then
-    js_surface_shim="$tmp_dir/$fixture_name.js-surface-shim.d.ts"
-    cat >"$js_surface_shim" <<EOF
-declare module "node:assert" { export { assert } from "@tsonic/nodejs/index.js"; }
-declare module "assert" { export { assert } from "@tsonic/nodejs/index.js"; }
-declare module "node:buffer" { export { buffer } from "@tsonic/nodejs/index.js"; }
-declare module "buffer" { export { buffer } from "@tsonic/nodejs/index.js"; }
-declare module "node:child_process" { export { child_process } from "@tsonic/nodejs/index.js"; }
-declare module "child_process" { export { child_process } from "@tsonic/nodejs/index.js"; }
-declare module "node:fs" {
-  export { fs } from "@tsonic/nodejs/index.js";
-  export const existsSync: typeof import("@tsonic/nodejs/index.js").fs.existsSync;
-  export const readFileSync: typeof import("@tsonic/nodejs/index.js").fs.readFileSync;
-  export const mkdirSync: typeof import("@tsonic/nodejs/index.js").fs.mkdirSync;
-}
-declare module "fs" { export { fs } from "@tsonic/nodejs/index.js"; }
-declare module "node:path" {
-  export { path } from "@tsonic/nodejs/index.js";
-  export const join: typeof import("@tsonic/nodejs/index.js").path.join;
-  export const extname: typeof import("@tsonic/nodejs/index.js").path.extname;
-  export const basename: typeof import("@tsonic/nodejs/index.js").path.basename;
-  export const dirname: typeof import("@tsonic/nodejs/index.js").path.dirname;
-  export const parse: typeof import("@tsonic/nodejs/index.js").path.parse;
-  export const resolve: typeof import("@tsonic/nodejs/index.js").path.resolve;
-}
-declare module "path" { export { path } from "@tsonic/nodejs/index.js"; }
-declare module "node:crypto" {
-  export { crypto } from "@tsonic/nodejs/index.js";
-  export const randomUUID: typeof import("@tsonic/nodejs/index.js").crypto.randomUUID;
-}
-declare module "crypto" { export { crypto } from "@tsonic/nodejs/index.js"; }
-declare module "node:dgram" { export { dgram } from "@tsonic/nodejs/index.js"; }
-declare module "dgram" { export { dgram } from "@tsonic/nodejs/index.js"; }
-declare module "node:dns" { export { dns } from "@tsonic/nodejs/index.js"; }
-declare module "dns" { export { dns } from "@tsonic/nodejs/index.js"; }
-declare module "node:events" { export { events } from "@tsonic/nodejs/index.js"; }
-declare module "events" { export { events } from "@tsonic/nodejs/index.js"; }
-declare module "node:net" { export { net } from "@tsonic/nodejs/index.js"; }
-declare module "net" { export { net } from "@tsonic/nodejs/index.js"; }
-declare module "node:os" {
-  export { os } from "@tsonic/nodejs/index.js";
-  export const homedir: typeof import("@tsonic/nodejs/index.js").os.homedir;
-  export const tmpdir: typeof import("@tsonic/nodejs/index.js").os.tmpdir;
-}
-declare module "os" { export { os } from "@tsonic/nodejs/index.js"; }
-declare module "node:process" {
-  export { process } from "@tsonic/nodejs/index.js";
-  export const cwd: typeof import("@tsonic/nodejs/index.js").process.cwd;
-}
-declare module "process" { export { process } from "@tsonic/nodejs/index.js"; }
-declare module "node:querystring" { export { querystring } from "@tsonic/nodejs/index.js"; }
-declare module "querystring" { export { querystring } from "@tsonic/nodejs/index.js"; }
-declare module "node:readline" { export { readline } from "@tsonic/nodejs/index.js"; }
-declare module "readline" { export { readline } from "@tsonic/nodejs/index.js"; }
-declare module "node:stream" { export { stream } from "@tsonic/nodejs/index.js"; }
-declare module "stream" { export { stream } from "@tsonic/nodejs/index.js"; }
-declare module "node:timers" { export { timers } from "@tsonic/nodejs/index.js"; }
-declare module "timers" { export { timers } from "@tsonic/nodejs/index.js"; }
-declare module "node:tls" { export { tls } from "@tsonic/nodejs/index.js"; }
-declare module "tls" { export { tls } from "@tsonic/nodejs/index.js"; }
-declare module "node:url" { export { url } from "@tsonic/nodejs/index.js"; }
-declare module "url" { export { url } from "@tsonic/nodejs/index.js"; }
-declare module "node:util" { export { util } from "@tsonic/nodejs/index.js"; }
-declare module "util" { export { util } from "@tsonic/nodejs/index.js"; }
-declare module "node:zlib" { export { zlib } from "@tsonic/nodejs/index.js"; }
-declare module "zlib" { export { zlib } from "@tsonic/nodejs/index.js"; }
-EOF
+  if [ ${#surface_files[@]} -eq 0 ]; then
+    echo "FAIL: surface definitions not found for $surface_mode"
+    exit 1
   fi
 
   # Build a minimal per-fixture tsconfig that:
   # - Uses noLib mode (Tsonic environment)
-  # - Includes @tsonic/globals explicitly (no automatic @types/* pickup)
+  # - Includes the exact surface root explicitly (no automatic @types/* pickup)
   # - Prefers sibling checkouts for @tsonic/* when present
   tsconfig_file="$tmp_dir/$fixture_name.tsconfig.json"
 
@@ -455,16 +327,9 @@ EOF
     }
   },
   "files": [
-    "$GLOBALS_INDEX",
-    "$entry"$(
-      if [ -n "$js_surface_globals_shim" ]; then
-        printf ',\n    "%s"' "$js_surface_globals_shim"
-      fi
-    )$(
-      if [ -n "$js_surface_shim" ]; then
-        printf ',\n    "%s"' "$js_surface_shim"
-      fi
-    )
+$(for surface_file in "${surface_files[@]}"; do
+    printf '    "%s",\n' "$surface_file"
+  done)    "$entry"
   ]
 }
 EOF

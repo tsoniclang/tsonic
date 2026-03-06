@@ -55,6 +55,7 @@ describe("JSON NativeAOT registry", () => {
                     isComputed: false,
                     isOptional: false,
                     memberBinding: {
+                      kind: "method",
                       assembly: "System.Text.Json",
                       type: "System.Text.Json.JsonSerializer",
                       member: "Serialize",
@@ -136,6 +137,7 @@ describe("JSON NativeAOT registry", () => {
                     isComputed: false,
                     isOptional: false,
                     memberBinding: {
+                      kind: "method",
                       assembly: "System.Text.Json",
                       type: "System.Text.Json.JsonSerializer",
                       member: "Serialize",

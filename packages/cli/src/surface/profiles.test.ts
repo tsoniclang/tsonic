@@ -10,9 +10,12 @@ describe("CLI Surface Profiles", () => {
     const caps = resolveSurfaceCapabilities("clr");
     expect(caps.includesClr).to.equal(true);
     expect(caps.requiredTypeRoots).to.deep.equal([
-      "node_modules/@tsonic/dotnet",
+      "node_modules/@tsonic/globals",
     ]);
-    expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/dotnet"]);
+    expect(caps.requiredNpmPackages).to.deep.equal([
+      "@tsonic/globals",
+      "@tsonic/dotnet",
+    ]);
     expect(caps.useStandardLib).to.equal(false);
   });
 
@@ -58,7 +61,7 @@ describe("CLI Surface Profiles", () => {
     expect(caps.mode).to.equal("clr");
     expect(caps.includesClr).to.equal(true);
     expect(caps.requiredTypeRoots).to.deep.equal([
-      "node_modules/@tsonic/dotnet",
+      "node_modules/@tsonic/globals",
     ]);
   });
 

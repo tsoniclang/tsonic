@@ -41,6 +41,7 @@ const writeInstalledPackage = (
   opts: {
     readonly legacyBindings?: unknown;
     readonly aikyaManifest?: unknown;
+    readonly surfaceManifest?: unknown;
     readonly bindingsRoot?: string;
     readonly dependencies?: Readonly<Record<string, string>>;
     readonly optionalDependencies?: Readonly<Record<string, string>>;
@@ -67,6 +68,10 @@ const writeInstalledPackage = (
     writeJson(join(pkgRoot, "tsonic.bindings.json"), opts.legacyBindings);
   }
 
+  if (opts.surfaceManifest !== undefined) {
+    writeJson(join(pkgRoot, "tsonic.surface.json"), opts.surfaceManifest);
+  }
+
   if (opts.aikyaManifest !== undefined) {
     writeJson(
       join(pkgRoot, "tsonic", "package-manifest.json"),
@@ -87,6 +92,11 @@ const baseWorkspaceConfig = (): TsonicWorkspaceConfig => ({
     packageReferences: [],
   },
 });
+
+const installClrSurfacePackages = (workspaceRoot: string): void => {
+  writeInstalledPackage(workspaceRoot, "@tsonic/globals", "10.0.0");
+  writeInstalledPackage(workspaceRoot, "@tsonic/dotnet", "10.0.0");
+};
 
 describe("aikya bindings", function () {
   this.timeout(30_000);
@@ -449,6 +459,7 @@ describe("aikya bindings", function () {
   it("discovers workspace manifests from dependencies and devDependencies", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-discover-"));
     try {
+      installClrSurfacePackages(dir);
       writeJson(join(dir, "package.json"), {
         name: "workspace",
         private: true,
@@ -503,6 +514,7 @@ describe("aikya bindings", function () {
       join(tmpdir(), "tsonic-aikya-discover-transitive-")
     );
     try {
+      installClrSurfacePackages(dir);
       writeJson(join(dir, "package.json"), {
         name: "workspace",
         private: true,
@@ -545,6 +557,7 @@ describe("aikya bindings", function () {
   it("applies workspace overlay and merges package references", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-overlay-"));
     try {
+      installClrSurfacePackages(dir);
       writeJson(join(dir, "package.json"), {
         name: "workspace",
         private: true,
@@ -585,6 +598,89 @@ describe("aikya bindings", function () {
         { id: "Acme.Http", version: "2.0.0" },
       ]);
       expect(result.ok ? result.value.manifests.length : 0).to.equal(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("discovers surface-chain manifests even when not listed in workspace package.json", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-surface-chain-"));
+    try {
+      writeJson(join(dir, "package.json"), {
+        name: "workspace",
+        private: true,
+        type: "module",
+      });
+
+      writeInstalledPackage(dir, "@tsonic/js", "10.0.0", {
+        surfaceManifest: {
+          schemaVersion: 1,
+          id: "@tsonic/js",
+          extends: [],
+          requiredTypeRoots: ["."],
+        },
+        bindingsRoot: "tsonic/bindings",
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "@tsonic/js",
+          npmVersion: "10.0.0",
+          runtime: {
+            nugetPackages: [{ id: "Tsonic.JSRuntime", version: "10.0.0" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+        },
+      });
+
+      writeInstalledPackage(dir, "@tsonic/nodejs", "10.0.0", {
+        surfaceManifest: {
+          schemaVersion: 1,
+          id: "@tsonic/nodejs",
+          extends: ["@tsonic/js"],
+          requiredTypeRoots: ["."],
+        },
+        bindingsRoot: "tsonic/bindings",
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "@tsonic/nodejs",
+          npmVersion: "10.0.0",
+          runtime: {
+            nugetPackages: [{ id: "Tsonic.Nodejs", version: "10.0.0" }],
+            frameworkReferences: ["Microsoft.AspNetCore.App"],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+        },
+      });
+
+      const manifests = discoverWorkspaceBindingsManifests(
+        dir,
+        "@tsonic/nodejs"
+      );
+      expect(manifests.ok).to.equal(true);
+      const values = manifests.ok ? manifests.value : [];
+      expect(values.map((x) => x.packageName)).to.deep.equal([
+        "@tsonic/js",
+        "@tsonic/nodejs",
+      ]);
+
+      const result = applyAikyaWorkspaceOverlay(dir, {
+        ...baseWorkspaceConfig(),
+        surface: "@tsonic/nodejs",
+      });
+      expect(result.ok).to.equal(true);
+      const cfg = result.ok ? result.value.config : baseWorkspaceConfig();
+      expect(cfg.dotnet?.frameworkReferences).to.deep.equal([
+        "Microsoft.AspNetCore.App",
+      ]);
+      expect(cfg.dotnet?.packageReferences).to.deep.equal([
+        { id: "Tsonic.JSRuntime", version: "10.0.0" },
+        { id: "Tsonic.Nodejs", version: "10.0.0" },
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

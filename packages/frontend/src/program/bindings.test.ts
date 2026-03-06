@@ -566,6 +566,81 @@ describe("Binding System", () => {
         type: "Acme.Dep.Global",
       });
     });
+
+    it("should load transitive bindings from sibling workspace versioned packages", () => {
+      const workspaceRoot = path.join(tempDir, "tsoniclang");
+      const globalsRoot = path.join(workspaceRoot, "globals", "versions", "10");
+      const dotnetRoot = path.join(workspaceRoot, "dotnet", "versions", "10");
+
+      fs.mkdirSync(globalsRoot, { recursive: true });
+      fs.mkdirSync(dotnetRoot, { recursive: true });
+
+      fs.writeFileSync(
+        path.join(globalsRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/globals",
+            version: "1.0.0",
+            dependencies: {
+              "@tsonic/dotnet": "1.0.0",
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(globalsRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "clr",
+            extends: [],
+            requiredTypeRoots: ["."],
+          },
+          null,
+          2
+        )
+      );
+
+      fs.writeFileSync(
+        path.join(dotnetRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/dotnet",
+            version: "1.0.0",
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(path.join(dotnetRoot, "System.d.ts"), "export {};\n");
+      fs.mkdirSync(path.join(dotnetRoot, "System"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dotnetRoot, "System", "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              SerializableAttribute: {
+                kind: "global",
+                assembly: "System.Runtime",
+                type: "System.SerializableAttribute",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const registry = loadBindings([globalsRoot]);
+      const binding = registry.getBinding("SerializableAttribute");
+      expect(binding).to.deep.equal({
+        kind: "global",
+        assembly: "System.Runtime",
+        type: "System.SerializableAttribute",
+      });
+    });
   });
 
   describe("Hierarchical Binding Manifests", () => {

@@ -76,4 +76,27 @@ describe("add-common module resolution", () => {
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });
+
+  it("resolves sibling @tsonic package root when not installed in node_modules", () => {
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-resolve-sibling-pkgroot-")
+    );
+
+    try {
+      writeJson(join(projectRoot, "package.json"), {
+        name: "test",
+        private: true,
+        type: "module",
+      });
+
+      const result = resolvePackageRoot(projectRoot, "@tsonic/nodejs");
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(resolve(result.value)).to.match(
+        new RegExp(`[/\\\\]nodejs([/\\\\]versions[/\\\\]\\d+)?$`)
+      );
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
 });

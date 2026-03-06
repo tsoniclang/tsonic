@@ -10,7 +10,7 @@ describe("Frontend Surface Profiles", () => {
     const caps = resolveSurfaceCapabilities("clr");
     expect(caps.includesClr).to.equal(true);
     expect(caps.requiredTypeRoots).to.deep.equal([
-      "node_modules/@tsonic/dotnet",
+      "node_modules/@tsonic/globals",
     ]);
     expect(caps.useStandardLib).to.equal(false);
   });
@@ -36,7 +36,7 @@ describe("Frontend Surface Profiles", () => {
     expect(caps.mode).to.equal("clr");
     expect(caps.includesClr).to.equal(true);
     expect(caps.requiredTypeRoots).to.deep.equal([
-      "node_modules/@tsonic/dotnet",
+      "node_modules/@tsonic/globals",
     ]);
   });
 

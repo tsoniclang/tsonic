@@ -34,7 +34,7 @@ const BUILTIN_SURFACE_PROFILES: Readonly<Record<string, SurfaceProfile>> = {
   clr: {
     mode: "clr",
     extends: [],
-    requiredTypeRoots: ["node_modules/@tsonic/dotnet"],
+    requiredTypeRoots: ["node_modules/@tsonic/globals"],
     useStandardLib: false,
   },
 };

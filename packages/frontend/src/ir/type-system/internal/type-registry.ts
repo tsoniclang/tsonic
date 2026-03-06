@@ -4,8 +4,9 @@
  * ALICE'S SPEC (Step 3): This registry stores IrType (pure IR), NOT ts.TypeNode.
  * Types are converted at registration time, making queries deterministic.
  *
- * CANONICAL CLR IDENTITY: Well-known runtime types from @tsonic/globals,
- * @tsonic/core, and @tsonic/dotnet are registered with canonical CLR FQ names
+ * CANONICAL CLR IDENTITY: Well-known runtime types from compiler core globals,
+ * Tsonic surface packages, @tsonic/core, and @tsonic/dotnet are registered
+ * with canonical CLR FQ names
  * (e.g., String → System.String, String$instance → System.String$instance).
  *
  * Part of Alice's specification for deterministic IR typing.
@@ -26,7 +27,10 @@ import { normalizeToClrName } from "./universe/alias-table.js";
  */
 const isWellKnownLibrary = (fileName: string): boolean => {
   return (
+    fileName.includes("__core_globals__.d.ts") ||
     fileName.includes("@tsonic/globals") ||
+    fileName.includes("@tsonic/js") ||
+    fileName.includes("@tsonic/nodejs") ||
     fileName.includes("@tsonic/core") ||
     fileName.includes("@tsonic/dotnet")
   );

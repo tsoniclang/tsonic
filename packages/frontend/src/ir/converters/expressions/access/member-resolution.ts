@@ -263,6 +263,10 @@ export const extractTypeName = (
   if (inferredType.kind === "referenceType") {
     const name = inferredType.name;
 
+    if (name === "Array" || name === "ReadonlyArray") {
+      return "Array";
+    }
+
     // Strip $instance suffix from tsbindgen-generated type names
     // e.g., "List_1$instance" → "List_1" for binding lookup
     if (name.endsWith("$instance")) {

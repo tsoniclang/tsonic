@@ -9,6 +9,239 @@ import { emitModule } from "../emitter.js";
 import { IrModule } from "@tsonic/frontend";
 
 describe("Statement Emission", () => {
+  it("should drop method-group-only void statements without emitting discard assignments", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "main",
+          parameters: [],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "unary",
+                  operator: "void",
+                  inferredType: { kind: "voidType" },
+                  expression: {
+                    kind: "memberAccess",
+                    object: {
+                      kind: "identifier",
+                      name: "http",
+                      resolvedClrType: "nodejs.Http.http",
+                      resolvedAssembly: "nodejs",
+                    },
+                    property: "createServer",
+                    isComputed: false,
+                    isOptional: false,
+                    inferredType: { kind: "anyType" },
+                    memberBinding: {
+                      kind: "method",
+                      assembly: "nodejs",
+                      type: "nodejs.Http.http",
+                      member: "createServer",
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).not.to.include("_ = global::nodejs.Http.http.createServer;");
+    expect(result).not.to.include("_ = global::nodejs.Http.http;");
+    expect(result).not.to.include("createServer;");
+  });
+
+  it("should drop namespace-import method-group void statements without evaluating the namespace object", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "node:http",
+          isLocal: false,
+          isClr: false,
+          resolvedClrType: "nodejs.Http.http",
+          resolvedAssembly: "nodejs",
+          specifiers: [{ kind: "namespace", localName: "http" }],
+        },
+      ],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "main",
+          parameters: [],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "unary",
+                  operator: "void",
+                  inferredType: { kind: "voidType" },
+                  expression: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "http" },
+                    property: "createServer",
+                    isComputed: false,
+                    isOptional: false,
+                    inferredType: { kind: "anyType" },
+                    memberBinding: {
+                      kind: "method",
+                      assembly: "nodejs",
+                      type: "nodejs.Http.http",
+                      member: "createServer",
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).not.to.include("_ = global::nodejs.Http.http;");
+    expect(result).not.to.include("createServer;");
+  });
+
+  it("should preserve property reads in void statements via discard assignment", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "main",
+          parameters: [],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "unary",
+                  operator: "void",
+                  inferredType: { kind: "voidType" },
+                  expression: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "process" },
+                    property: "platform",
+                    isComputed: false,
+                    isOptional: false,
+                    inferredType: { kind: "anyType" },
+                    memberBinding: {
+                      kind: "property",
+                      assembly: "nodejs",
+                      type: "nodejs.process",
+                      member: "platform",
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("_ = global::nodejs.process.platform;");
+  });
+
+  it("should preserve identifier reads in void statements via discard assignment", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "main",
+          parameters: [],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "variableDeclaration",
+                declarationKind: "let",
+                isExported: false,
+                declarations: [
+                  {
+                    kind: "variableDeclarator",
+                    name: { kind: "identifierPattern", name: "x" },
+                    initializer: { kind: "literal", value: 1 },
+                  },
+                ],
+              },
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "unary",
+                  operator: "void",
+                  inferredType: { kind: "voidType" },
+                  expression: {
+                    kind: "identifier",
+                    name: "x",
+                    inferredType: { kind: "primitiveType", name: "int" },
+                  },
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("_ = x;");
+  });
+
   it("should auto-await async wrapper calls in async return statements", () => {
     const module: IrModule = {
       kind: "module",

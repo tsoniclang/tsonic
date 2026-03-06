@@ -548,7 +548,167 @@ export {};
     }
   });
 
-  it("should expose CLR string members on clr surface via compiler declarations", () => {
+  it("should expose Array.from and RangeError on js surface", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-js-array-from-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        [
+          'const chars = Array.from("abc");',
+          'const err = new RangeError("bad range");',
+          'export const ok = chars.join("") + err.message;',
+        ].join("\n")
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(result.value.bindings.getBinding("Array")?.staticType).to.equal(
+        "Tsonic.JSRuntime.JSArrayStatics"
+      );
+      expect(result.value.bindings.getBinding("Error")?.type).to.equal(
+        "Tsonic.JSRuntime.Error"
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should expose js array mutators and numeric instance helpers on js surface", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-js-array-number-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        [
+          "const xs = [1, 2];",
+          "xs.push(3);",
+          "const text = (42).toString();",
+          "const other = Array.of(1, 2, 3);",
+          "export const ok = Array.isArray(other) ? text + xs.join(',') : text;",
+        ].join("\n")
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(result.value.bindings.getBinding("Array")?.staticType).to.equal(
+        "Tsonic.JSRuntime.JSArrayStatics"
+      );
+      expect(result.value.bindings.getBinding("Number")?.type).to.equal(
+        "Tsonic.JSRuntime.Number"
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should keep RangeError out of clr surface", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-clr-no-rangeerror-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        'export const bad = new RangeError("not clr");\n'
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "clr",
+      });
+
+      expect(result.ok).to.equal(false);
+      if (result.ok) return;
+      expect(
+        result.error.diagnostics.some((diagnostic) =>
+          diagnostic.message.includes("Cannot find name 'RangeError'")
+        )
+      ).to.equal(true);
+
+      const errorEntryPath = path.join(srcDir, "error.ts");
+      fs.writeFileSync(
+        errorEntryPath,
+        'export const err = new Error("core error");\n'
+      );
+
+      const okResult = createProgram([errorEntryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "clr",
+      });
+
+      expect(okResult.ok).to.equal(true);
+      if (!okResult.ok) return;
+      expect(okResult.value.bindings.getBinding("Error")?.type).to.equal(
+        "System.Exception"
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should expose CLR string members on clr surface via @tsonic/globals", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-clr-members-")
     );
@@ -566,52 +726,6 @@ export {};
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
 
-      const dotnetRoot = path.join(tempDir, "node_modules/@tsonic/dotnet");
-      const dotnetInternalRoot = path.join(dotnetRoot, "System/internal");
-      fs.mkdirSync(dotnetInternalRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(dotnetRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/dotnet", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(dotnetInternalRoot, "index.d.ts"),
-        `
-export interface Array$instance {}
-export interface __Array$views {}
-export interface String$instance { Trim(): string; }
-export interface __String$views {}
-export interface Double$instance {}
-export interface __Double$views {}
-export interface Boolean$instance {}
-export interface __Boolean$views {}
-export interface Object$instance {}
-`
-      );
-      fs.writeFileSync(
-        path.join(dotnetInternalRoot, "index.js"),
-        "export {};\n"
-      );
-      fs.writeFileSync(
-        path.join(dotnetRoot, "System.Collections.d.ts"),
-        "export interface IEnumerator {}\n"
-      );
-      fs.writeFileSync(
-        path.join(dotnetRoot, "System.Collections.js"),
-        "export {};\n"
-      );
-      fs.writeFileSync(
-        path.join(dotnetRoot, "System.Collections.Generic.d.ts"),
-        "export interface IEnumerable<T> {}\nexport interface IEnumerator<T> {}\n"
-      );
-      fs.writeFileSync(
-        path.join(dotnetRoot, "System.Collections.Generic.js"),
-        "export {};\n"
-      );
-
       const entryPath = path.join(srcDir, "index.ts");
       fs.writeFileSync(entryPath, 'export const ok = "  hi  ".Trim();\n');
 
@@ -623,6 +737,21 @@ export interface Object$instance {}
       });
 
       expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(
+        result.value.declarationSourceFiles.some((sourceFile) =>
+          sourceFile.fileName.endsWith("__clr_globals__.d.ts")
+        )
+      ).to.equal(false);
+      expect(
+        result.value.declarationSourceFiles.some(
+          (sourceFile) =>
+            sourceFile.fileName.includes("@tsonic/globals") ||
+            /[/\\]globals[/\\]versions[/\\]\d+[/\\]index\.d\.ts$/.test(
+              sourceFile.fileName
+            )
+        )
+      ).to.equal(true);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

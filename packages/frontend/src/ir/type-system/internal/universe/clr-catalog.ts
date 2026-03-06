@@ -118,6 +118,17 @@ const findBindingsFiles = (packagePath: string): string[] => {
   return bindingsFiles;
 };
 
+const isRawClrBindingsFile = (value: unknown): value is RawBindingsFile => {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as {
+    readonly namespace?: unknown;
+    readonly types?: unknown;
+  };
+  return (
+    typeof candidate.namespace === "string" && Array.isArray(candidate.types)
+  );
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN LOADER FUNCTION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -160,7 +171,11 @@ export const loadClrCatalog = (
         }
 
         const content = fs.readFileSync(bindingsPath, "utf-8");
-        const bindings: RawBindingsFile = JSON.parse(content);
+        const parsed = JSON.parse(content) as unknown;
+        if (!isRawClrBindingsFile(parsed)) {
+          continue;
+        }
+        const bindings = parsed;
 
         for (const rawType of bindings.types) {
           const entry = convertRawType(rawType, bindings.namespace);
@@ -218,7 +233,13 @@ export const loadSinglePackageBindings = (
   );
 
   const content = fs.readFileSync(bindingsPath, "utf-8");
-  const bindings: RawBindingsFile = JSON.parse(content);
+  const parsed = JSON.parse(content) as unknown;
+  if (!isRawClrBindingsFile(parsed)) {
+    throw new Error(
+      `Expected tsbindgen CLR bindings with 'namespace' and 'types' at ${bindingsPath}`
+    );
+  }
+  const bindings = parsed;
 
   for (const rawType of bindings.types) {
     const entry = convertRawType(rawType, bindings.namespace);

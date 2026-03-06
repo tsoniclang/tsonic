@@ -74,12 +74,12 @@ const PRIMITIVE_ALIASES: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
- * Maps @tsonic/globals type names to their CLR System.* names.
+ * Maps global surface type names to their CLR System.* names.
  *
  * These are the TypeScript-facing names that wrap CLR types.
  */
 const GLOBALS_ALIASES: ReadonlyMap<string, string> = new Map([
-  // Globals from @tsonic/globals
+  // Surface-global CLR identities
   ["String", "System.String"],
   ["Number", "System.Double"],
   ["Boolean", "System.Boolean"],
