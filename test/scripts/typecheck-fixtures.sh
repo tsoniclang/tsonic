@@ -135,15 +135,70 @@ resolve_surface_package_root() {
   return 1
 }
 
+resolve_declaration_entry_files() {
+  local candidate="$1"
+
+  if [ -f "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  if [ ! -d "$candidate" ]; then
+    return 0
+  fi
+
+  if [ -f "$candidate/index.d.ts" ]; then
+    printf '%s\n' "$candidate/index.d.ts"
+    return 0
+  fi
+
+  if [ -f "$candidate/package.json" ]; then
+    local declared
+    declared="$(
+      node - "$candidate/package.json" <<'EOF'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const packageJsonPath = process.argv[2];
+try {
+  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  const entry = typeof pkg.types === "string"
+    ? pkg.types
+    : typeof pkg.typings === "string"
+      ? pkg.typings
+      : "";
+  if (!entry) {
+    process.stdout.write("");
+    process.exit(0);
+  }
+  if (path.isAbsolute(entry)) {
+    process.stdout.write("");
+    process.exit(0);
+  }
+  process.stdout.write(path.join(path.dirname(packageJsonPath), entry));
+} catch {
+  process.stdout.write("");
+}
+EOF
+    )"
+    if [ -n "$declared" ] && [ -f "$declared" ]; then
+      printf '%s\n' "$declared"
+      return 0
+    fi
+  fi
+
+  return 0
+}
+
 resolve_surface_files() {
   local surface_mode="$1"
   if [ "$surface_mode" = "clr" ]; then
     local globals_root
     globals_root="$(resolve_surface_package_root "@tsonic/globals" || true)"
-    if [ -z "$globals_root" ] || [ ! -f "$globals_root/index.d.ts" ]; then
+    if [ -z "$globals_root" ]; then
       return 1
     fi
-    printf '%s\n' "$globals_root/index.d.ts"
+    resolve_declaration_entry_files "$globals_root"
     return 0
   fi
 
@@ -222,7 +277,7 @@ resolve_workspace_type_root_files() {
   local workspace_dir="$1"
   local output
   output="$(
-    node - "$workspace_dir/tsonic.workspace.json" <<'EOF'
+      node - "$workspace_dir/tsonic.workspace.json" <<'EOF'
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -256,11 +311,7 @@ EOF
           echo "FAIL: typeRoot package not found: $package_name" >&2
           return 1
         fi
-        if [ -f "$package_root/index.d.ts" ]; then
-          printf '%s\n' "$package_root/index.d.ts"
-        else
-          printf '%s\n' "$package_root"
-        fi
+        resolve_declaration_entry_files "$package_root"
         ;;
       *)
         local resolved_root
@@ -269,12 +320,8 @@ EOF
         else
           resolved_root="$workspace_dir/$root"
         fi
-        if [ -f "$resolved_root" ]; then
-          printf '%s\n' "$resolved_root"
-        elif [ -f "$resolved_root/index.d.ts" ]; then
-          printf '%s\n' "$resolved_root/index.d.ts"
-        elif [ -d "$resolved_root" ]; then
-          printf '%s\n' "$resolved_root"
+        if [ -f "$resolved_root" ] || [ -d "$resolved_root" ]; then
+          resolve_declaration_entry_files "$resolved_root"
         else
           echo "FAIL: typeRoot path not found: $root" >&2
           return 1
