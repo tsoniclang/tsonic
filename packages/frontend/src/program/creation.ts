@@ -316,6 +316,78 @@ export const createProgram = (
     }
   };
 
+  const parseTsonicModuleRequest = (
+    moduleName: string
+  ):
+    | {
+        packageName: string;
+        pkgDirName: string;
+        subpath: string | undefined;
+      }
+    | undefined => {
+    const match = moduleName.match(/^@tsonic\/([^/]+)(?:\/(.+))?$/);
+    if (!match) return undefined;
+
+    const pkgDirName = match[1];
+    if (!pkgDirName) return undefined;
+
+    return {
+      packageName: `@tsonic/${pkgDirName}`,
+      pkgDirName,
+      subpath: match[2],
+    };
+  };
+
+  const resolveModuleFromPackageRoot = (
+    packageRoot: string,
+    subpath: string | undefined
+  ): ts.ResolvedModuleFull | undefined => {
+    const candidates = (() => {
+      if (!subpath || subpath.length === 0) {
+        return [
+          path.join(packageRoot, "index.d.ts"),
+          path.join(packageRoot, "index.js"),
+        ];
+      }
+
+      const basePath = path.join(packageRoot, subpath);
+      if (subpath.endsWith(".d.ts")) {
+        return [basePath];
+      }
+      if (subpath.endsWith(".js")) {
+        return [basePath.replace(/\.js$/, ".d.ts"), basePath];
+      }
+
+      return [
+        `${basePath}.d.ts`,
+        `${basePath}.js`,
+        path.join(basePath, "index.d.ts"),
+        path.join(basePath, "index.js"),
+      ];
+    })();
+
+    for (const candidate of candidates) {
+      if (!fs.existsSync(candidate)) continue;
+
+      const extension = candidate.endsWith(".d.ts")
+        ? ts.Extension.Dts
+        : candidate.endsWith(".js")
+          ? ts.Extension.Js
+          : candidate.endsWith(".ts")
+            ? ts.Extension.Ts
+            : undefined;
+      if (!extension) continue;
+
+      return {
+        resolvedFileName: candidate,
+        extension,
+        isExternalLibraryImport: true,
+      };
+    }
+
+    return undefined;
+  };
+
   const resolveSiblingTsonicPackageRoot = (
     pkgDirName: string
   ): string | undefined => {
@@ -407,6 +479,13 @@ export const createProgram = (
     return absoluteRoot;
   });
   const typeRoots = resolvedRequestedTypeRoots;
+  const authoritativeTsonicPackageRoots = new Map<string, string>();
+  for (const typeRoot of typeRoots) {
+    const packageName = readPackageName(path.join(typeRoot, "package.json"));
+    if (packageName?.startsWith("@tsonic/")) {
+      authoritativeTsonicPackageRoots.set(packageName, typeRoot);
+    }
+  }
 
   // Debug log typeRoots
   if (options.verbose && typeRoots.length > 0) {
@@ -584,11 +663,48 @@ export const createProgram = (
         };
       }
 
-      // @tsonic/* packages are project dependencies. Resolve them from the project
-      // root so a global `tsonic` install can compile projects that install
-      // @tsonic/* into their local node_modules (out-of-box experience).
+      // @tsonic/* packages must stay on a single coherent package graph for the
+      // active compilation. Mixing:
+      //   - compiler/typeRoot-owned declarations, and
+      //   - project-local installed copies
+      // produces nominal identity splits inside TypeScript (e.g. two different
+      // Task / Stream / Exception hierarchies), which then surface as impossible
+      // overload failures and self-incompatible types.
       if (moduleName.startsWith("@tsonic/")) {
-        // Resolve from project root first (works for global installs).
+        const request = parseTsonicModuleRequest(moduleName);
+
+        // 1) If this package is already part of the active type-root/surface
+        // graph, always resolve to that exact root — even for user source files.
+        if (request) {
+          const authoritativeRoot = authoritativeTsonicPackageRoots.get(
+            request.packageName
+          );
+          if (authoritativeRoot) {
+            const resolved = resolveModuleFromPackageRoot(
+              authoritativeRoot,
+              request.subpath
+            );
+            if (resolved) return resolved;
+          }
+        }
+
+        // 2) In local monorepo / compiler-install development, prefer the
+        // compiler-owned sibling package graph before consulting the project's
+        // installed copy. This keeps direct source imports coherent with surface
+        // declarations that already came from sibling roots.
+        if (request) {
+          const compilerOwnedRoot = resolveTsonicPackageRoot(request.pkgDirName);
+          if (compilerOwnedRoot) {
+            const resolved = resolveModuleFromPackageRoot(
+              compilerOwnedRoot,
+              request.subpath
+            );
+            if (resolved) return resolved;
+          }
+        }
+
+        // 3) Fall back to the project's installed dependency graph when no
+        // authoritative / compiler-owned root is available.
         // Note: containingFile can be a declaration file coming from a sibling
         // checkout during development; resolving relative to that path would skip
         // the project's node_modules entirely.
@@ -604,40 +720,7 @@ export const createProgram = (
         );
         if (projectResult.resolvedModule) return projectResult.resolvedModule;
 
-        // Development fallback: allow resolving from sibling checkouts
-        // (e.g. ../dotnet, ../core) when present.
-        const match = moduleName.match(/^@tsonic\/([^/]+)\/(.+)$/);
-        if (match) {
-          const pkgDirName = match[1];
-          const subpath = match[2];
-          if (!pkgDirName || !subpath) return undefined;
-
-          const siblingRoot = resolveSiblingTsonicPackageRoot(pkgDirName);
-          if (!siblingRoot) return undefined;
-
-          const jsPath = path.join(siblingRoot, subpath);
-          const dtsPath = jsPath.endsWith(".js")
-            ? jsPath.replace(/\.js$/, ".d.ts")
-            : `${jsPath}.d.ts`;
-
-          if (fs.existsSync(dtsPath)) {
-            return {
-              resolvedFileName: dtsPath,
-              extension: ts.Extension.Dts,
-              isExternalLibraryImport: true,
-            };
-          }
-          if (fs.existsSync(jsPath)) {
-            return {
-              resolvedFileName: jsPath,
-              extension: ts.Extension.Js,
-              isExternalLibraryImport: true,
-            };
-          }
-        }
-
-        // Fall back to the compiler's own installation (useful in dev setups
-        // where the project hasn't installed @tsonic/* yet).
+        // Final resolution fallback through the compiler's own module graph.
         const result = ts.resolveModuleName(
           moduleName,
           compilerContainingFile,
