@@ -11,6 +11,7 @@
 #
 # Environment variables:
 #   TEST_CONCURRENCY: Number of parallel E2E tests (default: 4)
+#   TSONIC_BIN: Optional override for the tsonic CLI path.
 
 set -uo pipefail
 
@@ -109,10 +110,18 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-if [[ -z "${TSONIC_BIN:-}" ]]; then
-  echo "FAIL: TSONIC_BIN is not set. Set it to the tsonic CLI path." >&2
-  exit 1
-fi
+DEFAULT_TSONIC_BIN="$ROOT_DIR/packages/cli/dist/index.js"
+TSONIC_BIN="${TSONIC_BIN:-$DEFAULT_TSONIC_BIN}"
+
+ensure_tsonic_bin() {
+    if [[ -f "$TSONIC_BIN" ]]; then
+        return 0
+    fi
+
+    echo "FAIL: tsonic CLI not found at: $TSONIC_BIN" >&2
+    echo "Set TSONIC_BIN to a built tsonic CLI path, or build packages/cli so the default path exists." >&2
+    exit 1
+}
 
 matches_filter() {
     local name="$1"
@@ -340,6 +349,7 @@ else
     # 2. E2E Dotnet Tests (Parallel)
     # ============================================================
     echo -e "${BLUE}--- Running E2E Dotnet Tests (concurrency: $TEST_CONCURRENCY) ---${NC}" | tee -a "$LOG_FILE"
+    ensure_tsonic_bin
 
     FIXTURES_DIR="$SCRIPT_DIR/../fixtures"
     # Persistent directory for per-fixture results (enables --resume).
