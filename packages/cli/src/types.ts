@@ -127,7 +127,7 @@ export type TsonicWorkspaceConfig = {
    * Language surface for TypeScript authoring.
    * - "clr": deterministic noLib CLR-first surface (default)
    * - any other value: exact npm package name providing `tsonic.surface.json`
-   *   (for example: "@tsonic/js", "@tsonic/nodejs", "@acme/surface-web")
+   *   (for example: "@tsonic/js", "@acme/surface-web")
    */
   readonly surface?: SurfaceMode;
   /**

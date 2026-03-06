@@ -319,8 +319,7 @@ describe("add npm", function () {
         name: pkgName,
         manifest: {
           bindingVersion: 1,
-          surfaceMode: "nodejs",
-          runtimePackages: ["@tsonic/nodejs", "@tsonic/js"],
+          requiredTypeRoots: ["types", "."],
           dotnet: {
             packageReferences: [
               { id: "Zeta", version: "1.0.0" },
@@ -355,6 +354,53 @@ describe("add npm", function () {
 
       const secondBytes = readFileSync(normalizedManifestPath, "utf-8");
       expect(secondBytes).to.equal(firstBytes);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("merges requiredTypeRoots from package manifests into workspace config", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-type-roots-"));
+    try {
+      const configPath = writeWorkspaceConfig(dir);
+      const pkgName = "@acme/node-runtime";
+      writeLocalNpmPackage(dir, "local/acme-node-runtime", {
+        name: pkgName,
+        manifest: {
+          bindingVersion: 1,
+          requiredTypeRoots: ["types", "."],
+          dotnet: {
+            packageReferences: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
+          },
+        },
+      });
+
+      const result = addNpmCommand("./local/acme-node-runtime", configPath, {
+        quiet: true,
+      });
+      expect(result.ok).to.equal(true);
+
+      const cfg = readWorkspaceConfig(dir);
+      expect(cfg.dotnet.typeRoots).to.deep.equal([
+        "node_modules/@acme/node-runtime",
+        "node_modules/@acme/node-runtime/types",
+      ]);
+
+      const normalizedManifestPath = join(
+        dir,
+        ".tsonic",
+        "manifests",
+        "npm",
+        pkgName,
+        "tsonic.bindings.normalized.json"
+      );
+      const normalizedManifest = JSON.parse(
+        readFileSync(normalizedManifestPath, "utf-8")
+      ) as Record<string, unknown>;
+      expect(normalizedManifest["requiredTypeRoots"]).to.deep.equal([
+        "node_modules/@acme/node-runtime",
+        "node_modules/@acme/node-runtime/types",
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

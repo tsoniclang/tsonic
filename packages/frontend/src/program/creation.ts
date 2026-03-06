@@ -16,7 +16,15 @@ import { loadBindings } from "./bindings.js";
 import { collectTsDiagnostics } from "./diagnostics.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "../ir/binding/index.js";
-import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+import {
+  hasResolvedSurfaceProfile,
+  resolveSurfaceCapabilities,
+} from "../surface/profiles.js";
+import {
+  addDiagnostic,
+  createDiagnostic,
+  createDiagnosticsCollector,
+} from "../types/diagnostic.js";
 
 const CORE_GLOBALS_DECLARATIONS = `
 declare global {
@@ -264,6 +272,25 @@ export const createProgram = (
   options: CompilerOptions
 ): Result<TsonicProgram, DiagnosticsCollector> => {
   const surface = options.surface ?? "clr";
+  if (
+    surface !== "clr" &&
+    !hasResolvedSurfaceProfile(surface, {
+      projectRoot: options.projectRoot,
+    })
+  ) {
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1004",
+          "error",
+          `Surface '${surface}' is not a valid ambient surface package.`,
+          undefined,
+          "Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages separately."
+        )
+      )
+    );
+  }
   const surfaceCapabilities = resolveSurfaceCapabilities(surface, {
     projectRoot: options.projectRoot,
   });

@@ -45,13 +45,12 @@ describe("Init Command", () => {
       expect(result.typeRoots).to.deep.equal(["node_modules/@tsonic/js"]);
     });
 
-    it("should include @tsonic/nodejs package for nodejs surface bootstrap", () => {
-      const result = getTypePackageInfo({ surface: "@tsonic/nodejs" });
+    it("should bootstrap an explicit custom surface package before manifest resolution", () => {
+      const result = getTypePackageInfo({ surface: "@acme/surface-web" });
       const packageNames = result.packages.map((p) => p.name);
 
-      expect(packageNames).to.include("@tsonic/nodejs");
-      expect(packageNames).to.not.include("@tsonic/js");
-      expect(result.typeRoots).to.deep.equal(["node_modules/@tsonic/nodejs"]);
+      expect(packageNames).to.include("@acme/surface-web");
+      expect(result.typeRoots).to.deep.equal([]);
     });
 
     it("should include inherited surface package requirements from installed manifests", () => {
@@ -91,30 +90,30 @@ describe("Init Command", () => {
           )
         );
 
-        const nodejsRoot = join(
+        const customRoot = join(
           workspaceRoot,
           "node_modules",
-          "@tsonic",
-          "nodejs"
+          "@acme",
+          "surface-node"
         );
-        mkdirSync(nodejsRoot, { recursive: true });
+        mkdirSync(customRoot, { recursive: true });
         writeFileSync(
-          join(nodejsRoot, "package.json"),
+          join(customRoot, "package.json"),
           JSON.stringify(
-            { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
+            { name: "@acme/surface-node", version: "1.0.0", type: "module" },
             null,
             2
           )
         );
         writeFileSync(
-          join(nodejsRoot, "tsonic.surface.json"),
+          join(customRoot, "tsonic.surface.json"),
           JSON.stringify(
             {
               schemaVersion: 1,
-              id: "@tsonic/nodejs",
+              id: "@acme/surface-node",
               extends: ["@tsonic/js"],
               requiredTypeRoots: ["types"],
-              requiredNpmPackages: ["@tsonic/nodejs", "@tsonic/js"],
+              requiredNpmPackages: ["@acme/surface-node", "@tsonic/js"],
             },
             null,
             2
@@ -122,27 +121,25 @@ describe("Init Command", () => {
         );
 
         const result = getTypePackageInfo({
-          surface: "@tsonic/nodejs",
+          surface: "@acme/surface-node",
           workspaceRoot,
         });
         const packageNames = result.packages.map((p) => p.name);
-        expect(packageNames).to.include("@tsonic/nodejs");
+        expect(packageNames).to.include("@acme/surface-node");
         expect(packageNames).to.include("@tsonic/js");
         expect(result.typeRoots).to.include(join(jsRoot, "types"));
-        expect(result.typeRoots).to.include(join(nodejsRoot, "types"));
+        expect(result.typeRoots).to.include(join(customRoot, "types"));
       } finally {
         rmSync(workspaceRoot, { recursive: true, force: true });
       }
     });
 
-    it("should support custom surface package names via fallback profile", () => {
+    it("should bootstrap custom surface package names before manifest resolution", () => {
       const result = getTypePackageInfo({ surface: "@acme/surface-web" });
       const packageNames = result.packages.map((p) => p.name);
 
       expect(packageNames).to.include("@acme/surface-web");
-      expect(result.typeRoots).to.deep.equal([
-        "node_modules/@acme/surface-web",
-      ]);
+      expect(result.typeRoots).to.deep.equal([]);
     });
 
     describe("package versions", () => {
@@ -157,29 +154,15 @@ describe("Init Command", () => {
   });
 
   describe("initWorkspace", () => {
-    it("should allow custom surface names", () => {
+    it("should reject custom surfaces that do not provide a manifest", () => {
       const dir = mkdtempSync(join(tmpdir(), "tsonic-init-custom-surface-"));
       try {
         const result = initWorkspace(dir, {
           skipTypes: true,
           surface: "@acme/surface-web",
         });
-        expect(result.ok).to.equal(true);
-
-        const workspaceRaw = readFileSync(
-          join(dir, "tsonic.workspace.json"),
-          "utf-8"
-        );
-        const workspace = JSON.parse(workspaceRaw) as {
-          readonly surface?: string;
-          readonly dotnet?: {
-            readonly typeRoots?: readonly string[];
-          };
-        };
-        expect(workspace.surface).to.equal("@acme/surface-web");
-        expect(workspace.dotnet?.typeRoots).to.deep.equal([
-          "node_modules/@acme/surface-web",
-        ]);
+        expect(result.ok).to.equal(false);
+        expect(result.ok ? "" : result.error).to.include("tsonic.surface.json");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -243,8 +226,8 @@ describe("Init Command", () => {
       }
     });
 
-    it("should write @tsonic/nodejs surface config when requested", () => {
-      const dir = mkdtempSync(join(tmpdir(), "tsonic-init-nodejs-"));
+    it("should write custom surface config when requested", () => {
+      const dir = mkdtempSync(join(tmpdir(), "tsonic-init-custom-surface-"));
       try {
         writeFileSync(
           join(dir, "package.json"),
@@ -279,25 +262,25 @@ describe("Init Command", () => {
           )
         );
 
-        const nodejsRoot = join(dir, "node_modules", "@tsonic", "nodejs");
-        mkdirSync(nodejsRoot, { recursive: true });
+        const customRoot = join(dir, "node_modules", "@acme", "surface-node");
+        mkdirSync(customRoot, { recursive: true });
         writeFileSync(
-          join(nodejsRoot, "package.json"),
+          join(customRoot, "package.json"),
           JSON.stringify(
-            { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
+            { name: "@acme/surface-node", version: "1.0.0", type: "module" },
             null,
             2
           )
         );
         writeFileSync(
-          join(nodejsRoot, "tsonic.surface.json"),
+          join(customRoot, "tsonic.surface.json"),
           JSON.stringify(
             {
               schemaVersion: 1,
-              id: "@tsonic/nodejs",
+              id: "@acme/surface-node",
               extends: ["@tsonic/js"],
               requiredTypeRoots: ["types"],
-              requiredNpmPackages: ["@tsonic/nodejs", "@tsonic/js"],
+              requiredNpmPackages: ["@acme/surface-node", "@tsonic/js"],
             },
             null,
             2
@@ -306,7 +289,7 @@ describe("Init Command", () => {
 
         const result = initWorkspace(dir, {
           skipTypes: true,
-          surface: "@tsonic/nodejs",
+          surface: "@acme/surface-node",
         });
         expect(result.ok).to.equal(true);
 
@@ -320,7 +303,7 @@ describe("Init Command", () => {
             readonly typeRoots?: readonly string[];
           };
         };
-        expect(workspace.surface).to.equal("@tsonic/nodejs");
+        expect(workspace.surface).to.equal("@acme/surface-node");
         expect(
           (workspace.dotnet?.typeRoots ?? []).some(
             (root) =>
@@ -332,9 +315,10 @@ describe("Init Command", () => {
         expect(
           (workspace.dotnet?.typeRoots ?? []).some(
             (root) =>
-              root === join(nodejsRoot, "types") ||
-              root === "node_modules/@tsonic/nodejs" ||
-              /[/\\]nodejs[/\\]versions[/\\]\d+$/.test(root)
+              root === join(customRoot, "types") ||
+              root === "node_modules/@acme/surface-node" ||
+              /[/\\]surface-node[/\\]\d+$/.test(root) ||
+              /[/\\]surface-node[/\\]types$/.test(root)
           )
         ).to.equal(true);
 

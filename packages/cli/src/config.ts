@@ -23,7 +23,10 @@ import type {
   TsonicProjectConfig,
   TsonicWorkspaceConfig,
 } from "./types.js";
-import { resolveSurfaceCapabilities } from "./surface/profiles.js";
+import {
+  hasResolvedSurfaceProfile,
+  resolveSurfaceCapabilities,
+} from "./surface/profiles.js";
 
 export const WORKSPACE_CONFIG_FILE = "tsonic.workspace.json";
 export const PROJECT_CONFIG_FILE = "tsonic.json";
@@ -82,6 +85,21 @@ export const loadWorkspaceConfig = (
     return {
       ok: false,
       error: `${WORKSPACE_CONFIG_FILE}: 'surface' must be a non-empty string`,
+    };
+  }
+
+  if (
+    config.surface !== undefined &&
+    config.surface.trim() !== "clr" &&
+    !hasResolvedSurfaceProfile(config.surface, {
+      workspaceRoot: dirname(configPath),
+    })
+  ) {
+    return {
+      ok: false,
+      error:
+        `${WORKSPACE_CONFIG_FILE}: surface '${config.surface}' is not a valid ambient surface package.\n` +
+        `Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages (for example '@tsonic/nodejs') separately.`,
     };
   }
 

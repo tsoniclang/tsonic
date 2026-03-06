@@ -3,7 +3,10 @@ import { describe, it } from "mocha";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { resolveSurfaceCapabilities } from "./profiles.js";
+import {
+  hasResolvedSurfaceProfile,
+  resolveSurfaceCapabilities,
+} from "./profiles.js";
 
 describe("Frontend Surface Profiles", () => {
   it("should resolve clr capabilities", () => {
@@ -11,22 +14,6 @@ describe("Frontend Surface Profiles", () => {
     expect(caps.includesClr).to.equal(true);
     expect(caps.requiredTypeRoots).to.deep.equal([
       "node_modules/@tsonic/globals",
-    ]);
-    expect(caps.useStandardLib).to.equal(false);
-  });
-
-  it("should resolve js capabilities", () => {
-    const caps = resolveSurfaceCapabilities("@tsonic/js");
-    expect(caps.includesClr).to.equal(false);
-    expect(caps.requiredTypeRoots).to.deep.equal(["node_modules/@tsonic/js"]);
-    expect(caps.useStandardLib).to.equal(false);
-  });
-
-  it("should resolve nodejs capabilities via package fallback type roots", () => {
-    const caps = resolveSurfaceCapabilities("@tsonic/nodejs");
-    expect(caps.includesClr).to.equal(false);
-    expect(caps.requiredTypeRoots).to.deep.equal([
-      "node_modules/@tsonic/nodejs",
     ]);
     expect(caps.useStandardLib).to.equal(false);
   });
@@ -40,13 +27,11 @@ describe("Frontend Surface Profiles", () => {
     ]);
   });
 
-  it("should support custom surfaces with fallback capabilities", () => {
+  it("should leave unresolved custom surfaces empty until a manifest is installed", () => {
     const caps = resolveSurfaceCapabilities("@acme/surface-web");
     expect(caps.mode).to.equal("@acme/surface-web");
     expect(caps.includesClr).to.equal(false);
-    expect(caps.requiredTypeRoots).to.deep.equal([
-      "node_modules/@acme/surface-web",
-    ]);
+    expect(caps.requiredTypeRoots).to.deep.equal([]);
     expect(caps.useStandardLib).to.equal(false);
   });
 
@@ -130,8 +115,84 @@ describe("Frontend Surface Profiles", () => {
     }
   });
 
-  it("should resolve nodejs -> js chain from package manifests", () => {
+  it("should resolve js capabilities only when a surface manifest exists", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-js-"));
+    try {
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
+      );
+      const jsRoot = join(projectRoot, "node_modules", "@tsonic", "js");
+      mkdirSync(jsRoot, { recursive: true });
+      writeFileSync(
+        join(jsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(jsRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["types"],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+
+      const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
+      expect(caps.includesClr).to.equal(false);
+      expect(caps.requiredTypeRoots).to.deep.equal([resolve(jsRoot, "types")]);
+      expect(caps.useStandardLib).to.equal(false);
+      expect(hasResolvedSurfaceProfile("@tsonic/js", { projectRoot })).to.equal(
+        true
+      );
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("should not treat installed regular packages as surfaces without manifest", () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-nodejs-"));
+    try {
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
+      );
+      const nodejsRoot = join(projectRoot, "node_modules", "@tsonic", "nodejs");
+      mkdirSync(nodejsRoot, { recursive: true });
+      writeFileSync(
+        join(nodejsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const caps = resolveSurfaceCapabilities("@tsonic/nodejs", {
+        projectRoot,
+      });
+      expect(caps.includesClr).to.equal(false);
+      expect(caps.requiredTypeRoots).to.deep.equal([]);
+      expect(caps.useStandardLib).to.equal(false);
+      expect(
+        hasResolvedSurfaceProfile("@tsonic/nodejs", { projectRoot })
+      ).to.equal(false);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("should resolve custom surface -> js chain from package manifests", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-custom-"));
     try {
       writeFileSync(
         join(projectRoot, "package.json"),
@@ -163,22 +224,27 @@ describe("Frontend Surface Profiles", () => {
         )
       );
 
-      const nodejsRoot = join(projectRoot, "node_modules", "@tsonic", "nodejs");
-      mkdirSync(nodejsRoot, { recursive: true });
+      const customRoot = join(
+        projectRoot,
+        "node_modules",
+        "@acme",
+        "surface-node"
+      );
+      mkdirSync(customRoot, { recursive: true });
       writeFileSync(
-        join(nodejsRoot, "package.json"),
+        join(customRoot, "package.json"),
         JSON.stringify(
-          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
+          { name: "@acme/surface-node", version: "1.0.0", type: "module" },
           null,
           2
         )
       );
       writeFileSync(
-        join(nodejsRoot, "tsonic.surface.json"),
+        join(customRoot, "tsonic.surface.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
-            id: "@tsonic/nodejs",
+            id: "@acme/surface-node",
             extends: ["@tsonic/js"],
             requiredTypeRoots: ["types"],
             useStandardLib: false,
@@ -188,7 +254,7 @@ describe("Frontend Surface Profiles", () => {
         )
       );
 
-      const caps = resolveSurfaceCapabilities("@tsonic/nodejs", {
+      const caps = resolveSurfaceCapabilities("@acme/surface-node", {
         projectRoot,
       });
       expect(caps.includesClr).to.equal(false);
@@ -202,8 +268,8 @@ describe("Frontend Surface Profiles", () => {
       expect(
         caps.requiredTypeRoots.some(
           (root) =>
-            root === resolve(nodejsRoot, "types") ||
-            /[/\\]nodejs[/\\]versions[/\\]\d+$/.test(root)
+            root === resolve(customRoot, "types") ||
+            /[/\\]surface-node[/\\]types$/.test(root)
         )
       ).to.equal(true);
       expect(caps.useStandardLib).to.equal(false);

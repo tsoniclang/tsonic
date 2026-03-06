@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 import type {
   FrameworkReferenceConfig,
   PackageReferenceConfig,
@@ -40,6 +40,7 @@ export type NormalizedBindingsManifest = {
   readonly packageName: string;
   readonly packageVersion: string;
   readonly surfaceMode: ManifestSurfaceMode;
+  readonly requiredTypeRoots: readonly string[];
   readonly assemblyName?: string;
   readonly assemblyVersion?: string;
   readonly targetFramework?: string;
@@ -271,6 +272,81 @@ const parseManifestDotnet = (
       packageReferences,
       msbuildProperties,
     },
+  };
+};
+
+const normalizePackageTypeRoot = (
+  packageName: string,
+  raw: string,
+  path: string
+): Result<string, string> => {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return errorWithCode(
+      AIKYA_DIAGNOSTIC.invalidSchema,
+      `${path} must be a non-empty string`
+    );
+  }
+  if (isAbsolute(trimmed)) {
+    return errorWithCode(
+      AIKYA_DIAGNOSTIC.invalidSchema,
+      `${path} must be package-relative, not absolute`
+    );
+  }
+
+  const normalized = normalize(trimmed).replace(/\\/g, "/");
+  if (normalized === ".." || normalized.startsWith("../")) {
+    return errorWithCode(
+      AIKYA_DIAGNOSTIC.invalidSchema,
+      `${path} must not escape the package root`
+    );
+  }
+
+  if (normalized === "." || normalized === "./") {
+    return { ok: true, value: join("node_modules", packageName) };
+  }
+
+  const relative = normalized.replace(/^\.?\//, "");
+  if (relative.length === 0) {
+    return { ok: true, value: join("node_modules", packageName) };
+  }
+
+  return { ok: true, value: join("node_modules", packageName, relative) };
+};
+
+const parseRequiredTypeRoots = (
+  value: unknown,
+  path: string,
+  packageName: string
+): Result<readonly string[], string> => {
+  if (value === undefined) return { ok: true, value: [] };
+  if (!Array.isArray(value)) {
+    return errorWithCode(
+      AIKYA_DIAGNOSTIC.invalidSchema,
+      `${path} must be an array of package-relative strings`
+    );
+  }
+
+  const out: string[] = [];
+  for (const [index, entry] of value.entries()) {
+    if (typeof entry !== "string") {
+      return errorWithCode(
+        AIKYA_DIAGNOSTIC.invalidSchema,
+        `${path}[${index}] must be a string`
+      );
+    }
+    const normalizedEntry = normalizePackageTypeRoot(
+      packageName,
+      entry,
+      `${path}[${index}]`
+    );
+    if (!normalizedEntry.ok) return normalizedEntry;
+    out.push(normalizedEntry.value);
+  }
+
+  return {
+    ok: true,
+    value: [...new Set(out)].sort((a, b) => a.localeCompare(b)),
   };
 };
 
@@ -757,6 +833,12 @@ const resolveFromAikyaManifest = (
 
   const producer = parseAikyaProducer(manifest.producer);
   if (!producer.ok) return producer;
+  const requiredTypeRoots = parseRequiredTypeRoots(
+    manifest.requiredTypeRoots,
+    "requiredTypeRoots",
+    packageName
+  );
+  if (!requiredTypeRoots.ok) return requiredTypeRoots;
 
   const dotnetParsed = parseManifestDotnet(manifest.dotnet, "dotnet");
   if (!dotnetParsed.ok) return dotnetParsed;
@@ -800,6 +882,7 @@ const resolveFromAikyaManifest = (
       packageName,
       packageVersion,
       surfaceMode: "clr",
+      requiredTypeRoots: requiredTypeRoots.value,
       bindingsRoot,
       runtimePackages: [...runtimeSet].sort((a, b) =>
         normalizeId(a).localeCompare(normalizeId(b))
@@ -867,6 +950,12 @@ const resolveFromLegacyBindingsManifest = (
   }
   const surfaceMode =
     (surfaceModeRaw as ManifestSurfaceMode | undefined)?.trim() ?? "clr";
+  const requiredTypeRoots = parseRequiredTypeRoots(
+    manifest.requiredTypeRoots,
+    "requiredTypeRoots",
+    packageName
+  );
+  if (!requiredTypeRoots.ok) return requiredTypeRoots;
 
   const dotnetParsed = parseManifestDotnet(manifest.dotnet, "dotnet");
   if (!dotnetParsed.ok) return dotnetParsed;
@@ -891,6 +980,7 @@ const resolveFromLegacyBindingsManifest = (
       packageName,
       packageVersion,
       surfaceMode,
+      requiredTypeRoots: requiredTypeRoots.value,
       assemblyName:
         typeof manifest.assemblyName === "string"
           ? manifest.assemblyName
@@ -1159,6 +1249,12 @@ export const mergeManifestIntoWorkspaceConfig = (
 ): Result<TsonicWorkspaceConfig, string> => {
   const dotnet = config.dotnet ?? {};
   const testDotnet = config.testDotnet ?? {};
+  const mergedTypeRoots = [
+    ...new Set([
+      ...((dotnet.typeRoots ?? []) as readonly string[]),
+      ...manifest.requiredTypeRoots,
+    ]),
+  ].sort((a, b) => a.localeCompare(b));
 
   const mergedFramework = mergeFrameworkReferences(
     (dotnet.frameworkReferences ?? []) as FrameworkReferenceConfig[],
@@ -1209,6 +1305,7 @@ export const mergeManifestIntoWorkspaceConfig = (
       ...config,
       dotnet: {
         ...dotnet,
+        ...(mergedTypeRoots.length > 0 ? { typeRoots: mergedTypeRoots } : {}),
         frameworkReferences: mergedFramework.value,
         packageReferences: mergedPackages.value,
         msbuildProperties:

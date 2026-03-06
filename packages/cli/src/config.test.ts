@@ -19,7 +19,7 @@ const PROJECT_ROOT = "/workspace/packages/myapp";
 
 const hasSurfaceRoot = (
   roots: readonly string[],
-  surfacePackage: "@tsonic/js" | "@tsonic/nodejs"
+  surfacePackage: string
 ): boolean =>
   roots.includes(`node_modules/${surfacePackage}`) ||
   roots.some((root) =>
@@ -147,24 +147,6 @@ describe("Config", () => {
       expect(hasSurfaceRoot(result.typeRoots, "@tsonic/js")).to.equal(true);
     });
 
-    it("should resolve @tsonic/nodejs surface from workspace config", () => {
-      const workspaceConfig = makeWorkspaceConfig({
-        surface: "@tsonic/nodejs",
-      });
-      const projectConfig = makeProjectConfig();
-
-      const result = resolveConfig(
-        workspaceConfig,
-        projectConfig,
-        {},
-        WORKSPACE_ROOT,
-        PROJECT_ROOT
-      );
-
-      expect(result.surface).to.equal("@tsonic/nodejs");
-      expect(hasSurfaceRoot(result.typeRoots, "@tsonic/nodejs")).to.equal(true);
-    });
-
     it("should append required @tsonic/js typeRoots when partially configured", () => {
       const workspaceConfig = makeWorkspaceConfig({
         surface: "@tsonic/js",
@@ -186,28 +168,7 @@ describe("Config", () => {
       expect(hasSurfaceRoot(result.typeRoots, "@tsonic/js")).to.equal(true);
     });
 
-    it("should append required @tsonic/nodejs typeRoots when partially configured", () => {
-      const workspaceConfig = makeWorkspaceConfig({
-        surface: "@tsonic/nodejs",
-        dotnet: {
-          typeRoots: ["custom/path/types"],
-        },
-      });
-      const projectConfig = makeProjectConfig();
-
-      const result = resolveConfig(
-        workspaceConfig,
-        projectConfig,
-        {},
-        WORKSPACE_ROOT,
-        PROJECT_ROOT
-      );
-
-      expect(result.typeRoots).to.include("custom/path/types");
-      expect(hasSurfaceRoot(result.typeRoots, "@tsonic/nodejs")).to.equal(true);
-    });
-
-    it("should include inherited typeRoots when @tsonic/nodejs manifest extends @tsonic/js", () => {
+    it("should include inherited typeRoots when a custom surface manifest extends @tsonic/js", () => {
       const workspaceRoot = mkdtempSync(
         join(tmpdir(), "tsonic-config-surface-")
       );
@@ -248,30 +209,30 @@ describe("Config", () => {
           )
         );
 
-        const nodejsRoot = join(
+        const customRoot = join(
           workspaceRoot,
           "node_modules",
-          "@tsonic",
-          "nodejs"
+          "@acme",
+          "surface-node"
         );
-        mkdirSync(nodejsRoot, { recursive: true });
+        mkdirSync(customRoot, { recursive: true });
         writeFileSync(
-          join(nodejsRoot, "package.json"),
+          join(customRoot, "package.json"),
           JSON.stringify(
-            { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
+            { name: "@acme/surface-node", version: "1.0.0", type: "module" },
             null,
             2
           )
         );
         writeFileSync(
-          join(nodejsRoot, "tsonic.surface.json"),
+          join(customRoot, "tsonic.surface.json"),
           JSON.stringify(
             {
               schemaVersion: 1,
-              id: "@tsonic/nodejs",
+              id: "@acme/surface-node",
               extends: ["@tsonic/js"],
               requiredTypeRoots: ["types"],
-              requiredNpmPackages: ["@tsonic/nodejs", "@tsonic/js"],
+              requiredNpmPackages: ["@acme/surface-node", "@tsonic/js"],
             },
             null,
             2
@@ -279,7 +240,7 @@ describe("Config", () => {
         );
 
         const workspaceConfig = makeWorkspaceConfig({
-          surface: "@tsonic/nodejs",
+          surface: "@acme/surface-node",
         });
         const projectConfig = makeProjectConfig();
         const result = resolveConfig(
@@ -294,8 +255,8 @@ describe("Config", () => {
             hasSurfaceRoot(result.typeRoots, "@tsonic/js")
         ).to.equal(true);
         expect(
-          result.typeRoots.includes(join(nodejsRoot, "types")) ||
-            hasSurfaceRoot(result.typeRoots, "@tsonic/nodejs")
+          result.typeRoots.includes(join(customRoot, "types")) ||
+            hasSurfaceRoot(result.typeRoots, "@acme/surface-node")
         ).to.equal(true);
       } finally {
         rmSync(workspaceRoot, { recursive: true, force: true });

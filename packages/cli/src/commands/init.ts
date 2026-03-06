@@ -14,7 +14,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { addNpmCommand } from "./add-npm.js";
-import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+import {
+  hasResolvedSurfaceProfile,
+  resolveSurfaceCapabilities,
+} from "../surface/profiles.js";
 import type {
   Result,
   SurfaceMode,
@@ -43,10 +46,15 @@ export const getTypePackageInfo = (
   } = {}
 ): TypePackageInfo => {
   const surface = options.surface ?? "clr";
+  const packages = [CLI_PACKAGE];
+
+  if (surface !== "clr") {
+    packages.push({ name: surface, version: "latest" });
+  }
+
   const surfaceCapabilities = resolveSurfaceCapabilities(surface, {
     workspaceRoot: options.workspaceRoot,
   });
-  const packages = [CLI_PACKAGE];
 
   for (const pkgName of surfaceCapabilities.requiredNpmPackages) {
     packages.push({ name: pkgName, version: "latest" });
@@ -238,6 +246,18 @@ export const initWorkspace = (
     let surfaceCapabilities = resolveSurfaceCapabilities(surface, {
       workspaceRoot,
     });
+
+    if (
+      surface !== "clr" &&
+      !hasResolvedSurfaceProfile(surface, { workspaceRoot })
+    ) {
+      return {
+        ok: false,
+        error:
+          `Surface '${surface}' is not a valid ambient surface package.\n` +
+          `Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages (for example '@tsonic/nodejs') separately.`,
+      };
+    }
 
     if (shouldInstallTypes) {
       for (const pkgName of surfaceCapabilities.requiredNpmPackages) {

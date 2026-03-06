@@ -264,8 +264,8 @@ describe("IR Builder", () => {
         ctx,
         options: baseOptions,
       } = createTestProgram(source);
-      const options = { ...baseOptions, surface: "@tsonic/nodejs" as const };
-      (ctx as { surface?: "@tsonic/nodejs" }).surface = "@tsonic/nodejs";
+      const options = { ...baseOptions, surface: "@tsonic/js" as const };
+      (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
       (
         ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
@@ -333,7 +333,7 @@ describe("IR Builder", () => {
       } = createTestProgram(source);
       const options = {
         ...baseOptions,
-        surface: "@tsonic/nodejs" as const,
+        surface: "@tsonic/js" as const,
       };
 
       ctx.bindings.addBindings("/x/node-modules.json", {

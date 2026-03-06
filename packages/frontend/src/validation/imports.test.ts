@@ -224,7 +224,7 @@ describe("validateImports", () => {
       `,
       "/test/node-valid.ts",
       "/test",
-      { surface: "@tsonic/nodejs" }
+      { surface: "@tsonic/js" }
     );
     attachNodejsSurfaceBindings(testProgram, ["fs"]);
 
@@ -246,7 +246,7 @@ describe("validateImports", () => {
       `,
       "/test/node-invalid-member.ts",
       "/test",
-      { surface: "@tsonic/nodejs" }
+      { surface: "@tsonic/js" }
     );
     attachNodejsSurfaceBindings(testProgram, ["fs"]);
 
@@ -268,7 +268,7 @@ describe("validateImports", () => {
       `,
       "/test/node-default-import.ts",
       "/test",
-      { surface: "@tsonic/nodejs" }
+      { surface: "@tsonic/js" }
     );
     attachNodejsSurfaceBindings(testProgram, ["fs"]);
 
@@ -293,7 +293,7 @@ describe("validateImports", () => {
       `,
       "/test/node-bare-invalid-member.ts",
       "/test",
-      { surface: "@tsonic/nodejs" }
+      { surface: "@tsonic/js" }
     );
     attachNodejsSurfaceBindings(testProgram, ["path"]);
 
@@ -315,7 +315,7 @@ describe("validateImports", () => {
       `,
       "/test/node-namespace-import.ts",
       "/test",
-      { surface: "@tsonic/nodejs" }
+      { surface: "@tsonic/js" }
     );
     attachNodejsSurfaceBindings(testProgram, ["path"]);
 
@@ -337,7 +337,7 @@ describe("validateImports", () => {
       `,
       "/test/node-multi-diagnostics.ts",
       "/test",
-      { surface: "@tsonic/nodejs" }
+      { surface: "@tsonic/js" }
     );
     attachNodejsSurfaceBindings(testProgram, ["path", "fs"]);
 
@@ -367,7 +367,7 @@ describe("validateImports", () => {
       `,
       "/test/node-missing-bindings.ts",
       "/test",
-      { surface: "@tsonic/nodejs" }
+      { surface: "@tsonic/js" }
     );
     const result = validateImports(
       testProgram.sourceFile,

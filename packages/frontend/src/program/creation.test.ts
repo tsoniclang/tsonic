@@ -21,17 +21,6 @@ describe("Program Creation", () => {
     expect(options.noLib).to.equal(true);
   });
 
-  it("should keep noLib mode in nodejs surface mode", () => {
-    const options = createCompilerOptions({
-      projectRoot: "/tmp/app",
-      sourceRoot: "/tmp/app/src",
-      rootNamespace: "App",
-      surface: "@tsonic/nodejs",
-    });
-
-    expect(options.noLib).to.equal(true);
-  });
-
   it("should allow mutable array index writes in clr surface mode", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-clr-array-write-")
@@ -206,8 +195,8 @@ describe("Program Creation", () => {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "@tsonic/nodejs",
-        typeRoots: [],
+        surface: "@tsonic/js",
+        typeRoots: ["node_modules/@tsonic/nodejs"],
       });
 
       expect(result.ok).to.equal(true);
@@ -334,6 +323,20 @@ describe("Program Creation", () => {
       );
       fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
       fs.writeFileSync(
+        path.join(jsRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["."],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
         path.join(jsRoot, "index", "bindings.json"),
         JSON.stringify(
           {
@@ -446,6 +449,20 @@ declare global {
 
 export {};
 `
+      );
+      fs.writeFileSync(
+        path.join(jsRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["."],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
       );
 
       const entryPath = path.join(srcDir, "index.ts");
