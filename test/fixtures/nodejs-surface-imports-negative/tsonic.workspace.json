@@ -10,7 +10,9 @@
       "../../../packages/cli/runtime/Tsonic.JSRuntime.dll",
       "../../../packages/cli/runtime/nodejs.dll"
     ],
-    "frameworkReferences": [],
+    "frameworkReferences": [
+      "Microsoft.AspNetCore.App"
+    ],
     "packageReferences": []
   }
 }

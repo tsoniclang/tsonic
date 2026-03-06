@@ -150,7 +150,14 @@ const resolveSurfacePackage = (
 
   try {
     const pkgJsonPath = req.resolve(`${packageName}/package.json`);
-    return { packageName, packageRoot: dirname(pkgJsonPath) };
+    const installed = { packageName, packageRoot: dirname(pkgJsonPath) };
+    if (existsSync(join(installed.packageRoot, "tsonic.surface.json"))) {
+      return installed;
+    }
+    if (sibling && existsSync(join(sibling.packageRoot, "tsonic.surface.json"))) {
+      return sibling;
+    }
+    return installed;
   } catch {
     if (sibling) return sibling;
     return undefined;

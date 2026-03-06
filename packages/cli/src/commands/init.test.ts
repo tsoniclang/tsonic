@@ -36,13 +36,13 @@ describe("Init Command", () => {
       });
     });
 
-    it("should include @tsonic/js package (without nodejs) for js surface", () => {
+    it("should bootstrap @tsonic/js before manifest resolution", () => {
       const result = getTypePackageInfo({ surface: "@tsonic/js" });
       const packageNames = result.packages.map((p) => p.name);
 
       expect(packageNames).to.include("@tsonic/js");
       expect(packageNames).to.not.include("@tsonic/nodejs");
-      expect(result.typeRoots).to.deep.equal(["node_modules/@tsonic/js"]);
+      expect(result.typeRoots).to.deep.equal([]);
     });
 
     it("should bootstrap an explicit custom surface package before manifest resolution", () => {
