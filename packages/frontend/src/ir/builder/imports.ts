@@ -160,87 +160,112 @@ export const extractImports = (
         return readNamespaceFromBindingsJson(bindingsPath);
       };
 
-      // Resolve optional tsbindgen flattened named exports for CLR imports.
-      // This is used to bind named value imports (`import { x }`) to their
-      // declaring CLR type/member (so the emitter can output valid C#).
-      const resolvedSpecifiers =
-        isClr && resolvedNamespace
-          ? specifiers.map((spec) => {
-              if (spec.kind !== "named") {
-                return spec;
-              }
+      // Resolve CLR identities for named imports from both CLR namespace facades
+      // and module-bound surface facades (e.g. node:http -> @tsonic/nodejs/nodejs.Http.js).
+      //
+      // Type imports must carry their owning CLR type FQN into IR so the emitter
+      // never guesses between:
+      //   - module object container types (e.g. nodejs.Http.http)
+      //   - exported CLR types (e.g. nodejs.Http.IncomingMessage)
+      //
+      // Value imports from CLR namespace facades additionally need flattened
+      // declaring-type/member metadata because CLR namespaces cannot contain values.
+      const resolvedSpecifiers = specifiers.map((spec) => {
+        if (spec.kind !== "named") {
+          return spec;
+        }
 
-              // Airplane-grade fallback: if TypeScript resolution can't prove this is a type
-              // (e.g. due to module resolution / declaration file quirks), consult loaded
-              // CLR bindings directly. CLR namespace imports frequently import types as
-              // values (e.g. `import { List } ...`), and we must not misclassify those as
-              // "value exports" requiring a flattened exports map.
-              const isType =
-                spec.isType === true || !!ctx.bindings.getType(spec.name);
+        // Airplane-grade fallback: if TypeScript resolution can't prove this is a type
+        // (e.g. due to declaration-file quirks), consult loaded CLR bindings directly
+        // for CLR namespace facades. Module-bound surface imports rely on the TS import
+        // form itself (`import type`) or checker result.
+        const isType =
+          spec.isType === true ||
+          (isClr && resolvedNamespace && !!ctx.bindings.getType(spec.name));
 
-              if (isType) {
-                // If this facade re-exports CLR *types* from other namespaces,
-                // resolve the true owning namespace and attach a per-import
-                // CLR FQN for the emitter (so `new X()` emits in the correct
-                // CLR namespace).
-                const expNamespace =
-                  resolveTsbindgenNamespaceForNamedImport(spec.name) ??
-                  resolvedNamespace;
-                return {
-                  ...spec,
-                  isType: true,
-                  resolvedClrType:
-                    expNamespace !== resolvedNamespace
-                      ? `${expNamespace}.${spec.name}`
-                      : undefined,
-                };
-              }
+        if (isType) {
+          if (hasModuleBinding) {
+            const expNamespace = resolveTsbindgenNamespaceForNamedImport(
+              spec.name
+            );
+            return {
+              ...spec,
+              isType: true,
+              resolvedClrType: expNamespace
+                ? `${expNamespace}.${spec.name}`
+                : spec.resolvedClrType,
+            };
+          }
 
-              // If this namespace facade re-exports values from other CLR namespaces,
-              // the imported symbol will resolve to a declaration in that other
-              // namespace's internal index. Use its owning bindings.json namespace
-              // when looking up flattened export mappings.
-              const expNamespace =
-                resolveTsbindgenNamespaceForNamedImport(spec.name) ??
-                resolvedNamespace;
+          if (isClr && resolvedNamespace) {
+            // If this facade re-exports CLR *types* from other namespaces,
+            // resolve the true owning namespace and attach a per-import
+            // CLR FQN for the emitter (so `new X()` emits in the correct
+            // CLR namespace).
+            const expNamespace =
+              resolveTsbindgenNamespaceForNamedImport(spec.name) ??
+              resolvedNamespace;
+            return {
+              ...spec,
+              isType: true,
+              resolvedClrType:
+                expNamespace !== resolvedNamespace
+                  ? `${expNamespace}.${spec.name}`
+                  : undefined,
+            };
+          }
 
-              const exp = ctx.bindings.getTsbindgenExport(
-                expNamespace,
-                spec.name
-              );
-              if (!exp) {
-                // Airplane-grade: C# has no namespace-level values.
-                // If TS imports a *value* from a CLR namespace facade, we must have
-                // an explicit binding to a declaring CLR type + member (tsbindgen exports mapping),
-                // otherwise we would have to guess or emit invalid C#.
-                //
-                // Skip module bindings (e.g. @tsonic/nodejs/index.js) since those are
-                // not CLR namespace facades.
-                if (!hasModuleBinding) {
-                  const specNode = namedSpecifierNodes.get(spec.name);
-                  ctx.diagnostics.push(
-                    createDiagnostic(
-                      "TSN4004",
-                      "error",
-                      `Missing CLR binding for named value import '${spec.name}' from namespace '${resolvedNamespace}'.`,
-                      specNode ? getSourceSpan(specNode) : getSourceSpan(node),
-                      `This import refers to a value (function/const), but CLR namespaces cannot contain values. Regenerate bindings with tsbindgen so '${resolvedNamespace}/bindings.json' includes an 'exports' entry for '${spec.name}', or import the declaring container type and call it as a static member instead.`
-                    )
-                  );
-                }
-                return spec;
-              }
+          return {
+            ...spec,
+            isType: true,
+          };
+        }
 
-              return {
-                ...spec,
-                resolvedClrValue: {
-                  declaringClrType: exp.declaringClrType,
-                  declaringAssemblyName: exp.declaringAssemblyName,
-                  memberName: exp.clrName,
-                },
-              };
-            })
-          : specifiers;
+        if (!isClr || !resolvedNamespace) {
+          return spec;
+        }
+
+        // If this namespace facade re-exports values from other CLR namespaces,
+        // the imported symbol will resolve to a declaration in that other
+        // namespace's internal index. Use its owning bindings.json namespace
+        // when looking up flattened export mappings.
+        const expNamespace =
+          resolveTsbindgenNamespaceForNamedImport(spec.name) ??
+          resolvedNamespace;
+
+        const exp = ctx.bindings.getTsbindgenExport(expNamespace, spec.name);
+        if (!exp) {
+          // Airplane-grade: C# has no namespace-level values.
+          // If TS imports a *value* from a CLR namespace facade, we must have
+          // an explicit binding to a declaring CLR type + member (tsbindgen exports mapping),
+          // otherwise we would have to guess or emit invalid C#.
+          //
+          // Skip module bindings (e.g. @tsonic/nodejs/index.js) since those are
+          // not CLR namespace facades.
+          if (!hasModuleBinding) {
+            const specNode = namedSpecifierNodes.get(spec.name);
+            ctx.diagnostics.push(
+              createDiagnostic(
+                "TSN4004",
+                "error",
+                `Missing CLR binding for named value import '${spec.name}' from namespace '${resolvedNamespace}'.`,
+                specNode ? getSourceSpan(specNode) : getSourceSpan(node),
+                `This import refers to a value (function/const), but CLR namespaces cannot contain values. Regenerate bindings with tsbindgen so '${resolvedNamespace}/bindings.json' includes an 'exports' entry for '${spec.name}', or import the declaring container type and call it as a static member instead.`
+              )
+            );
+          }
+          return spec;
+        }
+
+        return {
+          ...spec,
+          resolvedClrValue: {
+            declaringClrType: exp.declaringClrType,
+            declaringAssemblyName: exp.declaringAssemblyName,
+            memberName: exp.clrName,
+          },
+        };
+      });
 
       // Assembly comes from CLR resolution (bindings.json) or module binding
       const resolvedAssembly =
@@ -319,6 +344,11 @@ const isTypeImport = (
   typeSystem: TypeAuthority
 ): boolean => {
   try {
+    const importClause = spec.parent.parent;
+    if (ts.isImportClause(importClause) && importClause.isTypeOnly) {
+      return true;
+    }
+
     // TypeScript's isTypeOnly flag on the specifier itself (for `import { type Foo }`)
     if (spec.isTypeOnly) {
       return true;

@@ -5,6 +5,9 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { buildIrModule } from "./builder.js";
 import { createProgramContext } from "./program-context.js";
 import {
@@ -312,6 +315,93 @@ describe("IR Builder", () => {
       if (!spec || spec.kind !== "named") throw new Error("Missing named spec");
       expect(spec.name).to.equal("join");
       expect(spec.resolvedClrValue).to.equal(undefined);
+    });
+
+    it("resolves module-bound import type clauses to owning CLR types", () => {
+      const source = `
+        import type { IncomingMessage, ServerResponse } from "node:http";
+        let req: IncomingMessage | undefined;
+        let res: ServerResponse | undefined;
+        void req;
+        void res;
+      `;
+
+      const {
+        testProgram,
+        ctx,
+        options: baseOptions,
+      } = createTestProgram(source);
+      const options = {
+        ...baseOptions,
+        surface: "@tsonic/nodejs" as const,
+      };
+
+      ctx.bindings.addBindings("/x/node-modules.json", {
+        bindings: {
+          "node:http": {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.Http.http",
+          },
+        },
+      });
+
+      const tempRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-node-http-")
+      );
+      const declPath = path.join(
+        tempRoot,
+        "nodejs.Http",
+        "internal",
+        "index.d.ts"
+      );
+      const bindingsPath = path.join(tempRoot, "nodejs.Http", "bindings.json");
+      fs.mkdirSync(path.dirname(declPath), { recursive: true });
+      fs.writeFileSync(declPath, "export type IncomingMessage = unknown;\n");
+      fs.writeFileSync(
+        bindingsPath,
+        JSON.stringify({ namespace: "nodejs.Http" }),
+        "utf-8"
+      );
+
+      const bindingApi = ctx.binding as unknown as {
+        resolveImport: (node: ts.ImportSpecifier) => number | undefined;
+        getSourceFilePathOfDecl: (decl: number) => string | undefined;
+      };
+      bindingApi.resolveImport = () => 1;
+      bindingApi.getSourceFilePathOfDecl = () => declPath;
+
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      try {
+        const result = buildIrModule(sourceFile, testProgram, options, ctx);
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const imp = result.value.imports[0];
+        if (!imp) throw new Error("Missing import");
+
+        const incoming = imp.specifiers[0];
+        const response = imp.specifiers[1];
+        if (
+          !incoming ||
+          incoming.kind !== "named" ||
+          !response ||
+          response.kind !== "named"
+        ) {
+          throw new Error("Missing named import specifiers");
+        }
+
+        expect(incoming.isType).to.equal(true);
+        expect(incoming.resolvedClrType).to.equal(
+          "nodejs.Http.IncomingMessage"
+        );
+        expect(response.isType).to.equal(true);
+        expect(response.resolvedClrType).to.equal("nodejs.Http.ServerResponse");
+      } finally {
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+      }
     });
 
     it("should not detect bare imports as .NET without package bindings", () => {

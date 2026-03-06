@@ -403,6 +403,17 @@ export const runCli = async (args: string[]): Promise<number> => {
         return 1;
       }
       rawWorkspaceConfig = reloaded.value;
+      if (commandNeedsAikyaOverlay) {
+        const reOverlay = applyAikyaWorkspaceOverlay(
+          workspaceRoot,
+          rawWorkspaceConfig
+        );
+        if (!reOverlay.ok) {
+          console.error(`Error: ${reOverlay.error}`);
+          return 1;
+        }
+        rawWorkspaceConfig = reOverlay.value.config;
+      }
     }
   }
 

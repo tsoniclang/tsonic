@@ -10,7 +10,7 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { emitModule } from "../emitter.js";
+import { emitCSharpFiles, emitModule } from "../emitter.js";
 import { IrModule, IrType } from "@tsonic/frontend";
 import type { TypeBinding as FrontendTypeBinding } from "@tsonic/frontend";
 
@@ -229,6 +229,57 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
       expect(result).to.include("global::Jotster.Core.db.entities.Channel x");
+    });
+
+    it("should use module-bound imported type FQNs instead of module container members", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "Test",
+        isStaticContainer: true,
+        imports: [
+          {
+            kind: "import",
+            source: "node:http",
+            isLocal: false,
+            isClr: false,
+            resolvedClrType: "nodejs.Http.http",
+            specifiers: [
+              {
+                kind: "named",
+                name: "IncomingMessage",
+                localName: "IncomingMessage",
+                isType: true,
+                resolvedClrType: "nodejs.Http.IncomingMessage",
+              },
+            ],
+          },
+        ],
+        body: [
+          {
+            kind: "variableDeclaration",
+            declarationKind: "const",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "req" },
+                type: {
+                  kind: "referenceType",
+                  name: "IncomingMessage$instance",
+                },
+                initializer: { kind: "literal", value: null },
+              },
+            ],
+          },
+        ],
+        exports: [],
+      };
+
+      const result = emitModule(module);
+      expect(result).to.include("global::nodejs.Http.IncomingMessage req");
+      expect(result).not.to.include("global::nodejs.Http.http.IncomingMessage");
     });
   });
 
@@ -516,6 +567,86 @@ describe("Reference Type Emission", () => {
       expect(result).to.not.include("Tsonic.JSRuntime");
       // Should use native indexer (no cast needed with proof marker)
       expect(result).to.include("arr[0]");
+    });
+  });
+
+  describe("Cross-module local type resolution", () => {
+    it("should qualify imported interface references from another module", () => {
+      const apiModule: IrModule = {
+        kind: "module",
+        filePath: "/src/model/api.ts",
+        namespace: "Test.Model",
+        className: "api",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "interfaceDeclaration",
+            name: "MetricsRow",
+            isExported: true,
+            isStruct: false,
+            typeParameters: [],
+            extends: [],
+            members: [
+              {
+                kind: "propertySignature",
+                name: "count",
+                type: { kind: "referenceType", name: "int" },
+                isOptional: false,
+                isReadonly: false,
+              },
+            ],
+          },
+        ],
+        exports: [],
+      };
+
+      const queryModule: IrModule = {
+        kind: "module",
+        filePath: "/src/db/query.ts",
+        namespace: "Test.Db",
+        className: "query",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "variableDeclaration",
+            declarationKind: "const",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "rows" },
+                type: {
+                  kind: "referenceType",
+                  name: "global::System.Collections.Generic.List",
+                  resolvedClrType: "global::System.Collections.Generic.List",
+                  typeArguments: [
+                    { kind: "referenceType", name: "MetricsRow" },
+                  ],
+                },
+                initializer: { kind: "literal", value: null },
+              },
+            ],
+          },
+        ],
+        exports: [],
+      };
+
+      const result = emitCSharpFiles([apiModule, queryModule], {
+        rootNamespace: "Test",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const queryCode = Array.from(result.files.entries()).find(([filePath]) =>
+        filePath.endsWith("query.cs")
+      )?.[1];
+      expect(queryCode).to.not.equal(undefined);
+      expect(queryCode).to.include(
+        "global::System.Collections.Generic.List<global::Test.Model.MetricsRow> rows"
+      );
     });
   });
 });

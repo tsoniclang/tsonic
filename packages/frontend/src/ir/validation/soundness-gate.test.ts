@@ -486,6 +486,35 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.true;
     });
 
+    it("should allow imported tsbindgen instance companion types", () => {
+      const module = createModuleWithType(
+        { kind: "referenceType", name: "IncomingMessage$instance" },
+        {
+          imports: [
+            {
+              kind: "import",
+              source: "node:http",
+              specifiers: [
+                {
+                  kind: "named",
+                  name: "IncomingMessage",
+                  localName: "IncomingMessage",
+                  isType: true,
+                },
+              ],
+              isLocal: false,
+              isClr: true,
+              resolvedNamespace: "nodejs.Http",
+            },
+          ],
+        }
+      );
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+    });
+
     it("should reject unresolved external type", () => {
       const module = createModuleWithType({
         kind: "referenceType",

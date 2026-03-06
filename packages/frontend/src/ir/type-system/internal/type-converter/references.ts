@@ -527,10 +527,11 @@ export const convertTypeReference = (
     return getClrPrimitiveType(typeName);
   }
 
-  // Check for Array<T> utility type → convert to arrayType with explicit origin
-  // This ensures Array<T> and T[] are treated identically
+  // Check for Array<T> / ReadonlyArray<T> utility types → convert to arrayType
+  // with explicit origin. This ensures Array<T>, ReadonlyArray<T>, and T[] are
+  // treated identically at the IR level.
   const firstTypeArg = node.typeArguments?.[0];
-  if (typeName === "Array" && firstTypeArg) {
+  if ((typeName === "Array" || typeName === "ReadonlyArray") && firstTypeArg) {
     return {
       kind: "arrayType",
       elementType: convertType(firstTypeArg, binding),

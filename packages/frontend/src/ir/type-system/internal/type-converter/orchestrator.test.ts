@@ -239,6 +239,16 @@ describe("Type Converter - Mapped/Conditional Syntax", () => {
     }
     expect(converted.elementType.kind).to.equal("unknownType");
   });
+
+  it("lowers ReadonlyArray<T> references to arrayType", () => {
+    const converted = convertAlias("type T = ReadonlyArray<string>;", "T");
+
+    expect(converted).to.deep.equal({
+      kind: "arrayType",
+      elementType: { kind: "primitiveType", name: "string" },
+      origin: "explicit",
+    });
+  });
 });
 
 describe("Type Converter - Deterministic Type Operators", () => {

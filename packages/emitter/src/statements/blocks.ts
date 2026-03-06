@@ -421,26 +421,63 @@ export const emitExpressionStatementAst = (
     return emitYieldExpressionAst(stmt.expression, context);
   }
 
-  // TypeScript `void expr;` evaluates `expr` and discards the result.
-  //
-  // In C#, expression statements are restricted (identifiers/literals can't stand
-  // alone). Emit a discard assignment so we can evaluate arbitrary expressions
-  // without introducing runtime helpers.
-  if (stmt.expression.kind === "unary" && stmt.expression.operator === "void") {
-    const operand = stmt.expression.expression;
-    const [operandAst, newContext] = emitExpressionAst(operand, context);
-
-    // If the operand is already a valid statement-expression (call/new/assignment/
-    // update/await), emit it directly. Otherwise, use a discard assignment.
+  const isNoopVoidOperand = (
+    expr: IrExpression,
+    state: EmitterContext
+  ): boolean => {
     if (
-      operand.kind === "call" ||
-      operand.kind === "new" ||
-      operand.kind === "assignment" ||
-      operand.kind === "update" ||
-      operand.kind === "await"
+      expr.kind === "literal" &&
+      (expr.value === undefined || expr.value === null)
+    ) {
+      return true;
+    }
+
+    if (expr.kind !== "identifier") {
+      return false;
+    }
+
+    if (expr.resolvedClrType !== undefined) {
+      return true;
+    }
+
+    const importBinding = state.importBindings?.get(expr.name);
+    if (importBinding?.kind === "namespace" || importBinding?.kind === "type") {
+      return true;
+    }
+
+    return false;
+  };
+
+  const isMethodGroupAccess = (
+    expr: IrExpression
+  ): expr is Extract<IrExpression, { kind: "memberAccess" }> => {
+    if (expr.kind !== "memberAccess") return false;
+    return expr.memberBinding?.kind === "method";
+  };
+
+  const emitVoidOperandAst = (
+    expr: IrExpression,
+    state: EmitterContext
+  ): [readonly CSharpStatementAst[], EmitterContext] => {
+    if (isMethodGroupAccess(expr)) {
+      return emitVoidOperandAst(expr.object, state);
+    }
+
+    if (isNoopVoidOperand(expr, state)) {
+      return [[], state];
+    }
+
+    const [exprAst, newContext] = emitExpressionAst(expr, state);
+
+    if (
+      expr.kind === "call" ||
+      expr.kind === "new" ||
+      expr.kind === "assignment" ||
+      expr.kind === "update" ||
+      expr.kind === "await"
     ) {
       return [
-        [{ kind: "expressionStatement", expression: operandAst }],
+        [{ kind: "expressionStatement", expression: exprAst }],
         newContext,
       ];
     }
@@ -449,12 +486,20 @@ export const emitExpressionStatementAst = (
       kind: "assignmentExpression",
       operatorToken: "=",
       left: { kind: "identifierExpression", identifier: "_" },
-      right: operandAst,
+      right: exprAst,
     };
     return [
       [{ kind: "expressionStatement", expression: discardAssign }],
       newContext,
     ];
+  };
+
+  // TypeScript `void expr;` evaluates `expr` and discards the result.
+  //
+  // In C#, expression statements are restricted. Lower to the smallest
+  // side-effect-preserving statement sequence we can represent deterministically.
+  if (stmt.expression.kind === "unary" && stmt.expression.operator === "void") {
+    return emitVoidOperandAst(stmt.expression.expression, context);
   }
 
   const [exprAst, newContext] = emitExpressionAst(stmt.expression, context);

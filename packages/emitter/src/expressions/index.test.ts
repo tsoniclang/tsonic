@@ -235,6 +235,7 @@ describe("Expression Emission", () => {
               isOptional: false,
               // Hierarchical member binding from manifest
               memberBinding: {
+                kind: "method",
                 assembly: "System.Linq",
                 type: "System.Linq.Enumerable",
                 member: "SelectMany",
@@ -284,6 +285,7 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
               memberBinding: {
+                kind: "method",
                 assembly: "express",
                 type: "Express.Express",
                 member: "static",
@@ -311,6 +313,7 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
               memberBinding: {
+                kind: "property",
                 assembly: "express",
                 type: "Express.Request",
                 member: "params",
@@ -356,6 +359,7 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
               memberBinding: {
+                kind: "method",
                 assembly: "Tsonic.JSRuntime",
                 type: "Tsonic.JSRuntime.String",
                 member: "split",
@@ -402,6 +406,7 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
               memberBinding: {
+                kind: "method",
                 assembly: "System.Linq",
                 type: "System.Linq.Queryable",
                 member: "Count",
@@ -460,6 +465,7 @@ describe("Expression Emission", () => {
             isComputed: false,
             isOptional: false,
             memberBinding: {
+              kind: "method",
               assembly: "System.Linq",
               type: "System.Linq.Queryable",
               member: m.member,
@@ -507,6 +513,7 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
               memberBinding: {
+                kind: "method",
                 assembly: "System.Linq",
                 type: "System.Linq.Enumerable",
                 member: "ToArray",
@@ -532,6 +539,7 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
               memberBinding: {
+                kind: "method",
                 assembly: "System.Linq",
                 type: "System.Linq.Enumerable",
                 member: "ToList",
@@ -558,6 +566,7 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
               memberBinding: {
+                kind: "method",
                 assembly: "System.Linq",
                 type: "System.Linq.Enumerable",
                 member: "Where",
@@ -608,6 +617,7 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
               memberBinding: {
+                kind: "method",
                 assembly: "Microsoft.EntityFrameworkCore",
                 type: "Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions",
                 member: "AsNoTracking",
@@ -658,6 +668,7 @@ describe("Expression Emission", () => {
                   isComputed: false,
                   isOptional: false,
                   memberBinding: {
+                    kind: "method",
                     assembly: "System.Linq",
                     type: "System.Linq.Enumerable",
                     member: "ToList",
@@ -671,6 +682,7 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
               memberBinding: {
+                kind: "method",
                 assembly: "System.Linq",
                 type: "System.Linq.Enumerable",
                 member: "ToArray",
@@ -979,6 +991,7 @@ describe("Expression Emission", () => {
                   isComputed: false,
                   isOptional: false,
                   memberBinding: {
+                    kind: "method",
                     assembly: "MyLib",
                     type: "MyLib.Math",
                     member: "Add",
@@ -1059,6 +1072,7 @@ describe("Expression Emission", () => {
             isComputed: false,
             isOptional: false,
             memberBinding: {
+              kind: "property",
               assembly: "System.Private.CoreLib",
               type: "System.String",
               member: "Length",
@@ -1096,6 +1110,7 @@ describe("Expression Emission", () => {
             isComputed: false,
             isOptional: false,
             memberBinding: {
+              kind: "method",
               assembly: "Tsonic.JSRuntime",
               type: "Tsonic.JSRuntime.console",
               member: "log",
@@ -1136,6 +1151,7 @@ describe("Expression Emission", () => {
             isComputed: false,
             isOptional: false,
             memberBinding: {
+              kind: "property",
               assembly: "Acme.Core",
               type: "Acme.Core.Entity",
               member: "Maybe",
@@ -1173,6 +1189,7 @@ describe("Expression Emission", () => {
             isComputed: false,
             isOptional: false,
             memberBinding: {
+              kind: "method",
               assembly: "Tsonic.JSRuntime",
               type: "Tsonic.JSRuntime.String",
               member: "length",
@@ -1216,6 +1233,7 @@ describe("Expression Emission", () => {
               isComputed: false,
               isOptional: false,
               memberBinding: {
+                kind: "method",
                 assembly: "Tsonic.JSRuntime",
                 type: "Tsonic.JSRuntime.JSArray`1",
                 member: "map",
@@ -1264,6 +1282,98 @@ describe("Expression Emission", () => {
             isComputed: false,
             isOptional: false,
             memberBinding: {
+              kind: "property",
+              assembly: "Tsonic.JSRuntime",
+              type: "Tsonic.JSRuntime.JSArray`1",
+              member: "length",
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<int>(nums).length"
+    );
+  });
+
+  it("should emit array wrapper property access for nullable array receivers", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "maybeNums",
+              inferredType: {
+                kind: "unionType",
+                types: [
+                  {
+                    kind: "arrayType",
+                    elementType: { kind: "primitiveType", name: "int" },
+                  },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+            memberBinding: {
+              kind: "property",
+              assembly: "Tsonic.JSRuntime",
+              type: "Tsonic.JSRuntime.JSArray`1",
+              member: "length",
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<int>(maybeNums).length"
+    );
+  });
+
+  it("should emit array wrapper property access for ReadonlyArray receivers", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "nums",
+              inferredType: {
+                kind: "referenceType",
+                name: "ReadonlyArray",
+                typeArguments: [{ kind: "primitiveType", name: "int" }],
+              },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+            memberBinding: {
+              kind: "property",
               assembly: "Tsonic.JSRuntime",
               type: "Tsonic.JSRuntime.JSArray`1",
               member: "length",
@@ -1394,6 +1504,7 @@ describe("Expression Emission", () => {
             isComputed: false,
             isOptional: false,
             memberBinding: {
+              kind: "property",
               assembly: "MyApp",
               type: "MyApp.Ok",
               member: "success",
@@ -1413,6 +1524,7 @@ describe("Expression Emission", () => {
             isComputed: false,
             isOptional: false,
             memberBinding: {
+              kind: "property",
               assembly: "MyApp",
               type: "MyApp.Err",
               member: "error",
@@ -1432,6 +1544,7 @@ describe("Expression Emission", () => {
             isComputed: false,
             isOptional: false,
             memberBinding: {
+              kind: "property",
               assembly: "MyApp",
               type: "MyApp.Ok",
               member: "data",

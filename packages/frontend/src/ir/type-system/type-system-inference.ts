@@ -951,15 +951,27 @@ export const typeOfMember = (
 
   // Built-in array pseudo-members.
   // Arrays are structural IR types and may not resolve via nominal lookup.
+  //
+  // Support both CLR-style `Length`/`Count` and TS/JS-style `length`.
+  // The latter is required for JS surfaces even when the underlying runtime
+  // value is an explicit CLR array (for example `Encoding.UTF8.GetBytes(...).length`).
   if (effectiveReceiver.kind === "arrayType") {
-    if (memberName === "Length" || memberName === "Count") {
+    if (
+      memberName === "Length" ||
+      memberName === "Count" ||
+      memberName === "length"
+    ) {
       return { kind: "primitiveType", name: "int" };
     }
   }
 
   // Tuples behave like fixed-size arrays for length access.
   if (effectiveReceiver.kind === "tupleType") {
-    if (memberName === "Length" || memberName === "Count") {
+    if (
+      memberName === "Length" ||
+      memberName === "Count" ||
+      memberName === "length"
+    ) {
       return { kind: "primitiveType", name: "int" };
     }
   }

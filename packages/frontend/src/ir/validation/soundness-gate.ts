@@ -813,17 +813,28 @@ const extractLocalTypeNames = (
  */
 const extractImportedTypeNames = (module: IrModule): ReadonlySet<string> => {
   const names = new Set<string>();
+  const addImportedNameVariants = (name: string): void => {
+    names.add(name);
+
+    if (!name.endsWith("$instance")) {
+      names.add(`${name}$instance`);
+    }
+
+    if (!(name.startsWith("__") && name.endsWith("$views"))) {
+      names.add(`__${name}$views`);
+    }
+  };
 
   for (const imp of module.imports) {
     for (const spec of imp.specifiers) {
       // Include all imports - the emitter will resolve whether they're types or values
       // Named imports use localName (the name in this module's scope)
       if (spec.kind === "named" || spec.kind === "default") {
-        names.add(spec.localName);
+        addImportedNameVariants(spec.localName);
       }
       // Namespace imports (import * as NS) - the namespace itself is available
       if (spec.kind === "namespace") {
-        names.add(spec.localName);
+        addImportedNameVariants(spec.localName);
       }
     }
   }

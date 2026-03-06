@@ -60,6 +60,7 @@ export const resolveHierarchicalBinding = (
     );
 
     return {
+      kind: first.kind,
       assembly: first.binding.assembly,
       type: first.binding.type,
       member: first.binding.member,
@@ -384,6 +385,7 @@ export const resolveHierarchicalBindingFromMemberId = (
   const modsConsistent = overloads.every((m) => getModifiersKey(m) === modsKey);
 
   return {
+    kind: first.kind,
     assembly: first.binding.assembly,
     type: first.binding.type,
     member: first.binding.member,
@@ -545,6 +547,7 @@ export const resolveExtensionMethodsBinding = (
     : undefined;
 
   return {
+    kind: resolved.kind,
     assembly: resolved.binding.assembly,
     type: resolved.binding.type,
     member: resolved.binding.member,

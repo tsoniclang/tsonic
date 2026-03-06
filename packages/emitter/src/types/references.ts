@@ -8,7 +8,10 @@ import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitTypeAst } from "./emitter.js";
-import { substituteTypeArgs } from "../core/semantic/type-resolution.js";
+import {
+  resolveLocalTypeInfo,
+  substituteTypeArgs,
+} from "../core/semantic/type-resolution.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 
 /**
@@ -98,12 +101,7 @@ const resolveImportedTypeClrName = (
 
   for (const candidate of candidates) {
     const binding = context.importBindings?.get(candidate);
-    if (!binding || binding.kind === "namespace") continue;
-
-    if (binding.member) {
-      return `${binding.clrName}.${binding.member}`;
-    }
-
+    if (!binding || binding.kind !== "type") continue;
     return binding.clrName;
   }
 
@@ -117,6 +115,20 @@ const resolveCanonicalLocalTypeTarget = (
   const namespace = context.moduleNamespace ?? context.options.rootNamespace;
   const key = `${namespace}::${typeName}`;
   return context.options.canonicalLocalTypeTargets?.get(key);
+};
+
+const emitQualifiedLocalType = (
+  namespace: string,
+  csharpName: string,
+  typeArguments: readonly IrType[] | undefined,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
+  const qualified = `global::${namespace}.${csharpName}`;
+  if (typeArguments && typeArguments.length > 0) {
+    const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+    return [identifierTypeWithArgs(qualified, typeArgAsts), newContext];
+  }
+  return [{ kind: "identifierType", name: qualified }, context];
 };
 
 /**
@@ -466,6 +478,36 @@ export const emitReferenceType = (
       },
       context,
     ];
+  }
+
+  const crossModuleLocalType = resolveLocalTypeInfo(type, context);
+  const currentNamespace =
+    context.moduleNamespace ?? context.options.rootNamespace;
+  if (
+    crossModuleLocalType &&
+    !(crossModuleLocalType.namespace === currentNamespace)
+  ) {
+    const { info, namespace } = crossModuleLocalType;
+
+    if (info.kind === "typeAlias") {
+      const underlyingKind = info.type.kind;
+      if (underlyingKind !== "objectType") {
+        const underlyingType =
+          typeArguments && typeArguments.length > 0
+            ? substituteTypeArgs(info.type, info.typeParameters, typeArguments)
+            : info.type;
+        return emitTypeAst(underlyingType, context);
+      }
+
+      return emitQualifiedLocalType(
+        namespace,
+        `${name}__Alias`,
+        typeArguments,
+        context
+      );
+    }
+
+    return emitQualifiedLocalType(namespace, name, typeArguments, context);
   }
 
   // Canonical nominal identity from the UnifiedUniverse.

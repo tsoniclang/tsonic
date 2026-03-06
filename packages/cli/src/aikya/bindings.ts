@@ -8,6 +8,7 @@ import type {
   TsonicWorkspaceConfig,
 } from "../types.js";
 import { resolvePackageRoot } from "../commands/add-common.js";
+import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 
 export type ManifestDotnet = {
   readonly frameworkReferences?: readonly FrameworkReferenceConfig[];
@@ -1006,6 +1007,29 @@ const listWorkspaceDependencyNames = (
   };
 };
 
+const listRootBindingsDiscoveryNames = (
+  workspaceRoot: string,
+  surface: string | undefined
+): Result<readonly string[], string> => {
+  const workspaceDeps = listWorkspaceDependencyNames(workspaceRoot);
+  if (!workspaceDeps.ok) return workspaceDeps;
+
+  const surfaceDeps = resolveSurfaceCapabilities(surface, {
+    workspaceRoot,
+  }).requiredNpmPackages;
+
+  const names = new Set<string>();
+  for (const name of workspaceDeps.value) names.add(name);
+  for (const name of surfaceDeps) names.add(name);
+
+  return {
+    ok: true,
+    value: [...names].sort((a, b) =>
+      normalizeId(a).localeCompare(normalizeId(b))
+    ),
+  };
+};
+
 const resolveInstalledPackageRootFrom = (
   fromDir: string,
   dependencyName: string
@@ -1048,9 +1072,10 @@ const readInstalledPackageDependencyNames = (
 };
 
 export const discoverWorkspaceBindingsManifests = (
-  workspaceRoot: string
+  workspaceRoot: string,
+  surface: string | undefined = undefined
 ): Result<readonly NormalizedBindingsManifest[], string> => {
-  const rootDeps = listWorkspaceDependencyNames(workspaceRoot);
+  const rootDeps = listRootBindingsDiscoveryNames(workspaceRoot, surface);
   if (!rootDeps.ok) return rootDeps;
 
   const queue: Array<{
@@ -1216,7 +1241,10 @@ export const applyAikyaWorkspaceOverlay = (
   },
   string
 > => {
-  const manifests = discoverWorkspaceBindingsManifests(workspaceRoot);
+  const manifests = discoverWorkspaceBindingsManifests(
+    workspaceRoot,
+    config.surface
+  );
   if (!manifests.ok) return manifests;
 
   let current = config;

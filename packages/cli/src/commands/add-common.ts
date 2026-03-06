@@ -10,6 +10,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -156,6 +157,62 @@ const findNearestPackageRoot = (resolvedFilePath: string): string | null => {
   }
 };
 
+const readPackageName = (pkgJsonPath: string): string | undefined => {
+  if (!existsSync(pkgJsonPath)) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as {
+      readonly name?: unknown;
+    };
+    return typeof parsed.name === "string" ? parsed.name : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const sortVersionDirs = (dirs: readonly string[]): readonly string[] => {
+  return [...dirs].sort((left, right) => {
+    const leftNum = Number.parseInt(left, 10);
+    const rightNum = Number.parseInt(right, 10);
+    const leftIsNum = Number.isFinite(leftNum);
+    const rightIsNum = Number.isFinite(rightNum);
+    if (leftIsNum && rightIsNum) return rightNum - leftNum;
+    if (leftIsNum) return -1;
+    if (rightIsNum) return 1;
+    return right.localeCompare(left);
+  });
+};
+
+const tryResolveSiblingTsonicPackageRoot = (
+  packageName: string
+): string | undefined => {
+  const scoped = packageName.match(/^@tsonic\/([^/]+)$/);
+  if (!scoped?.[1]) return undefined;
+
+  const here = fileURLToPath(import.meta.url);
+  const repoRoot = resolve(dirname(here), "../../../../");
+  const siblingRepoRoot = resolve(repoRoot, "..", scoped[1]);
+
+  const repoPackageName = readPackageName(join(siblingRepoRoot, "package.json"));
+  if (repoPackageName === packageName) return siblingRepoRoot;
+
+  const versionsRoot = join(siblingRepoRoot, "versions");
+  if (!existsSync(versionsRoot)) return undefined;
+
+  const versionDirs = sortVersionDirs(
+    readdirSync(versionsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+  );
+
+  for (const versionDir of versionDirs) {
+    const candidateRoot = join(versionsRoot, versionDir);
+    const candidateName = readPackageName(join(candidateRoot, "package.json"));
+    if (candidateName === packageName) return candidateRoot;
+  }
+
+  return undefined;
+};
+
 export const resolveTsbindgenDllPath = (
   projectRoot: string
 ): Result<string, string> => {
@@ -214,6 +271,9 @@ export const resolvePackageRoot = (
     } catch {
       // ignore - fall through to user-friendly error below
     }
+
+    const sibling = tryResolveSiblingTsonicPackageRoot(packageName);
+    if (sibling) return { ok: true, value: sibling };
 
     return {
       ok: false,

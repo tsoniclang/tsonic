@@ -724,7 +724,7 @@ describe("Config", () => {
         WORKSPACE_ROOT,
         PROJECT_ROOT
       );
-      expect(result.typeRoots).to.deep.equal(["node_modules/@tsonic/dotnet"]);
+      expect(result.typeRoots).to.deep.equal(["node_modules/@tsonic/globals"]);
     });
 
     it("should use typeRoots from workspace.dotnet.typeRoots", () => {
@@ -745,7 +745,7 @@ describe("Config", () => {
       expect(result.typeRoots).to.deep.equal([
         "custom/path/types",
         "another/path/types",
-        "node_modules/@tsonic/dotnet",
+        "node_modules/@tsonic/globals",
       ]);
     });
 

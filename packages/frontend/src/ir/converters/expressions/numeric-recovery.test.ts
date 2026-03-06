@@ -29,12 +29,14 @@ const __dirname = path.dirname(__filename);
 const monorepoRoot = path.resolve(__dirname, "../../../../../..");
 const globalsPath = path.join(monorepoRoot, "node_modules/@tsonic/globals");
 const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
+const jsPath = path.join(monorepoRoot, "node_modules/@tsonic/js");
 
 /**
  * Helper to compile TypeScript code with globals and extract IR
  */
-const compileWithGlobals = (
-  code: string
+const compileWithTypeRoots = (
+  code: string,
+  typeRoots: readonly string[]
 ): { modules: readonly IrModule[]; ok: boolean; error?: string } => {
   const tmpDir = `/tmp/numeric-recovery-test-${Date.now()}`;
   fs.mkdirSync(tmpDir, { recursive: true });
@@ -46,7 +48,7 @@ const compileWithGlobals = (
     projectRoot: monorepoRoot,
     sourceRoot: tmpDir,
     rootNamespace: "Test",
-    typeRoots: [globalsPath, corePath],
+    typeRoots,
   });
 
   if (!compileResult.ok) {
@@ -69,6 +71,16 @@ const compileWithGlobals = (
 
   return { modules: irResult.value, ok: true };
 };
+
+const compileWithGlobals = (
+  code: string
+): { modules: readonly IrModule[]; ok: boolean; error?: string } =>
+  compileWithTypeRoots(code, [globalsPath, corePath]);
+
+const compileWithJsSurface = (
+  code: string
+): { modules: readonly IrModule[]; ok: boolean; error?: string } =>
+  compileWithTypeRoots(code, [jsPath, corePath]);
 
 /**
  * Helper to find an expression in the IR by predicate
@@ -101,6 +113,12 @@ const findExpression = (
       }
     }
     if (expr.kind === "binary") {
+      const leftResult = visitExpression(expr.left);
+      if (leftResult) return leftResult;
+      const rightResult = visitExpression(expr.right);
+      if (rightResult) return rightResult;
+    }
+    if (expr.kind === "logical") {
       const leftResult = visitExpression(expr.left);
       if (leftResult) return leftResult;
       const rightResult = visitExpression(expr.right);
@@ -193,6 +211,116 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       expect(lengthExpr?.inferredType).to.deep.equal({
         kind: "primitiveType",
         name: "int",
+      });
+    });
+
+    it("should recover 'int' from arr.length property declaration on js surface", () => {
+      const code = `
+        export function getLen(arr: string[]): number {
+          return arr.length;
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const lengthExpr = findExpression(
+        modules,
+        (expr): expr is IrMemberExpression =>
+          expr.kind === "memberAccess" && expr.property === "length"
+      );
+
+      expect(lengthExpr).to.not.be.undefined;
+      expect(lengthExpr?.inferredType).to.deep.equal({
+        kind: "primitiveType",
+        name: "int",
+      });
+    });
+
+    it("should recover 'int' from explicit CLR array .length on js surface", () => {
+      const code = `
+        import { Encoding } from "@tsonic/dotnet/System.Text.js";
+
+        export function getBytesLen(value: string): number {
+          return Encoding.UTF8.GetBytes(value).length;
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const lengthExpr = findExpression(
+        modules,
+        (expr): expr is IrMemberExpression =>
+          expr.kind === "memberAccess" && expr.property === "length"
+      );
+
+      expect(lengthExpr).to.not.be.undefined;
+      expect(lengthExpr?.inferredType).to.deep.equal({
+        kind: "primitiveType",
+        name: "int",
+      });
+    });
+
+    it("should attach JS array member binding for readonly array length on js surface", () => {
+      const code = `
+        export function getLen(arr: readonly string[]): number {
+          return arr.length;
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const lengthExpr = findExpression(
+        modules,
+        (expr): expr is IrMemberExpression =>
+          expr.kind === "memberAccess" &&
+          expr.property === "length" &&
+          expr.object.kind === "identifier" &&
+          expr.object.name === "arr"
+      );
+
+      expect(lengthExpr).to.not.be.undefined;
+      expect(lengthExpr?.kind).to.equal("memberAccess");
+      if (!lengthExpr || lengthExpr.kind !== "memberAccess") return;
+      expect(lengthExpr.memberBinding).to.deep.include({
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.JSArray`1",
+        member: "length",
+      });
+    });
+
+    it("should attach JS array member binding for nullish readonly property length on js surface", () => {
+      const code = `
+        export type Query = {
+          readonly paths?: readonly string[];
+        };
+
+        export function hasPaths(query: Query): boolean {
+          return query.paths !== undefined && query.paths.length > 0;
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const lengthExpr = findExpression(
+        modules,
+        (expr): expr is IrMemberExpression =>
+          expr.kind === "memberAccess" &&
+          expr.property === "length" &&
+          expr.object.kind === "memberAccess" &&
+          expr.object.property === "paths"
+      );
+
+      expect(lengthExpr).to.not.be.undefined;
+      expect(lengthExpr?.kind).to.equal("memberAccess");
+      if (!lengthExpr || lengthExpr.kind !== "memberAccess") return;
+      expect(lengthExpr.memberBinding).to.deep.include({
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.JSArray`1",
+        member: "length",
       });
     });
   });
@@ -332,6 +460,33 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
 
       const proofResult = runNumericProofPass(modules);
 
+      const tsn5107Errors = proofResult.diagnostics.filter(
+        (d) => d.code === "TSN5107"
+      );
+
+      expect(
+        tsn5107Errors.length,
+        `Expected no TSN5107 errors but got: ${tsn5107Errors.map((d) => d.message).join("; ")}`
+      ).to.equal(0);
+
+      expect(proofResult.ok).to.be.true;
+    });
+
+    it("should pass numeric proof for explicit CLR array .length on js surface", () => {
+      const code = `
+        import { Encoding } from "@tsonic/dotnet/System.Text.js";
+        import { Console } from "@tsonic/dotnet/System.js";
+
+        export function writeBytes(value: string): void {
+          const buffer = Encoding.UTF8.GetBytes(value);
+          Console.WriteLine(buffer[buffer.length - 1]);
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const proofResult = runNumericProofPass(modules);
       const tsn5107Errors = proofResult.diagnostics.filter(
         (d) => d.code === "TSN5107"
       );

@@ -548,7 +548,7 @@ export {};
     }
   });
 
-  it("should expose CLR string members on clr surface via compiler declarations", () => {
+  it("should expose CLR string members on clr surface via @tsonic/globals", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-clr-members-")
     );
@@ -566,52 +566,6 @@ export {};
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
 
-      const dotnetRoot = path.join(tempDir, "node_modules/@tsonic/dotnet");
-      const dotnetInternalRoot = path.join(dotnetRoot, "System/internal");
-      fs.mkdirSync(dotnetInternalRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(dotnetRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/dotnet", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(dotnetInternalRoot, "index.d.ts"),
-        `
-export interface Array$instance {}
-export interface __Array$views {}
-export interface String$instance { Trim(): string; }
-export interface __String$views {}
-export interface Double$instance {}
-export interface __Double$views {}
-export interface Boolean$instance {}
-export interface __Boolean$views {}
-export interface Object$instance {}
-`
-      );
-      fs.writeFileSync(
-        path.join(dotnetInternalRoot, "index.js"),
-        "export {};\n"
-      );
-      fs.writeFileSync(
-        path.join(dotnetRoot, "System.Collections.d.ts"),
-        "export interface IEnumerator {}\n"
-      );
-      fs.writeFileSync(
-        path.join(dotnetRoot, "System.Collections.js"),
-        "export {};\n"
-      );
-      fs.writeFileSync(
-        path.join(dotnetRoot, "System.Collections.Generic.d.ts"),
-        "export interface IEnumerable<T> {}\nexport interface IEnumerator<T> {}\n"
-      );
-      fs.writeFileSync(
-        path.join(dotnetRoot, "System.Collections.Generic.js"),
-        "export {};\n"
-      );
-
       const entryPath = path.join(srcDir, "index.ts");
       fs.writeFileSync(entryPath, 'export const ok = "  hi  ".Trim();\n');
 
@@ -623,6 +577,21 @@ export interface Object$instance {}
       });
 
       expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(
+        result.value.declarationSourceFiles.some((sourceFile) =>
+          sourceFile.fileName.endsWith("__clr_globals__.d.ts")
+        )
+      ).to.equal(false);
+      expect(
+        result.value.declarationSourceFiles.some(
+          (sourceFile) =>
+            sourceFile.fileName.includes("@tsonic/globals") ||
+            /[/\\]globals[/\\]versions[/\\]\d+[/\\]index\.d\.ts$/.test(
+              sourceFile.fileName
+            )
+        )
+      ).to.equal(true);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
