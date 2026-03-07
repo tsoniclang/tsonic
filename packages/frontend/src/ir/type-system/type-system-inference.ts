@@ -51,6 +51,7 @@ import {
   resolveCall,
   delegateToFunctionType,
 } from "./type-system-call-resolution.js";
+import { resolveDynamicImportNamespace } from "../../resolver/dynamic-import.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // typeOfDecl — Get declared type of a declaration
@@ -506,6 +507,51 @@ export const tryInferReturnTypeFromCallExpression = (
   call: ts.CallExpression,
   env: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
+  if (call.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    const resolution = resolveDynamicImportNamespace(
+      call,
+      call.getSourceFile().fileName,
+      {
+        checker: state.checker,
+        compilerOptions: state.tsCompilerOptions,
+        sourceFilesByPath: state.sourceFilesByPath,
+      }
+    );
+
+    if (resolution.ok) {
+      const members = resolution.entries.flatMap((entry) => {
+        const declId = state.resolveIdentifier(entry.declarationName);
+        if (!declId) return [];
+
+        const memberType = typeOfDecl(state, declId);
+        if (memberType.kind === "unknownType") return [];
+
+        return [
+          {
+            kind: "propertySignature" as const,
+            name: entry.exportName,
+            type: memberType,
+            isOptional: false,
+            isReadonly: true,
+          },
+        ];
+      });
+
+      return {
+        kind: "referenceType",
+        name: "Promise",
+        typeArguments: [
+          members.length === 0
+            ? { kind: "referenceType", name: "object" }
+            : {
+                kind: "objectType",
+                members,
+              },
+        ],
+      };
+    }
+  }
+
   const sigId = state.resolveCallSignature(call);
   if (!sigId) return undefined;
 
@@ -1318,12 +1364,16 @@ export const typeOfMemberId = (
         return undefined;
       }
 
-      return new Map(
-        typeParams.map((param, index) => [
-          param.name.text,
-          receiverTypeArguments[index],
-        ])
-      );
+      const entries: [string, IrType][] = [];
+      for (const [index, param] of typeParams.entries()) {
+        const arg = receiverTypeArguments[index];
+        if (!arg) {
+          return undefined;
+        }
+        entries.push([param.name.text, arg]);
+      }
+
+      return new Map(entries);
     };
 
     const substitution = getDeclaringTypeSubstitution();

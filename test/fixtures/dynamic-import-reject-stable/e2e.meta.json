@@ -1,8 +1,8 @@
 {
   "expectFailure": true,
-  "description": "dynamic import is rejected in strict AOT mode.",
+  "description": "dynamic import namespace values reject unsupported runtime export shapes.",
   "expectedErrors": [
     "TSN2001",
-    "Dynamic import() is not supported in strict AOT mode"
+    "Unsupported export: 'Box'"
   ]
 }

@@ -306,6 +306,9 @@ const validateExpression = (
           validateExpression(arg, ctx, expected);
         }
       }
+      if (expr.dynamicImportNamespace) {
+        validateExpression(expr.dynamicImportNamespace, ctx);
+      }
       return;
     }
 

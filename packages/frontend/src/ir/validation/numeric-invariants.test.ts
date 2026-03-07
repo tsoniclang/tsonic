@@ -169,6 +169,19 @@ const arrayExpr = (elements: IrExpression[]): IrExpression => ({
   },
 });
 
+const conditionalExpr = (
+  condition: IrExpression,
+  whenTrue: IrExpression,
+  whenFalse: IrExpression,
+  inferredType: IrType
+): IrExpression => ({
+  kind: "conditional",
+  condition,
+  whenTrue,
+  whenFalse,
+  inferredType,
+});
+
 describe("Numeric Proof Invariants", () => {
   describe("INVARIANT 1: numericIntent ONLY from numericNarrowing", () => {
     it("should attach numericIntent to variable initialized via narrowing", () => {
@@ -621,6 +634,87 @@ describe("Numeric Proof Invariants", () => {
       const result = runNumericProofPass([module]);
       expect(result.ok).to.be.true;
       expect(result.diagnostics).to.have.length(0);
+    });
+
+    it("accepts conditional expressions whose branches deterministically stay Int32", () => {
+      const module = createModule([
+        createVarDecl(
+          "cmp",
+          narrowTo(
+            conditionalExpr(
+              {
+                kind: "binary",
+                operator: "===",
+                left: { kind: "identifier", name: "left" },
+                right: { kind: "identifier", name: "right" },
+                inferredType: { kind: "primitiveType", name: "boolean" },
+              },
+              numLiteral(0, "0"),
+              conditionalExpr(
+                {
+                  kind: "binary",
+                  operator: "<",
+                  left: { kind: "identifier", name: "left" },
+                  right: { kind: "identifier", name: "right" },
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                },
+                numLiteral(-1, "-1"),
+                numLiteral(1, "1"),
+                { kind: "primitiveType", name: "number" }
+              ),
+              { kind: "primitiveType", name: "number" }
+            ),
+            "Int32"
+          )
+        ),
+      ]);
+
+      const result = runNumericProofPass([module]);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+
+      const decl = result.modules[0]?.body[0];
+      expect(decl?.kind).to.equal("variableDeclaration");
+      if (decl?.kind !== "variableDeclaration") return;
+
+      const init = decl.declarations[0]?.initializer;
+      expect(init?.kind).to.equal("numericNarrowing");
+      if (init?.kind !== "numericNarrowing") return;
+
+      expect(init.proof?.kind).to.equal("Int32");
+      expect(init.proof?.source).to.deep.equal({
+        type: "narrowing",
+        from: "Int32",
+      });
+    });
+
+    it("rejects conditional expressions whose branches promote to Double before Int32 narrowing", () => {
+      const module = createModule([
+        createVarDecl(
+          "value",
+          narrowTo(
+            conditionalExpr(
+              {
+                kind: "binary",
+                operator: "===",
+                left: { kind: "identifier", name: "flag" },
+                right: numLiteral(1, "1"),
+                inferredType: { kind: "primitiveType", name: "boolean" },
+              },
+              numLiteral(0, "0"),
+              numLiteral(1.5, "1.5"),
+              { kind: "primitiveType", name: "number" }
+            ),
+            "Int32"
+          )
+        ),
+      ]);
+
+      const result = runNumericProofPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics).to.have.length(1);
+      expect(result.diagnostics[0]?.code).to.equal("TSN5103");
+      expect(result.diagnostics[0]?.message).to.contain("Conditional expression produces Double");
     });
   });
 

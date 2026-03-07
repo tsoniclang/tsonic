@@ -654,6 +654,43 @@ const proveNarrowing = (
     return undefined;
   }
 
+  // Case 9: Inner expression is a conditional expression with deterministic
+  // numeric branch result.
+  if (innerExpr.kind === "conditional") {
+    const resultKind = inferNumericKind(innerExpr, ctx);
+    if (resultKind !== undefined) {
+      if (
+        resultKind === targetKind ||
+        isWideningConversion(resultKind, targetKind)
+      ) {
+        return {
+          kind: targetKind,
+          source: { type: "narrowing", from: resultKind },
+        };
+      }
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN5103",
+          "error",
+          `Conditional expression produces ${resultKind}, not ${targetKind}`,
+          innerExpr.sourceSpan ?? location,
+          `Ensure both conditional branches are provably ${targetKind} (or widen explicitly).`
+        )
+      );
+      return undefined;
+    }
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN5101",
+        "error",
+        `Cannot prove narrowing of conditional expression to ${targetKind}`,
+        innerExpr.sourceSpan ?? location,
+        "Both conditional branches must be provable numeric kinds."
+      )
+    );
+    return undefined;
+  }
+
   // HARD GATE: Cannot prove - emit error, DO NOT fallback to cast
   ctx.diagnostics.push(
     createDiagnostic(
@@ -984,6 +1021,9 @@ const processExpression = (
         ...expr,
         callee: processExpression(expr.callee, ctx),
         arguments: expr.arguments.map((a) => processExpression(a, ctx)),
+        dynamicImportNamespace: expr.dynamicImportNamespace
+          ? (processExpression(expr.dynamicImportNamespace, ctx) as typeof expr.dynamicImportNamespace)
+          : undefined,
       };
 
     case "new":

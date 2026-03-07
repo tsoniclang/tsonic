@@ -145,4 +145,48 @@ describe("Dependency Graph", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("should traverse value-consuming closed-world dynamic imports", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-dependency-graph-dynamic-import-value-")
+    );
+
+    try {
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(path.join(srcDir, "nested"), { recursive: true });
+      const entryPath = path.join(srcDir, "index.ts");
+      const importedPath = path.join(srcDir, "nested", "module.ts");
+
+      fs.writeFileSync(
+        entryPath,
+        [
+          "async function load(): Promise<number> {",
+          '  const module = await import("./nested/module.js");',
+          "  return module.value;",
+          "}",
+          "void load();",
+        ].join("\n")
+      );
+      fs.writeFileSync(importedPath, "export const value = 42;\n");
+
+      const result = buildModuleDependencyGraph(entryPath, {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(
+        result.value.modules.some(
+          (module) =>
+            module.filePath ===
+            path.relative(srcDir, path.resolve(importedPath))
+        )
+      ).to.equal(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

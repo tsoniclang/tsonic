@@ -133,6 +133,7 @@ describe("Import Handling", () => {
             namespace: "TestCases.common.operators.inoperator",
             className: "Auth",
             filePath: "common/operators/in-operator/Auth.ts",
+            hasRuntimeContainer: true,
             hasTopLevelCode: false,
             imports: [],
             exports: [
@@ -208,6 +209,7 @@ describe("Import Handling", () => {
             namespace: "Acme.Math",
             className: "index",
             filePath: "node_modules/@acme/math/src/index",
+            hasRuntimeContainer: true,
             hasTopLevelCode: false,
             imports: [],
             exports: [

@@ -1,5 +1,8 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as ts from "typescript";
 import type { TsonicProgram } from "./program.js";
 import { validateProgram } from "./validator.js";
@@ -10,14 +13,25 @@ import { createBinding } from "./ir/binding/index.js";
 
 const createTestProgram = (
   source: string,
-  fileName = "test.ts"
+  fileName = "/test/index.ts",
+  extraFiles: Readonly<Record<string, string>> = {}
 ): TsonicProgram => {
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
+  const allFiles = new Map<string, string>([
+    [fileName, source],
+    ...Object.entries(extraFiles),
+  ]);
+
+  const sourceFiles = new Map<string, ts.SourceFile>(
+    Array.from(allFiles.entries(), ([name, text]) => [
+      name,
+      ts.createSourceFile(
+        name,
+        text,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+      ),
+    ])
   );
 
   const compilerOptions: ts.CompilerOptions = {
@@ -30,14 +44,18 @@ const createTestProgram = (
 
   const host = ts.createCompilerHost(compilerOptions);
   const originalGetSourceFile = host.getSourceFile;
+  const originalFileExists = host.fileExists;
+  const originalReadFile = host.readFile;
   host.getSourceFile = (
     name: string,
     languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
     onError?: (message: string) => void,
     shouldCreateNewSourceFile?: boolean
   ) => {
-    if (name === fileName) {
-      return sourceFile;
+    const normalized = name.replace(/\\/g, "/");
+    const file = sourceFiles.get(normalized);
+    if (file) {
+      return file;
     }
     return originalGetSourceFile.call(
       host,
@@ -47,8 +65,14 @@ const createTestProgram = (
       shouldCreateNewSourceFile
     );
   };
+  host.fileExists = (name: string) =>
+    sourceFiles.has(name.replace(/\\/g, "/")) || originalFileExists(name);
+  host.readFile = (name: string) => {
+    const normalized = name.replace(/\\/g, "/");
+    return allFiles.get(normalized) ?? originalReadFile(name);
+  };
 
-  const program = ts.createProgram([fileName], compilerOptions, host);
+  const program = ts.createProgram(Array.from(allFiles.keys()), compilerOptions, host);
   const checker = program.getTypeChecker();
 
   return {
@@ -59,7 +83,9 @@ const createTestProgram = (
       sourceRoot: "/test",
       rootNamespace: "Test",
     },
-    sourceFiles: [sourceFile],
+    sourceFiles: Array.from(sourceFiles.keys())
+      .map((name) => program.getSourceFile(name))
+      .filter((file): file is ts.SourceFile => file !== undefined),
     declarationSourceFiles: [],
     metadata: new DotnetMetadataRegistry(),
     bindings: new BindingRegistry(),
@@ -68,11 +94,72 @@ const createTestProgram = (
   };
 };
 
-const collectCodes = (source: string): readonly string[] =>
-  validateProgram(createTestProgram(source)).diagnostics.map((d) => d.code);
+const collectCodes = (
+  source: string,
+  extraFiles: Readonly<Record<string, string>> = {}
+): readonly string[] =>
+  validateProgram(createTestProgram(source, "/test/index.ts", extraFiles)).diagnostics.map((d) => d.code);
 
-const hasCode = (source: string, code: string): boolean =>
-  collectCodes(source).includes(code);
+const hasCode = (
+  source: string,
+  code: string,
+  extraFiles: Readonly<Record<string, string>> = {}
+): boolean => collectCodes(source, extraFiles).includes(code);
+
+const collectCodesInTempProject = (
+  source: string,
+  extraFiles: Readonly<Record<string, string>> = {}
+): readonly string[] => {
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "tsonic-maximus-dynamic-import-")
+  );
+
+  try {
+    const entryPath = path.join(tempDir, "src", "index.ts");
+    fs.mkdirSync(path.dirname(entryPath), { recursive: true });
+    fs.writeFileSync(entryPath, source);
+
+    const rootNames = [entryPath];
+    for (const [relativePath, content] of Object.entries(extraFiles)) {
+      const fullPath = path.join(tempDir, relativePath);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, content);
+      rootNames.push(fullPath);
+    }
+
+    const compilerOptions: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+    };
+
+    const program = ts.createProgram(rootNames, compilerOptions);
+    const checker = program.getTypeChecker();
+
+    return validateProgram({
+      program,
+      checker,
+      options: {
+        projectRoot: tempDir,
+        sourceRoot: path.join(tempDir, "src"),
+        rootNamespace: "Test",
+      },
+      sourceFiles: rootNames
+        .map((fileName) => program.getSourceFile(fileName))
+        .filter((file): file is ts.SourceFile => file !== undefined),
+      declarationSourceFiles: [],
+      metadata: new DotnetMetadataRegistry(),
+      bindings: new BindingRegistry(),
+      clrResolver: createClrBindingsResolver(tempDir),
+      binding: createBinding(checker),
+    }).diagnostics.map((diagnostic) => diagnostic.code);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+};
 
 describe("Maximus Validation Coverage", () => {
   describe("TSN2001 / TSN3011 end-to-end feature gating", () => {
@@ -98,10 +185,13 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
-        name: "dynamic import",
+        name: "dynamic import with unsupported runtime namespace export",
         code: "TSN2001",
         source: `
-          async function load() { return import("./module.js"); }
+          async function load() {
+            const module = await import("./module.js");
+            return module.Box;
+          }
           void load();
         `,
       },
@@ -109,7 +199,17 @@ describe("Maximus Validation Coverage", () => {
 
     for (const scenario of shouldReject) {
       it(`rejects ${scenario.name}`, () => {
-        expect(hasCode(scenario.source, scenario.code)).to.equal(true);
+        const extraFiles: Readonly<Record<string, string>> =
+          scenario.name ===
+          "dynamic import with unsupported runtime namespace export"
+            ? { "src/module.ts": "export class Box {}\n" }
+            : {};
+        const codes =
+          scenario.name ===
+          "dynamic import with unsupported runtime namespace export"
+            ? collectCodesInTempProject(scenario.source, extraFiles)
+            : collectCodes(scenario.source, extraFiles);
+        expect(codes.includes(scenario.code)).to.equal(true);
       });
     }
 
@@ -157,6 +257,16 @@ describe("Maximus Validation Coverage", () => {
         source: `
           async function load(): Promise<void> {
             await import("./module.js");
+          }
+          void load();
+        `,
+      },
+      {
+        name: "closed-world dynamic import namespace value",
+        source: `
+          async function load(): Promise<number> {
+            const module = await import("./module.js");
+            return module.value;
           }
           void load();
         `,
@@ -228,7 +338,16 @@ describe("Maximus Validation Coverage", () => {
 
     for (const scenario of shouldAllow) {
       it(`does not falsely reject ${scenario.name}`, () => {
-        const codes = collectCodes(scenario.source);
+        const extraFiles: Readonly<Record<string, string>> =
+          scenario.name === "closed-world dynamic import namespace value" ||
+          scenario.name === "awaited local dynamic import side-effect"
+            ? { "src/module.ts": "export const value = 42;\n" }
+            : {};
+        const codes =
+          scenario.name === "closed-world dynamic import namespace value" ||
+          scenario.name === "awaited local dynamic import side-effect"
+            ? collectCodesInTempProject(scenario.source, extraFiles)
+            : collectCodes(scenario.source, extraFiles);
         expect(codes.includes("TSN2001")).to.equal(false);
         expect(codes.includes("TSN3011")).to.equal(false);
       });

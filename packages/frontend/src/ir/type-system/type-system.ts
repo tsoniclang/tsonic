@@ -17,6 +17,7 @@
 
 import type { IrType, IrFunctionType } from "../types/index.js";
 import type { Diagnostic } from "../../types/diagnostic.js";
+import type * as ts from "typescript";
 import type {
   DeclId,
   SignatureId,
@@ -424,6 +425,9 @@ export type TypeSystemConfig = {
   readonly resolveConstructorSignature: (
     node: unknown
   ) => SignatureId | undefined;
+  readonly checker: ts.TypeChecker;
+  readonly tsCompilerOptions: ts.CompilerOptions;
+  readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -453,6 +457,9 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     resolveIdentifier,
     resolveCallSignature,
     resolveConstructorSignature,
+    checker,
+    tsCompilerOptions,
+    sourceFilesByPath,
   } = config;
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -509,6 +516,9 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     resolveIdentifier,
     resolveCallSignature,
     resolveConstructorSignature,
+    checker,
+    tsCompilerOptions,
+    sourceFilesByPath,
     declTypeCache,
     memberDeclaredTypeCache,
     signatureRawCache,

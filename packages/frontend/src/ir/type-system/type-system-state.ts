@@ -15,6 +15,7 @@ import type {
   IrMethodSignature,
 } from "../types/index.js";
 import type { Diagnostic, DiagnosticCode } from "../../types/diagnostic.js";
+import type * as ts from "typescript";
 import type {
   DeclId,
   SignatureId,
@@ -548,6 +549,9 @@ export type TypeSystemState = {
   readonly resolveConstructorSignature: (
     node: unknown
   ) => SignatureId | undefined;
+  readonly checker: ts.TypeChecker;
+  readonly tsCompilerOptions: ts.CompilerOptions;
+  readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
 
   // Mutable caches (shared by reference)
   readonly declTypeCache: Map<number, IrType>;

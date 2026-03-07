@@ -17,6 +17,8 @@ export type ModuleIdentity = {
   readonly namespace: string;
   readonly className: string;
   readonly filePath: string;
+  /** True when this module emits a static module container class. */
+  readonly hasRuntimeContainer: boolean;
   /**
    * True if the module has a type declaration (class/interface) with the same name as className.
    * When true, value imports should target ClassName__Module instead of ClassName.

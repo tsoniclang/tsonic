@@ -7,7 +7,23 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { canonicalizeFilePath, resolveImportPath } from "./module-map.js";
+import { buildModuleMap, canonicalizeFilePath, resolveImportPath } from "./module-map.js";
+import type { IrModule } from "@tsonic/frontend";
+
+const makeModule = (
+  filePath: string,
+  body: readonly unknown[]
+): IrModule =>
+  ({
+    kind: "module",
+    filePath,
+    namespace: "Test",
+    className: filePath.split("/").pop()?.replace(/\.ts$/, "") ?? "module",
+    isStaticContainer: true,
+    imports: [],
+    body,
+    exports: [],
+  }) as unknown as IrModule;
 
 describe("Module Map", () => {
   describe("canonicalizeFilePath", () => {
@@ -125,6 +141,51 @@ describe("Module Map", () => {
         );
         expect(result).to.equal("src/utils/index");
       });
+    });
+  });
+
+  describe("buildModuleMap", () => {
+    it("marks type-only modules as having no runtime container", () => {
+      const module = makeModule("src/types.ts", [
+        {
+          kind: "interfaceDeclaration",
+          name: "User",
+          members: [],
+        },
+        {
+          kind: "typeAliasDeclaration",
+          name: "UserRecord",
+          type: { kind: "objectType", members: [] },
+        },
+      ]);
+
+      const result = buildModuleMap([module]);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const identity = result.value.get("src/types");
+      expect(identity?.hasRuntimeContainer).to.equal(false);
+    });
+
+    it("marks value-bearing modules as having a runtime container", () => {
+      const module = makeModule("src/runtime.ts", [
+        {
+          kind: "variableDeclaration",
+          declarations: [
+            {
+              name: { kind: "identifierPattern", name: "value" },
+              initializer: { kind: "numericLiteral", value: 1 },
+            },
+          ],
+        },
+      ]);
+
+      const result = buildModuleMap([module]);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const identity = result.value.get("src/runtime");
+      expect(identity?.hasRuntimeContainer).to.equal(true);
     });
   });
 });

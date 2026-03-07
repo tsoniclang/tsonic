@@ -521,12 +521,16 @@ export const computeReceiverSubstitution = (
       return undefined;
     }
 
-    return new Map(
-      declaringTypeParameterNames.map((name, index) => [
-        name,
-        receiverTypeArguments[index],
-      ])
-    );
+    const entries: [string, IrType][] = [];
+    for (const [index, name] of declaringTypeParameterNames.entries()) {
+      const arg = receiverTypeArguments[index];
+      if (!arg) {
+        return undefined;
+      }
+      entries.push([name, arg]);
+    }
+
+    return new Map(entries);
   };
 
   if (!normalized) {

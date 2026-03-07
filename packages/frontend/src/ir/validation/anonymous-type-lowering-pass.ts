@@ -906,6 +906,12 @@ const lowerExpression = (
           ...expr,
           callee: lowerExpression(expr.callee, ctx),
           arguments: expr.arguments.map((a) => lowerExpression(a, ctx)),
+          dynamicImportNamespace: expr.dynamicImportNamespace
+            ? (lowerExpression(expr.dynamicImportNamespace, ctx) as Extract<
+                typeof expr.dynamicImportNamespace,
+                { kind: "object" }
+              >)
+            : undefined,
           typeArguments: expr.typeArguments?.map((ta) => lowerType(ta, ctx)),
           // parameterTypes participate in expected-type threading during emission
           // (e.g., object literal contextual typing). They must be lowered so

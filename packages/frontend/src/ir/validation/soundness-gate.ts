@@ -501,6 +501,9 @@ const validateExpression = (
       }
       validateExpression(expr.callee, ctx);
       expr.arguments.forEach((a) => validateExpression(a, ctx));
+      if (expr.dynamicImportNamespace) {
+        validateExpression(expr.dynamicImportNamespace, ctx);
+      }
       expr.typeArguments?.forEach((ta, i) =>
         validateType(ta, ctx, `call type argument ${i}`)
       );

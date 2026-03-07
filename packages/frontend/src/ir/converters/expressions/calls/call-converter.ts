@@ -33,6 +33,10 @@ import {
   extractArgumentPassing,
   extractArgumentPassingFromBinding,
 } from "./call-site-analysis.js";
+import {
+  convertDynamicImportNamespaceObject,
+  getDynamicImportPromiseType,
+} from "../dynamic-import.js";
 
 // DELETED: getReturnTypeFromFunctionType - Was part of fallback path
 // DELETED: getCalleesDeclaredType - Was part of fallback path
@@ -494,13 +498,19 @@ export const convertCallExpression = (
     };
   }
 
-  // Dynamic import expressions are preserved as normal calls with a stable
-  // Promise<unknown> inferred type so frontend validation can report deterministic
-  // diagnostics without unknown-type leaks.
+  // Dynamic import expressions are preserved as normal calls.
+  //
+  // For deterministic closed-world local modules, we additionally attach:
+  // - Promise<namespaceObject> inferred type
+  // - a synthesized namespace object IR payload for the emitter
+  //
+  // Unsupported/open-world forms remain Promise<unknown> and are rejected by
+  // source validation before emission.
   if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
     const typeArguments = extractTypeArguments(node, ctx);
     const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);
     const callee = convertExpression(node.expression, ctx, undefined);
+    const dynamicImportNamespace = convertDynamicImportNamespaceObject(node, ctx);
     const args: IrCallExpression["arguments"][number][] = [];
     for (const arg of node.arguments) {
       if (ts.isSpreadElement(arg)) {
@@ -521,7 +531,7 @@ export const convertCallExpression = (
       callee,
       arguments: args,
       isOptional: node.questionDotToken !== undefined,
-      inferredType: {
+      inferredType: getDynamicImportPromiseType(node, ctx) ?? {
         kind: "referenceType",
         name: "Promise",
         typeArguments: [{ kind: "unknownType" }],
@@ -529,6 +539,7 @@ export const convertCallExpression = (
       sourceSpan: getSourceSpan(node),
       typeArguments,
       requiresSpecialization,
+      dynamicImportNamespace,
     };
   }
 

@@ -28,7 +28,7 @@ import {
   getLocalResolutionBoundary,
   resolveSourcePackageImport,
 } from "../resolver/source-package-resolution.js";
-import { collectSupportedDynamicImportSites } from "../resolver/dynamic-import.js";
+import { collectClosedWorldDynamicImportSites } from "../resolver/dynamic-import.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -287,7 +287,7 @@ export const buildModuleDependencyGraph = (
       }
     }
 
-    for (const site of collectSupportedDynamicImportSites(sourceFile)) {
+    for (const site of collectClosedWorldDynamicImportSites(sourceFile)) {
       queueResolvedLocalDependency(
         site.specifier,
         currentFile,

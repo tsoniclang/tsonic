@@ -228,6 +228,11 @@ export type IrCallExpression = {
     readonly argIndex: number; // which argument is being narrowed
     readonly targetType: IrType; // the asserted type
   };
+  /**
+   * Closed-world local dynamic import namespace object for `import("./local.js")`.
+   * When present, the emitter lowers the call to `Task<namespaceObject>`.
+   */
+  readonly dynamicImportNamespace?: IrObjectExpression;
 };
 
 export type IrNewExpression = {

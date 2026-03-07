@@ -19,6 +19,101 @@ import { convertVariableDeclarationList } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { withVariableTypeEnv } from "../../type-env.js";
 
+const normalizeForIteration = (type: IrType | undefined): IrType | undefined => {
+  if (!type) return undefined;
+
+  if (type.kind === "unionType") {
+    const nonNullish = type.types.filter(
+      (part) =>
+        !(
+          part.kind === "primitiveType" &&
+          (part.name === "null" || part.name === "undefined")
+        )
+    );
+    if (nonNullish.length === 1) {
+      const only = nonNullish[0];
+      return only ? normalizeForIteration(only) : undefined;
+    }
+  }
+
+  if (type.kind === "intersectionType") {
+    const preferred =
+      type.types.find((part) => part.kind === "arrayType") ??
+      type.types.find((part) => part.kind === "tupleType") ??
+      type.types.find(
+        (part) => part.kind === "primitiveType" && part.name === "string"
+      ) ??
+      type.types.find((part) => part.kind === "referenceType");
+    return preferred ? normalizeForIteration(preferred) : type;
+  }
+
+  return type;
+};
+
+const deriveTupleIterationElementType = (
+  elementTypes: readonly IrType[]
+): IrType | undefined => {
+  if (elementTypes.length === 0) return undefined;
+  if (elementTypes.length === 1) return elementTypes[0];
+  return { kind: "unionType", types: elementTypes };
+};
+
+const deriveForOfElementType = (
+  type: IrType | undefined
+): IrType | undefined => {
+  const normalized = normalizeForIteration(type);
+  if (!normalized) return undefined;
+
+  if (normalized.kind === "arrayType") {
+    return normalized.elementType;
+  }
+
+  if (normalized.kind === "tupleType") {
+    return deriveTupleIterationElementType(normalized.elementTypes);
+  }
+
+  if (
+    normalized.kind === "primitiveType" &&
+    normalized.name === "string"
+  ) {
+    return { kind: "primitiveType", name: "string" };
+  }
+
+  if (
+    normalized.kind === "referenceType" &&
+    normalized.typeArguments &&
+    normalized.typeArguments.length > 0
+  ) {
+    const [firstTypeArg, secondTypeArg] = normalized.typeArguments;
+    switch (normalized.name) {
+      case "Array":
+      case "ReadonlyArray":
+      case "Iterable":
+      case "IterableIterator":
+      case "Iterator":
+      case "AsyncIterable":
+      case "AsyncIterableIterator":
+      case "Generator":
+      case "AsyncGenerator":
+      case "Set":
+      case "ReadonlySet":
+        return firstTypeArg;
+      case "Map":
+      case "ReadonlyMap":
+        return firstTypeArg && secondTypeArg
+          ? {
+              kind: "tupleType",
+              elementTypes: [firstTypeArg, secondTypeArg],
+            }
+          : undefined;
+      default:
+        return undefined;
+    }
+  }
+
+  return undefined;
+};
+
 /**
  * Convert while statement
  *
@@ -109,15 +204,7 @@ export const convertForOfStatement = (
   // This is required for correct boolean-context lowering (e.g., `if (s)` for strings).
   let bodyCtx = ctx;
   if (ts.isVariableDeclarationList(node.initializer) && firstDecl) {
-    const srcType = expression.inferredType;
-    const elementType =
-      srcType?.kind === "arrayType"
-        ? srcType.elementType
-        : srcType?.kind === "tupleType"
-          ? srcType.elementTypes.length === 1
-            ? srcType.elementTypes[0]
-            : ({ kind: "unionType", types: srcType.elementTypes } as const)
-          : undefined;
+    const elementType = deriveForOfElementType(expression.inferredType);
     if (elementType) {
       bodyCtx = withVariableTypeEnv(ctx, [firstDecl], {
         kind: "variableDeclaration",
