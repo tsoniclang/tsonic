@@ -656,8 +656,8 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
           ...entry,
           declaringTypeTsName,
           declaringMemberName: "constructor",
-        typeParameters:
-          decl && ts.isClassDeclaration(decl)
+          typeParameters:
+            decl && ts.isClassDeclaration(decl)
               ? convertTypeParameterDeclarations(decl.typeParameters)
               : undefined,
           declaringTypeParameterNames:

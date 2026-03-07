@@ -126,7 +126,10 @@ const queueResolvedLocalDependency = (
 
   if (resolved.resolvedModule?.resolvedFileName) {
     const resolvedPath = resolved.resolvedModule.resolvedFileName;
-    const localBoundary = getLocalResolutionBoundary(currentFile, sourceRootAbs);
+    const localBoundary = getLocalResolutionBoundary(
+      currentFile,
+      sourceRootAbs
+    );
 
     if (
       resolvedPath.startsWith(localBoundary) &&

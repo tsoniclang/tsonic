@@ -1,0 +1,6 @@
+{
+  "expectFailure": true,
+  "description": "object-literal methods reject open-ended arguments indexing in strict AOT mode.",
+  "expectedErrors": ["TSN7403", "arguments"],
+  "diagnosticCodes": ["TSN7403"]
+}

@@ -762,4 +762,51 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("return sizeof(int);");
     });
   });
+
+  describe("Object Literal Methods", () => {
+    it("rewrites supported arguments.length usage to a fixed arity literal", () => {
+      const source = `
+        interface Ops {
+          add: (x: number, y: number) => number;
+        }
+
+        export function run(): number {
+          const ops: Ops = {
+            add(x: number, y: number): number {
+              return arguments.length + x + y;
+            },
+          };
+          return ops.add(1, 2);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("return 2 + x + y;");
+      expect(csharp).not.to.include("arguments");
+    });
+
+    it("rewrites supported arguments[n] usage to captured parameter temps", () => {
+      const source = `
+        interface Ops {
+          add: (x: number, y: number) => number;
+        }
+
+        export function run(): number {
+          const ops: Ops = {
+            add(x: number, y: number): number {
+              return (arguments[0] as number) + y;
+            },
+          };
+          return ops.add(1, 2);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("var __tsonic_object_method_argument_0 = x;");
+      expect(csharp).to.include(
+        "return (double)__tsonic_object_method_argument_0 + y;"
+      );
+      expect(csharp).not.to.include("arguments");
+    });
+  });
 });

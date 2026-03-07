@@ -14,8 +14,7 @@ export const getDynamicImportLiteralSpecifier = (
 
 export const isClosedWorldDynamicImportSpecifier = (
   specifier: string
-): boolean =>
-  specifier.startsWith("./") || specifier.startsWith("../");
+): boolean => specifier.startsWith("./") || specifier.startsWith("../");
 
 export const isSideEffectOnlyDynamicImport = (
   node: ts.CallExpression

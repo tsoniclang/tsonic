@@ -563,7 +563,7 @@ describe("Static Safety Validation", () => {
       expect(objDiag).to.equal(undefined);
     });
 
-    it("should reject object literal method shorthand that uses arguments", () => {
+    it("should allow object literal method shorthand that uses arguments.length with fixed required parameters", () => {
       const source = `
         const a = {
           foo(x: number): number {
@@ -576,8 +576,40 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
+    it("should allow object literal method shorthand that uses arguments[n] with fixed required identifier parameters", () => {
+      const source = `
+        const a = {
+          foo(x: number, y: number): number {
+            return (arguments[0] as number) + y;
+          },
+        };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
+    it("should reject object literal method shorthand that uses unsupported arguments patterns", () => {
+      const source = `
+        const a = {
+          foo(x?: number): number {
+            return arguments[0] as number;
+          },
+        };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
       expect(objDiag).not.to.equal(undefined);
-      expect(objDiag?.message).to.include("super/arguments");
+      expect(objDiag?.message).to.include("arguments");
     });
 
     it("should allow object literal getter shorthand", () => {

@@ -186,9 +186,7 @@ export const convertCallExpression = (
   | IrDefaultOfExpression
   | IrNameOfExpression
   | IrSizeOfExpression => {
-  const extractNameofTarget = (
-    expr: ts.Expression
-  ): string | undefined => {
+  const extractNameofTarget = (expr: ts.Expression): string | undefined => {
     if (ts.isIdentifier(expr)) return expr.text;
     if (expr.kind === ts.SyntaxKind.ThisKeyword) return "this";
     if (ts.isPropertyAccessExpression(expr)) return expr.name.text;

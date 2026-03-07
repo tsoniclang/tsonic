@@ -53,7 +53,7 @@ const getVariableDeclarationList = (
   declaration: ts.VariableDeclaration
 ): ts.VariableDeclarationList | undefined => {
   const list = declaration.parent;
-  if (!ts.isVariableDeclarationList(list)) {
+  if (!list || !ts.isVariableDeclarationList(list)) {
     return undefined;
   }
   return list;
@@ -204,7 +204,8 @@ export const getSupportedGenericFunctionValueSymbol = (
   const kind = getConstLetKind(decl);
   if (!kind) return undefined;
 
-  const list = decl.parent;
+  const list = getVariableDeclarationList(decl);
+  if (!list) return undefined;
   const stmt = list.parent;
   if (!ts.isVariableStatement(stmt)) return undefined;
 

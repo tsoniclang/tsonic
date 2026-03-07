@@ -84,26 +84,6 @@ export const validateImportDeclaration = (
     return addDiagnostic(collector, { ...result.error, location });
   }
 
-  // Bound modules are namespace-like CLR containers. Default import has no
-  // deterministic CLR target, so only named/namespace imports are allowed.
-  if (
-    node.importClause?.name &&
-    !result.value.isLocal &&
-    !result.value.isClr &&
-    result.value.resolvedClrType
-  ) {
-    return addDiagnostic(
-      collector,
-      createDiagnostic(
-        "TSN1004",
-        "error",
-        `Default import is not supported for "${importPath}"`,
-        getNodeLocation(sourceFile, node.importClause.name),
-        "Use namespace or named imports instead."
-      )
-    );
-  }
-
   // Check for default imports from local modules (we might want to restrict this)
   if (result.value.isLocal && node.importClause?.name) {
     return addDiagnostic(

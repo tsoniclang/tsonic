@@ -139,6 +139,20 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "bare import.meta object",
+        source: `
+          declare global {
+            interface ImportMeta {
+              readonly url: string;
+              readonly filename: string;
+              readonly dirname: string;
+            }
+          }
+          const meta = import.meta;
+          console.log(meta.url, meta.filename, meta.dirname);
+        `,
+      },
+      {
         name: "awaited local dynamic import side-effect",
         source: `
           async function load(): Promise<void> {
@@ -1194,6 +1208,30 @@ describe("Maximus Validation Coverage", () => {
           void n;
         `,
       },
+      {
+        name: "method shorthand using arguments.length with fixed required parameters",
+        source: `
+          const obj = {
+            mul(x: number): number {
+              return arguments.length + x;
+            },
+          };
+          const n = obj.mul(3);
+          void n;
+        `,
+      },
+      {
+        name: "method shorthand using arguments[n] with fixed required identifier parameters",
+        source: `
+          const obj = {
+            mul(x: number, y: number): number {
+              return (arguments[0] as number) + y;
+            },
+          };
+          const n = obj.mul(3, 4);
+          void n;
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -1207,11 +1245,11 @@ describe("Maximus Validation Coverage", () => {
       readonly source: string;
     }> = [
       {
-        name: "method shorthand using arguments",
+        name: "method shorthand using unsupported arguments indexing",
         source: `
           const obj = {
-            mul(x: number): number {
-              return arguments.length;
+            mul({ x }: { x: number }): number {
+              return arguments[0] as number;
             },
           };
           void obj;

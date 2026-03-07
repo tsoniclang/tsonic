@@ -516,10 +516,15 @@ export const computeReceiverSubstitution = (
       return undefined;
     }
 
+    const receiverTypeArguments = receiverType.typeArguments;
+    if (!receiverTypeArguments) {
+      return undefined;
+    }
+
     return new Map(
       declaringTypeParameterNames.map((name, index) => [
         name,
-        receiverType.typeArguments![index]!,
+        receiverTypeArguments[index],
       ])
     );
   };
@@ -718,8 +723,9 @@ export const inferMethodTypeArgsFromArguments = (
         informativeMatches.push(trial);
       }
 
-      if (informativeMatches.length === 1) {
-        const only = informativeMatches[0]!;
+      const firstInformativeMatch = informativeMatches[0];
+      if (informativeMatches.length === 1 && firstInformativeMatch) {
+        const only = firstInformativeMatch;
         currentSubstitution.clear();
         for (const [key, value] of only) {
           currentSubstitution.set(key, value);
@@ -728,13 +734,14 @@ export const inferMethodTypeArgsFromArguments = (
       }
 
       if (
+        firstInformativeMatch &&
         informativeMatches.length > 1 &&
         informativeMatches.every((m) =>
-          mapEntriesEqual(informativeMatches[0]!, m)
+          mapEntriesEqual(firstInformativeMatch, m)
         )
       ) {
         currentSubstitution.clear();
-        for (const [key, value] of informativeMatches[0]!) {
+        for (const [key, value] of firstInformativeMatch) {
           currentSubstitution.set(key, value);
         }
         return true;

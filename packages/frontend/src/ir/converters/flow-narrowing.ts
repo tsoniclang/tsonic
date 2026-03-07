@@ -30,7 +30,10 @@ const unwrapExpr = (expr: ts.Expression): ts.Expression => {
 
 const getStringLiteralText = (expr: ts.Expression): string | undefined => {
   const unwrapped = unwrapExpr(expr);
-  if (ts.isStringLiteral(unwrapped) || ts.isNoSubstitutionTemplateLiteral(unwrapped)) {
+  if (
+    ts.isStringLiteral(unwrapped) ||
+    ts.isNoSubstitutionTemplateLiteral(unwrapped)
+  ) {
     return unwrapped.text;
   }
   return undefined;
@@ -170,7 +173,8 @@ const tryResolveTruthyNarrowing = (
     if (!narrowedDeclId) return undefined;
 
     const currentType =
-      ctx.typeEnv?.get(narrowedDeclId.id) ?? ctx.typeSystem.typeOfDecl(narrowedDeclId);
+      ctx.typeEnv?.get(narrowedDeclId.id) ??
+      ctx.typeSystem.typeOfDecl(narrowedDeclId);
     const targetType = narrowTypeByTypeofTag(currentType, tag);
     if (!targetType) return undefined;
 

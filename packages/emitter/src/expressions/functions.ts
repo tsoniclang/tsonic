@@ -105,7 +105,8 @@ const emitLambdaParametersAst = (
     const param = parameters[index];
     if (!param) continue;
     const bindsDirectly =
-      param.pattern.kind === "identifierPattern" && param.initializer === undefined;
+      param.pattern.kind === "identifierPattern" &&
+      param.initializer === undefined;
     const name = bindsDirectly
       ? escapeCSharpIdentifier(param.pattern.name)
       : `__param${index}`;
@@ -192,7 +193,10 @@ const lowerLambdaParameterPreludeAst = (
 
 const emitLambdaBodyAst = (
   parameters: readonly EmittedLambdaParameter[],
-  body: Extract<IrExpression, { kind: "functionExpression" | "arrowFunction" }>["body"],
+  body: Extract<
+    IrExpression,
+    { kind: "functionExpression" | "arrowFunction" }
+  >["body"],
   context: EmitterContext,
   returnType: IrType | undefined,
   capturesObjectLiteralThis: boolean | undefined
@@ -275,7 +279,10 @@ export const emitFunctionExpression = (
     isAsync: expr.isAsync ?? false,
     parameters: paramInfos.map((p) => p.ast),
     body: bodyAst,
-    bodyIndent: bodyAst.kind === "blockStatement" ? getIndent(bodyContextSeeded) : undefined,
+    bodyIndent:
+      bodyAst.kind === "blockStatement"
+        ? getIndent(bodyContextSeeded)
+        : undefined,
   };
   return [result, paramContext];
 };
@@ -316,17 +323,16 @@ export const emitArrowFunction = (
       isAsync: expr.isAsync ?? false,
       parameters: paramInfos.map((p) => p.ast),
       body: bodyAst,
-      bodyIndent: bodyAst.kind === "blockStatement" ? getIndent(bodyContextSeeded) : undefined,
+      bodyIndent:
+        bodyAst.kind === "blockStatement"
+          ? getIndent(bodyContextSeeded)
+          : undefined,
     };
     return [result, paramContext];
   }
 
   // Expression body: (params) => expression
-  const [exprAst] = emitExpressionAst(
-    expr.body,
-    bodyContextSeeded,
-    returnType
-  );
+  const [exprAst] = emitExpressionAst(expr.body, bodyContextSeeded, returnType);
   const result: CSharpExpressionAst = {
     kind: "lambdaExpression",
     isAsync: expr.isAsync ?? false,

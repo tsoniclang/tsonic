@@ -1257,7 +1257,9 @@ export const typeOfMemberId = (
       | undefined => {
       if (!receiverType) return undefined;
 
-      const extractReceiverRef = (type: IrType): IrReferenceType | undefined => {
+      const extractReceiverRef = (
+        type: IrType
+      ): IrReferenceType | undefined => {
         if (type.kind === "referenceType") return type;
         if (type.kind === "intersectionType") {
           return type.types.find(
@@ -1272,15 +1274,19 @@ export const typeOfMemberId = (
                 (part.name === "null" || part.name === "undefined")
               )
           );
-          return nonNullish.length === 1
-            ? extractReceiverRef(nonNullish[0]!)
+          const onlyNonNullish = nonNullish[0];
+          return nonNullish.length === 1 && onlyNonNullish
+            ? extractReceiverRef(onlyNonNullish)
             : undefined;
         }
         return undefined;
       };
 
       const receiverRef = extractReceiverRef(receiverType);
-      if (!receiverRef?.typeArguments || receiverRef.typeArguments.length === 0) {
+      if (
+        !receiverRef?.typeArguments ||
+        receiverRef.typeArguments.length === 0
+      ) {
         return undefined;
       }
 
@@ -1307,14 +1313,24 @@ export const typeOfMemberId = (
         return undefined;
       }
 
+      const receiverTypeArguments = receiverRef.typeArguments;
+      if (!receiverTypeArguments) {
+        return undefined;
+      }
+
       return new Map(
-        typeParams.map((param, index) => [param.name.text, receiverRef.typeArguments![index]!])
+        typeParams.map((param, index) => [
+          param.name.text,
+          receiverTypeArguments[index],
+        ])
       );
     };
 
     const substitution = getDeclaringTypeSubstitution();
     const applySubstitution = (type: IrType): IrType =>
-      substitution ? irSubstitute(type, substitution as IrSubstitutionMap) : type;
+      substitution
+        ? irSubstitute(type, substitution as IrSubstitutionMap)
+        : type;
 
     if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) {
       if (!decl.type) return unknownType;
@@ -1326,7 +1342,9 @@ export const typeOfMemberId = (
           kind: "identifierPattern",
           name: ts.isIdentifier(p.name) ? p.name.text : "param",
         },
-        type: p.type ? applySubstitution(convertTypeNode(state, p.type)) : undefined,
+        type: p.type
+          ? applySubstitution(convertTypeNode(state, p.type))
+          : undefined,
         initializer: undefined,
         isOptional: !!p.questionToken || !!p.initializer,
         isRest: !!p.dotDotDotToken,

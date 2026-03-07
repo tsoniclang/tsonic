@@ -272,21 +272,16 @@ describe("build command (library bindings ref dirs)", function () {
           "src",
           "index.cs"
         ),
-        join(
-          generatedTree,
-          "node_modules",
-          "@acme",
-          "math",
-          "src",
-          "index.cs"
-        ),
+        join(generatedTree, "node_modules", "@acme", "math", "src", "index.cs"),
       ];
 
-      expect(generatedMathPaths.some((filePath) => existsSync(filePath))).to.equal(
-        true
-      );
       expect(
-        existsSync(join(projectRoot, "node_modules", "@acme", "math", "src", "index.cs"))
+        generatedMathPaths.some((filePath) => existsSync(filePath))
+      ).to.equal(true);
+      expect(
+        existsSync(
+          join(projectRoot, "node_modules", "@acme", "math", "src", "index.cs")
+        )
       ).to.equal(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });

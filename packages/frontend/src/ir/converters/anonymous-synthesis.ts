@@ -25,6 +25,7 @@ import {
   IrTypeParameter,
 } from "../types.js";
 import type { ProgramContext } from "../program-context.js";
+import { getUnsupportedObjectLiteralMethodRuntimeReason } from "../../object-literal-method-runtime.js";
 
 // ============================================================================
 // Shape Signature Computation
@@ -244,7 +245,9 @@ export const checkSynthesisEligibility = (
   node: ts.ObjectLiteralExpression,
   ctx: ProgramContext
 ): EligibilityResult => {
-  const unwrapDeterministicKeyExpression = (expr: ts.Expression): ts.Expression => {
+  const unwrapDeterministicKeyExpression = (
+    expr: ts.Expression
+  ): ts.Expression => {
     let current = expr;
     for (;;) {
       if (ts.isParenthesizedExpression(current)) {
@@ -331,28 +334,6 @@ export const checkSynthesisEligibility = (
     return undefined;
   };
 
-  const usesUnsupportedMethodRuntime = (
-    method: ts.MethodDeclaration
-  ): boolean => {
-    let found = false;
-    const visit = (current: ts.Node): void => {
-      if (found) return;
-      if (
-        current.kind === ts.SyntaxKind.SuperKeyword ||
-        (ts.isIdentifier(current) && current.text === "arguments")
-      ) {
-        found = true;
-        return;
-      }
-      ts.forEachChild(current, visit);
-    };
-
-    if (method.body) {
-      visit(method.body);
-    }
-    return found;
-  };
-
   for (const prop of node.properties) {
     // Property assignment: check key type
     if (ts.isPropertyAssignment(prop)) {
@@ -398,11 +379,12 @@ export const checkSynthesisEligibility = (
           reason: `Private identifier (symbol) keys are not supported`,
         };
       }
-      if (usesUnsupportedMethodRuntime(prop)) {
+      const unsupportedRuntimeReason =
+        getUnsupportedObjectLiteralMethodRuntimeReason(prop);
+      if (unsupportedRuntimeReason) {
         return {
           eligible: false,
-          reason:
-            "Method shorthand cannot reference super/arguments in synthesized types",
+          reason: unsupportedRuntimeReason,
         };
       }
       continue;

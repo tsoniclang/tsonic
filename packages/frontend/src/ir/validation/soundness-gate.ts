@@ -498,7 +498,6 @@ const validateExpression = (
             )
           );
         }
-
       }
       validateExpression(expr.callee, ctx);
       expr.arguments.forEach((a) => validateExpression(a, ctx));

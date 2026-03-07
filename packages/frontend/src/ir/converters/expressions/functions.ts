@@ -33,7 +33,9 @@ const normalizeExpectedFunctionType = (
   if (expectedType.kind !== "unionType") return undefined;
 
   const candidates = expectedType.types
-    .filter((member): member is IrType => !!member && !isNullishPrimitive(member))
+    .filter(
+      (member): member is IrType => !!member && !isNullishPrimitive(member)
+    )
     .map((member) =>
       member.kind === "functionType"
         ? member
@@ -185,8 +187,7 @@ export const convertFunctionExpression = (
   })();
 
   const returnType = declaredReturnType ?? expectedReturnType;
-  const inferredReturnType =
-    returnType ?? ({ kind: "unknownType" } as const);
+  const inferredReturnType = returnType ?? ({ kind: "unknownType" } as const);
 
   // DETERMINISTIC: Build function type from declared parameters and return type
   const inferredType = {

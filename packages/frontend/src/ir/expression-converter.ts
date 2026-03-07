@@ -37,6 +37,10 @@ import {
   convertConditionalExpression,
   convertTemplateLiteral,
 } from "./converters/expressions/other.js";
+import {
+  convertImportMetaObject,
+  isImportMetaMetaProperty,
+} from "./converters/expressions/import-meta.js";
 import { getSourceSpan } from "./converters/expressions/helpers.js";
 
 /**
@@ -231,6 +235,9 @@ export const convertExpression = (
       originalName,
       declId,
     };
+  }
+  if (isImportMetaMetaProperty(node)) {
+    return convertImportMetaObject(node, ctx);
   }
   if (ts.isArrayLiteralExpression(node)) {
     return convertArrayLiteral(node, ctx, expectedType);

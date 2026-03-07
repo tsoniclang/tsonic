@@ -1,0 +1,6 @@
+{
+  "expectFailure": true,
+  "description": "object-literal methods reject super in strict AOT mode.",
+  "expectedErrors": ["TSN7403", "super"],
+  "diagnosticCodes": ["TSN7403"]
+}

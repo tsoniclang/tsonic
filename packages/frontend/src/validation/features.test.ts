@@ -173,13 +173,20 @@ describe("validateUnsupportedFeatures", () => {
       expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
     });
 
-    it("rejects bare import.meta", () => {
+    it("allows bare import.meta object usage", () => {
       const result = runValidation(`
+        declare global {
+          interface ImportMeta {
+            readonly url: string;
+            readonly filename: string;
+            readonly dirname: string;
+          }
+        }
         const meta = import.meta;
-        console.log(meta);
+        console.log(meta.url, meta.filename, meta.dirname);
       `);
 
-      expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
     });
 
     it("rejects dynamic import() when returned as a value", () => {
@@ -215,11 +222,7 @@ describe("validateUnsupportedFeatures", () => {
       `);
 
       expect(
-        hasDiagnostic(
-          result,
-          "TSN2001",
-          'await import("./local-module.js")'
-        )
+        hasDiagnostic(result, "TSN2001", 'await import("./local-module.js")')
       ).to.equal(true);
     });
 

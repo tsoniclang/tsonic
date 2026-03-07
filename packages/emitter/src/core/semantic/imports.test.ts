@@ -97,8 +97,7 @@ describe("Import Handling", () => {
           source: "./Auth.js",
           isLocal: true,
           isClr: false,
-          resolvedPath:
-            "/tmp/tsonic/common/operators/in-operator/Auth.ts",
+          resolvedPath: "/tmp/tsonic/common/operators/in-operator/Auth.ts",
           specifiers: [
             {
               kind: "named",
@@ -169,8 +168,7 @@ describe("Import Handling", () => {
           source: "@acme/math",
           isLocal: true,
           isClr: false,
-          resolvedPath:
-            "/tmp/project/node_modules/@acme/math/src/index.ts",
+          resolvedPath: "/tmp/project/node_modules/@acme/math/src/index.ts",
           specifiers: [
             {
               kind: "named",
@@ -295,6 +293,58 @@ describe("Import Handling", () => {
               name: "fs",
               localName: "fs",
               isType: false,
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "fs",
+              },
+              property: "existsSync",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [{ kind: "literal", value: "." }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("global::nodejs.fs");
+    expect(result).to.match(
+      /global::nodejs\.fs\.[A-Za-z_][A-Za-z0-9_]*\("\."\)/
+    );
+  });
+
+  it("should lower default imports from module bindings to namespace bindings", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "node:fs",
+          isLocal: false,
+          isClr: false,
+          resolvedClrType: "nodejs.fs",
+          specifiers: [
+            {
+              kind: "default",
+              localName: "fs",
             },
           ],
         },

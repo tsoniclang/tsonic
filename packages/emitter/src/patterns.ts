@@ -119,7 +119,9 @@ const emitTupleRestArrayAst = (
   elementType: { kind: "varType" },
   initializer: tupleType.elementTypes
     .slice(startIndex)
-    .map((_, offset) => emitTupleElementAccessAst(inputExpr, startIndex + offset)),
+    .map((_, offset) =>
+      emitTupleElementAccessAst(inputExpr, startIndex + offset)
+    ),
 });
 
 const generateTemp = (

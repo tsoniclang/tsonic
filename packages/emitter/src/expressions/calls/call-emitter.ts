@@ -2,7 +2,12 @@
  * Call expression emitter
  */
 
-import { IrBlockStatement, IrExpression, IrStatement, IrType } from "@tsonic/frontend";
+import {
+  IrBlockStatement,
+  IrExpression,
+  IrStatement,
+  IrType,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import {
@@ -243,7 +248,9 @@ const collectBlockReturnTypes = (
         return [
           ...statement.tryBlock.statements.flatMap(collectFromStatement),
           ...(statement.catchClause
-            ? statement.catchClause.body.statements.flatMap(collectFromStatement)
+            ? statement.catchClause.body.statements.flatMap(
+                collectFromStatement
+              )
             : []),
           ...(statement.finallyBlock
             ? statement.finallyBlock.statements.flatMap(collectFromStatement)
@@ -282,8 +289,9 @@ const getCallbackDelegateReturnType = (
 
     const deduped = concreteReturnTypes.filter(
       (type, index, all) =>
-        all.findIndex((candidate) => stableIrTypeKey(candidate) === stableIrTypeKey(type)) ===
-        index
+        all.findIndex(
+          (candidate) => stableIrTypeKey(candidate) === stableIrTypeKey(type)
+        ) === index
     );
 
     if (deduped.length === 1) {
@@ -390,9 +398,7 @@ const getCallbackReturnType = (
 
 const getFunctionValueSignature = (
   expr: Extract<IrExpression, { kind: "call" }>
-):
-  | Extract<IrType, { kind: "functionType" }>
-  | undefined => {
+): Extract<IrType, { kind: "functionType" }> | undefined => {
   const calleeType = expr.callee.inferredType;
   if (!calleeType || calleeType.kind !== "functionType") return undefined;
 
@@ -492,17 +498,13 @@ const emitFunctionValueCallArguments = (
       }
 
       const spreadArg = args[i];
-      if (
-        args.length === i + 1 &&
-        spreadArg &&
-        spreadArg.kind === "spread"
-      ) {
-          const [spreadAst, spreadCtx] = emitExpressionAst(
-            spreadArg.expression,
-            currentContext
-          );
-          argAsts.push(spreadAst);
-          currentContext = spreadCtx;
+      if (args.length === i + 1 && spreadArg && spreadArg.kind === "spread") {
+        const [spreadAst, spreadCtx] = emitExpressionAst(
+          spreadArg.expression,
+          currentContext
+        );
+        argAsts.push(spreadAst);
+        currentContext = spreadCtx;
         break;
       }
 
@@ -574,7 +576,10 @@ const emitFunctionValueCallArguments = (
     if (parameter.isOptional || parameter.initializer) {
       let defaultType: CSharpTypeAst | undefined;
       if (parameter.type) {
-        const [emittedType, typeCtx] = emitTypeAst(parameter.type, currentContext);
+        const [emittedType, typeCtx] = emitTypeAst(
+          parameter.type,
+          currentContext
+        );
         currentContext = typeCtx;
         defaultType =
           parameter.isOptional || parameter.initializer
@@ -644,7 +649,9 @@ const containsPromiseChainArtifact = (type: IrType | undefined): boolean => {
   }
 
   if (type.kind === "unionType" || type.kind === "intersectionType") {
-    return type.types.some((member) => !!member && containsPromiseChainArtifact(member));
+    return type.types.some(
+      (member) => !!member && containsPromiseChainArtifact(member)
+    );
   }
 
   return false;
@@ -974,9 +981,8 @@ const emitPromiseThenCatchFinally = (
     }
     return undefined;
   })();
-  const normalizedFrontendPromiseChainResultIr = normalizePromiseChainResultIrType(
-    expr.inferredType
-  );
+  const normalizedFrontendPromiseChainResultIr =
+    normalizePromiseChainResultIrType(expr.inferredType);
   const preferredPromiseChainResultIr =
     normalizedFrontendPromiseChainResultIr &&
     !containsPromiseChainArtifact(normalizedFrontendPromiseChainResultIr)
@@ -991,8 +997,9 @@ const emitPromiseThenCatchFinally = (
       currentContext
     );
     currentContext = normalizedCtx;
-    outputResultType =
-      containsVoidTypeAst(normalizedResultAst) ? undefined : normalizedResultAst;
+    outputResultType = containsVoidTypeAst(normalizedResultAst)
+      ? undefined
+      : normalizedResultAst;
     outputTaskType = buildTaskTypeAst(outputResultType);
   }
 
@@ -1419,7 +1426,10 @@ const emitJsRuntimeJsonParseCall = (
 
   for (const arg of expr.arguments) {
     if (arg.kind === "spread") {
-      const [spreadAst, ctx] = emitExpressionAst(arg.expression, currentContext);
+      const [spreadAst, ctx] = emitExpressionAst(
+        arg.expression,
+        currentContext
+      );
       argAsts.push(spreadAst);
       currentContext = ctx;
       continue;
@@ -1473,7 +1483,7 @@ const emitJsonSerializerCall = (
   let typeArgAsts: readonly CSharpTypeAst[] = [];
   const deserializeIrType =
     method === "Deserialize"
-      ? deserializeTypeOverride ?? expr.typeArguments?.[0]
+      ? (deserializeTypeOverride ?? expr.typeArguments?.[0])
       : undefined;
   if (deserializeIrType) {
     const [typeArgs, typeContext] = emitTypeArgumentsAst(

@@ -24,6 +24,7 @@ import type { ProgramContext } from "../../program-context.js";
 import { createDiagnostic } from "../../../types/diagnostic.js";
 import { convertAccessorProperty } from "../statements/declarations/classes/properties.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
+import { createObjectLiteralMethodArgumentPrelude } from "../../../object-literal-method-runtime.js";
 
 /**
  * Compute the element type for an array literal from its elements' types.
@@ -242,7 +243,9 @@ const getPropertyExpectedType = (
   return undefined;
 };
 
-const unwrapDeterministicKeyExpression = (expr: ts.Expression): ts.Expression => {
+const unwrapDeterministicKeyExpression = (
+  expr: ts.Expression
+): ts.Expression => {
   let current = expr;
   for (;;) {
     if (ts.isParenthesizedExpression(current)) {
@@ -321,7 +324,10 @@ const tryResolveDeterministicObjectKeyNameFromSyntax = (
 const resolveObjectLiteralMemberKey = (
   name: ts.PropertyName,
   ctx: ProgramContext
-): { readonly key: string | IrExpression; readonly keyName: string | undefined } => {
+): {
+  readonly key: string | IrExpression;
+  readonly keyName: string | undefined;
+} => {
   if (
     ts.isIdentifier(name) ||
     ts.isStringLiteral(name) ||
@@ -393,7 +399,9 @@ const normalizeExpectedFunctionType = (
   if (expectedType.kind !== "unionType") return undefined;
 
   const candidates = expectedType.types
-    .filter((member): member is IrType => !!member && !isNullishPrimitive(member))
+    .filter(
+      (member): member is IrType => !!member && !isNullishPrimitive(member)
+    )
     .map((member) =>
       member.kind === "functionType"
         ? member
@@ -417,7 +425,10 @@ const convertObjectLiteralMethodParameters = (
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): readonly IrParameter[] => {
-  const expectedParamTypes = getExpectedFunctionParameterTypes(expectedType, ctx);
+  const expectedParamTypes = getExpectedFunctionParameterTypes(
+    expectedType,
+    ctx
+  );
 
   return parameters.map((param, index) => {
     const explicitType = param.type
@@ -457,8 +468,7 @@ const buildObjectLiteralMethodFunctionType = (
   return {
     kind: "functionType",
     parameters,
-    returnType:
-      declaredReturnType ??
+    returnType: declaredReturnType ??
       expectedFnType?.returnType ?? { kind: "unknownType" },
   };
 };
@@ -881,6 +891,17 @@ export const convertObjectLiteral = (
     : ctx;
 
   for (const pendingMethod of pendingMethods) {
+    const methodPrelude = createObjectLiteralMethodArgumentPrelude(
+      pendingMethod.node
+    );
+    const methodBody = pendingMethod.node.body
+      ? methodPrelude.length > 0
+        ? ts.factory.updateBlock(pendingMethod.node.body, [
+            ...methodPrelude,
+            ...pendingMethod.node.body.statements,
+          ])
+        : pendingMethod.node.body
+      : ts.factory.createBlock(methodPrelude, true);
     const methodModifiers = pendingMethod.node.modifiers?.filter(ts.isModifier);
     const methodAsFunctionExpr = ts.setTextRange(
       ts.factory.createFunctionExpression(
@@ -890,7 +911,7 @@ export const convertObjectLiteral = (
         pendingMethod.node.typeParameters,
         pendingMethod.node.parameters,
         pendingMethod.node.type,
-        pendingMethod.node.body ?? ts.factory.createBlock([], true)
+        methodBody
       ),
       pendingMethod.node
     );
@@ -933,8 +954,7 @@ export const convertObjectLiteral = (
   return {
     kind: "object",
     properties,
-    behaviorMembers:
-      behaviorMembers.length > 0 ? behaviorMembers : undefined,
+    behaviorMembers: behaviorMembers.length > 0 ? behaviorMembers : undefined,
     inferredType: contextualType, // Use contextual type if available
     sourceSpan: getSourceSpan(node),
     contextualType,

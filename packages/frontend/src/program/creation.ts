@@ -42,7 +42,10 @@ declare global {
 
   interface CallableFunction extends Function {}
   interface NewableFunction extends Function {}
-  interface IArguments {}
+  interface IArguments {
+    readonly length: number;
+    readonly [index: number]: unknown;
+  }
   interface RegExp {}
   interface ImportMeta {}
 
@@ -397,7 +400,10 @@ export const createProgram = (
         const parsed = JSON.parse(fs.readFileSync(candidate, "utf-8")) as {
           readonly namespace?: unknown;
         };
-        if (typeof parsed.namespace === "string" && parsed.namespace.length > 0) {
+        if (
+          typeof parsed.namespace === "string" &&
+          parsed.namespace.length > 0
+        ) {
           packageRootNamespaceCache.set(packageRoot, parsed.namespace);
           return parsed.namespace;
         }
@@ -468,7 +474,10 @@ export const createProgram = (
       const rootNamespace = readPackageRootNamespace(packageRoot);
       if (!rootNamespace) return undefined;
 
-      if (subpath === `${rootNamespace}.js` || subpath === `${rootNamespace}.d.ts`) {
+      if (
+        subpath === `${rootNamespace}.js` ||
+        subpath === `${rootNamespace}.d.ts`
+      ) {
         return "index.js";
       }
 

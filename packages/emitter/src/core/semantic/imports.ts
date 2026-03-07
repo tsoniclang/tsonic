@@ -45,9 +45,7 @@ export const processImports = (
       if (!resolvedTargetPath) return undefined;
       const marker = "/node_modules/";
       const index = resolvedTargetPath.lastIndexOf(marker);
-      return index === -1
-        ? undefined
-        : resolvedTargetPath.slice(index + 1);
+      return index === -1 ? undefined : resolvedTargetPath.slice(index + 1);
     })();
 
     const directCandidates = [
@@ -79,7 +77,12 @@ export const processImports = (
       return undefined;
     }
 
-    const [matchedPath, matchedModule] = suffixMatches[0]!;
+    const firstMatch = suffixMatches[0];
+    if (!firstMatch) {
+      return undefined;
+    }
+
+    const [matchedPath, matchedModule] = firstMatch;
     return {
       path: matchedPath,
       module: matchedModule,
@@ -384,6 +387,16 @@ const createModuleImportBinding = (
     };
   }
 
+  if (spec.kind === "default") {
+    return {
+      localName,
+      importBinding: {
+        kind: "namespace",
+        clrName: moduleClrType,
+      },
+    };
+  }
+
   if (spec.kind === "named") {
     if (spec.isType === true) {
       const clrName = spec.resolvedClrType
@@ -427,7 +440,5 @@ const createModuleImportBinding = (
       },
     };
   }
-
-  // Default import of module bindings is unsupported.
   return null;
 };

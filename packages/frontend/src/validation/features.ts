@@ -23,11 +23,11 @@ const isSupportedImportMetaUsage = (node: ts.MetaProperty): boolean => {
   }
 
   const parent = node.parent;
-  return (
-    ts.isPropertyAccessExpression(parent) &&
-    parent.expression === node &&
-    SUPPORTED_IMPORT_META_FIELDS.has(parent.name.text)
-  );
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
+    return SUPPORTED_IMPORT_META_FIELDS.has(parent.name.text);
+  }
+
+  return !ts.isElementAccessExpression(parent);
 };
 
 const isDynamicImportCall = (node: ts.CallExpression): boolean =>
@@ -77,9 +77,9 @@ export const validateUnsupportedFeatures = (
         createDiagnostic(
           "TSN2001",
           "error",
-          "Dynamic import() is only supported as `await import(\"./local-module.js\")` in side-effect position",
+          'Dynamic import() is only supported as `await import("./local-module.js")` in side-effect position',
           getNodeLocation(sourceFile, node),
-          "Use static import declarations, or use `await import(\"./local-module.js\")` as a standalone statement."
+          'Use static import declarations, or use `await import("./local-module.js")` as a standalone statement.'
         )
       );
     }

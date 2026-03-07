@@ -199,8 +199,7 @@ const tryExtractTypeofEqualityGuard = (
 
   return {
     originalName,
-    narrowsInThen:
-      condition.operator === "===" || condition.operator === "==",
+    narrowsInThen: condition.operator === "===" || condition.operator === "==",
   };
 };
 

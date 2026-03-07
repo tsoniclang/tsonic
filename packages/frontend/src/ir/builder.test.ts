@@ -206,7 +206,7 @@ describe("IR Builder", () => {
         fs.writeFileSync(
           entryPath,
           [
-            'const counts = new Map<string, number>();',
+            "const counts = new Map<string, number>();",
             'counts.set("alpha", 1);',
             "export const keys = Array.from(counts.keys());",
           ].join("\n")
@@ -384,7 +384,7 @@ describe("IR Builder", () => {
           [
             'import { statSync } from "node:fs";',
             "const maybeDate: Date | undefined = undefined;",
-            'export const resolved = maybeDate ?? statSync(\"package.json\").mtime;',
+            'export const resolved = maybeDate ?? statSync("package.json").mtime;',
             "export const iso = resolved.toISOString();",
           ].join("\n")
         );
@@ -553,9 +553,10 @@ describe("IR Builder", () => {
         expect(numberIf).to.not.equal(undefined);
         if (!numberIf) return;
 
-        const numberExprStmt = numberIf.thenStatement.kind === "blockStatement"
-          ? numberIf.thenStatement.statements[0]
-          : undefined;
+        const numberExprStmt =
+          numberIf.thenStatement.kind === "blockStatement"
+            ? numberIf.thenStatement.statements[0]
+            : undefined;
         expect(numberExprStmt?.kind).to.equal("expressionStatement");
         if (
           !numberExprStmt ||
@@ -582,9 +583,10 @@ describe("IR Builder", () => {
         expect(stringIf).to.not.equal(undefined);
         if (!stringIf) return;
 
-        const stringExprStmt = stringIf.thenStatement.kind === "blockStatement"
-          ? stringIf.thenStatement.statements[0]
-          : undefined;
+        const stringExprStmt =
+          stringIf.thenStatement.kind === "blockStatement"
+            ? stringIf.thenStatement.statements[0]
+            : undefined;
         expect(stringExprStmt?.kind).to.equal("expressionStatement");
         if (
           !stringExprStmt ||
@@ -608,7 +610,6 @@ describe("IR Builder", () => {
       }
     });
   });
-
 
   describe("Import Extraction", () => {
     it("should extract local imports", () => {
@@ -1164,6 +1165,152 @@ describe("IR Builder", () => {
       expect(computedAddProp).to.not.equal(undefined);
     });
 
+    it("rewrites object-literal method arguments.length to a fixed arity literal", () => {
+      const source = `
+        interface Ops {
+          add: (x: number, y: number) => number;
+        }
+        function box<T>(x: T): T { return x; }
+        export function run(): number {
+          const ops = box<Ops>({
+            add(x: number, y: number): number {
+              return arguments.length + x + y;
+            },
+          });
+          return ops.add(1, 2);
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration"
+      );
+      const initializer = decl?.declarations[0]?.initializer;
+      expect(initializer?.kind).to.equal("call");
+      if (!initializer || initializer.kind !== "call") return;
+
+      const arg0 = initializer.arguments[0];
+      expect(arg0?.kind).to.equal("object");
+      if (!arg0 || arg0.kind !== "object") return;
+
+      const addProp = arg0.properties.find(
+        (prop) => prop.kind === "property" && prop.key === "add"
+      );
+      expect(addProp).to.not.equal(undefined);
+      if (!addProp || addProp.kind !== "property") return;
+      expect(addProp.value.kind).to.equal("functionExpression");
+      if (addProp.value.kind !== "functionExpression") return;
+
+      const stmt = addProp.value.body?.statements[0];
+      expect(stmt?.kind).to.equal("returnStatement");
+      if (!stmt || stmt.kind !== "returnStatement" || !stmt.expression) return;
+
+      expect(stmt.expression.kind).to.equal("binary");
+      if (stmt.expression.kind !== "binary") return;
+      expect(stmt.expression.left.kind).to.equal("binary");
+      if (stmt.expression.left.kind !== "binary") return;
+      expect(stmt.expression.left.left.kind).to.equal("literal");
+      if (stmt.expression.left.left.kind !== "literal") return;
+      expect(stmt.expression.left.left.value).to.equal(2);
+    });
+
+    it("rewrites object-literal method arguments[n] to captured parameter temps", () => {
+      const source = `
+        interface Ops {
+          add: (x: number, y: number) => number;
+        }
+        function box<T>(x: T): T { return x; }
+        export function run(): number {
+          const ops = box<Ops>({
+            add(x: number, y: number): number {
+              return (arguments[0] as number) + y;
+            },
+          });
+          return ops.add(1, 2);
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration"
+      );
+      const initializer = decl?.declarations[0]?.initializer;
+      expect(initializer?.kind).to.equal("call");
+      if (!initializer || initializer.kind !== "call") return;
+
+      const arg0 = initializer.arguments[0];
+      expect(arg0?.kind).to.equal("object");
+      if (!arg0 || arg0.kind !== "object") return;
+
+      const addProp = arg0.properties.find(
+        (prop) => prop.kind === "property" && prop.key === "add"
+      );
+      expect(addProp).to.not.equal(undefined);
+      if (!addProp || addProp.kind !== "property") return;
+      expect(addProp.value.kind).to.equal("functionExpression");
+      if (addProp.value.kind !== "functionExpression" || !addProp.value.body)
+        return;
+
+      const [captureDecl, returnStmt] = addProp.value.body.statements;
+      expect(captureDecl?.kind).to.equal("variableDeclaration");
+      if (!captureDecl || captureDecl.kind !== "variableDeclaration") return;
+
+      const captureInit = captureDecl.declarations[0]?.initializer;
+      expect(captureInit?.kind).to.equal("identifier");
+      if (!captureInit || captureInit.kind !== "identifier") return;
+      expect(captureInit.name).to.equal("x");
+
+      expect(returnStmt?.kind).to.equal("returnStatement");
+      if (
+        !returnStmt ||
+        returnStmt.kind !== "returnStatement" ||
+        !returnStmt.expression ||
+        returnStmt.expression.kind !== "binary"
+      ) {
+        return;
+      }
+
+      expect(returnStmt.expression.left.kind).to.equal("typeAssertion");
+      if (returnStmt.expression.left.kind !== "typeAssertion") return;
+      expect(returnStmt.expression.left.expression.kind).to.equal("identifier");
+      if (returnStmt.expression.left.expression.kind !== "identifier") return;
+      expect(returnStmt.expression.left.expression.name).to.include(
+        "__tsonic_object_method_argument_0"
+      );
+    });
+
     it("normalizes computed const-literal property and accessor keys during synthesis", () => {
       const source = `
         export function run(): number {
@@ -1691,6 +1838,37 @@ describe("IR Builder", () => {
         if (init?.kind === "literal") {
           expect(typeof init.value).to.equal("string");
           expect((init.value as string).startsWith("file://")).to.equal(true);
+        }
+      }
+    });
+
+    it("should lower bare import.meta to an object literal with deterministic fields", () => {
+      const source = `
+        declare global {
+          interface ImportMeta {
+            readonly url: string;
+            readonly filename: string;
+            readonly dirname: string;
+          }
+        }
+        const meta = import.meta;
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        const varDecl = result.value.body.at(-1) as IrVariableDeclaration;
+        const init = varDecl.declarations[0]?.initializer;
+        expect(init?.kind).to.equal("object");
+        if (init?.kind === "object") {
+          expect(
+            init.properties.filter((prop) => prop.kind === "property")
+          ).to.have.length(3);
         }
       }
     });

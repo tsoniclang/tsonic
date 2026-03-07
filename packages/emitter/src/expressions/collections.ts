@@ -436,7 +436,10 @@ export const emitObject = (
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
-  const behavioralType = resolveBehavioralObjectLiteralType(expr, currentContext);
+  const behavioralType = resolveBehavioralObjectLiteralType(
+    expr,
+    currentContext
+  );
 
   const effectiveType: IrType | undefined = (() => {
     if (!expectedType) {
@@ -450,7 +453,12 @@ export const emitObject = (
       (strippedExpected.kind === "referenceType" &&
         strippedExpected.name === "object")
     ) {
-      return behavioralType ?? expr.inferredType ?? expr.contextualType ?? expectedType;
+      return (
+        behavioralType ??
+        expr.inferredType ??
+        expr.contextualType ??
+        expectedType
+      );
     }
 
     return expectedType;
@@ -897,8 +905,9 @@ export const resolveBehavioralObjectLiteralType = (
 
       const candidateNames = new Set(
         info.members
-          .filter((member): member is Extract<IrClassMember, { name: string }> =>
-            "name" in member && typeof member.name === "string"
+          .filter(
+            (member): member is Extract<IrClassMember, { name: string }> =>
+              "name" in member && typeof member.name === "string"
           )
           .map((member) => member.name)
       );

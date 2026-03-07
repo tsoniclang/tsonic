@@ -1,0 +1,4 @@
+{
+  "description": "bare import.meta lowers to a deterministic object with url/filename/dirname.",
+  "expectedOutput": "true"
+}

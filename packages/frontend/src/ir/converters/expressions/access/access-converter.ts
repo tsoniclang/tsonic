@@ -6,8 +6,6 @@
  */
 
 import * as ts from "typescript";
-import { pathToFileURL } from "node:url";
-import { dirname } from "node:path";
 import { IrExpression } from "../../../types.js";
 import { getSourceSpan } from "../helpers.js";
 import { convertExpression } from "../../../expression-converter.js";
@@ -23,59 +21,14 @@ import {
   resolveExtensionMethodsBinding,
 } from "./binding-resolution.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
-
-const SUPPORTED_IMPORT_META_FIELDS = new Set(["url", "filename", "dirname"]);
-
-const tryConvertImportMetaProperty = (
-  node: ts.PropertyAccessExpression,
-  ctx: ProgramContext
-): IrExpression | undefined => {
-  if (!ts.isMetaProperty(node.expression)) return undefined;
-  if (
-    node.expression.keywordToken !== ts.SyntaxKind.ImportKeyword ||
-    node.expression.name.text !== "meta"
-  ) {
-    return undefined;
-  }
-
-  const filePath = node.getSourceFile().fileName.replace(/\\/g, "/");
-  const field = node.name.text;
-  const sourceSpan = getSourceSpan(node);
-
-  if (!SUPPORTED_IMPORT_META_FIELDS.has(field)) {
-    ctx.diagnostics.push(
-      createDiagnostic(
-        "TSN2001",
-        "error",
-        `import.meta.${field} is not supported in strict AOT mode`,
-        sourceSpan,
-        "Supported fields: import.meta.url, import.meta.filename, import.meta.dirname"
-      )
-    );
-    return {
-      kind: "literal",
-      value: undefined,
-      raw: "undefined",
-      inferredType: { kind: "primitiveType", name: "undefined" },
-      sourceSpan,
-    };
-  }
-
-  const value =
-    field === "url"
-      ? pathToFileURL(filePath).href
-      : field === "dirname"
-        ? dirname(filePath).replace(/\\/g, "/")
-        : filePath;
-
-  return {
-    kind: "literal",
-    value,
-    raw: JSON.stringify(value),
-    inferredType: { kind: "primitiveType", name: "string" },
-    sourceSpan,
-  };
-};
+import {
+  SUPPORTED_IMPORT_META_FIELDS,
+  tryConvertImportMetaProperty,
+} from "../import-meta.js";
+import {
+  tryGetObjectLiteralMethodArgumentCapture,
+  tryGetObjectLiteralMethodArgumentsLength,
+} from "../../../../object-literal-method-runtime.js";
 
 /**
  * Convert property access or element access expression
@@ -90,6 +43,40 @@ export const convertMemberExpression = (
   if (ts.isPropertyAccessExpression(node)) {
     const importMetaExpr = tryConvertImportMetaProperty(node, ctx);
     if (importMetaExpr) return importMetaExpr;
+    const objectMethodArgumentsLength =
+      tryGetObjectLiteralMethodArgumentsLength(node);
+    if (objectMethodArgumentsLength !== undefined) {
+      return {
+        kind: "literal",
+        value: objectMethodArgumentsLength,
+        raw: String(objectMethodArgumentsLength),
+        inferredType: { kind: "primitiveType", name: "int" },
+        sourceSpan,
+      };
+    }
+    if (
+      ts.isMetaProperty(node.expression) &&
+      node.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
+      node.expression.name.text === "meta" &&
+      !SUPPORTED_IMPORT_META_FIELDS.has(node.name.text)
+    ) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN2001",
+          "error",
+          `import.meta.${node.name.text} is not supported in strict AOT mode`,
+          getSourceSpan(node),
+          "Supported fields: import.meta.url, import.meta.filename, import.meta.dirname"
+        )
+      );
+      return {
+        kind: "literal",
+        value: undefined,
+        raw: "undefined",
+        inferredType: { kind: "primitiveType", name: "undefined" },
+        sourceSpan,
+      };
+    }
 
     const object = convertExpression(node.expression, ctx, undefined);
     const propertyName = node.name.text;
@@ -164,6 +151,24 @@ export const convertMemberExpression = (
       memberBinding,
     };
   } else {
+    const objectMethodArgumentCapture =
+      tryGetObjectLiteralMethodArgumentCapture(node);
+    if (objectMethodArgumentCapture) {
+      const inferredType = objectMethodArgumentCapture.parameter.type
+        ? ctx.typeSystem.typeFromSyntax(
+            ctx.binding.captureTypeSyntax(
+              objectMethodArgumentCapture.parameter.type
+            )
+          )
+        : undefined;
+      return {
+        kind: "identifier",
+        name: objectMethodArgumentCapture.tempName,
+        inferredType,
+        sourceSpan,
+      };
+    }
+
     // Element access (computed): obj[expr]
     const object = convertExpression(node.expression, ctx, undefined);
 

@@ -260,7 +260,7 @@ describe("validateImports", () => {
     expect(codes(result)).to.deep.equal([]);
   });
 
-  it("rejects default imports from node aliases with TSN1004", () => {
+  it("allows default imports from node aliases when module bindings exist", () => {
     const testProgram = createTestProgram(
       `
         import fs from "node:fs";
@@ -278,11 +278,8 @@ describe("validateImports", () => {
       createDiagnosticsCollector()
     );
 
-    expect(result.hasErrors).to.equal(true);
-    expect(codes(result)).to.include("TSN1004");
-    expect(result.diagnostics[0]?.message).to.include(
-      "Default import is not supported"
-    );
+    expect(result.hasErrors).to.equal(false);
+    expect(codes(result)).to.deep.equal([]);
   });
 
   it("allows named member imports from bare node aliases when module bindings exist", () => {
@@ -329,7 +326,7 @@ describe("validateImports", () => {
     expect(codes(result)).to.deep.equal([]);
   });
 
-  it("reports node default-import diagnostics in one pass", () => {
+  it("allows node default imports in one pass", () => {
     const testProgram = createTestProgram(
       `
         import badPath from "node:path";
@@ -347,16 +344,8 @@ describe("validateImports", () => {
       createDiagnosticsCollector()
     );
 
-    expect(result.hasErrors).to.equal(true);
-    expect(codes(result).filter((code) => code === "TSN1004").length).to.equal(
-      1
-    );
-    const messages = result.diagnostics.map((diag) => diag.message);
-    expect(
-      messages.some((message) =>
-        message.includes("Default import is not supported")
-      )
-    ).to.equal(true);
+    expect(result.hasErrors).to.equal(false);
+    expect(codes(result)).to.deep.equal([]);
   });
 
   it("rejects node aliases when module bindings are missing", () => {
