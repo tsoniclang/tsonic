@@ -208,6 +208,39 @@ describe("Expression Emission", () => {
     expect(result).not.to.include("using System");
   });
 
+  it("should emit global function calls using csharpName on identifier callees", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "clearInterval",
+              resolvedClrType: "Tsonic.JSRuntime.Timers",
+              resolvedAssembly: "Tsonic.JSRuntime",
+              csharpName: "Timers.clearInterval",
+            },
+            arguments: [{ kind: "literal", value: 1 }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("global::Tsonic.JSRuntime.Timers.clearInterval(1)");
+  });
+
   it("should emit hierarchical member bindings correctly", () => {
     const module: IrModule = {
       kind: "module",

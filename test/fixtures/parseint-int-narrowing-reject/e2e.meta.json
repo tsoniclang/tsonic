@@ -1,0 +1,8 @@
+{
+  "expectFailure": true,
+  "description": "parseInt results narrow from JS long to int only with explicit range proof.",
+  "expectedErrors": [
+    "TSN5101",
+    "Cannot narrow 'parsed' from Int64 to Int32"
+  ]
+}

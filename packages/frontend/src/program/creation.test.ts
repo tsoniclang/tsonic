@@ -973,6 +973,153 @@ export {};
     }
   });
 
+  it("should load root-level global function bindings from a generic surface package", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-generic-surface-globals-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const surfaceRoot = path.join(tempDir, "node_modules/@fixture/js");
+      fs.mkdirSync(surfaceRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(surfaceRoot, "package.json"),
+        JSON.stringify(
+          { name: "@fixture/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(path.join(surfaceRoot, "index.js"), "export {};\n");
+      fs.writeFileSync(
+        path.join(surfaceRoot, "index.d.ts"),
+        [
+          'import type { int, long } from "@tsonic/core/types.js";',
+          "",
+          "declare global {",
+          "  const console: {",
+          "    log(...data: unknown[]): void;",
+          "  };",
+          "",
+          "  function parseInt(str: string, radix?: int): long | undefined;",
+          "  function setInterval(handler: (...args: unknown[]) => void, timeout?: int, ...args: unknown[]): int;",
+          "  function clearInterval(id: int): void;",
+          "}",
+          "",
+          "export {};",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        path.join(surfaceRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              console: {
+                kind: "global",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.console",
+              },
+              parseInt: {
+                kind: "global",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.Globals",
+                csharpName: "Globals.parseInt",
+              },
+              setInterval: {
+                kind: "global",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.Timers",
+                csharpName: "Timers.setInterval",
+              },
+              clearInterval: {
+                kind: "global",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.Timers",
+                csharpName: "Timers.clearInterval",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(surfaceRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@fixture/js",
+            extends: [],
+            requiredTypeRoots: ["."],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        [
+          'const parsed = parseInt("42", 10);',
+          "const timerId = setInterval(() => {}, 1000);",
+          "clearInterval(timerId);",
+          "console.log(parsed);",
+        ].join("\n")
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@fixture/js",
+        useStandardLib: false,
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.value.bindings.getBinding("console")).to.deep.equal({
+        kind: "global",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.console",
+      });
+      expect(result.value.bindings.getBinding("parseInt")).to.deep.equal({
+        kind: "global",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.Globals",
+        csharpName: "Globals.parseInt",
+      });
+      expect(result.value.bindings.getBinding("setInterval")).to.deep.equal({
+        kind: "global",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.Timers",
+        csharpName: "Timers.setInterval",
+      });
+      expect(result.value.bindings.getBinding("clearInterval")).to.deep.equal({
+        kind: "global",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.Timers",
+        csharpName: "Timers.clearInterval",
+      });
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("should typecheck core IArguments.length in noLib mode", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-core-iarguments-")

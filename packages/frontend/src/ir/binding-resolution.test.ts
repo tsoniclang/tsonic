@@ -240,6 +240,61 @@ describe("Binding Resolution in IR", () => {
       expect(mathExpr.resolvedClrType).to.equal("Tsonic.Runtime.Math");
       expect(mathExpr.resolvedAssembly).to.equal("Tsonic.Runtime");
     });
+
+    it("should resolve global function bindings with csharpName on identifier callees", () => {
+      const source = `
+        export function test() {
+          setInterval(() => {}, 1000);
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/runtime.json", {
+        bindings: {
+          setInterval: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Timers",
+            csharpName: "Timers.setInterval",
+          },
+        },
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements[0];
+      expect(exprStmt?.kind).to.equal("expressionStatement");
+
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+
+      if (callExpr.kind !== "call") return;
+
+      const calleeExpr = callExpr.callee;
+      expect(calleeExpr.kind).to.equal("identifier");
+
+      if (calleeExpr.kind !== "identifier") return;
+
+      expect(calleeExpr.name).to.equal("setInterval");
+      expect(calleeExpr.csharpName).to.equal("Timers.setInterval");
+      expect(calleeExpr.resolvedClrType).to.equal("Tsonic.JSRuntime.Timers");
+      expect(calleeExpr.resolvedAssembly).to.equal("Tsonic.JSRuntime");
+    });
   });
 
   describe("Module Import Resolution", () => {

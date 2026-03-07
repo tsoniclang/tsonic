@@ -2773,5 +2773,192 @@ describe("IR Builder", () => {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
+
+    it("threads generic surface root global bindings into identifier callees", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-generic-surface-globals-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const surfaceRoot = path.join(tempDir, "node_modules/@fixture/js");
+        fs.mkdirSync(surfaceRoot, { recursive: true });
+        fs.writeFileSync(
+          path.join(surfaceRoot, "package.json"),
+          JSON.stringify(
+            { name: "@fixture/js", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(path.join(surfaceRoot, "index.js"), "export {};\n");
+        fs.writeFileSync(
+          path.join(surfaceRoot, "index.d.ts"),
+          [
+            'import type { int } from "@tsonic/core/types.js";',
+            "",
+            "declare global {",
+            "  const console: {",
+            "    log(...data: unknown[]): void;",
+            "  };",
+            "  function setInterval(handler: (...args: unknown[]) => void, timeout?: int, ...args: unknown[]): int;",
+            "  function clearInterval(id: int): void;",
+            "}",
+            "",
+            "export {};",
+            "",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(surfaceRoot, "bindings.json"),
+          JSON.stringify(
+            {
+              bindings: {
+                console: {
+                  kind: "global",
+                  assembly: "Tsonic.JSRuntime",
+                  type: "Tsonic.JSRuntime.console",
+                },
+                setInterval: {
+                  kind: "global",
+                  assembly: "Tsonic.JSRuntime",
+                  type: "Tsonic.JSRuntime.Timers",
+                  csharpName: "Timers.setInterval",
+                },
+                clearInterval: {
+                  kind: "global",
+                  assembly: "Tsonic.JSRuntime",
+                  type: "Tsonic.JSRuntime.Timers",
+                  csharpName: "Timers.clearInterval",
+                },
+              },
+            },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(
+          path.join(surfaceRoot, "tsonic.surface.json"),
+          JSON.stringify(
+            {
+              schemaVersion: 1,
+              id: "@fixture/js",
+              extends: [],
+              requiredTypeRoots: ["."],
+              useStandardLib: false,
+            },
+            null,
+            2
+          )
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export function main(): void {",
+            "  const id = setInterval(() => {}, 1000);",
+            "  clearInterval(id);",
+            '  console.log("tick");',
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@fixture/js",
+          useStandardLib: false,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const fn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const firstStmt = fn.body.statements[0];
+        expect(firstStmt?.kind).to.equal("variableDeclaration");
+        if (!firstStmt || firstStmt.kind !== "variableDeclaration") return;
+
+        const setIntervalCall = firstStmt.declarations[0]?.initializer;
+        expect(setIntervalCall?.kind).to.equal("call");
+        if (!setIntervalCall || setIntervalCall.kind !== "call") return;
+
+        expect(setIntervalCall.callee.kind).to.equal("identifier");
+        if (setIntervalCall.callee.kind !== "identifier") return;
+
+        expect(setIntervalCall.callee.name).to.equal("setInterval");
+        expect(setIntervalCall.callee.resolvedClrType).to.equal(
+          "Tsonic.JSRuntime.Timers"
+        );
+        expect(setIntervalCall.callee.resolvedAssembly).to.equal(
+          "Tsonic.JSRuntime"
+        );
+        expect(setIntervalCall.callee.csharpName).to.equal(
+          "Timers.setInterval"
+        );
+
+        const clearIntervalStmt = fn.body.statements[1];
+        expect(clearIntervalStmt?.kind).to.equal("expressionStatement");
+        if (
+          !clearIntervalStmt ||
+          clearIntervalStmt.kind !== "expressionStatement"
+        )
+          return;
+
+        const clearIntervalCall = clearIntervalStmt.expression;
+        expect(clearIntervalCall.kind).to.equal("call");
+        if (clearIntervalCall.kind !== "call") return;
+        expect(clearIntervalCall.callee.kind).to.equal("identifier");
+        if (clearIntervalCall.callee.kind !== "identifier") return;
+        expect(clearIntervalCall.callee.csharpName).to.equal(
+          "Timers.clearInterval"
+        );
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
   });
 });
