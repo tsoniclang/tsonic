@@ -510,7 +510,10 @@ export const convertCallExpression = (
     const typeArguments = extractTypeArguments(node, ctx);
     const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);
     const callee = convertExpression(node.expression, ctx, undefined);
-    const dynamicImportNamespace = convertDynamicImportNamespaceObject(node, ctx);
+    const dynamicImportNamespace = convertDynamicImportNamespaceObject(
+      node,
+      ctx
+    );
     const args: IrCallExpression["arguments"][number][] = [];
     for (const arg of node.arguments) {
       if (ts.isSpreadElement(arg)) {

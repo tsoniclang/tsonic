@@ -6,6 +6,8 @@ export function main(): void {
   const rounded = Math.round(3.6);
   const regex = new RegExp("HELLO");
   const matched = regex.test(upper);
+  const regexLiteral = /^[A-Z, ]+$/;
+  const matchedLiteral = regexLiteral.test(upper);
   const map = new Map<string, number>();
   map.set("value", rounded);
   const set = new Set<string>();
@@ -13,6 +15,7 @@ export function main(): void {
   const p = parseInt("123");
   const nums = [1, 2, 3, 4];
   nums.push(5);
+  const spreadCopy = [...nums, 6];
   const chars = Array.from("abcd");
   const more = Array.of(6, 7, 8);
   const joinedNumber = rounded.toString();
@@ -25,17 +28,20 @@ export function main(): void {
   const joined = filtered.join(",");
   const joinedDefault = filtered.join();
 
+  console.log(...spreadCopy);
   console.log(
     upper,
     parsed.value,
     now.toISOString(),
     matched,
+    matchedLiteral,
     map.get("value"),
     set.has(upper),
     p,
     chars.join("-"),
     Array.isArray(more),
     more.join("-"),
+    spreadCopy.join("-"),
     joinedNumber,
     error.message,
     rangeError.message,

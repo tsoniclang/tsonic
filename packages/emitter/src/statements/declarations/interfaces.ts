@@ -13,6 +13,7 @@ import {
 } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { statementUsesPointer } from "../../core/semantic/unsafe.js";
+import { isMutablePropertySlot } from "../../core/semantic/mutable-storage.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import type {
   CSharpTypeDeclarationAst,
@@ -52,6 +53,7 @@ export const emitInterfaceDeclaration = (
   let currentContext: EmitterContext = {
     ...context,
     typeParameters: ifaceTypeParams,
+    declaringTypeName: stmt.name,
   };
 
   // Extract inline object types
@@ -139,6 +141,11 @@ export const emitInterfaceDeclaration = (
       const typeAst: CSharpTypeAst = member.isOptional
         ? { kind: "nullableType", underlyingType: baseTypeAst }
         : baseTypeAst;
+      const needsMutableStorage = isMutablePropertySlot(
+        stmt.name,
+        member.name,
+        currentContext
+      );
 
       members.push({
         kind: "propertyDeclaration",
@@ -147,7 +154,7 @@ export const emitInterfaceDeclaration = (
         type: typeAst,
         name: emitCSharpName(member.name, "properties", context),
         hasGetter: true,
-        hasSetter: !member.isReadonly,
+        hasSetter: !member.isReadonly || needsMutableStorage,
         isAutoProperty: true,
       });
       continue;

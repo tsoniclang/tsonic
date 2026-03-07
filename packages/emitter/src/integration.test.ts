@@ -340,6 +340,42 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(/\(global::System\.Action.*\s+resolve\)\s*=>/);
     });
 
+    it("infers Promise constructor generic from contextual return type", () => {
+      const source = `
+        declare function setTimeout(fn: () => void, ms: number): void;
+
+        interface PromiseLike<T> {
+          then<TResult1 = T, TResult2 = never>(
+            onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+          ): PromiseLike<TResult1 | TResult2>;
+        }
+
+        declare class Promise<T> {
+          constructor(
+            executor: (
+              resolve: (value: T | PromiseLike<T>) => void,
+              reject: (reason: unknown) => void
+            ) => void
+          );
+        }
+
+        export function delay(ms: number): Promise<void> {
+          return new Promise((resolve) => {
+            setTimeout(() => resolve(), ms);
+          });
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("TaskCompletionSource<bool>");
+      expect(csharp).to.match(
+        /\(\(global::System\.Action<global::System\.Action>\)\(resolve\s*=>/
+      );
+      expect(csharp).not.to.include("new Promise(");
+    });
+
     it("should infer types for generic method callbacks", () => {
       const source = `
         // Custom generic class with map method (valid in dotnet mode)
@@ -730,6 +766,79 @@ describe("End-to-End Integration", () => {
     });
   });
 
+  describe("Promise Static Methods", () => {
+    it("lowers Promise.all to Task.WhenAll over normalized task inputs", () => {
+      const source = `
+        interface PromiseLike<T> {
+          then<TResult1 = T, TResult2 = never>(
+            onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+          ): PromiseLike<TResult1 | TResult2>;
+        }
+
+        declare class Promise<T> {
+          static all<T>(values: readonly (T | PromiseLike<T>)[]): Promise<T[]>;
+        }
+
+        async function runWorker(name: string): Promise<number> {
+          return 1;
+        }
+
+        export async function main(): Promise<void> {
+          const results = await Promise.all([
+            runWorker("a"),
+            runWorker("b"),
+            runWorker("c"),
+          ]);
+          void results;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("Task.WhenAll");
+      expect(csharp).to.include("Enumerable.Select");
+      expect(csharp).not.to.include("Promise.all(");
+    });
+
+    it("lowers Promise.resolve to Task.FromResult", () => {
+      const source = `
+        declare class PromiseLike<T> {}
+        declare class Promise<T> {
+          static resolve<T>(value: T | PromiseLike<T>): Promise<T>;
+        }
+
+        export function main(): Promise<number> {
+          const value: number = 1;
+          return Promise.resolve(value);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("Task.FromResult<double>");
+      expect(csharp).not.to.include("Promise.resolve(");
+    });
+
+    it("lowers Promise.reject to Task.FromException", () => {
+      const source = `
+        declare class Promise<T> {
+          static reject<T = never>(reason?: any): Promise<T>;
+        }
+
+        export function main(): Promise<number> {
+          return Promise.reject<number>("boom");
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("Task.FromException<double>");
+      expect(csharp).to.include('"Promise rejected"');
+      expect(csharp).not.to.include("Promise.reject(");
+    });
+  });
+
   describe("Core Intrinsics", () => {
     it("lowers nameof to a compile-time string literal using TS-authored names", () => {
       const source = `
@@ -760,6 +869,97 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("return sizeof(int);");
+    });
+  });
+
+  describe("Local Function Values", () => {
+    it("lowers recursive local arrow functions through explicit delegate initialization", () => {
+      const source = `
+        type Node = {
+          name: string;
+          children: Node[];
+        };
+
+        export function flatten(nodes: Node[]): string[] {
+          const names: string[] = [];
+          const walk = (current: Node[]): void => {
+            for (let i = 0; i < current.length; i++) {
+              const node = current[i]!;
+              names.push(node.name);
+              walk(node.children);
+            }
+          };
+
+          walk(nodes);
+          return names;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "global::System.Action<Node__Alias[]> walk = default"
+      );
+      expect(csharp).to.match(/walk\s*=\s*\(Node__Alias\[\]\s+current\)\s*=>/);
+      expect(csharp).not.to.include("var walk =");
+    });
+  });
+
+  describe("Regression Coverage", () => {
+    it("passes contextual string expectations through array element assignments", () => {
+      const source = `
+        export function main(): string[] {
+          const chars: string[] = ["", ""];
+          const source = "ab";
+          chars[0] = source[0];
+          return chars;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include('string[] chars = new string[] { "", "" };');
+      expect(csharp).to.include("chars[0] = source[0].ToString();");
+    });
+
+    it("default-initializes explicit locals without initializers", () => {
+      const source = `
+        export function pick(flag: boolean): string {
+          let name: string;
+          if (flag) {
+            name = "ok";
+          } else {
+            name = "no";
+          }
+          return name;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("string name = default(string);");
+    });
+
+    it("prefers typed CLR option overloads over erased unknown for object literals", () => {
+      const source = `
+        declare class MkdirOptions {
+          readonly __tsonic_type_nodejs_MkdirOptions: never;
+          recursive?: boolean;
+        }
+
+        declare const fs: {
+          mkdirSync(path: string, options: MkdirOptions): void;
+          mkdirSync(path: string, recursive?: boolean): void;
+          mkdirSync(path: string, options: unknown): void;
+        };
+
+        export function ensure(dir: string): void {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "fs.mkdirSync(dir, new global::Test.MkdirOptions"
+      );
+      expect(csharp).not.to.include("Dictionary<string, object?>");
     });
   });
 

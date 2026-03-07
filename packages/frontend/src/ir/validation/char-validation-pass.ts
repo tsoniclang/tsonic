@@ -120,6 +120,12 @@ const isCharTypedExpression = (
   ctx: CharValidationContext
 ): boolean => isCharType(expr.inferredType, ctx);
 
+const isStringCharAccessExpression = (expr: IrExpression): boolean =>
+  expr.kind === "memberAccess" &&
+  expr.isComputed &&
+  expr.accessKind === "stringChar" &&
+  !expr.isOptional;
+
 const addCharDiagnostic = (
   ctx: CharValidationContext,
   message: string,
@@ -155,6 +161,10 @@ const validateCharExpected = (
 
   // Conditional expressions are validated by validating each branch in the same expectedType.
   if (expr.kind === "conditional") {
+    return;
+  }
+
+  if (isStringCharAccessExpression(expr)) {
     return;
   }
 

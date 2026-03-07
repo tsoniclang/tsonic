@@ -245,7 +245,10 @@ export const emitClassDeclaration = (
   }
 
   // Class body
-  const baseContext = withClassName(indent(currentContext), escapedClassName);
+  const baseContext = {
+    ...withClassName(indent(currentContext), escapedClassName),
+    declaringTypeName: stmt.name,
+  };
   const bodyContext: EmitterContext = {
     ...baseContext,
     hasSuperClass: stmt.superClass ? true : undefined,

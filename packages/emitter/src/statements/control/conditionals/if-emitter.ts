@@ -168,39 +168,66 @@ const tryExtractTypeofEqualityGuard = (
   | {
       readonly originalName: string;
       readonly narrowsInThen: boolean;
+      readonly compound: boolean;
     }
   | undefined => {
-  if (condition.kind !== "binary") return undefined;
-  if (
-    condition.operator !== "===" &&
-    condition.operator !== "==" &&
-    condition.operator !== "!==" &&
-    condition.operator !== "!="
-  ) {
-    return undefined;
-  }
-
-  const extract = (
-    left: typeof condition.left,
-    right: typeof condition.right
-  ): string | undefined => {
-    if (left.kind !== "unary" || left.operator !== "typeof") return undefined;
-    if (left.expression.kind !== "identifier") return undefined;
-    if (right.kind !== "literal" || typeof right.value !== "string") {
+  const extractDirectGuard = (
+    expr: typeof condition
+  ):
+    | {
+        readonly originalName: string;
+        readonly narrowsInThen: boolean;
+      }
+    | undefined => {
+    if (expr.kind !== "binary") return undefined;
+    if (
+      expr.operator !== "===" &&
+      expr.operator !== "==" &&
+      expr.operator !== "!==" &&
+      expr.operator !== "!="
+    ) {
       return undefined;
     }
-    return left.expression.name;
+
+    const extract = (
+      left: typeof expr.left,
+      right: typeof expr.right
+    ): string | undefined => {
+      if (left.kind !== "unary" || left.operator !== "typeof") return undefined;
+      if (left.expression.kind !== "identifier") return undefined;
+      if (right.kind !== "literal" || typeof right.value !== "string") {
+        return undefined;
+      }
+      return left.expression.name;
+    };
+
+    const originalName =
+      extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
+    if (!originalName) return undefined;
+
+    return {
+      originalName,
+      narrowsInThen: expr.operator === "===" || expr.operator === "==",
+    };
   };
 
-  const originalName =
-    extract(condition.left, condition.right) ??
-    extract(condition.right, condition.left);
-  if (!originalName) return undefined;
+  const direct = extractDirectGuard(condition);
+  if (direct) {
+    return { ...direct, compound: false };
+  }
 
-  return {
-    originalName,
-    narrowsInThen: condition.operator === "===" || condition.operator === "==",
-  };
+  if (condition.kind === "logical" && condition.operator === "&&") {
+    const left = tryExtractTypeofEqualityGuard(condition.left);
+    if (left?.narrowsInThen) {
+      return { ...left, compound: true };
+    }
+    const right = tryExtractTypeofEqualityGuard(condition.right);
+    if (right?.narrowsInThen) {
+      return { ...right, compound: true };
+    }
+  }
+
+  return undefined;
 };
 
 const findIdentifierTypeInNode = (
@@ -1148,9 +1175,11 @@ export const emitIfStatementAst = (
       if (stmt.elseStatement) {
         const elseCtx: EmitterContext = {
           ...finalContext,
-          narrowedBindings: typeofGuard.narrowsInThen
+          narrowedBindings: typeofGuard.compound
             ? condCtxAfterCond.narrowedBindings
-            : narrowedMap,
+            : typeofGuard.narrowsInThen
+              ? condCtxAfterCond.narrowedBindings
+              : narrowedMap,
         };
         const [elseStmts, elseCtxAfter] = emitStatementAst(
           stmt.elseStatement,

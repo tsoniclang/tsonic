@@ -7,13 +7,14 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { buildModuleMap, canonicalizeFilePath, resolveImportPath } from "./module-map.js";
+import {
+  buildModuleMap,
+  canonicalizeFilePath,
+  resolveImportPath,
+} from "./module-map.js";
 import type { IrModule } from "@tsonic/frontend";
 
-const makeModule = (
-  filePath: string,
-  body: readonly unknown[]
-): IrModule =>
+const makeModule = (filePath: string, body: readonly unknown[]): IrModule =>
   ({
     kind: "module",
     filePath,

@@ -484,6 +484,210 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       return checker.isTypeAssignableTo(t, stringType);
     };
 
+    const getStaticPropertyName = (
+      name: ts.PropertyName | ts.BindingName
+    ): string | undefined => {
+      if (ts.isIdentifier(name)) return name.text;
+      if (
+        ts.isStringLiteral(name) ||
+        ts.isNumericLiteral(name) ||
+        ts.isNoSubstitutionTemplateLiteral(name)
+      ) {
+        return name.text;
+      }
+      if (ts.isComputedPropertyName(name)) {
+        const expr = stripParens(name.expression);
+        if (
+          ts.isStringLiteral(expr) ||
+          ts.isNumericLiteral(expr) ||
+          ts.isNoSubstitutionTemplateLiteral(expr)
+        ) {
+          return expr.text;
+        }
+      }
+      return undefined;
+    };
+
+    const getObjectLiteralKeys = (
+      arg: ts.Expression
+    ): readonly string[] | undefined => {
+      const expr = stripParens(arg);
+      if (!ts.isObjectLiteralExpression(expr)) return undefined;
+
+      const keys: string[] = [];
+      for (const property of expr.properties) {
+        if (ts.isSpreadAssignment(property)) return undefined;
+
+        if (ts.isShorthandPropertyAssignment(property)) {
+          keys.push(property.name.text);
+          continue;
+        }
+
+        if (
+          ts.isPropertyAssignment(property) ||
+          ts.isMethodDeclaration(property) ||
+          ts.isGetAccessorDeclaration(property) ||
+          ts.isSetAccessorDeclaration(property)
+        ) {
+          const key = getStaticPropertyName(property.name);
+          if (!key) return undefined;
+          keys.push(key);
+          continue;
+        }
+
+        return undefined;
+      }
+
+      return keys;
+    };
+
+    const isUnknownTypeNode = (typeNode: ts.TypeNode | undefined): boolean =>
+      !!typeNode && typeNode.kind === ts.SyntaxKind.UnknownKeyword;
+
+    const isObviouslyNonObjectTypeNode = (
+      typeNode: ts.TypeNode | undefined
+    ): boolean => {
+      if (!typeNode) return false;
+      const node = ts.isParenthesizedTypeNode(typeNode)
+        ? typeNode.type
+        : typeNode;
+
+      return (
+        node.kind === ts.SyntaxKind.StringKeyword ||
+        node.kind === ts.SyntaxKind.NumberKeyword ||
+        node.kind === ts.SyntaxKind.BooleanKeyword ||
+        node.kind === ts.SyntaxKind.BigIntKeyword ||
+        node.kind === ts.SyntaxKind.VoidKeyword ||
+        node.kind === ts.SyntaxKind.NullKeyword ||
+        node.kind === ts.SyntaxKind.UndefinedKeyword ||
+        node.kind === ts.SyntaxKind.UnknownKeyword ||
+        node.kind === ts.SyntaxKind.AnyKeyword
+      );
+    };
+
+    const mergePropertySets = (
+      left: ReadonlySet<string>,
+      right: ReadonlySet<string>
+    ): ReadonlySet<string> => new Set([...left, ...right]);
+
+    const collectDeclaredPropertyNames = (
+      typeNode: ts.TypeNode | undefined,
+      seenSymbols = new Set<ts.Symbol>(),
+      seenNodes = new Set<ts.Node>()
+    ): ReadonlySet<string> | undefined => {
+      if (!typeNode) return undefined;
+      if (seenNodes.has(typeNode)) return undefined;
+      seenNodes.add(typeNode);
+
+      const node = ts.isParenthesizedTypeNode(typeNode)
+        ? typeNode.type
+        : typeNode;
+
+      if (ts.isTypeLiteralNode(node)) {
+        const names = new Set<string>();
+        for (const member of node.members) {
+          if (
+            ts.isPropertySignature(member) ||
+            ts.isMethodSignature(member) ||
+            ts.isGetAccessorDeclaration(member) ||
+            ts.isSetAccessorDeclaration(member)
+          ) {
+            if (!member.name) continue;
+            const name = getStaticPropertyName(member.name);
+            if (!name || name.startsWith("__tsonic_type_")) continue;
+            names.add(name);
+          }
+        }
+        return names;
+      }
+
+      if (ts.isIntersectionTypeNode(node)) {
+        let merged: ReadonlySet<string> | undefined;
+        for (const part of node.types) {
+          const partNames = collectDeclaredPropertyNames(
+            part,
+            seenSymbols,
+            seenNodes
+          );
+          if (!partNames) continue;
+          merged = merged ? mergePropertySets(merged, partNames) : partNames;
+        }
+        return merged;
+      }
+
+      if (!ts.isTypeReferenceNode(node)) {
+        return undefined;
+      }
+
+      const rawSymbol = ts.isIdentifier(node.typeName)
+        ? checker.getSymbolAtLocation(node.typeName)
+        : checker.getSymbolAtLocation(node.typeName.right);
+      if (!rawSymbol) return undefined;
+
+      const symbol =
+        rawSymbol.flags & ts.SymbolFlags.Alias
+          ? checker.getAliasedSymbol(rawSymbol)
+          : rawSymbol;
+
+      if (seenSymbols.has(symbol)) return undefined;
+      seenSymbols.add(symbol);
+
+      let merged: ReadonlySet<string> | undefined;
+      for (const decl of symbol.getDeclarations() ?? []) {
+        if (ts.isTypeAliasDeclaration(decl)) {
+          const aliasNames = collectDeclaredPropertyNames(
+            decl.type,
+            seenSymbols,
+            seenNodes
+          );
+          if (aliasNames) {
+            merged = merged
+              ? mergePropertySets(merged, aliasNames)
+              : aliasNames;
+          }
+          continue;
+        }
+
+        if (!ts.isInterfaceDeclaration(decl) && !ts.isClassDeclaration(decl)) {
+          continue;
+        }
+
+        let names = new Set<string>();
+        for (const member of decl.members) {
+          if (
+            ts.isPropertySignature(member) ||
+            ts.isMethodSignature(member) ||
+            ts.isPropertyDeclaration(member) ||
+            ts.isMethodDeclaration(member) ||
+            ts.isGetAccessorDeclaration(member) ||
+            ts.isSetAccessorDeclaration(member)
+          ) {
+            if (!member.name) continue;
+            const name = getStaticPropertyName(member.name);
+            if (!name || name.startsWith("__tsonic_type_")) continue;
+            names.add(name);
+          }
+        }
+
+        for (const heritage of decl.heritageClauses ?? []) {
+          for (const heritageType of heritage.types) {
+            const heritageNames = collectDeclaredPropertyNames(
+              heritageType,
+              seenSymbols,
+              seenNodes
+            );
+            if (heritageNames) {
+              names = new Set([...names, ...heritageNames]);
+            }
+          }
+        }
+
+        merged = merged ? mergePropertySets(merged, names) : names;
+      }
+
+      return merged;
+    };
+
     type ParamClass = "char" | "string" | "other";
 
     const classifyParamTypeNode = (typeNode: unknown): ParamClass => {
@@ -514,6 +718,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     const args = node.arguments;
     const wantsStringAt: number[] = [];
     const wantsCharAt: number[] = [];
+    const objectLiteralArgs = new Map<number, readonly string[]>();
 
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
@@ -525,10 +730,50 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       } else if (prefersStringOverChar(arg)) {
         wantsStringAt.push(i);
       }
+
+      const objectKeys = getObjectLiteralKeys(arg);
+      if (objectKeys && objectKeys.length > 0) {
+        objectLiteralArgs.set(i, objectKeys);
+      }
     }
 
-    if (wantsStringAt.length === 0 && wantsCharAt.length === 0)
+    if (
+      wantsStringAt.length === 0 &&
+      wantsCharAt.length === 0 &&
+      objectLiteralArgs.size === 0
+    ) {
       return resolvedId;
+    }
+
+    const objectLiteralScoreForArg = (
+      entry: SignatureEntry,
+      argIndex: number,
+      keys: readonly string[]
+    ): number => {
+      const direct = entry.parameters[argIndex];
+      const last = entry.parameters[entry.parameters.length - 1];
+      const param = direct ?? (last?.isRest ? last : undefined);
+
+      if (!param?.typeNode) return -4;
+
+      const typeNode = param.typeNode as ts.TypeNode;
+      if (isUnknownTypeNode(typeNode)) return -10;
+      if (isObviouslyNonObjectTypeNode(typeNode)) return -6;
+
+      const propertyNames = collectDeclaredPropertyNames(typeNode);
+      if (!propertyNames || propertyNames.size === 0) {
+        return 0;
+      }
+
+      for (const key of keys) {
+        if (!propertyNames.has(key)) {
+          return -6;
+        }
+      }
+
+      const extraPropertyCount = Math.max(0, propertyNames.size - keys.length);
+      return 10 - Math.min(extraPropertyCount, 5);
+    };
 
     const scoreSignature = (sigId: SignatureId): number => {
       const entry = signatureMap.get(sigId.id);
@@ -544,6 +789,9 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         const pc = paramClassForArgIndex(entry, i);
         if (pc === "char") score += 2;
         if (pc === "string") score -= 2;
+      }
+      for (const [argIndex, keys] of objectLiteralArgs) {
+        score += objectLiteralScoreForArg(entry, argIndex, keys);
       }
       return score;
     };
@@ -566,6 +814,37 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
   const resolveCallSignatureCandidates = (
     node: ts.CallExpression
   ): readonly SignatureId[] | undefined => {
+    const collectSignatureCandidates = (
+      signatures: readonly ts.Signature[]
+    ): readonly SignatureId[] | undefined => {
+      const argCount = node.arguments.length;
+      const candidates: SignatureId[] = [];
+
+      for (const sig of signatures) {
+        const decl = sig.getDeclaration();
+        if (decl && ts.isFunctionLike(decl)) {
+          if (
+            ts.isConstructSignatureDeclaration(decl) ||
+            ts.isConstructorDeclaration(decl)
+          ) {
+            continue;
+          }
+
+          const params = extractParameterNodes(decl);
+          const required = params.filter(
+            (p) => !p.isOptional && !p.isRest
+          ).length;
+          const hasRest = params.some((p) => p.isRest);
+          if (argCount < required) continue;
+          if (!hasRest && argCount > params.length) continue;
+        }
+
+        candidates.push(getOrCreateSignatureId(sig));
+      }
+
+      return candidates.length > 0 ? candidates : undefined;
+    };
+
     const expr = node.expression;
     const symbol = (() => {
       if (ts.isIdentifier(expr)) return checker.getSymbolAtLocation(expr);
@@ -582,34 +861,18 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         : symbol;
 
     const decls = resolvedSymbol.getDeclarations();
-    if (!decls || decls.length === 0) return undefined;
-
-    const argCount = node.arguments.length;
-    const candidates: SignatureId[] = [];
-
-    for (const decl of decls) {
-      if (!ts.isFunctionLike(decl)) continue;
-      // Exclude construct signatures / constructors for call expressions.
-      if (
-        ts.isConstructSignatureDeclaration(decl) ||
-        ts.isConstructorDeclaration(decl)
-      ) {
-        continue;
-      }
-
-      // Arity filtering (optional/rest aware)
-      const params = extractParameterNodes(decl);
-      const required = params.filter((p) => !p.isOptional && !p.isRest).length;
-      const hasRest = params.some((p) => p.isRest);
-      if (argCount < required) continue;
-      if (!hasRest && argCount > params.length) continue;
-
-      const sig = checker.getSignatureFromDeclaration(decl);
-      if (!sig) continue;
-      candidates.push(getOrCreateSignatureId(sig));
+    if (decls && decls.length > 0) {
+      const directSignatures = decls.flatMap((decl) => {
+        if (!ts.isFunctionLike(decl)) return [];
+        const sig = checker.getSignatureFromDeclaration(decl);
+        return sig ? [sig] : [];
+      });
+      const directCandidates = collectSignatureCandidates(directSignatures);
+      if (directCandidates) return directCandidates;
     }
 
-    return candidates.length > 0 ? candidates : undefined;
+    const expressionType = checker.getTypeAtLocation(expr);
+    return collectSignatureCandidates(expressionType.getCallSignatures());
   };
 
   const resolveConstructorSignature = (

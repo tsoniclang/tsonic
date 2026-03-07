@@ -14,12 +14,15 @@ const defaultOptions: EmitterOptions = {
   indent: 2,
 };
 
-const createContext = (): EmitterContext => ({
+const createContext = (
+  patch: Partial<EmitterContext> = {}
+): EmitterContext => ({
   indentLevel: 0,
   options: defaultOptions,
   isStatic: false,
   isAsync: false,
   usings: new Set<string>(),
+  ...patch,
 });
 
 describe("Static readonly property emission", () => {
@@ -46,5 +49,83 @@ describe("Static readonly property emission", () => {
     expect(code).to.include("public static int Value");
     expect(code).to.include("{ get; }");
     expect(code).to.not.include("init");
+  });
+
+  it("uses private set for readonly array properties that need mutable storage", () => {
+    const context = createContext({
+      declaringTypeName: "Holder",
+      mutablePropertySlots: new Set(["Holder::Items"]),
+    });
+    const member: IrClassMember = {
+      kind: "propertyDeclaration",
+      name: "Items",
+      type: {
+        kind: "arrayType",
+        elementType: { kind: "primitiveType", name: "string" },
+      },
+      initializer: { kind: "array", elements: [] },
+      isStatic: false,
+      isReadonly: true,
+      accessibility: "public",
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [ast] = emitPropertyMember(member as any, context);
+    const code = printMember(ast, "");
+    expect(code).to.include("public string[] Items");
+    expect(code).to.include("{ get; private set; }");
+    expect(code).to.not.include("init");
+  });
+
+  it("does not emit redundant private set on private readonly array properties", () => {
+    const context = createContext({
+      declaringTypeName: "Holder",
+      mutablePropertySlots: new Set(["Holder::items"]),
+    });
+    const member: IrClassMember = {
+      kind: "propertyDeclaration",
+      name: "items",
+      type: {
+        kind: "arrayType",
+        elementType: { kind: "primitiveType", name: "string" },
+      },
+      initializer: { kind: "array", elements: [] },
+      isStatic: false,
+      isReadonly: true,
+      accessibility: "private",
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [ast] = emitPropertyMember(member as any, context);
+    const code = printMember(ast, "");
+    expect(code).to.include("private string[] items");
+    expect(code).to.include("{ get; set; }");
+    expect(code).to.not.include("private set");
+    expect(code).to.not.include("init");
+  });
+
+  it("keeps init-only storage for readonly array properties without mutation", () => {
+    const context = createContext({
+      declaringTypeName: "Holder",
+    });
+    const member: IrClassMember = {
+      kind: "propertyDeclaration",
+      name: "Items",
+      type: {
+        kind: "arrayType",
+        elementType: { kind: "primitiveType", name: "string" },
+      },
+      initializer: { kind: "array", elements: [] },
+      isStatic: false,
+      isReadonly: true,
+      accessibility: "public",
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [ast] = emitPropertyMember(member as any, context);
+    const code = printMember(ast, "");
+    expect(code).to.include("public string[] Items");
+    expect(code).to.include("{ get; init; }");
+    expect(code).to.not.include("private set");
   });
 });

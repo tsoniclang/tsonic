@@ -51,9 +51,16 @@ export const emitAssignment = (
       indexExpr,
       objectContext
     );
+    const expectedArrayType = leftExpr.object.inferredType;
+    if (!expectedArrayType || expectedArrayType.kind !== "arrayType") {
+      throw new Error(
+        "Internal Compiler Error: array element assignment reached emitter without an array LHS type."
+      );
+    }
     const [rightAst, rightContext] = emitExpressionAst(
       expr.right,
-      indexContext
+      indexContext,
+      expectedArrayType.elementType
     );
 
     // Use native CLR indexer: arr[idx] = value

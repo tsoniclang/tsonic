@@ -36,7 +36,8 @@ import {
  */
 export const convertNewExpression = (
   node: ts.NewExpression,
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  expectedType: IrType | undefined
 ): IrNewExpression => {
   // Extract explicit type arguments (for IR output, not inference)
   const typeArguments = extractTypeArguments(node, ctx);
@@ -66,6 +67,7 @@ export const convertNewExpression = (
         sigId,
         argumentCount,
         explicitTypeArgs,
+        expectedReturnType: expectedType,
       })
     : undefined;
   const initialParameterTypes = initialResolved?.parameterTypes;
@@ -126,6 +128,7 @@ export const convertNewExpression = (
         argumentCount,
         explicitTypeArgs,
         argTypes: argTypesForInference,
+        expectedReturnType: expectedType,
       })
     : initialResolved;
 
@@ -196,6 +199,7 @@ export const convertNewExpression = (
         argumentCount,
         explicitTypeArgs,
         argTypes,
+        expectedReturnType: expectedType,
       })
     : lambdaContextResolved;
 

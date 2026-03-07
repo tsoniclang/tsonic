@@ -661,6 +661,32 @@ export const inferMethodTypeArgsFromArguments = (
       return inner ? tryUnify(inner, argumentType, currentSubstitution) : true;
     }
 
+    // PromiseLike<T> / Promise<T> parameter positions should infer through the
+    // awaited inner result when the argument is an async wrapper.
+    //
+    // This is required for JS-surface APIs like:
+    //   Promise.all<T>(values: readonly (T | PromiseLike<T>)[]): Promise<T[]>
+    // where an argument element of type Promise<number> must infer T = number,
+    // not T = Promise<number>.
+    if (parameterType.kind === "referenceType") {
+      const simpleName =
+        parameterType.name.split(".").pop() ?? parameterType.name;
+      if (
+        (simpleName === "PromiseLike" || simpleName === "Promise") &&
+        (parameterType.typeArguments?.length ?? 0) === 1
+      ) {
+        const awaitedArgument = unwrapAsyncWrapperType(argumentType);
+        const awaitedParameter = parameterType.typeArguments?.[0];
+        if (awaitedArgument && awaitedParameter) {
+          return tryUnify(
+            awaitedParameter,
+            awaitedArgument,
+            currentSubstitution
+          );
+        }
+      }
+    }
+
     // Delegate unification: allow deterministic inference through the delegate's
     // Invoke signature when a lambda (functionType) is passed to a CLR delegate
     // parameter (Func/Action/custom delegates).
@@ -711,6 +737,50 @@ export const inferMethodTypeArgsFromArguments = (
       const candidates = isNullishPrimitive(argumentType)
         ? nullish
         : nonNullish;
+
+      const awaitedArgument = unwrapAsyncWrapperType(argumentType);
+      if (awaitedArgument) {
+        const snapshot = new Map(currentSubstitution);
+        const awaitedMatches: Map<string, IrType>[] = [];
+
+        for (const candidate of candidates) {
+          if (!candidate || candidate.kind !== "referenceType") continue;
+          const simpleName = candidate.name.split(".").pop() ?? candidate.name;
+          if (simpleName !== "PromiseLike" && simpleName !== "Promise") {
+            continue;
+          }
+
+          const awaitedParameter = candidate.typeArguments?.[0];
+          if (!awaitedParameter) continue;
+
+          const trial = new Map(snapshot);
+          if (!tryUnify(awaitedParameter, awaitedArgument, trial)) continue;
+          if (mapEntriesEqual(snapshot, trial)) continue;
+          awaitedMatches.push(trial);
+        }
+
+        const firstAwaitedMatch = awaitedMatches[0];
+        if (awaitedMatches.length === 1 && firstAwaitedMatch) {
+          currentSubstitution.clear();
+          for (const [key, value] of firstAwaitedMatch) {
+            currentSubstitution.set(key, value);
+          }
+          return true;
+        }
+
+        if (
+          firstAwaitedMatch &&
+          awaitedMatches.length > 1 &&
+          awaitedMatches.every((m) => mapEntriesEqual(firstAwaitedMatch, m))
+        ) {
+          currentSubstitution.clear();
+          for (const [key, value] of firstAwaitedMatch) {
+            currentSubstitution.set(key, value);
+          }
+          return true;
+        }
+      }
+
       if (candidates.length === 1) {
         const only = candidates[0];
         return only ? tryUnify(only, argumentType, currentSubstitution) : true;

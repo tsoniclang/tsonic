@@ -155,7 +155,10 @@ export const resolveDynamicImportNamespace = (
 ): DynamicImportNamespaceResolution => {
   const specifier = getDynamicImportLiteralSpecifier(node);
   if (!specifier) {
-    return { ok: false, reason: "Dynamic import specifier must be a string literal." };
+    return {
+      ok: false,
+      reason: "Dynamic import specifier must be a string literal.",
+    };
   }
 
   if (!isClosedWorldDynamicImportSpecifier(specifier)) {
@@ -174,7 +177,8 @@ export const resolveDynamicImportNamespace = (
   if (!resolvedFilePath) {
     return {
       ok: false,
-      reason: "Dynamic import target could not be resolved to a local TypeScript source file.",
+      reason:
+        "Dynamic import target could not be resolved to a local TypeScript source file.",
     };
   }
 

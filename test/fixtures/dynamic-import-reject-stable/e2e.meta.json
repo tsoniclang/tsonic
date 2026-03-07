@@ -1,8 +1,5 @@
 {
   "expectFailure": true,
   "description": "dynamic import namespace values reject unsupported runtime export shapes.",
-  "expectedErrors": [
-    "TSN2001",
-    "Unsupported export: 'Box'"
-  ]
+  "expectedErrors": ["TSN2001", "Unsupported export: 'Box'"]
 }

@@ -119,7 +119,7 @@ export const validateUnsupportedFeatures = (
     ) {
       const message =
         getDynamicImportSupportFailure(node) ??
-        'Dynamic import() is only supported for deterministic closed-world local modules.';
+        "Dynamic import() is only supported for deterministic closed-world local modules.";
       collector = addDiagnostic(
         collector,
         createDiagnostic(
@@ -127,7 +127,7 @@ export const validateUnsupportedFeatures = (
           "error",
           message,
           getNodeLocation(sourceFile, node),
-          'Use static import declarations, or restrict dynamic import() to deterministic closed-world local modules.'
+          "Use static import declarations, or restrict dynamic import() to deterministic closed-world local modules."
         )
       );
     }

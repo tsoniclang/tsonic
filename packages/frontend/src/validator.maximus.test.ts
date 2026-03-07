@@ -72,7 +72,11 @@ const createTestProgram = (
     return allFiles.get(normalized) ?? originalReadFile(name);
   };
 
-  const program = ts.createProgram(Array.from(allFiles.keys()), compilerOptions, host);
+  const program = ts.createProgram(
+    Array.from(allFiles.keys()),
+    compilerOptions,
+    host
+  );
   const checker = program.getTypeChecker();
 
   return {
@@ -98,7 +102,9 @@ const collectCodes = (
   source: string,
   extraFiles: Readonly<Record<string, string>> = {}
 ): readonly string[] =>
-  validateProgram(createTestProgram(source, "/test/index.ts", extraFiles)).diagnostics.map((d) => d.code);
+  validateProgram(
+    createTestProgram(source, "/test/index.ts", extraFiles)
+  ).diagnostics.map((d) => d.code);
 
 const hasCode = (
   source: string,

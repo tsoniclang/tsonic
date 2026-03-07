@@ -407,6 +407,19 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.true;
     });
 
+    it("should allow tsbindgen instance aliases when the base alias is known", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "MkdirOptions$instance",
+      });
+
+      const result = validateIrSoundness([module], {
+        knownReferenceTypes: new Set(["MkdirOptions"]),
+      });
+
+      expect(result.ok).to.be.true;
+    });
+
     it("should allow known builtin Array", () => {
       const module = createModuleWithType({
         kind: "referenceType",

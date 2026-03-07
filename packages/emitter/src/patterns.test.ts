@@ -536,6 +536,49 @@ describe("Destructuring Pattern Lowering", () => {
       // Should NOT create temp variable
       expect(result).to.not.include("__item");
     });
+
+    it("should use tuple element typing when destructuring Map iteration", () => {
+      const module = createModule([
+        {
+          kind: "forOfStatement",
+          variable: {
+            kind: "arrayPattern",
+            elements: [
+              {
+                pattern: { kind: "identifierPattern", name: "key" },
+                isRest: false,
+              },
+              {
+                pattern: { kind: "identifierPattern", name: "value" },
+                isRest: false,
+              },
+            ],
+          },
+          expression: {
+            kind: "identifier",
+            name: "entries",
+            inferredType: {
+              kind: "referenceType",
+              name: "Map",
+              typeArguments: [stringType, numberType],
+            },
+          },
+          body: {
+            kind: "blockStatement",
+            statements: [],
+          },
+          isAwait: false,
+        },
+      ]);
+
+      const result = emitModule(module);
+
+      expect(result).to.include("foreach (var __item in entries)");
+      expect(result).to.include("Item1");
+      expect(result).to.include("Item2");
+      expect(result).to.not.include("[0]");
+      expect(result).to.not.include("[1]");
+    });
   });
 
   describe("Parameter Destructuring", () => {

@@ -15,7 +15,10 @@ import {
   IrExpression,
   IrParameter,
 } from "../../types.js";
-import { typesEqual } from "../../types/ir-substitution.js";
+import {
+  containsTypeParameter,
+  typesEqual,
+} from "../../types/ir-substitution.js";
 import { getSourceSpan, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { checkSynthesisEligibility } from "../anonymous-synthesis.js";
@@ -41,12 +44,94 @@ const computeArrayElementType = (
   elements: readonly (IrExpression | undefined)[],
   fallbackType: IrType | undefined
 ): IrType | undefined => {
+  const mergeElementTypes = (types: readonly IrType[]): IrType | undefined => {
+    if (types.length === 0) return undefined;
+    const first = types[0];
+    if (first && types.every((t) => typesEqual(t, first))) {
+      return first;
+    }
+    return {
+      kind: "unionType",
+      types,
+    };
+  };
+
+  const extractSpreadElementTypes = (
+    type: IrType | undefined
+  ): readonly IrType[] | undefined => {
+    if (!type) return undefined;
+
+    if (type.kind === "arrayType") {
+      return [type.elementType];
+    }
+
+    if (type.kind === "tupleType") {
+      return type.elementTypes.filter(
+        (element): element is IrType => element !== undefined
+      );
+    }
+
+    if (type.kind === "unionType") {
+      const members: IrType[] = [];
+      for (const member of type.types) {
+        const extracted = extractSpreadElementTypes(member);
+        if (!extracted) return undefined;
+        members.push(...extracted);
+      }
+      return members;
+    }
+
+    if (
+      type.kind === "referenceType" &&
+      type.typeArguments &&
+      type.typeArguments.length > 0
+    ) {
+      const simpleName = type.name.split(".").pop() ?? type.name;
+      switch (simpleName) {
+        case "Array":
+        case "ReadonlyArray":
+        case "Iterable":
+        case "IterableIterator":
+        case "Iterator":
+        case "AsyncIterable":
+        case "AsyncIterableIterator":
+        case "Generator":
+        case "AsyncGenerator":
+        case "Set":
+        case "ReadonlySet":
+        case "JSArray":
+        case "IEnumerable":
+        case "IReadOnlyList":
+        case "List":
+          return type.typeArguments[0] ? [type.typeArguments[0]] : undefined;
+        case "Map":
+        case "ReadonlyMap":
+          return type.typeArguments[0] && type.typeArguments[1]
+            ? [
+                {
+                  kind: "tupleType",
+                  elementTypes: [type.typeArguments[0], type.typeArguments[1]],
+                },
+              ]
+            : undefined;
+        default:
+          return undefined;
+      }
+    }
+
+    return undefined;
+  };
+
   // Filter out holes and spreads for type analysis
   const regularElements = elements.filter(
     (e): e is IrExpression => e !== undefined && e.kind !== "spread"
   );
+  const spreadElements = elements.filter(
+    (e): e is Extract<IrExpression, { kind: "spread" }> =>
+      e !== undefined && e.kind === "spread"
+  );
 
-  if (regularElements.length === 0) {
+  if (regularElements.length === 0 && spreadElements.length === 0) {
     // Empty array - use fallback
     return fallbackType;
   }
@@ -83,8 +168,15 @@ const computeArrayElementType = (
     }
   }
 
+  const hasOnlyRegularElements =
+    regularElements.length > 0 && spreadElements.length === 0;
+
   // All numeric literals - determine widest type
-  if (allNumericLiterals && numericIntents.length > 0) {
+  if (
+    hasOnlyRegularElements &&
+    allNumericLiterals &&
+    numericIntents.length > 0
+  ) {
     // Any Double → number (emits as "double" in C#)
     if (
       numericIntents.includes("Double") ||
@@ -101,12 +193,12 @@ const computeArrayElementType = (
   }
 
   // All string literals
-  if (allStringLiterals) {
+  if (hasOnlyRegularElements && allStringLiterals) {
     return { kind: "primitiveType", name: "string" };
   }
 
   // All boolean literals
-  if (allBooleanLiterals) {
+  if (hasOnlyRegularElements && allBooleanLiterals) {
     return { kind: "primitiveType", name: "boolean" };
   }
 
@@ -123,9 +215,19 @@ const computeArrayElementType = (
     knownTypes.push(t);
   }
 
-  const first = knownTypes[0];
-  if (first && knownTypes.every((t) => typesEqual(first, t))) {
-    return first;
+  for (const spread of spreadElements) {
+    const spreadTypes = extractSpreadElementTypes(
+      spread.expression.inferredType
+    );
+    if (!spreadTypes) {
+      return fallbackType;
+    }
+    knownTypes.push(...spreadTypes);
+  }
+
+  const merged = mergeElementTypes(knownTypes);
+  if (merged) {
+    return merged;
   }
 
   return fallbackType;
@@ -149,9 +251,13 @@ export const convertArrayLiteral = (
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): IrArrayExpression => {
+  const contextualArrayType =
+    expectedType?.kind === "arrayType" && !containsTypeParameter(expectedType)
+      ? expectedType
+      : undefined;
+
   // Determine element expected type from array expected type
-  const expectedElementType =
-    expectedType?.kind === "arrayType" ? expectedType.elementType : undefined;
+  const expectedElementType = contextualArrayType?.elementType;
 
   // Convert all elements, passing expected element type for contextual typing
   const elements = node.elements.map((elem) => {
@@ -175,25 +281,24 @@ export const convertArrayLiteral = (
   // 1. Expected type from context (e.g., LHS annotation, parameter type)
   // 2. Literal-form inference (derive from element types)
   // 3. Default: number[] (double[]) for ergonomics
-  const inferredType: IrType | undefined =
-    expectedType?.kind === "arrayType"
-      ? expectedType
-      : (() => {
-          // No expected type - derive from element types
-          const elementType = computeArrayElementType(elements, undefined);
-          if (elementType) {
-            return { kind: "arrayType" as const, elementType };
-          }
-          // Default to number[] (double[]) for ergonomics
-          // This matches Alice's guidance: untyped arrays default to double[]
-          return {
-            kind: "arrayType" as const,
-            elementType: {
-              kind: "primitiveType" as const,
-              name: "number" as const,
-            },
-          };
-        })();
+  const inferredType: IrType | undefined = contextualArrayType
+    ? contextualArrayType
+    : (() => {
+        // No expected type - derive from element types
+        const elementType = computeArrayElementType(elements, undefined);
+        if (elementType) {
+          return { kind: "arrayType" as const, elementType };
+        }
+        // Default to number[] (double[]) for ergonomics
+        // This matches Alice's guidance: untyped arrays default to double[]
+        return {
+          kind: "arrayType" as const,
+          elementType: {
+            kind: "primitiveType" as const,
+            name: "number" as const,
+          },
+        };
+      })();
 
   return {
     kind: "array",

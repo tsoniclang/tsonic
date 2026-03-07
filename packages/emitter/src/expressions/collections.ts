@@ -312,58 +312,79 @@ export const emitArray = (
     }
   }
 
-  // Check if array contains only spread elements
-  const allSpreads = expr.elements.every(
-    (el) => el !== undefined && el.kind === "spread"
+  const hasSpread = expr.elements.some(
+    (element) => element !== undefined && element.kind === "spread"
   );
 
-  if (allSpreads && expr.elements.length > 0) {
-    // Emit as chained Enumerable.Concat calls + ToArray()
-    const spreadElements = expr.elements.filter(
-      (el): el is Extract<IrExpression, { kind: "spread" }> =>
-        el !== undefined && el.kind === "spread"
-    );
+  if (hasSpread) {
+    const segments: CSharpExpressionAst[] = [];
+    let inlineElements: CSharpExpressionAst[] = [];
 
-    const firstSpread = spreadElements[0];
-    if (!firstSpread) {
+    const flushInlineElements = (): void => {
+      if (inlineElements.length === 0) return;
+      segments.push({
+        kind: "arrayCreationExpression",
+        elementType: elementTypeAst,
+        initializer: inlineElements,
+      });
+      inlineElements = [];
+    };
+
+    for (const element of expr.elements) {
+      if (element === undefined) {
+        inlineElements.push({ kind: "defaultExpression" });
+        continue;
+      }
+
+      if (element.kind === "spread") {
+        flushInlineElements();
+        const [spreadAst, newContext] = emitExpressionAst(
+          element.expression,
+          currentContext
+        );
+        segments.push(spreadAst);
+        currentContext = newContext;
+        continue;
+      }
+
+      const [elemAst, newContext] = emitExpressionAst(
+        element,
+        currentContext,
+        expectedElementType
+      );
+      inlineElements.push(elemAst);
+      currentContext = newContext;
+    }
+
+    flushInlineElements();
+
+    if (segments.length === 0) {
       return [
         {
-          kind: "arrayCreationExpression",
-          elementType: { kind: "predefinedType", keyword: "object" },
-          sizeExpression: { kind: "literalExpression", text: "0" },
+          kind: "invocationExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: "global::System.Array.Empty",
+          },
+          typeArguments: [elementTypeAst],
+          arguments: [],
         },
         currentContext,
       ];
     }
 
-    const [firstAst, firstContext] = emitExpressionAst(
-      firstSpread.expression,
-      currentContext
-    );
-    currentContext = firstContext;
-
-    // Build chain of Concat calls
-    let concatAst: CSharpExpressionAst = firstAst;
-    for (let i = 1; i < spreadElements.length; i++) {
-      const spread = spreadElements[i];
-      if (spread) {
-        const [spreadAst, newContext] = emitExpressionAst(
-          spread.expression,
-          currentContext
-        );
-        concatAst = {
-          kind: "invocationExpression",
-          expression: {
-            kind: "identifierExpression",
-            identifier: "global::System.Linq.Enumerable.Concat",
-          },
-          arguments: [concatAst, spreadAst],
-        };
-        currentContext = newContext;
-      }
+    let concatAst = segments[0]!;
+    for (let index = 1; index < segments.length; index++) {
+      concatAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "global::System.Linq.Enumerable.Concat",
+        },
+        arguments: [concatAst, segments[index]!],
+      };
     }
 
-    // Wrap in ToArray()
     return [
       {
         kind: "invocationExpression",
@@ -377,17 +398,11 @@ export const emitArray = (
     ];
   }
 
-  // Regular array or mixed spreads/elements
+  // Regular array without spreads
   for (const element of expr.elements) {
     if (element === undefined) {
       // Sparse array hole
       elementAsts.push({ kind: "defaultExpression" });
-    } else if (element.kind === "spread") {
-      // Spread mixed with other elements - not yet supported
-      elementAsts.push({
-        kind: "identifierExpression",
-        identifier: "/* ...spread */",
-      });
     } else {
       const [elemAst, newContext] = emitExpressionAst(
         element,

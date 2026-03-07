@@ -22,6 +22,8 @@ import {
   IrStatement,
   IrNumericNarrowingExpression,
   IrMemberExpression,
+  IrBlockStatement,
+  IrParameter,
 } from "../types.js";
 
 /**
@@ -155,6 +157,54 @@ const logicalExpr = (
   left,
   right,
   inferredType,
+});
+
+const booleanType: IrType = { kind: "primitiveType", name: "boolean" };
+
+const memberCall = (
+  objectName: string,
+  methodName: string,
+  args: IrExpression[],
+  inferredType: IrType = booleanType
+): IrExpression => ({
+  kind: "call",
+  callee: {
+    kind: "memberAccess",
+    object: ident(objectName),
+    property: methodName,
+    isComputed: false,
+    isOptional: false,
+    inferredType: { kind: "unknownType" },
+  },
+  arguments: args,
+  isOptional: false,
+  inferredType,
+});
+
+const compareExpr = (
+  operator: "<" | "<=" | ">" | ">=",
+  left: IrExpression,
+  right: IrExpression
+): IrExpression => ({
+  kind: "binary",
+  operator,
+  left,
+  right,
+  inferredType: booleanType,
+});
+
+const block = (statements: IrStatement[]): IrBlockStatement => ({
+  kind: "blockStatement",
+  statements,
+});
+
+const parameter = (name: string, type: IrType): IrParameter => ({
+  kind: "parameter",
+  pattern: { kind: "identifierPattern", name },
+  type,
+  isOptional: false,
+  isRest: false,
+  passing: "value",
 });
 
 /**
@@ -714,7 +764,9 @@ describe("Numeric Proof Invariants", () => {
       expect(result.ok).to.be.false;
       expect(result.diagnostics).to.have.length(1);
       expect(result.diagnostics[0]?.code).to.equal("TSN5103");
-      expect(result.diagnostics[0]?.message).to.contain("Conditional expression produces Double");
+      expect(result.diagnostics[0]?.message).to.contain(
+        "Conditional expression produces Double"
+      );
     });
   });
 
@@ -1126,6 +1178,127 @@ describe("Numeric Proof Invariants", () => {
 
       expect(result.ok).to.be.true;
       expect(result.diagnostics).to.have.length(0);
+    });
+
+    it("proves Int32 narrowing inside a guarded integer range branch", () => {
+      const guardedCondition = logicalExpr(
+        "&&",
+        logicalExpr(
+          "&&",
+          memberCall("Number", "isInteger", [ident("value")]),
+          compareExpr(
+            ">=",
+            ident("value"),
+            numLiteral(-2147483648, "-2147483648")
+          ),
+          booleanType
+        ),
+        compareExpr("<=", ident("value"), numLiteral(2147483647, "2147483647")),
+        booleanType
+      );
+
+      const module = createModule([
+        {
+          kind: "functionDeclaration",
+          name: "toInt32",
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+          parameters: [
+            parameter("value", { kind: "primitiveType", name: "number" }),
+          ],
+          returnType: {
+            kind: "unionType",
+            types: [
+              { kind: "primitiveType", name: "int" },
+              { kind: "primitiveType", name: "undefined" },
+            ],
+          },
+          body: block([
+            {
+              kind: "ifStatement",
+              condition: guardedCondition,
+              thenStatement: block([
+                {
+                  kind: "returnStatement",
+                  expression: narrowTo(ident("value"), "Int32"),
+                },
+              ]),
+            },
+            {
+              kind: "returnStatement",
+              expression: {
+                kind: "literal",
+                value: undefined,
+                inferredType: { kind: "primitiveType", name: "undefined" },
+              },
+            },
+          ]),
+        },
+      ]);
+
+      const result = runNumericProofPass([module]);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+    });
+
+    it("still rejects guarded range checks when integer-ness is not proven", () => {
+      const guardedCondition = logicalExpr(
+        "&&",
+        compareExpr(
+          ">=",
+          ident("value"),
+          numLiteral(-2147483648, "-2147483648")
+        ),
+        compareExpr("<=", ident("value"), numLiteral(2147483647, "2147483647")),
+        booleanType
+      );
+
+      const module = createModule([
+        {
+          kind: "functionDeclaration",
+          name: "toInt32",
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+          parameters: [
+            parameter("value", { kind: "primitiveType", name: "number" }),
+          ],
+          returnType: {
+            kind: "unionType",
+            types: [
+              { kind: "primitiveType", name: "int" },
+              { kind: "primitiveType", name: "undefined" },
+            ],
+          },
+          body: block([
+            {
+              kind: "ifStatement",
+              condition: guardedCondition,
+              thenStatement: block([
+                {
+                  kind: "returnStatement",
+                  expression: narrowTo(ident("value"), "Int32"),
+                },
+              ]),
+            },
+            {
+              kind: "returnStatement",
+              expression: {
+                kind: "literal",
+                value: undefined,
+                inferredType: { kind: "primitiveType", name: "undefined" },
+              },
+            },
+          ]),
+        },
+      ]);
+
+      const result = runNumericProofPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN5101")).to.equal(
+        true
+      );
     });
   });
 });

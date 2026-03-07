@@ -1063,7 +1063,7 @@ export const printMember = (
         const setStr = member.hasInit
           ? "init; "
           : member.hasSetter
-            ? "set; "
+            ? `${member.setterAccessibility ? `${member.setterAccessibility} ` : ""}set; `
             : "";
         const accessors = ` { ${getStr}${setStr}}`;
         const init = member.initializer

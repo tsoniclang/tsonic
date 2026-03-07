@@ -116,6 +116,24 @@ const moduleLocation = (ctx: ValidationContext): SourceLocation => ({
   length: 1,
 });
 
+const getReferenceResolutionCandidates = (name: string): readonly string[] => {
+  const candidates = new Set<string>([name]);
+
+  if (name.endsWith("$instance")) {
+    const base = name.slice(0, -"$instance".length);
+    if (base.length > 0) {
+      candidates.add(base);
+
+      const unsuffixed = base.replace(/_\d+$/, "");
+      if (unsuffixed.length > 0) {
+        candidates.add(unsuffixed);
+      }
+    }
+  }
+
+  return Array.from(candidates);
+};
+
 /**
  * Check if a type contains anyType anywhere (recursively)
  */
@@ -205,6 +223,7 @@ const validateType = (
 
     case "referenceType": {
       const { name, resolvedClrType, typeId } = type;
+      const candidateNames = getReferenceResolutionCandidates(name);
 
       // Note: ref<T>, out<T>, inref<T> are valid parameter passing modifiers.
       // They are handled by:
@@ -218,16 +237,25 @@ const validateType = (
         typeId !== undefined ||
         // Has pre-resolved CLR type from IR
         resolvedClrType !== undefined ||
+        // Structural members captured from bindings provide a complete local shape
+        (type.structuralMembers !== undefined &&
+          type.structuralMembers.length > 0) ||
         // Is a known builtin handled by emitter
-        KNOWN_BUILTINS.has(name) ||
+        candidateNames.some((candidate) => KNOWN_BUILTINS.has(candidate)) ||
         // Is a local type defined in this module
-        ctx.localTypeNames.has(name) ||
+        candidateNames.some((candidate) => ctx.localTypeNames.has(candidate)) ||
         // Is an imported type
-        ctx.importedTypeNames.has(name) ||
+        candidateNames.some((candidate) =>
+          ctx.importedTypeNames.has(candidate)
+        ) ||
         // Is a known library type (e.g. from CLR bindings)
-        ctx.knownReferenceTypes.has(name) ||
+        candidateNames.some((candidate) =>
+          ctx.knownReferenceTypes.has(candidate)
+        ) ||
         // Is a type parameter in current scope
-        ctx.typeParameterNames.has(name);
+        candidateNames.some((candidate) =>
+          ctx.typeParameterNames.has(candidate)
+        );
 
       if (!isResolvable) {
         // TSN7414: Unresolved reference type

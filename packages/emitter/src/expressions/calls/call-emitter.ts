@@ -40,9 +40,10 @@ import type {
 } from "../../core/format/backend-ast/types.js";
 import { resolveImportPath } from "../../core/semantic/index.js";
 import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
+import { allocateLocalName } from "../../core/format/local-names.js";
 
 /**
- * Wrap an expression AST with an optional argument modifier (ref/out/in/params).
+ * Wrap an expression AST with an optional argument modifier (ref/out/in).
  */
 const wrapArgModifier = (
   modifier: string | undefined,
@@ -69,6 +70,279 @@ const wrapIntCast = (
 
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
+
+const nativeArrayMutationMembers = new Set([
+  "push",
+  "pop",
+  "shift",
+  "unshift",
+  "splice",
+  "sort",
+  "reverse",
+  "fill",
+  "copyWithin",
+]);
+
+const returnsMutatedArrayMember = (memberName: string): boolean =>
+  memberName === "sort" ||
+  memberName === "reverse" ||
+  memberName === "fill" ||
+  memberName === "copyWithin";
+
+const createVarLocal = (
+  name: string,
+  initializer: CSharpExpressionAst
+): CSharpStatementAst => ({
+  kind: "localDeclarationStatement",
+  modifiers: [],
+  type: { kind: "varType" },
+  declarators: [{ name, initializer }],
+});
+
+type CapturedAssignableArrayTarget = {
+  readonly readExpression: CSharpExpressionAst;
+  readonly writeExpression: CSharpExpressionAst;
+  readonly setupStatements: readonly CSharpStatementAst[];
+  readonly context: EmitterContext;
+};
+
+const captureAssignableArrayTarget = (
+  expr: IrExpression,
+  context: EmitterContext
+): CapturedAssignableArrayTarget | undefined => {
+  const [receiverAst, receiverContext] = emitExpressionAst(expr, context);
+
+  if (receiverAst.kind === "identifierExpression") {
+    return {
+      readExpression: receiverAst,
+      writeExpression: receiverAst,
+      setupStatements: [],
+      context: receiverContext,
+    };
+  }
+
+  if (receiverAst.kind === "memberAccessExpression") {
+    const objectTemp = allocateLocalName(
+      "__tsonic_arrayTarget",
+      receiverContext
+    );
+    const objectIdentifier: CSharpExpressionAst = {
+      kind: "identifierExpression",
+      identifier: objectTemp.emittedName,
+    };
+
+    return {
+      readExpression: {
+        kind: "memberAccessExpression",
+        expression: objectIdentifier,
+        memberName: receiverAst.memberName,
+      },
+      writeExpression: {
+        kind: "memberAccessExpression",
+        expression: objectIdentifier,
+        memberName: receiverAst.memberName,
+      },
+      setupStatements: [
+        createVarLocal(objectTemp.emittedName, receiverAst.expression),
+      ],
+      context: objectTemp.context,
+    };
+  }
+
+  if (
+    receiverAst.kind === "elementAccessExpression" &&
+    receiverAst.arguments.length === 1
+  ) {
+    const objectTemp = allocateLocalName(
+      "__tsonic_arrayTarget",
+      receiverContext
+    );
+    const indexTemp = allocateLocalName(
+      "__tsonic_arrayIndex",
+      objectTemp.context
+    );
+    const objectIdentifier: CSharpExpressionAst = {
+      kind: "identifierExpression",
+      identifier: objectTemp.emittedName,
+    };
+    const indexIdentifier: CSharpExpressionAst = {
+      kind: "identifierExpression",
+      identifier: indexTemp.emittedName,
+    };
+
+    return {
+      readExpression: {
+        kind: "elementAccessExpression",
+        expression: objectIdentifier,
+        arguments: [indexIdentifier],
+      },
+      writeExpression: {
+        kind: "elementAccessExpression",
+        expression: objectIdentifier,
+        arguments: [indexIdentifier],
+      },
+      setupStatements: [
+        createVarLocal(objectTemp.emittedName, receiverAst.expression),
+        createVarLocal(indexTemp.emittedName, receiverAst.arguments[0]!),
+      ],
+      context: indexTemp.context,
+    };
+  }
+
+  return undefined;
+};
+
+const emitArrayMutationInteropCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (expr.isOptional) return undefined;
+  if (expr.callee.kind !== "memberAccess") return undefined;
+  if (expr.callee.isComputed) return undefined;
+  if (typeof expr.callee.property !== "string") return undefined;
+  if (!nativeArrayMutationMembers.has(expr.callee.property)) return undefined;
+  if (!isLValue(expr.callee.object)) return undefined;
+
+  const binding = expr.callee.memberBinding;
+  if (!binding || binding.isExtensionMethod) return undefined;
+
+  const receiverType = expr.callee.object.inferredType;
+  if (!receiverType || receiverType.kind !== "arrayType") return undefined;
+
+  const captured = captureAssignableArrayTarget(expr.callee.object, context);
+  if (!captured) return undefined;
+
+  let currentContext = captured.context;
+
+  const [elementTypeAst, elementTypeContext] = emitTypeAst(
+    receiverType.elementType,
+    currentContext
+  );
+  currentContext = elementTypeContext;
+
+  const wrapperTemp = allocateLocalName(
+    "__tsonic_arrayWrapper",
+    currentContext
+  );
+  currentContext = wrapperTemp.context;
+
+  const resultTemp = allocateLocalName("__tsonic_arrayResult", currentContext);
+  currentContext = resultTemp.context;
+
+  const wrapperIdentifier: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: wrapperTemp.emittedName,
+  };
+  const resultIdentifier: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: resultTemp.emittedName,
+  };
+
+  const [argAsts, argContext] = emitCallArguments(
+    expr.arguments,
+    expr,
+    currentContext
+  );
+  currentContext = argContext;
+
+  const mutationCall: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: wrapperIdentifier,
+      memberName: binding.member,
+    },
+    arguments: argAsts,
+  };
+
+  const mutatedArrayAst: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: wrapperIdentifier,
+      memberName: "toArray",
+    },
+    arguments: [],
+  };
+
+  let returnExpression: CSharpExpressionAst = resultIdentifier;
+  if (expr.callee.property === "splice") {
+    returnExpression = {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: resultIdentifier,
+        memberName: "toArray",
+      },
+      arguments: [],
+    };
+  } else if (returnsMutatedArrayMember(expr.callee.property)) {
+    returnExpression = mutatedArrayAst;
+  }
+
+  const returnType = expr.inferredType ?? receiverType;
+  const [returnTypeAst, returnTypeContext] = emitTypeAst(
+    returnType,
+    currentContext
+  );
+  currentContext = returnTypeContext;
+
+  const lambdaAst: CSharpExpressionAst = {
+    kind: "lambdaExpression",
+    isAsync: false,
+    parameters: [],
+    body: {
+      kind: "blockStatement",
+      statements: [
+        ...captured.setupStatements,
+        createVarLocal(wrapperTemp.emittedName, {
+          kind: "objectCreationExpression",
+          type: {
+            kind: "identifierType",
+            name: "global::Tsonic.JSRuntime.JSArray",
+            typeArguments: [elementTypeAst],
+          },
+          arguments: [captured.readExpression],
+        }),
+        createVarLocal(resultTemp.emittedName, mutationCall),
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignmentExpression",
+            operatorToken: "=",
+            left: captured.writeExpression,
+            right: mutatedArrayAst,
+          },
+        },
+        {
+          kind: "returnStatement",
+          expression: returnExpression,
+        },
+      ],
+    },
+  };
+
+  const delegateCastAst: CSharpExpressionAst = {
+    kind: "castExpression",
+    type: buildDelegateType([], returnTypeAst),
+    expression: {
+      kind: "parenthesizedExpression",
+      expression: lambdaAst,
+    },
+  };
+
+  return [
+    wrapIntCast(needsIntCast(expr, expr.callee.property), {
+      kind: "invocationExpression",
+      expression: {
+        kind: "parenthesizedExpression",
+        expression: delegateCastAst,
+      },
+      arguments: [],
+    }),
+    currentContext,
+  ];
+};
 
 const emitArrayWrapperInteropCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
@@ -596,6 +870,185 @@ const emitFunctionValueCallArguments = (
   return [argAsts, currentContext];
 };
 
+const isArrayLikeIrType = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+
+  if (type.kind === "arrayType" || type.kind === "tupleType") {
+    return true;
+  }
+
+  if (type.kind === "unionType") {
+    return type.types.every((member) => isArrayLikeIrType(member));
+  }
+
+  if (type.kind !== "referenceType") {
+    return false;
+  }
+
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  return (
+    simpleName === "Array" ||
+    simpleName === "ReadonlyArray" ||
+    simpleName === "JSArray" ||
+    simpleName === "Iterable" ||
+    simpleName === "IterableIterator" ||
+    simpleName === "IEnumerable" ||
+    simpleName === "IReadOnlyList" ||
+    simpleName === "List"
+  );
+};
+
+const detectRestParameterInfo = (
+  args: readonly IrExpression[],
+  parameterTypes: readonly (IrType | undefined)[]
+):
+  | {
+      readonly index: number;
+      readonly arrayType: IrType;
+      readonly elementType: IrType;
+    }
+  | undefined => {
+  if (parameterTypes.length === 0) {
+    return undefined;
+  }
+
+  const index = parameterTypes.length - 1;
+  const lastParamType = parameterTypes[index];
+  if (!lastParamType || lastParamType.kind !== "arrayType") {
+    return undefined;
+  }
+
+  if (args.length > parameterTypes.length) {
+    return {
+      index,
+      arrayType: lastParamType,
+      elementType: lastParamType.elementType,
+    };
+  }
+
+  const restArgs = args.slice(index);
+  if (restArgs.some((arg) => arg?.kind === "spread")) {
+    return {
+      index,
+      arrayType: lastParamType,
+      elementType: lastParamType.elementType,
+    };
+  }
+
+  const lastArg = args[index];
+  if (!lastArg) {
+    return undefined;
+  }
+
+  const lastArgType =
+    lastArg.kind === "spread"
+      ? lastArg.expression.inferredType
+      : lastArg.inferredType;
+  if (!isArrayLikeIrType(lastArgType)) {
+    return {
+      index,
+      arrayType: lastParamType,
+      elementType: lastParamType.elementType,
+    };
+  }
+
+  return undefined;
+};
+
+const emitFlattenedRestArguments = (
+  restArgs: readonly IrExpression[],
+  restElementType: IrType,
+  context: EmitterContext
+): [readonly CSharpExpressionAst[], EmitterContext] => {
+  let currentContext = context;
+  const [elementTypeAst, typeContext] = emitTypeAst(
+    restElementType,
+    currentContext
+  );
+  currentContext = typeContext;
+
+  const segments: CSharpExpressionAst[] = [];
+  let inlineElements: CSharpExpressionAst[] = [];
+
+  const flushInlineElements = (): void => {
+    if (inlineElements.length === 0) return;
+    segments.push({
+      kind: "arrayCreationExpression",
+      elementType: elementTypeAst,
+      initializer: inlineElements,
+    });
+    inlineElements = [];
+  };
+
+  for (const arg of restArgs) {
+    if (!arg) continue;
+
+    if (arg.kind === "spread") {
+      flushInlineElements();
+      const [spreadAst, spreadContext] = emitExpressionAst(
+        arg.expression,
+        currentContext
+      );
+      segments.push(spreadAst);
+      currentContext = spreadContext;
+      continue;
+    }
+
+    const [argAst, argContext] = emitExpressionAst(
+      arg,
+      currentContext,
+      restElementType
+    );
+    inlineElements.push(argAst);
+    currentContext = argContext;
+  }
+
+  flushInlineElements();
+
+  if (segments.length === 0) {
+    return [
+      [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: "global::System.Array.Empty",
+          },
+          typeArguments: [elementTypeAst],
+          arguments: [],
+        },
+      ],
+      currentContext,
+    ];
+  }
+
+  let concatAst = segments[0]!;
+  for (let index = 1; index < segments.length; index++) {
+    concatAst = {
+      kind: "invocationExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: "global::System.Linq.Enumerable.Concat",
+      },
+      arguments: [concatAst, segments[index]!],
+    };
+  }
+
+  return [
+    [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "global::System.Linq.Enumerable.ToArray",
+        },
+        arguments: [concatAst],
+      },
+    ],
+    currentContext,
+  ];
+};
+
 const stableIrTypeKey = (type: IrType): string => JSON.stringify(type);
 
 const unwrapAsyncWrapperIrType = (type: IrType): IrType | undefined => {
@@ -770,6 +1223,444 @@ const buildTaskRunInvocation = (
   };
 };
 
+const buildCompletedTaskAst = (): CSharpExpressionAst => ({
+  kind: "memberAccessExpression",
+  expression: {
+    kind: "identifierExpression",
+    identifier: "global::System.Threading.Tasks.Task",
+  },
+  memberName: "CompletedTask",
+});
+
+const buildPromiseRejectedExceptionAst = (
+  reasonAst: CSharpExpressionAst | undefined
+): CSharpExpressionAst => {
+  const reasonExpr =
+    reasonAst ??
+    ({
+      kind: "literalExpression",
+      text: "null",
+    } satisfies CSharpExpressionAst);
+
+  return {
+    kind: "binaryExpression",
+    operatorToken: "??",
+    left: {
+      kind: "asExpression",
+      expression: reasonExpr,
+      type: {
+        kind: "identifierType",
+        name: "global::System.Exception",
+      },
+    },
+    right: {
+      kind: "objectCreationExpression",
+      type: {
+        kind: "identifierType",
+        name: "global::System.Exception",
+      },
+      arguments: [
+        {
+          kind: "binaryExpression",
+          operatorToken: "??",
+          left: {
+            kind: "invocationExpression",
+            expression: {
+              kind: "conditionalMemberAccessExpression",
+              expression: reasonExpr,
+              memberName: "ToString",
+            },
+            arguments: [],
+          },
+          right: {
+            kind: "literalExpression",
+            text: '"Promise rejected"',
+          },
+        },
+      ],
+    },
+  };
+};
+
+const getPromiseStaticMethod = (
+  expr: Extract<IrExpression, { kind: "call" }>
+): "resolve" | "reject" | "all" | "race" | undefined => {
+  if (expr.callee.kind !== "memberAccess") return undefined;
+  if (expr.callee.isComputed) return undefined;
+  if (typeof expr.callee.property !== "string") return undefined;
+  if (expr.callee.object.kind !== "identifier") return undefined;
+
+  const objectName = expr.callee.object.originalName ?? expr.callee.object.name;
+  const simpleObjectName = objectName.split(".").pop() ?? objectName;
+  if (simpleObjectName !== "Promise") return undefined;
+
+  switch (expr.callee.property) {
+    case "resolve":
+    case "reject":
+    case "all":
+    case "race":
+      return expr.callee.property;
+    default:
+      return undefined;
+  }
+};
+
+const getSequenceElementIrType = (
+  type: IrType | undefined
+): IrType | undefined => {
+  if (!type) return undefined;
+
+  if (type.kind === "arrayType") return type.elementType;
+  if (type.kind === "tupleType") {
+    if (type.elementTypes.length === 0) return undefined;
+    if (type.elementTypes.length === 1) return type.elementTypes[0];
+    return { kind: "unionType", types: type.elementTypes };
+  }
+
+  if (
+    type.kind === "referenceType" &&
+    type.typeArguments &&
+    type.typeArguments.length > 0
+  ) {
+    const simpleName = type.name.split(".").pop() ?? type.name;
+    switch (simpleName) {
+      case "Array":
+      case "ReadonlyArray":
+      case "Iterable":
+      case "IterableIterator":
+      case "IEnumerable":
+      case "IReadOnlyList":
+      case "List":
+      case "Set":
+      case "ReadonlySet":
+      case "JSArray":
+        return type.typeArguments[0];
+      default:
+        return undefined;
+    }
+  }
+
+  return undefined;
+};
+
+const isValueTaskLikeIrType = (type: IrType | undefined): boolean => {
+  if (!type || type.kind !== "referenceType") return false;
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  const clrName = type.resolvedClrType ?? type.name;
+  return (
+    simpleName === "ValueTask" ||
+    simpleName === "ValueTask_1" ||
+    simpleName === "ValueTask`1" ||
+    clrName === "System.Threading.Tasks.ValueTask" ||
+    clrName.startsWith("System.Threading.Tasks.ValueTask`1")
+  );
+};
+
+const emitPromiseNormalizedTaskAst = (
+  valueAst: CSharpExpressionAst,
+  valueType: IrType | undefined,
+  resultTypeAst: CSharpTypeAst | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  let currentContext = context;
+
+  const asyncInner = valueType
+    ? unwrapAsyncWrapperIrType(valueType)
+    : undefined;
+  if (asyncInner) {
+    if (isValueTaskLikeIrType(valueType)) {
+      return [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: valueAst,
+            memberName: "AsTask",
+          },
+          arguments: [],
+        },
+        currentContext,
+      ];
+    }
+    return [valueAst, currentContext];
+  }
+
+  if (valueType?.kind === "unionType") {
+    const arms: CSharpExpressionAst[] = [];
+    for (let index = 0; index < valueType.types.length; index++) {
+      const memberType = valueType.types[index];
+      if (!memberType) continue;
+
+      const [memberTypeAst, memberTypeContext] = emitTypeAst(
+        memberType,
+        currentContext
+      );
+      currentContext = memberTypeContext;
+
+      const memberName = `__tsonic_promise_value_${index}`;
+      const [normalizedArm, normalizedContext] = emitPromiseNormalizedTaskAst(
+        {
+          kind: "identifierExpression",
+          identifier: memberName,
+        },
+        memberType,
+        resultTypeAst,
+        currentContext
+      );
+      currentContext = normalizedContext;
+
+      arms.push({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: memberName, type: memberTypeAst }],
+        body: normalizedArm,
+      });
+    }
+
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: valueAst,
+          memberName: "Match",
+        },
+        arguments: arms,
+      },
+      currentContext,
+    ];
+  }
+
+  if (!resultTypeAst) {
+    return [buildCompletedTaskAst(), currentContext];
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "global::System.Threading.Tasks.Task",
+        },
+        memberName: "FromResult",
+      },
+      typeArguments: [resultTypeAst],
+      arguments: [valueAst],
+    },
+    currentContext,
+  ];
+};
+
+const emitPromiseStaticCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | null => {
+  const method = getPromiseStaticMethod(expr);
+  if (!method) return null;
+
+  let currentContext = context;
+  const [outputTaskType, outputTaskContext] = emitTypeAst(
+    expr.inferredType ?? {
+      kind: "referenceType",
+      name: "Promise",
+      typeArguments: [{ kind: "referenceType", name: "object" }],
+    },
+    currentContext
+  );
+  currentContext = outputTaskContext;
+  const outputResultType = getTaskResultType(outputTaskType);
+
+  if (method === "resolve") {
+    const argument = expr.arguments[0];
+    if (!argument) {
+      return [buildCompletedTaskAst(), currentContext];
+    }
+
+    const [valueAst, valueContext] = emitExpressionAst(
+      argument,
+      currentContext,
+      argument.inferredType
+    );
+    currentContext = valueContext;
+    return emitPromiseNormalizedTaskAst(
+      valueAst,
+      argument.inferredType,
+      outputResultType,
+      currentContext
+    );
+  }
+
+  if (method === "reject") {
+    const reason = expr.arguments[0];
+    let reasonAst: CSharpExpressionAst | undefined;
+    if (reason) {
+      [reasonAst, currentContext] = emitExpressionAst(
+        reason,
+        currentContext,
+        reason.inferredType
+      );
+    }
+
+    const exceptionAst = buildPromiseRejectedExceptionAst(reasonAst);
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: "global::System.Threading.Tasks.Task",
+          },
+          memberName: "FromException",
+        },
+        typeArguments: outputResultType ? [outputResultType] : undefined,
+        arguments: [exceptionAst],
+      },
+      currentContext,
+    ];
+  }
+
+  const valuesArg = expr.arguments[0];
+  if (!valuesArg) return null;
+
+  const [valuesAst, valuesContext] = emitExpressionAst(
+    valuesArg,
+    currentContext,
+    valuesArg.inferredType
+  );
+  currentContext = valuesContext;
+
+  const inputElementType = getSequenceElementIrType(valuesArg.inferredType);
+  const resultElementTypeAst =
+    outputResultType?.kind === "arrayType"
+      ? outputResultType.elementType
+      : outputResultType;
+
+  let normalizedValuesAst = valuesAst;
+  if (inputElementType) {
+    const [inputElementTypeAst, inputElementContext] = emitTypeAst(
+      inputElementType,
+      currentContext
+    );
+    currentContext = inputElementContext;
+
+    const [normalizedTaskAst, normalizedTaskContext] =
+      emitPromiseNormalizedTaskAst(
+        {
+          kind: "identifierExpression",
+          identifier: "__tsonic_promise_item",
+        },
+        inputElementType,
+        resultElementTypeAst,
+        currentContext
+      );
+    currentContext = normalizedTaskContext;
+
+    normalizedValuesAst = {
+      kind: "invocationExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: "global::System.Linq.Enumerable.Select",
+      },
+      arguments: [
+        valuesAst,
+        {
+          kind: "lambdaExpression",
+          isAsync: false,
+          parameters: [
+            {
+              name: "__tsonic_promise_item",
+              type: inputElementTypeAst,
+            },
+          ],
+          body: normalizedTaskAst,
+        },
+      ],
+    };
+  }
+
+  if (method === "all") {
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: "global::System.Threading.Tasks.Task",
+          },
+          memberName: "WhenAll",
+        },
+        arguments: [normalizedValuesAst],
+      },
+      currentContext,
+    ];
+  }
+
+  const whenAnyAst: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: "global::System.Threading.Tasks.Task",
+      },
+      memberName: "WhenAny",
+    },
+    arguments: [normalizedValuesAst],
+  };
+
+  if (!outputResultType) {
+    return [
+      buildTaskRunInvocation(
+        outputTaskType,
+        {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "expressionStatement",
+              expression: {
+                kind: "awaitExpression",
+                expression: {
+                  kind: "awaitExpression",
+                  expression: whenAnyAst,
+                },
+              },
+            },
+          ],
+        },
+        true
+      ),
+      currentContext,
+    ];
+  }
+
+  return [
+    buildTaskRunInvocation(
+      outputTaskType,
+      {
+        kind: "blockStatement",
+        statements: [
+          {
+            kind: "returnStatement",
+            expression: {
+              kind: "awaitExpression",
+              expression: {
+                kind: "awaitExpression",
+                expression: whenAnyAst,
+              },
+            },
+          },
+        ],
+      },
+      true
+    ),
+    currentContext,
+  ];
+};
+
 const getDynamicImportSpecifier = (
   expr: Extract<IrExpression, { kind: "call" }>
 ): string | undefined => {
@@ -876,7 +1767,8 @@ const emitDynamicImportCall = (
     }
 
     const containerType = buildDynamicImportContainerType(targetModule);
-    const runClassConstructor = buildRunClassConstructorExpression(containerType);
+    const runClassConstructor =
+      buildRunClassConstructorExpression(containerType);
 
     return [
       {
@@ -1340,10 +2232,14 @@ const emitPromiseThenCatchFinally = (
         ]
       : thenStatements;
     return [
-      buildTaskRunInvocation(outputTaskType, {
-        kind: "blockStatement",
-        statements: bodyStatements,
-      }, true),
+      buildTaskRunInvocation(
+        outputTaskType,
+        {
+          kind: "blockStatement",
+          statements: bodyStatements,
+        },
+        true
+      ),
       currentContext,
     ];
   }
@@ -1369,16 +2265,20 @@ const emitPromiseThenCatchFinally = (
       },
     ];
     return [
-      buildTaskRunInvocation(outputTaskType, {
-        kind: "blockStatement",
-        statements: [
-          {
-            kind: "tryStatement",
-            body: { kind: "blockStatement", statements: successPath },
-            catches,
-          },
-        ],
-      }, true),
+      buildTaskRunInvocation(
+        outputTaskType,
+        {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "tryStatement",
+              body: { kind: "blockStatement", statements: successPath },
+              catches,
+            },
+          ],
+        },
+        true
+      ),
       currentContext,
     ];
   }
@@ -1389,20 +2289,24 @@ const emitPromiseThenCatchFinally = (
         ? [{ kind: "expressionStatement", expression: buildAwait(receiverAst) }]
         : [{ kind: "returnStatement", expression: buildAwait(receiverAst) }];
     return [
-      buildTaskRunInvocation(outputTaskType, {
-        kind: "blockStatement",
-        statements: [
-          {
-            kind: "tryStatement",
-            body: { kind: "blockStatement", statements: tryStatements },
-            catches: [],
-            finallyBody: {
-              kind: "blockStatement",
-              statements: invokeFinally(),
+      buildTaskRunInvocation(
+        outputTaskType,
+        {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "tryStatement",
+              body: { kind: "blockStatement", statements: tryStatements },
+              catches: [],
+              finallyBody: {
+                kind: "blockStatement",
+                statements: invokeFinally(),
+              },
             },
-          },
-        ],
-      }, true),
+          ],
+        },
+        true
+      ),
       currentContext,
     ];
   }
@@ -1412,7 +2316,7 @@ const emitPromiseThenCatchFinally = (
 
 /**
  * Emit call arguments as typed AST array.
- * Handles spread (params), castModifier (ref/out from cast), and argumentPassing modes.
+ * Handles spread arrays, castModifier (ref/out from cast), and argumentPassing modes.
  */
 const emitCallArguments = (
   args: readonly IrExpression[],
@@ -1438,6 +2342,7 @@ const emitCallArguments = (
   }
 
   const parameterTypes = expr.parameterTypes ?? [];
+  const restInfo = detectRestParameterInfo(args, parameterTypes);
   let currentContext = context;
   const argAsts: CSharpExpressionAst[] = [];
 
@@ -1445,14 +2350,34 @@ const emitCallArguments = (
     const arg = args[i];
     if (!arg) continue;
 
-    const expectedType = parameterTypes[i];
+    if (
+      restInfo &&
+      i === restInfo.index &&
+      args
+        .slice(restInfo.index)
+        .some((candidate) => candidate?.kind === "spread")
+    ) {
+      const [flattenedRestArgs, flattenedContext] = emitFlattenedRestArguments(
+        args.slice(restInfo.index),
+        restInfo.elementType,
+        currentContext
+      );
+      argAsts.push(...flattenedRestArgs);
+      currentContext = flattenedContext;
+      break;
+    }
+
+    const expectedType =
+      restInfo && i >= restInfo.index
+        ? restInfo.elementType
+        : parameterTypes[i];
 
     if (arg.kind === "spread") {
       const [spreadAst, ctx] = emitExpressionAst(
         arg.expression,
         currentContext
       );
-      argAsts.push(wrapArgModifier("params", spreadAst));
+      argAsts.push(spreadAst);
       currentContext = ctx;
     } else {
       const castModifier = getPassingModifierFromCast(arg);
@@ -1670,6 +2595,9 @@ export const emitCall = (
   const dynamicImport = emitDynamicImportCall(expr, context);
   if (dynamicImport) return dynamicImport;
 
+  const promiseStaticCall = emitPromiseStaticCall(expr, context);
+  if (promiseStaticCall) return promiseStaticCall;
+
   const promiseChain = emitPromiseThenCatchFinally(expr, context);
   if (promiseChain) return promiseChain;
 
@@ -1885,6 +2813,10 @@ export const emitCall = (
   }
 
   const arrayWrapperInteropCall = emitArrayWrapperInteropCall(expr, context);
+  const arrayMutationInteropCall = emitArrayMutationInteropCall(expr, context);
+  if (arrayMutationInteropCall) {
+    return arrayMutationInteropCall;
+  }
   if (arrayWrapperInteropCall) {
     return arrayWrapperInteropCall;
   }

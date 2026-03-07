@@ -295,6 +295,111 @@ describe("Binding Resolution in IR", () => {
       expect(calleeExpr.resolvedClrType).to.equal("Tsonic.JSRuntime.Timers");
       expect(calleeExpr.resolvedAssembly).to.equal("Tsonic.JSRuntime");
     });
+
+    it("prefers typed object overloads over erased unknown overloads for object literals", () => {
+      const source = `
+        declare class MkdirOptions {
+          readonly __tsonic_type_nodejs_MkdirOptions: never;
+          recursive?: boolean;
+        }
+
+        declare const fs: {
+          mkdirSync(path: string, options: MkdirOptions): void;
+          mkdirSync(path: string, recursive?: boolean): void;
+          mkdirSync(path: string, options: unknown): void;
+        };
+
+        export function test(dir: string): void {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements[0];
+      expect(exprStmt?.kind).to.equal("expressionStatement");
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+      if (callExpr.kind !== "call") return;
+
+      const optionsType = callExpr.parameterTypes?.[1];
+      expect(optionsType?.kind).to.equal("referenceType");
+      if (optionsType?.kind !== "referenceType") return;
+      expect(optionsType.name).to.equal("MkdirOptions");
+    });
+
+    it("extracts structural members from tsbindgen-style accessor instance aliases", () => {
+      const source = `
+        declare interface MkdirOptions$instance {
+          readonly __tsonic_type_nodejs_MkdirOptions: never;
+          get recursive(): boolean | undefined;
+          set recursive(value: boolean | undefined);
+          get mode(): number | undefined;
+          set mode(value: number | undefined);
+        }
+
+        declare const MkdirOptions: {
+          new(): MkdirOptions;
+        };
+
+        declare type MkdirOptions = MkdirOptions$instance;
+
+        declare const fs: {
+          mkdirSync(path: string, options: MkdirOptions): void;
+          mkdirSync(path: string, recursive?: boolean): void;
+          mkdirSync(path: string, options: unknown): void;
+        };
+
+        export function test(dir: string): void {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements[0];
+      expect(exprStmt?.kind).to.equal("expressionStatement");
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+      if (callExpr.kind !== "call") return;
+
+      const optionsType = callExpr.parameterTypes?.[1];
+      expect(optionsType?.kind).to.equal("referenceType");
+      if (optionsType?.kind !== "referenceType") return;
+      expect(optionsType.name).to.equal("MkdirOptions$instance");
+      expect(optionsType.structuralMembers?.map((m) => m.name)).to.deep.equal([
+        "recursive",
+        "mode",
+      ]);
+    });
   });
 
   describe("Module Import Resolution", () => {

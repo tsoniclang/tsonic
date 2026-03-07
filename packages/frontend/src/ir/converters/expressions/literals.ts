@@ -12,7 +12,7 @@
  */
 
 import * as ts from "typescript";
-import { IrLiteralExpression, IrType } from "../../types.js";
+import { IrLiteralExpression, IrNewExpression, IrType } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { inferNumericKindFromRaw } from "../../types/numeric-helpers.js";
 import { NumericKind } from "../../types/numeric-kind.js";
@@ -83,5 +83,94 @@ export const convertLiteral = (
     inferredType,
     sourceSpan: getSourceSpan(node),
     numericIntent,
+  };
+};
+
+const splitRegularExpressionLiteral = (
+  raw: string
+): { readonly pattern: string; readonly flags: string } => {
+  let closingSlash = -1;
+
+  for (let index = raw.length - 1; index > 0; index--) {
+    if (raw[index] !== "/") continue;
+
+    let backslashCount = 0;
+    for (let j = index - 1; j > 0 && raw[j] === "\\"; j--) {
+      backslashCount++;
+    }
+
+    if (backslashCount % 2 === 0) {
+      closingSlash = index;
+      break;
+    }
+  }
+
+  if (closingSlash <= 0) {
+    return { pattern: raw, flags: "" };
+  }
+
+  return {
+    pattern: raw.slice(1, closingSlash),
+    flags: raw.slice(closingSlash + 1),
+  };
+};
+
+export const convertRegularExpressionLiteral = (
+  node: ts.RegularExpressionLiteral,
+  ctx: ProgramContext
+): IrNewExpression => {
+  const raw = node.getText();
+  const { pattern, flags } = splitRegularExpressionLiteral(raw);
+  const regExpBinding = ctx.bindings.getBinding("RegExp");
+  const resolvedClrType =
+    regExpBinding && regExpBinding.kind === "global"
+      ? regExpBinding.type
+      : undefined;
+  const resolvedAssembly =
+    regExpBinding && regExpBinding.kind === "global"
+      ? regExpBinding.assembly
+      : undefined;
+
+  const args: IrNewExpression["arguments"][number][] = [
+    {
+      kind: "literal",
+      value: pattern,
+      raw: JSON.stringify(pattern),
+      inferredType: { kind: "primitiveType", name: "string" },
+      sourceSpan: getSourceSpan(node),
+    },
+  ];
+
+  if (flags !== "") {
+    args.push({
+      kind: "literal",
+      value: flags,
+      raw: JSON.stringify(flags),
+      inferredType: { kind: "primitiveType", name: "string" },
+      sourceSpan: getSourceSpan(node),
+    });
+  }
+
+  return {
+    kind: "new",
+    callee: {
+      kind: "identifier",
+      name: "RegExp",
+      inferredType: {
+        kind: "referenceType",
+        name: "RegExp",
+        resolvedClrType,
+      },
+      resolvedClrType,
+      resolvedAssembly,
+      sourceSpan: getSourceSpan(node),
+    },
+    arguments: args,
+    inferredType: {
+      kind: "referenceType",
+      name: "RegExp",
+      resolvedClrType,
+    },
+    sourceSpan: getSourceSpan(node),
   };
 };

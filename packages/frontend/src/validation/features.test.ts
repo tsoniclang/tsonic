@@ -75,7 +75,11 @@ const createTestProgram = (
     return allFiles.get(normalized) ?? originalReadFile(name);
   };
 
-  const program = ts.createProgram(Array.from(allFiles.keys()), compilerOptions, host);
+  const program = ts.createProgram(
+    Array.from(allFiles.keys()),
+    compilerOptions,
+    host
+  );
   const checker = program.getTypeChecker();
   const entrySourceFile = program.getSourceFile(fileName);
   if (!entrySourceFile) {
@@ -106,7 +110,11 @@ const runValidation = (
   sourceText: string,
   extraFiles: Readonly<Record<string, string>> = {}
 ): ValidationResult => {
-  const testProgram = createTestProgram(sourceText, "/test/index.ts", extraFiles);
+  const testProgram = createTestProgram(
+    sourceText,
+    "/test/index.ts",
+    extraFiles
+  );
   return validateUnsupportedFeatures(
     testProgram.sourceFile,
     testProgram,
@@ -297,7 +305,9 @@ describe("validateUnsupportedFeatures", () => {
         }
       );
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(false);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        false
+      );
     });
 
     it("allows await import() when module namespace is consumed deterministically", () => {
@@ -313,7 +323,9 @@ describe("validateUnsupportedFeatures", () => {
         }
       );
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(false);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        false
+      );
     });
 
     it("rejects dynamic import() in side-effect form", () => {
@@ -380,7 +392,9 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
     });
 
     it("does not reject static import declarations", () => {

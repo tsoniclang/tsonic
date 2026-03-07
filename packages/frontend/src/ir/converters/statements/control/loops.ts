@@ -19,7 +19,9 @@ import { convertVariableDeclarationList } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { withVariableTypeEnv } from "../../type-env.js";
 
-const normalizeForIteration = (type: IrType | undefined): IrType | undefined => {
+const normalizeForIteration = (
+  type: IrType | undefined
+): IrType | undefined => {
   if (!type) return undefined;
 
   if (type.kind === "unionType") {
@@ -72,10 +74,7 @@ const deriveForOfElementType = (
     return deriveTupleIterationElementType(normalized.elementTypes);
   }
 
-  if (
-    normalized.kind === "primitiveType" &&
-    normalized.name === "string"
-  ) {
+  if (normalized.kind === "primitiveType" && normalized.name === "string") {
     return { kind: "primitiveType", name: "string" };
   }
 

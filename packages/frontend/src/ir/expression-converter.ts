@@ -14,7 +14,10 @@ import {
 import type { ProgramContext } from "./program-context.js";
 
 // Import expression converters from specialized modules
-import { convertLiteral } from "./converters/expressions/literals.js";
+import {
+  convertLiteral,
+  convertRegularExpressionLiteral,
+} from "./converters/expressions/literals.js";
 import {
   convertArrayLiteral,
   convertObjectLiteral,
@@ -132,6 +135,9 @@ export const convertExpression = (
 
   if (ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
     return convertLiteral(node, ctx);
+  }
+  if (ts.isRegularExpressionLiteral(node)) {
+    return convertRegularExpressionLiteral(node, ctx);
   }
   if (
     node.kind === ts.SyntaxKind.TrueKeyword ||
@@ -255,7 +261,7 @@ export const convertExpression = (
     return convertCallExpression(node, ctx, expectedType);
   }
   if (ts.isNewExpression(node)) {
-    return convertNewExpression(node, ctx);
+    return convertNewExpression(node, ctx, expectedType);
   }
   if (ts.isBinaryExpression(node)) {
     return convertBinaryExpression(node, ctx, expectedType);

@@ -1,7 +1,10 @@
 import * as ts from "typescript";
 import type { IrObjectExpression, IrType } from "../../types.js";
 import type { ProgramContext } from "../../program-context.js";
-import { getClassNameFromPath, getNamespaceFromPath } from "../../../resolver.js";
+import {
+  getClassNameFromPath,
+  getNamespaceFromPath,
+} from "../../../resolver.js";
 import { getSourceSpan } from "./helpers.js";
 import { resolveDynamicImportNamespace } from "../../../resolver/dynamic-import.js";
 
@@ -39,11 +42,15 @@ export const getDynamicImportPromiseType = (
   node: ts.CallExpression,
   ctx: ProgramContext
 ): IrType | undefined => {
-  const resolution = resolveDynamicImportNamespace(node, node.getSourceFile().fileName, {
-    checker: ctx.checker,
-    compilerOptions: ctx.tsCompilerOptions,
-    sourceFilesByPath: ctx.sourceFilesByPath,
-  });
+  const resolution = resolveDynamicImportNamespace(
+    node,
+    node.getSourceFile().fileName,
+    {
+      checker: ctx.checker,
+      compilerOptions: ctx.tsCompilerOptions,
+      sourceFilesByPath: ctx.sourceFilesByPath,
+    }
+  );
 
   if (!resolution.ok) {
     return undefined;
@@ -81,11 +88,15 @@ export const convertDynamicImportNamespaceObject = (
   node: ts.CallExpression,
   ctx: ProgramContext
 ): IrObjectExpression | undefined => {
-  const resolution = resolveDynamicImportNamespace(node, node.getSourceFile().fileName, {
-    checker: ctx.checker,
-    compilerOptions: ctx.tsCompilerOptions,
-    sourceFilesByPath: ctx.sourceFilesByPath,
-  });
+  const resolution = resolveDynamicImportNamespace(
+    node,
+    node.getSourceFile().fileName,
+    {
+      checker: ctx.checker,
+      compilerOptions: ctx.tsCompilerOptions,
+      sourceFilesByPath: ctx.sourceFilesByPath,
+    }
+  );
   const sourceSpan = getSourceSpan(node);
 
   if (!resolution.ok) {
@@ -117,7 +128,10 @@ export const convertDynamicImportNamespaceObject = (
     }
 
     const memberType = ctx.typeSystem.typeOfDecl(declId);
-    const containerClrType = buildModuleContainerClrType(entry.ownerFilePath, ctx);
+    const containerClrType = buildModuleContainerClrType(
+      entry.ownerFilePath,
+      ctx
+    );
 
     objectMembers.push({
       kind: "propertySignature",

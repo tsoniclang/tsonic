@@ -309,7 +309,9 @@ const processExpression = (expr: IrExpression): IrExpression => {
             : processExpression(arg)
         ),
         dynamicImportNamespace: expr.dynamicImportNamespace
-          ? (processExpression(expr.dynamicImportNamespace) as typeof expr.dynamicImportNamespace)
+          ? (processExpression(
+              expr.dynamicImportNamespace
+            ) as typeof expr.dynamicImportNamespace)
           : undefined,
       };
 

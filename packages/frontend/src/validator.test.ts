@@ -859,6 +859,24 @@ describe("Static Safety Validation", () => {
       );
       expect(paramDiag).to.equal(undefined);
     });
+
+    it("should allow contextual Promise constructor inference without explicit type arguments", () => {
+      const source = `
+        export function delay(ms: number): Promise<void> {
+          return new Promise((resolve) => {
+            setTimeout(() => resolve(), ms);
+          });
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const typeArgDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5202"
+      );
+      expect(typeArgDiag).to.equal(undefined);
+    });
   });
 
   describe("TSN7413 - Dictionary key type validation", () => {

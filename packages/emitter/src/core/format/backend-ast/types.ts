@@ -556,6 +556,7 @@ export type CSharpPropertyDeclarationAst = {
   readonly name: string;
   readonly hasGetter: boolean;
   readonly hasSetter: boolean;
+  readonly setterAccessibility?: "private" | "protected" | "internal";
   /** C# 9 init-only setter (`{ get; init; }`) */
   readonly hasInit?: boolean;
   readonly initializer?: CSharpExpressionAst;

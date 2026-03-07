@@ -49,7 +49,9 @@ declare global {
   interface RegExp {}
   interface ImportMeta {}
 
-  interface String {}
+  interface String {
+    readonly [n: number]: string;
+  }
   interface Number {}
   interface Boolean {}
 

@@ -259,6 +259,8 @@ export type EmitterContext = {
   readonly isArrayIndex?: boolean;
   /** Current class name (for constructor emission) */
   readonly className?: string;
+  /** Original TS type declaration name currently being emitted. */
+  readonly declaringTypeName?: string;
   /** Whether the current class has a superclass (for virtual/override) */
   readonly hasSuperClass?: boolean;
   /** Whether the module has any inheritance (to decide virtual methods) */
@@ -308,6 +310,10 @@ export type EmitterContext = {
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
   readonly localNameMap?: ReadonlyMap<string, string>;
+  /** Module-level bindings that require mutable storage because JS array writes reassign them. */
+  readonly mutableModuleBindings?: ReadonlySet<string>;
+  /** Local class/interface property slots that require mutable storage because JS array writes reassign them. */
+  readonly mutablePropertySlots?: ReadonlySet<string>;
   /** Bound object-literal receiver identifier for method-shorthand `this` lowering. */
   readonly objectLiteralThisIdentifier?: string;
   /**

@@ -30,17 +30,14 @@ describe("dynamic import resolver", () => {
 
       const entryPath = path.join(tempDir, "src", "index.ts");
       const modulePath = path.join(tempDir, "src", "module.ts");
-      const program = ts.createProgram(
-        [entryPath, modulePath],
-        {
-          target: ts.ScriptTarget.ES2022,
-          module: ts.ModuleKind.NodeNext,
-          moduleResolution: ts.ModuleResolutionKind.NodeNext,
-          strict: true,
-          noEmit: true,
-          skipLibCheck: true,
-        }
-      );
+      const program = ts.createProgram([entryPath, modulePath], {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.NodeNext,
+        moduleResolution: ts.ModuleResolutionKind.NodeNext,
+        strict: true,
+        noEmit: true,
+        skipLibCheck: true,
+      });
       const entrySourceFile = program.getSourceFile(entryPath);
       if (!entrySourceFile) throw new Error("Missing entry source file.");
       const checker = program.getTypeChecker();
@@ -77,11 +74,12 @@ describe("dynamic import resolver", () => {
       expect(resolution.ok).to.equal(true);
       if (!resolution.ok) return;
 
-      expect(resolution.resolvedFilePath).to.equal(modulePath.replace(/\\/g, "/"));
-      expect(resolution.entries.map((entry) => entry.exportName)).to.deep.equal([
-        "twice",
-        "value",
-      ]);
+      expect(resolution.resolvedFilePath).to.equal(
+        modulePath.replace(/\\/g, "/")
+      );
+      expect(resolution.entries.map((entry) => entry.exportName)).to.deep.equal(
+        ["twice", "value"]
+      );
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -124,7 +122,10 @@ describe("dynamic import resolver", () => {
           compilerOptions: program.getCompilerOptions(),
           sourceFilesByPath: new Map<string, ts.SourceFile>([
             [entryPath.replace(/\\/g, "/"), entrySourceFile],
-            [modulePath.replace(/\\/g, "/"), program.getSourceFile(modulePath)!],
+            [
+              modulePath.replace(/\\/g, "/"),
+              program.getSourceFile(modulePath)!,
+            ],
           ]),
         }
       );
@@ -151,7 +152,10 @@ describe("dynamic import resolver", () => {
         entryPath,
         'export async function load() { return import("./module.js"); }\n'
       );
-      fs.writeFileSync(modulePath, "export type Value = { readonly ok: true };\n");
+      fs.writeFileSync(
+        modulePath,
+        "export type Value = { readonly ok: true };\n"
+      );
 
       const program = ts.createProgram([entryPath, modulePath], {
         target: ts.ScriptTarget.ES2022,
@@ -175,7 +179,10 @@ describe("dynamic import resolver", () => {
           compilerOptions: program.getCompilerOptions(),
           sourceFilesByPath: new Map<string, ts.SourceFile>([
             [entryPath.replace(/\\/g, "/"), entrySourceFile],
-            [modulePath.replace(/\\/g, "/"), program.getSourceFile(modulePath)!],
+            [
+              modulePath.replace(/\\/g, "/"),
+              program.getSourceFile(modulePath)!,
+            ],
           ]),
         }
       );
