@@ -71,6 +71,8 @@ export type {
   IrTryCastExpression,
   IrStackAllocExpression,
   IrDefaultOfExpression,
+  IrNameOfExpression,
+  IrSizeOfExpression,
   NumericProof,
   ProofSource,
   ComputedAccessKind,

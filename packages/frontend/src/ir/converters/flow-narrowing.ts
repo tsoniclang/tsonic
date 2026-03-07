@@ -28,6 +28,81 @@ const unwrapExpr = (expr: ts.Expression): ts.Expression => {
   return current;
 };
 
+const getStringLiteralText = (expr: ts.Expression): string | undefined => {
+  const unwrapped = unwrapExpr(expr);
+  if (ts.isStringLiteral(unwrapped) || ts.isNoSubstitutionTemplateLiteral(unwrapped)) {
+    return unwrapped.text;
+  }
+  return undefined;
+};
+
+const genericTypeofTarget = (tag: string): IrType | undefined => {
+  switch (tag) {
+    case "string":
+      return { kind: "primitiveType", name: "string" };
+    case "number":
+      return { kind: "primitiveType", name: "number" };
+    case "boolean":
+      return { kind: "primitiveType", name: "boolean" };
+    case "undefined":
+      return { kind: "primitiveType", name: "undefined" };
+    default:
+      return undefined;
+  }
+};
+
+const matchesTypeofTag = (type: IrType, tag: string): boolean => {
+  if (type.kind === "literalType") {
+    switch (tag) {
+      case "string":
+        return typeof type.value === "string";
+      case "number":
+        return typeof type.value === "number";
+      case "boolean":
+        return typeof type.value === "boolean";
+      default:
+        return false;
+    }
+  }
+
+  if (type.kind !== "primitiveType") return false;
+
+  switch (tag) {
+    case "string":
+      return type.name === "string";
+    case "number":
+      return type.name === "number" || type.name === "int";
+    case "boolean":
+      return type.name === "boolean";
+    case "undefined":
+      return type.name === "undefined";
+    default:
+      return false;
+  }
+};
+
+const narrowTypeByTypeofTag = (
+  currentType: IrType | undefined,
+  tag: string
+): IrType | undefined => {
+  if (!currentType) return genericTypeofTarget(tag);
+
+  if (currentType.kind === "unionType") {
+    const kept = currentType.types.filter(
+      (member): member is IrType => !!member && matchesTypeofTag(member, tag)
+    );
+    if (kept.length === 1) return kept[0];
+    if (kept.length > 1) {
+      return { kind: "unionType", types: kept };
+    }
+    return genericTypeofTarget(tag);
+  }
+
+  return matchesTypeofTag(currentType, tag)
+    ? currentType
+    : genericTypeofTarget(tag);
+};
+
 const tryResolveTruthyNarrowing = (
   expr: ts.Expression,
   ctx: ProgramContext
@@ -56,6 +131,48 @@ const tryResolveTruthyNarrowing = (
 
     const narrowedDeclId = ctx.binding.resolveIdentifier(valueArg);
     if (!narrowedDeclId) return undefined;
+
+    return { declId: narrowedDeclId.id, targetType };
+  }
+
+  // typeof x === "string" / "number" / "boolean" / "undefined"
+  if (
+    ts.isBinaryExpression(unwrapped) &&
+    (unwrapped.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      unwrapped.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken)
+  ) {
+    const left = unwrapExpr(unwrapped.left);
+    const right = unwrapExpr(unwrapped.right);
+    const leftLiteral = getStringLiteralText(left);
+    const rightLiteral = getStringLiteralText(right);
+
+    const extractTypeofIdentifier = (
+      expr: ts.Expression
+    ): ts.Identifier | undefined => {
+      if (!ts.isTypeOfExpression(expr)) return undefined;
+      const operand = unwrapExpr(expr.expression);
+      return ts.isIdentifier(operand) ? operand : undefined;
+    };
+
+    const leftTypeofIdent = extractTypeofIdentifier(left);
+    const rightTypeofIdent = extractTypeofIdentifier(right);
+
+    const tag =
+      leftTypeofIdent && rightLiteral
+        ? rightLiteral
+        : rightTypeofIdent && leftLiteral
+          ? leftLiteral
+          : undefined;
+    const narrowedIdent = leftTypeofIdent ?? rightTypeofIdent;
+    if (!tag || !narrowedIdent) return undefined;
+
+    const narrowedDeclId = ctx.binding.resolveIdentifier(narrowedIdent);
+    if (!narrowedDeclId) return undefined;
+
+    const currentType =
+      ctx.typeEnv?.get(narrowedDeclId.id) ?? ctx.typeSystem.typeOfDecl(narrowedDeclId);
+    const targetType = narrowTypeByTypeofTag(currentType, tag);
+    if (!targetType) return undefined;
 
     return { declId: narrowedDeclId.id, targetType };
   }

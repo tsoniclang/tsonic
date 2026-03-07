@@ -9,6 +9,7 @@ import type {
   IrBinaryOperator,
   IrAssignmentOperator,
 } from "./helpers.js";
+import type { IrClassMember } from "./statements.js";
 import { IrBlockStatement } from "./statements.js";
 import { NumericKind } from "./numeric-kind.js";
 import { SourceLocation } from "../../types/diagnostic.js";
@@ -52,7 +53,9 @@ export type IrExpression =
   | IrAsInterfaceExpression
   | IrTryCastExpression
   | IrStackAllocExpression
-  | IrDefaultOfExpression;
+  | IrDefaultOfExpression
+  | IrNameOfExpression
+  | IrSizeOfExpression;
 
 export type IrLiteralExpression = {
   readonly kind: "literal";
@@ -105,6 +108,8 @@ export type IrArrayExpression = {
 export type IrObjectExpression = {
   readonly kind: "object";
   readonly properties: readonly IrObjectProperty[];
+  /** Synthesized behavioral members (currently accessors) for object literal lowering. */
+  readonly behaviorMembers?: readonly IrClassMember[];
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
   /** Contextual type for object literals in typed positions (return, assignment, etc.) */
@@ -130,6 +135,8 @@ export type IrFunctionExpression = {
   readonly body: IrBlockStatement;
   readonly isAsync: boolean;
   readonly isGenerator: boolean;
+  /** True when object-literal method shorthand must bind `this` to the constructed object. */
+  readonly capturesObjectLiteralThis?: boolean;
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
 };
@@ -168,6 +175,11 @@ export type IrMemberExpression = {
   readonly isComputed: boolean; // true for obj[prop], false for obj.prop
   readonly isOptional: boolean; // true for obj?.prop
   readonly inferredType?: IrType;
+  /**
+   * True when `unknown` is the declared/resulting type (for example `unknown[]`
+   * element access) rather than an unrecovered/poisoned type.
+   */
+  readonly allowUnknownInferredType?: boolean;
   readonly sourceSpan?: SourceLocation;
   // Opaque handle to the member declaration (from Binding layer)
   readonly memberId?: MemberId;
@@ -197,6 +209,11 @@ export type IrCallExpression = {
   readonly arguments: readonly (IrExpression | IrSpreadExpression)[];
   readonly isOptional: boolean; // true for func?.()
   readonly inferredType?: IrType;
+  /**
+   * True when `unknown` is the declared return type (for example JSON.parse())
+   * rather than a failed recovery from an unannotated signature.
+   */
+  readonly allowUnknownInferredType?: boolean;
   readonly sourceSpan?: SourceLocation;
   // Opaque handle to the resolved signature (from Binding layer)
   readonly signatureId?: SignatureId;
@@ -497,6 +514,42 @@ export type IrDefaultOfExpression = {
   /** The type whose default value is requested */
   readonly targetType: IrType;
   /** Inferred type is the same as targetType */
+  readonly inferredType: IrType;
+  readonly sourceSpan?: SourceLocation;
+};
+
+/**
+ * Represents a compile-time nameof intrinsic.
+ *
+ * Tsonic lowers this to a compile-time string literal using the authored TS symbol text.
+ *
+ * Examples:
+ * - `nameof(user)` → `"user"`
+ * - `nameof(user.name)` → `"name"`
+ * - `nameof(MyType)` → `"MyType"`
+ */
+export type IrNameOfExpression = {
+  readonly kind: "nameof";
+  /** The TS-authored symbol/member name extracted at conversion time. */
+  readonly name: string;
+  readonly inferredType: IrType;
+  readonly sourceSpan?: SourceLocation;
+};
+
+/**
+ * Represents a compile-time sizeof intrinsic.
+ *
+ * Emits as C# `sizeof(T)`.
+ *
+ * Examples:
+ * - `sizeof<int>()` → `sizeof(int)`
+ * - `sizeof<Guid>()` → `sizeof(global::System.Guid)`
+ */
+export type IrSizeOfExpression = {
+  readonly kind: "sizeof";
+  /** The type whose size is requested */
+  readonly targetType: IrType;
+  /** Inferred type is always int */
   readonly inferredType: IrType;
   readonly sourceSpan?: SourceLocation;
 };

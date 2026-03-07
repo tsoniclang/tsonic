@@ -21,7 +21,11 @@ export const emitFunctionType = (
   for (const param of type.parameters) {
     const paramType = param.type ?? { kind: "anyType" as const };
     const [typeAst, newContext] = emitTypeAst(paramType, currentContext);
-    paramTypeAsts.push(typeAst);
+    paramTypeAsts.push(
+      (param.isOptional || param.initializer) && typeAst.kind !== "nullableType"
+        ? { kind: "nullableType", underlyingType: typeAst }
+        : typeAst
+    );
     currentContext = newContext;
   }
 

@@ -105,6 +105,38 @@ const SAMPLE_MAIN_TS_JS = `export function main(): void {
 }
 `;
 
+const SAMPLE_PROJECT_README = `# Package
+
+This package is authored for Tsonic.
+`;
+
+const writeSourcePackageManifest = (
+  projectRoot: string,
+  surface: SurfaceMode,
+  entryPoint: string
+): void => {
+  const manifestDir = join(projectRoot, "tsonic");
+  mkdirSync(manifestDir, { recursive: true });
+  writeFileSync(
+    join(manifestDir, "package-manifest.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        kind: "tsonic-source-package",
+        surfaces: [surface],
+        source: {
+          exports: {
+            ".": `./${entryPoint}`,
+          },
+        },
+      },
+      null,
+      2
+    ) + "\n",
+    "utf-8"
+  );
+};
+
 const createOrUpdateRootPackageJson = (workspaceRoot: string): void => {
   const packageJsonPath = join(workspaceRoot, "package.json");
   const workspaceName = basename(workspaceRoot);
@@ -302,9 +334,9 @@ export const initWorkspace = (
         JSON.stringify(
           {
             name,
-            private: true,
             version: "1.0.0",
             type: "module",
+            files: ["src", "tsonic", "README.md"],
           },
           null,
           2
@@ -324,6 +356,8 @@ export const initWorkspace = (
       output: { type: "executable" },
     });
 
+    writeSourcePackageManifest(projectRoot, surface, "src/App.ts");
+
     // Sample source
     const appTsPath = join(projectRoot, "src", "App.ts");
     if (!existsSync(appTsPath)) {
@@ -332,6 +366,11 @@ export const initWorkspace = (
         surface === "clr" ? SAMPLE_MAIN_TS : SAMPLE_MAIN_TS_JS,
         "utf-8"
       );
+    }
+
+    const projectReadmePath = join(projectRoot, "README.md");
+    if (!existsSync(projectReadmePath)) {
+      writeFileSync(projectReadmePath, SAMPLE_PROJECT_README, "utf-8");
     }
 
     // Root .gitignore

@@ -151,6 +151,18 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
 
     // Extract declaring identity (CRITICAL for Alice's spec: resolveCall needs this)
     const declaringIdentity = extractDeclaringIdentity(decl);
+    const declaringTypeParameterNames = (() => {
+      if (!decl) return undefined;
+      const parent = decl.parent;
+      if (
+        (ts.isInterfaceDeclaration(parent) || ts.isClassDeclaration(parent)) &&
+        parent.typeParameters &&
+        parent.typeParameters.length > 0
+      ) {
+        return parent.typeParameters.map((tp) => tp.name.text);
+      }
+      return undefined;
+    })();
 
     // Extract type predicate from return type (ALICE'S SPEC: pure syntax inspection)
     const returnTypeNode = getReturnTypeNode(decl);
@@ -164,6 +176,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       returnTypeNode,
       typeParameters: extractTypeParameterNodes(decl),
       declaringTypeTsName: declaringIdentity?.typeTsName,
+      declaringTypeParameterNames,
       declaringMemberName: declaringIdentity?.memberName,
       typePredicate,
     };
@@ -643,9 +656,13 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
           ...entry,
           declaringTypeTsName,
           declaringMemberName: "constructor",
-          typeParameters:
-            decl && ts.isClassDeclaration(decl)
+        typeParameters:
+          decl && ts.isClassDeclaration(decl)
               ? convertTypeParameterDeclarations(decl.typeParameters)
+              : undefined,
+          declaringTypeParameterNames:
+            decl && ts.isClassDeclaration(decl) && decl.typeParameters
+              ? decl.typeParameters.map((tp) => tp.name.text)
               : undefined,
         });
       }
@@ -842,6 +859,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         // CRITICAL for Alice's spec: declaring identity for resolveCall()
         // Uses simple TS name, resolved via UnifiedTypeCatalog.resolveTsName()
         declaringTypeTsName: entry.declaringTypeTsName,
+        declaringTypeParameterNames: entry.declaringTypeParameterNames,
         declaringMemberName: entry.declaringMemberName,
         // Type predicate extracted at registration time (Alice's spec)
         typePredicate: entry.typePredicate,

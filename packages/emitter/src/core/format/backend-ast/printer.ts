@@ -276,6 +276,7 @@ const getExpressionPrecedence = (expr: CSharpExpressionAst): number => {
     case "arrayCreationExpression":
     case "stackAllocArrayCreationExpression":
     case "defaultExpression":
+    case "sizeOfExpression":
     case "typeofExpression":
     case "interpolatedStringExpression":
     case "suppressNullableWarningExpression":
@@ -535,6 +536,9 @@ export const printExpression = (expr: CSharpExpressionAst): string => {
     case "defaultExpression":
       return expr.type ? `default(${printType(expr.type)})` : "default";
 
+    case "sizeOfExpression":
+      return `sizeof(${printType(expr.type)})`;
+
     case "awaitExpression":
       return `await ${printUnaryOperand(expr.expression, true)}`;
 
@@ -589,6 +593,7 @@ const printPrimaryExpression = (expr: CSharpExpressionAst): string => {
     expr.kind === "literalExpression" ||
     expr.kind === "identifierExpression" ||
     expr.kind === "defaultExpression" ||
+    expr.kind === "sizeOfExpression" ||
     expr.kind === "typeofExpression" ||
     expr.kind === "interpolatedStringExpression" ||
     expr.kind === "objectCreationExpression" ||

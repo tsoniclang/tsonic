@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import {
   IrFunctionExpression,
   IrArrowFunctionExpression,
+  IrFunctionType,
   IrParameter,
   IrType,
 } from "../../types.js";
@@ -14,6 +15,35 @@ import { convertExpression } from "../../expression-converter.js";
 import { convertBlockStatement } from "../statements/control.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
 import type { ProgramContext } from "../../program-context.js";
+
+const isNullishPrimitive = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
+const normalizeExpectedFunctionType = (
+  expectedType: IrType | undefined,
+  ctx: ProgramContext
+): IrFunctionType | undefined => {
+  if (!expectedType) return undefined;
+  if (expectedType.kind === "functionType") return expectedType;
+
+  const delegated = ctx.typeSystem.delegateToFunctionType(expectedType);
+  if (delegated) return delegated;
+
+  if (expectedType.kind !== "unionType") return undefined;
+
+  const candidates = expectedType.types
+    .filter((member): member is IrType => !!member && !isNullishPrimitive(member))
+    .map((member) =>
+      member.kind === "functionType"
+        ? member
+        : ctx.typeSystem.delegateToFunctionType(member)
+    )
+    .filter((member): member is IrFunctionType => member !== undefined);
+
+  if (candidates.length !== 1) return undefined;
+  return candidates[0];
+};
 
 /**
  * Extract parameter types from an expected function type.
@@ -123,12 +153,7 @@ export const convertFunctionExpression = (
 ): IrFunctionExpression => {
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = ctx.typeSystem;
-  const expectedFnType =
-    expectedType?.kind === "functionType"
-      ? expectedType
-      : expectedType
-        ? typeSystem.delegateToFunctionType(expectedType)
-        : undefined;
+  const expectedFnType = normalizeExpectedFunctionType(expectedType, ctx);
 
   // Get return type from declared annotation, or from expectedType if available.
   const declaredReturnType = node.type
@@ -160,12 +185,14 @@ export const convertFunctionExpression = (
   })();
 
   const returnType = declaredReturnType ?? expectedReturnType;
+  const inferredReturnType =
+    returnType ?? ({ kind: "unknownType" } as const);
 
   // DETERMINISTIC: Build function type from declared parameters and return type
   const inferredType = {
     kind: "functionType" as const,
     parameters,
-    returnType: returnType ?? { kind: "voidType" as const },
+    returnType: inferredReturnType,
   };
 
   return {
@@ -199,12 +226,7 @@ export const convertArrowFunction = (
 ): IrArrowFunctionExpression => {
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = ctx.typeSystem;
-  const expectedFnType =
-    expectedType?.kind === "functionType"
-      ? expectedType
-      : expectedType
-        ? typeSystem.delegateToFunctionType(expectedType)
-        : undefined;
+  const expectedFnType = normalizeExpectedFunctionType(expectedType, ctx);
 
   // Get return type from declared annotation, or from expectedType if available
   const declaredReturnType = node.type
@@ -262,7 +284,7 @@ export const convertArrowFunction = (
       ? expectedReturnType
       : !ts.isBlock(node.body)
         ? ((body as ReturnType<typeof convertExpression>).inferredType ??
-          ({ kind: "voidType" } as const))
+          ({ kind: "unknownType" } as const))
         : expectedReturnType);
 
   // DETERMINISTIC TYPING: contextualType comes from expectedType
@@ -272,7 +294,7 @@ export const convertArrowFunction = (
   const inferredType = {
     kind: "functionType" as const,
     parameters,
-    returnType: returnType ?? { kind: "voidType" as const },
+    returnType: returnType ?? { kind: "unknownType" as const },
   };
 
   return {

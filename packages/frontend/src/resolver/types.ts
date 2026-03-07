@@ -5,6 +5,7 @@
 export type ResolvedModule = {
   readonly resolvedPath: string;
   readonly isLocal: boolean;
+  readonly isSourcePackage?: boolean;
   readonly isClr: boolean;
   readonly originalSpecifier: string;
   // For CLR imports: the CLR namespace (e.g., "System" from "@scope/pkg/System")

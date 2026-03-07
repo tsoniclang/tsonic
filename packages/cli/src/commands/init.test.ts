@@ -181,6 +181,40 @@ describe("Init Command", () => {
         );
         expect(appTs).to.include("@tsonic/dotnet/System.js");
         expect(appTs).to.include("Console.WriteLine");
+
+        const projectPkg = JSON.parse(
+          readFileSync(
+            join(dir, "packages", workspaceName, "package.json"),
+            "utf-8"
+          )
+        ) as {
+          readonly private?: boolean;
+          readonly files?: readonly string[];
+        };
+        expect(projectPkg.private).to.equal(undefined);
+        expect(projectPkg.files).to.deep.equal(["src", "tsonic", "README.md"]);
+
+        const manifest = JSON.parse(
+          readFileSync(
+            join(
+              dir,
+              "packages",
+              workspaceName,
+              "tsonic",
+              "package-manifest.json"
+            ),
+            "utf-8"
+          )
+        ) as {
+          readonly kind?: string;
+          readonly surfaces?: readonly string[];
+          readonly source?: {
+            readonly exports?: Readonly<Record<string, string>>;
+          };
+        };
+        expect(manifest.kind).to.equal("tsonic-source-package");
+        expect(manifest.surfaces).to.deep.equal(["clr"]);
+        expect(manifest.source?.exports?.["."]).to.equal("./src/App.ts");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -221,6 +255,22 @@ describe("Init Command", () => {
         );
         expect(appTs).to.include("console.log");
         expect(appTs).to.include(".trim()");
+
+        const manifest = JSON.parse(
+          readFileSync(
+            join(
+              dir,
+              "packages",
+              workspaceName,
+              "tsonic",
+              "package-manifest.json"
+            ),
+            "utf-8"
+          )
+        ) as {
+          readonly surfaces?: readonly string[];
+        };
+        expect(manifest.surfaces).to.deep.equal(["@tsonic/js"]);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

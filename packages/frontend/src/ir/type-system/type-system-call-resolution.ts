@@ -99,6 +99,8 @@ export const getRawSignature = (
   }));
 
   const isConstructor = sigInfo.declaringMemberName === "constructor";
+  const hasDeclaredReturnType =
+    sigInfo.returnTypeNode !== undefined || isConstructor;
 
   // Convert return type
   const returnType: IrType = (() => {
@@ -155,11 +157,13 @@ export const getRawSignature = (
     })),
     thisParameterType,
     returnType,
+    hasDeclaredReturnType,
     parameterModes,
     typeParameters,
     parameterNames,
     typePredicate,
     declaringTypeTsName: sigInfo.declaringTypeTsName,
+    declaringTypeParameterNames: sigInfo.declaringTypeParameterNames,
     declaringMemberName: sigInfo.declaringMemberName,
   };
 
@@ -456,12 +460,14 @@ export const lookupStructuralMember = (
       }
     }
   }
-  emitDiagnostic(
-    state,
-    "TSN5203",
-    `Member '${memberName}' not found on structural type`,
-    site
-  );
+  if (site) {
+    emitDiagnostic(
+      state,
+      "TSN5203",
+      `Member '${memberName}' not found on structural type`,
+      site
+    );
+  }
   return unknownType;
 };
 
@@ -481,17 +487,55 @@ export const computeReceiverSubstitution = (
   state: TypeSystemState,
   receiverType: IrType,
   declaringTypeTsName: string,
-  _declaringMemberName: string
+  _declaringMemberName: string,
+  declaringTypeParameterNames?: readonly string[]
 ): TypeSubstitutionMap | undefined => {
   const normalized = normalizeToNominal(state, receiverType);
-  if (!normalized) return undefined;
+  const trySyntacticReferenceFallback = (): TypeSubstitutionMap | undefined => {
+    if (
+      receiverType.kind !== "referenceType" ||
+      !receiverType.typeArguments ||
+      receiverType.typeArguments.length === 0 ||
+      !declaringTypeParameterNames ||
+      declaringTypeParameterNames.length !== receiverType.typeArguments.length
+    ) {
+      return undefined;
+    }
+
+    const normalizeTypeName = (name: string): string =>
+      name
+        .replace(/\$instance$/, "")
+        .replace(/^__(.+)\$views$/, "$1")
+        .replace(/_\d+$/, "")
+        .replace(/`\d+$/, "");
+
+    if (
+      normalizeTypeName(receiverType.name) !==
+      normalizeTypeName(declaringTypeTsName)
+    ) {
+      return undefined;
+    }
+
+    return new Map(
+      declaringTypeParameterNames.map((name, index) => [
+        name,
+        receiverType.typeArguments![index]!,
+      ])
+    );
+  };
+
+  if (!normalized) {
+    return trySyntacticReferenceFallback();
+  }
 
   const arityHint =
     normalized.typeArgs.length > 0 ? normalized.typeArgs.length : undefined;
   const declaringTypeId =
     resolveTypeIdByName(state, declaringTypeTsName, arityHint) ??
     resolveTypeIdByName(state, declaringTypeTsName);
-  if (!declaringTypeId) return undefined;
+  if (!declaringTypeId) {
+    return trySyntacticReferenceFallback();
+  }
 
   const nominalInstantiation = state.nominalEnv.getInstantiation(
     normalized.typeId,
@@ -518,6 +562,9 @@ export const computeReceiverSubstitution = (
     }
   }
 
+  const referenceFallback = trySyntacticReferenceFallback();
+  if (referenceFallback) return referenceFallback;
+
   return undefined;
 };
 
@@ -541,7 +588,11 @@ export const inferMethodTypeArgsFromArguments = (
   const methodTypeParamNames = new Set(methodTypeParams.map((p) => p.name));
   const substitution = new Map<string, IrType>();
 
-  const tryUnify = (parameterType: IrType, argumentType: IrType): boolean => {
+  const tryUnify = (
+    parameterType: IrType,
+    argumentType: IrType,
+    currentSubstitution: Map<string, IrType>
+  ): boolean => {
     // Method type parameter position: infer directly
     if (parameterType.kind === "typeParameterType") {
       if (!methodTypeParamNames.has(parameterType.name)) {
@@ -549,7 +600,7 @@ export const inferMethodTypeArgsFromArguments = (
         return true;
       }
 
-      const existing = substitution.get(parameterType.name);
+      const existing = currentSubstitution.get(parameterType.name);
       if (existing) {
         // A self-mapping like `B -> B` can be produced when a lambda argument was typed
         // contextually from the unresolved expected signature. This provides no real
@@ -558,14 +609,14 @@ export const inferMethodTypeArgsFromArguments = (
           existing.kind === "typeParameterType" &&
           existing.name === parameterType.name
         ) {
-          substitution.set(parameterType.name, argumentType);
+          currentSubstitution.set(parameterType.name, argumentType);
           return true;
         }
 
         return typesEqual(existing, argumentType);
       }
 
-      substitution.set(parameterType.name, argumentType);
+      currentSubstitution.set(parameterType.name, argumentType);
       return true;
     }
 
@@ -585,7 +636,7 @@ export const inferMethodTypeArgsFromArguments = (
     if (argumentType.kind === "intersectionType") {
       for (const part of argumentType.types) {
         if (!part) continue;
-        if (!tryUnify(parameterType, part)) return false;
+        if (!tryUnify(parameterType, part, currentSubstitution)) return false;
       }
       return true;
     }
@@ -598,7 +649,7 @@ export const inferMethodTypeArgsFromArguments = (
       (parameterType.typeArguments?.length ?? 0) === 1
     ) {
       const inner = parameterType.typeArguments?.[0];
-      return inner ? tryUnify(inner, argumentType) : true;
+      return inner ? tryUnify(inner, argumentType, currentSubstitution) : true;
     }
 
     // Delegate unification: allow deterministic inference through the delegate's
@@ -613,14 +664,16 @@ export const inferMethodTypeArgsFromArguments = (
       argumentType.kind === "functionType"
     ) {
       const delegateFn = delegateToFunctionType(state, parameterType);
-      if (delegateFn) return tryUnify(delegateFn, argumentType);
+      if (delegateFn)
+        return tryUnify(delegateFn, argumentType, currentSubstitution);
     }
     if (
       parameterType.kind === "functionType" &&
       argumentType.kind === "referenceType"
     ) {
       const delegateFn = delegateToFunctionType(state, argumentType);
-      if (delegateFn) return tryUnify(parameterType, delegateFn);
+      if (delegateFn)
+        return tryUnify(parameterType, delegateFn, currentSubstitution);
     }
 
     // Array<T> ↔ T[] unification
@@ -632,7 +685,7 @@ export const inferMethodTypeArgsFromArguments = (
     ) {
       const elementParam = parameterType.typeArguments?.[0];
       return elementParam
-        ? tryUnify(elementParam, argumentType.elementType)
+        ? tryUnify(elementParam, argumentType.elementType, currentSubstitution)
         : true;
     }
 
@@ -651,7 +704,40 @@ export const inferMethodTypeArgsFromArguments = (
         : nonNullish;
       if (candidates.length === 1) {
         const only = candidates[0];
-        return only ? tryUnify(only, argumentType) : true;
+        return only ? tryUnify(only, argumentType, currentSubstitution) : true;
+      }
+
+      const snapshot = new Map(currentSubstitution);
+      const informativeMatches: Map<string, IrType>[] = [];
+
+      for (const candidate of candidates) {
+        if (!candidate) continue;
+        const trial = new Map(snapshot);
+        if (!tryUnify(candidate, argumentType, trial)) continue;
+        if (mapEntriesEqual(snapshot, trial)) continue;
+        informativeMatches.push(trial);
+      }
+
+      if (informativeMatches.length === 1) {
+        const only = informativeMatches[0]!;
+        currentSubstitution.clear();
+        for (const [key, value] of only) {
+          currentSubstitution.set(key, value);
+        }
+        return true;
+      }
+
+      if (
+        informativeMatches.length > 1 &&
+        informativeMatches.every((m) =>
+          mapEntriesEqual(informativeMatches[0]!, m)
+        )
+      ) {
+        currentSubstitution.clear();
+        for (const [key, value] of informativeMatches[0]!) {
+          currentSubstitution.set(key, value);
+        }
+        return true;
       }
 
       // Conservative: ambiguous unions provide no deterministic signal.
@@ -666,7 +752,7 @@ export const inferMethodTypeArgsFromArguments = (
     ) {
       const elementArg = argumentType.typeArguments?.[0];
       return elementArg
-        ? tryUnify(parameterType.elementType, elementArg)
+        ? tryUnify(parameterType.elementType, elementArg, currentSubstitution)
         : true;
     }
 
@@ -703,7 +789,7 @@ export const inferMethodTypeArgsFromArguments = (
             const pa = paramArgs[i];
             const aa = argArgs[i];
             if (!pa || !aa) continue;
-            if (!tryUnify(pa, aa)) return false;
+            if (!tryUnify(pa, aa, currentSubstitution)) return false;
           }
           return true;
         }
@@ -736,7 +822,7 @@ export const inferMethodTypeArgsFromArguments = (
                 const pa = paramArgs[i];
                 const aa = instantiatedArgs[i];
                 if (!pa || !aa) continue;
-                if (!tryUnify(pa, aa)) return false;
+                if (!tryUnify(pa, aa, currentSubstitution)) return false;
               }
             }
           }
@@ -748,7 +834,8 @@ export const inferMethodTypeArgsFromArguments = (
       case "arrayType":
         return tryUnify(
           parameterType.elementType,
-          (argumentType as typeof parameterType).elementType
+          (argumentType as typeof parameterType).elementType,
+          currentSubstitution
         );
 
       case "tupleType": {
@@ -762,7 +849,7 @@ export const inferMethodTypeArgsFromArguments = (
           const pe = parameterType.elementTypes[i];
           const ae = argTuple.elementTypes[i];
           if (!pe || !ae) continue;
-          if (!tryUnify(pe, ae)) return false;
+          if (!tryUnify(pe, ae, currentSubstitution)) return false;
         }
         return true;
       }
@@ -779,11 +866,15 @@ export const inferMethodTypeArgsFromArguments = (
           const pt = pp?.type;
           const at = ap?.type;
           if (pt && at) {
-            if (!tryUnify(pt, at)) return false;
+            if (!tryUnify(pt, at, currentSubstitution)) return false;
           }
         }
 
-        return tryUnify(parameterType.returnType, argFn.returnType);
+        return tryUnify(
+          parameterType.returnType,
+          argFn.returnType,
+          currentSubstitution
+        );
       }
 
       case "objectType":
@@ -805,7 +896,7 @@ export const inferMethodTypeArgsFromArguments = (
     const paramType = parameterTypes[i];
     const argType = argTypes[i];
     if (!paramType || !argType) continue;
-    if (!tryUnify(paramType, argType)) return undefined;
+    if (!tryUnify(paramType, argType, substitution)) return undefined;
   }
 
   return substitution;
@@ -1119,7 +1210,10 @@ export const tryResolveCallFromUnifiedCatalog = (
         state,
         receiverType,
         catalogTypeName,
-        declaringMemberName
+        declaringMemberName,
+        state.unifiedCatalog
+          .getTypeParameters(declaringTypeId)
+          .map((param) => param.name)
       );
       if (receiverSubst && receiverSubst.size > 0) {
         workingParams = workingParams.map((p) =>
@@ -1210,6 +1304,7 @@ export const tryResolveCallFromUnifiedCatalog = (
       parameterTypes: workingParams,
       parameterModes: signature.parameters.map((p) => p.mode),
       returnType: workingReturn,
+      hasDeclaredReturnType: true,
       typePredicate: undefined,
       diagnostics: [],
     };
@@ -1387,7 +1482,8 @@ export const resolveCall = (
       state,
       effectiveReceiverType,
       rawSig.declaringTypeTsName,
-      rawSig.declaringMemberName
+      rawSig.declaringMemberName,
+      rawSig.declaringTypeParameterNames
     );
 
     // Array receiver fallback:
@@ -1685,6 +1781,7 @@ export const resolveCall = (
     parameterTypes: workingParams,
     parameterModes: rawSig.parameterModes,
     returnType: workingReturn,
+    hasDeclaredReturnType: rawSig.hasDeclaredReturnType,
     typePredicate: workingPredicate,
     diagnostics: [],
   };

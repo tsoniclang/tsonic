@@ -306,7 +306,9 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include('global::Tsonic.JSRuntime.JSArrayStatics.from("abc")');
+    expect(result).to.include(
+      'global::Tsonic.JSRuntime.JSArrayStatics.from("abc")'
+    );
     expect(result).not.to.include("global::Tsonic.JSRuntime.JSArray.from");
   });
 
@@ -474,7 +476,9 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("global::Tsonic.JSRuntime.Number.toString(value)");
+    expect(result).to.include(
+      "global::Tsonic.JSRuntime.Number.toString(value)"
+    );
     expect(result).not.to.include("value.toString()");
   });
 
@@ -2257,5 +2261,135 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include("ok(default(object))");
+  });
+
+  it("should lower tuple-rest function value calls as positional arguments", () => {
+    const tupleRestType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "tupleType" as const, elementTypes: [] },
+        {
+          kind: "tupleType" as const,
+          elementTypes: [
+            { kind: "primitiveType" as const, name: "number" as const },
+          ],
+        },
+      ],
+    } as const;
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "next",
+              inferredType: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "args" },
+                    type: tupleRestType,
+                    isOptional: false,
+                    isRest: true,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "unknownType" },
+              },
+            },
+            arguments: [{ kind: "literal", value: 5, numericIntent: "Int32" }],
+            isOptional: false,
+            parameterTypes: [tupleRestType],
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 1,
+              column: 1,
+              length: 7,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("next(5)");
+    expect(result).to.not.include("new object[] { 5 }");
+  });
+
+  it("should lower zero-arg tuple-rest function value calls without synthetic arrays", () => {
+    const tupleRestType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "tupleType" as const, elementTypes: [] },
+        {
+          kind: "tupleType" as const,
+          elementTypes: [
+            { kind: "primitiveType" as const, name: "number" as const },
+          ],
+        },
+      ],
+    } as const;
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "next",
+              inferredType: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "args" },
+                    type: tupleRestType,
+                    isOptional: false,
+                    isRest: true,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "unknownType" },
+              },
+            },
+            arguments: [],
+            isOptional: false,
+            parameterTypes: [tupleRestType],
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 1,
+              column: 1,
+              length: 6,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("next()");
+    expect(result).to.not.include("new object[0]");
   });
 });

@@ -695,6 +695,10 @@ export const isDefinitelyValueType = (type: IrType): boolean => {
     return ["number", "int", "boolean", "char"].includes(base.name);
   }
 
+  if (base.kind === "tupleType") {
+    return true;
+  }
+
   // Known CLR struct types
   if (base.kind === "referenceType") {
     const clr = base.resolvedClrType;

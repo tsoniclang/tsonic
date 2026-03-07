@@ -13,6 +13,7 @@ describe("CLI Surface Profiles", () => {
   it("should resolve clr capabilities", () => {
     const caps = resolveSurfaceCapabilities("clr");
     expect(caps.includesClr).to.equal(true);
+    expect(caps.resolvedModes).to.deep.equal(["clr"]);
     expect(caps.requiredTypeRoots).to.deep.equal([
       "node_modules/@tsonic/globals",
     ]);
@@ -87,6 +88,7 @@ describe("CLI Surface Profiles", () => {
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { workspaceRoot });
       expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/js"]);
+      expect(caps.resolvedModes).to.deep.equal(["@tsonic/js"]);
       expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
       expect(caps.requiredTypeRoots).to.not.include(
         "node_modules/@tsonic/dotnet"
@@ -135,9 +137,9 @@ describe("CLI Surface Profiles", () => {
       expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/js"]);
       expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
       expect(caps.useStandardLib).to.equal(false);
-      expect(hasResolvedSurfaceProfile("@tsonic/js", { workspaceRoot })).to.equal(
-        true
-      );
+      expect(
+        hasResolvedSurfaceProfile("@tsonic/js", { workspaceRoot })
+      ).to.equal(true);
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
     }
@@ -335,6 +337,10 @@ describe("CLI Surface Profiles", () => {
         workspaceRoot,
       });
       expect(caps.mode).to.equal("@acme/surface-node");
+      expect(caps.resolvedModes).to.deep.equal([
+        "@tsonic/js",
+        "@acme/surface-node",
+      ]);
       expect(caps.includesClr).to.equal(false);
       expect(caps.requiredNpmPackages).to.deep.equal([
         "@tsonic/js",

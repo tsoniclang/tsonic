@@ -257,7 +257,7 @@ export type TypeAuthority = {
    *
    * Returns unknownType if member not found or has no type annotation.
    */
-  typeOfMemberId(memberId: MemberId): IrType;
+  typeOfMemberId(memberId: MemberId, receiverType?: IrType): IrType;
 
   /**
    * Get the fully-qualified name of a declaration.
@@ -554,7 +554,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
 
     // Declaration inspection (inference module)
     hasTypeParameters: (declId) => infHasTypeParameters(state, declId),
-    typeOfMemberId: (memberId) => infTypeOfMemberId(state, memberId),
+    typeOfMemberId: (memberId, receiverType) =>
+      infTypeOfMemberId(state, memberId, receiverType),
     getFQNameOfDecl: (declId) => infGetFQNameOfDecl(state, declId),
     isTypeDecl: (declId) => infIsTypeDecl(state, declId),
     isInterfaceDecl: (declId) => infIsInterfaceDecl(state, declId),

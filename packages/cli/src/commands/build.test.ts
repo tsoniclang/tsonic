@@ -65,7 +65,10 @@ describe("build command (library bindings ref dirs)", function () {
         join(dir, "node_modules/@tsonic/dotnet")
       );
 
-      const runtimeDll = join(repoRoot, "packages/cli/runtime/Tsonic.Runtime.dll");
+      const runtimeDll = join(
+        repoRoot,
+        "packages/cli/runtime/Tsonic.Runtime.dll"
+      );
       expect(existsSync(runtimeDll)).to.equal(true);
 
       const workspaceConfig = {
@@ -83,7 +86,12 @@ describe("build command (library bindings ref dirs)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -125,6 +133,161 @@ describe("build command (library bindings ref dirs)", function () {
       expect(csprojText).to.not.include(
         '<PackageReference Include="Tsonic.Runtime" Version="0.0.1" />'
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes installed source-package modules inside generated output", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-source-package-gen-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/js"),
+        join(dir, "node_modules/@tsonic/js")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const sourcePackageRoot = join(dir, "node_modules/@acme/math");
+      mkdirSync(join(sourcePackageRoot, "tsonic"), { recursive: true });
+      mkdirSync(join(sourcePackageRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(sourcePackageRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/math",
+            version: "1.0.0",
+            type: "module",
+            types: "./src/index.ts",
+            exports: {
+              ".": "./src/index.ts",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(sourcePackageRoot, "src/index.ts"),
+        "export function clamp(x: number, min: number, max: number): number { return x < min ? min : x > max ? max : x; }\n",
+        "utf-8"
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        'import { clamp } from "@acme/math";\nexport function main(): void { console.log(clamp(10, 0, 5).toString()); }\n',
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveConfig(
+        workspaceConfig,
+        projectConfig,
+        {},
+        dir,
+        projectRoot
+      );
+
+      const result = generateCommand(config);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const generatedTree = join(projectRoot, "generated");
+      const generatedMathPaths = [
+        join(
+          generatedTree,
+          "__external__",
+          "node_modules",
+          "@acme",
+          "math",
+          "src",
+          "index.cs"
+        ),
+        join(
+          generatedTree,
+          "node_modules",
+          "@acme",
+          "math",
+          "src",
+          "index.cs"
+        ),
+      ];
+
+      expect(generatedMathPaths.some((filePath) => existsSync(filePath))).to.equal(
+        true
+      );
+      expect(
+        existsSync(join(projectRoot, "node_modules", "@acme", "math", "src", "index.cs"))
+      ).to.equal(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

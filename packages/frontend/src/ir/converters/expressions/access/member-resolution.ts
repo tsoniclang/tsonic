@@ -21,6 +21,7 @@ import type { ProgramContext } from "../../../program-context.js";
  */
 const getDeclaredPropertyTypeFallback = (
   node: ts.PropertyAccessExpression,
+  receiverIrType: IrType | undefined,
   ctx: ProgramContext
 ): IrType | undefined => {
   // ALICE'S SPEC: Use TypeSystem.typeOfMemberId() to get member type
@@ -31,7 +32,7 @@ const getDeclaredPropertyTypeFallback = (
   if (!memberId) return undefined;
 
   // Use TypeSystem.typeOfMemberId() to get the member's declared type
-  const memberType = typeSystem.typeOfMemberId(memberId);
+  const memberType = typeSystem.typeOfMemberId(memberId, receiverIrType);
 
   // If TypeSystem returns unknownType, treat as not found
   if (memberType.kind === "unknownType") {
@@ -93,7 +94,11 @@ export const getDeclaredPropertyType = (
 
   // Fallback: Use Binding for inherited members not in TypeRegistry
   // (e.g., Array.Length from Array$instance)
-  const fallbackResult = getDeclaredPropertyTypeFallback(node, ctx);
+  const fallbackResult = getDeclaredPropertyTypeFallback(
+    node,
+    receiverIrType,
+    ctx
+  );
   if (DEBUG) {
     console.log(
       "[getDeclaredPropertyType]",
@@ -224,6 +229,21 @@ export const extractTypeName = (
     if (nonNullish.length === 1) {
       const only = nonNullish[0];
       return only ? extractTypeName(only) : undefined;
+    }
+
+    if (nonNullish.length > 1) {
+      const extractedNames = nonNullish
+        .map((part) => extractTypeName(part))
+        .filter((name): name is string => typeof name === "string");
+
+      if (extractedNames.length !== nonNullish.length) {
+        return undefined;
+      }
+
+      const uniqueNames = [...new Set(extractedNames)];
+      if (uniqueNames.length === 1) {
+        return uniqueNames[0];
+      }
     }
   }
 

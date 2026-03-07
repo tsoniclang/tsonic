@@ -32,6 +32,96 @@ import type {
 
 const objectTypeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
 
+const tupleElementMemberName = (index: number): string =>
+  index < 7 ? `Item${index + 1}` : "Rest";
+
+const emitTupleElementAccessAst = (
+  inputExpr: CSharpExpressionAst,
+  index: number
+): CSharpExpressionAst => {
+  if (index < 7) {
+    return {
+      kind: "memberAccessExpression",
+      expression: inputExpr,
+      memberName: tupleElementMemberName(index),
+    };
+  }
+
+  return emitTupleElementAccessAst(
+    {
+      kind: "memberAccessExpression",
+      expression: inputExpr,
+      memberName: "Rest",
+    },
+    index - 7
+  );
+};
+
+const getTupleElementType = (
+  tupleType: Extract<IrType, { kind: "tupleType" }>,
+  index: number
+): IrType | undefined => {
+  const direct = tupleType.elementTypes[index];
+  if (direct) return direct;
+
+  if (index < 7) return undefined;
+  const rest = tupleType.elementTypes.slice(7);
+  if (rest.length === 0) return undefined;
+
+  return getTupleElementType(
+    {
+      kind: "tupleType",
+      elementTypes: rest,
+    },
+    index - 7
+  );
+};
+
+const getTupleRestArrayType = (
+  tupleType: Extract<IrType, { kind: "tupleType" }>,
+  startIndex: number
+): IrType | undefined => {
+  const remaining = tupleType.elementTypes.slice(startIndex);
+  if (remaining.length === 0) {
+    return {
+      kind: "arrayType",
+      elementType: { kind: "unknownType" },
+    };
+  }
+
+  const [first, ...rest] = remaining;
+  if (!first) {
+    return {
+      kind: "arrayType",
+      elementType: { kind: "unknownType" },
+    };
+  }
+
+  if (rest.length === 0) {
+    return { kind: "arrayType", elementType: first };
+  }
+
+  return {
+    kind: "arrayType",
+    elementType: {
+      kind: "unionType",
+      types: remaining.filter((item): item is IrType => item !== undefined),
+    },
+  };
+};
+
+const emitTupleRestArrayAst = (
+  inputExpr: CSharpExpressionAst,
+  tupleType: Extract<IrType, { kind: "tupleType" }>,
+  startIndex: number
+): CSharpExpressionAst => ({
+  kind: "arrayCreationExpression",
+  elementType: { kind: "varType" },
+  initializer: tupleType.elementTypes
+    .slice(startIndex)
+    .map((_, offset) => emitTupleElementAccessAst(inputExpr, startIndex + offset)),
+});
+
 const generateTemp = (
   prefix: string,
   ctx: EmitterContext
@@ -247,6 +337,83 @@ const lowerArrayPatternAst = (
   return { statements, context: currentCtx };
 };
 
+const lowerTuplePatternAst = (
+  pattern: IrArrayPattern,
+  inputExpr: CSharpExpressionAst,
+  tupleType: Extract<IrType, { kind: "tupleType" }>,
+  ctx: EmitterContext
+): LoweringResultAst => {
+  const statements: CSharpStatementAst[] = [];
+  let currentCtx = ctx;
+
+  const [rawTempName, nextCtx] = generateTemp("tuple", currentCtx);
+  currentCtx = nextCtx;
+  const alloc = allocateLocalName(rawTempName, currentCtx);
+  const tempName = alloc.emittedName;
+  currentCtx = alloc.context;
+
+  statements.push({
+    kind: "localDeclarationStatement",
+    modifiers: [],
+    type: { kind: "varType" },
+    declarators: [{ name: tempName, initializer: inputExpr }],
+  });
+
+  const tempExpr: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: tempName,
+  };
+
+  let index = 0;
+  for (const elem of pattern.elements) {
+    if (!elem) {
+      index++;
+      continue;
+    }
+
+    if (elem.isRest) {
+      const restExpr = emitTupleRestArrayAst(tempExpr, tupleType, index);
+      const rest = lowerPatternAst(
+        elem.pattern,
+        restExpr,
+        getTupleRestArrayType(tupleType, index),
+        currentCtx
+      );
+      statements.push(...rest.statements);
+      currentCtx = rest.context;
+      break;
+    }
+
+    const accessExpr = emitTupleElementAccessAst(tempExpr, index);
+    let valueExpr: CSharpExpressionAst = accessExpr;
+    if (elem.defaultExpr) {
+      const [defaultAst, defaultCtx] = emitDefaultExprAst(
+        elem.defaultExpr,
+        currentCtx
+      );
+      currentCtx = defaultCtx;
+      valueExpr = {
+        kind: "binaryExpression",
+        operatorToken: "??",
+        left: accessExpr,
+        right: defaultAst,
+      };
+    }
+
+    const nested = lowerPatternAst(
+      elem.pattern,
+      valueExpr,
+      getTupleElementType(tupleType, index),
+      currentCtx
+    );
+    statements.push(...nested.statements);
+    currentCtx = nested.context;
+    index++;
+  }
+
+  return { statements, context: currentCtx };
+};
+
 const lowerObjectPatternAst = (
   pattern: IrObjectPattern,
   inputExpr: CSharpExpressionAst,
@@ -355,6 +522,9 @@ export const lowerPatternAst = (
     case "identifierPattern":
       return lowerIdentifierAst(pattern.name, inputExpr, type, ctx);
     case "arrayPattern": {
+      if (type?.kind === "tupleType") {
+        return lowerTuplePatternAst(pattern, inputExpr, type, ctx);
+      }
       const elementType =
         type?.kind === "arrayType" ? type.elementType : undefined;
       return lowerArrayPatternAst(pattern, inputExpr, elementType, ctx);
@@ -501,6 +671,76 @@ const lowerArrayPatternStaticAst = (
   return { members, context: currentCtx };
 };
 
+const lowerTuplePatternStaticAst = (
+  pattern: IrArrayPattern,
+  inputExpr: CSharpExpressionAst,
+  tupleType: Extract<IrType, { kind: "tupleType" }>,
+  ctx: EmitterContext
+): StaticPatternLoweringResultAst => {
+  const members: CSharpMemberAst[] = [];
+  let currentCtx = ctx;
+
+  const [rawTempName, nextCtx] = generateTemp("tuple", currentCtx);
+  currentCtx = nextCtx;
+  const tempName = emitCSharpName(rawTempName, "fields", currentCtx);
+
+  members.push(createStaticField(tempName, { kind: "varType" }, inputExpr));
+
+  const tempExpr: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: tempName,
+  };
+
+  let index = 0;
+  for (const elem of pattern.elements) {
+    if (!elem) {
+      index++;
+      continue;
+    }
+
+    if (elem.isRest) {
+      const restExpr = emitTupleRestArrayAst(tempExpr, tupleType, index);
+      const rest = lowerPatternToStaticMembersAst(
+        elem.pattern,
+        restExpr,
+        getTupleRestArrayType(tupleType, index),
+        currentCtx
+      );
+      members.push(...rest.members);
+      currentCtx = rest.context;
+      break;
+    }
+
+    const accessExpr = emitTupleElementAccessAst(tempExpr, index);
+    let valueExpr: CSharpExpressionAst = accessExpr;
+    if (elem.defaultExpr) {
+      const [defaultAst, defaultCtx] = emitDefaultExprAst(
+        elem.defaultExpr,
+        currentCtx
+      );
+      currentCtx = defaultCtx;
+      valueExpr = {
+        kind: "binaryExpression",
+        operatorToken: "??",
+        left: accessExpr,
+        right: defaultAst,
+      };
+    }
+
+    const nested = lowerPatternToStaticMembersAst(
+      elem.pattern,
+      valueExpr,
+      getTupleElementType(tupleType, index),
+      currentCtx
+    );
+    members.push(...nested.members);
+    currentCtx = nested.context;
+    index++;
+  }
+
+  return { members, context: currentCtx };
+};
+
 const lowerObjectPatternStaticAst = (
   pattern: IrObjectPattern,
   inputExpr: CSharpExpressionAst,
@@ -611,6 +851,9 @@ export const lowerPatternToStaticMembersAst = (
     case "identifierPattern":
       return lowerIdentifierStaticAst(pattern.name, inputExpr, type, ctx);
     case "arrayPattern": {
+      if (type?.kind === "tupleType") {
+        return lowerTuplePatternStaticAst(pattern, inputExpr, type, ctx);
+      }
       const elementType =
         type?.kind === "arrayType" ? type.elementType : undefined;
       return lowerArrayPatternStaticAst(
@@ -701,6 +944,56 @@ const lowerAssignmentPatternStatementsAst = (
   };
 
   if (pattern.kind === "arrayPattern") {
+    if (type?.kind === "tupleType") {
+      let index = 0;
+      for (const elem of pattern.elements) {
+        if (!elem) {
+          index++;
+          continue;
+        }
+        if (elem.isRest) {
+          const restExpr = emitTupleRestArrayAst(tempExpr, type, index);
+          const rest = lowerAssignmentPatternStatementsAst(
+            elem.pattern,
+            restExpr,
+            getTupleRestArrayType(type, index),
+            currentCtx
+          );
+          statements.push(...rest.statements);
+          currentCtx = rest.context;
+          break;
+        }
+
+        const accessExpr = emitTupleElementAccessAst(tempExpr, index);
+        let valueExpr: CSharpExpressionAst = accessExpr;
+        if (elem.defaultExpr) {
+          const [defaultAst, defaultCtx] = emitDefaultExprAst(
+            elem.defaultExpr,
+            currentCtx
+          );
+          currentCtx = defaultCtx;
+          valueExpr = {
+            kind: "binaryExpression",
+            operatorToken: "??",
+            left: accessExpr,
+            right: defaultAst,
+          };
+        }
+
+        const nested = lowerAssignmentPatternStatementsAst(
+          elem.pattern,
+          valueExpr,
+          getTupleElementType(type, index),
+          currentCtx
+        );
+        statements.push(...nested.statements);
+        currentCtx = nested.context;
+        index++;
+      }
+
+      return { statements, context: currentCtx };
+    }
+
     const elementType =
       type?.kind === "arrayType" ? type.elementType : undefined;
     let index = 0;

@@ -27,6 +27,8 @@ export const extractImport = (
     {
       clrResolver: program.clrResolver,
       bindings: program.bindings,
+      projectRoot: program.options.projectRoot,
+      surface: program.options.surface,
     }
   );
 
@@ -65,7 +67,9 @@ export const extractImport = (
   if (result.ok) {
     return {
       kind: result.value.isLocal
-        ? "local"
+        ? result.value.isSourcePackage
+          ? "source_package"
+          : "local"
         : result.value.isClr
           ? "clr"
           : "node_module",

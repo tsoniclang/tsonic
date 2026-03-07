@@ -145,6 +145,201 @@ describe("Module Resolver", () => {
       }
     });
 
+    it("should resolve installed tsonic source packages", () => {
+      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
+      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/math", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "src", "index.ts"),
+        "export const clamp = (x: number): number => x;\n"
+      );
+
+      const result = resolveImport(
+        "@acme/math",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        { projectRoot: tempDir, surface: "@tsonic/js" }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.isLocal).to.equal(true);
+        expect(result.value.isSourcePackage).to.equal(true);
+        expect(result.value.resolvedPath).to.equal(
+          path.join(packageRoot, "src", "index.ts")
+        );
+      }
+    });
+
+    it("should reject source packages on incompatible surfaces", () => {
+      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
+      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/math", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["clr"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "src", "index.ts"),
+        "export const clamp = (x: number): number => x;\n"
+      );
+
+      const result = resolveImport(
+        "@acme/math",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        { projectRoot: tempDir, surface: "@tsonic/js" }
+      );
+
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error.message).to.include("not compatible with surface");
+      }
+    });
+
+    it("should allow source packages on compatible parent surfaces", () => {
+      const jsSurfaceRoot = path.join(tempDir, "node_modules", "@tsonic", "js");
+      fs.mkdirSync(jsSurfaceRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(jsSurfaceRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsSurfaceRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["."],
+          },
+          null,
+          2
+        )
+      );
+
+      const customSurfaceRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@acme",
+        "surface-node"
+      );
+      fs.mkdirSync(customSurfaceRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(customSurfaceRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/surface-node", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(customSurfaceRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@acme/surface-node",
+            extends: ["@tsonic/js"],
+            requiredTypeRoots: ["."],
+          },
+          null,
+          2
+        )
+      );
+
+      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
+      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/math", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "src", "index.ts"),
+        "export const clamp = (x: number): number => x;\n"
+      );
+
+      const result = resolveImport(
+        "@acme/math",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        { projectRoot: tempDir, surface: "@acme/surface-node" }
+      );
+
+      expect(result.ok).to.equal(true);
+    });
+
     it("should error on non-existent local files", () => {
       const result = resolveImport(
         "./nonexistent.ts",

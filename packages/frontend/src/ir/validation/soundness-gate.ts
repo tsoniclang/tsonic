@@ -437,6 +437,7 @@ const validateExpression = (
         expr.isComputed && expr.accessKind === "dictionary";
       if (
         expr.inferredType?.kind === "unknownType" &&
+        !expr.allowUnknownInferredType &&
         !allowComputedDictionaryUnknown
       ) {
         const propName =
@@ -498,18 +499,6 @@ const validateExpression = (
           );
         }
 
-        // Reserved intrinsics (declared in @tsonic/core/lang.js) that are not implemented yet.
-        if (name === "nameof" || name === "sizeof") {
-          ctx.diagnostics.push(
-            createDiagnostic(
-              "TSN7443",
-              "error",
-              `'${name}<...>(...)' is reserved but not implemented yet.`,
-              expr.sourceSpan ?? moduleLocation(ctx),
-              `Remove this call for now. (${name} will be added as a compile-time intrinsic in a future release.)`
-            )
-          );
-        }
       }
       validateExpression(expr.callee, ctx);
       expr.arguments.forEach((a) => validateExpression(a, ctx));
@@ -520,7 +509,10 @@ const validateExpression = (
         validateType(expr.narrowing.targetType, ctx, "type predicate target");
       }
       // DETERMINISTIC TYPING: Validate that return type was recovered
-      if (expr.inferredType?.kind === "unknownType") {
+      if (
+        expr.inferredType?.kind === "unknownType" &&
+        !expr.allowUnknownInferredType
+      ) {
         ctx.diagnostics.push(
           createDiagnostic(
             "TSN5201",

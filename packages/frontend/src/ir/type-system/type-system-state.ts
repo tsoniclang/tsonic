@@ -105,6 +105,13 @@ export type ResolvedCall = {
   readonly returnType: IrType;
 
   /**
+   * True when the selected signature had an explicit return type declaration.
+   * This is used to distinguish deliberate `unknown` returns from poisoned
+   * fallback caused by missing annotations.
+   */
+  readonly hasDeclaredReturnType: boolean;
+
+  /**
    * Type predicate info for narrowing (x is T).
    * Only present if the function has a type predicate return type.
    */
@@ -181,6 +188,9 @@ export type RawSignatureInfo = {
   /** Return type (voidType if not specified) */
   readonly returnType: IrType;
 
+  /** Whether the source signature declared a return type explicitly. */
+  readonly hasDeclaredReturnType: boolean;
+
   /** Parameter modes */
   readonly parameterModes: readonly ParameterMode[];
 
@@ -203,6 +213,7 @@ export type RawSignatureInfo = {
    * Uses simple TS name, resolved via UnifiedTypeCatalog.resolveTsName().
    */
   readonly declaringTypeTsName?: string;
+  readonly declaringTypeParameterNames?: readonly string[];
   readonly declaringMemberName?: string;
 };
 
@@ -308,6 +319,7 @@ export type SignatureInfo = {
    * Resolved via UnifiedTypeCatalog.resolveTsName() to get CLR FQ name.
    */
   readonly declaringTypeTsName?: string;
+  readonly declaringTypeParameterNames?: readonly string[];
 
   /**
    * Declaring member name.
@@ -499,6 +511,7 @@ export const poisonedCall = (
   parameterTypes: Array(arity).fill(unknownType),
   parameterModes: Array(arity).fill("value" as const),
   returnType: unknownType,
+  hasDeclaredReturnType: false,
   diagnostics,
 });
 

@@ -210,7 +210,7 @@ describe("validateUnsupportedFeatures", () => {
     it("rejects dynamic import() in side-effect form", () => {
       const result = runValidation(`
         async function load() {
-          await import("./module.js");
+          import("./module.js");
         }
       `);
 
@@ -218,9 +218,19 @@ describe("validateUnsupportedFeatures", () => {
         hasDiagnostic(
           result,
           "TSN2001",
-          "Dynamic import() is not supported in strict AOT mode"
+          'await import("./local-module.js")'
         )
       ).to.equal(true);
+    });
+
+    it("allows awaited dynamic import() in relative side-effect form", () => {
+      const result = runValidation(`
+        async function load() {
+          await import("./module.js");
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
     });
 
     it("rejects dynamic import() side-effect form with non-literal specifier", () => {
@@ -230,9 +240,21 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
-        true
-      );
+      expect(
+        hasDiagnostic(result, "TSN2001", 'await import("./local-module.js")')
+      ).to.equal(true);
+    });
+
+    it("rejects awaited dynamic import() with bare package specifier", () => {
+      const result = runValidation(`
+        async function load() {
+          await import("@acme/math");
+        }
+      `);
+
+      expect(
+        hasDiagnostic(result, "TSN2001", 'await import("./local-module.js")')
+      ).to.equal(true);
     });
 
     it("does not reject static import declarations", () => {

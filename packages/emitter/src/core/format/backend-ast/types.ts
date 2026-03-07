@@ -200,6 +200,11 @@ export type CSharpDefaultExpressionAst = {
   readonly type?: CSharpTypeAst;
 };
 
+export type CSharpSizeOfExpressionAst = {
+  readonly kind: "sizeOfExpression";
+  readonly type: CSharpTypeAst;
+};
+
 export type CSharpAwaitExpressionAst = {
   readonly kind: "awaitExpression";
   readonly expression: CSharpExpressionAst;
@@ -301,6 +306,7 @@ export type CSharpExpressionAst =
   | CSharpAsExpressionAst
   | CSharpIsExpressionAst
   | CSharpDefaultExpressionAst
+  | CSharpSizeOfExpressionAst
   | CSharpAwaitExpressionAst
   | CSharpLambdaExpressionAst
   | CSharpInterpolatedStringExpressionAst

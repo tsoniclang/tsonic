@@ -10,7 +10,8 @@
 
 import { IrImport, IrModule, IrImportSpecifier } from "@tsonic/frontend";
 import { EmitterContext, ImportBinding, LocalTypeInfo } from "../../types.js";
-import { resolveImportPath } from "./module-map.js";
+import type { ModuleIdentity } from "../../emitter-types/core.js";
+import { canonicalizeFilePath, resolveImportPath } from "./module-map.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { renderTypeAst } from "../format/backend-ast/utils.js";
@@ -31,6 +32,60 @@ export const processImports = (
 ): EmitterContext => {
   const importBindings = new Map<string, ImportBinding>();
 
+  const resolveLocalTarget = (
+    moduleMap: NonNullable<EmitterContext["options"]["moduleMap"]>,
+    source: string,
+    resolvedPath: string | undefined
+  ): { readonly path: string; readonly module: ModuleIdentity } | undefined => {
+    const relativeTargetPath = resolveImportPath(module.filePath, source);
+    const resolvedTargetPath = resolvedPath
+      ? canonicalizeFilePath(resolvedPath)
+      : undefined;
+    const nodeModulesTargetPath = (() => {
+      if (!resolvedTargetPath) return undefined;
+      const marker = "/node_modules/";
+      const index = resolvedTargetPath.lastIndexOf(marker);
+      return index === -1
+        ? undefined
+        : resolvedTargetPath.slice(index + 1);
+    })();
+
+    const directCandidates = [
+      relativeTargetPath,
+      resolvedTargetPath,
+      nodeModulesTargetPath,
+    ].filter((candidate): candidate is string => !!candidate);
+
+    for (const candidate of directCandidates) {
+      const identity = moduleMap.get(candidate);
+      if (identity) {
+        return {
+          path: candidate,
+          module: identity,
+        };
+      }
+    }
+
+    if (!resolvedTargetPath) {
+      return undefined;
+    }
+
+    const suffixMatches = [...moduleMap.entries()].filter(([key]) => {
+      if (key === resolvedTargetPath) return true;
+      return resolvedTargetPath.endsWith(`/${key}`);
+    });
+
+    if (suffixMatches.length !== 1) {
+      return undefined;
+    }
+
+    const [matchedPath, matchedModule] = suffixMatches[0]!;
+    return {
+      path: matchedPath,
+      module: matchedModule,
+    };
+  };
+
   const updatedContext = imports.reduce((ctx, imp) => {
     if (imp.isLocal) {
       // Local import - build ImportBindings with fully-qualified CLR names
@@ -38,7 +93,12 @@ export const processImports = (
       const moduleMap = ctx.options.moduleMap;
       const exportMap = ctx.options.exportMap;
       if (moduleMap) {
-        const targetPath = resolveImportPath(module.filePath, imp.source);
+        const resolvedTarget = resolveLocalTarget(
+          moduleMap,
+          imp.source,
+          imp.resolvedPath
+        );
+        const targetPath = resolvedTarget?.path;
 
         // Process each import specifier - may need to resolve re-exports
         for (const spec of imp.specifiers) {
@@ -56,7 +116,9 @@ export const processImports = (
           // Determine the actual source module
           const actualSourcePath = reexportSource?.sourceFile ?? targetPath;
           const actualExportName = reexportSource?.sourceName ?? exportName;
-          const targetModule = moduleMap.get(actualSourcePath);
+          const targetModule = actualSourcePath
+            ? moduleMap.get(actualSourcePath)
+            : resolvedTarget?.module;
 
           if (targetModule) {
             const binding = createImportBinding(

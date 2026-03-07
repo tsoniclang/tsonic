@@ -317,10 +317,12 @@ export const convertExpression = (
     };
   }
   if (node.kind === ts.SyntaxKind.ThisKeyword) {
-    // Deterministic `this` typing: derive from the enclosing class declaration.
+    // Deterministic `this` typing:
+    // 1. object-literal synthetic receiver (when converting method/accessor bodies)
+    // 2. enclosing class declaration
     return {
       kind: "this",
-      inferredType: inferThisType(node),
+      inferredType: ctx.objectLiteralThisType ?? inferThisType(node),
       sourceSpan: getSourceSpan(node),
     };
   }

@@ -24,6 +24,11 @@ import { runAnonymousTypeLoweringPass } from "../ir/validation/anonymous-type-lo
 import { runRestTypeSynthesisPass } from "../ir/validation/rest-type-synthesis-pass.js";
 import { runVirtualMarkingPass } from "../ir/validation/virtual-marking-pass.js";
 import { validateProgram } from "../validation/orchestrator.js";
+import {
+  getLocalResolutionBoundary,
+  resolveSourcePackageImport,
+} from "../resolver/source-package-resolution.js";
+import { collectSupportedDynamicImportSites } from "../resolver/dynamic-import.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -100,6 +105,68 @@ const getModuleSpecifier = (stmt: ts.Statement): ts.StringLiteral | null => {
   }
 
   return null;
+};
+
+const queueResolvedLocalDependency = (
+  importSpecifier: string,
+  currentFile: string,
+  sourceFile: ts.SourceFile,
+  anchor: ts.Node,
+  sourceRootAbs: string,
+  compilerOptions: ts.CompilerOptions,
+  queue: string[],
+  diagnostics: Diagnostic[]
+): void => {
+  const resolved = ts.resolveModuleName(
+    importSpecifier,
+    currentFile,
+    compilerOptions,
+    ts.sys
+  );
+
+  if (resolved.resolvedModule?.resolvedFileName) {
+    const resolvedPath = resolved.resolvedModule.resolvedFileName;
+    const localBoundary = getLocalResolutionBoundary(currentFile, sourceRootAbs);
+
+    if (
+      resolvedPath.startsWith(localBoundary) &&
+      resolvedPath.endsWith(".ts") &&
+      !resolvedPath.endsWith(".d.ts")
+    ) {
+      queue.push(resolvedPath);
+    } else if (!resolvedPath.startsWith(localBoundary)) {
+      diagnostics.push(
+        createDiagnostic(
+          "TSN1004",
+          "error",
+          `Import outside allowed module root: '${importSpecifier}'`,
+          {
+            file: currentFile,
+            line: anchor.getStart(sourceFile),
+            column: 1,
+            length: importSpecifier.length,
+          },
+          `Allowed root: ${localBoundary}`
+        )
+      );
+    }
+    return;
+  }
+
+  const relativeCurrent = relative(sourceRootAbs, currentFile);
+  diagnostics.push(
+    createDiagnostic(
+      "TSN1002",
+      "error",
+      `Cannot resolve import '${importSpecifier}' from '${relativeCurrent}'`,
+      {
+        file: currentFile,
+        line: anchor.getStart(sourceFile),
+        column: 1,
+        length: importSpecifier.length,
+      }
+    )
+  );
 };
 
 /**
@@ -180,50 +247,54 @@ export const buildModuleDependencyGraph = (
 
       const importSpecifier = moduleSpecifier.text;
 
-      // Only process local imports (starts with . or /)
-      if (
-        !importSpecifier.startsWith(".") &&
-        !importSpecifier.startsWith("/")
-      ) {
+      if (importSpecifier.startsWith(".") || importSpecifier.startsWith("/")) {
+        queueResolvedLocalDependency(
+          importSpecifier,
+          currentFile,
+          sourceFile,
+          stmt,
+          sourceRootAbs,
+          compilerOptions,
+          queue,
+          diagnostics
+        );
         continue;
       }
 
-      // Resolve using TypeScript's module resolution
-      const resolved = ts.resolveModuleName(
+      const sourcePackage = resolveSourcePackageImport(
         importSpecifier,
         currentFile,
-        compilerOptions,
-        ts.sys
+        options.surface,
+        options.projectRoot
       );
-
-      if (resolved.resolvedModule?.resolvedFileName) {
-        const resolvedPath = resolved.resolvedModule.resolvedFileName;
-
-        // Only include .ts files (not .d.ts) within source root
-        if (
-          resolvedPath.startsWith(sourceRootAbs) &&
-          resolvedPath.endsWith(".ts") &&
-          !resolvedPath.endsWith(".d.ts")
-        ) {
-          queue.push(resolvedPath);
-        }
-      } else {
-        // Import resolution failed - add diagnostic with context
-        const relativeCurrent = relative(sourceRootAbs, currentFile);
-        diagnostics.push(
-          createDiagnostic(
-            "TSN1002",
-            "error",
-            `Cannot resolve import '${importSpecifier}' from '${relativeCurrent}'`,
-            {
-              file: currentFile,
-              line: stmt.getStart(sourceFile),
-              column: 1,
-              length: importSpecifier.length,
-            }
-          )
-        );
+      if (!sourcePackage.ok) {
+        diagnostics.push({
+          ...sourcePackage.error,
+          location: {
+            file: currentFile,
+            line: stmt.getStart(sourceFile),
+            column: 1,
+            length: importSpecifier.length,
+          },
+        });
+        continue;
       }
+      if (sourcePackage.value) {
+        queue.push(sourcePackage.value.resolvedPath);
+      }
+    }
+
+    for (const site of collectSupportedDynamicImportSites(sourceFile)) {
+      queueResolvedLocalDependency(
+        site.specifier,
+        currentFile,
+        sourceFile,
+        site.node,
+        sourceRootAbs,
+        compilerOptions,
+        queue,
+        diagnostics
+      );
     }
   }
 

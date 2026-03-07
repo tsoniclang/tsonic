@@ -10,6 +10,10 @@ import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
 import { isLocalImport } from "../types/module.js";
 import { ResolvedModule } from "./types.js";
+import {
+  getLocalResolutionBoundary,
+  resolveSourcePackageImport,
+} from "./source-package-resolution.js";
 import { ClrBindingsResolver } from "./clr-bindings-resolver.js";
 import type { BindingRegistry } from "../program/bindings.js";
 
@@ -19,6 +23,8 @@ import type { BindingRegistry } from "../program/bindings.js";
 export type ResolveImportOptions = {
   readonly clrResolver?: ClrBindingsResolver;
   readonly bindings?: BindingRegistry;
+  readonly projectRoot?: string;
+  readonly surface?: string;
 };
 
 /**
@@ -91,6 +97,25 @@ export const resolveImport = (
       resolvedClrType: undefined,
       resolvedAssembly: undefined,
     });
+  }
+
+  if (opts?.projectRoot) {
+    const sourcePackage = resolveSourcePackageImport(
+      canonicalImportSpecifier,
+      containingFile,
+      opts.surface,
+      opts.projectRoot
+    );
+    if (!sourcePackage.ok) return sourcePackage;
+    if (sourcePackage.value) {
+      return ok({
+        resolvedPath: sourcePackage.value.resolvedPath,
+        isLocal: true,
+        isSourcePackage: true,
+        isClr: false,
+        originalSpecifier: importSpecifier,
+      });
+    }
   }
 
   return error(
@@ -167,15 +192,18 @@ export const resolveLocalImport = (
     );
   }
 
-  // Ensure it's within the source root
-  if (!resolvedPath.startsWith(sourceRoot)) {
+  const localBoundary = getLocalResolutionBoundary(containingFile, sourceRoot);
+
+  // Ensure it's within the current module boundary (workspace source root or
+  // installed source-package root).
+  if (!resolvedPath.startsWith(localBoundary)) {
     return error(
       createDiagnostic(
         "TSN1004",
         "error",
-        `Import outside source root: "${importSpecifier}"`,
+        `Import outside allowed module root: "${importSpecifier}"`,
         undefined,
-        `Source root: ${sourceRoot}`
+        `Allowed root: ${localBoundary}`
       )
     );
   }

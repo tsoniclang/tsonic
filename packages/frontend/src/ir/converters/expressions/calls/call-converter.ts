@@ -12,6 +12,8 @@ import {
   IrTryCastExpression,
   IrStackAllocExpression,
   IrDefaultOfExpression,
+  IrNameOfExpression,
+  IrSizeOfExpression,
 } from "../../../types.js";
 import {
   getSourceSpan,
@@ -21,6 +23,7 @@ import {
 import { convertExpression } from "../../../expression-converter.js";
 import { IrType } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
+import { createDiagnostic } from "../../../../types/diagnostic.js";
 import {
   type CallSiteArgModifier,
   deriveSubstitutionsFromExpectedReturn,
@@ -180,7 +183,63 @@ export const convertCallExpression = (
   | IrAsInterfaceExpression
   | IrTryCastExpression
   | IrStackAllocExpression
-  | IrDefaultOfExpression => {
+  | IrDefaultOfExpression
+  | IrNameOfExpression
+  | IrSizeOfExpression => {
+  const extractNameofTarget = (
+    expr: ts.Expression
+  ): string | undefined => {
+    if (ts.isIdentifier(expr)) return expr.text;
+    if (expr.kind === ts.SyntaxKind.ThisKeyword) return "this";
+    if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+    return undefined;
+  };
+
+  const isSupportedSizeofTarget = (type: IrType): boolean => {
+    if (type.kind === "primitiveType") {
+      return (
+        type.name === "number" ||
+        type.name === "int" ||
+        type.name === "boolean" ||
+        type.name === "char"
+      );
+    }
+
+    if (type.kind !== "referenceType") return false;
+
+    const name = type.resolvedClrType ?? type.name;
+    return (
+      name === "byte" ||
+      name === "sbyte" ||
+      name === "short" ||
+      name === "ushort" ||
+      name === "int" ||
+      name === "uint" ||
+      name === "long" ||
+      name === "ulong" ||
+      name === "nint" ||
+      name === "nuint" ||
+      name === "int128" ||
+      name === "uint128" ||
+      name === "float" ||
+      name === "double" ||
+      name === "half" ||
+      name === "decimal" ||
+      name === "bool" ||
+      name === "char" ||
+      name === "System.Guid" ||
+      name === "global::System.Guid" ||
+      name === "System.DateTime" ||
+      name === "global::System.DateTime" ||
+      name === "System.DateOnly" ||
+      name === "global::System.DateOnly" ||
+      name === "System.TimeOnly" ||
+      name === "global::System.TimeOnly" ||
+      name === "System.TimeSpan" ||
+      name === "global::System.TimeSpan"
+    );
+  };
+
   // Check for asinterface<T>(x) - compile-time-only interface view.
   //
   // Airplane-grade rule:
@@ -281,6 +340,79 @@ export const convertCallExpression = (
       kind: "defaultof",
       targetType,
       inferredType: targetType,
+      sourceSpan: getSourceSpan(node),
+    };
+  }
+
+  if (
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "nameof" &&
+    (!node.typeArguments || node.typeArguments.length === 0) &&
+    node.arguments.length === 1
+  ) {
+    const argNode = node.arguments[0];
+    if (!argNode) {
+      throw new Error("ICE: nameof requires exactly 1 argument");
+    }
+
+    const targetName = extractNameofTarget(argNode);
+    if (!targetName) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN7443",
+          "error",
+          "'nameof(...)' currently supports identifiers, 'this', and dotted member access only.",
+          getSourceSpan(node)
+        )
+      );
+      return {
+        kind: "nameof",
+        name: "",
+        inferredType: { kind: "primitiveType", name: "string" },
+        sourceSpan: getSourceSpan(node),
+      };
+    }
+
+    return {
+      kind: "nameof",
+      name: targetName,
+      inferredType: { kind: "primitiveType", name: "string" },
+      sourceSpan: getSourceSpan(node),
+    };
+  }
+
+  if (
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "sizeof" &&
+    node.typeArguments &&
+    node.typeArguments.length === 1 &&
+    node.arguments.length === 0
+  ) {
+    const targetTypeNode = node.typeArguments[0];
+    if (!targetTypeNode) {
+      throw new Error("ICE: sizeof requires exactly 1 type argument");
+    }
+
+    const typeSystem = ctx.typeSystem;
+    const targetType = typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(targetTypeNode)
+    );
+
+    if (!isSupportedSizeofTarget(targetType)) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN7443",
+          "error",
+          "'sizeof<T>()' requires a known value-compatible type (primitive numeric/bool/char or known CLR struct).",
+          getSourceSpan(node)
+        )
+      );
+    }
+
+    return {
+      kind: "sizeof",
+      targetType,
+      inferredType: { kind: "primitiveType", name: "int" },
       sourceSpan: getSourceSpan(node),
     };
   }
@@ -700,6 +832,7 @@ export const convertCallExpression = (
     arguments: convertedArgs,
     isOptional: node.questionDotToken !== undefined,
     inferredType,
+    allowUnknownInferredType: finalResolved?.hasDeclaredReturnType ?? false,
     sourceSpan: getSourceSpan(node),
     typeArguments,
     requiresSpecialization,

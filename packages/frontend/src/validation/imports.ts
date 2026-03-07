@@ -74,6 +74,8 @@ export const validateImportDeclaration = (
     {
       clrResolver: program.clrResolver,
       bindings: program.bindings,
+      projectRoot: program.options.projectRoot,
+      surface: program.options.surface,
     }
   );
 

@@ -227,6 +227,49 @@ describe("Destructuring Pattern Lowering", () => {
       // Outer second element gets array element type (double[])
       expect(result).to.include("double[] c = __arr0[1];");
     });
+
+    it("should lower tuple destructuring via Item access instead of array indexing", () => {
+      const tupleType: IrType = {
+        kind: "tupleType",
+        elementTypes: [stringType, numberType],
+      };
+
+      const module = createModule([
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: {
+                kind: "arrayPattern",
+                elements: [
+                  {
+                    pattern: { kind: "identifierPattern", name: "key" },
+                    isRest: false,
+                  },
+                  {
+                    pattern: { kind: "identifierPattern", name: "value" },
+                    isRest: false,
+                  },
+                ],
+              },
+              type: tupleType,
+              initializer: { kind: "identifier", name: "entry" },
+            },
+          ],
+          isExported: false,
+        },
+      ]);
+
+      const result = emitModule(module);
+
+      expect(result).to.include("var __tuple0 = entry;");
+      expect(result).to.include("string key = __tuple0.Item1;");
+      expect(result).to.include("double value = __tuple0.Item2;");
+      expect(result).to.not.include("__tuple0[0]");
+      expect(result).to.not.include("__tuple0[1]");
+    });
   });
 
   describe("Variable Declaration - Object Patterns", () => {

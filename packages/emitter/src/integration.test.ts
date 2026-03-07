@@ -566,6 +566,53 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("await p");
     });
 
+    it("normalizes Promise.then callback PromiseLike return to inner result type", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+          static resolve<T>(value: T): Promise<T>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<number> {
+          return 1;
+        }
+
+        export async function run(): Promise<number> {
+          const p = load();
+          return p.then((x) => Promise.resolve(x + 1));
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<double>(async");
+      expect(csharp).not.to.include("Task.Run<global::Tsonic.Runtime.Union");
+    });
+
+    it("preserves int result when Promise.then callback stays in int space", () => {
+      const source = `
+        import { int } from "@tsonic/core/types.js";
+
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<int> {
+          return 1;
+        }
+
+        export async function run(): Promise<int> {
+          const p = load();
+          return p.then((x) => x + 1);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<int>(async");
+      expect(csharp).not.to.include("Task.Run<double>(async");
+    });
+
     it("lowers Promise.catch to Task.Run with try/catch", () => {
       const source = `
         declare class Promise<T> {
@@ -616,6 +663,103 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("Task.Run<double>(async");
       expect(csharp).to.include("finally");
+    });
+
+    it("keeps Promise chains on the frontend-normalized result type", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          finally(onFinally: () => void): Promise<T>;
+        }
+        interface PromiseLike<T> {}
+
+        export function chainScore(seed: Promise<int>): Promise<int> {
+          return seed
+            .then((value) => value + 1)
+            .catch((_error) => 0)
+            .finally(() => {});
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<int>(async");
+      expect(csharp).not.to.include("Task.Run<global::Tsonic.Runtime.Union");
+    });
+
+    it("lets Promise.catch delegate casts supply exception parameter types", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare class Promise<T> {
+          catch<TResult>(
+            onrejected: ((reason: unknown) => TResult | PromiseLike<TResult>) | undefined | null
+          ): Promise<T | TResult>;
+        }
+        interface PromiseLike<T> {}
+
+        export function recover(seed: Promise<int>): Promise<int> {
+          return seed.catch((_error) => 0);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Func<global::System.Exception, int>");
+      expect(csharp).not.to.include("(object _error) => 0");
+    });
+
+    it("uses Action for block-bodied void callbacks in Promise chains", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+        }
+        interface PromiseLike<T> {}
+
+        export function chain(seed: Promise<number>): Promise<void> {
+          return seed.then(() => {});
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("global::System.Action");
+      expect(csharp).not.to.include(
+        "global::System.Func<global::Tsonic.Runtime.Union<void"
+      );
+    });
+  });
+
+  describe("Core Intrinsics", () => {
+    it("lowers nameof to a compile-time string literal using TS-authored names", () => {
+      const source = `
+        import { nameof } from "@tsonic/core/lang.js";
+
+        interface User {
+          name: string;
+        }
+
+        export function getName(user: User): string {
+          return nameof(user.name);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include('return "name";');
+    });
+
+    it("lowers sizeof to C# sizeof(T)", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+        import { sizeof } from "@tsonic/core/lang.js";
+
+        export function getIntSize(): int {
+          return sizeof<int>();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("return sizeof(int);");
     });
   });
 });

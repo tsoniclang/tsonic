@@ -4,6 +4,7 @@
 
 import * as ts from "typescript";
 import { TsonicProgram } from "../program.js";
+import { isSupportedDynamicImportSideEffect } from "../resolver/dynamic-import.js";
 import {
   DiagnosticsCollector,
   addDiagnostic,
@@ -66,15 +67,19 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (ts.isCallExpression(node) && isDynamicImportCall(node)) {
+    if (
+      ts.isCallExpression(node) &&
+      isDynamicImportCall(node) &&
+      !isSupportedDynamicImportSideEffect(node)
+    ) {
       collector = addDiagnostic(
         collector,
         createDiagnostic(
           "TSN2001",
           "error",
-          "Dynamic import() is not supported in strict AOT mode",
+          "Dynamic import() is only supported as `await import(\"./local-module.js\")` in side-effect position",
           getNodeLocation(sourceFile, node),
-          "Use static import declarations."
+          "Use static import declarations, or use `await import(\"./local-module.js\")` as a standalone statement."
         )
       );
     }

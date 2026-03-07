@@ -2,7 +2,7 @@
  * Call expression emitter
  */
 
-import { IrExpression, IrType } from "@tsonic/frontend";
+import { IrBlockStatement, IrExpression, IrStatement, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import {
@@ -33,6 +33,7 @@ import type {
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import { resolveImportPath } from "../../core/semantic/index.js";
+import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
 
 /**
  * Wrap an expression AST with an optional argument modifier (ref/out/in/params).
@@ -211,11 +212,96 @@ const callbackParameterCount = (callbackExpr: IrExpression): number => {
   return 1;
 };
 
+const collectBlockReturnTypes = (
+  block: IrBlockStatement
+): readonly IrType[] => {
+  const collectFromStatement = (statement: IrStatement): readonly IrType[] => {
+    switch (statement.kind) {
+      case "returnStatement":
+        return statement.expression?.inferredType
+          ? [statement.expression.inferredType]
+          : [];
+      case "blockStatement":
+        return statement.statements.flatMap(collectFromStatement);
+      case "ifStatement":
+        return [
+          ...collectFromStatement(statement.thenStatement),
+          ...(statement.elseStatement
+            ? collectFromStatement(statement.elseStatement)
+            : []),
+        ];
+      case "whileStatement":
+      case "forStatement":
+      case "forOfStatement":
+      case "forInStatement":
+        return collectFromStatement(statement.body);
+      case "switchStatement":
+        return statement.cases.flatMap((switchCase) =>
+          switchCase.statements.flatMap(collectFromStatement)
+        );
+      case "tryStatement":
+        return [
+          ...statement.tryBlock.statements.flatMap(collectFromStatement),
+          ...(statement.catchClause
+            ? statement.catchClause.body.statements.flatMap(collectFromStatement)
+            : []),
+          ...(statement.finallyBlock
+            ? statement.finallyBlock.statements.flatMap(collectFromStatement)
+            : []),
+        ];
+      case "functionDeclaration":
+      case "classDeclaration":
+      case "interfaceDeclaration":
+      case "enumDeclaration":
+      case "typeAliasDeclaration":
+        return [];
+      default:
+        return [];
+    }
+  };
+
+  return block.statements.flatMap(collectFromStatement);
+};
+
+const getCallbackDelegateReturnType = (
+  callbackExpr: IrExpression
+): IrType | undefined => {
+  if (
+    (callbackExpr.kind === "arrowFunction" ||
+      callbackExpr.kind === "functionExpression") &&
+    callbackExpr.body.kind === "blockStatement"
+  ) {
+    const returnTypes = collectBlockReturnTypes(callbackExpr.body);
+    const concreteReturnTypes = returnTypes.filter(
+      (type): type is IrType => !isVoidOrUnknownIrType(type)
+    );
+
+    if (concreteReturnTypes.length === 0) {
+      return undefined;
+    }
+
+    const deduped = concreteReturnTypes.filter(
+      (type, index, all) =>
+        all.findIndex((candidate) => stableIrTypeKey(candidate) === stableIrTypeKey(type)) ===
+        index
+    );
+
+    if (deduped.length === 1) {
+      return deduped[0];
+    }
+
+    return {
+      kind: "unionType",
+      types: deduped,
+    };
+  }
+
+  return getCallbackReturnType(callbackExpr);
+};
+
 const callbackReturnsAsyncWrapper = (callbackExpr: IrExpression): boolean => {
-  const callbackType = callbackExpr.inferredType;
-  return callbackType?.kind === "functionType"
-    ? isAsyncWrapperType(callbackType.returnType)
-    : false;
+  const delegateReturnType = getCallbackDelegateReturnType(callbackExpr);
+  return delegateReturnType ? isAsyncWrapperType(delegateReturnType) : false;
 };
 
 const buildInvocation = (
@@ -276,6 +362,14 @@ const isVoidOrUnknownIrType = (type: IrType | undefined): boolean =>
 const getCallbackReturnType = (
   callbackExpr: IrExpression
 ): IrType | undefined => {
+  if (
+    callbackExpr.kind === "arrowFunction" &&
+    callbackExpr.body.kind !== "blockStatement" &&
+    !isVoidOrUnknownIrType(callbackExpr.body.inferredType)
+  ) {
+    return callbackExpr.body.inferredType;
+  }
+
   const declared =
     callbackExpr.inferredType?.kind === "functionType"
       ? callbackExpr.inferredType.returnType
@@ -293,6 +387,352 @@ const getCallbackReturnType = (
 
   return undefined;
 };
+
+const getFunctionValueSignature = (
+  expr: Extract<IrExpression, { kind: "call" }>
+):
+  | Extract<IrType, { kind: "functionType" }>
+  | undefined => {
+  const calleeType = expr.callee.inferredType;
+  if (!calleeType || calleeType.kind !== "functionType") return undefined;
+
+  if (expr.callee.kind === "identifier" && expr.callee.resolvedClrType) {
+    return undefined;
+  }
+
+  if (expr.callee.kind === "memberAccess" && expr.callee.memberBinding) {
+    return undefined;
+  }
+
+  return calleeType;
+};
+
+const emitFunctionValueCallArguments = (
+  args: readonly IrExpression[],
+  signature: Extract<IrType, { kind: "functionType" }>,
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [readonly CSharpExpressionAst[], EmitterContext] => {
+  let currentContext = context;
+  const argAsts: CSharpExpressionAst[] = [];
+  const parameters = signature.parameters;
+
+  const extractTupleRestCandidates = (
+    type: IrType | undefined
+  ): readonly (readonly IrType[])[] | undefined => {
+    if (!type) return undefined;
+    if (type.kind === "tupleType") {
+      return [type.elementTypes];
+    }
+    if (type.kind !== "unionType") {
+      return undefined;
+    }
+    const candidates: (readonly IrType[])[] = [];
+    for (const member of type.types) {
+      if (!member || member.kind !== "tupleType") {
+        return undefined;
+      }
+      candidates.push(member.elementTypes);
+    }
+    return candidates;
+  };
+
+  const tryEmitTupleRestArguments = (
+    startIndex: number,
+    parameterType: IrType | undefined
+  ): [readonly CSharpExpressionAst[], EmitterContext] | undefined => {
+    const remainingArgs = args.slice(startIndex);
+    if (remainingArgs.some((arg) => arg?.kind === "spread")) {
+      return undefined;
+    }
+
+    const tupleCandidates = extractTupleRestCandidates(parameterType);
+    if (!tupleCandidates || tupleCandidates.length === 0) {
+      return undefined;
+    }
+
+    const matchingCandidates = tupleCandidates.filter(
+      (candidate) => candidate.length === remainingArgs.length
+    );
+    if (matchingCandidates.length !== 1) {
+      return undefined;
+    }
+
+    const tupleElements = matchingCandidates[0] ?? [];
+    const emittedArgs: CSharpExpressionAst[] = [];
+    let tupleContext = currentContext;
+
+    for (let index = 0; index < remainingArgs.length; index++) {
+      const arg = remainingArgs[index];
+      const expectedType = tupleElements[index];
+      if (!arg) continue;
+      const [argAst, argContext] = emitExpressionAst(
+        arg,
+        tupleContext,
+        expectedType
+      );
+      emittedArgs.push(argAst);
+      tupleContext = argContext;
+    }
+
+    return [emittedArgs, tupleContext];
+  };
+
+  for (let i = 0; i < parameters.length; i++) {
+    const parameter = parameters[i];
+    if (!parameter) continue;
+
+    if (parameter.isRest) {
+      const tupleRestResult = tryEmitTupleRestArguments(i, parameter.type);
+      if (tupleRestResult) {
+        const [tupleArgs, tupleContext] = tupleRestResult;
+        argAsts.push(...tupleArgs);
+        currentContext = tupleContext;
+        break;
+      }
+
+      const spreadArg = args[i];
+      if (
+        args.length === i + 1 &&
+        spreadArg &&
+        spreadArg.kind === "spread"
+      ) {
+          const [spreadAst, spreadCtx] = emitExpressionAst(
+            spreadArg.expression,
+            currentContext
+          );
+          argAsts.push(spreadAst);
+          currentContext = spreadCtx;
+        break;
+      }
+
+      const restElementType =
+        parameter.type?.kind === "arrayType"
+          ? parameter.type.elementType
+          : undefined;
+      let elementTypeAst: CSharpTypeAst = {
+        kind: "identifierType",
+        name: "object",
+      };
+      if (restElementType) {
+        const [emittedType, typeCtx] = emitTypeAst(
+          restElementType,
+          currentContext
+        );
+        elementTypeAst = emittedType;
+        currentContext = typeCtx;
+      }
+
+      const restItems: CSharpExpressionAst[] = [];
+      for (let j = i; j < args.length; j++) {
+        const arg = args[j];
+        if (!arg) continue;
+        if (arg.kind === "spread") {
+          const [spreadAst, spreadCtx] = emitExpressionAst(
+            arg.expression,
+            currentContext
+          );
+          argAsts.push(spreadAst);
+          currentContext = spreadCtx;
+          return [argAsts, currentContext];
+        }
+        const [argAst, argCtx] = emitExpressionAst(
+          arg,
+          currentContext,
+          restElementType
+        );
+        restItems.push(argAst);
+        currentContext = argCtx;
+      }
+
+      argAsts.push({
+        kind: "arrayCreationExpression",
+        elementType: elementTypeAst,
+        initializer: restItems,
+      });
+      break;
+    }
+
+    const arg = args[i];
+    if (arg) {
+      const [argAst, argCtx] = emitExpressionAst(
+        arg,
+        currentContext,
+        parameter.type
+      );
+      const modifier =
+        expr.argumentPassing?.[i] &&
+        expr.argumentPassing[i] !== "value" &&
+        isLValue(arg)
+          ? expr.argumentPassing[i]
+          : undefined;
+      argAsts.push(wrapArgModifier(modifier, argAst));
+      currentContext = argCtx;
+      continue;
+    }
+
+    if (parameter.isOptional || parameter.initializer) {
+      let defaultType: CSharpTypeAst | undefined;
+      if (parameter.type) {
+        const [emittedType, typeCtx] = emitTypeAst(parameter.type, currentContext);
+        currentContext = typeCtx;
+        defaultType =
+          parameter.isOptional || parameter.initializer
+            ? emittedType.kind === "nullableType"
+              ? emittedType
+              : { kind: "nullableType", underlyingType: emittedType }
+            : emittedType;
+      }
+      argAsts.push({ kind: "defaultExpression", type: defaultType });
+    }
+  }
+
+  return [argAsts, currentContext];
+};
+
+const stableIrTypeKey = (type: IrType): string => JSON.stringify(type);
+
+const unwrapAsyncWrapperIrType = (type: IrType): IrType | undefined => {
+  if (type.kind !== "referenceType") return undefined;
+  if (!type.typeArguments || type.typeArguments.length !== 1) return undefined;
+  const inner = type.typeArguments[0];
+  if (!inner) return undefined;
+
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  const clrName = type.resolvedClrType ?? type.name;
+  const isAsyncWrapper =
+    simpleName === "Promise" ||
+    simpleName === "PromiseLike" ||
+    simpleName === "Task_1" ||
+    simpleName === "Task`1" ||
+    simpleName === "ValueTask_1" ||
+    simpleName === "ValueTask`1" ||
+    clrName === "System.Threading.Tasks.Task" ||
+    clrName === "System.Threading.Tasks.ValueTask" ||
+    clrName.startsWith("System.Threading.Tasks.Task`1") ||
+    clrName.startsWith("System.Threading.Tasks.ValueTask`1");
+  return isAsyncWrapper ? inner : undefined;
+};
+
+const isAsyncWrapperIrTypeLike = (type: IrType): boolean => {
+  if (type.kind !== "referenceType") return false;
+
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  const clrName = type.resolvedClrType ?? type.name;
+
+  return (
+    simpleName === "Promise" ||
+    simpleName === "PromiseLike" ||
+    simpleName === "Task" ||
+    simpleName === "Task_1" ||
+    simpleName === "Task`1" ||
+    simpleName === "ValueTask" ||
+    simpleName === "ValueTask_1" ||
+    simpleName === "ValueTask`1" ||
+    clrName === "System.Threading.Tasks.Task" ||
+    clrName === "System.Threading.Tasks.ValueTask" ||
+    clrName.startsWith("System.Threading.Tasks.Task`1") ||
+    clrName.startsWith("System.Threading.Tasks.ValueTask`1")
+  );
+};
+
+const containsPromiseChainArtifact = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+
+  if (isAsyncWrapperIrTypeLike(type)) {
+    return true;
+  }
+
+  if (type.kind === "unionType" || type.kind === "intersectionType") {
+    return type.types.some((member) => !!member && containsPromiseChainArtifact(member));
+  }
+
+  return false;
+};
+
+const normalizePromiseChainResultIrType = (
+  type: IrType | undefined
+): IrType | undefined => {
+  if (!type) return undefined;
+
+  const asyncInner = unwrapAsyncWrapperIrType(type);
+  if (asyncInner) {
+    return normalizePromiseChainResultIrType(asyncInner);
+  }
+
+  if (type.kind === "unionType") {
+    const normalizedTypes: IrType[] = [];
+    const seen = new Set<string>();
+
+    for (const member of type.types) {
+      if (!member) continue;
+      const normalized = normalizePromiseChainResultIrType(member);
+      if (!normalized) continue;
+      const key = stableIrTypeKey(normalized);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      normalizedTypes.push(normalized);
+    }
+
+    if (normalizedTypes.length === 0) return undefined;
+    if (normalizedTypes.length === 1) return normalizedTypes[0];
+    return {
+      kind: "unionType",
+      types: normalizedTypes,
+    };
+  }
+
+  return type;
+};
+
+const mergePromiseChainResultIrTypes = (
+  ...types: readonly (IrType | undefined)[]
+): IrType | undefined => {
+  const merged: IrType[] = [];
+  const seen = new Set<string>();
+
+  for (const type of types) {
+    const normalized = normalizePromiseChainResultIrType(type);
+    if (!normalized) continue;
+
+    if (normalized.kind === "unionType") {
+      for (const member of normalized.types) {
+        if (!member) continue;
+        const key = stableIrTypeKey(member);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(member);
+      }
+      continue;
+    }
+
+    const key = stableIrTypeKey(normalized);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(normalized);
+  }
+
+  if (merged.length === 0) return undefined;
+  if (merged.length === 1) return merged[0];
+  return {
+    kind: "unionType",
+    types: merged,
+  };
+};
+
+const buildTaskTypeAst = (
+  resultType: CSharpTypeAst | undefined
+): CSharpTypeAst =>
+  resultType
+    ? {
+        kind: "identifierType",
+        name: "global::System.Threading.Tasks.Task",
+        typeArguments: [resultType],
+      }
+    : {
+        kind: "identifierType",
+        name: "global::System.Threading.Tasks.Task",
+      };
 
 const buildPromiseChainTaskRun = (
   outputTaskType: CSharpTypeAst,
@@ -458,7 +898,7 @@ const emitPromiseThenCatchFinally = (
     currentContext
   );
   currentContext = outputTaskCtx;
-  const outputTaskType: CSharpTypeAst =
+  const defaultOutputTaskType: CSharpTypeAst =
     isTaskTypeAst(rawOutputTaskType) &&
     rawOutputTaskType.typeArguments?.length === 1 &&
     containsVoidTypeAst(rawOutputTaskType.typeArguments[0] as CSharpTypeAst)
@@ -472,7 +912,9 @@ const emitPromiseThenCatchFinally = (
   currentContext = sourceTaskCtx;
 
   const sourceResultType = getTaskResultType(sourceTaskType);
-  const outputResultType = getTaskResultType(outputTaskType);
+  const sourceResultIr = normalizePromiseChainResultIrType(
+    expr.callee.object.inferredType
+  );
   const exIdent = "__tsonic_promise_ex";
   const valueIdent = "__tsonic_promise_value";
 
@@ -500,6 +942,58 @@ const emitPromiseThenCatchFinally = (
     const [fiAst, fiCtx] = emitExpressionAst(finallyArg, currentContext);
     finallyAst = fiAst;
     currentContext = fiCtx;
+  }
+
+  const fulfilledResultIr =
+    fulfilledArg && fulfilledArg.kind !== "spread"
+      ? normalizePromiseChainResultIrType(
+          getCallbackReturnType(fulfilledArg as IrExpression)
+        )
+      : undefined;
+  const rejectedResultIr =
+    rejectedArg && rejectedArg.kind !== "spread"
+      ? normalizePromiseChainResultIrType(
+          getCallbackReturnType(rejectedArg as IrExpression)
+        )
+      : undefined;
+  const normalizedPromiseChainResultIr = (() => {
+    if (expr.callee.property === "then") {
+      if (rejectedArg && rejectedArg.kind !== "spread") {
+        return mergePromiseChainResultIrTypes(
+          fulfilledResultIr ?? sourceResultIr,
+          rejectedResultIr
+        );
+      }
+      return fulfilledResultIr ?? sourceResultIr;
+    }
+    if (expr.callee.property === "catch") {
+      return mergePromiseChainResultIrTypes(sourceResultIr, rejectedResultIr);
+    }
+    if (expr.callee.property === "finally") {
+      return sourceResultIr;
+    }
+    return undefined;
+  })();
+  const normalizedFrontendPromiseChainResultIr = normalizePromiseChainResultIrType(
+    expr.inferredType
+  );
+  const preferredPromiseChainResultIr =
+    normalizedFrontendPromiseChainResultIr &&
+    !containsPromiseChainArtifact(normalizedFrontendPromiseChainResultIr)
+      ? normalizedFrontendPromiseChainResultIr
+      : normalizedPromiseChainResultIr;
+
+  let outputResultType = getTaskResultType(defaultOutputTaskType);
+  let outputTaskType = defaultOutputTaskType;
+  if (preferredPromiseChainResultIr) {
+    const [normalizedResultAst, normalizedCtx] = emitTypeAst(
+      preferredPromiseChainResultIr,
+      currentContext
+    );
+    currentContext = normalizedCtx;
+    outputResultType =
+      containsVoidTypeAst(normalizedResultAst) ? undefined : normalizedResultAst;
+    outputTaskType = buildTaskTypeAst(outputResultType);
   }
 
   const awaitReceiverStatement =
@@ -550,7 +1044,7 @@ const emitPromiseThenCatchFinally = (
       callbackParameterCount(fulfilledArg as IrExpression) > 0
         ? [sourceResultType]
         : [];
-    const callbackReturnIr = getCallbackReturnType(
+    const callbackReturnIr = getCallbackDelegateReturnType(
       fulfilledArg as IrExpression
     );
     let callbackReturnTypeAst: CSharpTypeAst | undefined = outputResultType;
@@ -620,7 +1114,9 @@ const emitPromiseThenCatchFinally = (
         identifier: exIdent,
       });
     }
-    const callbackReturnIr = getCallbackReturnType(rejectedArg as IrExpression);
+    const callbackReturnIr = getCallbackDelegateReturnType(
+      rejectedArg as IrExpression
+    );
     let callbackReturnTypeAst: CSharpTypeAst | undefined = outputResultType;
     if (callbackReturnIr !== undefined) {
       const [cbRetAst, cbRetCtx] = emitTypeAst(
@@ -681,7 +1177,9 @@ const emitPromiseThenCatchFinally = (
 
   const invokeFinally = (): readonly CSharpStatementAst[] => {
     if (!finallyAst) return [];
-    const callbackReturnIr = getCallbackReturnType(finallyArg as IrExpression);
+    const callbackReturnIr = getCallbackDelegateReturnType(
+      finallyArg as IrExpression
+    );
     let callbackReturnTypeAst: CSharpTypeAst | undefined = undefined;
     if (callbackReturnIr !== undefined) {
       const [cbRetAst, cbRetCtx] = emitTypeAst(
@@ -829,6 +1327,24 @@ const emitCallArguments = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [readonly CSharpExpressionAst[], EmitterContext] => {
+  const functionValueSignature = getFunctionValueSignature(expr);
+  if (
+    functionValueSignature &&
+    functionValueSignature.parameters.some(
+      (parameter) =>
+        parameter?.isRest ||
+        parameter?.isOptional ||
+        parameter?.initializer !== undefined
+    )
+  ) {
+    return emitFunctionValueCallArguments(
+      args,
+      functionValueSignature,
+      expr,
+      context
+    );
+  }
+
   const parameterTypes = expr.parameterTypes ?? [];
   let currentContext = context;
   const argAsts: CSharpExpressionAst[] = [];
@@ -875,10 +1391,68 @@ const emitCallArguments = (
 /**
  * Emit a JsonSerializer call with NativeAOT-compatible options.
  */
+const isConcreteGlobalJsonParseTarget = (
+  type: IrType | undefined
+): type is IrType => {
+  if (!type) return false;
+  if (
+    type.kind === "unknownType" ||
+    type.kind === "anyType" ||
+    type.kind === "voidType" ||
+    type.kind === "neverType"
+  ) {
+    return false;
+  }
+  if (type.kind === "unionType" || type.kind === "intersectionType") {
+    return false;
+  }
+  return !containsTypeParameter(type);
+};
+
+const emitJsRuntimeJsonParseCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext,
+  typeArgument: CSharpTypeAst
+): [CSharpExpressionAst, EmitterContext] => {
+  let currentContext = context;
+  const argAsts: CSharpExpressionAst[] = [];
+
+  for (const arg of expr.arguments) {
+    if (arg.kind === "spread") {
+      const [spreadAst, ctx] = emitExpressionAst(arg.expression, currentContext);
+      argAsts.push(spreadAst);
+      currentContext = ctx;
+      continue;
+    }
+
+    const [argAst, ctx] = emitExpressionAst(arg, currentContext);
+    argAsts.push(argAst);
+    currentContext = ctx;
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "global::Tsonic.JSRuntime.JSON",
+        },
+        memberName: "parse",
+      },
+      arguments: argAsts,
+      typeArguments: [typeArgument],
+    },
+    currentContext,
+  ];
+};
+
 const emitJsonSerializerCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext,
-  method: "Serialize" | "Deserialize"
+  method: "Serialize" | "Deserialize",
+  deserializeTypeOverride?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
@@ -889,7 +1463,7 @@ const emitJsonSerializerCall = (
       registerJsonAotType(firstArg.inferredType, context);
     }
   } else {
-    const typeArg = expr.typeArguments?.[0];
+    const typeArg = deserializeTypeOverride ?? expr.typeArguments?.[0];
     if (typeArg) {
       registerJsonAotType(typeArg, context);
     }
@@ -897,7 +1471,18 @@ const emitJsonSerializerCall = (
 
   // Emit type arguments for Deserialize<T>
   let typeArgAsts: readonly CSharpTypeAst[] = [];
-  if (expr.typeArguments && expr.typeArguments.length > 0) {
+  const deserializeIrType =
+    method === "Deserialize"
+      ? deserializeTypeOverride ?? expr.typeArguments?.[0]
+      : undefined;
+  if (deserializeIrType) {
+    const [typeArgs, typeContext] = emitTypeArgumentsAst(
+      [deserializeIrType],
+      currentContext
+    );
+    typeArgAsts = typeArgs;
+    currentContext = typeContext;
+  } else if (expr.typeArguments && expr.typeArguments.length > 0) {
     const [typeArgs, typeContext] = emitTypeArgumentsAst(
       expr.typeArguments,
       currentContext
@@ -923,8 +1508,11 @@ const emitJsonSerializerCall = (
     }
   }
 
-  // Add TsonicJson.Options when NativeAOT JSON context generation is enabled.
-  if (context.options.jsonAotRegistry) {
+  // Only pass TsonicJson.Options when this call site actually participates in the
+  // NativeAOT JSON rewrite. Non-generic JSON.parse(...) intentionally returns
+  // unknown and should emit plain JsonSerializer calls without requiring the
+  // generated TsonicJson helper.
+  if (context.options.jsonAotRegistry?.needsJsonAot) {
     argAsts.push({
       kind: "identifierExpression",
       identifier: "TsonicJson.Options",
@@ -945,6 +1533,36 @@ const emitJsonSerializerCall = (
     typeArguments: typeArgAsts.length > 0 ? typeArgAsts : undefined,
   };
   return [invocation, currentContext];
+};
+
+const emitGlobalJsonCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext,
+  method: "Serialize" | "Deserialize"
+): [CSharpExpressionAst, EmitterContext] => {
+  if (method === "Serialize") {
+    return emitJsonSerializerCall(expr, context, method);
+  }
+
+  const deserializeTarget =
+    expr.typeArguments?.[0] ??
+    (isConcreteGlobalJsonParseTarget(expr.inferredType)
+      ? expr.inferredType
+      : undefined);
+
+  if (deserializeTarget) {
+    return emitJsonSerializerCall(
+      expr,
+      context,
+      "Deserialize",
+      deserializeTarget
+    );
+  }
+
+  return emitJsRuntimeJsonParseCall(expr, context, {
+    kind: "predefinedType",
+    keyword: "object",
+  });
 };
 
 /**
@@ -993,7 +1611,7 @@ export const emitCall = (
   // Check for global JSON.stringify/parse calls
   const globalJsonCall = isGlobalJsonCall(expr.callee);
   if (globalJsonCall) {
-    return emitJsonSerializerCall(expr, context, globalJsonCall.method);
+    return emitGlobalJsonCall(expr, context, globalJsonCall.method);
   }
 
   // EF Core query canonicalization: ToList().ToArray() → ToArray()

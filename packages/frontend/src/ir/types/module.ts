@@ -21,6 +21,8 @@ export type IrImport = {
   readonly source: string; // Import path
   readonly isLocal: boolean;
   readonly isClr: boolean; // True if import is from a CLR bindings package
+  /** Canonical resolved source file for local-like imports (e.g. installed source packages). */
+  readonly resolvedPath?: string;
   readonly specifiers: readonly IrImportSpecifier[];
   readonly resolvedNamespace?: string; // For CLR imports or local imports (e.g., "System" or "MultiFileCheck.utils")
   // For module bindings (Node.js APIs mapped to CLR types)

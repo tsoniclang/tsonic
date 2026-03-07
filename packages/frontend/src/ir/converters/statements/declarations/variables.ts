@@ -571,6 +571,9 @@ export const convertVariableStatement = (
       ? currentCtx.typeSystem.typeFromSyntax(
           currentCtx.binding.captureTypeSyntax(decl.type)
         )
+      : convertedInitializer?.kind === "object" &&
+          convertedInitializer.behaviorMembers?.length
+        ? undefined
       : needsExplicitType && convertedInitializer && !isBindingPattern(decl)
         ? deriveTypeFromExpression(convertedInitializer)
         : undefined;

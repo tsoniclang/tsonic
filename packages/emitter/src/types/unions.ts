@@ -76,10 +76,33 @@ export const emitUnionType = (
     ];
   }
 
-  if (nonNullTypes.length === 1) {
+  const rawUniqueTypeCount = new Set(
+    type.types.map((member) => JSON.stringify(member))
+  ).size;
+
+  if (rawUniqueTypeCount > 8) {
+    return [{ kind: "predefinedType", keyword: "object" }, context];
+  }
+
+  const uniqueNonNullTypeAsts: CSharpTypeAst[] = [];
+  const uniqueNonNullKeys = new Set<string>();
+  let currentContext = context;
+
+  for (const member of nonNullTypes) {
+    const [typeAst, nextContext] = emitTypeAst(member, currentContext);
+    currentContext = nextContext;
+    const key = JSON.stringify(typeAst);
+    if (uniqueNonNullKeys.has(key)) continue;
+    uniqueNonNullKeys.add(key);
+    uniqueNonNullTypeAsts.push(typeAst);
+  }
+
+  if (uniqueNonNullTypeAsts.length === 1) {
     // This is a nullable type (T | null | undefined)
     const firstType = nonNullTypes[0];
-    if (!firstType) {
+    const firstTypeAst = uniqueNonNullTypeAsts[0];
+
+    if (!firstType || !firstTypeAst) {
       return [
         {
           kind: "nullableType",
@@ -101,33 +124,41 @@ export const emitUnionType = (
             kind: "nullableType",
             underlyingType: { kind: "predefinedType", keyword: "object" },
           },
-          context,
+          currentContext,
         ];
       }
     }
 
-    const [baseTypeAst, newContext] = emitTypeAst(firstType, context);
-    // Add ? suffix for nullable types (both value types and reference types)
-    // This includes string?, int?, double?, etc. per spec/04-type-mappings.md
-    return [{ kind: "nullableType", underlyingType: baseTypeAst }, newContext];
+    if (!hasNullish) {
+      return [firstTypeAst, currentContext];
+    }
+
+    return [
+      { kind: "nullableType", underlyingType: firstTypeAst },
+      currentContext,
+    ];
   }
 
   // Multi-type unions (2-8 types) → Union<T1, T2, ...>
-  if (type.types.length >= 2 && type.types.length <= 8) {
-    const typeArgAsts: CSharpTypeAst[] = [];
-    let currentContext = context;
+  const uniqueTypeAsts: CSharpTypeAst[] = [];
+  const uniqueTypeKeys = new Set<string>();
+  currentContext = context;
 
-    for (const t of type.types) {
-      const [typeAst, newContext] = emitTypeAst(t, currentContext);
-      typeArgAsts.push(typeAst);
-      currentContext = newContext;
-    }
+  for (const t of type.types) {
+    const [typeAst, nextContext] = emitTypeAst(t, currentContext);
+    currentContext = nextContext;
+    const key = JSON.stringify(typeAst);
+    if (uniqueTypeKeys.has(key)) continue;
+    uniqueTypeKeys.add(key);
+    uniqueTypeAsts.push(typeAst);
+  }
 
+  if (uniqueTypeAsts.length >= 2 && uniqueTypeAsts.length <= 8) {
     return [
       {
         kind: "identifierType",
         name: "global::Tsonic.Runtime.Union",
-        typeArguments: typeArgAsts,
+        typeArguments: uniqueTypeAsts,
       },
       currentContext,
     ];

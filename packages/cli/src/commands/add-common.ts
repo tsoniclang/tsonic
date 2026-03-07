@@ -192,7 +192,9 @@ const tryResolveSiblingTsonicPackageRoot = (
   const repoRoot = resolve(dirname(here), "../../../../");
   const siblingRepoRoot = resolve(repoRoot, "..", scoped[1]);
 
-  const repoPackageName = readPackageName(join(siblingRepoRoot, "package.json"));
+  const repoPackageName = readPackageName(
+    join(siblingRepoRoot, "package.json")
+  );
   if (repoPackageName === packageName) return siblingRepoRoot;
 
   const versionsRoot = join(siblingRepoRoot, "versions");

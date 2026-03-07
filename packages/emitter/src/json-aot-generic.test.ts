@@ -8,6 +8,128 @@ import { emitCSharpFiles } from "./emitter.js";
 import type { IrModule } from "@tsonic/frontend";
 
 describe("JSON NativeAOT registry", () => {
+  it("routes untyped global JSON.parse through JSRuntime without AOT metadata", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/index.ts",
+      namespace: "MyApp",
+      className: "index",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "parseUnknown",
+          parameters: [],
+          returnType: { kind: "unknownType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "call",
+                  callee: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "JSON" },
+                    property: "parse",
+                    isComputed: false,
+                    isOptional: false,
+                  },
+                  arguments: [
+                    {
+                      kind: "literal",
+                      value: '{"title":"hello"}',
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "unknownType" },
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitCSharpFiles([module], {
+      rootNamespace: "MyApp",
+      enableJsonAot: true,
+    });
+    expect(result.ok).to.equal(true);
+    if (!result.ok) return;
+
+    const code = result.files.get("index.cs");
+    expect(code).to.not.equal(undefined);
+    expect(code).to.include(
+      'global::Tsonic.JSRuntime.JSON.parse<object>("{\\"title\\":\\"hello\\"}")'
+    );
+    expect(code).to.not.include("TsonicJson.Options");
+    expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
+  });
+
+  it("uses the inferred closed result type for global JSON.parse without explicit type arguments", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/index.ts",
+      namespace: "MyApp",
+      className: "index",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "parseNumber",
+          parameters: [],
+          returnType: { kind: "primitiveType", name: "number" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "call",
+                  callee: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "JSON" },
+                    property: "parse",
+                    isComputed: false,
+                    isOptional: false,
+                  },
+                  arguments: [{ kind: "literal", value: "123" }],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "number" },
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitCSharpFiles([module], {
+      rootNamespace: "MyApp",
+      enableJsonAot: true,
+    });
+    expect(result.ok).to.equal(true);
+    if (!result.ok) return;
+
+    const code = result.files.get("index.cs");
+    expect(code).to.not.equal(undefined);
+    expect(code).to.include(
+      'global::System.Text.Json.JsonSerializer.Deserialize<double>("123", TsonicJson.Options)'
+    );
+    expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
+  });
+
   it("does not register open generic type parameters (no typeof(global::T))", () => {
     const module: IrModule = {
       kind: "module",

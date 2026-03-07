@@ -150,6 +150,7 @@ export const convertMemberExpression = (
         : memberBinding
           ? undefined
           : { kind: "unknownType" as const };
+    const allowUnknownInferredType = declaredType?.kind === "unknownType";
 
     return {
       kind: "memberAccess",
@@ -158,6 +159,7 @@ export const convertMemberExpression = (
       isComputed: false,
       isOptional,
       inferredType: propertyInferredType,
+      allowUnknownInferredType,
       sourceSpan,
       memberBinding,
     };
@@ -174,6 +176,11 @@ export const convertMemberExpression = (
 
     // Derive element type from object type
     const elementType = deriveElementType(objectType, ctx);
+    const allowUnknownInferredType =
+      elementType?.kind === "unknownType" &&
+      accessKind !== "unknown" &&
+      objectType !== undefined &&
+      objectType.kind !== "unknownType";
 
     return {
       kind: "memberAccess",
@@ -182,6 +189,7 @@ export const convertMemberExpression = (
       isComputed: true,
       isOptional,
       inferredType: elementType,
+      allowUnknownInferredType,
       sourceSpan,
       accessKind,
     };

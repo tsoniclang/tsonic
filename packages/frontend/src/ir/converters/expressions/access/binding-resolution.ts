@@ -128,7 +128,10 @@ export const resolveHierarchicalBinding = (
         simpleBinding.staticType
       );
       if (staticAlias) {
-        const overloads = registry.getMemberOverloads(staticAlias, propertyName);
+        const overloads = registry.getMemberOverloads(
+          staticAlias,
+          propertyName
+        );
         if (overloads && overloads.length > 0) {
           return toIrMemberBinding(overloads);
         }

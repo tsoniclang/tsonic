@@ -314,6 +314,69 @@ const getOrCreateTypeName = (
   return name;
 };
 
+const getOrCreateBehavioralObjectTypeName = (
+  objectType: IrObjectType,
+  behaviorMembers: readonly IrClassMember[],
+  sourceLocation: IrExpression["sourceSpan"] | undefined,
+  ctx: LoweringContext
+): string => {
+  const moduleHash = generateModuleHash(ctx.moduleFilePath);
+  const locationKey = sourceLocation
+    ? `${sourceLocation.file}:${sourceLocation.line}:${sourceLocation.column}`
+    : `${ctx.moduleFilePath}:behavior`;
+  const behaviorSignature = [
+    "behavior",
+    locationKey,
+    computeShapeSignature(objectType),
+    ...behaviorMembers.map((member) =>
+      member.kind === "methodDeclaration"
+        ? `method:${member.name}`
+        : member.kind === "propertyDeclaration"
+          ? `property:${member.name}`
+          : `ctor:${member.parameters.length}`
+    ),
+  ].join("|");
+
+  const existing = ctx.shapeToName.get(behaviorSignature);
+  if (existing) {
+    return existing;
+  }
+
+  const name = `__Anon_${moduleHash}_${generateShapeHash(behaviorSignature)}`;
+  ctx.shapeToName.set(behaviorSignature, name);
+
+  const behaviorPropertyNames = new Set(
+    behaviorMembers
+      .filter(
+        (member): member is Extract<IrClassMember, { kind: "propertyDeclaration" }> =>
+          member.kind === "propertyDeclaration"
+      )
+      .map((member) => member.name)
+  );
+
+  const generatedMembers: IrClassMember[] = [
+    ...interfaceMembersToClassMembers(objectType.members).filter(
+      (member) =>
+        member.kind !== "propertyDeclaration" ||
+        !behaviorPropertyNames.has(member.name)
+    ),
+    ...behaviorMembers,
+  ];
+
+  ctx.generatedDeclarations.push({
+    kind: "classDeclaration",
+    name,
+    typeParameters: undefined,
+    superClass: undefined,
+    implements: [],
+    members: generatedMembers,
+    isExported: true,
+    isStruct: false,
+  });
+
+  return name;
+};
+
 /**
  * Extract the non-undefined/null type from a union type.
  * For `T | undefined` or `T | null | undefined`, returns T.
@@ -673,35 +736,82 @@ const lowerExpression = (
         };
 
       case "object":
-        // Lower both contextualType and inferredType.
-        // inferredType is used by downstream passes (e.g. pattern lowering for
-        // destructuring) and must not retain raw objectType nodes.
-        return {
-          ...expr,
-          inferredType: expr.inferredType
-            ? lowerType(expr.inferredType, ctx)
-            : undefined,
-          contextualType: expr.contextualType
-            ? lowerType(expr.contextualType, ctx)
-            : undefined,
-          properties: expr.properties.map((p) => {
-            if (p.kind === "property") {
-              return {
-                ...p,
-                key:
-                  typeof p.key === "string"
-                    ? p.key
-                    : lowerExpression(p.key, ctx),
-                value: lowerExpression(p.value, ctx),
-              };
-            } else {
-              return {
-                ...p,
-                expression: lowerExpression(p.expression, ctx),
-              };
+        {
+          const rawContextualType = expr.contextualType;
+          const rawInferredType = expr.inferredType;
+          const objectTypeForBehavior = (() => {
+            if (
+              rawContextualType?.kind === "objectType" &&
+              rawContextualType.members.length > 0
+            ) {
+              return rawContextualType;
             }
-          }),
-        };
+            if (
+              rawInferredType?.kind === "objectType" &&
+              rawInferredType.members.length > 0
+            ) {
+              return rawInferredType;
+            }
+            return undefined;
+          })();
+
+          const loweredBehaviorMembers = expr.behaviorMembers?.map((member) =>
+            lowerClassMember(member, ctx)
+          );
+          const behaviorTypeName =
+            objectTypeForBehavior &&
+            loweredBehaviorMembers &&
+            loweredBehaviorMembers.length > 0
+              ? getOrCreateBehavioralObjectTypeName(
+                  objectTypeForBehavior,
+                  loweredBehaviorMembers,
+                  expr.sourceSpan,
+                  ctx
+                )
+              : undefined;
+          const loweredBehaviorType =
+            behaviorTypeName !== undefined
+              ? ({
+                  kind: "referenceType",
+                  name: behaviorTypeName,
+                } satisfies IrReferenceType)
+              : undefined;
+
+          return {
+            ...expr,
+            behaviorMembers:
+              loweredBehaviorMembers && loweredBehaviorMembers.length > 0
+                ? loweredBehaviorMembers
+                : undefined,
+            inferredType: loweredBehaviorType
+              ? loweredBehaviorType
+              : expr.inferredType
+                ? lowerType(expr.inferredType, ctx)
+                : undefined,
+            contextualType: loweredBehaviorType
+              ? loweredBehaviorType
+              : expr.contextualType
+                ? lowerType(expr.contextualType, ctx)
+                : undefined,
+            properties: expr.properties.map((p) => {
+              if (p.kind === "property") {
+                return {
+                  ...p,
+                  key:
+                    typeof p.key === "string"
+                      ? p.key
+                      : lowerExpression(p.key, ctx),
+                  value: lowerExpression(p.value, ctx),
+                };
+              } else {
+                return {
+                  ...p,
+                  expression: lowerExpression(p.expression, ctx),
+                };
+              }
+            }),
+          };
+        }
 
       case "functionExpression": {
         const loweredParams = expr.parameters.map((p) =>
@@ -922,6 +1032,16 @@ const lowerExpression = (
           targetType: lowerType(expr.targetType, ctx),
           inferredType: lowerType(expr.inferredType, ctx),
         };
+
+      case "nameof":
+        return expr;
+
+      case "sizeof":
+        return {
+          ...expr,
+          targetType: lowerType(expr.targetType, ctx),
+          inferredType: lowerType(expr.inferredType, ctx),
+        };
     }
   })();
 
@@ -1038,6 +1158,12 @@ const lowerClassMember = (
           : undefined,
         initializer: member.initializer
           ? lowerExpression(member.initializer, ctx)
+          : undefined,
+        getterBody: member.getterBody
+          ? lowerBlockStatement(member.getterBody, ctx)
+          : undefined,
+        setterBody: member.setterBody
+          ? lowerBlockStatement(member.setterBody, ctx)
           : undefined,
       };
     case "constructorDeclaration":

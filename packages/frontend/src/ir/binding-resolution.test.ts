@@ -12,6 +12,7 @@ import { BindingRegistry } from "../program/bindings.js";
 import { IrIdentifierExpression } from "./types.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
+import { extractTypeName } from "./converters/expressions/access/member-resolution.js";
 
 describe("Binding Resolution in IR", () => {
   const createTestProgram = (
@@ -72,6 +73,32 @@ describe("Binding Resolution in IR", () => {
 
     return { testProgram, ctx, options };
   };
+
+  describe("extractTypeName", () => {
+    it("returns a stable binding name for unions whose constituents normalize to the same type", () => {
+      const unionName = extractTypeName({
+        kind: "unionType",
+        types: [
+          { kind: "referenceType", name: "Date" },
+          { kind: "referenceType", name: "Date$instance" },
+        ],
+      });
+
+      expect(unionName).to.equal("Date");
+    });
+
+    it("returns undefined for unions whose constituents normalize to different binding types", () => {
+      const unionName = extractTypeName({
+        kind: "unionType",
+        types: [
+          { kind: "referenceType", name: "Date" },
+          { kind: "referenceType", name: "RegExp" },
+        ],
+      });
+
+      expect(unionName).to.equal(undefined);
+    });
+  });
 
   describe("Global Identifier Resolution", () => {
     it("should resolve console to CLR type when binding exists", () => {

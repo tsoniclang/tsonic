@@ -306,6 +306,8 @@ export type EmitterContext = {
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
   readonly localNameMap?: ReadonlyMap<string, string>;
+  /** Bound object-literal receiver identifier for method-shorthand `this` lowering. */
+  readonly objectLiteralThisIdentifier?: string;
   /**
    * Set of parameter names that are void-promise resolve callbacks.
    *

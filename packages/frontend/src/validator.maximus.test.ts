@@ -139,6 +139,15 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "awaited local dynamic import side-effect",
+        source: `
+          async function load(): Promise<void> {
+            await import("./module.js");
+          }
+          void load();
+        `,
+      },
+      {
         name: "class method named then",
         source: `
           class Builder {
@@ -936,6 +945,30 @@ describe("Maximus Validation Coverage", () => {
           console.log(ops.add(1, 2));
         `,
       },
+      {
+        name: "contextual typing with destructured parameter",
+        source: `
+          type Getter = ({ x }: { x: number }) => number;
+          const getX: Getter = ({ x }) => x;
+          console.log(getX({ x: 1 }));
+        `,
+      },
+      {
+        name: "contextual typing with defaulted parameter",
+        source: `
+          type Inc = (x?: number) => number;
+          const inc: Inc = (x = 0) => x + 1;
+          console.log(inc(), inc(4));
+        `,
+      },
+      {
+        name: "contextual typing with rest parameter",
+        source: `
+          type Count = (...xs: number[]) => number;
+          const count: Count = (...xs) => xs.length;
+          console.log(count(1, 2, 3));
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -1096,6 +1129,31 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "computed const-literal property and accessor keys",
+        source: `
+          const valueKey = "value";
+          const doubledKey = "doubled";
+          const obj = {
+            [valueKey]: 21,
+            get [doubledKey](): number {
+              return this.value * 2;
+            },
+          };
+          const n = obj.doubled;
+          void n;
+        `,
+      },
+      {
+        name: "computed const-literal numeric property key",
+        source: `
+          const slot = 1;
+          const obj = {
+            [slot]: 7,
+          };
+          void obj;
+        `,
+      },
+      {
         name: "method shorthand in typed generic call argument",
         source: `
           interface Ops {
@@ -1111,6 +1169,31 @@ describe("Maximus Validation Coverage", () => {
           void n;
         `,
       },
+      {
+        name: "method shorthand using this",
+        source: `
+          const obj = {
+            base: 2,
+            mul(x: number): number {
+              return this.base * x;
+            },
+          };
+          const n = obj.mul(3);
+          void n;
+        `,
+      },
+      {
+        name: "getter shorthand in synthesized object literal",
+        source: `
+          const obj = {
+            get value(): number {
+              return 1;
+            },
+          };
+          const n = obj.value;
+          void n;
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -1123,18 +1206,6 @@ describe("Maximus Validation Coverage", () => {
       readonly name: string;
       readonly source: string;
     }> = [
-      {
-        name: "method shorthand using this",
-        source: `
-          const obj = {
-            base: 2,
-            mul(x: number): number {
-              return this.base * x;
-            },
-          };
-          void obj;
-        `,
-      },
       {
         name: "method shorthand using arguments",
         source: `
@@ -1158,17 +1229,6 @@ describe("Maximus Validation Coverage", () => {
             __proto__: base,
             mul(x: number): number {
               return super.mul(x);
-            },
-          };
-          void obj;
-        `,
-      },
-      {
-        name: "getter shorthand in synthesized object literal",
-        source: `
-          const obj = {
-            get value(): number {
-              return 1;
             },
           };
           void obj;

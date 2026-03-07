@@ -16,6 +16,7 @@ import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitBlockStatementAst } from "../../statements/blocks.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { resolveBehavioralObjectLiteralType } from "../../expressions/collections.js";
 import {
   lowerPatternAst,
   lowerPatternToStaticMembersAst,
@@ -299,6 +300,16 @@ const resolveStaticFieldType = (
   }
 
   // Infer from initializer's inferred type
+  if (init?.kind === "object") {
+    const behavioralType = resolveBehavioralObjectLiteralType(
+      init as Extract<IrExpression, { kind: "object" }>,
+      context
+    );
+    if (behavioralType) {
+      return emitTypeAst(behavioralType, context);
+    }
+  }
+
   if (init?.inferredType && canEmitTypeExplicitly(init.inferredType)) {
     return emitTypeAst(init.inferredType, context);
   }

@@ -14,6 +14,8 @@ import {
   IrTryCastExpression,
   IrStackAllocExpression,
   IrDefaultOfExpression,
+  IrNameOfExpression,
+  IrSizeOfExpression,
 } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
@@ -708,6 +710,37 @@ const emitDefaultOf = (
 };
 
 /**
+ * Emit a nameof expression as a compile-time string literal using the authored TS name.
+ */
+const emitNameOf = (
+  expr: IrNameOfExpression,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => [
+  {
+    kind: "literalExpression",
+    text: JSON.stringify(expr.name),
+  },
+  context,
+];
+
+/**
+ * Emit a sizeof expression as C# sizeof(T).
+ */
+const emitSizeOf = (
+  expr: IrSizeOfExpression,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const [typeAst, ctx1] = emitTypeAst(expr.targetType, context);
+  return [
+    {
+      kind: "sizeOfExpression",
+      type: typeAst,
+    },
+    ctx1,
+  ];
+};
+
+/**
  * Emit a C# expression AST from an IR expression.
  * Primary entry point for expression emission.
  *
@@ -778,7 +811,10 @@ export const emitExpressionAst = (
 
       case "this":
         return [
-          { kind: "identifierExpression" as const, identifier: "this" },
+          {
+            kind: "identifierExpression" as const,
+            identifier: context.objectLiteralThisIdentifier ?? "this",
+          },
           context,
         ];
 
@@ -799,6 +835,12 @@ export const emitExpressionAst = (
 
       case "defaultof":
         return emitDefaultOf(expr, context);
+
+      case "nameof":
+        return emitNameOf(expr, context);
+
+      case "sizeof":
+        return emitSizeOf(expr, context);
 
       default:
         throw new Error(

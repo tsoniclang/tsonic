@@ -42,7 +42,7 @@ const findProjectCsproj = (projectRoot: string): string | null => {
 };
 
 const dedupePackageReferencesAgainstAssemblyReferences = <
-  T extends { readonly id: string }
+  T extends { readonly id: string },
 >(
   packageReferences: readonly T[],
   assemblyReferences: readonly { readonly name: string }[]
@@ -154,6 +154,16 @@ const collectProjectLibraries = (
   }
 
   return refs;
+};
+
+const toGeneratedRelativePath = (modulePath: string): string => {
+  const normalized = modulePath.replace(/\\/g, "/");
+  const strippedLeadingTraversal = normalized.replace(/^(\.\.\/)+/, "");
+  const hasEscapedSourceRoot = strippedLeadingTraversal !== normalized;
+  const safeRelativePath = hasEscapedSourceRoot
+    ? join("__external__", strippedLeadingTraversal).replace(/\\/g, "/")
+    : strippedLeadingTraversal.replace(/^\/+/, "");
+  return safeRelativePath.replace(/\.ts$/, ".cs");
 };
 
 /**
@@ -347,9 +357,7 @@ export const generateCommand = (
 
     // Write C# files preserving directory structure
     for (const [modulePath, csCode] of csFiles) {
-      // Convert module path to C# file path
-      // src/models/User.ts → generated/src/models/User.cs
-      const csPath = modulePath.replace(/\.ts$/, ".cs");
+      const csPath = toGeneratedRelativePath(modulePath);
       const fullPath = join(outputDir, csPath);
 
       mkdirSync(dirname(fullPath), { recursive: true });

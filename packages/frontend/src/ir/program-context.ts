@@ -41,6 +41,16 @@ import {
  */
 export type ProgramContext = {
   /**
+   * Project root used for package/module resolution.
+   */
+  readonly projectRoot: string;
+
+  /**
+   * Source root of the current app graph.
+   */
+  readonly sourceRoot: string;
+
+  /**
    * Selected language surface mode for this compilation.
    */
   readonly surface: SurfaceMode;
@@ -102,6 +112,14 @@ export type ProgramContext = {
    * Collected by `buildIr()` and treated as compilation errors.
    */
   readonly diagnostics: Diagnostic[];
+
+  /**
+   * Synthetic `this` type for object-literal method/accessor conversion.
+   *
+   * When converting object literal behavior members, `this` does not refer to an
+   * enclosing class. It refers to the synthesized object shape itself.
+   */
+  readonly objectLiteralThisType?: IrType;
 };
 
 /**
@@ -437,6 +455,8 @@ export const createProgramContext = (
   });
 
   return {
+    projectRoot: program.options.projectRoot,
+    sourceRoot: options.sourceRoot,
     surface: program.options.surface ?? "clr",
     checker: program.checker,
     binding: program.binding,
