@@ -12,6 +12,7 @@ import { BindingRegistry } from "../program/bindings.js";
 import { IrIdentifierExpression } from "./types.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
+import { extractTypeName } from "./converters/expressions/access/member-resolution.js";
 
 describe("Binding Resolution in IR", () => {
   const createTestProgram = (
@@ -72,6 +73,32 @@ describe("Binding Resolution in IR", () => {
 
     return { testProgram, ctx, options };
   };
+
+  describe("extractTypeName", () => {
+    it("returns a stable binding name for unions whose constituents normalize to the same type", () => {
+      const unionName = extractTypeName({
+        kind: "unionType",
+        types: [
+          { kind: "referenceType", name: "Date" },
+          { kind: "referenceType", name: "Date$instance" },
+        ],
+      });
+
+      expect(unionName).to.equal("Date");
+    });
+
+    it("returns undefined for unions whose constituents normalize to different binding types", () => {
+      const unionName = extractTypeName({
+        kind: "unionType",
+        types: [
+          { kind: "referenceType", name: "Date" },
+          { kind: "referenceType", name: "RegExp" },
+        ],
+      });
+
+      expect(unionName).to.equal(undefined);
+    });
+  });
 
   describe("Global Identifier Resolution", () => {
     it("should resolve console to CLR type when binding exists", () => {
@@ -212,6 +239,166 @@ describe("Binding Resolution in IR", () => {
       expect(mathExpr.name).to.equal("Math");
       expect(mathExpr.resolvedClrType).to.equal("Tsonic.Runtime.Math");
       expect(mathExpr.resolvedAssembly).to.equal("Tsonic.Runtime");
+    });
+
+    it("should resolve global function bindings with csharpName on identifier callees", () => {
+      const source = `
+        export function test() {
+          setInterval(() => {}, 1000);
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/runtime.json", {
+        bindings: {
+          setInterval: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Timers",
+            csharpName: "Timers.setInterval",
+          },
+        },
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements[0];
+      expect(exprStmt?.kind).to.equal("expressionStatement");
+
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+
+      if (callExpr.kind !== "call") return;
+
+      const calleeExpr = callExpr.callee;
+      expect(calleeExpr.kind).to.equal("identifier");
+
+      if (calleeExpr.kind !== "identifier") return;
+
+      expect(calleeExpr.name).to.equal("setInterval");
+      expect(calleeExpr.csharpName).to.equal("Timers.setInterval");
+      expect(calleeExpr.resolvedClrType).to.equal("Tsonic.JSRuntime.Timers");
+      expect(calleeExpr.resolvedAssembly).to.equal("Tsonic.JSRuntime");
+    });
+
+    it("prefers typed object overloads over erased unknown overloads for object literals", () => {
+      const source = `
+        declare class MkdirOptions {
+          readonly __tsonic_type_nodejs_MkdirOptions: never;
+          recursive?: boolean;
+        }
+
+        declare const fs: {
+          mkdirSync(path: string, options: MkdirOptions): void;
+          mkdirSync(path: string, recursive?: boolean): void;
+          mkdirSync(path: string, options: unknown): void;
+        };
+
+        export function test(dir: string): void {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements[0];
+      expect(exprStmt?.kind).to.equal("expressionStatement");
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+      if (callExpr.kind !== "call") return;
+
+      const optionsType = callExpr.parameterTypes?.[1];
+      expect(optionsType?.kind).to.equal("referenceType");
+      if (optionsType?.kind !== "referenceType") return;
+      expect(optionsType.name).to.equal("MkdirOptions");
+    });
+
+    it("extracts structural members from tsbindgen-style accessor instance aliases", () => {
+      const source = `
+        declare interface MkdirOptions$instance {
+          readonly __tsonic_type_nodejs_MkdirOptions: never;
+          get recursive(): boolean | undefined;
+          set recursive(value: boolean | undefined);
+          get mode(): number | undefined;
+          set mode(value: number | undefined);
+        }
+
+        declare const MkdirOptions: {
+          new(): MkdirOptions;
+        };
+
+        declare type MkdirOptions = MkdirOptions$instance;
+
+        declare const fs: {
+          mkdirSync(path: string, options: MkdirOptions): void;
+          mkdirSync(path: string, recursive?: boolean): void;
+          mkdirSync(path: string, options: unknown): void;
+        };
+
+        export function test(dir: string): void {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements[0];
+      expect(exprStmt?.kind).to.equal("expressionStatement");
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+      if (callExpr.kind !== "call") return;
+
+      const optionsType = callExpr.parameterTypes?.[1];
+      expect(optionsType?.kind).to.equal("referenceType");
+      if (optionsType?.kind !== "referenceType") return;
+      expect(optionsType.name).to.equal("MkdirOptions$instance");
+      expect(optionsType.structuralMembers?.map((m) => m.name)).to.deep.equal([
+        "recursive",
+        "mode",
+      ]);
     });
   });
 

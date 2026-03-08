@@ -7,6 +7,7 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
+import { emitTypeAst } from "../../../type-emitter.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -160,6 +161,116 @@ const buildIsPatternCondition = (
   kind: "identifierExpression",
   identifier: `${escapedOrig} is ${rhsTypeText} ${escapedNarrow}`,
 });
+
+const tryExtractTypeofEqualityGuard = (
+  condition: Extract<IrStatement, { kind: "ifStatement" }>["condition"]
+):
+  | {
+      readonly originalName: string;
+      readonly narrowsInThen: boolean;
+      readonly compound: boolean;
+    }
+  | undefined => {
+  const extractDirectGuard = (
+    expr: typeof condition
+  ):
+    | {
+        readonly originalName: string;
+        readonly narrowsInThen: boolean;
+      }
+    | undefined => {
+    if (expr.kind !== "binary") return undefined;
+    if (
+      expr.operator !== "===" &&
+      expr.operator !== "==" &&
+      expr.operator !== "!==" &&
+      expr.operator !== "!="
+    ) {
+      return undefined;
+    }
+
+    const extract = (
+      left: typeof expr.left,
+      right: typeof expr.right
+    ): string | undefined => {
+      if (left.kind !== "unary" || left.operator !== "typeof") return undefined;
+      if (left.expression.kind !== "identifier") return undefined;
+      if (right.kind !== "literal" || typeof right.value !== "string") {
+        return undefined;
+      }
+      return left.expression.name;
+    };
+
+    const originalName =
+      extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
+    if (!originalName) return undefined;
+
+    return {
+      originalName,
+      narrowsInThen: expr.operator === "===" || expr.operator === "==",
+    };
+  };
+
+  const direct = extractDirectGuard(condition);
+  if (direct) {
+    return { ...direct, compound: false };
+  }
+
+  if (condition.kind === "logical" && condition.operator === "&&") {
+    const left = tryExtractTypeofEqualityGuard(condition.left);
+    if (left?.narrowsInThen) {
+      return { ...left, compound: true };
+    }
+    const right = tryExtractTypeofEqualityGuard(condition.right);
+    if (right?.narrowsInThen) {
+      return { ...right, compound: true };
+    }
+  }
+
+  return undefined;
+};
+
+const findIdentifierTypeInNode = (
+  node: unknown,
+  identifierName: string
+): import("@tsonic/frontend").IrType | undefined => {
+  const visit = (
+    value: unknown
+  ): import("@tsonic/frontend").IrType | undefined => {
+    if (!value || typeof value !== "object") return undefined;
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = visit(item);
+        if (found) return found;
+      }
+      return undefined;
+    }
+
+    const candidate = value as {
+      readonly kind?: unknown;
+      readonly name?: unknown;
+      readonly inferredType?: import("@tsonic/frontend").IrType;
+    };
+
+    if (
+      candidate.kind === "identifier" &&
+      candidate.name === identifierName &&
+      candidate.inferredType
+    ) {
+      return candidate.inferredType;
+    }
+
+    for (const child of Object.values(value)) {
+      const found = visit(child);
+      if (found) return found;
+    }
+
+    return undefined;
+  };
+
+  return visit(node);
+};
 
 /**
  * Emit an if statement as AST
@@ -990,6 +1101,94 @@ export const emitIfStatementAst = (
         finalContext = {
           ...elseCtxAfter,
           narrowedBindings: context.narrowedBindings,
+        };
+      }
+
+      return [
+        [
+          {
+            kind: "ifStatement",
+            condition: condAst,
+            thenStatement: wrapInBlock(thenStmts),
+            elseStatement: elseStmt,
+          },
+        ],
+        finalContext,
+      ];
+    }
+  }
+
+  // Case E: typeof narrowing on plain locals/parameters
+  // if (typeof value === "number") { ... } / else { ... }
+  const typeofGuard = tryExtractTypeofEqualityGuard(stmt.condition);
+  if (typeofGuard) {
+    const narrowedBranch = typeofGuard.narrowsInThen
+      ? stmt.thenStatement
+      : stmt.elseStatement;
+    const narrowedType = narrowedBranch
+      ? findIdentifierTypeInNode(narrowedBranch, typeofGuard.originalName)
+      : undefined;
+
+    if (narrowedBranch && narrowedType) {
+      const [condAst, condCtxAfterCond] = emitBooleanConditionAst(
+        stmt.condition,
+        emitExprAstCb,
+        context
+      );
+
+      const [rawIdAst] = emitIdentifier(
+        { kind: "identifier", name: typeofGuard.originalName },
+        { ...condCtxAfterCond, narrowedBindings: undefined }
+      );
+      const [narrowedTypeAst, narrowedTypeCtx] = emitTypeAst(
+        narrowedType,
+        condCtxAfterCond
+      );
+      const narrowedMap = new Map(condCtxAfterCond.narrowedBindings ?? []);
+      narrowedMap.set(typeofGuard.originalName, {
+        kind: "expr",
+        exprAst: {
+          kind: "castExpression",
+          type: narrowedTypeAst,
+          expression: rawIdAst,
+        },
+        type: narrowedType,
+      });
+
+      const thenCtx: EmitterContext = {
+        ...narrowedTypeCtx,
+        narrowedBindings: typeofGuard.narrowsInThen
+          ? narrowedMap
+          : condCtxAfterCond.narrowedBindings,
+      };
+      const [thenStmts, thenCtxAfter] = emitStatementAst(
+        stmt.thenStatement,
+        thenCtx
+      );
+
+      let finalContext: EmitterContext = {
+        ...thenCtxAfter,
+        narrowedBindings: condCtxAfterCond.narrowedBindings,
+      };
+
+      let elseStmt: CSharpStatementAst | undefined;
+      if (stmt.elseStatement) {
+        const elseCtx: EmitterContext = {
+          ...finalContext,
+          narrowedBindings: typeofGuard.compound
+            ? condCtxAfterCond.narrowedBindings
+            : typeofGuard.narrowsInThen
+              ? condCtxAfterCond.narrowedBindings
+              : narrowedMap,
+        };
+        const [elseStmts, elseCtxAfter] = emitStatementAst(
+          stmt.elseStatement,
+          elseCtx
+        );
+        elseStmt = wrapInBlock(elseStmts);
+        finalContext = {
+          ...elseCtxAfter,
+          narrowedBindings: condCtxAfterCond.narrowedBindings,
         };
       }
 

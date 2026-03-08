@@ -1,0 +1,10 @@
+{
+  "$schema": "https://tsonic.org/schema/workspace/v1.json",
+  "surface": "@tsonic/js",
+  "dotnetVersion": "net10.0",
+  "dotnet": {
+    "libraries": [],
+    "frameworkReferences": [],
+    "packageReferences": []
+  }
+}

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, join, normalize } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import type {
   FrameworkReferenceConfig,
   PackageReferenceConfig,
@@ -9,6 +9,7 @@ import type {
 } from "../types.js";
 import { resolvePackageRoot } from "../commands/add-common.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+import type { LibraryReferenceConfig } from "../types.js";
 
 export type ManifestDotnet = {
   readonly frameworkReferences?: readonly FrameworkReferenceConfig[];
@@ -61,6 +62,37 @@ const AIKYA_DIAGNOSTIC = {
 } as const;
 
 const normalizeId = (id: string): string => id.trim().toLowerCase();
+
+const libraryReferencePath = (library: LibraryReferenceConfig): string =>
+  typeof library === "string" ? library : library.path;
+
+const localLibraryAssemblyNames = (
+  config: TsonicWorkspaceConfig
+): ReadonlySet<string> => {
+  const names = new Set<string>();
+  for (const library of config.dotnet?.libraries ?? []) {
+    const rawPath = libraryReferencePath(library).trim();
+    if (rawPath.length === 0) continue;
+    const file = basename(rawPath).trim();
+    if (!file.toLowerCase().endsWith(".dll")) continue;
+    const stem = file.slice(0, -4).trim();
+    if (stem.length === 0) continue;
+    names.add(normalizeId(stem));
+  }
+  return names;
+};
+
+const manifestIsSatisfiedByLocalLibrary = (
+  config: TsonicWorkspaceConfig,
+  manifest: NormalizedBindingsManifest
+): boolean => {
+  if (!manifest.assemblyName || manifest.assemblyName.trim().length === 0) {
+    return false;
+  }
+  return localLibraryAssemblyNames(config).has(
+    normalizeId(manifest.assemblyName)
+  );
+};
 
 const errorWithCode = (
   code: string,
@@ -1249,6 +1281,10 @@ export const mergeManifestIntoWorkspaceConfig = (
 ): Result<TsonicWorkspaceConfig, string> => {
   const dotnet = config.dotnet ?? {};
   const testDotnet = config.testDotnet ?? {};
+  const localRuntimeOverride = manifestIsSatisfiedByLocalLibrary(
+    config,
+    manifest
+  );
   const mergedTypeRoots = [
     ...new Set([
       ...((dotnet.typeRoots ?? []) as readonly string[]),
@@ -1265,7 +1301,9 @@ export const mergeManifestIntoWorkspaceConfig = (
 
   const mergedPackages = mergePackageReferences(
     (dotnet.packageReferences ?? []) as PackageReferenceConfig[],
-    (manifest.dotnet?.packageReferences ?? []) as PackageReferenceConfig[],
+    (localRuntimeOverride
+      ? []
+      : (manifest.dotnet?.packageReferences ?? [])) as PackageReferenceConfig[],
     conflictCode
   );
   if (!mergedPackages.ok) return mergedPackages;
@@ -1287,7 +1325,10 @@ export const mergeManifestIntoWorkspaceConfig = (
 
   const mergedTestPackages = mergePackageReferences(
     (testDotnet.packageReferences ?? []) as PackageReferenceConfig[],
-    (manifest.testDotnet?.packageReferences ?? []) as PackageReferenceConfig[],
+    (localRuntimeOverride
+      ? []
+      : (manifest.testDotnet?.packageReferences ??
+        [])) as PackageReferenceConfig[],
     conflictCode
   );
   if (!mergedTestPackages.ok) return mergedTestPackages;

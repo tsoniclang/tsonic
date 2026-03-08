@@ -340,7 +340,8 @@ const isStaticTypeReference = (
 export const emitMemberAccess = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
   context: EmitterContext,
-  usage: MemberAccessUsage = "value"
+  usage: MemberAccessUsage = "value",
+  expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   // Nullable guard narrowing for member-access expressions.
   const narrowKey = context.narrowedBindings
@@ -687,7 +688,6 @@ export const emitMemberAccess = (
     }
 
     if (accessKind === "stringChar") {
-      // str[i] returns char in C#, but string in TypeScript. Convert char → string.
       const elementAccess: CSharpExpressionAst = expr.isOptional
         ? {
             kind: "conditionalElementAccessExpression",
@@ -699,6 +699,25 @@ export const emitMemberAccess = (
             expression: objectAst,
             arguments: [propAst],
           };
+
+      const narrowedExpectedType = expectedType
+        ? stripNullish(expectedType)
+        : undefined;
+      const resolvedExpectedType = narrowedExpectedType
+        ? resolveTypeAlias(narrowedExpectedType, context)
+        : undefined;
+      const expectsChar =
+        (resolvedExpectedType?.kind === "primitiveType" &&
+          resolvedExpectedType.name === "char") ||
+        (resolvedExpectedType?.kind === "referenceType" &&
+          resolvedExpectedType.name === "char");
+
+      if (expectsChar) {
+        return [elementAccess, finalContext];
+      }
+
+      // str[i] returns char in C#, but JS/TS surface semantics expect a string
+      // in non-char contexts. Convert char → string at the emission boundary.
       return [
         {
           kind: "invocationExpression",

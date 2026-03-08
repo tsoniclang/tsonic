@@ -117,7 +117,10 @@ const containsYield = (expr: IrExpression): boolean => {
     case "new":
       return (
         containsYield(expr.callee) ||
-        expr.arguments.some((a) => containsYield(a))
+        expr.arguments.some((a) => containsYield(a)) ||
+        (expr.kind === "call" &&
+          expr.dynamicImportNamespace !== undefined &&
+          containsYield(expr.dynamicImportNamespace))
       );
 
     case "array":
@@ -191,7 +194,10 @@ const countYields = (expr: IrExpression): number => {
     case "new":
       return (
         countYields(expr.callee) +
-        expr.arguments.reduce((sum, a) => sum + countYields(a), 0)
+        expr.arguments.reduce((sum, a) => sum + countYields(a), 0) +
+        (expr.kind === "call" && expr.dynamicImportNamespace
+          ? countYields(expr.dynamicImportNamespace)
+          : 0)
       );
 
     case "array":
@@ -603,12 +609,33 @@ const lowerExpressionWithYields = (
             loweredArgs.push(loweredArg.expression);
           }
         }
+        const loweredDynamicImportNamespace =
+          expr.kind === "call" && expr.dynamicImportNamespace
+            ? lower(expr.dynamicImportNamespace)
+            : undefined;
+        if (
+          expr.kind === "call" &&
+          expr.dynamicImportNamespace &&
+          !loweredDynamicImportNamespace
+        ) {
+          return undefined;
+        }
+        if (loweredDynamicImportNamespace) {
+          preludes.push(...loweredDynamicImportNamespace.prelude);
+        }
         return {
           prelude: preludes,
           expression: {
             ...expr,
             callee: loweredCallee.expression,
             arguments: loweredArgs,
+            ...(expr.kind === "call"
+              ? {
+                  dynamicImportNamespace: loweredDynamicImportNamespace
+                    ? (loweredDynamicImportNamespace.expression as typeof expr.dynamicImportNamespace)
+                    : expr.dynamicImportNamespace,
+                }
+              : {}),
           },
         };
       }

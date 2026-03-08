@@ -83,21 +83,7 @@ const resolveImportedTypeClrName = (
   typeName: string,
   context: EmitterContext
 ): string | undefined => {
-  const candidates: string[] = [typeName];
-
-  // tsbindgen class-like instance aliases often flow through IR as Foo$instance.
-  // Import bindings are keyed by the surface name (typically Foo), so try
-  // deterministic canonicalizations to preserve import-origin identity.
-  if (typeName.endsWith("$instance")) {
-    const base = typeName.slice(0, -"$instance".length);
-    if (base.length > 0) {
-      candidates.push(base);
-      const unsuffixed = base.replace(/_\d+$/, "");
-      if (unsuffixed !== base && unsuffixed.length > 0) {
-        candidates.push(unsuffixed);
-      }
-    }
-  }
+  const candidates = getReferenceLookupCandidates(typeName);
 
   for (const candidate of candidates) {
     const binding = context.importBindings?.get(candidate);
@@ -106,6 +92,23 @@ const resolveImportedTypeClrName = (
   }
 
   return undefined;
+};
+
+const getReferenceLookupCandidates = (typeName: string): readonly string[] => {
+  const candidates = new Set<string>([typeName]);
+
+  if (typeName.endsWith("$instance")) {
+    const base = typeName.slice(0, -"$instance".length);
+    if (base.length > 0) {
+      candidates.add(base);
+      const unsuffixed = base.replace(/_\d+$/, "");
+      if (unsuffixed.length > 0) {
+        candidates.add(unsuffixed);
+      }
+    }
+  }
+
+  return Array.from(candidates);
 };
 
 const resolveCanonicalLocalTypeTarget = (
@@ -527,8 +530,10 @@ export const emitReferenceType = (
   // Resolve external types via binding registry (must be fully qualified)
   // This handles types from contextual inference (e.g., Action from Parallel.invoke)
   // IMPORTANT: This is checked AFTER localTypes to ensure local types take precedence
-  const regBinding = context.bindingsRegistry?.get(name);
-  if (regBinding) {
+  for (const candidate of getReferenceLookupCandidates(name)) {
+    const regBinding = context.bindingsRegistry?.get(candidate);
+    if (!regBinding) continue;
+
     const qualified = toGlobalClr(clrTypeNameToCSharp(regBinding.name));
 
     if (typeArguments && typeArguments.length > 0) {

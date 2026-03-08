@@ -14,6 +14,8 @@ import {
   IrTryCastExpression,
   IrStackAllocExpression,
   IrDefaultOfExpression,
+  IrNameOfExpression,
+  IrSizeOfExpression,
 } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
@@ -475,6 +477,61 @@ const maybeUpcastDictionaryUnionValueAst = (
   return [converted, ctx1];
 };
 
+const isCharIrType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" && resolved.name === "char") ||
+    (resolved.kind === "referenceType" && resolved.name === "char")
+  );
+};
+
+const expectsStringIrType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" && resolved.name === "string") ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "string" || resolved.name === "String"))
+  );
+};
+
+const isParameterlessToStringInvocation = (ast: CSharpExpressionAst): boolean =>
+  ast.kind === "invocationExpression" &&
+  ast.arguments.length === 0 &&
+  ast.expression.kind === "memberAccessExpression" &&
+  ast.expression.memberName === "ToString";
+
+const maybeConvertCharToStringAst = (
+  expr: IrExpression,
+  ast: CSharpExpressionAst,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] => {
+  if (!expectsStringIrType(expectedType, context)) return [ast, context];
+  if (!isCharIrType(expr.inferredType, context)) return [ast, context];
+  if (isParameterlessToStringInvocation(ast)) return [ast, context];
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: ast,
+        memberName: "ToString",
+      },
+      arguments: [],
+    },
+    context,
+  ];
+};
+
 /**
  * Emit a numeric narrowing expression as CSharpExpressionAst.
  */
@@ -708,6 +765,37 @@ const emitDefaultOf = (
 };
 
 /**
+ * Emit a nameof expression as a compile-time string literal using the authored TS name.
+ */
+const emitNameOf = (
+  expr: IrNameOfExpression,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => [
+  {
+    kind: "literalExpression",
+    text: JSON.stringify(expr.name),
+  },
+  context,
+];
+
+/**
+ * Emit a sizeof expression as C# sizeof(T).
+ */
+const emitSizeOf = (
+  expr: IrSizeOfExpression,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const [typeAst, ctx1] = emitTypeAst(expr.targetType, context);
+  return [
+    {
+      kind: "sizeOfExpression",
+      type: typeAst,
+    },
+    ctx1,
+  ];
+};
+
+/**
  * Emit a C# expression AST from an IR expression.
  * Primary entry point for expression emission.
  *
@@ -735,7 +823,7 @@ export const emitExpressionAst = (
         return emitObject(expr, context, expectedType);
 
       case "memberAccess":
-        return emitMemberAccess(expr, context);
+        return emitMemberAccess(expr, context, "value", expectedType);
 
       case "call":
         return emitCall(expr, context);
@@ -778,7 +866,10 @@ export const emitExpressionAst = (
 
       case "this":
         return [
-          { kind: "identifierExpression" as const, identifier: "this" },
+          {
+            kind: "identifierExpression" as const,
+            identifier: context.objectLiteralThisIdentifier ?? "this",
+          },
           context,
         ];
 
@@ -800,6 +891,12 @@ export const emitExpressionAst = (
       case "defaultof":
         return emitDefaultOf(expr, context);
 
+      case "nameof":
+        return emitNameOf(expr, context);
+
+      case "sizeof":
+        return emitSizeOf(expr, context);
+
       default:
         throw new Error(
           `Unhandled IR expression kind: ${String((expr as { kind?: unknown }).kind)}`
@@ -819,10 +916,17 @@ export const emitExpressionAst = (
     castedContext,
     expectedType
   );
+  const [stringAdjustedAst, stringAdjustedContext] =
+    maybeConvertCharToStringAst(
+      expr,
+      dictUpcastAst,
+      dictUpcastContext,
+      expectedType
+    );
   return maybeUnwrapNullableValueTypeAst(
     expr,
-    dictUpcastAst,
-    dictUpcastContext,
+    stringAdjustedAst,
+    stringAdjustedContext,
     expectedType
   );
 };

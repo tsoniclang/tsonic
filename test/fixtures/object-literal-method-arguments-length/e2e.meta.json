@@ -1,0 +1,4 @@
+{
+  "description": "object-literal methods can use arguments.length when parameters are fixed required parameters.",
+  "expectedOutput": "5"
+}

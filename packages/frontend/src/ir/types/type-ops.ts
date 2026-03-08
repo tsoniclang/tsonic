@@ -75,6 +75,7 @@ export const unwrapAsyncWrapperType = (type: IrType): IrType | undefined => {
   const clrName = type.resolvedClrType ?? type.name;
   const isAsyncWrapper =
     simpleName === "Promise" ||
+    simpleName === "PromiseLike" ||
     simpleName === "Task_1" ||
     simpleName === "Task`1" ||
     simpleName === "ValueTask_1" ||

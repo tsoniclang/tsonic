@@ -1,0 +1,7 @@
+{
+  "name": "module-const-array-mutation-fixture",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ]
+}

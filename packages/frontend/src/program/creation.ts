@@ -20,6 +20,7 @@ import {
   hasResolvedSurfaceProfile,
   resolveSurfaceCapabilities,
 } from "../surface/profiles.js";
+import { resolveSourcePackageImport } from "../resolver/source-package-resolution.js";
 import {
   addDiagnostic,
   createDiagnostic,
@@ -41,11 +42,16 @@ declare global {
 
   interface CallableFunction extends Function {}
   interface NewableFunction extends Function {}
-  interface IArguments {}
+  interface IArguments {
+    readonly length: number;
+    readonly [index: number]: unknown;
+  }
   interface RegExp {}
   interface ImportMeta {}
 
-  interface String {}
+  interface String {
+    readonly [n: number]: string;
+  }
   interface Number {}
   interface Boolean {}
 
@@ -101,28 +107,38 @@ declare global {
   type Awaited<T> = T extends PromiseLike<infer U> ? Awaited<U> : T;
 
   interface Promise<T> {
-    then<TResult1 = T, TResult2 = never>(
-      onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-      onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null
+    then(): Promise<T>;
+    then<TResult1>(
+      onfulfilled: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null
+    ): Promise<TResult1>;
+    then<TResult1, TResult2>(
+      onfulfilled: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+      onrejected: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
     ): Promise<TResult1 | TResult2>;
-    catch<TResult = never>(
-      onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null
+    catch(): Promise<T>;
+    catch<TResult>(
+      onrejected: ((reason: unknown) => TResult | PromiseLike<TResult>) | undefined | null
     ): Promise<T | TResult>;
     finally(onfinally?: (() => void) | undefined | null): Promise<T>;
   }
 
   interface PromiseLike<T> {
-    then<TResult1 = T, TResult2 = never>(
-      onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-      onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null
+    then(): PromiseLike<T>;
+    then<TResult1>(
+      onfulfilled: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null
+    ): PromiseLike<TResult1>;
+    then<TResult1, TResult2>(
+      onfulfilled: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+      onrejected: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
     ): PromiseLike<TResult1 | TResult2>;
   }
 
   interface PromiseConstructor {
-    new <T>(executor: (resolve: (value: T | PromiseLike<T>) => void, reject: (reason?: any) => void) => void): Promise<T>;
+    new <T>(executor: (resolve: (value: T | PromiseLike<T>) => void, reject: (reason?: unknown) => void) => void): Promise<T>;
     resolve(): Promise<void>;
     resolve<T>(value: T | PromiseLike<T>): Promise<T>;
-    reject<T = never>(reason?: any): Promise<T>;
+    reject<T>(reason?: unknown): Promise<T>;
+    reject(reason?: unknown): Promise<unknown>;
     all<T>(values: readonly (T | PromiseLike<T>)[]): Promise<T[]>;
     race<T>(values: readonly (T | PromiseLike<T>)[]): Promise<T>;
   }
@@ -247,10 +263,60 @@ export const createCompilerOptions = (
     options.surface ?? "clr",
     { projectRoot: options.projectRoot }
   );
+  const resolveCommonRootDir = (...paths: readonly string[]): string => {
+    const [first, ...rest] = paths.map((filePath) => path.resolve(filePath));
+    let current = first ?? path.resolve(options.projectRoot);
+
+    for (;;) {
+      const containsAll = rest.every((candidate) => {
+        const relative = path.relative(current, candidate);
+        return (
+          relative === "" ||
+          (!relative.startsWith("..") && !path.isAbsolute(relative))
+        );
+      });
+
+      if (containsAll) {
+        return current;
+      }
+
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return current;
+      }
+      current = parent;
+    }
+  };
+  const findNearestNodeModulesRoot = (start: string): string | undefined => {
+    let current = path.resolve(start);
+    for (;;) {
+      if (fs.existsSync(path.join(current, "node_modules"))) {
+        return current;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return undefined;
+      }
+      current = parent;
+    }
+  };
+  const nodeModulesRoot = findNearestNodeModulesRoot(options.projectRoot);
   const baseConfig: ts.CompilerOptions = {
     ...defaultTsConfig,
     ...(options.strict === undefined ? {} : { strict: options.strict }),
-    rootDir: options.sourceRoot,
+    // rootDir must include both the workspace sourceRoot and any installed
+    // source-package code under projectRoot/node_modules. In normal project
+    // layouts sourceRoot sits under projectRoot, so this resolves to
+    // projectRoot. For tests or tooling that compile temp source trees against
+    // the repo's installed type roots, widen to the nearest common ancestor
+    // instead of incorrectly forcing source files under projectRoot.
+    rootDir: nodeModulesRoot
+      ? resolveCommonRootDir(
+          options.sourceRoot,
+          options.projectRoot,
+          nodeModulesRoot
+        )
+      : resolveCommonRootDir(options.sourceRoot, options.projectRoot),
   };
 
   if (options.useStandardLib || surfaceCapabilities.useStandardLib) {
@@ -316,6 +382,42 @@ export const createProgram = (
     }
   };
 
+  const packageRootNamespaceCache = new Map<string, string | null>();
+  const readPackageRootNamespace = (
+    packageRoot: string
+  ): string | undefined => {
+    const cached = packageRootNamespaceCache.get(packageRoot);
+    if (cached !== undefined) {
+      return cached ?? undefined;
+    }
+
+    const candidates = [
+      path.join(packageRoot, "index", "bindings.json"),
+      path.join(packageRoot, "bindings.json"),
+    ];
+
+    for (const candidate of candidates) {
+      if (!fs.existsSync(candidate)) continue;
+      try {
+        const parsed = JSON.parse(fs.readFileSync(candidate, "utf-8")) as {
+          readonly namespace?: unknown;
+        };
+        if (
+          typeof parsed.namespace === "string" &&
+          parsed.namespace.length > 0
+        ) {
+          packageRootNamespaceCache.set(packageRoot, parsed.namespace);
+          return parsed.namespace;
+        }
+      } catch {
+        // Ignore malformed/non-namespace bindings candidates and continue.
+      }
+    }
+
+    packageRootNamespaceCache.set(packageRoot, null);
+    return undefined;
+  };
+
   const parseTsonicModuleRequest = (
     moduleName: string
   ):
@@ -342,19 +444,21 @@ export const createProgram = (
     packageRoot: string,
     subpath: string | undefined
   ): ts.ResolvedModuleFull | undefined => {
-    const candidates = (() => {
-      if (!subpath || subpath.length === 0) {
+    const buildCandidates = (
+      candidateSubpath: string | undefined
+    ): readonly string[] => {
+      if (!candidateSubpath || candidateSubpath.length === 0) {
         return [
           path.join(packageRoot, "index.d.ts"),
           path.join(packageRoot, "index.js"),
         ];
       }
 
-      const basePath = path.join(packageRoot, subpath);
-      if (subpath.endsWith(".d.ts")) {
+      const basePath = path.join(packageRoot, candidateSubpath);
+      if (candidateSubpath.endsWith(".d.ts")) {
         return [basePath];
       }
-      if (subpath.endsWith(".js")) {
+      if (candidateSubpath.endsWith(".js")) {
         return [basePath.replace(/\.js$/, ".d.ts"), basePath];
       }
 
@@ -364,9 +468,37 @@ export const createProgram = (
         path.join(basePath, "index.d.ts"),
         path.join(basePath, "index.js"),
       ];
+    };
+
+    const remappedRootNamespaceSubpath = (() => {
+      if (!subpath || subpath.length === 0) return undefined;
+
+      const rootNamespace = readPackageRootNamespace(packageRoot);
+      if (!rootNamespace) return undefined;
+
+      if (
+        subpath === `${rootNamespace}.js` ||
+        subpath === `${rootNamespace}.d.ts`
+      ) {
+        return "index.js";
+      }
+
+      if (subpath.startsWith(`${rootNamespace}/`)) {
+        return `index/${subpath.slice(rootNamespace.length + 1)}`;
+      }
+
+      return undefined;
     })();
 
+    const candidates = [
+      ...buildCandidates(subpath),
+      ...buildCandidates(remappedRootNamespaceSubpath),
+    ];
+    const seenCandidates = new Set<string>();
+
     for (const candidate of candidates) {
+      if (seenCandidates.has(candidate)) continue;
+      seenCandidates.add(candidate);
       if (!fs.existsSync(candidate)) continue;
 
       const extension = candidate.endsWith(".d.ts")
@@ -693,7 +825,9 @@ export const createProgram = (
         // installed copy. This keeps direct source imports coherent with surface
         // declarations that already came from sibling roots.
         if (request) {
-          const compilerOwnedRoot = resolveTsonicPackageRoot(request.pkgDirName);
+          const compilerOwnedRoot = resolveTsonicPackageRoot(
+            request.pkgDirName
+          );
           if (compilerOwnedRoot) {
             const resolved = resolveModuleFromPackageRoot(
               compilerOwnedRoot,
@@ -730,6 +864,27 @@ export const createProgram = (
         if (result.resolvedModule) return result.resolvedModule;
 
         return undefined;
+      }
+
+      const sourcePackage = resolveSourcePackageImport(
+        moduleName,
+        containingFile,
+        options.surface,
+        options.projectRoot
+      );
+      if (!sourcePackage.ok) {
+        return undefined;
+      }
+      if (sourcePackage.value) {
+        return {
+          resolvedFileName: sourcePackage.value.resolvedPath,
+          extension: sourcePackage.value.resolvedPath.endsWith(".mts")
+            ? ts.Extension.Mts
+            : sourcePackage.value.resolvedPath.endsWith(".cts")
+              ? ts.Extension.Cts
+              : ts.Extension.Ts,
+          isExternalLibraryImport: false,
+        };
       }
 
       // Use default resolution for other modules

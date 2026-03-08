@@ -2,7 +2,7 @@
  * Collection expression emitters (arrays and objects)
  */
 
-import { IrExpression, IrType } from "@tsonic/frontend";
+import { IrClassMember, IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { emitExpressionAst } from "../expression-emitter.js";
@@ -19,6 +19,7 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
+import type { LocalTypeInfo } from "../emitter-types/core.js";
 
 type ObjectMemberKind = "method" | "property" | "field" | "enumMember";
 
@@ -311,58 +312,79 @@ export const emitArray = (
     }
   }
 
-  // Check if array contains only spread elements
-  const allSpreads = expr.elements.every(
-    (el) => el !== undefined && el.kind === "spread"
+  const hasSpread = expr.elements.some(
+    (element) => element !== undefined && element.kind === "spread"
   );
 
-  if (allSpreads && expr.elements.length > 0) {
-    // Emit as chained Enumerable.Concat calls + ToArray()
-    const spreadElements = expr.elements.filter(
-      (el): el is Extract<IrExpression, { kind: "spread" }> =>
-        el !== undefined && el.kind === "spread"
-    );
+  if (hasSpread) {
+    const segments: CSharpExpressionAst[] = [];
+    let inlineElements: CSharpExpressionAst[] = [];
 
-    const firstSpread = spreadElements[0];
-    if (!firstSpread) {
+    const flushInlineElements = (): void => {
+      if (inlineElements.length === 0) return;
+      segments.push({
+        kind: "arrayCreationExpression",
+        elementType: elementTypeAst,
+        initializer: inlineElements,
+      });
+      inlineElements = [];
+    };
+
+    for (const element of expr.elements) {
+      if (element === undefined) {
+        inlineElements.push({ kind: "defaultExpression" });
+        continue;
+      }
+
+      if (element.kind === "spread") {
+        flushInlineElements();
+        const [spreadAst, newContext] = emitExpressionAst(
+          element.expression,
+          currentContext
+        );
+        segments.push(spreadAst);
+        currentContext = newContext;
+        continue;
+      }
+
+      const [elemAst, newContext] = emitExpressionAst(
+        element,
+        currentContext,
+        expectedElementType
+      );
+      inlineElements.push(elemAst);
+      currentContext = newContext;
+    }
+
+    flushInlineElements();
+
+    if (segments.length === 0) {
       return [
         {
-          kind: "arrayCreationExpression",
-          elementType: { kind: "predefinedType", keyword: "object" },
-          sizeExpression: { kind: "literalExpression", text: "0" },
+          kind: "invocationExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: "global::System.Array.Empty",
+          },
+          typeArguments: [elementTypeAst],
+          arguments: [],
         },
         currentContext,
       ];
     }
 
-    const [firstAst, firstContext] = emitExpressionAst(
-      firstSpread.expression,
-      currentContext
-    );
-    currentContext = firstContext;
-
-    // Build chain of Concat calls
-    let concatAst: CSharpExpressionAst = firstAst;
-    for (let i = 1; i < spreadElements.length; i++) {
-      const spread = spreadElements[i];
-      if (spread) {
-        const [spreadAst, newContext] = emitExpressionAst(
-          spread.expression,
-          currentContext
-        );
-        concatAst = {
-          kind: "invocationExpression",
-          expression: {
-            kind: "identifierExpression",
-            identifier: "global::System.Linq.Enumerable.Concat",
-          },
-          arguments: [concatAst, spreadAst],
-        };
-        currentContext = newContext;
-      }
+    let concatAst = segments[0]!;
+    for (let index = 1; index < segments.length; index++) {
+      concatAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "global::System.Linq.Enumerable.Concat",
+        },
+        arguments: [concatAst, segments[index]!],
+      };
     }
 
-    // Wrap in ToArray()
     return [
       {
         kind: "invocationExpression",
@@ -376,17 +398,11 @@ export const emitArray = (
     ];
   }
 
-  // Regular array or mixed spreads/elements
+  // Regular array without spreads
   for (const element of expr.elements) {
     if (element === undefined) {
       // Sparse array hole
       elementAsts.push({ kind: "defaultExpression" });
-    } else if (element.kind === "spread") {
-      // Spread mixed with other elements - not yet supported
-      elementAsts.push({
-        kind: "identifierExpression",
-        identifier: "/* ...spread */",
-      });
     } else {
       const [elemAst, newContext] = emitExpressionAst(
         element,
@@ -435,9 +451,15 @@ export const emitObject = (
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
+  const behavioralType = resolveBehavioralObjectLiteralType(
+    expr,
+    currentContext
+  );
 
   const effectiveType: IrType | undefined = (() => {
-    if (!expectedType) return expr.contextualType;
+    if (!expectedType) {
+      return behavioralType ?? expr.inferredType ?? expr.contextualType;
+    }
 
     const strippedExpected = stripNullish(expectedType);
     if (
@@ -446,7 +468,12 @@ export const emitObject = (
       (strippedExpected.kind === "referenceType" &&
         strippedExpected.name === "object")
     ) {
-      return expr.contextualType ?? expectedType;
+      return (
+        behavioralType ??
+        expr.inferredType ??
+        expr.contextualType ??
+        expectedType
+      );
     }
 
     return expectedType;
@@ -510,7 +537,16 @@ export const emitObject = (
   }
 
   // Check if object has spreads - use IIFE pattern
-  if (expr.hasSpreads) {
+  const needsTempObject =
+    expr.hasSpreads ||
+    expr.properties.some(
+      (prop) =>
+        prop.kind === "property" &&
+        prop.value.kind === "functionExpression" &&
+        prop.value.capturesObjectLiteralThis
+    );
+
+  if (needsTempObject) {
     return emitObjectWithSpreads(
       expr,
       currentContext,
@@ -581,6 +617,10 @@ const emitObjectWithSpreads = (
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
   const bodyStatements: CSharpStatementAst[] = [];
+  const objectThisContext: EmitterContext = {
+    ...currentContext,
+    objectLiteralThisIdentifier: "__tmp",
+  };
 
   // var __tmp = new TypeName()
   const initStatement: CSharpStatementAst = {
@@ -624,7 +664,7 @@ const emitObjectWithSpreads = (
       );
       const [valueAst, newContext] = emitExpressionAst(
         prop.value,
-        currentContext,
+        objectThisContext,
         propertyExpectedType
       );
       bodyStatements.push({
@@ -640,7 +680,10 @@ const emitObjectWithSpreads = (
           right: valueAst,
         },
       });
-      currentContext = newContext;
+      currentContext = {
+        ...newContext,
+        objectLiteralThisIdentifier: currentContext.objectLiteralThisIdentifier,
+      };
     }
   }
 
@@ -816,6 +859,95 @@ const getObjectTypePropertyNames = (
   }
 
   return [];
+};
+
+const hasMatchingBehaviorMember = (
+  candidate: Extract<LocalTypeInfo, { kind: "class" }>,
+  member: IrClassMember
+): boolean => {
+  if (member.kind === "propertyDeclaration") {
+    return candidate.members.some(
+      (candidateMember) =>
+        candidateMember.kind === "propertyDeclaration" &&
+        candidateMember.name === member.name &&
+        !!candidateMember.getterBody === !!member.getterBody &&
+        !!candidateMember.setterBody === !!member.setterBody
+    );
+  }
+
+  if (member.kind === "methodDeclaration") {
+    return candidate.members.some(
+      (candidateMember) =>
+        candidateMember.kind === "methodDeclaration" &&
+        candidateMember.name === member.name
+    );
+  }
+
+  return false;
+};
+
+export const resolveBehavioralObjectLiteralType = (
+  expr: Extract<IrExpression, { kind: "object" }>,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!expr.behaviorMembers?.length) return undefined;
+
+  const propertyNames = expr.properties
+    .filter(
+      (prop): prop is Extract<typeof prop, { kind: "property" }> =>
+        prop.kind === "property"
+    )
+    .map((prop) => getDeterministicObjectKeyName(prop.key))
+    .filter((name): name is string => !!name);
+
+  const candidateMaps: ReadonlyMap<string, LocalTypeInfo>[] = [];
+  if (context.localTypes) {
+    candidateMaps.push(context.localTypes);
+  }
+  if (context.options.moduleMap) {
+    for (const module of context.options.moduleMap.values()) {
+      if (module.localTypes !== undefined) {
+        candidateMaps.push(module.localTypes);
+      }
+    }
+  }
+
+  const matches: string[] = [];
+
+  for (const localTypes of candidateMaps) {
+    for (const [typeName, info] of localTypes.entries()) {
+      if (info.kind !== "class" || !typeName.startsWith("__Anon_")) continue;
+
+      const candidateNames = new Set(
+        info.members
+          .filter(
+            (member): member is Extract<IrClassMember, { name: string }> =>
+              "name" in member && typeof member.name === "string"
+          )
+          .map((member) => member.name)
+      );
+
+      if (propertyNames.some((name) => !candidateNames.has(name))) {
+        continue;
+      }
+
+      if (
+        expr.behaviorMembers.some(
+          (member) => !hasMatchingBehaviorMember(info, member)
+        )
+      ) {
+        continue;
+      }
+
+      matches.push(typeName);
+    }
+  }
+
+  const uniqueMatches = [...new Set(matches)];
+  const onlyMatch = uniqueMatches.length === 1 ? uniqueMatches[0] : undefined;
+  return onlyMatch
+    ? ({ kind: "referenceType", name: onlyMatch } satisfies IrType)
+    : undefined;
 };
 
 /**

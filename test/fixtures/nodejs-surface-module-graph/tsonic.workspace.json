@@ -3,16 +3,12 @@
   "dotnetVersion": "net10.0",
   "surface": "@tsonic/js",
   "dotnet": {
-    "typeRoots": [
-      "node_modules/@tsonic/nodejs"
-    ],
+    "typeRoots": ["node_modules/@tsonic/nodejs"],
     "libraries": [
       "../../../packages/cli/runtime/Tsonic.JSRuntime.dll",
       "../../../packages/cli/runtime/nodejs.dll"
     ],
-    "frameworkReferences": [
-      "Microsoft.AspNetCore.App"
-    ],
+    "frameworkReferences": ["Microsoft.AspNetCore.App"],
     "packageReferences": []
   }
 }

@@ -340,6 +340,42 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(/\(global::System\.Action.*\s+resolve\)\s*=>/);
     });
 
+    it("infers Promise constructor generic from contextual return type", () => {
+      const source = `
+        declare function setTimeout(fn: () => void, ms: number): void;
+
+        interface PromiseLike<T> {
+          then<TResult1 = T, TResult2 = never>(
+            onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+          ): PromiseLike<TResult1 | TResult2>;
+        }
+
+        declare class Promise<T> {
+          constructor(
+            executor: (
+              resolve: (value: T | PromiseLike<T>) => void,
+              reject: (reason: unknown) => void
+            ) => void
+          );
+        }
+
+        export function delay(ms: number): Promise<void> {
+          return new Promise((resolve) => {
+            setTimeout(() => resolve(), ms);
+          });
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("TaskCompletionSource<bool>");
+      expect(csharp).to.match(
+        /\(\(global::System\.Action<global::System\.Action>\)\(resolve\s*=>/
+      );
+      expect(csharp).not.to.include("new Promise(");
+    });
+
     it("should infer types for generic method callbacks", () => {
       const source = `
         // Custom generic class with map method (valid in dotnet mode)
@@ -566,6 +602,53 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("await p");
     });
 
+    it("normalizes Promise.then callback PromiseLike return to inner result type", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+          static resolve<T>(value: T): Promise<T>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<number> {
+          return 1;
+        }
+
+        export async function run(): Promise<number> {
+          const p = load();
+          return p.then((x) => Promise.resolve(x + 1));
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<double>(async");
+      expect(csharp).not.to.include("Task.Run<global::Tsonic.Runtime.Union");
+    });
+
+    it("preserves int result when Promise.then callback stays in int space", () => {
+      const source = `
+        import { int } from "@tsonic/core/types.js";
+
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<int> {
+          return 1;
+        }
+
+        export async function run(): Promise<int> {
+          const p = load();
+          return p.then((x) => x + 1);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<int>(async");
+      expect(csharp).not.to.include("Task.Run<double>(async");
+    });
+
     it("lowers Promise.catch to Task.Run with try/catch", () => {
       const source = `
         declare class Promise<T> {
@@ -616,6 +699,314 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("Task.Run<double>(async");
       expect(csharp).to.include("finally");
+    });
+
+    it("keeps Promise chains on the frontend-normalized result type", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          finally(onFinally: () => void): Promise<T>;
+        }
+        interface PromiseLike<T> {}
+
+        export function chainScore(seed: Promise<int>): Promise<int> {
+          return seed
+            .then((value) => value + 1)
+            .catch((_error) => 0)
+            .finally(() => {});
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<int>(async");
+      expect(csharp).not.to.include("Task.Run<global::Tsonic.Runtime.Union");
+    });
+
+    it("lets Promise.catch delegate casts supply exception parameter types", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare class Promise<T> {
+          catch<TResult>(
+            onrejected: ((reason: unknown) => TResult | PromiseLike<TResult>) | undefined | null
+          ): Promise<T | TResult>;
+        }
+        interface PromiseLike<T> {}
+
+        export function recover(seed: Promise<int>): Promise<int> {
+          return seed.catch((_error) => 0);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Func<global::System.Exception, int>");
+      expect(csharp).not.to.include("(object _error) => 0");
+    });
+
+    it("uses Action for block-bodied void callbacks in Promise chains", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+        }
+        interface PromiseLike<T> {}
+
+        export function chain(seed: Promise<number>): Promise<void> {
+          return seed.then(() => {});
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("global::System.Action");
+      expect(csharp).not.to.include(
+        "global::System.Func<global::Tsonic.Runtime.Union<void"
+      );
+    });
+  });
+
+  describe("Promise Static Methods", () => {
+    it("lowers Promise.all to Task.WhenAll over normalized task inputs", () => {
+      const source = `
+        interface PromiseLike<T> {
+          then<TResult1 = T, TResult2 = never>(
+            onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+          ): PromiseLike<TResult1 | TResult2>;
+        }
+
+        declare class Promise<T> {
+          static all<T>(values: readonly (T | PromiseLike<T>)[]): Promise<T[]>;
+        }
+
+        async function runWorker(name: string): Promise<number> {
+          return 1;
+        }
+
+        export async function main(): Promise<void> {
+          const results = await Promise.all([
+            runWorker("a"),
+            runWorker("b"),
+            runWorker("c"),
+          ]);
+          void results;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("Task.WhenAll");
+      expect(csharp).to.include("Enumerable.Select");
+      expect(csharp).not.to.include("Promise.all(");
+    });
+
+    it("lowers Promise.resolve to Task.FromResult", () => {
+      const source = `
+        declare class PromiseLike<T> {}
+        declare class Promise<T> {
+          static resolve<T>(value: T | PromiseLike<T>): Promise<T>;
+        }
+
+        export function main(): Promise<number> {
+          const value: number = 1;
+          return Promise.resolve(value);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("Task.FromResult<double>");
+      expect(csharp).not.to.include("Promise.resolve(");
+    });
+
+    it("lowers Promise.reject to Task.FromException", () => {
+      const source = `
+        declare class Promise<T> {
+          static reject<T = never>(reason?: any): Promise<T>;
+        }
+
+        export function main(): Promise<number> {
+          return Promise.reject<number>("boom");
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("Task.FromException<double>");
+      expect(csharp).to.include('"Promise rejected"');
+      expect(csharp).not.to.include("Promise.reject(");
+    });
+  });
+
+  describe("Core Intrinsics", () => {
+    it("lowers nameof to a compile-time string literal using TS-authored names", () => {
+      const source = `
+        import { nameof } from "@tsonic/core/lang.js";
+
+        interface User {
+          name: string;
+        }
+
+        export function getName(user: User): string {
+          return nameof(user.name);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include('return "name";');
+    });
+
+    it("lowers sizeof to C# sizeof(T)", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+        import { sizeof } from "@tsonic/core/lang.js";
+
+        export function getIntSize(): int {
+          return sizeof<int>();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("return sizeof(int);");
+    });
+  });
+
+  describe("Local Function Values", () => {
+    it("lowers recursive local arrow functions through explicit delegate initialization", () => {
+      const source = `
+        type Node = {
+          name: string;
+          children: Node[];
+        };
+
+        export function flatten(nodes: Node[]): string[] {
+          const names: string[] = [];
+          const walk = (current: Node[]): void => {
+            for (let i = 0; i < current.length; i++) {
+              const node = current[i]!;
+              names.push(node.name);
+              walk(node.children);
+            }
+          };
+
+          walk(nodes);
+          return names;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "global::System.Action<Node__Alias[]> walk = default"
+      );
+      expect(csharp).to.match(/walk\s*=\s*\(Node__Alias\[\]\s+current\)\s*=>/);
+      expect(csharp).not.to.include("var walk =");
+    });
+  });
+
+  describe("Regression Coverage", () => {
+    it("passes contextual string expectations through array element assignments", () => {
+      const source = `
+        export function main(): string[] {
+          const chars: string[] = ["", ""];
+          const source = "ab";
+          chars[0] = source[0];
+          return chars;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include('string[] chars = new string[] { "", "" };');
+      expect(csharp).to.include("chars[0] = source[0].ToString();");
+    });
+
+    it("default-initializes explicit locals without initializers", () => {
+      const source = `
+        export function pick(flag: boolean): string {
+          let name: string;
+          if (flag) {
+            name = "ok";
+          } else {
+            name = "no";
+          }
+          return name;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("string name = default(string);");
+    });
+
+    it("prefers typed CLR option overloads over erased unknown for object literals", () => {
+      const source = `
+        declare class MkdirOptions {
+          readonly __tsonic_type_nodejs_MkdirOptions: never;
+          recursive?: boolean;
+        }
+
+        declare const fs: {
+          mkdirSync(path: string, options: MkdirOptions): void;
+          mkdirSync(path: string, recursive?: boolean): void;
+          mkdirSync(path: string, options: unknown): void;
+        };
+
+        export function ensure(dir: string): void {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "fs.mkdirSync(dir, new global::Test.MkdirOptions"
+      );
+      expect(csharp).not.to.include("Dictionary<string, object?>");
+    });
+  });
+
+  describe("Object Literal Methods", () => {
+    it("rewrites supported arguments.length usage to a fixed arity literal", () => {
+      const source = `
+        interface Ops {
+          add: (x: number, y: number) => number;
+        }
+
+        export function run(): number {
+          const ops: Ops = {
+            add(x: number, y: number): number {
+              return arguments.length + x + y;
+            },
+          };
+          return ops.add(1, 2);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("return 2 + x + y;");
+      expect(csharp).not.to.include("arguments");
+    });
+
+    it("rewrites supported arguments[n] usage to captured parameter temps", () => {
+      const source = `
+        interface Ops {
+          add: (x: number, y: number) => number;
+        }
+
+        export function run(): number {
+          const ops: Ops = {
+            add(x: number, y: number): number {
+              return (arguments[0] as number) + y;
+            },
+          };
+          return ops.add(1, 2);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("var __tsonic_object_method_argument_0 = x;");
+      expect(csharp).to.include(
+        "return (double)__tsonic_object_method_argument_0 + y;"
+      );
+      expect(csharp).not.to.include("arguments");
     });
   });
 });

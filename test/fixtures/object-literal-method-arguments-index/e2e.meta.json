@@ -1,0 +1,4 @@
+{
+  "description": "object-literal methods can use arguments[n] when parameters are fixed required identifier parameters.",
+  "expectedOutput": "5"
+}

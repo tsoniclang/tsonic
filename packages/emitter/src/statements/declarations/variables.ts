@@ -16,6 +16,7 @@ import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitBlockStatementAst } from "../../statements/blocks.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { resolveBehavioralObjectLiteralType } from "../../expressions/collections.js";
 import {
   lowerPatternAst,
   lowerPatternToStaticMembersAst,
@@ -299,11 +300,36 @@ const resolveStaticFieldType = (
   }
 
   // Infer from initializer's inferred type
+  if (init?.kind === "object") {
+    const behavioralType = resolveBehavioralObjectLiteralType(
+      init as Extract<IrExpression, { kind: "object" }>,
+      context
+    );
+    if (behavioralType) {
+      return emitTypeAst(behavioralType, context);
+    }
+  }
+
   if (init?.inferredType && canEmitTypeExplicitly(init.inferredType)) {
     return emitTypeAst(init.inferredType, context);
   }
 
   return [{ kind: "identifierType", name: "object" }, context];
+};
+
+const shouldEmitReadonlyStaticField = (
+  stmt: Extract<IrStatement, { kind: "variableDeclaration" }>,
+  decl: {
+    readonly name: {
+      readonly kind: string;
+      readonly name?: string;
+    };
+  },
+  context: EmitterContext
+): boolean => {
+  if (stmt.declarationKind !== "const") return false;
+  if (decl.name.kind !== "identifierPattern") return true;
+  return !(decl.name.name && context.mutableModuleBindings?.has(decl.name.name));
 };
 
 /**
@@ -554,7 +580,7 @@ const emitStaticArrowFieldMembers = (
   const fieldModifiers = [
     stmt.isExported ? "public" : "internal",
     "static",
-    ...(stmt.declarationKind === "const" ? ["readonly"] : []),
+    ...(shouldEmitReadonlyStaticField(stmt, decl, context) ? ["readonly"] : []),
   ];
 
   members.push({
@@ -732,7 +758,9 @@ export const emitVariableDeclaration = (
       const modifiers = [
         stmt.isExported ? "public" : "internal",
         "static",
-        ...(stmt.declarationKind === "const" ? ["readonly"] : []),
+        ...(shouldEmitReadonlyStaticField(stmt, decl, currentContext)
+          ? ["readonly"]
+          : []),
       ];
 
       // Emit initializer
@@ -819,6 +847,9 @@ const resolveLocalTypeAst = (
       readonly name?: string;
       readonly targetType?: IrType;
       readonly inferredType?: IrType;
+      readonly parameters?: readonly IrParameter[];
+      readonly returnType?: IrType;
+      readonly body?: IrBlockStatement | IrExpression;
     };
   },
   context: EmitterContext
@@ -853,6 +884,39 @@ const resolveLocalTypeAst = (
       return emitTypeAst(fallbackType, context);
     }
     return [{ kind: "identifierType", name: "object?" }, context];
+  }
+
+  if (
+    !decl.type &&
+    (decl.initializer?.kind === "arrowFunction" ||
+      decl.initializer?.kind === "functionExpression")
+  ) {
+    const functionInitializer = decl.initializer;
+    const functionType =
+      functionInitializer.inferredType?.kind === "functionType"
+        ? functionInitializer.inferredType
+        : functionInitializer.parameters &&
+            functionInitializer.parameters.every((param) => !!param.type) &&
+            (functionInitializer.returnType ??
+              (functionInitializer.body &&
+              functionInitializer.body.kind !== "blockStatement"
+                ? functionInitializer.body.inferredType
+                : undefined))
+          ? {
+              kind: "functionType" as const,
+              parameters: functionInitializer.parameters,
+              returnType:
+                functionInitializer.returnType ??
+                (functionInitializer.body &&
+                functionInitializer.body.kind !== "blockStatement"
+                  ? functionInitializer.body.inferredType
+                  : undefined)!,
+            }
+          : undefined;
+
+    if (functionType) {
+      return emitTypeAst(functionType, context);
+    }
   }
 
   // Types that need explicit declaration (byte, sbyte, short, ushort)
@@ -936,6 +1000,60 @@ export const emitVariableDeclarationAst = (
       const localName = alloc.emittedName;
       currentContext = alloc.context;
 
+      const needsTwoPhaseFunctionInit =
+        decl.initializer?.kind === "arrowFunction" ||
+        decl.initializer?.kind === "functionExpression";
+
+      if (needsTwoPhaseFunctionInit && typeAst.kind !== "varType") {
+        statements.push({
+          kind: "localDeclarationStatement",
+          modifiers: [],
+          type: typeAst,
+          declarators: [
+            {
+              name: localName,
+              initializer: {
+                kind: "defaultExpression",
+                type: typeAst,
+              },
+            },
+          ],
+        });
+
+        currentContext = registerLocalName(
+          originalName,
+          localName,
+          currentContext
+        );
+
+        const expectedInitializerType =
+          decl.type ??
+          (decl.initializer.inferredType?.kind === "functionType"
+            ? decl.initializer.inferredType
+            : undefined);
+
+        const [exprAst, newContext] = emitExpressionAst(
+          decl.initializer,
+          currentContext,
+          expectedInitializerType
+        );
+        currentContext = newContext;
+
+        statements.push({
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignmentExpression",
+            left: {
+              kind: "identifierExpression",
+              identifier: localName,
+            },
+            operatorToken: "=",
+            right: exprAst,
+          },
+        });
+        continue;
+      }
+
       // Emit initializer (after allocation, before registration - C# scoping)
       let initAst = undefined;
       if (decl.initializer) {
@@ -946,6 +1064,11 @@ export const emitVariableDeclarationAst = (
         );
         currentContext = newContext;
         initAst = exprAst;
+      } else if (typeAst.kind !== "varType") {
+        initAst = {
+          kind: "defaultExpression" as const,
+          type: typeAst,
+        };
       }
 
       // Register local name after initializer emission

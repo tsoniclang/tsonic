@@ -30,7 +30,8 @@ namespace TestCases.common.edgecases.shadowing
         public static double shadowInFunction()
         {
             var value = 5;
-            var inner = () =>
+            global::System.Func<double> inner = default(global::System.Func<double>);
+            inner = () =>
                 {
                 var value__1 = 10;
                 return value__1;

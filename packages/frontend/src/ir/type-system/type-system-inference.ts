@@ -51,6 +51,7 @@ import {
   resolveCall,
   delegateToFunctionType,
 } from "./type-system-call-resolution.js";
+import { resolveDynamicImportNamespace } from "../../resolver/dynamic-import.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // typeOfDecl — Get declared type of a declaration
@@ -506,6 +507,51 @@ export const tryInferReturnTypeFromCallExpression = (
   call: ts.CallExpression,
   env: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
+  if (call.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    const resolution = resolveDynamicImportNamespace(
+      call,
+      call.getSourceFile().fileName,
+      {
+        checker: state.checker,
+        compilerOptions: state.tsCompilerOptions,
+        sourceFilesByPath: state.sourceFilesByPath,
+      }
+    );
+
+    if (resolution.ok) {
+      const members = resolution.entries.flatMap((entry) => {
+        const declId = state.resolveIdentifier(entry.declarationName);
+        if (!declId) return [];
+
+        const memberType = typeOfDecl(state, declId);
+        if (memberType.kind === "unknownType") return [];
+
+        return [
+          {
+            kind: "propertySignature" as const,
+            name: entry.exportName,
+            type: memberType,
+            isOptional: false,
+            isReadonly: true,
+          },
+        ];
+      });
+
+      return {
+        kind: "referenceType",
+        name: "Promise",
+        typeArguments: [
+          members.length === 0
+            ? { kind: "referenceType", name: "object" }
+            : {
+                kind: "objectType",
+                members,
+              },
+        ],
+      };
+    }
+  }
+
   const sigId = state.resolveCallSignature(call);
   if (!sigId) return undefined;
 
@@ -900,29 +946,11 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
 // typeOfMember — Get declared type of a member (with inheritance substitution)
 // ─────────────────────────────────────────────────────────────────────────
 
-export const typeOfMember = (
+const resolveMemberTypeNoDiag = (
   state: TypeSystemState,
   receiver: IrType,
-  member: MemberRef,
-  site?: Site
-): IrType => {
-  const memberName = member.kind === "byName" ? member.name : "unknown"; // MemberId.name not defined yet
-
-  // Common nullish unions (T | undefined | null) should behave like T for member lookup.
-  // This preserves deterministic typing for patterns like:
-  //   const url = request.url; if (!url) return; url.absolutePath
-  const effectiveReceiver =
-    receiver.kind === "unionType"
-      ? (() => {
-          const nonNullish = receiver.types.filter(
-            (t) => t && !isNullishPrimitive(t)
-          );
-          return nonNullish.length === 1 && nonNullish[0]
-            ? nonNullish[0]
-            : receiver;
-        })()
-      : receiver;
-
+  memberName: string
+): IrType | undefined => {
   // Built-in dictionary pseudo-members used by TS-side ergonomics.
   // Record<K, V> lowers to dictionaryType, and callers often use:
   // - dict.Keys[i]
@@ -931,17 +959,17 @@ export const typeOfMember = (
   //
   // Resolve these deterministically at TypeSystem level so downstream passes
   // (numeric proof, element access typing) don't receive unknownType poison.
-  if (effectiveReceiver.kind === "dictionaryType") {
+  if (receiver.kind === "dictionaryType") {
     if (memberName === "Keys") {
       return {
         kind: "arrayType",
-        elementType: effectiveReceiver.keyType,
+        elementType: receiver.keyType,
       };
     }
     if (memberName === "Values") {
       return {
         kind: "arrayType",
-        elementType: effectiveReceiver.valueType,
+        elementType: receiver.valueType,
       };
     }
     if (memberName === "Count" || memberName === "Length") {
@@ -955,7 +983,7 @@ export const typeOfMember = (
   // Support both CLR-style `Length`/`Count` and TS/JS-style `length`.
   // The latter is required for JS surfaces even when the underlying runtime
   // value is an explicit CLR array (for example `Encoding.UTF8.GetBytes(...).length`).
-  if (effectiveReceiver.kind === "arrayType") {
+  if (receiver.kind === "arrayType") {
     if (
       memberName === "Length" ||
       memberName === "Count" ||
@@ -966,7 +994,7 @@ export const typeOfMember = (
   }
 
   // Tuples behave like fixed-size arrays for length access.
-  if (effectiveReceiver.kind === "tupleType") {
+  if (receiver.kind === "tupleType") {
     if (
       memberName === "Length" ||
       memberName === "Count" ||
@@ -977,23 +1005,17 @@ export const typeOfMember = (
   }
 
   // 1. Normalize receiver to nominal form
-  const normalized = normalizeToNominal(state, effectiveReceiver);
+  const normalized = normalizeToNominal(state, receiver);
   if (!normalized) {
     // Handle structural types (objectType)
     if (
-      effectiveReceiver.kind === "objectType" ||
-      (effectiveReceiver.kind === "referenceType" &&
-        effectiveReceiver.structuralMembers)
+      receiver.kind === "objectType" ||
+      (receiver.kind === "referenceType" && receiver.structuralMembers)
     ) {
-      return lookupStructuralMember(state, effectiveReceiver, memberName, site);
+      const structural = lookupStructuralMember(state, receiver, memberName);
+      return structural.kind === "unknownType" ? undefined : structural;
     }
-    emitDiagnostic(
-      state,
-      "TSN5203",
-      `Cannot resolve member '${memberName}' on type`,
-      site
-    );
-    return unknownType;
+    return undefined;
   }
 
   // 2. Check cache
@@ -1056,8 +1078,78 @@ export const typeOfMember = (
       return result;
     }
   }
+  return undefined;
+};
 
-  // 5. Member not found anywhere
+export const typeOfMember = (
+  state: TypeSystemState,
+  receiver: IrType,
+  member: MemberRef,
+  site?: Site
+): IrType => {
+  const memberName = member.kind === "byName" ? member.name : "unknown"; // MemberId.name not defined yet
+
+  // Common nullish unions (T | undefined | null) should behave like T for member lookup.
+  // This preserves deterministic typing for patterns like:
+  //   const url = request.url; if (!url) return; url.absolutePath
+  const effectiveReceiver =
+    receiver.kind === "unionType"
+      ? (() => {
+          const nonNullish = receiver.types.filter(
+            (t) => t && !isNullishPrimitive(t)
+          );
+          return nonNullish.length === 1 && nonNullish[0]
+            ? nonNullish[0]
+            : receiver;
+        })()
+      : receiver;
+
+  if (effectiveReceiver.kind === "unionType") {
+    const nonNullish = effectiveReceiver.types.filter(
+      (t) => t && !isNullishPrimitive(t)
+    );
+
+    if (nonNullish.length > 1) {
+      let resolved: IrType | undefined;
+      for (const part of nonNullish) {
+        const partType = resolveMemberTypeNoDiag(state, part, memberName);
+        if (!partType) {
+          emitDiagnostic(
+            state,
+            "TSN5203",
+            `Member '${memberName}' not found`,
+            site
+          );
+          return unknownType;
+        }
+
+        if (!resolved) {
+          resolved = partType;
+          continue;
+        }
+
+        if (!typesEqual(resolved, partType)) {
+          emitDiagnostic(
+            state,
+            "TSN5203",
+            `Member '${memberName}' has incompatible types across union constituents`,
+            site
+          );
+          return unknownType;
+        }
+      }
+
+      if (resolved) return resolved;
+    }
+  }
+
+  const resolved = resolveMemberTypeNoDiag(
+    state,
+    effectiveReceiver,
+    memberName
+  );
+  if (resolved) return resolved;
+
   emitDiagnostic(state, "TSN5203", `Member '${memberName}' not found`, site);
   return unknownType;
 };
@@ -1186,16 +1278,12 @@ export const hasTypeParameters = (
 
 export const typeOfMemberId = (
   state: TypeSystemState,
-  memberId: MemberId
+  memberId: MemberId,
+  receiverType?: IrType
 ): IrType => {
   const memberInfo = state.handleRegistry.getMember(memberId);
   if (!memberInfo) {
     return unknownType;
-  }
-
-  // If the member has a type node, convert it
-  if (memberInfo.typeNode) {
-    return convertTypeNode(state, memberInfo.typeNode);
   }
 
   // Otherwise, attempt to recover type deterministically from the member declaration.
@@ -1203,6 +1291,128 @@ export const typeOfMemberId = (
   // function declarations / const declarations (no typeNode captured by Binding).
   const decl = memberInfo.declNode as ts.Declaration | undefined;
   if (decl) {
+    const normalizeDeclaringTypeName = (name: string): string =>
+      name
+        .replace(/\$instance$/, "")
+        .replace(/^__(.+)\$views$/, "$1")
+        .replace(/_\d+$/, "")
+        .replace(/`\d+$/, "");
+
+    const getDeclaringTypeSubstitution = ():
+      | ReadonlyMap<string, IrType>
+      | undefined => {
+      if (!receiverType) return undefined;
+
+      const extractReceiverRef = (
+        type: IrType
+      ): IrReferenceType | undefined => {
+        if (type.kind === "referenceType") return type;
+        if (type.kind === "intersectionType") {
+          return type.types.find(
+            (part): part is IrReferenceType => part.kind === "referenceType"
+          );
+        }
+        if (type.kind === "unionType") {
+          const nonNullish = type.types.filter(
+            (part) =>
+              !(
+                part.kind === "primitiveType" &&
+                (part.name === "null" || part.name === "undefined")
+              )
+          );
+          const onlyNonNullish = nonNullish[0];
+          return nonNullish.length === 1 && onlyNonNullish
+            ? extractReceiverRef(onlyNonNullish)
+            : undefined;
+        }
+        return undefined;
+      };
+
+      const receiverRef = extractReceiverRef(receiverType);
+      if (
+        !receiverRef?.typeArguments ||
+        receiverRef.typeArguments.length === 0
+      ) {
+        return undefined;
+      }
+
+      const parent = decl.parent;
+      const declaringType =
+        ts.isInterfaceDeclaration(parent) ||
+        ts.isClassDeclaration(parent) ||
+        ts.isTypeAliasDeclaration(parent)
+          ? parent
+          : undefined;
+      if (!declaringType?.name || !declaringType.typeParameters) {
+        return undefined;
+      }
+
+      if (
+        normalizeDeclaringTypeName(receiverRef.name) !==
+        normalizeDeclaringTypeName(declaringType.name.text)
+      ) {
+        return undefined;
+      }
+
+      const typeParams = declaringType.typeParameters;
+      if (typeParams.length !== receiverRef.typeArguments.length) {
+        return undefined;
+      }
+
+      const receiverTypeArguments = receiverRef.typeArguments;
+      if (!receiverTypeArguments) {
+        return undefined;
+      }
+
+      const entries: [string, IrType][] = [];
+      for (const [index, param] of typeParams.entries()) {
+        const arg = receiverTypeArguments[index];
+        if (!arg) {
+          return undefined;
+        }
+        entries.push([param.name.text, arg]);
+      }
+
+      return new Map(entries);
+    };
+
+    const substitution = getDeclaringTypeSubstitution();
+    const applySubstitution = (type: IrType): IrType =>
+      substitution
+        ? irSubstitute(type, substitution as IrSubstitutionMap)
+        : type;
+
+    if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) {
+      if (!decl.type) return unknownType;
+      if (decl.parameters.some((p) => p.type === undefined)) return unknownType;
+
+      const parameters: readonly IrParameter[] = decl.parameters.map((p) => ({
+        kind: "parameter",
+        pattern: {
+          kind: "identifierPattern",
+          name: ts.isIdentifier(p.name) ? p.name.text : "param",
+        },
+        type: p.type
+          ? applySubstitution(convertTypeNode(state, p.type))
+          : undefined,
+        initializer: undefined,
+        isOptional: !!p.questionToken || !!p.initializer,
+        isRest: !!p.dotDotDotToken,
+        passing: "value",
+      }));
+
+      return {
+        kind: "functionType",
+        parameters,
+        returnType: applySubstitution(convertTypeNode(state, decl.type)),
+      };
+    }
+
+    // If the member has a type node, convert it with any available declaring-type substitution.
+    if (memberInfo.typeNode) {
+      return applySubstitution(convertTypeNode(state, memberInfo.typeNode));
+    }
+
     if (ts.isFunctionDeclaration(decl)) {
       // Determinism: require explicit parameter + return annotations.
       if (!decl.type) return unknownType;
@@ -1235,6 +1445,10 @@ export const typeOfMemberId = (
       const inferred = tryInferTypeFromInitializer(state, decl);
       return inferred ?? unknownType;
     }
+  }
+
+  if (memberInfo.typeNode) {
+    return convertTypeNode(state, memberInfo.typeNode);
   }
 
   return unknownType;

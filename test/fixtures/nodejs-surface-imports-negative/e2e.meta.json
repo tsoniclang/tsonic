@@ -1,8 +1,4 @@
 {
-  "expectFailure": true,
-  "description": "nodejs surface rejects unsupported default imports.",
-  "expectedErrors": [
-    "TSN1004",
-    "Default import is not supported for \"node:fs\""
-  ]
+  "description": "nodejs default imports lower to module namespace bindings.",
+  "expectedOutput": "true"
 }

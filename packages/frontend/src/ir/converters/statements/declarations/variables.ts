@@ -229,7 +229,9 @@ const isSupportedGenericFunctionAliasDeclaration = (
   if (!decl.initializer || !ts.isIdentifier(decl.initializer)) return false;
 
   const declarationList = decl.parent;
-  if (!ts.isVariableDeclarationList(declarationList)) return false;
+  if (!declarationList || !ts.isVariableDeclarationList(declarationList)) {
+    return false;
+  }
   const isConst = (declarationList.flags & ts.NodeFlags.Const) !== 0;
   const isLet = (declarationList.flags & ts.NodeFlags.Let) !== 0;
   if (!isConst && !isLet) return false;
@@ -503,16 +505,23 @@ export const convertVariableStatement = (
   let currentCtx = ctx;
   const declarations: IrVariableDeclarator[] = [];
   const loweredStatements: IrStatement[] = [];
-  const writtenSymbols = collectWrittenSymbols(
-    node.getSourceFile(),
-    ctx.checker
-  );
-  const supportedGenericFunctionValueSymbols =
-    collectSupportedGenericFunctionValueSymbols(
-      node.getSourceFile(),
-      ctx.checker,
-      writtenSymbols
-    );
+  const sourceFile = (() => {
+    try {
+      return node.getSourceFile();
+    } catch {
+      return undefined;
+    }
+  })();
+  const writtenSymbols = sourceFile
+    ? collectWrittenSymbols(sourceFile, ctx.checker)
+    : new Set<ts.Symbol>();
+  const supportedGenericFunctionValueSymbols = sourceFile
+    ? collectSupportedGenericFunctionValueSymbols(
+        sourceFile,
+        ctx.checker,
+        writtenSymbols
+      )
+    : new Set<ts.Symbol>();
 
   // Convert declarations sequentially so later declarators can refer to earlier ones:
   //   const a = false, b = !a;
@@ -571,9 +580,12 @@ export const convertVariableStatement = (
       ? currentCtx.typeSystem.typeFromSyntax(
           currentCtx.binding.captureTypeSyntax(decl.type)
         )
-      : needsExplicitType && convertedInitializer && !isBindingPattern(decl)
-        ? deriveTypeFromExpression(convertedInitializer)
-        : undefined;
+      : convertedInitializer?.kind === "object" &&
+          convertedInitializer.behaviorMembers?.length
+        ? undefined
+        : needsExplicitType && convertedInitializer && !isBindingPattern(decl)
+          ? deriveTypeFromExpression(convertedInitializer)
+          : undefined;
 
     const irDecl: IrVariableDeclarator = {
       kind: "variableDeclarator",

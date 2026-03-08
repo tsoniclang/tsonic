@@ -720,6 +720,79 @@ describe("aikya bindings", function () {
     ]);
   });
 
+  it("suppresses manifest package references when a local dll satisfies the same assembly", () => {
+    const manifest: NormalizedBindingsManifest = {
+      bindingVersion: 1,
+      sourceManifest: "legacy",
+      packageName: "@tsonic/nodejs",
+      packageVersion: "10.0.0",
+      surfaceMode: "@tsonic/js",
+      requiredTypeRoots: ["node_modules/@tsonic/nodejs"],
+      runtimePackages: ["@tsonic/nodejs"],
+      nugetDependencies: [],
+      assemblyName: "nodejs",
+      dotnet: {
+        packageReferences: [{ id: "Tsonic.Nodejs", version: "1.0.1" }],
+      },
+    };
+
+    const merged = mergeManifestIntoWorkspaceConfig(
+      {
+        ...baseWorkspaceConfig(),
+        dotnet: {
+          libraries: ["libs/nodejs.dll"],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      },
+      manifest,
+      "TSN8A03"
+    );
+
+    expect(merged.ok).to.equal(true);
+    if (!merged.ok) return;
+    expect(merged.value.dotnet?.typeRoots).to.deep.equal([
+      "node_modules/@tsonic/nodejs",
+    ]);
+    expect(merged.value.dotnet?.packageReferences).to.deep.equal([]);
+  });
+
+  it("keeps manifest package references when no local dll satisfies the assembly", () => {
+    const manifest: NormalizedBindingsManifest = {
+      bindingVersion: 1,
+      sourceManifest: "legacy",
+      packageName: "@tsonic/js",
+      packageVersion: "10.0.0",
+      surfaceMode: "@tsonic/js",
+      requiredTypeRoots: ["node_modules/@tsonic/js"],
+      runtimePackages: ["@tsonic/js"],
+      nugetDependencies: [],
+      assemblyName: "Tsonic.JSRuntime",
+      dotnet: {
+        packageReferences: [{ id: "Tsonic.JSRuntime", version: "0.0.4" }],
+      },
+    };
+
+    const merged = mergeManifestIntoWorkspaceConfig(
+      {
+        ...baseWorkspaceConfig(),
+        dotnet: {
+          libraries: ["libs/other.dll"],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      },
+      manifest,
+      "TSN8A03"
+    );
+
+    expect(merged.ok).to.equal(true);
+    if (!merged.ok) return;
+    expect(merged.value.dotnet?.packageReferences).to.deep.equal([
+      { id: "Tsonic.JSRuntime", version: "0.0.4" },
+    ]);
+  });
+
   it("rejects requiredTypeRoots that escape the package root", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-type-root-escape-"));
     try {

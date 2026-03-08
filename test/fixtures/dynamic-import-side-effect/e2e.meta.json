@@ -1,8 +1,3 @@
 {
-  "expectFailure": true,
-  "description": "dynamic import side-effect form is rejected in strict AOT mode.",
-  "expectedErrors": [
-    "TSN2001",
-    "Dynamic import() is not supported in strict AOT mode"
-  ]
+  "description": "awaited relative dynamic import side effects are lowered deterministically."
 }

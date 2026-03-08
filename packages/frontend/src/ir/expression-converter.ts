@@ -14,7 +14,10 @@ import {
 import type { ProgramContext } from "./program-context.js";
 
 // Import expression converters from specialized modules
-import { convertLiteral } from "./converters/expressions/literals.js";
+import {
+  convertLiteral,
+  convertRegularExpressionLiteral,
+} from "./converters/expressions/literals.js";
 import {
   convertArrayLiteral,
   convertObjectLiteral,
@@ -37,6 +40,10 @@ import {
   convertConditionalExpression,
   convertTemplateLiteral,
 } from "./converters/expressions/other.js";
+import {
+  convertImportMetaObject,
+  isImportMetaMetaProperty,
+} from "./converters/expressions/import-meta.js";
 import { getSourceSpan } from "./converters/expressions/helpers.js";
 
 /**
@@ -128,6 +135,9 @@ export const convertExpression = (
 
   if (ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
     return convertLiteral(node, ctx);
+  }
+  if (ts.isRegularExpressionLiteral(node)) {
+    return convertRegularExpressionLiteral(node, ctx);
   }
   if (
     node.kind === ts.SyntaxKind.TrueKeyword ||
@@ -232,6 +242,9 @@ export const convertExpression = (
       declId,
     };
   }
+  if (isImportMetaMetaProperty(node)) {
+    return convertImportMetaObject(node, ctx);
+  }
   if (ts.isArrayLiteralExpression(node)) {
     return convertArrayLiteral(node, ctx, expectedType);
   }
@@ -248,7 +261,7 @@ export const convertExpression = (
     return convertCallExpression(node, ctx, expectedType);
   }
   if (ts.isNewExpression(node)) {
-    return convertNewExpression(node, ctx);
+    return convertNewExpression(node, ctx, expectedType);
   }
   if (ts.isBinaryExpression(node)) {
     return convertBinaryExpression(node, ctx, expectedType);
@@ -317,10 +330,12 @@ export const convertExpression = (
     };
   }
   if (node.kind === ts.SyntaxKind.ThisKeyword) {
-    // Deterministic `this` typing: derive from the enclosing class declaration.
+    // Deterministic `this` typing:
+    // 1. object-literal synthetic receiver (when converting method/accessor bodies)
+    // 2. enclosing class declaration
     return {
       kind: "this",
-      inferredType: inferThisType(node),
+      inferredType: ctx.objectLiteralThisType ?? inferThisType(node),
       sourceSpan: getSourceSpan(node),
     };
   }

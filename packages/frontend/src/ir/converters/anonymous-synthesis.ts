@@ -12,8 +12,9 @@
  * converted expression's inferredType, not from TS computed types.
  *
  * Eligibility:
- * ✅ Allowed: identifier keys, string literal keys, spreads with typed sources, function-valued properties
- * ❌ Rejected: computed keys, symbol keys, getters/setters
+ * ✅ Allowed: identifier keys, string/numeric literal keys, deterministically-known computed literal keys,
+ *            spreads with typed sources, function-valued properties, getters/setters
+ * ❌ Rejected: non-deterministic computed keys, symbol keys
  */
 
 import * as ts from "typescript";
@@ -24,6 +25,7 @@ import {
   IrTypeParameter,
 } from "../types.js";
 import type { ProgramContext } from "../program-context.js";
+import { getUnsupportedObjectLiteralMethodRuntimeReason } from "../../object-literal-method-runtime.js";
 
 // ============================================================================
 // Shape Signature Computation
@@ -243,41 +245,104 @@ export const checkSynthesisEligibility = (
   node: ts.ObjectLiteralExpression,
   ctx: ProgramContext
 ): EligibilityResult => {
-  const usesDynamicReceiverSemantics = (
-    method: ts.MethodDeclaration
-  ): boolean => {
-    let found = false;
-    const visit = (current: ts.Node): void => {
-      if (found) return;
-      if (
-        current.kind === ts.SyntaxKind.ThisKeyword ||
-        current.kind === ts.SyntaxKind.SuperKeyword ||
-        (ts.isIdentifier(current) && current.text === "arguments")
-      ) {
-        found = true;
-        return;
+  const unwrapDeterministicKeyExpression = (
+    expr: ts.Expression
+  ): ts.Expression => {
+    let current = expr;
+    for (;;) {
+      if (ts.isParenthesizedExpression(current)) {
+        current = current.expression;
+        continue;
       }
-      ts.forEachChild(current, visit);
+      if (
+        ts.isAsExpression(current) ||
+        ts.isTypeAssertionExpression(current) ||
+        ts.isSatisfiesExpression(current)
+      ) {
+        current = current.expression;
+        continue;
+      }
+      return current;
+    }
+  };
+
+  const tryResolveDeterministicComputedKeyName = (
+    name: ts.PropertyName,
+    seenSymbols = new Set<ts.Symbol>()
+  ): string | undefined => {
+    if (
+      ts.isIdentifier(name) ||
+      ts.isStringLiteral(name) ||
+      ts.isNoSubstitutionTemplateLiteral(name) ||
+      ts.isNumericLiteral(name)
+    ) {
+      return String(name.text);
+    }
+
+    if (!ts.isComputedPropertyName(name)) {
+      return undefined;
+    }
+
+    const expr = unwrapDeterministicKeyExpression(name.expression);
+    if (
+      ts.isStringLiteral(expr) ||
+      ts.isNoSubstitutionTemplateLiteral(expr) ||
+      ts.isNumericLiteral(expr)
+    ) {
+      return String(expr.text);
+    }
+
+    if (!ts.isIdentifier(expr)) {
+      return undefined;
+    }
+
+    const symbol = ctx.checker.getSymbolAtLocation(expr);
+    if (!symbol || seenSymbols.has(symbol)) {
+      return undefined;
+    }
+
+    seenSymbols.add(symbol);
+    const visitDeclarations = (target: ts.Symbol): string | undefined => {
+      for (const decl of target.getDeclarations() ?? []) {
+        if (
+          ts.isVariableDeclaration(decl) &&
+          decl.initializer &&
+          ts.isVariableDeclarationList(decl.parent) &&
+          (decl.parent.flags & ts.NodeFlags.Const) !== 0
+        ) {
+          const resolved = tryResolveDeterministicComputedKeyName(
+            ts.factory.createComputedPropertyName(decl.initializer),
+            seenSymbols
+          );
+          if (resolved !== undefined) return resolved;
+        }
+      }
+      return undefined;
     };
 
-    if (method.body) {
-      visit(method.body);
+    const direct = visitDeclarations(symbol);
+    if (direct !== undefined) return direct;
+
+    if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+      const aliased = ctx.checker.getAliasedSymbol(symbol);
+      if (!seenSymbols.has(aliased)) {
+        seenSymbols.add(aliased);
+        return visitDeclarations(aliased);
+      }
     }
-    return found;
+
+    return undefined;
   };
 
   for (const prop of node.properties) {
     // Property assignment: check key type
     if (ts.isPropertyAssignment(prop)) {
-      if (ts.isComputedPropertyName(prop.name)) {
-        // Computed key - check if it's a string literal
-        const expr = prop.name.expression;
-        if (!ts.isStringLiteral(expr)) {
-          return {
-            eligible: false,
-            reason: `Computed property key is not a string literal`,
-          };
-        }
+      if (tryResolveDeterministicComputedKeyName(prop.name) === undefined) {
+        return {
+          eligible: false,
+          reason:
+            "Computed property key is not a deterministically known string/number literal",
+        };
       }
       // Check for symbol keys
       if (ts.isPrivateIdentifier(prop.name)) {
@@ -293,52 +358,20 @@ export const checkSynthesisEligibility = (
       continue;
     }
 
-    // Spread: check that the spread source is a typed identifier (symbol-based, no getTypeAtLocation)
+    // Spread: full deterministic shape validation happens after expression conversion.
     if (ts.isSpreadAssignment(prop)) {
-      // Only allow spread of identifiers with declarations we can resolve
-      if (!ts.isIdentifier(prop.expression)) {
-        return {
-          eligible: false,
-          reason: `Spread source must be a simple identifier (TSN5215)`,
-        };
-      }
-
-      // Use Binding to resolve the spread source
-      const declId = ctx.binding.resolveIdentifier(prop.expression);
-      if (!declId) {
-        return {
-          eligible: false,
-          reason: `Spread source '${prop.expression.text}' could not be resolved`,
-        };
-      }
-
-      // ALICE'S SPEC (Phase 5): Use TypeSystem from context
-      const typeSystem = ctx.typeSystem;
-
-      // Check if declaration has a type annotation (deterministic typing requirement)
-      const hasType = typeSystem.declHasTypeAnnotation(declId);
-
-      if (!hasType) {
-        return {
-          eligible: false,
-          reason: `Spread source '${prop.expression.text}' requires type annotation (TSN5215)`,
-        };
-      }
-
       continue;
     }
 
-    // Method declarations are valid when they can be represented as function-valued
-    // properties without dynamic receiver semantics.
+    // Method declarations are valid when they avoid unsupported runtime features.
+    // `this` is supported via object-literal method binding.
     if (ts.isMethodDeclaration(prop)) {
-      if (ts.isComputedPropertyName(prop.name)) {
-        const expr = prop.name.expression;
-        if (!ts.isStringLiteral(expr)) {
-          return {
-            eligible: false,
-            reason: `Computed property key is not a string literal`,
-          };
-        }
+      if (tryResolveDeterministicComputedKeyName(prop.name) === undefined) {
+        return {
+          eligible: false,
+          reason:
+            "Computed property key is not a deterministically known string/number literal",
+        };
       }
       if (ts.isPrivateIdentifier(prop.name)) {
         return {
@@ -346,25 +379,30 @@ export const checkSynthesisEligibility = (
           reason: `Private identifier (symbol) keys are not supported`,
         };
       }
-      if (usesDynamicReceiverSemantics(prop)) {
+      const unsupportedRuntimeReason =
+        getUnsupportedObjectLiteralMethodRuntimeReason(prop);
+      if (unsupportedRuntimeReason) {
         return {
           eligible: false,
-          reason:
-            "Method shorthand cannot reference this/super/arguments in synthesized types",
+          reason: unsupportedRuntimeReason,
         };
       }
       continue;
     }
 
-    // Getter/setter: reject
+    // Getter/setter: allowed for synthesized object types
     if (
       ts.isGetAccessorDeclaration(prop) ||
       ts.isSetAccessorDeclaration(prop)
     ) {
-      return {
-        eligible: false,
-        reason: `Getters and setters are not supported in synthesized types`,
-      };
+      if (tryResolveDeterministicComputedKeyName(prop.name) === undefined) {
+        return {
+          eligible: false,
+          reason:
+            "Computed property key is not a deterministically known string/number literal",
+        };
+      }
+      continue;
     }
   }
 

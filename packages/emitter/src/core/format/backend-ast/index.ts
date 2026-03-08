@@ -34,6 +34,7 @@ export type {
   CSharpAsExpressionAst,
   CSharpIsExpressionAst,
   CSharpDefaultExpressionAst,
+  CSharpSizeOfExpressionAst,
   CSharpAwaitExpressionAst,
   CSharpLambdaExpressionAst,
   CSharpLambdaParameterAst,

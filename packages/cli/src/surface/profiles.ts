@@ -15,6 +15,7 @@ type SurfaceProfile = {
 export type SurfaceCapabilities = {
   readonly mode: SurfaceMode;
   readonly includesClr: boolean;
+  readonly resolvedModes: readonly SurfaceMode[];
   readonly requiredTypeRoots: readonly string[];
   readonly requiredNpmPackages: readonly string[];
   readonly useStandardLib: boolean;
@@ -154,7 +155,10 @@ const resolveSurfacePackage = (
     if (existsSync(join(installed.packageRoot, "tsonic.surface.json"))) {
       return installed;
     }
-    if (sibling && existsSync(join(sibling.packageRoot, "tsonic.surface.json"))) {
+    if (
+      sibling &&
+      existsSync(join(sibling.packageRoot, "tsonic.surface.json"))
+    ) {
       return sibling;
     }
     return installed;
@@ -295,6 +299,7 @@ export const resolveSurfaceCapabilities = (
   return {
     mode: normalizedMode,
     includesClr: chain.some((profile) => profile.mode === "clr"),
+    resolvedModes: chain.map((profile) => profile.mode),
     requiredTypeRoots: mergeUnique(
       chain.map((profile) => profile.requiredTypeRoots)
     ),
@@ -312,7 +317,10 @@ export const hasResolvedSurfaceProfile = (
   const normalizedMode = normalizeSurfaceMode(mode);
   if (BUILTIN_SURFACE_MODE_SET.has(normalizedMode)) return true;
   if (!options.workspaceRoot) return false;
-  return loadCustomSurfaceProfile(normalizedMode, options.workspaceRoot) !== undefined;
+  return (
+    loadCustomSurfaceProfile(normalizedMode, options.workspaceRoot) !==
+    undefined
+  );
 };
 
 export const isSurfaceMode = (value: unknown): value is SurfaceMode =>

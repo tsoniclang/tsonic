@@ -616,6 +616,9 @@ const validateExpression = (
           }
         });
       }
+      if (expr.dynamicImportNamespace) {
+        scanExpressionForCalls(expr.dynamicImportNamespace, ctx);
+      }
       break;
     }
 
@@ -665,6 +668,9 @@ const scanExpressionForCalls = (
           scanExpressionForCalls(arg, ctx);
         }
       });
+      if (expr.dynamicImportNamespace) {
+        scanExpressionForCalls(expr.dynamicImportNamespace, ctx);
+      }
       break;
     }
 

@@ -252,6 +252,7 @@ export type SignatureEntry = {
    * TypeSystem uses UnifiedTypeCatalog.resolveTsName() to get CLR FQ name.
    */
   readonly declaringTypeTsName?: string;
+  readonly declaringTypeParameterNames?: readonly string[];
   /** Declaring member name (for inheritance substitution in resolveCall) */
   readonly declaringMemberName?: string;
   /** Type predicate extracted from return type (x is T) */

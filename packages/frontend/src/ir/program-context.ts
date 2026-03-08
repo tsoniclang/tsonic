@@ -41,6 +41,21 @@ import {
  */
 export type ProgramContext = {
   /**
+   * Project root used for package/module resolution.
+   */
+  readonly projectRoot: string;
+
+  /**
+   * Source root of the current app graph.
+   */
+  readonly sourceRoot: string;
+
+  /**
+   * Root namespace for generated module/type names.
+   */
+  readonly rootNamespace: string;
+
+  /**
    * Selected language surface mode for this compilation.
    */
   readonly surface: SurfaceMode;
@@ -51,6 +66,16 @@ export type ProgramContext = {
    * This must never be used for computed type inference APIs (getTypeAtLocation, etc.).
    */
   readonly checker: ts.TypeChecker;
+
+  /**
+   * Raw TypeScript compiler options for syntax-level module resolution helpers.
+   */
+  readonly tsCompilerOptions: ts.CompilerOptions;
+
+  /**
+   * Closed-world source files keyed by normalized absolute path.
+   */
+  readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
 
   /**
    * Binding layer for symbol resolution.
@@ -102,6 +127,14 @@ export type ProgramContext = {
    * Collected by `buildIr()` and treated as compilation errors.
    */
   readonly diagnostics: Diagnostic[];
+
+  /**
+   * Synthetic `this` type for object-literal method/accessor conversion.
+   *
+   * When converting object literal behavior members, `this` does not refer to an
+   * enclosing class. It refers to the synthesized object shape itself.
+   */
+  readonly objectLiteralThisType?: IrType;
 };
 
 /**
@@ -122,6 +155,13 @@ export const createProgramContext = (
   program: TsonicProgram,
   options: IrBuildOptions
 ): ProgramContext => {
+  const sourceFilesByPath = new Map<string, ts.SourceFile>(
+    program.sourceFiles.map((sourceFile) => [
+      sourceFile.fileName.replace(/\\/g, "/"),
+      sourceFile,
+    ])
+  );
+
   // Build TypeRegistry from all source files INCLUDING declaration files from typeRoots
   // Declaration files contain globals (String, Array, etc.) needed for method resolution
   //
@@ -434,11 +474,19 @@ export const createProgramContext = (
       ts.isNewExpression(node as ts.Node)
         ? program.binding.resolveConstructorSignature(node as ts.NewExpression)
         : undefined,
+    checker: program.checker,
+    tsCompilerOptions: program.program.getCompilerOptions(),
+    sourceFilesByPath,
   });
 
   return {
+    projectRoot: program.options.projectRoot,
+    sourceRoot: options.sourceRoot,
+    rootNamespace: options.rootNamespace,
     surface: program.options.surface ?? "clr",
     checker: program.checker,
+    tsCompilerOptions: program.program.getCompilerOptions(),
+    sourceFilesByPath,
     binding: program.binding,
     typeSystem,
     metadata: program.metadata,

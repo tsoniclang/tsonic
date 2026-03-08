@@ -103,6 +103,16 @@ export const buildModuleMap = (
   // Build the map
   for (const module of modules) {
     const canonicalPath = canonicalizeFilePath(module.filePath);
+    const hasRuntimeContainer = module.body.some(
+      (stmt) =>
+        !(
+          stmt.kind === "classDeclaration" ||
+          stmt.kind === "interfaceDeclaration" ||
+          stmt.kind === "enumDeclaration" ||
+          (stmt.kind === "typeAliasDeclaration" &&
+            stmt.type.kind === "objectType")
+        )
+    );
 
     // Check if module has a type declaration (class/interface) with same name as className
     // This determines whether value imports need to use __Module suffix
@@ -161,6 +171,7 @@ export const buildModuleMap = (
       namespace: module.namespace,
       className: module.className,
       filePath: canonicalPath,
+      hasRuntimeContainer,
       hasTypeCollision,
       exportedValueKinds,
       localTypes: buildLocalTypes(module),

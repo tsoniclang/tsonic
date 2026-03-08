@@ -17,6 +17,7 @@
 
 import type { IrType, IrFunctionType } from "../types/index.js";
 import type { Diagnostic } from "../../types/diagnostic.js";
+import type * as ts from "typescript";
 import type {
   DeclId,
   SignatureId,
@@ -257,7 +258,7 @@ export type TypeAuthority = {
    *
    * Returns unknownType if member not found or has no type annotation.
    */
-  typeOfMemberId(memberId: MemberId): IrType;
+  typeOfMemberId(memberId: MemberId, receiverType?: IrType): IrType;
 
   /**
    * Get the fully-qualified name of a declaration.
@@ -424,6 +425,9 @@ export type TypeSystemConfig = {
   readonly resolveConstructorSignature: (
     node: unknown
   ) => SignatureId | undefined;
+  readonly checker: ts.TypeChecker;
+  readonly tsCompilerOptions: ts.CompilerOptions;
+  readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -453,6 +457,9 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     resolveIdentifier,
     resolveCallSignature,
     resolveConstructorSignature,
+    checker,
+    tsCompilerOptions,
+    sourceFilesByPath,
   } = config;
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -509,6 +516,9 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     resolveIdentifier,
     resolveCallSignature,
     resolveConstructorSignature,
+    checker,
+    tsCompilerOptions,
+    sourceFilesByPath,
     declTypeCache,
     memberDeclaredTypeCache,
     signatureRawCache,
@@ -554,7 +564,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
 
     // Declaration inspection (inference module)
     hasTypeParameters: (declId) => infHasTypeParameters(state, declId),
-    typeOfMemberId: (memberId) => infTypeOfMemberId(state, memberId),
+    typeOfMemberId: (memberId, receiverType) =>
+      infTypeOfMemberId(state, memberId, receiverType),
     getFQNameOfDecl: (declId) => infGetFQNameOfDecl(state, declId),
     isTypeDecl: (declId) => infIsTypeDecl(state, declId),
     isInterfaceDecl: (declId) => infIsInterfaceDecl(state, declId),

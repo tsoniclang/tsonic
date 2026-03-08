@@ -7,6 +7,7 @@ import { EmitterContext } from "../../types.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { emitParameters } from "./parameters.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
+import { isMutablePropertySlot } from "../../core/semantic/mutable-storage.js";
 import type {
   CSharpMemberAst,
   CSharpTypeAst,
@@ -59,6 +60,11 @@ export const emitInterfaceMemberAsProperty = (
 
       // Property name (escape C# keywords)
       const name = emitCSharpName(member.name, "properties", context);
+      const needsMutableStorage = isMutablePropertySlot(
+        context.declaringTypeName,
+        member.name,
+        context
+      );
 
       // Getter/setter. For "readonly" in TS, use init-only to preserve immutability
       // while still allowing object-initializer assignment (and `required` in C# 11).
@@ -69,8 +75,9 @@ export const emitInterfaceMemberAsProperty = (
         type: typeAst,
         name,
         hasGetter: true,
-        hasSetter: !member.isReadonly,
-        hasInit: member.isReadonly ? true : undefined,
+        hasSetter: !member.isReadonly || needsMutableStorage,
+        hasInit:
+          member.isReadonly && !needsMutableStorage ? true : undefined,
         isAutoProperty: true,
       };
 

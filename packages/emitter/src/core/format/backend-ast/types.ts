@@ -200,6 +200,11 @@ export type CSharpDefaultExpressionAst = {
   readonly type?: CSharpTypeAst;
 };
 
+export type CSharpSizeOfExpressionAst = {
+  readonly kind: "sizeOfExpression";
+  readonly type: CSharpTypeAst;
+};
+
 export type CSharpAwaitExpressionAst = {
   readonly kind: "awaitExpression";
   readonly expression: CSharpExpressionAst;
@@ -301,6 +306,7 @@ export type CSharpExpressionAst =
   | CSharpAsExpressionAst
   | CSharpIsExpressionAst
   | CSharpDefaultExpressionAst
+  | CSharpSizeOfExpressionAst
   | CSharpAwaitExpressionAst
   | CSharpLambdaExpressionAst
   | CSharpInterpolatedStringExpressionAst
@@ -550,6 +556,7 @@ export type CSharpPropertyDeclarationAst = {
   readonly name: string;
   readonly hasGetter: boolean;
   readonly hasSetter: boolean;
+  readonly setterAccessibility?: "private" | "protected" | "internal";
   /** C# 9 init-only setter (`{ get; init; }`) */
   readonly hasInit?: boolean;
   readonly initializer?: CSharpExpressionAst;

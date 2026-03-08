@@ -5,6 +5,12 @@
 import * as ts from "typescript";
 import { TsonicProgram } from "../program.js";
 import {
+  getDynamicImportLiteralSpecifier,
+  isClosedWorldDynamicImportSpecifier,
+  isSideEffectOnlyDynamicImport,
+  resolveDynamicImportNamespace,
+} from "../resolver/dynamic-import.js";
+import {
   DiagnosticsCollector,
   addDiagnostic,
   createDiagnostic,
@@ -22,11 +28,11 @@ const isSupportedImportMetaUsage = (node: ts.MetaProperty): boolean => {
   }
 
   const parent = node.parent;
-  return (
-    ts.isPropertyAccessExpression(parent) &&
-    parent.expression === node &&
-    SUPPORTED_IMPORT_META_FIELDS.has(parent.name.text)
-  );
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
+    return SUPPORTED_IMPORT_META_FIELDS.has(parent.name.text);
+  }
+
+  return !ts.isElementAccessExpression(parent);
 };
 
 const isDynamicImportCall = (node: ts.CallExpression): boolean =>
@@ -37,9 +43,49 @@ const isDynamicImportCall = (node: ts.CallExpression): boolean =>
  */
 export const validateUnsupportedFeatures = (
   sourceFile: ts.SourceFile,
-  _program: TsonicProgram,
+  program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
+  const sourceFilesByPath = new Map<string, ts.SourceFile>(
+    program.sourceFiles.map((currentSourceFile) => [
+      currentSourceFile.fileName.replace(/\\/g, "/"),
+      currentSourceFile,
+    ])
+  );
+
+  const getDynamicImportSupportFailure = (
+    node: ts.CallExpression
+  ): string | undefined => {
+    const specifier = getDynamicImportLiteralSpecifier(node);
+    if (!specifier) {
+      return "Dynamic import() is only supported for string-literal specifiers.";
+    }
+
+    if (!isClosedWorldDynamicImportSpecifier(specifier)) {
+      return "Dynamic import() is only supported for closed-world local specifiers ('./' or '../').";
+    }
+
+    if (isSideEffectOnlyDynamicImport(node)) {
+      return undefined;
+    }
+
+    if (ts.isExpressionStatement(node.parent)) {
+      return 'Dynamic import() in bare side-effect position must be written as `await import("./local-module.js")`.';
+    }
+
+    const resolution = resolveDynamicImportNamespace(
+      node,
+      sourceFile.fileName,
+      {
+        checker: program.checker,
+        compilerOptions: program.program.getCompilerOptions(),
+        sourceFilesByPath,
+      }
+    );
+
+    return resolution.ok ? undefined : resolution.reason;
+  };
+
   const visitor = (node: ts.Node): void => {
     // Check for features we don't support yet
     if (ts.isWithStatement(node)) {
@@ -66,15 +112,22 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (ts.isCallExpression(node) && isDynamicImportCall(node)) {
+    if (
+      ts.isCallExpression(node) &&
+      isDynamicImportCall(node) &&
+      getDynamicImportSupportFailure(node) !== undefined
+    ) {
+      const message =
+        getDynamicImportSupportFailure(node) ??
+        "Dynamic import() is only supported for deterministic closed-world local modules.";
       collector = addDiagnostic(
         collector,
         createDiagnostic(
           "TSN2001",
           "error",
-          "Dynamic import() is not supported in strict AOT mode",
+          message,
           getNodeLocation(sourceFile, node),
-          "Use static import declarations."
+          "Use static import declarations, or restrict dynamic import() to deterministic closed-world local modules."
         )
       );
     }

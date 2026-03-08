@@ -1,0 +1,7 @@
+{
+  "name": "readonly-array-property-mutation-fixture",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ]
+}

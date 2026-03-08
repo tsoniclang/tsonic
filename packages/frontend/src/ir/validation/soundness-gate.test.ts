@@ -149,6 +149,47 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.false;
       expect(result.diagnostics.some((d) => d.code === "TSN5203")).to.be.true;
     });
+
+    it("allows unknown value type on array element access when element type is explicitly unknown", () => {
+      const arrayType: IrType = {
+        kind: "arrayType",
+        elementType: { kind: "unknownType" },
+      };
+
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "items",
+                inferredType: arrayType,
+              },
+              property: { kind: "literal", value: 0, raw: "0" },
+              isComputed: true,
+              isOptional: false,
+              accessKind: "clrIndexer",
+              inferredType: { kind: "unknownType" },
+              allowUnknownInferredType: true,
+            },
+          },
+        ],
+        exports: [],
+      };
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+    });
   });
 
   describe("Deterministic inference diagnostics", () => {
@@ -187,6 +228,49 @@ describe("IR Soundness Gate", () => {
 
       expect(result.ok).to.be.false;
       expect(result.diagnostics.some((d) => d.code === "TSN5201")).to.be.true;
+    });
+
+    it("allows calls whose declared return type is explicitly unknown", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "call",
+              callee: {
+                kind: "memberAccess",
+                object: { kind: "identifier", name: "JSON" },
+                property: "parse",
+                isComputed: false,
+                isOptional: false,
+              },
+              arguments: [
+                {
+                  kind: "literal",
+                  value: "{}",
+                  raw: '"{}"',
+                  inferredType: { kind: "primitiveType", name: "string" },
+                },
+              ],
+              isOptional: false,
+              inferredType: { kind: "unknownType" },
+              allowUnknownInferredType: true,
+            },
+          },
+        ],
+        exports: [],
+      };
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
     });
 
     it("emits TSN5202 when constructor type argument recovery fails", () => {
@@ -318,6 +402,19 @@ describe("IR Soundness Gate", () => {
 
       const result = validateIrSoundness([module], {
         knownReferenceTypes: new Set(["Dictionary_2"]),
+      });
+
+      expect(result.ok).to.be.true;
+    });
+
+    it("should allow tsbindgen instance aliases when the base alias is known", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "MkdirOptions$instance",
+      });
+
+      const result = validateIrSoundness([module], {
+        knownReferenceTypes: new Set(["MkdirOptions"]),
       });
 
       expect(result.ok).to.be.true;
@@ -671,11 +768,47 @@ describe("IR Soundness Gate", () => {
       expect(result.diagnostics.some((d) => d.code === "TSN7442")).to.be.true;
     });
 
-    it("should reject reserved intrinsics that are not implemented (TSN7443)", () => {
-      const module = createModuleWithCallTo("nameof");
+    it("should allow lowered nameof and sizeof intrinsics", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "variableDeclaration",
+            declarationKind: "const",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "name" },
+                type: { kind: "primitiveType", name: "string" },
+                initializer: {
+                  kind: "nameof",
+                  name: "value",
+                  inferredType: { kind: "primitiveType", name: "string" },
+                },
+              },
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "size" },
+                type: { kind: "primitiveType", name: "int" },
+                initializer: {
+                  kind: "sizeof",
+                  targetType: { kind: "primitiveType", name: "int" },
+                  inferredType: { kind: "primitiveType", name: "int" },
+                },
+              },
+            ],
+          },
+        ],
+        exports: [],
+      };
       const result = validateIrSoundness([module]);
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics.some((d) => d.code === "TSN7443")).to.be.true;
+      expect(result.ok).to.be.true;
     });
   });
 });

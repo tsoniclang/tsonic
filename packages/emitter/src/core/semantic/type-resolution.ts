@@ -284,9 +284,12 @@ export const resolveLocalTypeInfo = (
   }
 
   if (matches.length === 0) return undefined;
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   if (matches.length === 1) {
-    return { info: matches[0]!.info, namespace: matches[0]!.namespace };
+    const onlyMatch = matches[0];
+    if (!onlyMatch) {
+      return undefined;
+    }
+    return { info: onlyMatch.info, namespace: onlyMatch.namespace };
   }
 
   const fqn =
@@ -294,11 +297,14 @@ export const resolveLocalTypeInfo = (
   if (fqn && fqn.includes(".")) {
     const namespace = fqn.slice(0, fqn.lastIndexOf("."));
     const scoped = matches.filter((m) => m.namespace === namespace);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     if (scoped.length === 1) {
+      const scopedMatch = scoped[0];
+      if (!scopedMatch) {
+        return undefined;
+      }
       return {
-        info: scoped[0]!.info,
-        namespace: scoped[0]!.namespace,
+        info: scopedMatch.info,
+        namespace: scopedMatch.namespace,
       };
     }
   }
@@ -693,6 +699,10 @@ export const isDefinitelyValueType = (type: IrType): boolean => {
   // Primitive value types (number → double, int → int, boolean → bool, char → char)
   if (base.kind === "primitiveType") {
     return ["number", "int", "boolean", "char"].includes(base.name);
+  }
+
+  if (base.kind === "tupleType") {
+    return true;
   }
 
   // Known CLR struct types

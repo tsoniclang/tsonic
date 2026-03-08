@@ -27,6 +27,8 @@ const needsParensForPostfixByKind = (kind: IrExpression["kind"]): boolean => {
     case "new":
     case "asinterface":
     case "defaultof":
+    case "nameof":
+    case "sizeof":
     case "this":
     case "literal":
     case "array":
@@ -91,6 +93,8 @@ const needsParensForCastOperandByKind = (
     case "trycast":
     case "stackalloc":
     case "defaultof":
+    case "nameof":
+    case "sizeof":
       return false;
     default:
       return true;

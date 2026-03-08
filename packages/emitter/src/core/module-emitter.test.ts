@@ -150,6 +150,135 @@ describe("Module Generation", () => {
     expect(marker).to.include("ModuleContainerAttribute");
   });
 
+  it("does not emit readonly for mutable top-level array const bindings", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/store.ts",
+      namespace: "MyApp",
+      className: "Store",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "items" },
+              type: {
+                kind: "arrayType",
+                elementType: { kind: "primitiveType", name: "string" },
+              },
+              initializer: { kind: "array", elements: [] },
+            },
+          ],
+          isExported: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "addItem",
+          parameters: [],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "call",
+                  callee: {
+                    kind: "memberAccess",
+                    object: {
+                      kind: "identifier",
+                      name: "items",
+                      inferredType: {
+                        kind: "arrayType",
+                        elementType: { kind: "primitiveType", name: "string" },
+                      },
+                    },
+                    property: "push",
+                    isComputed: false,
+                    isOptional: false,
+                    inferredType: {
+                      kind: "functionType",
+                      parameters: [
+                        {
+                          kind: "parameter",
+                          pattern: {
+                            kind: "identifierPattern",
+                            name: "item",
+                          },
+                          type: {
+                            kind: "primitiveType",
+                            name: "string",
+                          },
+                          isOptional: false,
+                          isRest: false,
+                          passing: "value",
+                        },
+                      ],
+                      returnType: { kind: "primitiveType", name: "number" },
+                    },
+                    memberBinding: {
+                      kind: "method",
+                      assembly: "Tsonic.JSRuntime",
+                      type: "Tsonic.JSRuntime.JSArray",
+                      member: "push",
+                    },
+                  },
+                  arguments: [{ kind: "literal", value: "value" }],
+                  isOptional: false,
+                },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("internal static string[] items");
+    expect(result).to.not.include("internal static readonly string[] items");
+  });
+
+  it("keeps readonly for non-mutated top-level array const bindings", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/store.ts",
+      namespace: "MyApp",
+      className: "Store",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "items" },
+              type: {
+                kind: "arrayType",
+                elementType: { kind: "primitiveType", name: "string" },
+              },
+              initializer: { kind: "array", elements: [] },
+            },
+          ],
+          isExported: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("internal static readonly string[] items");
+  });
+
   it("should emit a regular class", () => {
     const module: IrModule = {
       kind: "module",

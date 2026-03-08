@@ -210,13 +210,28 @@ describe("Array Emission", () => {
             kind: "call",
             callee: {
               kind: "memberAccess",
-              object: { kind: "identifier", name: "arr" },
+              object: {
+                kind: "identifier",
+                name: "arr",
+                inferredType: {
+                  kind: "arrayType",
+                  elementType: { kind: "primitiveType", name: "int" },
+                },
+              },
               property: "push",
               isComputed: false,
               isOptional: false,
+              memberBinding: {
+                kind: "method",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.JSArray`1",
+                member: "push",
+                isExtensionMethod: false,
+              },
             },
             arguments: [{ kind: "literal", value: 3 }],
             isOptional: false,
+            inferredType: { kind: "primitiveType", name: "int" },
           },
         },
       ],
@@ -224,8 +239,62 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should call push method on array instance - integer literal emits as-is
-    expect(code).to.include("arr.push(3)");
+    expect(code).to.include("arr = __tsonic_arrayWrapper.toArray()");
+    expect(code).not.to.include("arr.push(3)");
+  });
+
+  it("should capture member-access array receivers before mutating them", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/test/member-mutation.ts",
+      namespace: "Test",
+      className: "memberMutation",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "memberAccess",
+                object: { kind: "identifier", name: "box" },
+                property: "items",
+                isComputed: false,
+                isOptional: false,
+                inferredType: {
+                  kind: "arrayType",
+                  elementType: { kind: "primitiveType", name: "string" },
+                },
+              },
+              property: "push",
+              isComputed: false,
+              isOptional: false,
+              memberBinding: {
+                kind: "method",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.JSArray`1",
+                member: "push",
+                isExtensionMethod: false,
+              },
+            },
+            arguments: [{ kind: "literal", value: "value" }],
+            isOptional: false,
+            inferredType: { kind: "primitiveType", name: "int" },
+          },
+        },
+      ],
+    };
+
+    const code = emitModule(module);
+
+    expect(code).to.include("var __tsonic_arrayTarget = box;");
+    expect(code).to.include(
+      "__tsonic_arrayTarget.items = __tsonic_arrayWrapper.toArray()"
+    );
   });
 
   it("should handle array element access", () => {

@@ -1,6 +1,6 @@
-async function load(): Promise<number> {
+async function load() {
   const module = await import("./module.js");
-  return module.value;
+  return module.Box;
 }
 
 void load();

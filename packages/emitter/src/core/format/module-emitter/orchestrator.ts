@@ -14,6 +14,7 @@ import { defaultOptions } from "../options.js";
 import { collectTypeParameters } from "../../semantic/type-params.js";
 import { processImports } from "../../semantic/imports.js";
 import { buildLocalTypes } from "../../semantic/local-types.js";
+import { analyzeMutableStorage } from "../../semantic/mutable-storage.js";
 import { generateHeader } from "./header.js";
 import { separateStatements } from "./separation.js";
 import { emitNamespaceDeclarations } from "./namespace.js";
@@ -210,10 +211,16 @@ export const emitModule = (
   // Build local type index for property type lookup
   const localTypes = buildLocalTypes(module);
   const publicLocalTypes = collectPublicLocalTypes(module, localTypes);
+  const mutableStorage = analyzeMutableStorage(module, {
+    ...baseContext,
+    localTypes,
+  });
   const context = {
     ...baseContext,
     localTypes,
     publicLocalTypes,
+    mutableModuleBindings: mutableStorage.mutableModuleBindings,
+    mutablePropertySlots: mutableStorage.mutablePropertySlots,
   };
 
   // Generate file header

@@ -36,6 +36,7 @@ import {
   isGenericFunctionDeclarationNode,
   isGenericFunctionValueNode,
 } from "../generic-function-values.js";
+import { getUnsupportedObjectLiteralMethodRuntimeReason } from "../object-literal-method-runtime.js";
 
 /**
  * Result of basic eligibility check for object literal synthesis.
@@ -48,49 +49,129 @@ type BasicEligibilityResult =
  * Check basic structural eligibility for object literal synthesis.
  *
  * This is a simplified check that doesn't require TypeSystem access.
- * It validates structural constraints (no computed keys, no dynamic receiver method shorthand, etc.)
+ * It validates structural constraints (no non-deterministic computed keys,
+ * no dynamic receiver method shorthand, etc.)
  * but does NOT validate spread type annotations (that requires TypeSystem).
  *
  * Full eligibility check happens during IR conversion.
  */
 const checkBasicSynthesisEligibility = (
-  node: ts.ObjectLiteralExpression
+  node: ts.ObjectLiteralExpression,
+  program: TsonicProgram
 ): BasicEligibilityResult => {
-  const usesDynamicReceiverSemantics = (
-    method: ts.MethodDeclaration
-  ): boolean => {
-    let found = false;
-    const visit = (current: ts.Node): void => {
-      if (found) return;
-      if (
-        current.kind === ts.SyntaxKind.ThisKeyword ||
-        current.kind === ts.SyntaxKind.SuperKeyword ||
-        (ts.isIdentifier(current) && current.text === "arguments")
-      ) {
-        found = true;
-        return;
+  const unwrapDeterministicKeyExpression = (
+    expr: ts.Expression
+  ): ts.Expression => {
+    let current = expr;
+    for (;;) {
+      if (ts.isParenthesizedExpression(current)) {
+        current = current.expression;
+        continue;
       }
-      ts.forEachChild(current, visit);
-    };
-
-    if (method.body) {
-      visit(method.body);
+      if (
+        ts.isAsExpression(current) ||
+        ts.isTypeAssertionExpression(current) ||
+        ts.isSatisfiesExpression(current)
+      ) {
+        current = current.expression;
+        continue;
+      }
+      return current;
     }
-    return found;
+  };
+
+  const tryResolveDeterministicComputedKeyName = (
+    name: ts.PropertyName,
+    seenSymbols = new Set<ts.Symbol>()
+  ): string | undefined => {
+    if (
+      ts.isIdentifier(name) ||
+      ts.isStringLiteral(name) ||
+      ts.isNoSubstitutionTemplateLiteral(name) ||
+      ts.isNumericLiteral(name)
+    ) {
+      return String(name.text);
+    }
+
+    if (!ts.isComputedPropertyName(name)) {
+      return undefined;
+    }
+
+    const expr = unwrapDeterministicKeyExpression(name.expression);
+    if (
+      ts.isStringLiteral(expr) ||
+      ts.isNoSubstitutionTemplateLiteral(expr) ||
+      ts.isNumericLiteral(expr)
+    ) {
+      return String(expr.text);
+    }
+
+    if (!ts.isIdentifier(expr)) {
+      return undefined;
+    }
+
+    const symbol = program.checker.getSymbolAtLocation(expr);
+    if (!symbol || seenSymbols.has(symbol)) {
+      return undefined;
+    }
+
+    seenSymbols.add(symbol);
+    const declarations = symbol.getDeclarations() ?? [];
+    for (const decl of declarations) {
+      if (
+        ts.isImportSpecifier(decl) ||
+        ts.isNamespaceImport(decl) ||
+        ts.isImportClause(decl)
+      ) {
+        const aliasSymbol = program.checker.getAliasedSymbol(symbol);
+        if (!aliasSymbol || seenSymbols.has(aliasSymbol)) continue;
+        seenSymbols.add(aliasSymbol);
+        for (const aliasedDecl of aliasSymbol.getDeclarations() ?? []) {
+          if (
+            ts.isVariableDeclaration(aliasedDecl) &&
+            aliasedDecl.initializer &&
+            ts.isVariableDeclarationList(aliasedDecl.parent)
+          ) {
+            const flags = aliasedDecl.parent.flags;
+            if ((flags & ts.NodeFlags.Const) !== 0) {
+              const resolved = tryResolveDeterministicComputedKeyName(
+                ts.factory.createComputedPropertyName(aliasedDecl.initializer),
+                seenSymbols
+              );
+              if (resolved !== undefined) return resolved;
+            }
+          }
+        }
+        continue;
+      }
+
+      if (
+        ts.isVariableDeclaration(decl) &&
+        decl.initializer &&
+        ts.isVariableDeclarationList(decl.parent)
+      ) {
+        const flags = decl.parent.flags;
+        if ((flags & ts.NodeFlags.Const) === 0) continue;
+        const resolved = tryResolveDeterministicComputedKeyName(
+          ts.factory.createComputedPropertyName(decl.initializer),
+          seenSymbols
+        );
+        if (resolved !== undefined) return resolved;
+      }
+    }
+
+    return undefined;
   };
 
   for (const prop of node.properties) {
     // Property assignment: check key type
     if (ts.isPropertyAssignment(prop)) {
-      if (ts.isComputedPropertyName(prop.name)) {
-        // Computed key - check if it's a string literal
-        const expr = prop.name.expression;
-        if (!ts.isStringLiteral(expr)) {
-          return {
-            eligible: false,
-            reason: `Computed property key is not a string literal`,
-          };
-        }
+      if (tryResolveDeterministicComputedKeyName(prop.name) === undefined) {
+        return {
+          eligible: false,
+          reason:
+            "Computed property key is not a deterministically known string/number literal",
+        };
       }
       // Check for symbol keys
       if (ts.isPrivateIdentifier(prop.name)) {
@@ -108,27 +189,18 @@ const checkBasicSynthesisEligibility = (
 
     // Spread: allow for now, full check happens during IR conversion
     if (ts.isSpreadAssignment(prop)) {
-      // Basic check: spread source must be an identifier
-      if (!ts.isIdentifier(prop.expression)) {
-        return {
-          eligible: false,
-          reason: `Spread source must be a simple identifier (TSN5215)`,
-        };
-      }
       continue;
     }
 
-    // Method declarations are valid only when they can be represented as
-    // function-valued properties without dynamic receiver semantics.
+    // Method declarations are valid as long as they avoid unsupported runtime
+    // features. `this` is supported via object-literal method binding.
     if (ts.isMethodDeclaration(prop)) {
-      if (ts.isComputedPropertyName(prop.name)) {
-        const expr = prop.name.expression;
-        if (!ts.isStringLiteral(expr)) {
-          return {
-            eligible: false,
-            reason: `Computed property key is not a string literal`,
-          };
-        }
+      if (tryResolveDeterministicComputedKeyName(prop.name) === undefined) {
+        return {
+          eligible: false,
+          reason:
+            "Computed property key is not a deterministically known string/number literal",
+        };
       }
       if (ts.isPrivateIdentifier(prop.name)) {
         return {
@@ -136,25 +208,30 @@ const checkBasicSynthesisEligibility = (
           reason: `Private identifier (symbol) keys are not supported`,
         };
       }
-      if (usesDynamicReceiverSemantics(prop)) {
+      const unsupportedRuntimeReason =
+        getUnsupportedObjectLiteralMethodRuntimeReason(prop);
+      if (unsupportedRuntimeReason) {
         return {
           eligible: false,
-          reason:
-            "Method shorthand cannot reference this/super/arguments in synthesized types",
+          reason: unsupportedRuntimeReason,
         };
       }
       continue;
     }
 
-    // Getter/setter: reject
+    // Getter/setter: allowed for synthesized object types
     if (
       ts.isGetAccessorDeclaration(prop) ||
       ts.isSetAccessorDeclaration(prop)
     ) {
-      return {
-        eligible: false,
-        reason: `Getters and setters are not supported in synthesized types`,
-      };
+      if (tryResolveDeterministicComputedKeyName(prop.name) === undefined) {
+        return {
+          eligible: false,
+          reason:
+            "Computed property key is not a deterministically known string/number literal",
+        };
+      }
+      continue;
     }
   }
 
@@ -562,7 +639,7 @@ export const validateStaticSafety = (
         // No contextual type - check basic synthesis eligibility
         // Full eligibility check (including spread type annotations) happens during IR conversion
         // when we have TypeSystem access.
-        const eligibility = checkBasicSynthesisEligibility(node);
+        const eligibility = checkBasicSynthesisEligibility(node, program);
         if (!eligibility.eligible) {
           // Not eligible for synthesis - emit diagnostic with specific reason
           currentCollector = addDiagnostic(
@@ -817,10 +894,16 @@ const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
 /**
  * TSN7430: Arrow function escape hatch validation.
  *
- * Arrow functions can only infer types from context if they meet the
- * "simple arrow" criteria. Non-simple arrows must have explicit annotations.
+ * Arrow functions can infer types from context when a deterministic expected
+ * callable type exists. Without contextual typing, only "simple arrows" are
+ * allowed to rely on inference.
  *
- * Simple Arrow Definition (per spec):
+ * Contextual arrows may use:
+ * 1. Destructuring parameter patterns
+ * 2. Default parameter initializers
+ * 3. Rest parameters
+ *
+ * Non-contextual arrows must still satisfy the simple-arrow rule:
  * 1. Every parameter pattern is a simple identifier (no destructuring)
  * 2. No default initializers
  * 3. No rest parameters
@@ -829,8 +912,8 @@ const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
  * - Async arrows CAN be contextually typed when expected types are available.
  * - Block-bodied arrows CAN be contextually typed when expected types are available.
  *
- * If an arrow fails ANY of these criteria AND doesn't have explicit types,
- * emit TSN7430.
+ * If an arrow has no deterministic contextual type and fails the simple-arrow
+ * criteria, emit TSN7430.
  */
 const validateArrowEscapeHatch = (
   node: ts.ArrowFunction,
@@ -849,32 +932,29 @@ const validateArrowEscapeHatch = (
     return collector;
   }
 
+  const hasExpectedType = lambdaHasExpectedTypeContext(node);
+
+  if (hasExpectedType) {
+    return collector;
+  }
+
   // Determine if this is a "simple arrow"
   const simpleArrowResult = isSimpleArrow(node);
 
   // If it's a simple arrow shape, check for contextual type
   // DETERMINISTIC (INV-0): Uses AST-based contextual type detection, not getContextualType
   if (simpleArrowResult.isSimple) {
-    // Check if arrow has expected type context using deterministic AST analysis
-    const hasExpectedType = lambdaHasExpectedTypeContext(node);
-
-    if (hasExpectedType) {
-      // Contextual type available - parameter inference will proceed during IR conversion
-      // Parameter count validation is done in the IR conversion phase
-      return collector;
-    } else {
-      // No contextual type available
-      return addDiagnostic(
-        collector,
-        createDiagnostic(
-          "TSN7430",
-          "error",
-          "Arrow function requires explicit types. No contextual type available for inference.",
-          getNodeLocation(sourceFile, node),
-          "Add explicit type annotations: (x: Type, y: Type): ReturnType => expression"
-        )
-      );
-    }
+    // No contextual type available
+    return addDiagnostic(
+      collector,
+      createDiagnostic(
+        "TSN7430",
+        "error",
+        "Arrow function requires explicit types. No contextual type available for inference.",
+        getNodeLocation(sourceFile, node),
+        "Add explicit type annotations: (x: Type, y: Type): ReturnType => expression"
+      )
+    );
   }
 
   // Not a simple arrow - emit escape hatch error with specific reason

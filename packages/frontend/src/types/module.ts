@@ -2,7 +2,7 @@
  * Module representation types for Tsonic compiler
  */
 
-export type ImportKind = "local" | "clr" | "node_module";
+export type ImportKind = "local" | "clr" | "node_module" | "source_package";
 
 export type Import = {
   readonly kind: ImportKind;

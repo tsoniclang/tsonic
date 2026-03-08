@@ -10,6 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "./builder.js";
 import { createProgramContext } from "./program-context.js";
+import { createProgram } from "../program/creation.js";
 import {
   IrFunctionDeclaration,
   IrVariableDeclaration,
@@ -116,6 +117,638 @@ describe("IR Builder", () => {
       expect(result.ok).to.equal(true);
       if (result.ok) {
         expect(result.value.isStaticContainer).to.equal(false);
+      }
+    });
+  });
+
+  describe("Promise callback typing", () => {
+    it("should not poison Promise.then callbacks to void before generic resolution settles", () => {
+      const source = `
+        declare class Promise<T> {
+          then<TResult1 = T, TResult2 = never>(
+            onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+            onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null
+          ): Promise<TResult1 | TResult2>;
+        }
+
+        interface PromiseLike<T> {
+          then<TResult1 = T, TResult2 = never>(
+            onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+            onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null
+          ): PromiseLike<TResult1 | TResult2>;
+        }
+
+        export function chainScore(seed: Promise<number>): Promise<number> {
+          return seed.then((value) => value + 1);
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "chainScore"
+      );
+      expect(fn).to.not.equal(undefined);
+      if (!fn) return;
+
+      const returnStmt = fn.body.statements[0];
+      expect(returnStmt?.kind).to.equal("returnStatement");
+      if (!returnStmt || returnStmt.kind !== "returnStatement") return;
+
+      const call = returnStmt.expression;
+      expect(call?.kind).to.equal("call");
+      if (!call || call.kind !== "call") return;
+
+      const callback = call.arguments[0];
+      expect(callback?.kind).to.equal("arrowFunction");
+      if (!callback || callback.kind !== "arrowFunction") return;
+
+      expect(callback.parameters[0]?.type).to.deep.equal({
+        kind: "primitiveType",
+        name: "number",
+      });
+      expect(callback.inferredType).to.deep.equal({
+        kind: "functionType",
+        parameters: callback.parameters,
+        returnType: {
+          kind: "primitiveType",
+          name: "number",
+        },
+      });
+    });
+
+    it("infers Promise constructor generic from contextual return type", () => {
+      const source = `
+        declare function setTimeout(fn: () => void, ms: number): void;
+
+        declare class PromiseLike<T> {
+          then<TResult1 = T, TResult2 = never>(
+            onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+          ): PromiseLike<TResult1 | TResult2>;
+        }
+
+        declare class Promise<T> {
+          constructor(
+            executor: (
+              resolve: (value: T | PromiseLike<T>) => void,
+              reject: (reason: unknown) => void
+            ) => void
+          );
+        }
+
+        export function delay(ms: number): Promise<void> {
+          return new Promise((resolve) => {
+            setTimeout(() => resolve(), ms);
+          });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "delay"
+      );
+      expect(fn).to.not.equal(undefined);
+      if (!fn) return;
+
+      const returnStmt = fn.body.statements[0];
+      expect(returnStmt?.kind).to.equal("returnStatement");
+      if (!returnStmt || returnStmt.kind !== "returnStatement") return;
+
+      const ctor = returnStmt.expression;
+      expect(ctor?.kind).to.equal("new");
+      if (!ctor || ctor.kind !== "new") return;
+
+      expect(ctor.inferredType).to.deep.equal({
+        kind: "referenceType",
+        name: "Promise",
+        typeArguments: [{ kind: "voidType" }],
+      });
+
+      const executor = ctor.arguments[0];
+      expect(executor?.kind).to.equal("arrowFunction");
+      if (!executor || executor.kind !== "arrowFunction") return;
+
+      expect(executor.parameters[0]?.type).to.not.equal(undefined);
+      expect(executor.parameters[0]?.type?.kind).to.equal("functionType");
+    });
+
+    it("infers Promise.all element type from async wrapper array arguments", () => {
+      const source = `
+        interface PromiseLike<T> {
+          then<TResult1 = T, TResult2 = never>(
+            onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+          ): PromiseLike<TResult1 | TResult2>;
+        }
+
+        declare class Promise<T> {
+          static all<T>(values: readonly (T | PromiseLike<T>)[]): Promise<T[]>;
+        }
+
+        async function runWorker(name: string): Promise<number> {
+          return 1;
+        }
+
+        export async function main(): Promise<void> {
+          const results = await Promise.all([
+            runWorker("a"),
+            runWorker("b"),
+            runWorker("c"),
+          ]);
+          void results;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "main"
+      );
+      expect(fn).to.not.equal(undefined);
+      if (!fn) return;
+
+      const decl = fn.body.statements[0];
+      expect(decl?.kind).to.equal("variableDeclaration");
+      if (!decl || decl.kind !== "variableDeclaration") return;
+
+      const initializer = decl.declarations[0]?.initializer;
+      expect(initializer?.kind).to.equal("await");
+      if (!initializer || initializer.kind !== "await") return;
+
+      const call = initializer.expression;
+      expect(call?.kind).to.equal("call");
+      if (!call || call.kind !== "call") return;
+
+      expect(call.inferredType).to.deep.include({
+        kind: "referenceType",
+        name: "Promise",
+        typeArguments: [
+          {
+            kind: "arrayType",
+            elementType: {
+              kind: "primitiveType",
+              name: "number",
+            },
+            origin: "explicit",
+          },
+        ],
+      });
+      expect(initializer.inferredType).to.deep.equal({
+        kind: "arrayType",
+        elementType: {
+          kind: "primitiveType",
+          name: "number",
+        },
+        origin: "explicit",
+      });
+    });
+
+    it("preserves ambient generic receiver substitutions for js-surface method calls", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-map-keys-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "const counts = new Map<string, number>();",
+            'counts.set("alpha", 1);',
+            "export const keys = Array.from(counts.keys());",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const keysDecl = moduleResult.value.body.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0]?.name.name === "keys"
+        );
+        expect(keysDecl).to.not.equal(undefined);
+        if (!keysDecl) return;
+
+        const initializer = keysDecl.declarations[0]?.initializer;
+        expect(initializer?.kind).to.equal("call");
+        if (!initializer || initializer.kind !== "call") return;
+
+        expect(initializer.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+          origin: "explicit",
+        });
+
+        const keysCall = initializer.arguments[0];
+        expect(keysCall?.kind).to.equal("call");
+        if (!keysCall || keysCall.kind !== "call") return;
+
+        expect(keysCall.inferredType?.kind).to.equal("referenceType");
+        if (keysCall.inferredType?.kind !== "referenceType") return;
+        expect(keysCall.inferredType.name).to.equal("Iterable");
+        expect(keysCall.inferredType.typeArguments).to.deep.equal([
+          { kind: "primitiveType", name: "string" },
+        ]);
+
+        const callee = keysCall.callee;
+        expect(callee.kind).to.equal("memberAccess");
+        if (callee.kind !== "memberAccess") return;
+
+        expect(callee.inferredType?.kind).to.equal("functionType");
+        if (callee.inferredType?.kind !== "functionType") return;
+        expect(callee.inferredType.parameters).to.deep.equal([]);
+        expect(callee.inferredType.returnType.kind).to.equal("referenceType");
+        if (callee.inferredType.returnType.kind !== "referenceType") return;
+        expect(callee.inferredType.returnType.name).to.equal("Iterable");
+        expect(callee.inferredType.returnType.typeArguments).to.deep.equal([
+          { kind: "primitiveType", name: "string" },
+        ]);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("preserves imported root-namespace member types across package internals", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-node-date-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const jsRoot = path.join(tempDir, "node_modules/@tsonic/js-temp");
+        fs.mkdirSync(path.join(jsRoot, "index", "internal"), {
+          recursive: true,
+        });
+        fs.writeFileSync(
+          path.join(jsRoot, "package.json"),
+          JSON.stringify(
+            { name: "@tsonic/js-temp", version: "0.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(
+          path.join(jsRoot, "index", "bindings.json"),
+          JSON.stringify({ namespace: "Acme.JsRuntime", types: [] }, null, 2)
+        );
+        fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
+        fs.writeFileSync(
+          path.join(jsRoot, "index", "internal", "index.d.ts"),
+          [
+            "export interface Date$instance {",
+            "  toISOString(): string;",
+            "}",
+            "export type Date = Date$instance;",
+          ].join("\n")
+        );
+
+        const nodeRoot = path.join(tempDir, "node_modules/@tsonic/node-temp");
+        fs.mkdirSync(path.join(nodeRoot, "index", "internal"), {
+          recursive: true,
+        });
+        fs.writeFileSync(
+          path.join(nodeRoot, "package.json"),
+          JSON.stringify(
+            { name: "@tsonic/node-temp", version: "0.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(
+          path.join(nodeRoot, "index", "bindings.json"),
+          JSON.stringify({ namespace: "acme.node", types: [] }, null, 2)
+        );
+        fs.writeFileSync(path.join(nodeRoot, "index.js"), "export {};\n");
+        fs.writeFileSync(
+          path.join(nodeRoot, "index", "internal", "index.d.ts"),
+          [
+            'import type { Date } from "@tsonic/js-temp/Acme.JsRuntime/internal/index.js";',
+            "export interface Stats$instance {",
+            "  mtime: Date;",
+            "}",
+            "export type Stats = Stats$instance;",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(nodeRoot, "index.d.ts"),
+          [
+            'import type { Stats } from "./index/internal/index.js";',
+            'declare module "node:fs" {',
+            "  export const statSync: (path: string) => Stats;",
+            "}",
+            "export {};",
+          ].join("\n")
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            'import { statSync } from "node:fs";',
+            "const maybeDate: Date | undefined = undefined;",
+            'export const resolved = maybeDate ?? statSync("package.json").mtime;',
+            "export const iso = resolved.toISOString();",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          useStandardLib: true,
+          typeRoots: [
+            "node_modules/@tsonic/node-temp",
+            "node_modules/@tsonic/js-temp",
+          ],
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const resolvedDecl = moduleResult.value.body.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0]?.name.name === "resolved"
+        );
+        expect(resolvedDecl).to.not.equal(undefined);
+        if (!resolvedDecl) return;
+
+        const resolvedType = resolvedDecl.declarations[0]?.type;
+        expect(resolvedType).to.not.equal(undefined);
+        expect(resolvedType?.kind).to.not.equal("unknownType");
+        if (resolvedType?.kind === "referenceType") {
+          expect(["Date", "Date$instance"]).to.include(resolvedType.name);
+        }
+        if (resolvedType?.kind === "unionType") {
+          const memberNames = resolvedType.types
+            .filter(
+              (type): type is Extract<typeof type, { kind: "referenceType" }> =>
+                !!type && type.kind === "referenceType"
+            )
+            .map((type) => type.name);
+          expect(memberNames).to.include("Date");
+          expect(memberNames).to.include("Date$instance");
+        }
+
+        const isoDecl = moduleResult.value.body.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0]?.name.name === "iso"
+        );
+        expect(isoDecl).to.not.equal(undefined);
+        if (!isoDecl) return;
+
+        expect(isoDecl.declarations[0]?.type).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("narrows typeof checks in js-surface branches to the matching primitive type", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-typeof-narrowing-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export function main(value: unknown): void {",
+            '  if (typeof value === "number") {',
+            "    console.log(value.toString());",
+            '  } else if (typeof value === "string") {',
+            "    console.log(value.toUpperCase());",
+            "  }",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const mainFn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(mainFn).to.not.equal(undefined);
+        if (!mainFn) return;
+
+        const numberIf = mainFn.body.statements.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "ifStatement" }> =>
+            stmt.kind === "ifStatement"
+        );
+        expect(numberIf).to.not.equal(undefined);
+        if (!numberIf) return;
+
+        const numberExprStmt =
+          numberIf.thenStatement.kind === "blockStatement"
+            ? numberIf.thenStatement.statements[0]
+            : undefined;
+        expect(numberExprStmt?.kind).to.equal("expressionStatement");
+        if (
+          !numberExprStmt ||
+          numberExprStmt.kind !== "expressionStatement" ||
+          numberExprStmt.expression.kind !== "call"
+        ) {
+          return;
+        }
+
+        const numberToStringCall = numberExprStmt.expression.arguments[0];
+        expect(numberToStringCall?.kind).to.equal("call");
+        if (!numberToStringCall || numberToStringCall.kind !== "call") return;
+        expect(numberToStringCall.callee.kind).to.equal("memberAccess");
+        if (numberToStringCall.callee.kind !== "memberAccess") return;
+        expect(numberToStringCall.callee.object.inferredType).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+
+        const stringIf =
+          numberIf.elseStatement?.kind === "ifStatement"
+            ? numberIf.elseStatement
+            : undefined;
+        expect(stringIf).to.not.equal(undefined);
+        if (!stringIf) return;
+
+        const stringExprStmt =
+          stringIf.thenStatement.kind === "blockStatement"
+            ? stringIf.thenStatement.statements[0]
+            : undefined;
+        expect(stringExprStmt?.kind).to.equal("expressionStatement");
+        if (
+          !stringExprStmt ||
+          stringExprStmt.kind !== "expressionStatement" ||
+          stringExprStmt.expression.kind !== "call"
+        ) {
+          return;
+        }
+
+        const stringCall = stringExprStmt.expression.arguments[0];
+        expect(stringCall?.kind).to.equal("call");
+        if (!stringCall || stringCall.kind !== "call") return;
+        expect(stringCall.callee.kind).to.equal("memberAccess");
+        if (stringCall.callee.kind !== "memberAccess") return;
+        expect(stringCall.callee.object.inferredType).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
   });
@@ -603,7 +1236,11 @@ describe("IR Builder", () => {
           stmt.kind === "variableDeclaration"
       );
       expect(decl).to.not.equal(undefined);
-      const initializer = decl?.declarations[0]?.initializer;
+      const initializer = decl?.declarations.find(
+        (declaration) =>
+          declaration.name.kind === "identifierPattern" &&
+          declaration.name.name === "ops"
+      )?.initializer;
       expect(initializer?.kind).to.equal("call");
       if (!initializer || initializer.kind !== "call") return;
 
@@ -665,10 +1302,267 @@ describe("IR Builder", () => {
 
       const computedAddProp = arg0.properties.find((prop) => {
         if (prop.kind !== "property") return false;
-        if (typeof prop.key === "string") return false;
-        return prop.value.kind === "functionExpression";
+        return prop.key === "add" && prop.value.kind === "functionExpression";
       });
       expect(computedAddProp).to.not.equal(undefined);
+    });
+
+    it("rewrites object-literal method arguments.length to a fixed arity literal", () => {
+      const source = `
+        interface Ops {
+          add: (x: number, y: number) => number;
+        }
+        function box<T>(x: T): T { return x; }
+        export function run(): number {
+          const ops = box<Ops>({
+            add(x: number, y: number): number {
+              return arguments.length + x + y;
+            },
+          });
+          return ops.add(1, 2);
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration"
+      );
+      const initializer = decl?.declarations[0]?.initializer;
+      expect(initializer?.kind).to.equal("call");
+      if (!initializer || initializer.kind !== "call") return;
+
+      const arg0 = initializer.arguments[0];
+      expect(arg0?.kind).to.equal("object");
+      if (!arg0 || arg0.kind !== "object") return;
+
+      const addProp = arg0.properties.find(
+        (prop) => prop.kind === "property" && prop.key === "add"
+      );
+      expect(addProp).to.not.equal(undefined);
+      if (!addProp || addProp.kind !== "property") return;
+      expect(addProp.value.kind).to.equal("functionExpression");
+      if (addProp.value.kind !== "functionExpression") return;
+
+      const stmt = addProp.value.body?.statements[0];
+      expect(stmt?.kind).to.equal("returnStatement");
+      if (!stmt || stmt.kind !== "returnStatement" || !stmt.expression) return;
+
+      expect(stmt.expression.kind).to.equal("binary");
+      if (stmt.expression.kind !== "binary") return;
+      expect(stmt.expression.left.kind).to.equal("binary");
+      if (stmt.expression.left.kind !== "binary") return;
+      expect(stmt.expression.left.left.kind).to.equal("literal");
+      if (stmt.expression.left.left.kind !== "literal") return;
+      expect(stmt.expression.left.left.value).to.equal(2);
+    });
+
+    it("rewrites object-literal method arguments[n] to captured parameter temps", () => {
+      const source = `
+        interface Ops {
+          add: (x: number, y: number) => number;
+        }
+        function box<T>(x: T): T { return x; }
+        export function run(): number {
+          const ops = box<Ops>({
+            add(x: number, y: number): number {
+              return (arguments[0] as number) + y;
+            },
+          });
+          return ops.add(1, 2);
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration"
+      );
+      const initializer = decl?.declarations[0]?.initializer;
+      expect(initializer?.kind).to.equal("call");
+      if (!initializer || initializer.kind !== "call") return;
+
+      const arg0 = initializer.arguments[0];
+      expect(arg0?.kind).to.equal("object");
+      if (!arg0 || arg0.kind !== "object") return;
+
+      const addProp = arg0.properties.find(
+        (prop) => prop.kind === "property" && prop.key === "add"
+      );
+      expect(addProp).to.not.equal(undefined);
+      if (!addProp || addProp.kind !== "property") return;
+      expect(addProp.value.kind).to.equal("functionExpression");
+      if (addProp.value.kind !== "functionExpression" || !addProp.value.body)
+        return;
+
+      const [captureDecl, returnStmt] = addProp.value.body.statements;
+      expect(captureDecl?.kind).to.equal("variableDeclaration");
+      if (!captureDecl || captureDecl.kind !== "variableDeclaration") return;
+
+      const captureInit = captureDecl.declarations[0]?.initializer;
+      expect(captureInit?.kind).to.equal("identifier");
+      if (!captureInit || captureInit.kind !== "identifier") return;
+      expect(captureInit.name).to.equal("x");
+
+      expect(returnStmt?.kind).to.equal("returnStatement");
+      if (
+        !returnStmt ||
+        returnStmt.kind !== "returnStatement" ||
+        !returnStmt.expression ||
+        returnStmt.expression.kind !== "binary"
+      ) {
+        return;
+      }
+
+      expect(returnStmt.expression.left.kind).to.equal("typeAssertion");
+      if (returnStmt.expression.left.kind !== "typeAssertion") return;
+      expect(returnStmt.expression.left.expression.kind).to.equal("identifier");
+      if (returnStmt.expression.left.expression.kind !== "identifier") return;
+      expect(returnStmt.expression.left.expression.name).to.include(
+        "__tsonic_object_method_argument_0"
+      );
+    });
+
+    it("normalizes computed const-literal property and accessor keys during synthesis", () => {
+      const source = `
+        export function run(): number {
+          const valueKey = "value";
+          const doubledKey = "doubled";
+          const obj = {
+            [valueKey]: 21,
+            get [doubledKey](): number {
+              return this.value * 2;
+            },
+          };
+          return obj.doubled;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations.some(
+            (declaration) =>
+              declaration.name.kind === "identifierPattern" &&
+              declaration.name.name === "obj" &&
+              declaration.initializer !== undefined
+          )
+      );
+      const initializer = decl?.declarations.find(
+        (declaration) =>
+          declaration.name.kind === "identifierPattern" &&
+          declaration.name.name === "obj"
+      )?.initializer;
+      expect(initializer?.kind).to.equal("object");
+      if (!initializer || initializer.kind !== "object") return;
+
+      const valueProp = initializer.properties.find(
+        (prop) => prop.kind === "property" && prop.key === "value"
+      );
+      expect(valueProp).to.not.equal(undefined);
+
+      const doubledAccessor = initializer.behaviorMembers?.find(
+        (member) =>
+          member.kind === "propertyDeclaration" && member.name === "doubled"
+      );
+      expect(doubledAccessor).to.not.equal(undefined);
+    });
+
+    it("normalizes computed const-literal numeric keys during synthesis", () => {
+      const source = `
+        export function run(): number {
+          const slot = 1;
+          const obj = {
+            [slot]: 7,
+          };
+          return obj["1"];
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations.some(
+            (declaration) =>
+              declaration.name.kind === "identifierPattern" &&
+              declaration.name.name === "obj" &&
+              declaration.initializer !== undefined
+          )
+      );
+      const initializer = decl?.declarations.find(
+        (declaration) =>
+          declaration.name.kind === "identifierPattern" &&
+          declaration.name.name === "obj"
+      )?.initializer;
+      expect(initializer?.kind).to.equal("object");
+      if (!initializer || initializer.kind !== "object") return;
+
+      const slotProp = initializer.properties.find(
+        (prop) => prop.kind === "property" && prop.key === "1"
+      );
+      expect(slotProp).to.not.equal(undefined);
     });
 
     it("threads expected return generic context into call argument typing", () => {
@@ -1087,6 +1981,258 @@ describe("IR Builder", () => {
           expect(typeof init.value).to.equal("string");
           expect((init.value as string).startsWith("file://")).to.equal(true);
         }
+      }
+    });
+
+    it("should lower bare import.meta to an object literal with deterministic fields", () => {
+      const source = `
+        declare global {
+          interface ImportMeta {
+            readonly url: string;
+            readonly filename: string;
+            readonly dirname: string;
+          }
+        }
+        const meta = import.meta;
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        const varDecl = result.value.body.at(-1) as IrVariableDeclaration;
+        const init = varDecl.declarations[0]?.initializer;
+        expect(init?.kind).to.equal("object");
+        if (init?.kind === "object") {
+          expect(
+            init.properties.filter((prop) => prop.kind === "property")
+          ).to.have.length(3);
+        }
+      }
+    });
+
+    it("should attach deterministic namespace objects to closed-world dynamic import values", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-dynamic-import-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export async function load() {",
+            '  const module = await import("./module.js");',
+            "  return module.value;",
+            "}",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(srcDir, "module.ts"),
+          "export const value = 42;\n"
+        );
+
+        const tsProgram = ts.createProgram(
+          [entryPath, path.join(srcDir, "module.ts")],
+          {
+            target: ts.ScriptTarget.ES2022,
+            module: ts.ModuleKind.NodeNext,
+            moduleResolution: ts.ModuleResolutionKind.NodeNext,
+            strict: true,
+            noEmit: true,
+            skipLibCheck: true,
+          }
+        );
+        const checker = tsProgram.getTypeChecker();
+        const sourceFile = tsProgram.getSourceFile(entryPath);
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const program = {
+          program: tsProgram,
+          checker,
+          options: {
+            projectRoot: tempDir,
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+            strict: true,
+          },
+          sourceFiles: [
+            sourceFile,
+            tsProgram.getSourceFile(path.join(srcDir, "module.ts"))!,
+          ],
+          declarationSourceFiles: [],
+          metadata: new DotnetMetadataRegistry(),
+          bindings: new BindingRegistry(),
+          clrResolver: createClrBindingsResolver(tempDir),
+          binding: createBinding(checker),
+        };
+
+        const options = { sourceRoot: srcDir, rootNamespace: "TestApp" };
+        const ctx = createProgramContext(program, options);
+
+        const moduleResult = buildIrModule(sourceFile, program, options, ctx);
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const loadFn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "load"
+        );
+        expect(loadFn).to.not.equal(undefined);
+        if (!loadFn) return;
+
+        const declStmt = loadFn.body.statements[0];
+        expect(declStmt?.kind).to.equal("variableDeclaration");
+        if (!declStmt || declStmt.kind !== "variableDeclaration") return;
+
+        const initializer = declStmt.declarations[0]?.initializer;
+        expect(initializer?.kind).to.equal("await");
+        if (!initializer || initializer.kind !== "await") return;
+
+        const call = initializer.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call") return;
+
+        expect(call.dynamicImportNamespace?.kind).to.equal("object");
+        if (!call.dynamicImportNamespace) return;
+
+        expect(call.dynamicImportNamespace.properties).to.have.length(1);
+        const property = call.dynamicImportNamespace.properties[0];
+        expect(property?.kind).to.equal("property");
+        if (!property || property.kind !== "property") return;
+
+        expect(property.key).to.equal("value");
+        expect(property.value.kind).to.equal("memberAccess");
+        expect(call.inferredType?.kind).to.equal("referenceType");
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("should represent empty closed-world dynamic import namespaces as Promise<object>", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-dynamic-import-empty-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export async function load(): Promise<object> {",
+            '  return import("./module.js");',
+            "}",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(srcDir, "module.ts"),
+          "export type Value = { readonly ok: true };\n"
+        );
+
+        const tsProgram = ts.createProgram(
+          [entryPath, path.join(srcDir, "module.ts")],
+          {
+            target: ts.ScriptTarget.ES2022,
+            module: ts.ModuleKind.NodeNext,
+            moduleResolution: ts.ModuleResolutionKind.NodeNext,
+            strict: true,
+            noEmit: true,
+            skipLibCheck: true,
+          }
+        );
+        const checker = tsProgram.getTypeChecker();
+        const sourceFile = tsProgram.getSourceFile(entryPath);
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const program = {
+          program: tsProgram,
+          checker,
+          options: {
+            projectRoot: tempDir,
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+            strict: true,
+          },
+          sourceFiles: [
+            sourceFile,
+            tsProgram.getSourceFile(path.join(srcDir, "module.ts"))!,
+          ],
+          declarationSourceFiles: [],
+          metadata: new DotnetMetadataRegistry(),
+          bindings: new BindingRegistry(),
+          clrResolver: createClrBindingsResolver(tempDir),
+          binding: createBinding(checker),
+        };
+
+        const options = { sourceRoot: srcDir, rootNamespace: "TestApp" };
+        const ctx = createProgramContext(program, options);
+
+        const moduleResult = buildIrModule(sourceFile, program, options, ctx);
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const loadFn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "load"
+        );
+        expect(loadFn).to.not.equal(undefined);
+        if (!loadFn) return;
+
+        const returnStmt = loadFn.body.statements[0];
+        expect(returnStmt?.kind).to.equal("returnStatement");
+        if (!returnStmt || returnStmt.kind !== "returnStatement") return;
+
+        const call = returnStmt.expression;
+        expect(call?.kind).to.equal("call");
+        if (!call || call.kind !== "call") return;
+
+        expect(call.dynamicImportNamespace?.kind).to.equal("object");
+        if (!call.dynamicImportNamespace) return;
+
+        expect(call.dynamicImportNamespace.properties).to.have.length(0);
+        expect(call.dynamicImportNamespace.inferredType).to.deep.equal({
+          kind: "referenceType",
+          name: "object",
+        });
+        expect(call.inferredType).to.deep.equal({
+          kind: "referenceType",
+          name: "Promise",
+          typeArguments: [{ kind: "referenceType", name: "object" }],
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
   });
@@ -1541,6 +2687,653 @@ describe("IR Builder", () => {
           throw new Error("Expected forOfStatement");
         }
         expect(forOfStmt.isAwait).to.equal(false);
+      }
+    });
+
+    it("threads Map entry tuple element types into for-of bodies", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-for-of-map-entries-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export function process(menuBuilders: Map<string, string[]>): void {",
+            "  for (const [menuName, builders] of menuBuilders) {",
+            "    const first = builders[0];",
+            "    console.log(menuName, first);",
+            "  }",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const fn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "process"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const loop = fn.body.statements[0];
+        expect(loop?.kind).to.equal("forOfStatement");
+        if (!loop || loop.kind !== "forOfStatement") return;
+
+        expect(loop.variable.kind).to.equal("arrayPattern");
+        if (loop.variable.kind !== "arrayPattern") return;
+
+        const tupleElements = loop.variable.elements;
+        expect(tupleElements[0]?.pattern).to.deep.equal({
+          kind: "identifierPattern",
+          name: "menuName",
+        });
+        expect(tupleElements[1]?.pattern).to.deep.equal({
+          kind: "identifierPattern",
+          name: "builders",
+        });
+
+        const loopBody = loop.body;
+        expect(loopBody.kind).to.equal("blockStatement");
+        if (loopBody.kind !== "blockStatement") return;
+
+        const firstDecl = loopBody.statements[0];
+        expect(firstDecl?.kind).to.equal("variableDeclaration");
+        if (!firstDecl || firstDecl.kind !== "variableDeclaration") return;
+
+        const initializer = firstDecl.declarations[0]?.initializer;
+        expect(initializer?.kind).to.equal("memberAccess");
+        if (!initializer || initializer.kind !== "memberAccess") return;
+
+        expect(initializer.object.kind).to.equal("identifier");
+        if (initializer.object.kind !== "identifier") return;
+
+        expect(initializer.object.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+          origin: "explicit",
+        });
+        expect(initializer.accessKind).to.equal("clrIndexer");
+        expect(initializer.inferredType).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("threads Iterable<T> element types from values() into for-of bodies", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-for-of-iterable-values-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export function process(menus: Map<string, string[]>): void {",
+            "  for (const entries of menus.values()) {",
+            "    const first = entries[0];",
+            "    console.log(first);",
+            "  }",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const fn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "process"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const loop = fn.body.statements[0];
+        expect(loop?.kind).to.equal("forOfStatement");
+        if (!loop || loop.kind !== "forOfStatement") return;
+
+        expect(loop.variable).to.deep.equal({
+          kind: "identifierPattern",
+          name: "entries",
+        });
+
+        const loopBody = loop.body;
+        expect(loopBody.kind).to.equal("blockStatement");
+        if (loopBody.kind !== "blockStatement") return;
+
+        const firstDecl = loopBody.statements[0];
+        expect(firstDecl?.kind).to.equal("variableDeclaration");
+        if (!firstDecl || firstDecl.kind !== "variableDeclaration") return;
+
+        const initializer = firstDecl.declarations[0]?.initializer;
+        expect(initializer?.kind).to.equal("memberAccess");
+        if (!initializer || initializer.kind !== "memberAccess") return;
+
+        expect(initializer.object.kind).to.equal("identifier");
+        if (initializer.object.kind !== "identifier") return;
+
+        expect(initializer.object.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+          origin: "explicit",
+        });
+        expect(initializer.accessKind).to.equal("clrIndexer");
+        expect(initializer.inferredType).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("threads generic surface root global bindings into identifier callees", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-generic-surface-globals-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const surfaceRoot = path.join(tempDir, "node_modules/@fixture/js");
+        fs.mkdirSync(surfaceRoot, { recursive: true });
+        fs.writeFileSync(
+          path.join(surfaceRoot, "package.json"),
+          JSON.stringify(
+            { name: "@fixture/js", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(path.join(surfaceRoot, "index.js"), "export {};\n");
+        fs.writeFileSync(
+          path.join(surfaceRoot, "index.d.ts"),
+          [
+            'import type { int } from "@tsonic/core/types.js";',
+            "",
+            "declare global {",
+            "  const console: {",
+            "    log(...data: unknown[]): void;",
+            "  };",
+            "  function setInterval(handler: (...args: unknown[]) => void, timeout?: int, ...args: unknown[]): int;",
+            "  function clearInterval(id: int): void;",
+            "}",
+            "",
+            "export {};",
+            "",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(surfaceRoot, "bindings.json"),
+          JSON.stringify(
+            {
+              bindings: {
+                console: {
+                  kind: "global",
+                  assembly: "Tsonic.JSRuntime",
+                  type: "Tsonic.JSRuntime.console",
+                },
+                setInterval: {
+                  kind: "global",
+                  assembly: "Tsonic.JSRuntime",
+                  type: "Tsonic.JSRuntime.Timers",
+                  csharpName: "Timers.setInterval",
+                },
+                clearInterval: {
+                  kind: "global",
+                  assembly: "Tsonic.JSRuntime",
+                  type: "Tsonic.JSRuntime.Timers",
+                  csharpName: "Timers.clearInterval",
+                },
+              },
+            },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(
+          path.join(surfaceRoot, "tsonic.surface.json"),
+          JSON.stringify(
+            {
+              schemaVersion: 1,
+              id: "@fixture/js",
+              extends: [],
+              requiredTypeRoots: ["."],
+              useStandardLib: false,
+            },
+            null,
+            2
+          )
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export function main(): void {",
+            "  const id = setInterval(() => {}, 1000);",
+            "  clearInterval(id);",
+            '  console.log("tick");',
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@fixture/js",
+          useStandardLib: false,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const fn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const firstStmt = fn.body.statements[0];
+        expect(firstStmt?.kind).to.equal("variableDeclaration");
+        if (!firstStmt || firstStmt.kind !== "variableDeclaration") return;
+
+        const setIntervalCall = firstStmt.declarations[0]?.initializer;
+        expect(setIntervalCall?.kind).to.equal("call");
+        if (!setIntervalCall || setIntervalCall.kind !== "call") return;
+
+        expect(setIntervalCall.callee.kind).to.equal("identifier");
+        if (setIntervalCall.callee.kind !== "identifier") return;
+
+        expect(setIntervalCall.callee.name).to.equal("setInterval");
+        expect(setIntervalCall.callee.resolvedClrType).to.equal(
+          "Tsonic.JSRuntime.Timers"
+        );
+        expect(setIntervalCall.callee.resolvedAssembly).to.equal(
+          "Tsonic.JSRuntime"
+        );
+        expect(setIntervalCall.callee.csharpName).to.equal(
+          "Timers.setInterval"
+        );
+
+        const clearIntervalStmt = fn.body.statements[1];
+        expect(clearIntervalStmt?.kind).to.equal("expressionStatement");
+        if (
+          !clearIntervalStmt ||
+          clearIntervalStmt.kind !== "expressionStatement"
+        )
+          return;
+
+        const clearIntervalCall = clearIntervalStmt.expression;
+        expect(clearIntervalCall.kind).to.equal("call");
+        if (clearIntervalCall.kind !== "call") return;
+        expect(clearIntervalCall.callee.kind).to.equal("identifier");
+        if (clearIntervalCall.callee.kind !== "identifier") return;
+        expect(clearIntervalCall.callee.csharpName).to.equal(
+          "Timers.clearInterval"
+        );
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("converts regex literals into RegExp constructor expressions on js surface", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-js-regex-literal-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export function isUpper(text: string): boolean {",
+            "  return /^[A-Z]+$/i.test(text);",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+          useStandardLib: false,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const fn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "isUpper"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const returnStmt = fn.body.statements[0];
+        expect(returnStmt?.kind).to.equal("returnStatement");
+        if (!returnStmt || returnStmt.kind !== "returnStatement") return;
+
+        const testCall = returnStmt.expression;
+        expect(testCall?.kind).to.equal("call");
+        if (!testCall || testCall.kind !== "call") return;
+
+        expect(testCall.callee.kind).to.equal("memberAccess");
+        if (testCall.callee.kind !== "memberAccess") return;
+
+        const regexCtor = testCall.callee.object;
+        expect(regexCtor.kind).to.equal("new");
+        if (regexCtor.kind !== "new") return;
+
+        expect(regexCtor.callee.kind).to.equal("identifier");
+        if (regexCtor.callee.kind !== "identifier") return;
+
+        expect(regexCtor.callee.name).to.equal("RegExp");
+        expect(regexCtor.callee.resolvedClrType).to.equal(
+          "Tsonic.JSRuntime.RegExp"
+        );
+        expect(regexCtor.arguments).to.deep.equal([
+          {
+            kind: "literal",
+            value: "^[A-Z]+$",
+            raw: JSON.stringify("^[A-Z]+$"),
+            inferredType: { kind: "primitiveType", name: "string" },
+            sourceSpan: regexCtor.arguments[0]?.sourceSpan,
+          },
+          {
+            kind: "literal",
+            value: "i",
+            raw: JSON.stringify("i"),
+            inferredType: { kind: "primitiveType", name: "string" },
+            sourceSpan: regexCtor.arguments[1]?.sourceSpan,
+          },
+        ]);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("preserves spread-only array element types on js surface", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-js-spread-array-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "type MenuEntry = { weight: number };",
+            "export const sortMenuEntries = (entries: MenuEntry[]): MenuEntry[] => {",
+            "  return [...entries].sort((a: MenuEntry, b: MenuEntry) => a.weight - b.weight);",
+            "};",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+          useStandardLib: false,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const sortDecl = moduleResult.value.body.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0]?.name.name === "sortMenuEntries"
+        );
+        expect(sortDecl).to.not.equal(undefined);
+        if (!sortDecl) return;
+
+        const initializer = sortDecl.declarations[0]?.initializer;
+        expect(initializer?.kind).to.equal("arrowFunction");
+        if (!initializer || initializer.kind !== "arrowFunction") return;
+        expect(initializer.body.kind).to.equal("blockStatement");
+        if (initializer.body.kind !== "blockStatement") return;
+
+        const returnStmt = initializer.body.statements[0];
+        expect(returnStmt?.kind).to.equal("returnStatement");
+        if (!returnStmt || returnStmt.kind !== "returnStatement") return;
+
+        const sortCall = returnStmt.expression;
+        expect(sortCall?.kind).to.equal("call");
+        if (!sortCall || sortCall.kind !== "call") return;
+        expect(sortCall.callee.kind).to.equal("memberAccess");
+        if (sortCall.callee.kind !== "memberAccess") return;
+        expect(sortCall.callee.object.kind).to.equal("array");
+        if (sortCall.callee.object.kind !== "array") return;
+
+        const inferredType = sortCall.callee.object.inferredType;
+        expect(inferredType?.kind).to.equal("arrayType");
+        if (!inferredType || inferredType.kind !== "arrayType") return;
+        expect(inferredType.elementType.kind).to.equal("referenceType");
+        if (inferredType.elementType.kind !== "referenceType") return;
+        expect(inferredType.elementType.name).to.equal("MenuEntry");
+        const weightMember = inferredType.elementType.structuralMembers?.find(
+          (member: { kind: string; name: string }) =>
+            member.kind === "propertySignature" && member.name === "weight"
+        );
+        expect(weightMember).to.not.equal(undefined);
+        expect(weightMember?.kind).to.equal("propertySignature");
+        if (!weightMember || weightMember.kind !== "propertySignature") return;
+        expect(weightMember.type).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
   });

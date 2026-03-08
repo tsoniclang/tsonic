@@ -17,6 +17,7 @@ import type {
   CSharpTypeAst,
   CSharpBlockStatementAst,
 } from "../../../core/format/backend-ast/types.js";
+import { isMutablePropertySlot } from "../../../core/semantic/mutable-storage.js";
 
 /**
  * Emit a property declaration as a CSharpMemberAst
@@ -27,6 +28,11 @@ export const emitPropertyMember = (
 ): [CSharpMemberAst, EmitterContext] => {
   let currentContext = context;
   const hasAccessors = !!(member.getterBody || member.setterBody);
+  const needsMutableStorage = isMutablePropertySlot(
+    currentContext.declaringTypeName,
+    member.name,
+    currentContext
+  );
   const shouldEmitField = !!member.emitAsField && !hasAccessors;
 
   // Build modifier list
@@ -38,7 +44,7 @@ export const emitPropertyMember = (
     modifiers.push("static");
   }
 
-  if (shouldEmitField && member.isReadonly) {
+  if (shouldEmitField && member.isReadonly && !needsMutableStorage) {
     modifiers.push("readonly");
   }
 
@@ -115,6 +121,9 @@ export const emitPropertyMember = (
 
   // Case 2: Auto-property (no explicit accessors)
   if (!hasAccessors) {
+    const usesPrivateSetter = member.isReadonly && needsMutableStorage;
+    const setterAccessibility =
+      usesPrivateSetter && accessibility !== "private" ? "private" : undefined;
     const propAst: CSharpMemberAst = {
       kind: "propertyDeclaration",
       attributes: attrs,
@@ -122,8 +131,12 @@ export const emitPropertyMember = (
       type: typeAst,
       name,
       hasGetter: true,
-      hasSetter: !member.isReadonly,
-      hasInit: member.isReadonly && !member.isStatic ? true : undefined,
+      hasSetter: !member.isReadonly || usesPrivateSetter,
+      setterAccessibility,
+      hasInit:
+        member.isReadonly && !member.isStatic && !usesPrivateSetter
+          ? true
+          : undefined,
       isAutoProperty: true,
       initializer: initAst,
     };

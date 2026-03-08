@@ -13,6 +13,7 @@ import type { Binding } from "../binding/index.js";
 import type { TypeAuthority } from "../type-system/type-system.js";
 import { createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
+import { resolveImport } from "../../resolver.js";
 
 const getSourceSpan = (
   node: ts.Node
@@ -49,7 +50,25 @@ export const extractImports = (
     ) {
       const originalSource = node.moduleSpecifier.text;
       const source = originalSource;
-      const isLocal = source.startsWith(".") || source.startsWith("/");
+      const resolvedImport = resolveImport(
+        source,
+        sourceFile.fileName,
+        ctx.sourceRoot,
+        {
+          clrResolver: ctx.clrResolver,
+          bindings: ctx.bindings,
+          projectRoot: ctx.projectRoot,
+          surface: ctx.surface,
+        }
+      );
+      const isSourcePackage =
+        resolvedImport.ok && resolvedImport.value.isSourcePackage === true;
+      const resolvedPath =
+        resolvedImport.ok && resolvedImport.value.resolvedPath
+          ? resolvedImport.value.resolvedPath
+          : undefined;
+      const isLocal =
+        source.startsWith(".") || source.startsWith("/") || isSourcePackage;
 
       // Use import-driven resolution to detect CLR imports
       // This works for any package that provides bindings.json
@@ -277,6 +296,7 @@ export const extractImports = (
         source,
         isLocal,
         isClr,
+        resolvedPath,
         specifiers: resolvedSpecifiers,
         resolvedNamespace,
         resolvedClrType: moduleBindingType,

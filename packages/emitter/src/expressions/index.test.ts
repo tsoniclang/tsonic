@@ -6,7 +6,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../emitter.js";
-import { IrModule, IrType } from "@tsonic/frontend";
+import { IrExpression, IrModule, IrType } from "@tsonic/frontend";
 
 describe("Expression Emission", () => {
   it("should emit literals correctly", () => {
@@ -208,6 +208,347 @@ describe("Expression Emission", () => {
     expect(result).not.to.include("using System");
   });
 
+  it("should emit global function calls using csharpName on identifier callees", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "clearInterval",
+              resolvedClrType: "Tsonic.JSRuntime.Timers",
+              resolvedAssembly: "Tsonic.JSRuntime",
+              csharpName: "Timers.clearInterval",
+            },
+            arguments: [{ kind: "literal", value: 1 }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include(
+      "global::Tsonic.JSRuntime.Timers.clearInterval(1)"
+    );
+  });
+
+  it("should preserve char-typed string indexing while string contexts still use ToString()", () => {
+    const stringIndexExpr: Extract<IrExpression, { kind: "memberAccess" }> = {
+      kind: "memberAccess" as const,
+      object: {
+        kind: "identifier" as const,
+        name: "source",
+        inferredType: { kind: "primitiveType" as const, name: "string" },
+      },
+      property: {
+        kind: "literal" as const,
+        value: 0,
+        inferredType: { kind: "primitiveType" as const, name: "int" },
+      },
+      isComputed: true,
+      isOptional: false,
+      inferredType: { kind: "primitiveType" as const, name: "string" },
+      accessKind: "stringChar" as const,
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "source" },
+              type: { kind: "primitiveType", name: "string" },
+              initializer: { kind: "literal", value: "abc" },
+            },
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "letter" },
+              type: { kind: "primitiveType", name: "char" },
+              initializer: stringIndexExpr,
+            },
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "text" },
+              type: { kind: "primitiveType", name: "string" },
+              initializer: stringIndexExpr,
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include('string source = "abc";');
+    expect(result).to.include("char letter = source[0];");
+    expect(result).to.include("string text = source[0].ToString();");
+  });
+
+  it("should convert char identifiers to string when a call argument expects string", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "ch" },
+              type: { kind: "primitiveType", name: "char" },
+              initializer: { kind: "literal", value: "x" },
+            },
+          ],
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "regex",
+                resolvedClrType: "System.Text.RegularExpressions.Regex",
+                resolvedAssembly: "System.Text.RegularExpressions",
+                inferredType: { kind: "referenceType", name: "RegExp" },
+              },
+              property: "test",
+              isComputed: false,
+              isOptional: false,
+              inferredType: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: {
+                      kind: "identifierPattern",
+                      name: "text",
+                    },
+                    type: { kind: "primitiveType", name: "string" },
+                    isOptional: false,
+                    isRest: false,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "primitiveType", name: "boolean" },
+              },
+              memberBinding: {
+                kind: "method",
+                assembly: "System.Text.RegularExpressions",
+                type: "System.Text.RegularExpressions.Regex",
+                member: "test",
+              },
+            },
+            arguments: [
+              {
+                kind: "identifier",
+                name: "ch",
+                inferredType: { kind: "primitiveType", name: "char" },
+              },
+            ],
+            parameterTypes: [{ kind: "primitiveType", name: "string" }],
+            inferredType: { kind: "primitiveType", name: "boolean" },
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("char ch = 'x';");
+    expect(result).to.include("test(ch.ToString())");
+  });
+
+  it("should emit spread arguments without an invalid params call-site modifier", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "parts" },
+              type: {
+                kind: "arrayType",
+                elementType: { kind: "primitiveType", name: "string" },
+              },
+              initializer: {
+                kind: "array",
+                elements: [
+                  { kind: "literal", value: "a" },
+                  { kind: "literal", value: "b" },
+                ],
+              },
+            },
+          ],
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "joinPath",
+              resolvedClrType: "nodejs.path",
+              resolvedAssembly: "nodejs",
+              csharpName: "path.join",
+            },
+            arguments: [
+              { kind: "literal", value: "root" },
+              {
+                kind: "spread",
+                expression: {
+                  kind: "identifier",
+                  name: "parts",
+                  inferredType: {
+                    kind: "arrayType",
+                    elementType: { kind: "primitiveType", name: "string" },
+                  },
+                },
+              },
+            ],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include('global::nodejs.path.join("root", parts)');
+    expect(result).not.to.include("params ");
+  });
+
+  it("should emit mixed array spreads through deterministic concat chains", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "values" },
+              type: {
+                kind: "arrayType",
+                elementType: { kind: "primitiveType", name: "int" },
+              },
+              initializer: {
+                kind: "array",
+                elements: [
+                  {
+                    kind: "literal",
+                    value: 1,
+                    numericIntent: "Int32",
+                    inferredType: { kind: "primitiveType", name: "int" },
+                  },
+                  {
+                    kind: "literal",
+                    value: 2,
+                    numericIntent: "Int32",
+                    inferredType: { kind: "primitiveType", name: "int" },
+                  },
+                ],
+              },
+            },
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "copy" },
+              type: {
+                kind: "arrayType",
+                elementType: { kind: "primitiveType", name: "int" },
+              },
+              initializer: {
+                kind: "array",
+                elements: [
+                  {
+                    kind: "literal",
+                    value: 0,
+                    numericIntent: "Int32",
+                    inferredType: { kind: "primitiveType", name: "int" },
+                  },
+                  {
+                    kind: "spread",
+                    expression: {
+                      kind: "identifier",
+                      name: "values",
+                      inferredType: {
+                        kind: "arrayType",
+                        elementType: { kind: "primitiveType", name: "int" },
+                      },
+                    },
+                  },
+                  {
+                    kind: "literal",
+                    value: 3,
+                    numericIntent: "Int32",
+                    inferredType: { kind: "primitiveType", name: "int" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("global::System.Linq.Enumerable.ToArray");
+    expect(result).to.include("global::System.Linq.Enumerable.Concat");
+    expect(result).to.include("new int[] { 0 }");
+    expect(result).to.include("new int[] { 3 }");
+    expect(result).not.to.include("/* ...spread */");
+  });
+
   it("should emit hierarchical member bindings correctly", () => {
     const module: IrModule = {
       kind: "module",
@@ -306,7 +647,9 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include('global::Tsonic.JSRuntime.JSArrayStatics.from("abc")');
+    expect(result).to.include(
+      'global::Tsonic.JSRuntime.JSArrayStatics.from("abc")'
+    );
     expect(result).not.to.include("global::Tsonic.JSRuntime.JSArray.from");
   });
 
@@ -474,7 +817,9 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("global::Tsonic.JSRuntime.Number.toString(value)");
+    expect(result).to.include(
+      "global::Tsonic.JSRuntime.Number.toString(value)"
+    );
     expect(result).not.to.include("value.toString()");
   });
 
@@ -2257,5 +2602,135 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include("ok(default(object))");
+  });
+
+  it("should lower tuple-rest function value calls as positional arguments", () => {
+    const tupleRestType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "tupleType" as const, elementTypes: [] },
+        {
+          kind: "tupleType" as const,
+          elementTypes: [
+            { kind: "primitiveType" as const, name: "number" as const },
+          ],
+        },
+      ],
+    } as const;
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "next",
+              inferredType: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "args" },
+                    type: tupleRestType,
+                    isOptional: false,
+                    isRest: true,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "unknownType" },
+              },
+            },
+            arguments: [{ kind: "literal", value: 5, numericIntent: "Int32" }],
+            isOptional: false,
+            parameterTypes: [tupleRestType],
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 1,
+              column: 1,
+              length: 7,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("next(5)");
+    expect(result).to.not.include("new object[] { 5 }");
+  });
+
+  it("should lower zero-arg tuple-rest function value calls without synthetic arrays", () => {
+    const tupleRestType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "tupleType" as const, elementTypes: [] },
+        {
+          kind: "tupleType" as const,
+          elementTypes: [
+            { kind: "primitiveType" as const, name: "number" as const },
+          ],
+        },
+      ],
+    } as const;
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "next",
+              inferredType: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "args" },
+                    type: tupleRestType,
+                    isOptional: false,
+                    isRest: true,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "unknownType" },
+              },
+            },
+            arguments: [],
+            isOptional: false,
+            parameterTypes: [tupleRestType],
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 1,
+              column: 1,
+              length: 6,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("next()");
+    expect(result).to.not.include("new object[0]");
   });
 });

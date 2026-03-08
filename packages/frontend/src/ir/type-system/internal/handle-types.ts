@@ -97,6 +97,7 @@ export type SignatureInfo = {
    * TypeSystem uses UnifiedTypeCatalog.resolveTsName() to get CLR FQ name.
    */
   readonly declaringTypeTsName?: string;
+  readonly declaringTypeParameterNames?: readonly string[];
   readonly declaringMemberName?: string;
   readonly typePredicate?: SignatureTypePredicate;
 };

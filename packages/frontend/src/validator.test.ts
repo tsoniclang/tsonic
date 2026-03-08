@@ -210,9 +210,11 @@ describe("Generic Validation", () => {
     it("should allow core intrinsics when imported from @tsonic/core", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
-        import { stackalloc } from "@tsonic/core/lang.js";
+        import { stackalloc, nameof, sizeof } from "@tsonic/core/lang.js";
 
         export const x: int = 1 as int;
+        export const fieldName = nameof(x);
+        export const intSize: int = sizeof<int>();
 
         export function main(): void {
           stackalloc<int>(10 as int);
@@ -510,7 +512,41 @@ describe("Static Safety Validation", () => {
       expect(objDiag).to.equal(undefined);
     });
 
-    it("should reject object literal method shorthand that uses this", () => {
+    it("should allow object literal with computed const-literal property and accessor keys", () => {
+      const source = `
+        const valueKey = "value";
+        const doubledKey = "doubled";
+        const a = {
+          [valueKey]: 2,
+          get [doubledKey](): number {
+            return this.value * 2;
+          },
+        };
+        void a.doubled;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
+    it("should allow object literal with computed const-literal numeric property key", () => {
+      const source = `
+        const slot = 1;
+        const a = { [slot]: 7 };
+        void a;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
+    it("should allow object literal method shorthand that uses this", () => {
       const source = `
         const a = {
           x: 1,
@@ -524,11 +560,10 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
-      expect(objDiag).not.to.equal(undefined);
-      expect(objDiag?.message).to.include("this/super/arguments");
+      expect(objDiag).to.equal(undefined);
     });
 
-    it("should reject object literal method shorthand that uses arguments", () => {
+    it("should allow object literal method shorthand that uses arguments.length with fixed required parameters", () => {
       const source = `
         const a = {
           foo(x: number): number {
@@ -541,8 +576,56 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
+    it("should allow object literal method shorthand that uses arguments[n] with fixed required identifier parameters", () => {
+      const source = `
+        const a = {
+          foo(x: number, y: number): number {
+            return (arguments[0] as number) + y;
+          },
+        };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
+    it("should reject object literal method shorthand that uses unsupported arguments patterns", () => {
+      const source = `
+        const a = {
+          foo(x?: number): number {
+            return arguments[0] as number;
+          },
+        };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
       expect(objDiag).not.to.equal(undefined);
-      expect(objDiag?.message).to.include("this/super/arguments");
+      expect(objDiag?.message).to.include("arguments");
+    });
+
+    it("should allow object literal getter shorthand", () => {
+      const source = `
+        const a = {
+          get foo(): number {
+            return 1;
+          },
+        };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
     });
 
     it("should allow object literal with interface type", () => {
@@ -775,6 +858,24 @@ describe("Static Safety Validation", () => {
         (d) => d.code === "TSN7405"
       );
       expect(paramDiag).to.equal(undefined);
+    });
+
+    it("should allow contextual Promise constructor inference without explicit type arguments", () => {
+      const source = `
+        export function delay(ms: number): Promise<void> {
+          return new Promise((resolve) => {
+            setTimeout(() => resolve(), ms);
+          });
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const typeArgDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5202"
+      );
+      expect(typeArgDiag).to.equal(undefined);
     });
   });
 

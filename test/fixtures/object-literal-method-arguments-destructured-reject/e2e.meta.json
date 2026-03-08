@@ -1,0 +1,6 @@
+{
+  "expectFailure": true,
+  "description": "object-literal methods reject arguments[n] when parameters are destructured bindings.",
+  "expectedErrors": ["TSN7403", "arguments"],
+  "diagnosticCodes": ["TSN7403"]
+}

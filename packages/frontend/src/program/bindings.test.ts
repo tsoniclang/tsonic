@@ -307,6 +307,74 @@ describe("Binding System", () => {
       });
     });
 
+    it("should load root-level global function bindings with csharpName", () => {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          {
+            name: "@fixture/js",
+            version: "1.0.0",
+            type: "module",
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(tempDir, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@fixture/js",
+            extends: [],
+            requiredTypeRoots: ["."],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(path.join(tempDir, "index.d.ts"), "export {};\n");
+      fs.writeFileSync(
+        path.join(tempDir, "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              setInterval: {
+                kind: "global",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.Timers",
+                csharpName: "Timers.setInterval",
+              },
+              clearInterval: {
+                kind: "global",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.Timers",
+                csharpName: "Timers.clearInterval",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const registry = loadBindings([tempDir]);
+
+      expect(registry.getBinding("setInterval")).to.deep.equal({
+        kind: "global",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.Timers",
+        csharpName: "Timers.setInterval",
+      });
+      expect(registry.getBinding("clearInterval")).to.deep.equal({
+        kind: "global",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.Timers",
+        csharpName: "Timers.clearInterval",
+      });
+    });
+
     it("should load bindings from manifest next to .d.ts file", () => {
       // Create a facade + namespace directory structure
       // `Runtime.d.ts` at root, with `Runtime/bindings.json` next to it.

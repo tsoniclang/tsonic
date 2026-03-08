@@ -368,6 +368,13 @@ const extractStructuralMembersFromDeclarations = (
 
   try {
     const members: IrInterfaceMember[] = [];
+    const accessorGroups = new Map<
+      string,
+      {
+        getter?: ts.GetAccessorDeclaration;
+        setter?: ts.SetAccessorDeclaration;
+      }
+    >();
 
     // Get the type element source (interface members or type literal members)
     const typeElements = ts.isInterfaceDeclaration(decl)
@@ -391,6 +398,30 @@ const extractStructuralMembersFromDeclarations = (
 
     // Extract members from AST (TypeNodes directly)
     for (const member of typeElements) {
+      if (
+        ts.isGetAccessorDeclaration(member) ||
+        ts.isSetAccessorDeclaration(member)
+      ) {
+        const accessorName = ts.isIdentifier(member.name)
+          ? member.name.text
+          : ts.isStringLiteral(member.name)
+            ? member.name.text
+            : undefined;
+
+        if (!accessorName || accessorName.startsWith("__tsonic_type_")) {
+          continue;
+        }
+
+        const existing = accessorGroups.get(accessorName) ?? {};
+        if (ts.isGetAccessorDeclaration(member)) {
+          existing.getter = member;
+        } else {
+          existing.setter = member;
+        }
+        accessorGroups.set(accessorName, existing);
+        continue;
+      }
+
       // Property signature
       if (ts.isPropertySignature(member)) {
         const propName = ts.isIdentifier(member.name)
@@ -399,7 +430,7 @@ const extractStructuralMembersFromDeclarations = (
             ? member.name.text
             : undefined;
 
-        if (!propName) {
+        if (!propName || propName.startsWith("__tsonic_type_")) {
           continue; // Skip computed/symbol keys
         }
 
@@ -485,6 +516,24 @@ const extractStructuralMembersFromDeclarations = (
             : undefined,
         });
       }
+    }
+
+    for (const [memberName, pair] of accessorGroups) {
+      const getterTypeNode = pair.getter?.type;
+      const setterTypeNode = pair.setter?.parameters[0]?.type;
+      const propertyTypeNode = getterTypeNode ?? setterTypeNode;
+
+      if (!propertyTypeNode) {
+        continue;
+      }
+
+      members.push({
+        kind: "propertySignature",
+        name: memberName,
+        type: convertType(propertyTypeNode, binding),
+        isOptional: false,
+        isReadonly: !!pair.getter && !pair.setter,
+      });
     }
 
     const result = members.length > 0 ? members : undefined;

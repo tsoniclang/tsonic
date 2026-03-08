@@ -312,6 +312,28 @@ describe("Reference Type Emission", () => {
       );
       expect(result).to.not.include("Dictionary`2");
     });
+
+    it("should resolve tsbindgen instance aliases through registry base names", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "MkdirOptions$instance",
+      });
+
+      const mkdirOptionsBinding: FrontendTypeBinding = {
+        name: "nodejs.MkdirOptions",
+        alias: "MkdirOptions",
+        kind: "class",
+        members: [],
+      };
+
+      const clrBindings = new Map<string, FrontendTypeBinding>([
+        ["MkdirOptions", mkdirOptionsBinding],
+      ]);
+
+      const result = emitModule(module, { clrBindings });
+
+      expect(result).to.include("global::nodejs.MkdirOptions x");
+    });
   });
 
   describe("Local Types", () => {
