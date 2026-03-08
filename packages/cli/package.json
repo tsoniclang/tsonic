@@ -10,7 +10,7 @@
     "runtime"
   ],
   "bin": {
-    "tsonic": "./dist/index.js"
+    "tsonic": "dist/index.js"
   },
   "exports": {
     ".": {
