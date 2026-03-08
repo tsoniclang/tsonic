@@ -1,176 +1,141 @@
 # Language Intrinsics
 
-Tsonic includes a small set of **language intrinsics** in `@tsonic/core/lang.js`. These are TypeScript declarations that compile to C# keywords and special forms.
+These come from `@tsonic/core/lang.js` unless noted otherwise.
 
-```typescript
-import {
-  stackalloc,
-  sizeof,
-  nameof,
-  defaultof,
-  trycast,
-  asinterface,
-  istype,
-} from "@tsonic/core/lang.js";
-```
+## `stackalloc`
 
-## stackalloc
-
-Allocate stack memory and get a `Span<T>`:
-
-```typescript
-import { Console } from "@tsonic/dotnet/System.js";
+```ts
 import { stackalloc } from "@tsonic/core/lang.js";
-import { int } from "@tsonic/core/types.js";
+import type { Span, int } from "@tsonic/core/types.js";
 
-export function main(): void {
-  const buffer = stackalloc<int>(256);
-  buffer[0] = 42;
-
-  Console.WriteLine(`First: ${buffer[0]}`);
-  Console.WriteLine(`Length: ${buffer.Length}`);
-}
+const buffer: Span<int> = stackalloc<int>(16 as int);
+buffer[0] = 42 as int;
 ```
 
-This emits C# like:
+Lowers to C# `stackalloc`.
 
-```csharp
-Span<int> buffer = stackalloc int[256];
-buffer[0] = 42;
-```
+## `sizeof`
 
-## sizeof
-
-Get the size (bytes) of an unmanaged type:
-
-```typescript
+```ts
 import { sizeof } from "@tsonic/core/lang.js";
-import { int } from "@tsonic/core/types.js";
+import type { int, long } from "@tsonic/core/types.js";
 
-const bytes: int = sizeof<int>();
+const a: int = sizeof<int>();
+const b: int = sizeof<long>();
 ```
 
-## defaultof
+Current rule:
 
-Get the default value for a type:
+- `sizeof<T>()` requires a known value-compatible type
+- primitives and known CLR structs are supported
 
-```typescript
+## `defaultof`
+
+```ts
 import { defaultof } from "@tsonic/core/lang.js";
-import { int } from "@tsonic/core/types.js";
+import type { int } from "@tsonic/core/types.js";
 
 const zero: int = defaultof<int>();
-const nothing = defaultof<object>(); // null
 ```
 
-## nameof
+## `nameof`
 
-Get a symbol name as a string:
-
-```typescript
+```ts
 import { nameof } from "@tsonic/core/lang.js";
 
-export function main(): void {
-  const myVariable = 123;
-  const field = nameof(myVariable); // "myVariable"
-  void field;
-}
+const field = nameof(user.name); // "name"
+const local = nameof(user);      // "user"
 ```
 
-## trycast
+Current supported forms:
 
-Safe cast that returns `null` on failure (C# `as`):
+- identifier
+- `this`
+- dotted member access
 
-```typescript
-import { Console } from "@tsonic/dotnet/System.js";
+The intrinsic is recognized by provenance from `@tsonic/core/lang.js`, not just by identifier spelling.
+
+## `trycast`
+
+```ts
 import { trycast } from "@tsonic/core/lang.js";
 
-class Animal {
-  name!: string;
-}
-
-class Dog extends Animal {
-  breed!: string;
-}
-
-export function main(animal: Animal): void {
-  const dog = trycast<Dog>(animal);
-  if (dog !== null) {
-    Console.WriteLine(dog.breed);
-  }
+const person = trycast<Person>(value);
+if (person !== null) {
+  console.log(person.name);
 }
 ```
 
-## asinterface
+## `asinterface`
 
-`asinterface<T>(x)` is a **compile-time-only** interface view.
+Compile-time-only interface view. Use when you need CLR interface typing without forcing a runtime cast.
 
-It exists to treat a value as a CLR interface/nominal type in TypeScript without emitting
-runtime casts in C#.
-
-```typescript
+```ts
 import { asinterface } from "@tsonic/core/lang.js";
-import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
-import type { IEnumerable } from "@tsonic/dotnet/System.Collections.Generic.js";
-import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";
+import type { IQueryable } from "@tsonic/dotnet/System.Linq.js";
 
-type Seq<T> = Linq<IEnumerable<T>>;
-
-const xs = new List<number>([1, 2, 3]);
-const seq = asinterface<Seq<number>>(xs);
-
-// Note: asinterface is particularly important for EF Core query precompilation,
-// where runtime casts can break query analyzers.
-seq.Count();
+const q = asinterface<IQueryable<User>>(db.Users);
 ```
 
-## istype (overload specialization)
+## `Interface<T>`
 
-`istype<T>(x)` is a **compile-time-only** marker used to specialize a single overload implementation
-into one CLR method per signature.
+Use only in `implements` clauses when implementing CLR interface bindings from TypeScript.
 
-Tsonic must erase `istype<T>(...)` before emitting C#. If it reaches emission, compilation fails with `TSN7441`.
+```ts
+import type { Interface } from "@tsonic/core/lang.js";
+import type { IDisposable } from "@tsonic/dotnet/System.js";
 
-```typescript
+export class Resource implements Interface<IDisposable> {
+  Dispose(): void {}
+}
+```
+
+## `field<T>`
+
+Forces class member emission as a C# field instead of an auto-property.
+
+```ts
+import type { field } from "@tsonic/core/lang.js";
+
+export class User {
+  private _name: field<string> = "";
+}
+```
+
+## `out`, `ref`, `inref`
+
+Call-site parameter modifier intrinsics:
+
+```ts
+import { defaultof, out, ref, inref } from "@tsonic/core/lang.js";
+import type { int } from "@tsonic/core/types.js";
+
+let value = defaultof<int>();
+dict.TryGetValue("key", out(value));
+mutate(ref(value));
+inspect(inref(value));
+```
+
+Use the function forms from `@tsonic/core/lang.js`. The type aliases in `@tsonic/core/types.js` remain available for declaration typing.
+
+## `istype<T>`
+
+Overload/nominal specialization predicate:
+
+```ts
 import { istype } from "@tsonic/core/lang.js";
 
-Foo(x: string): string;
-Foo(x: boolean): string;
-Foo(p0: unknown): unknown {
-  if (istype<string>(p0)) return `s:${p0}`;
-  if (istype<boolean>(p0)) return p0 ? "t" : "f";
-  throw new Error("unreachable");
+if (istype<string>(value)) {
+  console.log(value.toUpperCase());
 }
 ```
 
-## thisarg (extension method receiver)
+## `thisarg<T>`
 
-`thisarg<T>` marks the **receiver parameter** of a C# extension method. It is only valid on the **first parameter** of a **top-level** function declaration.
+Type marker for extension-method receiver positions in declaration surfaces.
 
-```typescript
-import type { thisarg } from "@tsonic/core/lang.js";
-import { int } from "@tsonic/core/types.js";
+## Attributes DSL
 
-export function inc(x: thisarg<int>): int {
-  return x + 1;
-}
-```
+Current attribute authoring lives in `@tsonic/core/lang.js` and supports explicit targets/builders rather than ad hoc decorator lowering.
 
-This emits C# like:
-
-```csharp
-public static int Inc(this int x) => x + 1;
-```
-
-## ptr (unsafe pointers)
-
-`ptr<T>` is a type marker for unsafe pointer types (`T*`). It is defined in `@tsonic/core/types.js`.
-
-```typescript
-import type { ptr } from "@tsonic/core/types.js";
-import { int } from "@tsonic/core/types.js";
-
-export function accept(p: ptr<int>): void {}
-export function accept2(p: ptr<ptr<int>>): void {} // int**
-```
-
-Pointers are intended for interop and low-level scenarios; prefer safe APIs (`Span<T>`, `IntPtr`, etc.) when possible.
+Use it when you need CLR attributes in authored TypeScript. See `dotnet-interop.md`.

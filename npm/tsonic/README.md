@@ -1,47 +1,57 @@
 # tsonic
 
-TypeScript to C# to NativeAOT compiler.
+CLI package for the Tsonic compiler.
 
-## Installation
+## Install
 
 ```bash
 npm install -g tsonic
 ```
 
-Or in a project:
+Or use locally:
 
 ```bash
-npm install -D tsonic
+npm install --save-dev tsonic
 ```
 
 ## Usage
 
+### Initialize a workspace
+
+Default CLR surface:
+
 ```bash
-# Initialize a new project (creates tsonic.json, src/App.ts, etc.)
-tsonic project init
-
-# Build TypeScript to native binary
-tsonic build src/App.ts
-
-# Generate C# only (no compilation)
-tsonic generate src/App.ts
+tsonic init
 ```
 
-If installed as a dev dependency, use `npx`:
+JS surface:
 
 ```bash
-npx tsonic build src/App.ts
+tsonic init --surface @tsonic/js
+```
+
+### Build and run
+
+```bash
+tsonic build
+tsonic run
+```
+
+### Add dependencies
+
+```bash
+tsonic add npm @tsonic/nodejs
+tsonic add nuget Microsoft.Extensions.Logging 10.0.0
+tsonic add package ./libs/MyCompany.MyLib.dll
+tsonic restore
 ```
 
 ## Requirements
 
-- Node.js >= 22.0.0
-- .NET SDK 10.0 or later
+- Node.js 22+
+- .NET 10 SDK
 
-## Documentation
+## Docs
 
-See https://github.com/tsoniclang/tsonic for full documentation.
-
-## License
-
-MIT
+- `https://tsonic.org/tsonic/`
+- `https://github.com/tsoniclang/tsonic`

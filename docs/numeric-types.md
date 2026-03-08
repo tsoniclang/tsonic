@@ -1,451 +1,125 @@
 # Numeric Types
 
-Tsonic provides precise control over numeric types through the `@tsonic/core` package. This guide covers when and how to use integer types in your Tsonic programs.
+Tsonic treats numeric intent explicitly.
 
-## Overview
+## Core Rule
 
-When you _annotate_ a value as TypeScript `number`, Tsonic emits a C# `double`.
+- TypeScript `number` means Tsonic `double`
+- CLR integer/decimal types come from `@tsonic/core/types.js`
 
-Tsonic also applies C#-style **numeric literal inference**:
+Examples:
 
-- Integer-looking literals default to `int` (or `long` if out of 32-bit range)
-- Floating-point literals default to `double`
-
-```typescript
-import { int, long } from "@tsonic/core/types.js";
-
-// Integer literal → int
-const i = 42; // C#: int i = 42;
-
-// Large integer literal → long
-const big = 2147483648; // C#: long big = 2147483648L;
-
-// Force double: annotate as number
-const d: number = 42; // C#: double d = 42.0;
-
-// Integer: int → System.Int32
-const count: int = 42; // C#: int count = 42;
+```ts
+const a: number = 1; // double-space
 ```
 
-## Available Integer Types
+```ts
+import type { int, long, float, decimal } from "@tsonic/core/types.js";
 
-Import from `@tsonic/core`:
-
-| TypeScript | C# Type  | Range             | Use Case                  |
-| ---------- | -------- | ----------------- | ------------------------- |
-| `byte`     | `byte`   | 0 to 255          | Binary data, small counts |
-| `sbyte`    | `sbyte`  | -128 to 127       | Signed byte values        |
-| `short`    | `short`  | -32,768 to 32,767 | Small integers            |
-| `ushort`   | `ushort` | 0 to 65,535       | Unsigned small integers   |
-| `int`      | `int`    | -2B to 2B         | Most integer operations   |
-| `uint`     | `uint`   | 0 to 4B           | Unsigned integers         |
-| `long`     | `long`   | -9Q to 9Q         | Large integers            |
-| `ulong`    | `ulong`  | 0 to 18Q          | Large unsigned integers   |
-| `float`    | `float`  | ±3.4e38           | Single precision floats   |
-
-## Type Annotations (Preferred)
-
-Prefer type annotations for numeric types (especially for integers):
-
-```typescript
-import { int, byte, short, long, float } from "@tsonic/core/types.js";
-
-const intValue: int = 1000; // C#: int intValue = 1000;
-const byteValue: byte = 255; // C#: byte byteValue = 255;
-const shortValue: short = 1000; // C#: short shortValue = 1000;
-const longValue: long = 1000000; // C#: long longValue = 1000000L;
-
-const floatValue: float = 1.5; // C#: float floatValue = 1.5f;
-const doubleValue: number = 1.5; // C#: double doubleValue = 1.5;
+const i: int = 1 as int;
+const l: long = 1 as long;
+const f: float = 1 as float;
+const d: decimal = 1 as decimal;
 ```
 
-Numeric type assertions (`as int`, `as byte`, etc.) exist, but they are **proof-checked** and are not meant for everyday typing. Prefer annotations and contextual typing; see [Explicit Narrowing](#explicit-narrowing-as-int).
+## Supported Numeric Types
 
-## Basic Usage
+From `@tsonic/core/types.js`:
 
-### Declaring Integer Variables
+- signed integers: `sbyte`, `short`, `int`, `long`, `nint`, `int128`
+- unsigned integers: `byte`, `ushort`, `uint`, `ulong`, `nuint`, `uint128`
+- floating/decimal: `half`, `float`, `double`, `decimal`
+- non-numeric primitives: `bool`, `char`
 
-Use a type annotation when you need an `int`:
+## Why This Exists
 
-```typescript
-import { int } from "@tsonic/core/types.js";
+TypeScript itself cannot distinguish:
 
-const count: int = 10;
-const index: int = 0;
-const max: int = 100;
-```
+- `int`
+- `long`
+- `double`
 
-Or rely on expected types (no cast required):
+They all erase to `number` at TS type-check time. Tsonic’s proof passes enforce the real CLR semantics later.
 
-```typescript
-import { int } from "@tsonic/core/types.js";
+## Integer Space vs Double Space
 
-function takesInt(x: int): void {
-  // ...
-}
+This stays in integer space:
 
-takesInt(10);
-```
+```ts
+import type { int } from "@tsonic/core/types.js";
 
-### Integer Arithmetic
-
-Integer operations produce integer results:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const x: int = 10;
-const y: int = 20;
-
-// All produce int results
-const sum = x + y; // 30
-const diff = y - x; // 10
-const product = x * y; // 200
-```
-
-### Integer Division
-
-Integer division truncates toward zero (unlike JavaScript):
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const a: int = 10;
-const b: int = 3;
-const result = a / b; // 3 (not 3.333...)
-
-const c: int = 100;
-const d: int = 33;
-const quotient = c / d; // 3
-```
-
-## When to Use Integer Types
-
-### Required: .NET API Compatibility
-
-Many .NET APIs require integer parameters:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
-
-const list = new List<string>();
-list.Add("one");
-list.Add("two");
-
-// List indexers require an int index
-const idx: int = 0;
-const item = list[idx];
-```
-
-### Required: LINQ Operations
-
-Some LINQ methods require integer return values:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
-import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
-
-const numbers = new List<int>();
-// ... populate list
-
-// Sum() returns int when input is int
-const total = Enumerable.Sum(numbers);
-```
-
-### Recommended: Array Indexing
-
-Use integers for array access to avoid floating-point issues:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const items: string[] = ["a", "b", "c", "d"];
-const idx: int = 2;
-const item = items[idx]; // "c"
-
-// Arithmetic works naturally
-const nextIdx = idx + 1;
-const nextItem = items[nextIdx]; // "d"
-```
-
-### Recommended: Loop Counters
-
-Use integers for loop counters:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const max: int = 10;
-for (let i: int = 0; i < max; i = i + 1) {
-  // i is int throughout
+function increment(x: int): int {
+  return x + 1;
 }
 ```
 
-### Not Needed: General Math
+This stays in double space:
 
-For general calculations, `number` (double) is usually fine:
-
-```typescript
-// double is fine for general math
-const price = 19.99;
-const tax = price * 0.08;
-const total = price + tax;
-```
-
-## Explicit Narrowing (`as int`)
-
-You generally **don't** need `as int` when an `int` is already expected (variable type annotation, function parameter, indexer, etc.).
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const a: int = 10;
-const b: int = 3;
-
-// No cast needed: int context drives typing
-const result: int = (a + b) * 2;
-```
-
-`as int` is proof-checked and cannot be used as a general-purpose float→int truncation. In most code, prefer `: int` and let expected types drive typing.
-
-## Function Signatures
-
-### Integer Parameters
-
-Declare function parameters with integer types:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-function factorial(n: int): int {
-  if (n <= 1) return 1;
-  return n * factorial(n - 1);
-}
-
-const result = factorial(5); // 120
-```
-
-### Integer Return Types
-
-Functions can return integer types:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-function sumRange(start: int, end: int): int {
-  let total: int = 0;
-  for (let i: int = start; i <= end; i = i + 1) {
-    total = total + i;
-  }
-  return total;
+```ts
+function increment(x: number): number {
+  return x + 1;
 }
 ```
 
-## Common Patterns
+## Narrowing
 
-### Counter Variables
+Tsonic rejects unprovable narrows.
 
-```typescript
-import { int } from "@tsonic/core/types.js";
+Rejected examples:
 
-let count: int = 0;
-count = count + 1;
+```ts
+import type { int } from "@tsonic/core/types.js";
+
+const parsed = parseInt(text, 10);
+const value = parsed as int; // rejected unless proven
 ```
 
-### Array Length Access
+```ts
+import type { int } from "@tsonic/core/types.js";
 
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const items: string[] = ["a", "b", "c"];
-const len: int = items.length;
-const lastIdx: int = len - 1;
-const lastItem = items[lastIdx];
+if (typeof value === "number" && Number.isFinite(value)) {
+  const x = value as int; // still rejected: finite double is not proven int
+}
 ```
 
-### Modulo Operations
+Reason:
 
-```typescript
-import { int } from "@tsonic/core/types.js";
+- `parseInt(...)` on JS surface returns `number`
+- `Number.isFinite(...)` proves finite double, not 32-bit integer
 
-const value: int = 17;
-const divisor: int = 5;
-const remainder = value % divisor; // 2
+## When Integer Proof Is Accepted
+
+Tsonic accepts narrows when the proof is deterministic.
+
+Examples:
+
+```ts
+import type { int } from "@tsonic/core/types.js";
+
+const zero: int = 0 as int;
+const value: int = (flag ? 1 : 2) as int;
 ```
 
-### Bitwise Operations
+Branch-sensitive numeric proof also works for deterministic `int` branch results.
 
-Integer types support all bitwise operations:
+## JS Surface Interop
 
-```typescript
-import { int } from "@tsonic/core/types.js";
+On `@tsonic/js`:
 
-const a: int = 0b1010; // 10
-const b: int = 0b1100; // 12
+- `length`, array indexes, tuple indexes, and similar index-like values are modeled as integer-space values
+- plain JS arithmetic on `number` remains double-space
 
-const and = a & b; // 8 (0b1000)
-const or = a | b; // 14 (0b1110)
-const xor = a ^ b; // 6 (0b0110)
-const not = ~a; // -11
-const left = a << 2; // 40
-const right = a >> 1; // 5
+Example:
+
+```ts
+const xs = [1, 2, 3];
+const len = xs.length; // int-like
+const first = xs[0];
+const sum = first + 1; // still depends on element type, not on length/index rules
 ```
 
-## Array Type Inference
+## Guidance
 
-Tsonic infers numeric array types based on the values in the array literal:
-
-### Integer Arrays
-
-```typescript
-// Integer literals infer to int[]
-const numbers = [1, 2, 3]; // Emits: int[] numbers = [1, 2, 3];
-
-// Floating-point values infer to double[]
-const floats = [1.5, 2.5, 3.5]; // Emits: double[] floats = [1.5, 2.5, 3.5];
-
-// Mixed int and float → double[]
-const mixed = [1, 2.5, 3]; // Emits: double[] mixed = [1, 2.5, 3];
-```
-
-### Long Arrays (Large Integers)
-
-When an integer literal exceeds the 32-bit int range (-2,147,483,648 to 2,147,483,647), the entire array is inferred as `long[]`:
-
-```typescript
-// Large number causes long[] inference
-const bigNumbers = [1, 2, 2147483648]; // Emits: long[] bigNumbers = [1L, 2L, 2147483648L];
-
-const timestamps = [1609459200000, 1609545600000]; // Emits: long[] (JS millisecond timestamps)
-```
-
-### Inference Rules
-
-| Array Contents                | Inferred Type |
-| ----------------------------- | ------------- |
-| All integers within int range | `int[]`       |
-| Any integer > int max         | `long[]`      |
-| Any floating-point value      | `double[]`    |
-| Mixed int and float           | `double[]`    |
-
-### Explicit Type Annotations
-
-Override inference with explicit type annotations:
-
-```typescript
-import { long, float } from "@tsonic/core/types.js";
-
-// Force long[] even with small values
-const smallLongs: long[] = [1, 2, 3];
-
-// Force float[] instead of double[]
-const floatArray: float[] = [1.0, 2.0, 3.0];
-
-// Force int[] (error if value exceeds range)
-const ints: int[] = [1, 2, 3];
-```
-
-### Empty Arrays
-
-Empty array literals require explicit type annotation:
-
-```typescript
-// Error: Cannot infer element type
-const arr = [];
-
-// Correct
-const numbers: int[] = [];
-const strings: string[] = [];
-```
-
-> **See also:** [TSN7417: Empty Array Literal Requires Type](diagnostics.md#tsn7417-empty-array-literal-requires-type)
-
-## Comparison with JavaScript
-
-| Aspect      | JavaScript | Tsonic (int)        |
-| ----------- | ---------- | ------------------- |
-| `10 / 3`    | 3.333...   | 3                   |
-| `10 / 4`    | 2.5        | 2                   |
-| `(-7) / 3`  | -2.333...  | -2                  |
-| Array index | Any number | Exact int           |
-| Overflow    | Infinity   | Wraps (C# behavior) |
-
-## Generated C# Code
-
-Tsonic generates clean C# without unnecessary casts:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const x: int = 10;
-const y: int = 20;
-const sum = x + y;
-```
-
-Generates:
-
-```csharp
-var x = 10;
-var y = 20;
-var sum = x + y;
-```
-
-Not:
-
-```csharp
-var x = (int)10.0;
-var y = (int)20.0;
-var sum = (int)(x + y); // Wrong - unnecessary casts
-```
-
-## Troubleshooting
-
-### "Cannot assign number to int"
-
-Use `int`-typed values (or an explicit narrowing) when you need an integer:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-// OK: integer literal in int context
-const a: int = 10;
-const b: int = 5;
-const x: int = a + b;
-
-// Error: floating-point literal is not an integer value
-const y: int = 10.5;
-```
-
-### Array Index Errors
-
-Ensure array indices are integers:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const items: string[] = ["a", "b", "c"];
-const idx: int = 1;
-const item = items[idx]; // OK
-```
-
-### LINQ Type Mismatches
-
-Use integer types for LINQ operations that expect them:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
-
-const nums = new List<int>();
-nums.Add(1);
-nums.Add(2);
-// Now LINQ operations work correctly
-```
-
-## See Also
-
-- [Type System](./type-system.md) - Complete type mapping reference
-- [.NET Interop](./dotnet-interop.md) - Working with .NET APIs
-- [LINQ Operations](./examples/arrays.md) - Array and LINQ examples
+- use `number` when you mean JS-style floating numeric semantics
+- use `int` / `long` / `decimal` when CLR precision and range matter
+- do not rely on C# compile failures to sort numeric intent out later; Tsonic is expected to reject unproven narrows itself

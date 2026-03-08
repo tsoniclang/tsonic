@@ -1,415 +1,67 @@
-# Frontend Package
+# Frontend
 
-The frontend transforms TypeScript into IR.
+The frontend owns TypeScript-facing semantics.
 
-## Entry Points
+## Responsibilities
 
-### buildModuleDependencyGraph
+- TS Program creation
+- core globals injection
+- surface profile resolution
+- source-package import resolution
+- package graph traversal
+- validation and diagnostics
+- IR construction
 
-Main entry for compiling a project:
+## Program Creation
 
-```typescript
-const result = buildModuleDependencyGraph(entryPoint, {
-  projectRoot: "/path/to/project",
-  sourceRoot: "src",
-  rootNamespace: "MyApp",
-  typeRoots: ["node_modules/@tsonic/globals"],
-});
+Important current behavior:
 
-if (result.ok) {
-  const { modules, entryModule } = result.value;
-}
+- compiler core globals are injected virtually
+- `surface` selects the ambient runtime personality
+- workspace `dotnet.typeRoots` is additive
+- source-package files under `node_modules` are included in the same TS Program when resolved
+
+## Surface Profiles
+
+Current model:
+
+- builtin `clr`
+- custom/package surfaces via `tsonic.surface.json`
+- resolved surface chains (`resolvedModes`) for compatibility checks
+
+Example:
+
+- active surface: `@acme/surface-node`
+- resolved modes may include `@tsonic/js`
+- source packages declaring `["@tsonic/js"]` can still be accepted
+
+## Source Packages
+
+The frontend recognizes installed packages with:
+
+```text
+package.json
+tsonic/package-manifest.json
 ```
 
-### createProgram
+and kind:
 
-Lower-level TypeScript program creation:
-
-```typescript
-const result = createProgram(filePaths, options);
-if (result.ok) {
-  const program = result.value;
-}
+```json
+{ "kind": "tsonic-source-package" }
 ```
 
-## Module Resolution
+These are treated as TS source, not opaque module stubs.
 
-### Local Imports
+## Validation Areas
 
-Local imports must have `.ts` extension:
+- unsupported/open-world features
+- numeric proof
+- generic function value determinism
+- object literal runtime representability
+- `import.meta`
+- dynamic `import()`
+- source-package surface mismatch
 
-```typescript
-// Resolved from importing file's directory
-"./utils.ts" -> resolved to absolute path
-"../models/User.ts" -> resolved relative
-```
+## Output
 
-Resolution in `resolver/path-resolution.ts`:
-
-```typescript
-const resolveLocalImport = (
-  specifier: string,
-  importingFile: string,
-  sourceRoot: string
-): Result<string, Diagnostic> => {
-  // Must have .js or .ts extension
-  if (!specifier.endsWith(".js") && !specifier.endsWith(".ts")) {
-    return error(createDiagnostic("TSN1001", ...));
-  }
-  // Resolve to absolute path
-  const resolved = path.resolve(path.dirname(importingFile), specifier);
-  return ok(resolved);
-};
-```
-
-### .NET Imports
-
-.NET imports map to CLR namespaces:
-
-```typescript
-"@tsonic/dotnet/System.js" -> clrNamespace: "System"
-"@tsonic/dotnet/System.IO.js" -> clrNamespace: "System.IO"
-```
-
-Resolution via `clrResolver`:
-
-```typescript
-const resolveClrImport = (
-  specifier: string
-): Result<ClrResolution, Diagnostic> => {
-  // Extract namespace from specifier
-  const namespace = specifier
-    .replace("@tsonic/dotnet/", "")
-    .replace(/\.js$/, "")
-    .replace(/\//g, ".");
-  return ok({ clrNamespace: namespace, isLocal: false });
-};
-```
-
-## Validation
-
-### Import Validation
-
-`validation/imports.ts`:
-
-- Verify `.ts` extension on local imports
-- Verify `.js` or `.ts` extension on local imports
-- No dynamic imports
-- Resolve all import specifiers
-- Check module existence
-
-### Feature Validation
-
-`validation/features.ts`:
-
-```typescript
-const unsupportedFeatures = [
-  "with statement",
-  "import.meta",
-  "dynamic import()",
-  "Promise.then/catch/finally",
-];
-```
-
-`validation/unsupported-utility-types.ts`:
-
-Validates that unsupported utility types are not used:
-
-- TSN7406: Mapped types (Partial, Required, Readonly, Pick, Omit)
-- TSN7407: Conditional types (Extract, Exclude, NonNullable, ReturnType)
-- TSN7410: Intersection types (A & B)
-
-### Export Validation
-
-`validation/exports.ts`:
-
-- Entry point must export `main()`
-- Exported names must resolve
-- Re-exports must be valid
-
-### Yield Lowering Pass
-
-`validation/yield-lowering-pass.ts`:
-
-Transforms generator functions for C# emission:
-
-- Converts `yield` expressions to `yieldStatement` IR nodes
-- Handles `yield*` delegation
-- Transforms `return` in generators to `generatorReturnStatement`
-- Captures TNext values via receive targets
-
-```typescript
-// Input: const x = yield value;
-// Output: yieldStatement with receiveTarget for 'x'
-```
-
-### Numeric Proof Pass
-
-`validation/numeric-proof-pass.ts`:
-
-Recovers numeric intent from declarations:
-
-- Detects `int`, `long`, `byte`, etc. from `@tsonic/core`
-- Tracks numeric type through expressions
-- Enables clean integer emission without cosmetic casts
-
-```typescript
-// const x: int = 10;
-// Proof: x has numeric kind 'int32'
-```
-
-### Anonymous Type Lowering Pass
-
-`ir/validation/anonymous-type-lowering-pass.ts`:
-
-Transforms anonymous object type literals into synthesized nominal classes:
-
-- Scans function signatures, variables, and class members for inline `{ x: T }` types
-- Generates unique class names: `funcName_Return`, `funcName_paramName`
-- Replaces inline types with references to synthesized classes
-- Hoists synthesized classes to module level
-
-```typescript
-// Before: function getPoint(): { x: number; y: number }
-// After:  function getPoint(): getPoint_Return
-//         class getPoint_Return { x: number; y: number }
-```
-
-### Rest Type Synthesis Pass
-
-`ir/validation/rest-type-synthesis-pass.ts`:
-
-Handles object rest patterns (`{ a, ...rest }`) by synthesizing types for rest properties:
-
-- Identifies all object destructuring patterns with rest properties
-- Computes remaining members by excluding picked keys from source type
-- Generates unique synthetic class names via content hashing
-- Creates synthetic class declarations with computed properties
-- Attaches shape info to rest properties for emitter use
-
-```typescript
-// Before: const { id, ...rest } = { id: 1, name: "Alice", age: 30 }
-// Synthesizes: class __Rest_xyz with { name: string; age: number }
-```
-
-### Attribute Collection Pass
-
-`ir/validation/attribute-collection-pass.ts`:
-
-Collects C# attribute declarations from marker-call API:
-
-- Scans for `A.on(Class).type.add(AttrType, ...args)` patterns
-- Extracts attribute type and constructor arguments
-- Attaches attribute metadata to IR class declarations
-- Enables C# `[Attribute]` generation
-
-```typescript
-// Input:  A.on(User).type.add(SerializableAttribute)
-// Result: User class marked with [Serializable] in emitted C#
-```
-
-### Generic Validation
-
-`validation/generics.ts`:
-
-Validates generic type usage for C# compatibility:
-
-- **TSN7203**: Symbol keys in index signatures
-- **TSN7415**: Nullable unions with unconstrained generics
-
-```typescript
-// TSN7415: T | null where T is unconstrained
-function getValue<T>(value: T | null): T; // Error
-
-// Fix: Add constraint
-function getValue<T extends object>(value: T | null): T; // OK
-```
-
-## IR Building
-
-### Statement Conversion
-
-`ir/converters/statements/`:
-
-```typescript
-// TypeScript AST -> IR
-const convertStatement = (
-  node: ts.Statement,
-  checker: ts.TypeChecker
-): IrStatement => {
-  if (ts.isFunctionDeclaration(node)) {
-    return convertFunctionDeclaration(node, checker);
-  }
-  if (ts.isClassDeclaration(node)) {
-    return convertClassDeclaration(node, checker);
-  }
-  // ... other statements
-};
-```
-
-### Expression Conversion
-
-`ir/converters/expressions/`:
-
-```typescript
-const convertExpression = (
-  node: ts.Expression,
-  checker: ts.TypeChecker
-): IrExpression => {
-  if (ts.isNumericLiteral(node)) {
-    return { kind: "literal", value: Number(node.text), raw: node.text };
-  }
-  if (ts.isBinaryExpression(node)) {
-    return convertBinaryExpression(node, checker);
-  }
-  // ... other expressions
-};
-```
-
-### Anonymous Object Synthesis
-
-`ir/converters/anonymous-synthesis.ts`:
-
-Object literals without explicit type annotations auto-synthesize nominal types:
-
-```typescript
-// Input: const point = { x: 10, y: 20 };
-// Synthesizes: class __Anon_File_Line_Col with x, y properties
-```
-
-Eligible patterns: property assignments, shorthand properties, arrow functions.
-Ineligible patterns: method shorthand, getters/setters.
-
-### Type Conversion
-
-`ir/type-converter/`:
-
-```typescript
-const convertType = (node: ts.TypeNode, checker: ts.TypeChecker): IrType => {
-  if (ts.isTypeReferenceNode(node)) {
-    return convertReferenceType(node, checker);
-  }
-  if (ts.isArrayTypeNode(node)) {
-    return {
-      kind: "arrayType",
-      elementType: convertType(node.elementType, checker),
-    };
-  }
-  // ... other types
-};
-```
-
-`ir/type-converter/inference.ts`:
-
-Lambda parameter types are contextually inferred from surrounding context:
-
-```typescript
-// numbers.map(n => n * 2)
-// 'n' type is inferred from array element type
-```
-
-Uses `checker.getContextualType()` to extract types from call expressions.
-
-## Dependency Graph
-
-### Graph Building
-
-`program/dependency-graph.ts`:
-
-```typescript
-const buildDependencyGraph = (
-  entryPoint: string,
-  options: CompilerOptions
-): Result<DependencyGraph, Diagnostic[]> => {
-  const visited = new Set<string>();
-  const modules: IrModule[] = [];
-
-  const visit = (filePath: string) => {
-    if (visited.has(filePath)) return;
-    visited.add(filePath);
-
-    const module = buildIrModule(filePath, ...);
-    modules.push(module);
-
-    // Visit imports
-    for (const imp of module.imports) {
-      if (imp.resolved?.isLocal) {
-        visit(imp.resolved.absolutePath);
-      }
-    }
-  };
-
-  visit(entryPoint);
-  return ok({ modules, entryModule: modules[0] });
-};
-```
-
-### Circular Dependency Detection
-
-```typescript
-const detectCircular = (modules: IrModule[]): string[][] => {
-  // Tarjan's algorithm for SCC detection
-  // Returns groups of circular dependencies
-};
-```
-
-## Symbol Table
-
-### Symbol Tracking
-
-`symbol-table/`:
-
-```typescript
-type SymbolEntry = {
-  name: string;
-  kind: "variable" | "function" | "class" | "interface" | "type";
-  type?: IrType;
-  exported: boolean;
-};
-
-type SymbolTable = {
-  entries: Map<string, SymbolEntry>;
-  parent?: SymbolTable;
-};
-```
-
-### Symbol Resolution
-
-```typescript
-const resolveSymbol = (
-  name: string,
-  table: SymbolTable
-): SymbolEntry | undefined => {
-  const entry = table.entries.get(name);
-  if (entry) return entry;
-  if (table.parent) return resolveSymbol(name, table.parent);
-  return undefined;
-};
-```
-
-## Diagnostics
-
-### Creating Diagnostics
-
-```typescript
-import { createDiagnostic, addDiagnostic } from "./types/diagnostic.js";
-
-const diagnostic = createDiagnostic(
-  "TSN1001",
-  "error",
-  "Local imports must use .js or .ts extension",
-  { file: sourceFile.fileName, line: 10, column: 5, length: 20 },
-  "Add a .js extension to the import path (recommended)"
-);
-
-collector = addDiagnostic(collector, diagnostic);
-```
-
-### Diagnostic Codes
-
-| Code    | Category | Description            |
-| ------- | -------- | ---------------------- |
-| TSN1001 | Module   | Missing file extension |
-| TSN1002 | Module   | Cannot resolve module  |
-| TSN2001 | Feature  | Unsupported feature    |
-| TSN3001 | Type     | Type error             |
+Frontend output is IR plus diagnostics, not C#.

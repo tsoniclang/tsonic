@@ -1,272 +1,84 @@
 # Compilation Pipeline
 
-Detailed breakdown of each compilation stage.
+## End-to-End
 
-## Stage Overview
-
-```
-Source Files (.ts)
-       |
-       v
-  [1. Program Creation]
-       |
-       v
-  [2. Module Resolution]
-       |
-       v
-  [3. Validation]
-       |
-       v
-  [4. IR Building]
-       |
-       v
-  [5. Dependency Analysis]
-       |
-       v
-  [6. C# Emission]
-       |
-       v
-  [7. Backend Compilation]
-       |
-       v
-  Native Binary
+```text
+TypeScript sources
+  -> TS Program creation
+  -> surface/core/global setup
+  -> module + source-package resolution
+  -> validation
+  -> IR modules
+  -> CSharpAst
+  -> printed C#
+  -> generated project
+  -> dotnet build/publish/test
 ```
 
-## Stage 1: Program Creation
+## Stage 1: Config Resolution
 
-**Package**: `@tsonic/frontend`
-**Entry**: `createProgram()`
+The CLI merges:
 
-Creates a TypeScript program using the TS Compiler API:
+- `tsonic.workspace.json`
+- `packages/<project>/tsonic.json`
+- CLI flags
 
-```typescript
-const program = createProgram(filePaths, {
-  projectRoot,
-  sourceRoot,
-  rootNamespace,
-  typeRoots,
-});
-```
+## Stage 2: Program Creation
 
-Responsibilities:
+Frontend creates a TypeScript program with:
 
-- Initialize TypeScript compiler
-- Configure compiler options
-- Load source files
-- Resolve type roots
+- compiler-owned core globals
+- active surface type roots
+- workspace type roots
+- installed source-package roots when needed
 
-## Stage 2: Module Resolution
+## Stage 3: Resolution
 
-**Package**: `@tsonic/frontend`
-**Entry**: `resolveImport()`
+The resolver handles:
 
-Resolves import specifiers to actual files:
+- local imports
+- CLR bindings packages
+- source-package imports
+- deterministic closed-world dynamic imports
 
-```typescript
-// Local import
-"./utils/math.js" -> "/project/src/utils/math.ts"
+## Stage 4: Validation
 
-// .NET import
-"@tsonic/dotnet/System.IO.js" -> CLR type resolution
-```
+Validation enforces:
 
-Rules:
+- strict-AOT feature boundaries
+- surface compatibility
+- numeric proof constraints
+- generic/runtime-shape determinism
+- object-literal runtime constraints
 
-- Local imports MUST have a `.js` or `.ts` extension (`.js` recommended)
-- .NET imports map to CLR namespaces
-- Relative paths resolved from importing file
-- Barrel re-exports followed
+## Stage 5: IR
 
-## Stage 3: Validation
+Frontend produces IR modules with statements, expressions, imports, exports, and resolved type information.
 
-**Package**: `@tsonic/frontend`
-**Entry**: `validateProgram()`
+## Stage 6: CSharpAst
 
-Validates TypeScript code against Tsonic constraints:
+Emitter turns IR into typed backend AST.
 
-### Import Validation
+This is where:
 
-- `.js` or `.ts` extension required for local imports
-- No dynamic imports
-- No `import type` syntax
+- overload and expected-type decisions are reflected in concrete backend nodes
+- classes, functions, variables, patterns, conditionals, loops, and types are materialized as AST nodes
 
-### Feature Validation
+## Stage 7: Printing
 
-- No `with` statements
-- No `import.meta`
-- No `eval()`
-- No `Promise.then/catch/finally`
+The backend printer turns `CSharpAst` into text once, at the top of the backend pipeline.
 
-### Export Validation
+## Stage 8: Backend Build
 
-- Entry point must export `main()`
-- All exports must be valid declarations
+Backend writes:
 
-### Generic Validation
+- emitted C#
+- `Program.cs`
+- `tsonic.csproj`
 
-- Type parameters must be constrained or inferred
-- No unsupported generic patterns
+Then drives:
 
-## Stage 4: IR Building
-
-**Package**: `@tsonic/frontend`
-**Entry**: `buildIrModule()`
-
-Transforms TypeScript AST to Intermediate Representation:
-
-```typescript
-const irModule = buildIrModule(sourceFile, checker, options);
-```
-
-### Statement Conversion
-
-| TypeScript       | IR Node                  |
-| ---------------- | ------------------------ |
-| `function foo()` | `IrFunctionDeclaration`  |
-| `class Foo`      | `IrClassDeclaration`     |
-| `interface Foo`  | `IrInterfaceDeclaration` |
-| `const x = 1`    | `IrVariableDeclaration`  |
-| `if (cond)`      | `IrIfStatement`          |
-| `for (...)`      | `IrForStatement`         |
-
-### Expression Conversion
-
-| TypeScript  | IR Node                  |
-| ----------- | ------------------------ |
-| `42`        | `IrLiteralExpression`    |
-| `foo`       | `IrIdentifierExpression` |
-| `a + b`     | `IrBinaryExpression`     |
-| `foo()`     | `IrCallExpression`       |
-| `new Foo()` | `IrNewExpression`        |
-| `obj.prop`  | `IrMemberExpression`     |
-
-### Type Conversion
-
-| TypeScript | IR Type                     |
-| ---------- | --------------------------- |
-| `number`   | `IrPrimitiveType("number")` |
-| `string[]` | `IrArrayType`               |
-| `Foo<T>`   | `IrReferenceType`           |
-| `A \| B`   | `IrUnionType`               |
-
-## Stage 5: Dependency Analysis
-
-**Package**: `@tsonic/frontend`
-**Entry**: `buildModuleDependencyGraph()`
-
-Analyzes module dependencies for compilation order:
-
-```typescript
-const { modules, entryModule } = buildModuleDependencyGraph(
-  entryPoint,
-  compilerOptions
-);
-```
-
-Responsibilities:
-
-- Traverse import graph
-- Detect circular dependencies
-- Build compilation order
-- Collect all IR modules
-
-## Stage 6: C# Emission
-
-**Package**: `@tsonic/emitter`
-**Entry**: `emitCSharpFiles()`
-
-Generates C# code from IR:
-
-```typescript
-const { files } = emitCSharpFiles(modules, {
-  rootNamespace,
-  entryPointPath,
-});
-```
-
-### Module Structure
-
-```
-IrModule (src/Utils/Math.ts)
-    |
-    v
-C# File:
-  namespace MyApp.Utils {
-    public static class Math {
-      // declarations
-    }
-  }
-```
-
-### Type Emission
-
-| IR Type                      | C# Type                              |
-| ---------------------------- | ------------------------------------ |
-| `primitiveType("number")`    | `double`                             |
-| `primitiveType("string")`    | `string`                             |
-| `arrayType(T)`               | `T[]` (native array)                 |
-| `referenceType("List", [T])` | `System.Collections.Generic.List<T>` |
-
-### Expression Emission
-
-```typescript
-// IR: IrBinaryExpression { left, op: "+", right }
-// C#: (left) + (right)
-
-// IR: IrCallExpression { callee, args }
-// C#: callee(args)
-```
-
-## Stage 7: Backend Compilation
-
-**Package**: `@tsonic/backend`
-**Entry**: `buildCommand()` (via CLI)
-
-Compiles C# to native binary:
-
-### Step 7a: Generate Project Files
-
-```
-generated/
-├── src/*.cs          # Emitted C#
-├── Program.cs        # Entry wrapper
-└── tsonic.csproj     # Project config
-```
-
-### Step 7b: dotnet publish
-
-```bash
-dotnet publish tsonic.csproj \
-  -c Release \
-  -r linux-x64 \
-  --nologo
-```
-
-NativeAOT settings in .csproj:
-
-- `PublishAot=true`
-- `PublishSingleFile=true`
-- `PublishTrimmed=true`
-
-### Step 7c: Copy Output
-
-```
-generated/bin/Release/net10.0/linux-x64/publish/app
-    |
-    v
-out/app
-```
-
-## Error Handling
-
-Each stage can produce diagnostics:
-
-```typescript
-if (!result.ok) {
-  for (const diagnostic of result.error.diagnostics) {
-    console.log(`${diagnostic.code}: ${diagnostic.message}`);
-  }
-}
-```
-
-Errors stop the pipeline; warnings continue.
+- `dotnet build`
+- `dotnet publish`
+- `dotnet test`
+- `dotnet pack`

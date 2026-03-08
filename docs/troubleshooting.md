@@ -1,362 +1,137 @@
 # Troubleshooting
 
-Common issues and solutions.
+## Surface Confusion
 
-## Installation Issues
+### JS code shows CLR-style ambient members
 
-### "tsonic: command not found"
+Check `tsonic.workspace.json`:
 
-**Cause**: CLI not installed globally or PATH not set.
+```json
+{
+  "surface": "@tsonic/js"
+}
+```
 
-**Solutions**:
+Also remember:
+
+- `@tsonic/nodejs` is not a surface
+- add it as a package instead
 
 ```bash
-# Reinstall globally
-npm install -g tsonic
-
-# Or use npx
-npx tsonic --version
-
-# Check npm global path
-npm config get prefix
-# Add to PATH if needed
+tsonic add npm @tsonic/nodejs
 ```
 
-### ".NET SDK not found"
+### `node:*` imports do not resolve
 
-**Cause**: .NET 10 SDK not installed.
-
-**Solutions**:
+You likely forgot the Node package/type roots.
 
 ```bash
-# Check installation
-dotnet --version
-
-# Install from https://dotnet.microsoft.com/download/dotnet/10.0
-
-# Linux (Ubuntu/Debian)
-sudo apt-get install dotnet-sdk-10.0
+tsonic add npm @tsonic/nodejs
 ```
 
-## Build Errors
+## Numeric Narrowing Errors
 
-### "Config file not found"
+### `parseInt(...) as int` fails
 
-```
-Error: No tsonic.workspace.json found
-```
+That is expected unless the narrowing is proven.
 
-**Solutions**:
+Bad:
 
-1. Run from inside a workspace (any directory under the workspace root)
-2. Initialize a new workspace: `tsonic init`
-3. Specify the workspace config path explicitly: `tsonic build --config path/to/tsonic.workspace.json`
-4. If the workspace has multiple projects, add `--project <name>`
+```ts
+import type { int } from "@tsonic/core/types.js";
 
-### "Entry point is required"
-
-```
-Error: Entry point is required for executable builds
+const value = parseInt(text, 10) as int;
 ```
 
-**Solutions**:
+Why:
 
-1. Provide entry file: `tsonic build src/App.ts`
-2. Add to config:
-   ```json
-   { "entryPoint": "src/App.ts" }
-   ```
+- JS `parseInt` returns `number`
+- `number` means `double`
+- Tsonic will not guess `int`
 
-### "No exported main() function"
+Fix:
 
+- keep the value as `number`, or
+- add an explicit checked conversion path in your own code/library
+
+### `Number.isFinite(x)` did not prove `int`
+
+Also expected. `Number.isFinite` proves finite double, not 32-bit integer.
+
+## Source Package Errors
+
+### Installed npm package was not treated as Tsonic source
+
+Check for:
+
+```text
+node_modules/<pkg>/tsonic/package-manifest.json
 ```
-Error: No exported main() function found
-```
 
-**Solutions**:
+Expected shape:
 
-Ensure your entry file exports `main`:
-
-```typescript
-// ✅ Correct
-export function main(): void {
-  // ...
-}
-
-// ❌ Wrong - not exported
-function main(): void {
-  // ...
+```json
+{
+  "schemaVersion": 1,
+  "kind": "tsonic-source-package",
+  "surfaces": ["@tsonic/js"],
+  "source": {
+    "exports": {
+      ".": "./src/index.ts"
+    }
+  }
 }
 ```
 
-### "Cannot resolve module"
+### Surface mismatch for source package
 
-```
-Error TSN1001: Cannot resolve module './User'
-```
+Source packages declare compatible surfaces. The active workspace surface must resolve to a chain that includes one of them.
 
-**Solutions**:
+## `import.meta` Errors
 
-Add a file extension to local imports (`.js` is recommended):
+Supported:
 
-```typescript
-// ✅ Correct
-import { User } from "./User.js";
+- `import.meta`
+- `import.meta.url`
+- `import.meta.filename`
+- `import.meta.dirname`
 
-// ❌ Wrong
-import { User } from "./User";
-```
+Unsupported:
 
-### "TypeScript compilation failed"
+- `import.meta.env`
+- bundler/tool-specific extension points
 
-**Solutions**:
+## Dynamic Import Errors
 
-1. Check TypeScript errors in output
-2. Ensure type packages are installed:
-   ```bash
-   npm install --save-dev tsonic @tsonic/core @tsonic/globals
-   ```
-3. Run generate only to see generated C#:
-   ```bash
-   tsonic generate src/App.ts --verbose
-   ```
+Supported:
 
-### "dotnet publish failed"
-
-**Solutions**:
-
-1. Check .NET SDK version:
-
-   ```bash
-   dotnet --version  # Should be 10.x
-   ```
-
-2. Try manual build:
-
-   ```bash
-   cd generated
-   dotnet build
-   ```
-
-3. Check for C# compilation errors in output
-
-4. Ensure NuGet packages exist:
-   ```bash
-   dotnet restore
-   ```
-
-## Runtime Errors
-
-### "File not found" at runtime
-
-**Cause**: Working directory different from expected.
-
-**Solutions**:
-
-1. Use absolute paths
-2. Use `Path.Combine` for cross-platform paths:
-   ```typescript
-   import { Path, File } from "@tsonic/dotnet/System.IO.js";
-   const path = Path.Combine(".", "data", "file.txt");
-   ```
-
-### Null reference exceptions
-
-**Cause**: Accessing property on null value.
-
-**Solutions**:
-
-1. Check for null:
-
-   ```typescript
-   if (value !== null) {
-     // safe to use
-   }
-   ```
-
-2. Use optional chaining:
-   ```typescript
-   const name = user?.profile?.name;
-   ```
-
-## Type Issues
-
-### "Type 'any' is not supported"
-
-**Solutions**:
-
-Replace `any` with specific types:
-
-```typescript
-// ❌ Wrong
-function process(data: any): any {
-  return data;
-}
-
-// ✅ Correct
-function process(data: unknown): string {
-  return String(data);
-}
-function process<T>(data: T): T {
-  return data;
-}
+```ts
+await import("./side-effect.js");
+const mod = await import("./module.js");
 ```
 
-### "Promise.then is not supported"
+Unsupported:
 
-**Solutions**:
-
-Use async/await instead of promise chaining:
-
-```typescript
-import { Console } from "@tsonic/dotnet/System.js";
-
-declare function getData(): Promise<string>;
-
-export async function main(): Promise<void> {
-  // ❌ Wrong
-  getData().then((data) => {
-    Console.WriteLine(data);
-  });
-
-  // ✅ Correct
-  const data = await getData();
-  Console.WriteLine(data);
-}
+```ts
+await import(specifier);
+await import("some-package");
 ```
 
-### Nullable Generics
+## Missing CLR / Binding Errors
 
-```
-Error TSN7415: Nullable union 'T | null' with unconstrained generic type
-parameter 'T' cannot be represented in C#.
-```
+### Binding exists in source repo but not in installed package
 
-**Cause**: C# cannot represent nullable unconstrained generics properly for value types.
+This is usually a packaging issue:
 
-**Why this happens**:
+- generated nested bindings or internal declaration files were not included in the published tarball/package
+- local sibling-repo setups can hide this if they resolve direct repo trees instead of packed contents
 
-In C#, `T?` behaves differently based on constraints:
+Fix:
 
-- `where T : struct` → `T?` becomes `Nullable<T>` (works)
-- `where T : class` → `T?` becomes nullable reference (works)
-- No constraint → `T?` is just `T` for value types (broken!)
+- regenerate the package
+- inspect `npm pack --dry-run`
+- ensure bindings and internal declaration trees are shipped
 
-**Solutions**:
+## Test Failures Only On Cold Runs
 
-1. **Use `object | null`** to box the value:
-
-```typescript
-// ❌ Error
-function getValue<T>(value: T | null): T {
-  return value ?? getDefault();
-}
-
-// ✅ Works - uses boxing
-function getValue<T>(value: object | null): T {
-  return (value ?? getDefault()) as T;
-}
-```
-
-2. **Add a reference type constraint**:
-
-```typescript
-// ✅ Works - T is always a reference type
-function getValue<T extends object>(value: T | null): T {
-  return value ?? getDefault();
-}
-```
-
-3. **Add a value type constraint**:
-
-```typescript
-// ✅ Works - T is always a value type
-function getValue<T extends struct>(value: T | null): T {
-  return value ?? getDefault();
-}
-```
-
-4. **Avoid nullable generic parameters** when possible:
-
-```typescript
-// ✅ Works - nullable handling at call site
-function getValue<T>(value: T, fallback: T): T {
-  return value ?? fallback;
-}
-
-// Caller handles nullable
-const result = item !== null ? getValue(item, defaultItem) : defaultItem;
-```
-
-> **See also:** [Diagnostics TSN7415](diagnostics.md#tsn7415-nullable-union-with-unconstrained-generic)
-
-## Performance Issues
-
-### Large binary size
-
-**Solutions**:
-
-1. Enable trimming:
-
-   ```json
-   { "output": { "trimmed": true } }
-   ```
-
-2. Optimize for size:
-
-   ```json
-   { "optimize": "size" }
-   ```
-
-3. Strip symbols:
-   ```json
-   { "output": { "stripSymbols": true } }
-   ```
-
-### Slow compilation
-
-**Solutions**:
-
-1. Use incremental builds (don't clean every time)
-2. Reduce number of source files
-3. Simplify generic usage
-
-## Debugging
-
-### View generated C#
-
-```bash
-tsonic generate src/App.ts
-cat generated/src/App.cs
-```
-
-### Verbose output
-
-```bash
-tsonic build src/App.ts --verbose
-```
-
-### Keep build artifacts
-
-```bash
-tsonic build src/App.ts --keep-temp
-```
-
-### Manual .NET build
-
-```bash
-cd generated
-dotnet build --verbosity detailed
-```
-
-### Include debug symbols
-
-```bash
-tsonic build src/App.ts --no-strip
-```
-
-## Getting Help
-
-- **Documentation**: [docs/](.)
-- **GitHub Issues**: https://github.com/tsoniclang/tsonic/issues
-- **Source Code**: https://github.com/tsoniclang/tsonic
+If `run-all.sh` fails only from a cold checkout, inspect workspace test ordering and build prerequisites rather than assuming the compiler changed. Tsonic now runs workspace suites in explicit dependency order to avoid hidden warm-build dependencies.
