@@ -21,7 +21,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addNpmCommand } from "./add-npm.js";
 
-const writeWorkspaceConfig = (dir: string): string => {
+const writeWorkspaceConfig = (
+  dir: string,
+  options: { readonly surface?: string } = {}
+): string => {
   const configPath = join(dir, "tsonic.workspace.json");
   writeFileSync(
     configPath,
@@ -29,6 +32,7 @@ const writeWorkspaceConfig = (dir: string): string => {
       {
         $schema: "https://tsonic.org/schema/workspace/v1.json",
         dotnetVersion: "net10.0",
+        surface: options.surface ?? "clr",
         dotnet: {
           libraries: [],
           frameworkReferences: [],
@@ -107,6 +111,42 @@ const writeLocalNpmPackage = (
     mkdirSync(join(pkgRoot, pkg.bindingsRoot), { recursive: true });
   }
 
+  return pkgRoot;
+};
+
+const writeInstalledSurfacePackage = (
+  workspaceRoot: string,
+  pkg: {
+    readonly name: string;
+    readonly surfaceManifest: unknown;
+  }
+): string => {
+  const [scope, name] = pkg.name.startsWith("@")
+    ? pkg.name.split("/")
+    : [undefined, pkg.name];
+  const pkgRoot =
+    scope && name
+      ? join(workspaceRoot, "node_modules", scope, name)
+      : join(workspaceRoot, "node_modules", pkg.name);
+  mkdirSync(pkgRoot, { recursive: true });
+  writeFileSync(
+    join(pkgRoot, "package.json"),
+    JSON.stringify(
+      {
+        name: pkg.name,
+        version: "1.0.0",
+        type: "module",
+      },
+      null,
+      2
+    ) + "\n",
+    "utf-8"
+  );
+  writeFileSync(
+    join(pkgRoot, "tsonic.surface.json"),
+    JSON.stringify(pkg.surfaceManifest, null, 2) + "\n",
+    "utf-8"
+  );
   return pkgRoot;
 };
 
@@ -466,6 +506,104 @@ describe("add npm", function () {
       expect(normalizedManifest["runtimePackages"]).to.deep.equal([
         "@acme/node",
         "@tsonic/dotnet",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the workspace surface when rediscovering manifests", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-surface-"));
+    try {
+      const configPath = writeWorkspaceConfig(dir, { surface: "@tsonic/js" });
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test",
+            private: true,
+            type: "module",
+            devDependencies: {
+              "@tsonic/js": "1.0.0",
+              "acme-bindings": "1.0.0",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeInstalledSurfacePackage(dir, {
+        name: "@tsonic/js",
+        surfaceManifest: {
+          schemaVersion: 1,
+          id: "@tsonic/js",
+          requiredTypeRoots: ["."],
+        },
+      });
+      writeLocalNpmPackage(dir, "node_modules/acme-bindings", {
+        name: "acme-bindings",
+        manifest: {
+          dotnet: {
+            packageReferences: [{ id: "Acme.Runtime", version: "1.0.0" }],
+          },
+        },
+      });
+
+      const result = addNpmCommand("acme-bindings", configPath, {
+        quiet: true,
+        skipInstallIfPresent: true,
+      });
+      expect(result.ok).to.equal(true);
+      expect(result.ok ? result.value.packageName : "").to.equal(
+        "acme-bindings"
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("can merge manifests from an already-installed package without reinstalling", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-preinstalled-"));
+    try {
+      const configPath = writeWorkspaceConfig(dir);
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test",
+            private: true,
+            type: "module",
+            devDependencies: {
+              "acme-bindings": "1.0.0",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeLocalNpmPackage(dir, "node_modules/acme-bindings", {
+        name: "acme-bindings",
+        manifest: {
+          dotnet: {
+            packageReferences: [{ id: "Acme.Runtime", version: "1.0.0" }],
+          },
+        },
+      });
+
+      const result = addNpmCommand("acme-bindings", configPath, {
+        quiet: true,
+        skipInstallIfPresent: true,
+      });
+      expect(result.ok).to.equal(true);
+      expect(result.ok ? result.value.packageName : "").to.equal(
+        "acme-bindings"
+      );
+
+      const cfg = readWorkspaceConfig(dir);
+      expect(cfg.dotnet.packageReferences).to.deep.equal([
+        { id: "Acme.Runtime", version: "1.0.0" },
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });

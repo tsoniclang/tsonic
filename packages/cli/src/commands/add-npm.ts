@@ -212,19 +212,32 @@ export const addNpmCommand = (
   options: AddNpmOptions = {}
 ): Result<{ readonly packageName: string }, string> => {
   const workspaceRoot = dirname(configPath);
+  const configResult = loadWorkspaceConfig(configPath);
+  if (!configResult.ok) return configResult;
 
   const nameResult = resolvePackageNameFromSpec(workspaceRoot, packageSpec);
   if (!nameResult.ok) return nameResult;
   const requestedPackageName = nameResult.value;
 
-  const installResult = npmInstallDevDependency(
+  const preinstalledPackageRoot = resolvePackageRoot(
     workspaceRoot,
-    packageSpec,
-    options
+    requestedPackageName
   );
-  if (!installResult.ok) return installResult;
+  const shouldSkipInstall =
+    options.skipInstallIfPresent === true && preinstalledPackageRoot.ok;
 
-  const pkgRootResult = resolvePackageRoot(workspaceRoot, requestedPackageName);
+  if (!shouldSkipInstall) {
+    const installResult = npmInstallDevDependency(
+      workspaceRoot,
+      packageSpec,
+      options
+    );
+    if (!installResult.ok) return installResult;
+  }
+
+  const pkgRootResult = shouldSkipInstall
+    ? preinstalledPackageRoot
+    : resolvePackageRoot(workspaceRoot, requestedPackageName);
   if (!pkgRootResult.ok) return pkgRootResult;
   const pkgRoot = pkgRootResult.value;
 
@@ -242,7 +255,10 @@ export const addNpmCommand = (
     };
   }
 
-  const discovered = discoverWorkspaceBindingsManifests(workspaceRoot);
+  const discovered = discoverWorkspaceBindingsManifests(
+    workspaceRoot,
+    configResult.value.surface
+  );
   if (!discovered.ok) return discovered;
 
   const resolvedManifests = discovered.value;
@@ -265,9 +281,6 @@ export const addNpmCommand = (
     resolvedManifests
   );
   if (!writeAllResult.ok) return writeAllResult;
-
-  const configResult = loadWorkspaceConfig(configPath);
-  if (!configResult.ok) return configResult;
 
   let mergedConfig = configResult.value;
   for (const item of resolvedManifests) {
