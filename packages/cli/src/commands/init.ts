@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { addNpmCommand } from "./add-npm.js";
+import { applyAikyaWorkspaceOverlay } from "../aikya/bindings.js";
 import {
   hasResolvedSurfaceProfile,
   resolveSurfaceCapabilities,
@@ -313,18 +313,16 @@ export const initWorkspace = (
       },
     };
 
-    writeWorkspaceConfig(workspaceRoot, workspaceConfig);
-
-    // Surface-specific package manifests may inject required .NET package refs.
-    // Reuse the authoritative add-npm workflow instead of duplicating merge logic.
     if (shouldInstallTypes) {
-      for (const pkgName of surfaceCapabilities.requiredNpmPackages) {
-        const addResult = addNpmCommand(pkgName, workspaceConfigPath, {
-          quiet: true,
-        });
-        if (!addResult.ok) return addResult;
-      }
+      const overlayResult = applyAikyaWorkspaceOverlay(
+        workspaceRoot,
+        workspaceConfig
+      );
+      if (!overlayResult.ok) return overlayResult;
+      workspaceConfig = overlayResult.value.config;
     }
+
+    writeWorkspaceConfig(workspaceRoot, workspaceConfig);
 
     // Project package.json (minimal)
     const projectPkgJson = join(projectRoot, "package.json");
