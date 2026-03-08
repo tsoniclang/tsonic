@@ -1,206 +1,172 @@
 # Getting Started
 
-This guide walks you through installing Tsonic and building your first program.
+## Requirements
 
-## Prerequisites
+- Node.js `22+`
+- .NET `10` SDK
 
-### Node.js 22+
-
-Download from [nodejs.org](https://nodejs.org/) or use a version manager:
+Verify:
 
 ```bash
-# Using nvm
-nvm install 22
-nvm use 22
-
-# Verify
 node --version
-```
-
-### .NET 10 SDK
-
-Download from [dotnet.microsoft.com](https://dotnet.microsoft.com/download/dotnet/10.0):
-
-```bash
-# Linux (Ubuntu/Debian)
-sudo apt-get install dotnet-sdk-10.0
-
-# macOS
-brew install dotnet-sdk
-
-# Verify
 dotnet --version
 ```
 
-### macOS: Xcode Command Line Tools
+## Install
 
-Required for NativeAOT builds on macOS:
-
-```bash
-xcode-select --install
-
-# Verify
-xcrun --show-sdk-path
-```
-
-## Installation
-
-### Global Installation (Recommended)
+Global:
 
 ```bash
 npm install -g tsonic
 ```
 
-Verify:
-
-```bash
-tsonic --version
-```
-
-### Local Installation
-
-For project-specific usage:
+Local:
 
 ```bash
 npm install --save-dev tsonic
-npx tsonic --version
 ```
 
-## Creating a Project
+## Initialize a Workspace
 
-### Using `tsonic init`
-
-The easiest way to start:
+### Default CLR surface
 
 ```bash
-mkdir my-app
-cd my-app
+mkdir hello-clr
+cd hello-clr
 tsonic init
 ```
 
 This creates:
 
-```
-my-app/
-├── tsonic.workspace.json     # Workspace config (dependencies live here)
-├── libs/                     # Workspace-scoped DLLs
-├── packages/
-│   └── my-app/
-│       ├── tsonic.json       # Project config
-│       ├── package.json      # Project package.json (minimal)
-│       └── src/App.ts        # Entry point
-├── package.json              # Workspace package.json (npm workspaces + scripts)
-└── .gitignore                # Ignores generated/, out/, node_modules/, .tsonic/
+```text
+tsonic.workspace.json
+package.json
+packages/hello-clr/
+  package.json
+  tsonic.json
+  src/App.ts
+  tsonic/package-manifest.json
 ```
 
-### Init Options
-
-```bash
-# Skip installing type packages
-tsonic init --skip-types
-
-# Specify type package version
-tsonic init --types-version <ver>
-```
-
-### Adding JS / Node.js APIs
-
-Install optional libraries via npm bindings packages:
-
-```bash
-tsonic add npm @tsonic/js
-tsonic add npm @tsonic/nodejs
-```
-
-## Building and Running
-
-### Build Command
-
-Generate C# and compile to native:
-
-```bash
-tsonic build
-```
-
-Output goes to `packages/<project>/out/<app>` (or `.exe` on Windows).
-
-If your workspace has multiple projects, select one explicitly:
-
-```bash
-tsonic build --project my-app
-```
-
-### Run Command
-
-Build and execute in one step:
+Run it:
 
 ```bash
 tsonic run
 ```
 
-### NPM Scripts
-
-The generated `package.json` includes convenience scripts:
+### JS surface
 
 ```bash
-npm run build    # tsonic build
-npm run dev      # tsonic run
+mkdir hello-js
+cd hello-js
+tsonic init --surface @tsonic/js
+tsonic run
 ```
 
-## Understanding the Output
+JS sample:
 
-After building:
-
-```
-my-app/
-└── packages/
-    └── my-app/
-        ├── generated/           # Generated C# code
-        │   ├── src/
-        │   │   └── App.cs       # Your code as C#
-        │   ├── Program.cs       # Entry point wrapper
-        │   └── tsonic.csproj    # .NET project file
-        └── out/
-            └── my-app           # Native executable
+```ts
+export function main(): void {
+  const message = "  Hello from Tsonic JS surface!  ".trim();
+  console.log(message);
+}
 ```
 
-### Generated C# (Example)
+### Add Node module support
 
-Your TypeScript:
+`node:*` APIs are not ambient. Keep the JS surface and add the Node package:
 
-```typescript
-import { Console } from "@tsonic/dotnet/System.js";
+```bash
+tsonic init --surface @tsonic/js
+tsonic add npm @tsonic/nodejs
+```
+
+Then author normal Node imports:
+
+```ts
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 export function main(): void {
-  Console.WriteLine("Hello!");
+  const file = path.join("src", "App.ts");
+  console.log(fs.existsSync(file));
 }
 ```
 
-Becomes:
+## Build Commands
 
-```csharp
-namespace MyApp
+Generate C# only:
+
+```bash
+tsonic generate
+```
+
+Build:
+
+```bash
+tsonic build
+```
+
+Build and run:
+
+```bash
+tsonic run
+```
+
+Run tests:
+
+```bash
+tsonic test
+```
+
+Pack a library project:
+
+```bash
+tsonic pack
+```
+
+## Add CLR Dependencies
+
+NuGet:
+
+```bash
+tsonic add nuget Microsoft.Extensions.Logging 10.0.0
+```
+
+Local DLL:
+
+```bash
+tsonic add package ./libs/MyCompany.MyLib.dll
+```
+
+Regenerate local bindings/cache:
+
+```bash
+tsonic restore
+```
+
+## Source Packages
+
+`tsonic init` makes each project npm-source-package-ready by default. The generated manifest:
+
+```json
 {
-    public static class App
-    {
-        public static void main()
-        {
-            global::System.Console.WriteLine("Hello!");
-        }
+  "schemaVersion": 1,
+  "kind": "tsonic-source-package",
+  "surfaces": ["@tsonic/js"],
+  "source": {
+    "exports": {
+      ".": "./src/App.ts"
     }
+  }
 }
 ```
 
-## Next Steps
+Installed packages with that manifest are compiled transitively as TypeScript source, not treated as opaque external modules.
 
-- [CLI Reference](cli.md) - All commands and options
-- [Configuration](configuration.md) - Workspace + project config
-- [Language Guide](language.md) - TypeScript features supported
-- [.NET Interop](dotnet-interop.md) - Using .NET libraries
+## Next
 
-### Specialized Guides
-
-- [Numeric Types](numeric-types.md) - Integer types and narrowing
-- [Generators](generators.md) - Sync, async, and bidirectional generators
-- [Callbacks](callbacks.md) - Action and Func patterns
-- [Async Patterns](async-patterns.md) - Async/await and for-await
+- `cli.md`
+- `configuration.md`
+- `language.md`
+- `bindings.md`

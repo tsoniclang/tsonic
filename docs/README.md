@@ -1,106 +1,43 @@
 # Tsonic User Guide
 
-Tsonic compiles TypeScript to native executables via C# and .NET NativeAOT.
+This guide documents the current `main` behavior of Tsonic V1.
 
-## Table of Contents
+## Start Here
 
-### Getting Started
+- `getting-started.md` — install, init, build, run
+- `cli.md` — command reference
+- `configuration.md` — workspace and project config
+- `language.md` — supported TypeScript subset
 
-1. [Getting Started](getting-started.md) - Installation and first project
-2. [CLI Reference](cli.md) - Commands and options
-3. [Configuration](configuration.md) - Workspace + project config
+## Core Topics
 
-### Language
+- `lang-intrinsics.md` — `stackalloc`, `sizeof`, `nameof`, `defaultof`, `trycast`, `asinterface`, modifiers, attributes
+- `numeric-types.md` — `number` vs `int` / `long` / `double` policy
+- `type-system.md` — deterministic typing and current generic rules
+- `bindings.md` — CLR packages, source packages, Aikya manifests
+- `dotnet-interop.md` — BCL and external CLR interop
+- `build-output.md` — generated layout and output types
+- `diagnostics.md` — diagnostic guide
+- `limitations.md` — explicit out-of-scope cases
+- `troubleshooting.md` — common failures and fixes
 
-4. [Language Guide](language.md) - Supported features
-5. [Type System](type-system.md) - Type mappings
-6. [Numeric Types](numeric-types.md) - Integer types and narrowing
-7. [Generators](generators.md) - Sync, async, and bidirectional generators
-8. [Callbacks](callbacks.md) - Action and Func patterns
-9. [Async Patterns](async-patterns.md) - Async/await and for-await
-10. [.NET Interop](dotnet-interop.md) - Using .NET BCL
-11. [CLR Bindings & Workspaces](bindings.md) - Where bindings live; multi-project repos
-12. [Language Intrinsics](lang-intrinsics.md) - stackalloc, trycast, thisarg, etc.
-13. [JavaScript Runtime](dotnet-interop.md#javascript-runtime-apis-tsonicjs) - Optional JS-style APIs via `@tsonic/js`
+## Runtime-Oriented Topics
 
-### Build
+- `async-patterns.md`
+- `callbacks.md`
+- `generators.md`
 
-14. [Build Output](build-output.md) - Pipeline and output
-15. [Diagnostics](diagnostics.md) - Error codes reference
+## Architecture
 
-### Reference
+- `architecture/README.md`
 
-16. [Examples](examples/README.md) - Code examples
-17. [Troubleshooting](troubleshooting.md) - Common issues
-18. [Limitations](limitations.md) - What Tsonic can’t do (yet)
+## Examples
 
-## Quick Links
+- `examples/README.md`
 
-- [Architecture Documentation](architecture/README.md) - For contributors and advanced users
-- [GitHub Repository](https://github.com/tsoniclang/tsonic)
-- [npm Package](https://www.npmjs.com/package/tsonic)
+## Surfaces in One Sentence
 
-## Overview
-
-### What is Tsonic?
-
-Tsonic is a compiler that transforms TypeScript source code into native executables:
-
-```
-TypeScript → IR → C# → NativeAOT → Native Binary
-```
-
-### Why Tsonic?
-
-- **Native Performance**: Compile to fast, single-file executables
-- **TypeScript Familiarity**: Use the language you know
-- **Full .NET Access**: Call any .NET library
-- **No Runtime Required**: Self-contained binaries
-
-### Direct .NET Access
-
-- C# semantics for all types
-- Import from System.\*, System.IO, System.Linq, etc.
-- Full BCL access
-- Native arrays (`T[]`) and .NET collections
-
-## Prerequisites
-
-- **Node.js 22+**: For the CLI and type packages
-- **.NET 10 SDK**: For compilation
-- **npm**: For package management
-
-Verify installation:
-
-```bash
-node --version   # v22.0.0 or higher
-dotnet --version # 10.0.x
-```
-
-## Installation
-
-```bash
-npm install -g tsonic
-tsonic --version
-```
-
-## Your First Program
-
-```bash
-# Create project
-mkdir hello && cd hello
-tsonic init
-
-# Build
-npm run build
-
-# Run
-./packages/hello/out/hello
-```
-
-Output:
-
-```
-Hello from Tsonic!
-Doubled: 2, 4, 6, 8, 10
-```
+- compiler core = always-on noLib baseline
+- `clr` = default ambient CLR-first surface
+- `@tsonic/js` = JS ambient surface
+- `@tsonic/nodejs` = normal package for `node:*` modules

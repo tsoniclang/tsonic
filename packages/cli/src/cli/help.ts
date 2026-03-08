@@ -78,7 +78,7 @@ EXAMPLES:
   tsonic pack
 
 LEARN MORE:
-  Documentation: https://tsonic.org/docs
+  Documentation: https://tsonic.org/tsonic/
   GitHub: https://github.com/tsoniclang/tsonic
 `);
 };

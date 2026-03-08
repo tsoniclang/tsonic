@@ -1,711 +1,178 @@
 # Type System
 
-How TypeScript types map to C# types in Tsonic.
+Tsonic is strict-AOT and deterministic. The type system is built to answer one question:
 
-## Primitive Types
+> can this TypeScript program be lowered to one stable CLR/runtime shape?
 
-### Default Mappings
+If yes, it compiles. If not, it fails early.
 
-| TypeScript  | C# Type             |
-| ----------- | ------------------- |
-| `number`    | `double`            |
-| `string`    | `string`            |
-| `boolean`   | `bool`              |
-| `null`      | `null`              |
-| `undefined` | `null`              |
-| `void`      | `void`              |
-| `never`     | N/A (compile error) |
-| `any`       | Not supported       |
-| `unknown`   | `object`            |
+## Main Principles
 
-### Explicit Numeric Types
+### 1. No `any`
 
-Use `@tsonic/core` for precise numeric control:
-
-```typescript
-import { int, float, long, byte, short, char } from "@tsonic/core/types.js";
-
-const count: int = 42; // System.Int32
-const ratio: float = 3.14; // System.Single
-const big: long = 9999999999; // System.Int64
-const small: byte = 255; // System.Byte
-const medium: short = 32000; // System.Int16
-const letter: char = "A"; // System.Char
-```
-
-> **See also:** [Numeric Types Guide](numeric-types.md) for complete coverage of integer types, narrowing patterns, and when to use integers vs numbers.
-
-### char (System.Char)
-
-Tsonic supports `char` (a distinct CLR primitive: `System.Char`) via `@tsonic/core`.
-
-TypeScript represents `char` as `string` for TSC compatibility, so Tsonic enforces **char validity** during compilation:
-
-- A `char` value must be a **single-character string literal** (`"A"`, `"\\n"`, `"'"`, etc.), or
-- A value that is already typed as `char` (e.g., from an API returning `char`).
-
-If you pass a non-literal `string` (or a multi-character literal) where `char` is expected, Tsonic emits `TSN7418`.
+Explicit `any` remains out of scope.
 
 ```ts
-import { char, int } from "@tsonic/core/types.js";
-import { Console, Char } from "@tsonic/dotnet/System.js";
-
-function takesChar(c: char): void {
-  Console.WriteLine(c);
-}
-
-takesChar("Z"); // OK
-// takesChar("ZZ"); // TSN7418
-
-const s = "hello";
-const c: char = s[0]; // OK (context expects char)
-
-const parsed: char = Char.parse("Q"); // Use parsing for dynamic strings
-void parsed;
+const value: any = 1; // rejected
 ```
 
-### Number Handling
+### 2. Declared `unknown` Is Allowed
 
-```typescript
-// Default: number → double
-const x = 42; // double
-const y = 3.14; // double
-const z = x / 4; // 10.5 (floating point division)
+Explicit `unknown` from library contracts is valid.
 
-// Integer math
-import { int } from "@tsonic/core/types.js";
-const a: int = 42;
-const b: int = 4;
-const c = a / b; // Integer division in C#
-```
+```ts
+const root = JSON.parse(text); // unknown by declaration
 
-## Arrays
-
-### Native Arrays
-
-Arrays emit as C# native arrays (`T[]`):
-
-```typescript
-// Array<T> or T[] syntax both emit as native arrays
-const numbers: number[] = [1, 2, 3];
-const strings: Array<string> = ["a", "b"];
-
-// Generated: double[] numbers = [1, 2, 3];
-// Generated: string[] strings = ["a", "b"];
-```
-
-### List<T> for Dynamic Collections
-
-For collections that need add/remove operations, use `List<T>`:
-
-```typescript
-import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
-
-const list = new List<number>();
-list.Add(1);
-list.Add(2);
-list.Add(3);
-// Generated: var list = new List<double>(); list.Add(...);
-
-// Or create empty and add items
-const names = new List<string>();
-names.Add("Alice");
-```
-
-## Tuples
-
-Fixed-length arrays with specific element types:
-
-```typescript
-const point: [number, number] = [10, 20];
-const record: [string, number, boolean] = ["name", 42, true];
-```
-
-Generates `ValueTuple<T1, T2, ...>` in C#:
-
-```csharp
-ValueTuple<double, double> point = (10.0, 20.0);
-ValueTuple<string, double, bool> record = ("name", 42.0, true);
-```
-
-Supports up to 8 elements. Access via `.Item1`, `.Item2`, etc.
-
-## Objects and Interfaces
-
-### Interface to Class
-
-```typescript
-export interface User {
-  id: number;
-  name: string;
-  email?: string;
+if (typeof root === "object" && root !== null) {
+  console.log(Object.entries(root).length.toString());
 }
 ```
 
-Generates:
+Tsonic distinguishes:
 
-```csharp
-public class User
+- deliberate declared `unknown`
+- failed/poisoned inference
+
+### 3. Expected-Type Threading
+
+Tsonic aggressively threads expected types through:
+
+- array literals and spreads
+- ternaries
+- nullish coalescing
+- control-flow returns
+- object literal members
+
+That keeps C# lowering deterministic and avoids fallback to weak shapes.
+
+### 4. Deterministic Generic Function Values
+
+Supported when a concrete callable shape exists:
+
+```ts
+const id = <T>(x: T): T => x;
+
+const f: (x: number) => number = id;
+const arr: Array<(x: number) => number> = [id];
+const obj: { run: (x: number) => number } = { run: id };
+```
+
+Still rejected when the value remains polymorphic with no runtime shape:
+
+```ts
+const id = <T>(x: T): T => x;
+const copy = id; // rejected
+```
+
+### 5. Union Member Access Must Be Coherent
+
+This is allowed:
+
+```ts
+type A = { x: number };
+type B = { x: number };
+declare const value: A | B;
+const y = value.x;
+```
+
+This is rejected:
+
+```ts
+type A = { x: number };
+type B = { x: string };
+declare const value: A | B;
+const y = value.x;
+```
+
+### 6. Numeric Proof Is Separate From TS Typing
+
+TypeScript cannot distinguish `int` from `double`. Tsonic proves numeric intent later.
+
+See `numeric-types.md`.
+
+## Source Packages
+
+Installed packages with:
+
+```text
+node_modules/<pkg>/tsonic/package-manifest.json
+```
+
+and:
+
+```json
 {
-    public double id { get; set; }
-    public string name { get; set; }
-    public string? email { get; set; }
+  "kind": "tsonic-source-package"
 }
 ```
 
-### Optional Properties
+are compiled as part of the same TS program and dependency graph, subject to surface compatibility.
 
-```typescript
-interface Config {
-  required: string;
-  optional?: number;
-}
-```
+Surface compatibility is based on resolved surface chains, not only exact string equality.
 
-Optional properties become nullable in C#:
+Example:
 
-```csharp
-public string required { get; set; }
-public double? optional { get; set; }
-```
+- active surface: `@acme/surface-node`
+- resolved modes: `["@tsonic/js", "@acme/surface-node"]`
+- package manifest declaring `["@tsonic/js"]` is accepted
 
-## Dictionary and HashSet
+## Object Literal Typing
 
-Tsonic does not include JavaScript `Map`/`Set` in the default globals. Use .NET collections:
+Current supported deterministic cases:
 
-```typescript
-import {
-  Dictionary,
-  HashSet,
-} from "@tsonic/dotnet/System.Collections.Generic.js";
+- finite spreads
+- method shorthand
+- computed constant keys
+- accessors
+- behavioral selection across coherent union targets
 
-const userMap = new Dictionary<string, User>();
-userMap.Add("alice", alice);
-userMap.ContainsKey("bob"); // boolean
-userMap.remove("alice");
-userMap.clear();
-const dictSize = userMap.Count;
+Tsonic can synthesize nominal helper types where needed, but only when the result shape is finite and stable.
 
-const ids = new HashSet<number>();
-ids.Add(1);
-ids.Add(2);
-const hasOne = ids.Contains(1); // true
-ids.remove(1);
-ids.clear();
-const setSize = ids.Count;
+## Dynamic Import Typing
 
-void dictSize;
-void setSize;
-```
+Supported:
 
-## Dictionary Types
+- local closed-world dynamic imports
+- side-effect imports
+- namespace values when runtime export shape is representable
 
-### Record<K, V>
+Rejected:
 
-```typescript
-const scores: Record<string, number> = { alice: 100, bob: 95 };
-const ages: Record<number, string> = { 1: "one", 2: "two" };
-```
+- non-literal specifiers
+- package/open-world dynamic imports
+- namespace shapes the runtime cannot represent deterministically
 
-Key type must be `string` or `number`. Generates `Dictionary<TKey, TValue>`.
+## `import.meta`
 
-### Index Signatures
+Supported:
 
-```typescript
-interface StringDict {
-  [key: string]: number;
-}
+- `import.meta`
+- `import.meta.url`
+- `import.meta.filename`
+- `import.meta.dirname`
 
-interface NumberDict {
-  [key: number]: string;
-}
-```
+Rejected:
 
-Both generate `Dictionary<TKey, TValue>` with appropriate key types.
+- environment/tooling-specific fields like `import.meta.env`
 
-## Union Types
+## Conditional / Mapped / Utility Types
 
-### Simple Unions
+The compiler now lowers a useful deterministic subset directly instead of blanket rejection.
 
-```typescript
-type StringOrNumber = string | number;
-```
+Supported examples include:
 
-For 2–8 union members, Tsonic generates `Tsonic.Runtime.Union<...>`:
+- `Partial<T>`
+- `Pick<T, K>`
+- `Omit<T, K>`
+- finite mapped types
+- deterministic conditional aliases
+- `keyof`/template-literal/indexed-access combinations that normalize to concrete shapes
 
-```csharp
-// Union<string, double>
-```
+The guiding rule is still representability, not “accept all TS syntax”.
 
-(For 9+ members, it falls back to `object`.)
+## Practical Guidance
 
-### Discriminated Unions
-
-```typescript
-type Result<T> = { ok: true; value: T } | { ok: false; error: string };
-```
-
-Tsonic synthesizes nominal CLR types for each inline object member (generic when needed),
-and represents the union as `Tsonic.Runtime.Union<...>`.
-
-Narrowing is done via explicit guards like `"error" in r` (lowered to `r.IsN()` / `r.AsN()`).
-
-When a discriminant property is typed as a literal (or union of literals), Tsonic also supports
-literal equality checks as narrowing guards:
-
-```typescript
-type Shape =
-  | { kind: "square"; side: number }
-  | { kind: "circle"; radius: number };
-
-function area(s: Shape): number {
-  if (s.kind === "circle") {
-    return s.radius * s.radius;
-  }
-  return s.side * s.side;
-}
-```
-
-Generic discriminated unions with inline object members are supported as well:
-
-```typescript
-type Result2<T, E> = { ok: true; value: T } | { ok: false; error: E };
-```
-
-### Nullable Types
-
-```typescript
-type MaybeString = string | null;
-type OptionalNumber = number | undefined;
-```
-
-Both become `string?` and `double?` respectively.
-
-## Generics
-
-### Generic Functions
-
-```typescript
-export function identity<T>(value: T): T {
-  return value;
-}
-```
-
-Generates:
-
-```csharp
-public static T Identity<T>(T value)
-{
-    return value;
-}
-```
-
-### Generic Classes
-
-```typescript
-export class Container<T> {
-  private value: T;
-
-  constructor(value: T) {
-    this.value = value;
-  }
-
-  get(): T {
-    return this.value;
-  }
-}
-```
-
-### Generic Constraints
-
-```typescript
-interface HasId {
-  id: number;
-}
-
-export function getId<T extends HasId>(item: T): number {
-  return item.id;
-}
-```
-
-Generates `where T : HasId` constraint in C#.
-
-### Null Handling in Generics
-
-In generic contexts, `null` is emitted as `default` to correctly handle both reference and value types:
-
-```typescript
-function getOrDefault<T>(value: T | null, fallback: T): T {
-  return value ?? fallback;
-}
-
-function createEmpty<T>(): T | null {
-  return null; // Emits: return default;
-}
-```
-
-This ensures generics work correctly whether `T` is a class, struct, or primitive.
-
-## Function Types
-
-### Function Signatures
-
-```typescript
-type Callback = (value: number) => void;
-type Transformer<T, U> = (input: T) => U;
-```
-
-Generates:
-
-```csharp
-// Action<double> for Callback
-// Func<T, U> for Transformer
-```
-
-> **See also:** [Callbacks Guide](callbacks.md) for complete coverage of Action, Func, and higher-order function patterns.
-
-### Async Functions
-
-```typescript
-export async function fetchData(): Promise<string> {
-  return "data";
-}
-```
-
-Generates:
-
-```csharp
-public static async Task<string> FetchData()
-{
-    return "data";
-}
-```
-
-> **See also:** [Async Patterns Guide](async-patterns.md) for async/await, for-await loops, and async generators.
-
-## Enums
-
-### Numeric Enums
-
-```typescript
-export enum Status {
-  Pending, // 0
-  Active, // 1
-  Completed, // 2
-}
-```
-
-Generates:
-
-```csharp
-public enum Status
-{
-    Pending = 0,
-    Active = 1,
-    Completed = 2
-}
-```
-
-### String Enums
-
-```typescript
-export enum Color {
-  Red = "red",
-  Green = "green",
-  Blue = "blue",
-}
-```
-
-Generates a class with string constants.
-
-## Type Aliases
-
-### Simple Aliases
-
-```typescript
-export type UserId = number;
-export type UserName = string;
-```
-
-Aliases are resolved at compile time.
-
-### Complex Aliases
-
-```typescript
-export type Point = { x: number; y: number };
-export type Handler = (event: Event) => void;
-```
-
-## Readonly and Const
-
-```typescript
-interface Config {
-  readonly apiUrl: string;
-}
-
-const MAX_SIZE = 100;
-```
-
-- `readonly` becomes `{ get; }` (no setter)
-- `const` becomes `const` or `static readonly`
-
-## Type Inference
-
-Tsonic infers types where possible:
-
-```typescript
-const x = 42; // Inferred: number
-const s = "hello"; // Inferred: string
-const arr = [1, 2, 3]; // Inferred: number[]
-```
-
-Explicit types recommended for:
-
-- Function parameters
-- Function return types
-- Complex objects
-
-## Type Assertions
-
-Use the `as` keyword to perform type conversions.
-
-### Numeric Type Assertions
-
-Prefer numeric type annotations to control emitted CLR numeric types:
-
-```typescript
-import { int, byte, short, long, float } from "@tsonic/core/types.js";
-
-const intValue: int = 1000;
-const byteValue: byte = 255;
-const shortValue: short = 1000;
-const longValue: long = 1000000;
-const floatValue: float = 1.5;
-const doubleValue: number = 1.5;
-```
-
-Generates CLR numeric declarations:
-
-```csharp
-int intValue = 1000;
-byte byteValue = 255;
-short shortValue = 1000;
-long longValue = 1000000L;
-float floatValue = 1.5f;
-double doubleValue = 1.5;
-```
-
-> **See also:** [Numeric Types Guide](numeric-types.md) for complete coverage of numeric casting and overflow behavior.
-
-### Reference Type Assertions
-
-Downcast reference types:
-
-```typescript
-import { Console } from "@tsonic/dotnet/System.js";
-
-class Animal {
-  name!: string;
-}
-
-class Dog extends Animal {
-  breed!: string;
-}
-
-function getDog(animal: Animal): Dog {
-  return animal as Dog;
-}
-
-function castFromObject(obj: object): Animal {
-  return obj as Animal;
-}
-```
-
-Generates C# casts:
-
-```csharp
-public static Dog GetDog(Animal animal)
-{
-    return (Dog)animal;
-}
-
-public static Animal CastFromObject(object obj)
-{
-    return (Animal)obj;
-}
-```
-
-### Safe Casting with trycast
-
-Use `trycast<T>(value)` for safe type casting that returns `null` on failure instead of throwing:
-
-```typescript
-class Animal {
-  name!: string;
-}
-
-class Dog extends Animal {
-  breed!: string;
-}
-
-function tryGetDog(animal: Animal): Dog | null {
-  return trycast<Dog>(animal);
-}
-
-function process(animal: Animal): void {
-  const dog = trycast<Dog>(animal);
-  if (dog !== null) {
-    Console.WriteLine(dog.breed);
-  }
-}
-```
-
-Generates C# `as` operator:
-
-```csharp
-public static Dog? TryGetDog(Animal animal)
-{
-    return animal as Dog;
-}
-
-public static void Process(Animal animal)
-{
-    var dog = animal as Dog;
-    if (dog != null)
-    {
-        Console.WriteLine(dog.breed);
-    }
-}
-```
-
-**Difference from type assertions:**
-
-| Syntax              | C# Code      | On Failure                    |
-| ------------------- | ------------ | ----------------------------- |
-| `value as T`        | `(T)value`   | Throws `InvalidCastException` |
-| `trycast<T>(value)` | `value as T` | Returns `null`                |
-
-Use `trycast` when:
-
-- The cast might fail at runtime
-- You want to check before using the result
-- You're implementing type guards or polymorphic patterns
-
-## Anonymous Objects
-
-Tsonic automatically synthesizes nominal classes for anonymous object type literals.
-
-### Inline Object Types
-
-When you use object type literals inline, Tsonic generates named classes:
-
-```typescript
-import { Console } from "@tsonic/dotnet/System.js";
-
-function createPoint(): { x: number; y: number } {
-  return { x: 10, y: 20 };
-}
-
-function processData(data: { id: number; name: string }): void {
-  Console.WriteLine(data.name);
-}
-```
-
-Generates synthesized classes:
-
-```csharp
-// Auto-generated record class
-public record CreatePoint_Return(double X, double Y);
-
-public record ProcessData_data(double Id, string Name);
-
-public static CreatePoint_Return CreatePoint()
-{
-    return new CreatePoint_Return(10, 20);
-}
-
-public static void ProcessData(ProcessData_data data)
-{
-    Console.WriteLine(data.Name);
-}
-```
-
-### When to Use Named Interfaces
-
-For reusable types, prefer explicit interfaces:
-
-```typescript
-// ✅ Preferred for reusable types
-import { Math } from "@tsonic/dotnet/System.js";
-
-interface Point {
-  x: number;
-  y: number;
-}
-
-function distance(a: Point, b: Point): number {
-  return Math.Sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
-}
-```
-
-Use anonymous object types for:
-
-- One-off return types
-- Function-specific parameters
-- Intermediate data shapes
-
-## Nullable Narrowing
-
-TypeScript null checks automatically narrow types in C#.
-
-### Reference Types
-
-```typescript
-function greet(name: string | null): string {
-  if (name !== null) {
-    return `Hello, ${name}`;
-  }
-  return "Hello, stranger";
-}
-```
-
-### Value Types
-
-Nullable value types require `.Value` access after null checks in C#. Tsonic handles this automatically:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-function processValue(value: int | null): int {
-  if (value !== null) {
-    return value * 2; // Narrowed to int
-  }
-  return 0;
-}
-```
-
-Generates:
-
-```csharp
-public static int ProcessValue(int? value)
-{
-    if (value != null)
-    {
-        return value.Value * 2;  // .Value access
-    }
-    return 0;
-}
-```
-
-> **See also:** [.NET Interop Guide](dotnet-interop.md#nullable-value-type-narrowing) for compound conditions and advanced nullable patterns.
-
-## Unsupported Types
-
-| Type               | Reason            | Alternative                    |
-| ------------------ | ----------------- | ------------------------------ |
-| `any`              | No type safety    | Use `unknown` or specific type |
-| `symbol`           | No C# equivalent  | Use string keys                |
-| `bigint`           | Limited support   | Use `long`                     |
-| Mapped types       | Complex transform | Define explicitly              |
-| Conditional types  | Complex transform | Define explicitly              |
-| Intersection types | No C# equivalent  | Create combined interface      |
+- prefer explicit imported numeric types when CLR width matters
+- keep generics monomorphic at value boundaries
+- keep object-literal shapes finite
+- use JS surface for JS ambient APIs, not CLR fallback
