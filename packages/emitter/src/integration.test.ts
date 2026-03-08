@@ -6,6 +6,8 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
+import * as path from "node:path";
+import { createRequire } from "node:module";
 import {
   buildIrModule,
   DotnetMetadataRegistry,
@@ -15,6 +17,11 @@ import {
   createProgramContext,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
+
+const require = createRequire(import.meta.url);
+const corePackageRoot = path.dirname(require.resolve("@tsonic/core/package.json"));
+const coreTypesPath = path.join(corePackageRoot, "types.d.ts");
+const coreLangPath = path.join(corePackageRoot, "lang.d.ts");
 
 /**
  * Helper to compile TypeScript source to C#
@@ -44,6 +51,7 @@ const compileToCSharp = (
 
   const host = ts.createCompilerHost(compilerOptions);
   const originalGetSourceFile = host.getSourceFile;
+  const originalResolveModuleNames = host.resolveModuleNames?.bind(host);
   host.getSourceFile = (
     name: string,
     languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
@@ -60,6 +68,45 @@ const compileToCSharp = (
       onError,
       shouldCreateNewSourceFile
     );
+  };
+  host.resolveModuleNames = (
+    moduleNames: string[],
+    containingFile: string,
+    reusedNames?: string[],
+    redirectedReference?: ts.ResolvedProjectReference,
+    options?: ts.CompilerOptions
+  ): (ts.ResolvedModule | undefined)[] => {
+    const resolutionOptions = options ?? compilerOptions;
+    return moduleNames.map((moduleName) => {
+      const resolvedFileName =
+        moduleName === "@tsonic/core/types.js"
+          ? coreTypesPath
+          : moduleName === "@tsonic/core/lang.js"
+            ? coreLangPath
+            : undefined;
+      if (resolvedFileName) {
+        return {
+          resolvedFileName,
+          extension: ts.Extension.Dts,
+          isExternalLibraryImport: true,
+        };
+      }
+      return (
+        originalResolveModuleNames?.(
+          [moduleName],
+          containingFile,
+          reusedNames,
+          redirectedReference,
+          resolutionOptions
+        )?.[0] ??
+        ts.resolveModuleName(
+          moduleName,
+          containingFile,
+          resolutionOptions,
+          host
+        ).resolvedModule
+      );
+    });
   };
 
   const tsProgram = ts.createProgram([fileName], compilerOptions, host);

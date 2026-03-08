@@ -10,7 +10,6 @@
  */
 
 import * as ts from "typescript";
-import * as path from "node:path";
 import { TsonicProgram } from "../program.js";
 import {
   DiagnosticsCollector,
@@ -18,143 +17,14 @@ import {
   createDiagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
-
-type CoreModule = "types" | "lang";
-
-const CORE_PACKAGE_NAME = "@tsonic/core";
-
-const CORE_TYPES_TYPE_NAMES = new Set([
-  // Signed integer types
-  "sbyte",
-  "short",
-  "int",
-  "long",
-  "nint",
-  "int128",
-  // Unsigned integer types
-  "byte",
-  "ushort",
-  "uint",
-  "ulong",
-  "nuint",
-  "uint128",
-  // Floating point types
-  "half",
-  "float",
-  "double",
-  "decimal",
-  // Other primitives
-  "bool",
-  "char",
-  // Pointer + passing modifiers + value-type marker
-  "ptr",
-  "out",
-  "ref",
-  "inref",
-  "struct",
-]);
-
-const CORE_LANG_TYPE_NAMES = new Set([
-  // Extension receiver marker (type-only)
-  "thisarg",
-  // Class member emission marker (type-only)
-  "field",
-]);
-
-const CORE_LANG_VALUE_NAMES = new Set([
-  // Currently implemented intrinsics
-  "stackalloc",
-  "trycast",
-  // Call-site argument modifiers (compile-time-only; must be erased by the compiler)
-  "out",
-  "ref",
-  "inref",
-  // Type-only interface view (must be erased by the compiler)
-  "asinterface",
-  // Compile-time type guard used for overload-specialization (must be erased by the compiler)
-  "istype",
-  // Declared in @tsonic/core/lang.js (reserve now to avoid future ambiguity)
-  "nameof",
-  "sizeof",
-  "defaultof",
-]);
-
-// Cache: package.json directory -> package name (or null if unreadable/absent)
-const packageNameCache = new Map<string, string | null>();
-
-const readNearestPackageName = (fileName: string): string | undefined => {
-  const startDir = path.dirname(fileName);
-  let dir = startDir;
-
-  // Walk up until root (or drive root on Windows) looking for package.json.
-  // Cache by the directory where package.json is found.
-  while (true) {
-    const cached = packageNameCache.get(dir);
-    if (cached !== undefined) return cached ?? undefined;
-
-    const pkgPath = path.join(dir, "package.json");
-    if (ts.sys.fileExists(pkgPath)) {
-      try {
-        const raw = ts.sys.readFile(pkgPath);
-        if (!raw) {
-          packageNameCache.set(dir, null);
-          return undefined;
-        }
-        const parsed = JSON.parse(raw) as { name?: unknown };
-        const name = typeof parsed.name === "string" ? parsed.name : undefined;
-        packageNameCache.set(dir, name ?? null);
-        return name;
-      } catch {
-        packageNameCache.set(dir, null);
-        return undefined;
-      }
-    }
-
-    const parent = path.dirname(dir);
-    if (parent === dir) {
-      // No package.json found.
-      packageNameCache.set(dir, null);
-      return undefined;
-    }
-    dir = parent;
-  }
-};
-
-const isCoreDeclarationFile = (
-  fileName: string,
-  module: CoreModule
-): boolean => {
-  const base = path.basename(fileName);
-  const expectedBase = module === "types" ? "types.d.ts" : "lang.d.ts";
-  if (base !== expectedBase) return false;
-
-  const pkgName = readNearestPackageName(fileName);
-  return pkgName === CORE_PACKAGE_NAME;
-};
-
-const resolveAliasedSymbol = (
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol | undefined
-): ts.Symbol | undefined => {
-  if (!symbol) return undefined;
-  return symbol.flags & ts.SymbolFlags.Alias
-    ? checker.getAliasedSymbol(symbol)
-    : symbol;
-};
-
-const isSymbolFromCore = (
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol | undefined,
-  module: CoreModule
-): boolean => {
-  const resolved = resolveAliasedSymbol(checker, symbol);
-  if (!resolved) return false;
-
-  const decls = resolved.getDeclarations?.() ?? [];
-  return decls.some((d) =>
-    isCoreDeclarationFile(d.getSourceFile().fileName, module)
-  );
-};
+import {
+  CORE_LANG_TYPE_NAMES,
+  CORE_LANG_VALUE_NAMES,
+  CORE_PACKAGE_NAME,
+  CORE_TYPES_TYPE_NAMES,
+  type CoreModule,
+  isSymbolFromCore,
+} from "../core-intrinsics/provenance.js";
 
 const getRightmostTypeNameIdentifier = (
   typeName: ts.EntityName

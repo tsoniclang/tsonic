@@ -1077,6 +1077,96 @@ describe("IR Builder", () => {
     });
   });
 
+  describe("Core intrinsic provenance", () => {
+    const expectVariableInitializerKind = (
+      source: string,
+      variableName: string,
+      expectedKind: string
+    ): void => {
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const variableStmt = result.value.body.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations.some(
+            (decl) =>
+              decl.name.kind === "identifierPattern" &&
+              decl.name.name === variableName
+          )
+      );
+      expect(variableStmt).to.not.equal(undefined);
+      if (!variableStmt) return;
+
+      const declaration = variableStmt.declarations.find(
+        (decl) =>
+          decl.name.kind === "identifierPattern" && decl.name.name === variableName
+      );
+      expect(declaration?.initializer?.kind).to.equal(expectedKind);
+    };
+
+    it("does not lower locally declared nameof as the compiler intrinsic", () => {
+      expectVariableInitializerKind(
+        `
+          function nameof(value: string): string {
+            return value + "!";
+          }
+
+          export const label = nameof("x");
+        `,
+        "label",
+        "call"
+      );
+    });
+
+    it("does not lower locally declared sizeof as the compiler intrinsic", () => {
+      expectVariableInitializerKind(
+        `
+          function sizeof<T>(): number {
+            return 4;
+          }
+
+          export const bytes = sizeof<number>();
+        `,
+        "bytes",
+        "call"
+      );
+    });
+
+    it("does not lower locally declared defaultof/trycast/stackalloc/asinterface intrinsics", () => {
+      const source = `
+        function defaultof<T>(): T | undefined {
+          return undefined;
+        }
+        function trycast<T>(value: unknown): T | undefined {
+          return value as T | undefined;
+        }
+        function stackalloc<T>(size: number): T {
+          throw new Error(String(size));
+        }
+        function asinterface<T>(value: unknown): T {
+          return value as T;
+        }
+
+        interface Box { value: number; }
+
+        export const fallback = defaultof<number>();
+        export const maybe = trycast<Box>({ value: 1 });
+        export const mem = stackalloc<number>(16);
+        export const view = asinterface<Box>({ value: 1 });
+      `;
+
+      for (const variableName of ["fallback", "maybe", "mem", "view"]) {
+        expectVariableInitializerKind(source, variableName, "call");
+      }
+    });
+  });
+
   describe("Import Extraction", () => {
     it("should extract local imports", () => {
       const source = `

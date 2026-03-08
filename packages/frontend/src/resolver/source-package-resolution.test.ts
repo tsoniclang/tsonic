@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   getLocalResolutionBoundary,
+  isPathWithinBoundary,
   resolveSourcePackageImport,
 } from "./source-package-resolution.js";
 
@@ -134,5 +135,15 @@ describe("Source Package Resolution", () => {
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("should use path-segment containment instead of string-prefix containment", () => {
+    const root = path.join("/tmp", "project", "src");
+    const sibling = path.join("/tmp", "project", "src-private", "index.ts");
+
+    expect(isPathWithinBoundary(path.join(root, "index.ts"), root)).to.equal(
+      true
+    );
+    expect(isPathWithinBoundary(sibling, root)).to.equal(false);
   });
 });

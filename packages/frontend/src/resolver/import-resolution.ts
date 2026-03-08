@@ -12,6 +12,7 @@ import { isLocalImport } from "../types/module.js";
 import { ResolvedModule } from "./types.js";
 import {
   getLocalResolutionBoundary,
+  isPathWithinBoundary,
   resolveSourcePackageImport,
 } from "./source-package-resolution.js";
 import { ClrBindingsResolver } from "./clr-bindings-resolver.js";
@@ -196,7 +197,7 @@ export const resolveLocalImport = (
 
   // Ensure it's within the current module boundary (workspace source root or
   // installed source-package root).
-  if (!resolvedPath.startsWith(localBoundary)) {
+  if (!isPathWithinBoundary(resolvedPath, localBoundary)) {
     return error(
       createDiagnostic(
         "TSN1004",
