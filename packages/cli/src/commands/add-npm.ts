@@ -7,6 +7,7 @@
  *
  * Supported manifest contracts (airplane-grade):
  * - `tsonic/package-manifest.json` (Aikya)
+ * - `tsonic/package-manifest.json` with `kind: "tsonic-source-package"`
  * - `tsonic.bindings.json` (legacy/external)
  */
 
@@ -22,6 +23,7 @@ import {
 } from "./add-common.js";
 import {
   discoverWorkspaceBindingsManifests,
+  hasInstalledSourcePackageManifest,
   mergeManifestIntoWorkspaceConfig,
   resolveInstalledPackageBindingsManifest,
   type ManifestDotnet,
@@ -245,6 +247,11 @@ export const addNpmCommand = (
   if (!manifestResult.ok) return manifestResult;
   const manifest = manifestResult.value;
   if (!manifest) {
+    const sourcePackageResult = hasInstalledSourcePackageManifest(pkgRoot);
+    if (!sourcePackageResult.ok) return sourcePackageResult;
+    if (sourcePackageResult.value) {
+      return { ok: true, value: { packageName: requestedPackageName } };
+    }
     return {
       ok: false,
       error:

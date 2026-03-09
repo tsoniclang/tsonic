@@ -266,6 +266,65 @@ export const registerJsonAotType = (
   registry.needsJsonAot = true;
 };
 
+export const registerJsonAotExpressionTypes = (
+  expr: IrExpression | undefined,
+  context: EmitterContext
+): void => {
+  if (!expr) return;
+
+  registerJsonAotType(expr.inferredType, context);
+
+  switch (expr.kind) {
+    case "object":
+      for (const property of expr.properties) {
+        if (property.kind === "property") {
+          registerJsonAotExpressionTypes(property.value, context);
+        } else {
+          registerJsonAotExpressionTypes(property.expression, context);
+        }
+      }
+      return;
+    case "array":
+      for (const element of expr.elements) {
+        if (!element) continue;
+        if (element.kind === "spread") {
+          registerJsonAotExpressionTypes(element.expression, context);
+        } else {
+          registerJsonAotExpressionTypes(element, context);
+        }
+      }
+      return;
+    case "conditional":
+      registerJsonAotExpressionTypes(expr.whenTrue, context);
+      registerJsonAotExpressionTypes(expr.whenFalse, context);
+      return;
+    case "logical":
+    case "binary":
+      registerJsonAotExpressionTypes(expr.left, context);
+      registerJsonAotExpressionTypes(expr.right, context);
+      return;
+    case "assignment":
+      registerJsonAotExpressionTypes(expr.right, context);
+      return;
+    case "await":
+    case "yield":
+    case "unary":
+    case "update":
+    case "typeAssertion":
+    case "asinterface":
+    case "trycast":
+      registerJsonAotExpressionTypes(expr.expression, context);
+      return;
+    case "templateLiteral":
+      for (const embedded of expr.expressions) {
+        registerJsonAotExpressionTypes(embedded, context);
+      }
+      return;
+    default:
+      return;
+  }
+};
+
 /**
  * Check if a call expression needs an explicit cast because the inferred type
  * differs from the C# return type. This handles cases like Math.floor() which

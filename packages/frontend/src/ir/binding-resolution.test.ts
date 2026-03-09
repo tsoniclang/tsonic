@@ -1034,6 +1034,109 @@ describe("Binding Resolution in IR", () => {
       );
     });
 
+    it("should keep object-literal method call results as receiver-bound numeric values", () => {
+      const source = `
+        interface Number { toString(): string; }
+
+        export function run(): string {
+          const counter = {
+            value: 21,
+            inc() {
+              this.value += 1;
+              return this.value;
+            },
+          };
+
+          return counter.inc().toString();
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/runtime.json", {
+        bindings: {
+          Number: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Number",
+            typeSemantics: {
+              contributesTypeIdentity: true,
+            },
+          },
+        },
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.Number",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "toString",
+                normalizedSignature:
+                  "toString|(System.Double):System.String|static=true",
+                parameterCount: 1,
+                declaringClrType: "Tsonic.JSRuntime.Number",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+                isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "System.Double",
+            assemblyName: "System.Private.CoreLib",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[1];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) {
+        return;
+      }
+      expect(returnStmt.expression.kind).to.equal("call");
+      if (returnStmt.expression.kind !== "call") return;
+      expect(returnStmt.expression.inferredType?.kind).to.equal("primitiveType");
+      if (returnStmt.expression.inferredType?.kind !== "primitiveType") return;
+      expect(returnStmt.expression.inferredType.name).to.equal("string");
+
+      const memberExpr = returnStmt.expression.callee;
+      expect(memberExpr.kind).to.equal("memberAccess");
+      if (memberExpr.kind !== "memberAccess") return;
+
+      expect(memberExpr.object.kind).to.equal("call");
+      if (memberExpr.object.kind !== "call") return;
+      expect(memberExpr.object.inferredType?.kind).to.equal("primitiveType");
+      if (memberExpr.object.inferredType?.kind !== "primitiveType") return;
+      expect(memberExpr.object.inferredType.name).to.equal("number");
+
+      expect(memberExpr.memberBinding).to.not.equal(undefined);
+      expect(memberExpr.memberBinding?.isExtensionMethod).to.equal(true);
+      expect(memberExpr.memberBinding?.type).to.equal(
+        "Tsonic.JSRuntime.Number"
+      );
+      expect(memberExpr.memberBinding?.member).to.equal("toString");
+      expect(memberExpr.memberBinding?.emitSemantics?.callStyle).to.equal(
+        "receiver"
+      );
+    });
+
     it("should resolve the same extension methods regardless of selected surface", () => {
       const source = `
         interface String { trim(): string; }

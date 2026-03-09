@@ -24,6 +24,7 @@ import {
   isInstanceMemberAccess,
   shouldEmitFluentExtensionCall,
   getTypeNamespace,
+  registerJsonAotExpressionTypes,
   registerJsonAotType,
   needsIntCast,
   isPromiseChainMethod,
@@ -2480,7 +2481,7 @@ const emitJsonSerializerCall = (
   if (method === "Serialize") {
     const firstArg = expr.arguments[0];
     if (firstArg && firstArg.kind !== "spread") {
-      registerJsonAotType(firstArg.inferredType, context);
+      registerJsonAotExpressionTypes(firstArg, context);
     }
   } else {
     const typeArg = deserializeTypeOverride ?? expr.typeArguments?.[0];

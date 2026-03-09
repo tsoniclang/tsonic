@@ -1521,6 +1521,150 @@ describe("IR Builder", () => {
       expect(doubledAccessor).to.not.equal(undefined);
     });
 
+    it("infers unannotated object literal getter types from deterministic bodies", () => {
+      const source = `
+        export function run(): number {
+          const obj = {
+            value: 21,
+            get doubled() {
+              return this.value * 2;
+            },
+          };
+          return obj.doubled;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations.some(
+            (declaration) =>
+              declaration.name.kind === "identifierPattern" &&
+              declaration.name.name === "obj" &&
+              declaration.initializer?.kind === "object"
+          )
+      );
+      const initializer = decl?.declarations.find(
+        (declaration) =>
+          declaration.name.kind === "identifierPattern" &&
+          declaration.name.name === "obj"
+      )?.initializer;
+      expect(initializer?.kind).to.equal("object");
+      if (!initializer || initializer.kind !== "object") return;
+
+      const objectType = initializer.inferredType;
+      expect(objectType?.kind).to.equal("objectType");
+      if (!objectType || objectType.kind !== "objectType") return;
+
+      const doubledMember = objectType.members.find(
+        (member) =>
+          member.kind === "propertySignature" && member.name === "doubled"
+      );
+      expect(doubledMember?.kind).to.equal("propertySignature");
+      if (!doubledMember || doubledMember.kind !== "propertySignature") return;
+      expect(doubledMember.type.kind).to.equal("primitiveType");
+      if (doubledMember.type.kind !== "primitiveType") return;
+      expect(doubledMember.type.name).to.equal("number");
+    });
+
+    it("infers unannotated object literal method return types from deterministic bodies", () => {
+      const source = `
+        export function run(): number {
+          const obj = {
+            value: 21,
+            inc() {
+              this.value += 1;
+              return this.value;
+            },
+          };
+          return obj.inc();
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations.some(
+            (declaration) =>
+              declaration.name.kind === "identifierPattern" &&
+              declaration.name.name === "obj" &&
+              declaration.initializer?.kind === "object"
+          )
+      );
+      const initializer = decl?.declarations.find(
+        (declaration) =>
+          declaration.name.kind === "identifierPattern" &&
+          declaration.name.name === "obj"
+      )?.initializer;
+      expect(initializer?.kind).to.equal("object");
+      if (!initializer || initializer.kind !== "object") return;
+
+      const objectType = initializer.inferredType;
+      expect(objectType?.kind).to.equal("objectType");
+      if (!objectType || objectType.kind !== "objectType") return;
+
+      const incMember = objectType.members.find(
+        (member) => member.kind === "propertySignature" && member.name === "inc"
+      );
+      expect(incMember?.kind).to.equal("propertySignature");
+      if (!incMember || incMember.kind !== "propertySignature") return;
+      expect(incMember.type.kind).to.equal("functionType");
+      if (incMember.type.kind !== "functionType") return;
+      expect(incMember.type.returnType.kind).to.not.equal("voidType");
+      expect(incMember.type.returnType.kind).to.not.equal("unknownType");
+      expect(incMember.type.returnType.kind).to.not.equal("anyType");
+
+      const returnStmt = run.body.statements.find(
+        (stmt) => stmt.kind === "returnStatement"
+      );
+      expect(returnStmt).to.not.equal(undefined);
+      if (
+        !returnStmt ||
+        returnStmt.kind !== "returnStatement" ||
+        !returnStmt.expression
+      )
+        return;
+      expect(returnStmt.expression.kind).to.equal("call");
+      if (returnStmt.expression.kind !== "call") return;
+      expect(returnStmt.expression.inferredType?.kind).to.not.equal("voidType");
+      expect(returnStmt.expression.inferredType?.kind).to.not.equal(
+        "unknownType"
+      );
+      expect(returnStmt.expression.inferredType?.kind).to.not.equal("anyType");
+    });
+
     it("normalizes computed const-literal numeric keys during synthesis", () => {
       const source = `
         export function run(): number {
@@ -2128,7 +2272,126 @@ describe("IR Builder", () => {
 
         expect(property.key).to.equal("value");
         expect(property.value.kind).to.equal("memberAccess");
+        expect(property.value.inferredType?.kind).to.not.equal("voidType");
+        expect(property.value.inferredType?.kind).to.not.equal("unknownType");
+        expect(property.value.inferredType?.kind).to.not.equal("anyType");
         expect(call.inferredType?.kind).to.equal("referenceType");
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("should preserve callable exports as function-valued namespace members", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-dynamic-import-fn-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export async function load() {",
+            '  const module = await import("./module.js");',
+            "  return module.value;",
+            "}",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(srcDir, "module.ts"),
+          "export function value(): number { return 42; }\n"
+        );
+
+        const tsProgram = ts.createProgram(
+          [entryPath, path.join(srcDir, "module.ts")],
+          {
+            target: ts.ScriptTarget.ES2022,
+            module: ts.ModuleKind.NodeNext,
+            moduleResolution: ts.ModuleResolutionKind.NodeNext,
+            strict: true,
+            noEmit: true,
+            skipLibCheck: true,
+          }
+        );
+        const checker = tsProgram.getTypeChecker();
+        const sourceFile = tsProgram.getSourceFile(entryPath);
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const program = {
+          program: tsProgram,
+          checker,
+          options: {
+            projectRoot: tempDir,
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+            strict: true,
+          },
+          sourceFiles: [
+            sourceFile,
+            tsProgram.getSourceFile(path.join(srcDir, "module.ts"))!,
+          ],
+          declarationSourceFiles: [],
+          metadata: new DotnetMetadataRegistry(),
+          bindings: new BindingRegistry(),
+          clrResolver: createClrBindingsResolver(tempDir),
+          binding: createBinding(checker),
+        };
+
+        const options = { sourceRoot: srcDir, rootNamespace: "TestApp" };
+        const ctx = createProgramContext(program, options);
+        const moduleResult = buildIrModule(sourceFile, program, options, ctx);
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const loadFn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "load"
+        );
+        expect(loadFn).to.not.equal(undefined);
+        if (!loadFn) return;
+
+        const declStmt = loadFn.body.statements[0];
+        expect(declStmt?.kind).to.equal("variableDeclaration");
+        if (!declStmt || declStmt.kind !== "variableDeclaration") return;
+
+        const initializer = declStmt.declarations[0]?.initializer;
+        expect(initializer?.kind).to.equal("await");
+        if (!initializer || initializer.kind !== "await") return;
+
+        const call = initializer.expression;
+        expect(call.kind).to.equal("call");
+        if (call.kind !== "call" || !call.dynamicImportNamespace) return;
+
+        const property = call.dynamicImportNamespace.properties[0];
+        expect(property?.kind).to.equal("property");
+        if (!property || property.kind !== "property") return;
+        expect(property.value.inferredType?.kind).to.equal("functionType");
+
+        const namespaceType = call.dynamicImportNamespace.inferredType;
+        expect(namespaceType?.kind).to.equal("objectType");
+        if (!namespaceType || namespaceType.kind !== "objectType") return;
+
+        const valueMember = namespaceType.members.find(
+          (member) =>
+            member.kind === "propertySignature" && member.name === "value"
+        );
+        expect(valueMember?.kind).to.equal("propertySignature");
+        if (!valueMember || valueMember.kind !== "propertySignature") return;
+        expect(valueMember.type.kind).to.equal("functionType");
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }

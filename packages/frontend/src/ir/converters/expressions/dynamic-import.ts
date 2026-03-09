@@ -1,5 +1,10 @@
 import * as ts from "typescript";
-import type { IrObjectExpression, IrType } from "../../types.js";
+import type {
+  IrFunctionType,
+  IrObjectExpression,
+  IrParameter,
+  IrType,
+} from "../../types.js";
 import type { ProgramContext } from "../../program-context.js";
 import {
   getClassNameFromPath,
@@ -38,6 +43,58 @@ const buildModuleContainerClrType = (
   return `${namespace}.${containerName}`;
 };
 
+const getDynamicImportEntryType = (
+  entry: {
+    readonly declarationName: ts.Identifier;
+    readonly memberKind: "function" | "variable";
+  },
+  ctx: ProgramContext
+): IrType | undefined => {
+  const declId = ctx.binding.resolveIdentifier(entry.declarationName);
+  if (!declId) return undefined;
+
+  if (entry.memberKind === "function") {
+    const functionDecl = entry.declarationName.parent;
+    if (
+      ts.isFunctionDeclaration(functionDecl) ||
+      ts.isFunctionExpression(functionDecl) ||
+      ts.isMethodDeclaration(functionDecl) ||
+      ts.isArrowFunction(functionDecl)
+    ) {
+      const parameters: IrParameter[] = functionDecl.parameters.map((param) => ({
+        kind: "parameter",
+        pattern: {
+          kind: "identifierPattern",
+          name: ts.isIdentifier(param.name) ? param.name.text : "__arg",
+        },
+        type: param.type
+          ? ctx.typeSystem.typeFromSyntax(
+              ctx.binding.captureTypeSyntax(param.type)
+            )
+          : undefined,
+        initializer: undefined,
+        isOptional: !!param.questionToken,
+        isRest: !!param.dotDotDotToken,
+        passing: "value",
+      }));
+
+      const returnType = functionDecl.type
+        ? ctx.typeSystem.typeFromSyntax(
+            ctx.binding.captureTypeSyntax(functionDecl.type)
+          )
+        : ({ kind: "unknownType" } as const);
+
+      return {
+        kind: "functionType",
+        parameters,
+        returnType,
+      } satisfies IrFunctionType;
+    }
+  }
+
+  return ctx.typeSystem.typeOfDecl(declId);
+};
+
 export const getDynamicImportPromiseType = (
   node: ts.CallExpression,
   ctx: ProgramContext
@@ -57,10 +114,9 @@ export const getDynamicImportPromiseType = (
   }
 
   const members = resolution.entries.map((entry) => {
-    const declId = ctx.binding.resolveIdentifier(entry.declarationName);
-    const memberType = declId
-      ? ctx.typeSystem.typeOfDecl(declId)
-      : { kind: "unknownType" as const };
+    const memberType = getDynamicImportEntryType(entry, ctx) ?? {
+      kind: "unknownType" as const,
+    };
     return {
       kind: "propertySignature" as const,
       name: entry.exportName,
@@ -122,12 +178,10 @@ export const convertDynamicImportNamespaceObject = (
   }[] = [];
 
   for (const entry of resolution.entries) {
-    const declId = ctx.binding.resolveIdentifier(entry.declarationName);
-    if (!declId) {
+    const memberType = getDynamicImportEntryType(entry, ctx);
+    if (!memberType) {
       return undefined;
     }
-
-    const memberType = ctx.typeSystem.typeOfDecl(declId);
     const containerClrType = buildModuleContainerClrType(
       entry.ownerFilePath,
       ctx

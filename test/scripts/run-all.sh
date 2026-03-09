@@ -123,6 +123,119 @@ ensure_tsonic_bin() {
     exit 1
 }
 
+resolve_local_tsonic_package_dest() {
+    local package_name="$1"
+    local dotnet_major="$2"
+
+    if [[ ! "$package_name" =~ ^@tsonic/ ]]; then
+        return 1
+    fi
+
+    local name="${package_name#@tsonic/}"
+    local sibling="$ROOT_DIR/../$name"
+
+    if [ -f "$sibling/versions/$dotnet_major/package.json" ]; then
+        printf '%s\n' "$sibling/versions/$dotnet_major"
+        return 0
+    fi
+
+    if [ -f "$sibling/package.json" ]; then
+        printf '%s\n' "$sibling"
+        return 0
+    fi
+
+    local root_pkg="$ROOT_DIR/node_modules/@tsonic/$name"
+    if [ -e "$root_pkg" ]; then
+        printf '%s\n' "$root_pkg"
+        return 0
+    fi
+
+    return 1
+}
+
+collect_fixture_tsonic_packages() {
+    local fixture_dir="$1"
+
+    node - "$fixture_dir" "$ROOT_DIR" <<'EOF'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const fixtureDir = process.argv[2];
+const rootDir = process.argv[3];
+const workspacePath = path.join(fixtureDir, "tsonic.workspace.json");
+const packagePath = path.join(fixtureDir, "package.json");
+const monorepoParent = path.dirname(rootDir);
+const results = new Set();
+
+const addPackage = (name) => {
+  if (typeof name !== "string" || !name.startsWith("@tsonic/")) return;
+  results.add(name);
+};
+
+const resolveSurfaceRoot = (mode) => {
+  if (!mode) return undefined;
+  if (mode === "clr") {
+    const sibling = path.join(monorepoParent, "globals", "versions", "10");
+    if (fs.existsSync(path.join(sibling, "package.json"))) return sibling;
+    const installed = path.join(rootDir, "node_modules", "@tsonic", "globals");
+    if (fs.existsSync(path.join(installed, "package.json"))) return installed;
+    return undefined;
+  }
+
+  const scoped = mode.match(/^@tsonic\/([^/]+)$/);
+  if (scoped?.[1]) {
+    const sibling = path.join(monorepoParent, scoped[1], "versions", "10");
+    if (fs.existsSync(path.join(sibling, "package.json"))) return sibling;
+  }
+
+  const installed = path.join(rootDir, "node_modules", ...mode.split("/"));
+  if (fs.existsSync(path.join(installed, "package.json"))) return installed;
+  return undefined;
+};
+
+const visitSurface = (mode, seen = new Set()) => {
+  if (!mode || seen.has(mode)) return;
+  seen.add(mode);
+  if (mode === "clr") {
+    addPackage("@tsonic/globals");
+    return;
+  }
+
+  addPackage(mode);
+  const packageRoot = resolveSurfaceRoot(mode);
+  if (!packageRoot) return;
+  const manifestPath = path.join(packageRoot, "tsonic.surface.json");
+  if (!fs.existsSync(manifestPath)) return;
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const parents = Array.isArray(manifest.extends)
+    ? manifest.extends.filter((entry) => typeof entry === "string")
+    : [];
+  for (const parent of parents) visitSurface(parent, seen);
+};
+
+if (fs.existsSync(packagePath)) {
+  const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+  const deps = Object.assign({}, pkg.dependencies || {}, pkg.devDependencies || {});
+  for (const key of Object.keys(deps)) addPackage(key);
+}
+
+if (fs.existsSync(workspacePath)) {
+  const cfg = JSON.parse(fs.readFileSync(workspacePath, "utf8"));
+  visitSurface(typeof cfg.surface === "string" ? cfg.surface : "clr");
+  const typeRoots = Array.isArray(cfg?.dotnet?.typeRoots)
+    ? cfg.dotnet.typeRoots.filter((entry) => typeof entry === "string")
+    : [];
+  for (const entry of typeRoots) {
+    if (entry.startsWith("node_modules/@tsonic/")) {
+      addPackage(entry.replace(/^node_modules\//, ""));
+    }
+  }
+}
+
+process.stdout.write(Array.from(results).sort().join("\n"));
+EOF
+}
+
 matches_filter() {
     local name="$1"
     if [ ${#FILTER_PATTERNS[@]} -eq 0 ]; then
@@ -390,7 +503,7 @@ else
         # from the repo root node_modules without local installs.
         if [ -f "package.json" ] && [ "${E2E_NPM_INSTALL:-0}" = "1" ]; then
             npm install --silent --no-package-lock
-        elif [ -f "package.json" ]; then
+        elif [ "${E2E_NPM_INSTALL:-0}" != "1" ]; then
             # Offline/dev mode: create minimal node_modules with @tsonic/* symlinks.
             # This is intentionally test-only; production Tsonic must use normal npm
             # resolution and never assume sibling checkouts.
@@ -399,10 +512,11 @@ else
             # Determine .NET major (prefer fixture config, fall back to 10).
             dotnet_major=$(node -e 'const fs=require("fs"); try { const cfg=JSON.parse(fs.readFileSync("tsonic.workspace.json","utf8")); const dv=String(cfg.dotnetVersion ?? "net10.0"); const m=dv.match(/net(\\d+)/); console.log(m ? m[1] : "10"); } catch { console.log("10"); }' 2>/dev/null || echo "10")
 
-            # List @tsonic/* deps from package.json
-            deps=$(
-                node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json","utf8")); const deps=Object.assign({}, p.dependencies||{}, p.devDependencies||{}); for (const k of Object.keys(deps)) { if (k.startsWith("@tsonic/")) console.log(k); }' 2>/dev/null || true
-            )
+            # Collect all @tsonic packages needed for this fixture:
+            # - package.json deps/devDeps
+            # - active surface package chain from tsonic.workspace.json
+            # - explicit node_modules/@tsonic/* typeRoots
+            deps="$(collect_fixture_tsonic_packages "$fixture_dir" || true)"
 
             while IFS= read -r pkg; do
                 [ -n "$pkg" ] || continue
@@ -412,28 +526,13 @@ else
                     continue
                 fi
 
-                # Prefer sibling repo checkouts next to this monorepo (dev workflow).
+                resolved_pkg="$(resolve_local_tsonic_package_dest "$pkg" "$dotnet_major" || true)"
+                if [ -n "$resolved_pkg" ]; then
+                    ln -s "$resolved_pkg" "$dest"
+                    continue
+                fi
+
                 sibling="$ROOT_DIR/../$name"
-
-                # Versioned repos: <repo>/versions/<major> contains the real package.
-                if [ -f "$sibling/versions/$dotnet_major/package.json" ]; then
-                    ln -s "$sibling/versions/$dotnet_major" "$dest"
-                    continue
-                fi
-
-                # Non-versioned repos: <repo>/package.json contains the real package.
-                if [ -f "$sibling/package.json" ]; then
-                    ln -s "$sibling" "$dest"
-                    continue
-                fi
-
-                # Fall back to already-installed repo root packages.
-                root_pkg="$ROOT_DIR/node_modules/@tsonic/$name"
-                if [ -e "$root_pkg" ]; then
-                    ln -s "$root_pkg" "$dest"
-                    continue
-                fi
-
                 echo "FAIL: missing dependency $pkg. Set E2E_NPM_INSTALL=1 to install from npm, or clone the repo at $sibling." >>"$error_file"
                 result="FAIL (missing deps)"
                 echo "$result" > "$result_file"
