@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { buildUnifiedUniverse } from "./unified-universe.js";
-import type { AssemblyTypeCatalog } from "./types.js";
+import type { AssemblyTypeCatalog, TypeId, NominalEntry } from "./types.js";
 import type {
   TypeRegistry,
   TypeRegistryEntry,
@@ -12,6 +12,18 @@ const emptyAssemblyCatalog = (): AssemblyTypeCatalog => ({
   tsNameToTypeId: new Map(),
   clrNameToTypeId: new Map(),
   namespaceToTypeIds: new Map(),
+});
+
+const makeAssemblyTypeId = (
+  stableId: string,
+  clrName: string,
+  assemblyName: string,
+  tsName: string
+): TypeId => ({
+  stableId,
+  clrName,
+  assemblyName,
+  tsName,
 });
 
 const makeRegistry = (entry: TypeRegistryEntry): TypeRegistry => ({
@@ -48,6 +60,7 @@ describe("buildUnifiedUniverse", () => {
       kind: "interface",
       name: "Foo",
       fullyQualifiedName: "MyApp.Foo",
+      isDeclarationFile: false,
       typeParameters: [],
       members: new Map([
         [
@@ -85,6 +98,7 @@ describe("buildUnifiedUniverse", () => {
       kind: "interface",
       name: "Foo",
       fullyQualifiedName: "MyApp.Foo",
+      isDeclarationFile: false,
       typeParameters: [],
       members: new Map([
         [
@@ -120,5 +134,49 @@ describe("buildUnifiedUniverse", () => {
       ).length;
       expect(undefinedCount).to.equal(1);
     }
+  });
+
+  it("keeps assembly identity for declaration-file globals with matching TS names", () => {
+    const entry: TypeRegistryEntry = {
+      kind: "class",
+      name: "Error",
+      fullyQualifiedName: "Error",
+      isDeclarationFile: true,
+      typeParameters: [],
+      members: new Map(),
+      heritage: [],
+    };
+
+    const errorTypeId = makeAssemblyTypeId(
+      "Tsonic.JSRuntime:Tsonic.JSRuntime.Error",
+      "Tsonic.JSRuntime.Error",
+      "Tsonic.JSRuntime",
+      "Error"
+    );
+    const assemblyEntry: NominalEntry = {
+      typeId: errorTypeId,
+      kind: "class",
+      typeParameters: [],
+      heritage: [],
+      members: new Map(),
+      origin: "assembly",
+      accessibility: "public",
+      isAbstract: false,
+      isSealed: false,
+      isStatic: false,
+    };
+
+    const catalog = buildUnifiedUniverse(
+      makeRegistry(entry),
+      {
+        entries: new Map([[errorTypeId.stableId, assemblyEntry]]),
+        tsNameToTypeId: new Map([[errorTypeId.tsName, errorTypeId]]),
+        clrNameToTypeId: new Map([[errorTypeId.clrName, errorTypeId]]),
+        namespaceToTypeIds: new Map(),
+      },
+      "project"
+    );
+
+    expect(catalog.resolveTsName("Error")).to.deep.equal(errorTypeId);
   });
 });

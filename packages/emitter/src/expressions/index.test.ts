@@ -729,7 +729,7 @@ describe("Expression Emission", () => {
     expect(result).to.include('req.@params["id"]');
   });
 
-  it("should lower extension method calls to explicit static invocation", () => {
+  it("should emit JS runtime string receiver helpers as fluent calls", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -770,13 +770,13 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include(
+    expect(result).to.include('path.split("/")');
+    expect(result).not.to.include(
       'global::Tsonic.JSRuntime.String.split(path, "/")'
     );
-    expect(result).not.to.include("path.split");
   });
 
-  it("should lower numeric wrapper extension methods through surface bindings", () => {
+  it("should emit JS runtime numeric receiver helpers as fluent calls", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -817,10 +817,10 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include(
+    expect(result).to.include("value.toString()");
+    expect(result).not.to.include(
       "global::Tsonic.JSRuntime.Number.toString(value)"
     );
-    expect(result).not.to.include("value.toString()");
   });
 
   it("should emit fluent LINQ extension method calls (required for EF query precompilation)", () => {

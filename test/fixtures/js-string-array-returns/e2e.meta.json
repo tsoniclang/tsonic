@@ -1,0 +1,4 @@
+{
+  "description": "JS string helpers that conceptually return arrays lower to array-typed CLR results.",
+  "expectedOutput": "docs,getting-started docs a 2"
+}

@@ -145,6 +145,14 @@ export const shouldEmitFluentExtensionCall = (
   bindingType: string,
   memberName: string
 ): boolean => {
+  // JS surface receiver methods are authored as instance calls and deliberately
+  // use JS-lowercase member names (`trim`, `toString`, `startsWith`, ...).
+  // Emitting them as fluent extension syntax preserves optional-chaining shape:
+  //   value?.toString()
+  // must remain a single null-propagating chain, not lower to
+  //   Tsonic.JSRuntime.Number.toString(value?)
+  if (bindingType.startsWith("Tsonic.JSRuntime.")) return true;
+
   // EF Core query precompilation requires fluent/extension syntax specifically for Queryable.
   // Keep Enumerable as explicit static invocation by default to avoid accidental binding to
   // instance methods on custom enumerable types.

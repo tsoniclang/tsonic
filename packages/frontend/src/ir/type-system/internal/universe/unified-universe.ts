@@ -271,11 +271,16 @@ export const buildUnifiedUniverse = (
       if (!entry) continue;
 
       const nominalEntry = convertRegistryEntry(entry, projectName);
+      const preserveAssemblyIdentity =
+        entry.isDeclarationFile &&
+        assemblyCatalog.tsNameToTypeId.has(entry.name);
 
       // Add to maps (source types won't collide with assembly types by stableId)
       entries.set(nominalEntry.typeId.stableId, nominalEntry);
-      tsNameToTypeId.set(nominalEntry.typeId.tsName, nominalEntry.typeId);
-      clrNameToTypeId.set(nominalEntry.typeId.clrName, nominalEntry.typeId);
+      if (!preserveAssemblyIdentity) {
+        tsNameToTypeId.set(nominalEntry.typeId.tsName, nominalEntry.typeId);
+        clrNameToTypeId.set(nominalEntry.typeId.clrName, nominalEntry.typeId);
+      }
     }
   }
 

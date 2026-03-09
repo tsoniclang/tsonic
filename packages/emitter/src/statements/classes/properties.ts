@@ -76,8 +76,7 @@ export const emitInterfaceMemberAsProperty = (
         name,
         hasGetter: true,
         hasSetter: !member.isReadonly || needsMutableStorage,
-        hasInit:
-          member.isReadonly && !needsMutableStorage ? true : undefined,
+        hasInit: member.isReadonly && !needsMutableStorage ? true : undefined,
         isAutoProperty: true,
       };
 

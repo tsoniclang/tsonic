@@ -30,6 +30,7 @@ import {
   buildUnifiedUniverse,
   loadClrCatalog,
 } from "./type-system/internal/universe/index.js";
+import type { AssemblyTypeCatalog } from "./type-system/internal/universe/types.js";
 
 /**
  * ProgramContext — Per-compilation context owning all semantic state.
@@ -135,6 +136,29 @@ export type ProgramContext = {
    * enclosing class. It refers to the synthesized object shape itself.
    */
   readonly objectLiteralThisType?: IrType;
+};
+
+const withSimpleTypeAliases = (
+  assemblyCatalog: AssemblyTypeCatalog,
+  bindings: BindingRegistry
+): AssemblyTypeCatalog => {
+  const tsNameToTypeId = new Map(assemblyCatalog.tsNameToTypeId);
+
+  for (const [alias, descriptor] of bindings.getAllBindings()) {
+    if (!/^[A-Z]/.test(alias)) continue;
+    if (tsNameToTypeId.has(alias)) continue;
+
+    const typeId = assemblyCatalog.clrNameToTypeId.get(descriptor.type);
+    if (!typeId) continue;
+    tsNameToTypeId.set(alias, typeId);
+  }
+
+  return {
+    entries: assemblyCatalog.entries,
+    tsNameToTypeId,
+    clrNameToTypeId: assemblyCatalog.clrNameToTypeId,
+    namespaceToTypeIds: assemblyCatalog.namespaceToTypeIds,
+  };
 };
 
 /**
@@ -413,6 +437,16 @@ export const createProgramContext = (
     if (coreRoot) extraPackageRoots.push(coreRoot);
   }
 
+  // Any declaration package participating in the TypeScript program must also
+  // contribute its CLR metadata to the assembly catalog. This is the generic
+  // rule that keeps ambient surface packages and normal declaration packages in
+  // sync: if a package's .d.ts files are in the program, its bindings metadata
+  // must be in the universe.
+  for (const sourceFile of program.declarationSourceFiles) {
+    const pkgRoot = findPackageRootForFile(sourceFile.fileName);
+    if (pkgRoot) extraPackageRoots.push(pkgRoot);
+  }
+
   // Include any additional CLR packages discovered via imports (e.g., efcore, aspnetcore).
   // The CLR catalog loader scans node_modules/@tsonic by default; when developing in a
   // multi-repo workspace (or running E2E fixtures without local node_modules),
@@ -435,7 +469,10 @@ export const createProgramContext = (
     if (pkgRoot) extraPackageRoots.push(pkgRoot);
   }
 
-  const assemblyCatalog = loadClrCatalog(nodeModulesPath, extraPackageRoots);
+  const assemblyCatalog = withSimpleTypeAliases(
+    loadClrCatalog(nodeModulesPath, extraPackageRoots),
+    program.bindings
+  );
   const aliasTable = buildAliasTable(assemblyCatalog);
 
   // Build unified catalog merging source and assembly types
