@@ -5,7 +5,6 @@
 import {
   IrExpression,
   IrType,
-  recordBindingsSemanticsHeuristicHit,
 } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst } from "../../type-emitter.js";
@@ -152,8 +151,7 @@ export const shouldEmitFluentExtensionCall = (
     readonly emitSemantics?: {
       readonly callStyle: "receiver" | "static";
     };
-  },
-  sourceFile?: string
+  }
 ): boolean => {
   if (memberBinding.emitSemantics?.callStyle === "receiver") {
     return true;
@@ -162,75 +160,6 @@ export const shouldEmitFluentExtensionCall = (
   if (memberBinding.emitSemantics?.callStyle === "static") {
     return false;
   }
-
-  const bindingType = memberBinding.type;
-  const memberName = memberBinding.member;
-
-  // JS surface receiver methods are authored as instance calls and deliberately
-  // use JS-lowercase member names (`trim`, `toString`, `startsWith`, ...).
-  // Emitting them as fluent extension syntax preserves optional-chaining shape:
-  //   value?.toString()
-  // must remain a single null-propagating chain, not lower to
-  //   Tsonic.JSRuntime.Number.toString(value?)
-  if (bindingType.startsWith("Tsonic.JSRuntime.")) {
-    recordBindingsSemanticsHeuristicHit({
-      heuristicKind: "callStyle",
-      family: "call-style:js-runtime-receiver",
-      site: "Emitter.shouldEmitFluentExtensionCall",
-      bindingType,
-      memberName,
-      sourceFile,
-    });
-    return true;
-  }
-
-  // EF Core query precompilation requires fluent/extension syntax specifically for Queryable.
-  // Keep Enumerable as explicit static invocation by default to avoid accidental binding to
-  // instance methods on custom enumerable types.
-  if (bindingType.startsWith("System.Linq.Queryable")) {
-    recordBindingsSemanticsHeuristicHit({
-      heuristicKind: "callStyle",
-      family: "call-style:linq-queryable-receiver",
-      site: "Emitter.shouldEmitFluentExtensionCall",
-      bindingType,
-      memberName,
-      sourceFile,
-    });
-    return true;
-  }
-
-  // EF Core query operators (Include/ThenInclude/AsNoTracking/etc.)
-  if (bindingType.startsWith("Microsoft.EntityFrameworkCore.")) {
-    recordBindingsSemanticsHeuristicHit({
-      heuristicKind: "callStyle",
-      family: "call-style:efcore-receiver",
-      site: "Emitter.shouldEmitFluentExtensionCall",
-      bindingType,
-      memberName,
-      sourceFile,
-    });
-    return true;
-  }
-
-  // EF Core query precompilation also requires fluent syntax for certain Enumerable terminal ops
-  // (e.g., IQueryable<T>.ToList()/ToArray()). When emitted as explicit static calls
-  // (Enumerable.ToList(query)), dotnet-ef may not generate interceptors, causing runtime failure
-  // under NativeAOT ("Query wasn't precompiled and dynamic code isn't supported").
-  if (
-    bindingType.startsWith("System.Linq.Enumerable") &&
-    (memberName === "ToList" || memberName === "ToArray")
-  ) {
-    recordBindingsSemanticsHeuristicHit({
-      heuristicKind: "callStyle",
-      family: "call-style:linq-enumerable-terminal-receiver",
-      site: "Emitter.shouldEmitFluentExtensionCall",
-      bindingType,
-      memberName,
-      sourceFile,
-    });
-    return true;
-  }
-
   return false;
 };
 

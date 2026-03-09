@@ -2702,8 +2702,7 @@ export const emitCall = (
     // Fluent extension method path
     if (
       shouldEmitFluentExtensionCall(
-        binding,
-        expr.sourceSpan?.file
+        binding
       )
     ) {
       const ns = getTypeNamespace(binding.type);

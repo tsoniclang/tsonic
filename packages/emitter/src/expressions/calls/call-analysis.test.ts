@@ -44,5 +44,35 @@ describe("call-analysis", () => {
         })
       ).to.equal(false);
     });
+
+    it("should not infer fluent emission from migrated families when metadata is absent", () => {
+      expect(
+        shouldEmitFluentExtensionCall({
+          type: "Tsonic.JSRuntime.String",
+          member: "trim",
+        })
+      ).to.equal(false);
+
+      expect(
+        shouldEmitFluentExtensionCall({
+          type: "System.Linq.Queryable",
+          member: "Where",
+        })
+      ).to.equal(false);
+
+      expect(
+        shouldEmitFluentExtensionCall({
+          type: "Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions",
+          member: "Include",
+        })
+      ).to.equal(false);
+
+      expect(
+        shouldEmitFluentExtensionCall({
+          type: "System.Linq.Enumerable",
+          member: "ToList",
+        })
+      ).to.equal(false);
+    });
   });
 });

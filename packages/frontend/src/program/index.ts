@@ -7,10 +7,6 @@ export { defaultTsConfig } from "./config.js";
 export { loadDotnetMetadata } from "./metadata.js";
 export { BindingRegistry, loadBindings, type TypeBinding } from "./bindings.js";
 export {
-  recordBindingsSemanticsHeuristicHit,
-  type BindingsSemanticsHeuristicHit,
-} from "./bindings-semantics-heuristics.js";
-export {
   collectTsDiagnostics,
   convertTsDiagnostic,
   getSourceLocation,

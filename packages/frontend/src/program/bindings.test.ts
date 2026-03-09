@@ -1015,6 +1015,29 @@ describe("Binding System", () => {
       expect(emitterTypes.has("console")).to.equal(false);
     });
 
+    it("should not infer type identity from uppercase aliases when metadata is absent", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/simple.json", {
+        bindings: {
+          Date: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Date",
+          },
+          JSON: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.JSON",
+          },
+        },
+      });
+
+      const emitterTypes = registry.getEmitterTypeMap();
+      expect(emitterTypes.has("Date")).to.equal(false);
+      expect(emitterTypes.has("JSON")).to.equal(false);
+    });
+
     it("should preserve explicit member emit semantics from tsbindgen bindings", () => {
       const registry = new BindingRegistry();
 

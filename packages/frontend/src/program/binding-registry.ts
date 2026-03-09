@@ -17,30 +17,16 @@ import {
   isFullBindingManifest,
   isTsbindgenBindingFile,
 } from "./binding-types.js";
-import { recordBindingsSemanticsHeuristicHit } from "./bindings-semantics-heuristics.js";
 
 export const simpleBindingContributesTypeIdentity = (
-  alias: string,
-  descriptor: SimpleBindingDescriptor,
-  site: string
+  descriptor: SimpleBindingDescriptor
 ): boolean => {
   const explicit = descriptor.typeSemantics?.contributesTypeIdentity;
   if (explicit !== undefined) {
     return explicit;
   }
 
-  if (!/^[A-Z]/.test(alias)) {
-    return false;
-  }
-
-  recordBindingsSemanticsHeuristicHit({
-    heuristicKind: "typeIdentity",
-    family: `type-identity:${alias}`,
-    site,
-    alias,
-    clrType: descriptor.type,
-  });
-  return true;
+  return false;
 };
 
 /**
@@ -712,13 +698,7 @@ export class BindingRegistry {
     const result = new Map(this.types);
 
     for (const [alias, descriptor] of this.simpleBindings) {
-      if (
-        !simpleBindingContributesTypeIdentity(
-          alias,
-          descriptor,
-          "BindingRegistry.getEmitterTypeMap"
-        )
-      ) {
+      if (!simpleBindingContributesTypeIdentity(descriptor)) {
         continue;
       }
       if (result.has(alias)) continue;

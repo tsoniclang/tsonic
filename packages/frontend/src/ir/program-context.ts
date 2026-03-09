@@ -146,13 +146,7 @@ const withSimpleTypeAliases = (
   const tsNameToTypeId = new Map(assemblyCatalog.tsNameToTypeId);
 
   for (const [alias, descriptor] of bindings.getAllBindings()) {
-    if (
-      !simpleBindingContributesTypeIdentity(
-        alias,
-        descriptor,
-        "ProgramContext.withSimpleTypeAliases"
-      )
-    ) {
+    if (!simpleBindingContributesTypeIdentity(descriptor)) {
       continue;
     }
     if (tsNameToTypeId.has(alias)) continue;
