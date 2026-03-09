@@ -938,5 +938,157 @@ describe("Binding System", () => {
       expect(member1?.name).to.equal("Method1");
       expect(member2?.name).to.equal("Method2");
     });
+
+    it("should preserve explicit simple-binding type semantics in the registry", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/simple.json", {
+        bindings: {
+          Date: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Date",
+            typeSemantics: {
+              contributesTypeIdentity: true,
+            },
+          },
+          JSON: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.JSON",
+            typeSemantics: {
+              contributesTypeIdentity: false,
+            },
+          },
+        },
+      });
+
+      expect(
+        registry.getBinding("Date")?.typeSemantics?.contributesTypeIdentity
+      ).to.equal(true);
+      expect(
+        registry.getBinding("JSON")?.typeSemantics?.contributesTypeIdentity
+      ).to.equal(false);
+    });
+
+    it("should use explicit type semantics before uppercase fallback in emitter type map", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/simple.json", {
+        bindings: {
+          Date: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Date",
+            typeSemantics: {
+              contributesTypeIdentity: true,
+            },
+          },
+          JSON: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.JSON",
+            typeSemantics: {
+              contributesTypeIdentity: false,
+            },
+          },
+          Error: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Error",
+            typeSemantics: {
+              contributesTypeIdentity: true,
+            },
+          },
+          console: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.console",
+          },
+        },
+      });
+
+      const emitterTypes = registry.getEmitterTypeMap();
+      expect(emitterTypes.has("Date")).to.equal(true);
+      expect(emitterTypes.has("JSON")).to.equal(false);
+      expect(emitterTypes.has("Error")).to.equal(true);
+      expect(emitterTypes.has("console")).to.equal(false);
+    });
+
+    it("should not infer type identity from uppercase aliases when metadata is absent", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/simple.json", {
+        bindings: {
+          Date: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Date",
+          },
+          JSON: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.JSON",
+          },
+        },
+      });
+
+      const emitterTypes = registry.getEmitterTypeMap();
+      expect(emitterTypes.has("Date")).to.equal(false);
+      expect(emitterTypes.has("JSON")).to.equal(false);
+    });
+
+    it("should preserve explicit member emit semantics from tsbindgen bindings", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/linq/bindings.json", {
+        namespace: "System.Linq",
+        types: [
+          {
+            clrName: "System.Linq.Enumerable",
+            assemblyName: "System.Linq",
+            methods: [
+              {
+                clrName: "Where",
+                declaringClrType: "System.Linq.Enumerable",
+                declaringAssemblyName: "System.Linq",
+                normalizedSignature:
+                  "Where|(IEnumerable_1,Func_2):IEnumerable_1|static=true",
+                parameterCount: 2,
+                isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "static",
+                },
+              },
+              {
+                clrName: "ToList",
+                declaringClrType: "System.Linq.Enumerable",
+                declaringAssemblyName: "System.Linq",
+                normalizedSignature:
+                  "ToList|(IEnumerable_1):List_1|static=true",
+                parameterCount: 1,
+                isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const where = registry.getMemberOverloads("Enumerable", "Where")?.[0];
+      const toList = registry.getMemberOverloads("Enumerable", "ToList")?.[0];
+
+      expect(where?.emitSemantics?.callStyle).to.equal("static");
+      expect(toList?.emitSemantics?.callStyle).to.equal("receiver");
+      expect(
+        registry
+          .getClrMemberOverloads("System.Linq", "System.Linq.Enumerable", "ToList")
+          ?.[0]?.emitSemantics?.callStyle
+      ).to.equal("receiver");
+    });
   });
 });

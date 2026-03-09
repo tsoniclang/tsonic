@@ -2700,7 +2700,11 @@ export const emitCall = (
     currentContext = receiverContext;
 
     // Fluent extension method path
-    if (shouldEmitFluentExtensionCall(binding.type, binding.member)) {
+    if (
+      shouldEmitFluentExtensionCall(
+        binding
+      )
+    ) {
       const ns = getTypeNamespace(binding.type);
       if (ns) {
         currentContext.usings.add(ns);

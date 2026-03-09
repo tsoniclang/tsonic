@@ -12,6 +12,16 @@ export type ParameterModifier = {
   readonly modifier: "ref" | "out" | "in";
 };
 
+export type EmitCallStyle = "receiver" | "static";
+
+export type EmitSemantics = {
+  readonly callStyle: EmitCallStyle;
+};
+
+export type TypeSemantics = {
+  readonly contributesTypeIdentity: boolean;
+};
+
 /**
  * Member binding (method/property level)
  */
@@ -32,6 +42,7 @@ export type MemberBinding = {
   // Whether this member is an extension method (tsbindgen metadata).
   // Used by the emitter to lower instance-style calls to explicit static calls.
   readonly isExtensionMethod?: boolean;
+  readonly emitSemantics?: EmitSemantics;
 };
 
 /**
@@ -71,6 +82,7 @@ export type SimpleBindingDescriptor = {
   readonly type: string;
   readonly staticType?: string; // Optional: separate CLR type for static member access
   readonly csharpName?: string; // Optional: rename identifier in generated C#
+  readonly typeSemantics?: TypeSemantics;
 };
 
 /**
@@ -95,6 +107,7 @@ export type TsbindgenMethod = {
   // Parameter modifiers for ref/out/in parameters
   readonly parameterModifiers?: readonly ParameterModifier[];
   readonly isExtensionMethod?: boolean;
+  readonly emitSemantics?: EmitSemantics;
 };
 
 export type TsbindgenProperty = {
@@ -166,6 +179,45 @@ export type TsbindgenBindingFile = {
   readonly exports?: Readonly<Record<string, TsbindgenExport>>;
 };
 
+const isValidEmitCallStyle = (value: unknown): value is EmitCallStyle =>
+  value === "receiver" || value === "static";
+
+const validateEmitSemantics = (
+  value: unknown,
+  filePath: string,
+  label: string
+): string | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return `${filePath}: '${label}' must be an object`;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (!isValidEmitCallStyle(record.callStyle)) {
+    return `${filePath}: '${label}.callStyle' must be 'receiver' or 'static'`;
+  }
+
+  return undefined;
+};
+
+const validateTypeSemantics = (
+  value: unknown,
+  filePath: string,
+  label: string
+): string | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return `${filePath}: '${label}' must be an object`;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.contributesTypeIdentity !== "boolean") {
+    return `${filePath}: '${label}.contributesTypeIdentity' must be a boolean`;
+  }
+
+  return undefined;
+};
+
 /**
  * Union type for all binding formats
  */
@@ -218,6 +270,20 @@ export const validateBindingFile = (
     if (!Array.isArray(manifest.types)) {
       return `${filePath}: 'types' must be an array`;
     }
+    for (const [typeIndex, typeValue] of manifest.types.entries()) {
+      if (typeValue === null || typeof typeValue !== "object") continue;
+      const typeRecord = typeValue as Record<string, unknown>;
+      const methods = Array.isArray(typeRecord.methods) ? typeRecord.methods : [];
+      for (const [methodIndex, methodValue] of methods.entries()) {
+        if (methodValue === null || typeof methodValue !== "object") continue;
+        const error = validateEmitSemantics(
+          (methodValue as Record<string, unknown>).emitSemantics,
+          filePath,
+          `types[${typeIndex}].methods[${methodIndex}].emitSemantics`
+        );
+        if (error) return error;
+      }
+    }
     return undefined; // Valid tsbindgen format
   }
 
@@ -229,6 +295,25 @@ export const validateBindingFile = (
     if (!Array.isArray(manifest.namespaces)) {
       return `${filePath}: 'namespaces' must be an array`;
     }
+    for (const [namespaceIndex, namespaceValue] of manifest.namespaces.entries()) {
+      if (namespaceValue === null || typeof namespaceValue !== "object") continue;
+      const namespaceRecord = namespaceValue as Record<string, unknown>;
+      const types = Array.isArray(namespaceRecord.types) ? namespaceRecord.types : [];
+      for (const [typeIndex, typeValue] of types.entries()) {
+        if (typeValue === null || typeof typeValue !== "object") continue;
+        const typeRecord = typeValue as Record<string, unknown>;
+        const members = Array.isArray(typeRecord.members) ? typeRecord.members : [];
+        for (const [memberIndex, memberValue] of members.entries()) {
+          if (memberValue === null || typeof memberValue !== "object") continue;
+          const error = validateEmitSemantics(
+            (memberValue as Record<string, unknown>).emitSemantics,
+            filePath,
+            `namespaces[${namespaceIndex}].types[${typeIndex}].members[${memberIndex}].emitSemantics`
+          );
+          if (error) return error;
+        }
+      }
+    }
     return undefined; // Valid full format
   }
 
@@ -236,6 +321,17 @@ export const validateBindingFile = (
   if ("bindings" in manifest) {
     if (typeof manifest.bindings !== "object" || manifest.bindings === null) {
       return `${filePath}: 'bindings' must be an object`;
+    }
+    for (const [bindingName, bindingValue] of Object.entries(
+      manifest.bindings as Record<string, unknown>
+    )) {
+      if (bindingValue === null || typeof bindingValue !== "object") continue;
+      const error = validateTypeSemantics(
+        (bindingValue as Record<string, unknown>).typeSemantics,
+        filePath,
+        `bindings.${bindingName}.typeSemantics`
+      );
+      if (error) return error;
     }
     return undefined; // Valid simple format
   }

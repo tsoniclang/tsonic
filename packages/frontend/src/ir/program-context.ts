@@ -16,6 +16,7 @@ import type { TypeAuthority } from "./type-system/type-system.js";
 import type { IrType } from "./types.js";
 import type { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import type { BindingRegistry } from "../program/bindings.js";
+import { simpleBindingContributesTypeIdentity } from "../program/binding-registry.js";
 import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import type { TsonicProgram } from "../program.js";
 import type { SurfaceMode } from "../program/types.js";
@@ -145,7 +146,9 @@ const withSimpleTypeAliases = (
   const tsNameToTypeId = new Map(assemblyCatalog.tsNameToTypeId);
 
   for (const [alias, descriptor] of bindings.getAllBindings()) {
-    if (!/^[A-Z]/.test(alias)) continue;
+    if (!simpleBindingContributesTypeIdentity(descriptor)) {
+      continue;
+    }
     if (tsNameToTypeId.has(alias)) continue;
 
     const typeId = assemblyCatalog.clrNameToTypeId.get(descriptor.type);

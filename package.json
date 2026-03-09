@@ -11,6 +11,7 @@
     "clean:all": "./scripts/build/clean.sh --all",
     "test": "npm run test:frontend && npm run test:backend && npm run test:emitter && npm run test:cli",
     "test:backend": "cd packages/backend && npm test --",
+    "test:bindings-semantics": "bash scripts/bindings-semantics/verify-migrated-families.sh",
     "test:cli": "cd packages/cli && npm test --",
     "test:frontend": "cd packages/frontend && npm test --",
     "test:emitter": "cd packages/emitter && npm test --",

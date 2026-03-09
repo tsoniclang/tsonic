@@ -2,7 +2,10 @@
  * Call expression analysis and detection helpers
  */
 
-import { IrExpression, IrType } from "@tsonic/frontend";
+import {
+  IrExpression,
+  IrType,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { renderTypeAst } from "../../core/format/backend-ast/utils.js";
@@ -142,36 +145,21 @@ export const isInstanceMemberAccess = (
  * of extension-method invocation so the analyzer can locate queries in user code.
  */
 export const shouldEmitFluentExtensionCall = (
-  bindingType: string,
-  memberName: string
+  memberBinding: {
+    readonly type: string;
+    readonly member: string;
+    readonly emitSemantics?: {
+      readonly callStyle: "receiver" | "static";
+    };
+  }
 ): boolean => {
-  // JS surface receiver methods are authored as instance calls and deliberately
-  // use JS-lowercase member names (`trim`, `toString`, `startsWith`, ...).
-  // Emitting them as fluent extension syntax preserves optional-chaining shape:
-  //   value?.toString()
-  // must remain a single null-propagating chain, not lower to
-  //   Tsonic.JSRuntime.Number.toString(value?)
-  if (bindingType.startsWith("Tsonic.JSRuntime.")) return true;
-
-  // EF Core query precompilation requires fluent/extension syntax specifically for Queryable.
-  // Keep Enumerable as explicit static invocation by default to avoid accidental binding to
-  // instance methods on custom enumerable types.
-  if (bindingType.startsWith("System.Linq.Queryable")) return true;
-
-  // EF Core query operators (Include/ThenInclude/AsNoTracking/etc.)
-  if (bindingType.startsWith("Microsoft.EntityFrameworkCore.")) return true;
-
-  // EF Core query precompilation also requires fluent syntax for certain Enumerable terminal ops
-  // (e.g., IQueryable<T>.ToList()/ToArray()). When emitted as explicit static calls
-  // (Enumerable.ToList(query)), dotnet-ef may not generate interceptors, causing runtime failure
-  // under NativeAOT ("Query wasn't precompiled and dynamic code isn't supported").
-  if (
-    bindingType.startsWith("System.Linq.Enumerable") &&
-    (memberName === "ToList" || memberName === "ToArray")
-  ) {
+  if (memberBinding.emitSemantics?.callStyle === "receiver") {
     return true;
   }
 
+  if (memberBinding.emitSemantics?.callStyle === "static") {
+    return false;
+  }
   return false;
 };
 
