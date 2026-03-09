@@ -512,6 +512,51 @@ describe("add npm", function () {
     }
   });
 
+  it("allows installed tsonic source packages without treating them as invalid Aikya manifests", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-source-package-"));
+    try {
+      const configPath = writeWorkspaceConfig(dir, { surface: "@tsonic/js" });
+      const pkgName = "@acme/math";
+      writeLocalNpmPackage(dir, "local/acme-math", {
+        name: pkgName,
+        aikyaManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-source-package",
+          surfaces: ["@tsonic/js"],
+          source: {
+            exports: {
+              ".": "./src/index.ts",
+            },
+          },
+        },
+      });
+      mkdirSync(join(dir, "local/acme-math", "src"), { recursive: true });
+      writeFileSync(
+        join(dir, "local/acme-math", "src", "index.ts"),
+        "export const clamp = (x: number, min: number, max: number): number => x < min ? min : x > max ? max : x;\n",
+        "utf-8"
+      );
+
+      const result = addNpmCommand("./local/acme-math", configPath, {
+        quiet: true,
+      });
+      expect(result.ok).to.equal(true);
+      expect(result.ok ? result.value.packageName : "").to.equal(pkgName);
+
+      const normalizedManifestPath = join(
+        dir,
+        ".tsonic",
+        "manifests",
+        "npm",
+        pkgName,
+        "tsonic.bindings.normalized.json"
+      );
+      expect(existsSync(normalizedManifestPath)).to.equal(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("uses the workspace surface when rediscovering manifests", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-surface-"));
     try {
