@@ -197,6 +197,9 @@ export type IrMemberExpression = {
       readonly modifier: "ref" | "out" | "in";
     }[];
     readonly isExtensionMethod?: boolean;
+    readonly emitSemantics?: {
+      readonly callStyle: "receiver" | "static";
+    };
   };
   // Classification for computed access lowering (set during IR build)
   // Determines whether Int32 proof is required for indices

@@ -6,8 +6,18 @@ TRACE_FILE="$ROOT/.tests/bindings-semantics-heuristics.jsonl"
 OUTPUT_JSON="$ROOT/.analysis/bindings-semantics-metadata/08-heuristic-hit-inventory.json"
 OUTPUT_MD="$ROOT/.analysis/bindings-semantics-metadata/08-heuristic-hit-inventory.md"
 FAIL_FAMILIES="${TSONIC_BINDINGS_SEMANTICS_FAIL_FAMILIES:-}"
+INSTALL_LOCAL_WAVE="$ROOT/scripts/bindings-semantics/install-local-wave.sh"
 
 : > "$TRACE_FILE"
+
+for repo_root in \
+  "$ROOT" \
+  "/home/jester/repos/tsoniclang/proof-is-in-the-pudding" \
+  "/home/jester/repos/tsoniclang/tsumo" \
+  "/home/jester/repos/agilehead/clickmeter"
+do
+  "$INSTALL_LOCAL_WAVE" "$repo_root"
+done
 
 run_with_trace() {
   local suite="$1"

@@ -146,10 +146,26 @@ export const isInstanceMemberAccess = (
  * of extension-method invocation so the analyzer can locate queries in user code.
  */
 export const shouldEmitFluentExtensionCall = (
-  bindingType: string,
-  memberName: string,
+  memberBinding: {
+    readonly type: string;
+    readonly member: string;
+    readonly emitSemantics?: {
+      readonly callStyle: "receiver" | "static";
+    };
+  },
   sourceFile?: string
 ): boolean => {
+  if (memberBinding.emitSemantics?.callStyle === "receiver") {
+    return true;
+  }
+
+  if (memberBinding.emitSemantics?.callStyle === "static") {
+    return false;
+  }
+
+  const bindingType = memberBinding.type;
+  const memberName = memberBinding.member;
+
   // JS surface receiver methods are authored as instance calls and deliberately
   // use JS-lowercase member names (`trim`, `toString`, `startsWith`, ...).
   // Emitting them as fluent extension syntax preserves optional-chaining shape:

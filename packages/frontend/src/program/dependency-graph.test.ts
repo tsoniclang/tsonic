@@ -157,6 +157,15 @@ describe("Dependency Graph", () => {
     );
 
     try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(path.join(srcDir, "nested"), { recursive: true });
       const entryPath = path.join(srcDir, "index.ts");
@@ -177,6 +186,7 @@ describe("Dependency Graph", () => {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        surface: "@tsonic/js",
       });
 
       expect(result.ok).to.equal(true);
@@ -200,6 +210,15 @@ describe("Dependency Graph", () => {
     );
 
     try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(path.join(srcDir, "nested"), { recursive: true });
       const entryPath = path.join(srcDir, "index.ts");
@@ -221,6 +240,7 @@ describe("Dependency Graph", () => {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        surface: "@tsonic/js",
       });
 
       expect(result.ok).to.equal(true);

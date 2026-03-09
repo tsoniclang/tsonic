@@ -9,6 +9,9 @@
 // ── Types ──────────────────────────────────────────────────────────────────
 export type {
   ParameterModifier,
+  EmitCallStyle,
+  EmitSemantics,
+  TypeSemantics,
   MemberBinding,
   TypeBinding,
   NamespaceBinding,

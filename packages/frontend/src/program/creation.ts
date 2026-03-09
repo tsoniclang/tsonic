@@ -937,6 +937,9 @@ export const createProgram = (
           kind: "global",
           assembly: "System.Private.CoreLib",
           type: "System.Exception",
+          typeSemantics: {
+            contributesTypeIdentity: true,
+          },
         },
       },
     });

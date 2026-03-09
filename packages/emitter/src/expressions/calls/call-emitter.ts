@@ -2702,8 +2702,7 @@ export const emitCall = (
     // Fluent extension method path
     if (
       shouldEmitFluentExtensionCall(
-        binding.type,
-        binding.member,
+        binding,
         expr.sourceSpan?.file
       )
     ) {

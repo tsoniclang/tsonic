@@ -117,6 +117,7 @@ export const resolveHierarchicalBinding = (
           ? first.parameterModifiers
           : undefined,
       isExtensionMethod: first.isExtensionMethod,
+      emitSemantics: first.emitSemantics,
     };
   };
 
@@ -471,6 +472,7 @@ export const resolveHierarchicalBindingFromMemberId = (
         ? first.parameterModifiers
         : undefined,
     isExtensionMethod: first.isExtensionMethod,
+    emitSemantics: first.emitSemantics,
   };
 };
 
@@ -631,5 +633,6 @@ export const resolveExtensionMethodsBinding = (
         ? shiftedModifiers
         : undefined,
     isExtensionMethod: resolved.isExtensionMethod,
+    emitSemantics: resolved.emitSemantics,
   };
 };

@@ -758,6 +758,9 @@ describe("Expression Emission", () => {
                 type: "Tsonic.JSRuntime.String",
                 member: "split",
                 isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
               },
             },
             arguments: [{ kind: "literal", value: "/" }],
@@ -805,6 +808,9 @@ describe("Expression Emission", () => {
                 type: "Tsonic.JSRuntime.Number",
                 member: "toString",
                 isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
               },
             },
             arguments: [],
@@ -852,6 +858,9 @@ describe("Expression Emission", () => {
                 type: "System.Linq.Queryable",
                 member: "Count",
                 isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
               },
             },
             arguments: [],
@@ -911,6 +920,9 @@ describe("Expression Emission", () => {
               type: "System.Linq.Queryable",
               member: m.member,
               isExtensionMethod: true,
+              emitSemantics: {
+                callStyle: "receiver",
+              },
             },
           },
           arguments: m.args,
@@ -959,6 +971,9 @@ describe("Expression Emission", () => {
                 type: "System.Linq.Enumerable",
                 member: "ToArray",
                 isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
               },
             },
             arguments: [],
@@ -985,6 +1000,9 @@ describe("Expression Emission", () => {
                 type: "System.Linq.Enumerable",
                 member: "ToList",
                 isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
               },
             },
             arguments: [],
@@ -1012,6 +1030,9 @@ describe("Expression Emission", () => {
                 type: "System.Linq.Enumerable",
                 member: "Where",
                 isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "static",
+                },
               },
             },
             arguments: [{ kind: "identifier", name: "pred" }],
@@ -1063,6 +1084,9 @@ describe("Expression Emission", () => {
                 type: "Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions",
                 member: "AsNoTracking",
                 isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
               },
             },
             arguments: [],
@@ -1114,6 +1138,9 @@ describe("Expression Emission", () => {
                     type: "System.Linq.Enumerable",
                     member: "ToList",
                     isExtensionMethod: true,
+                    emitSemantics: {
+                      callStyle: "receiver",
+                    },
                   },
                 },
                 arguments: [],
@@ -1128,6 +1155,9 @@ describe("Expression Emission", () => {
                 type: "System.Linq.Enumerable",
                 member: "ToArray",
                 isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
               },
             },
             arguments: [],

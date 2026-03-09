@@ -19,6 +19,30 @@ import {
 } from "./binding-types.js";
 import { recordBindingsSemanticsHeuristicHit } from "./bindings-semantics-heuristics.js";
 
+export const simpleBindingContributesTypeIdentity = (
+  alias: string,
+  descriptor: SimpleBindingDescriptor,
+  site: string
+): boolean => {
+  const explicit = descriptor.typeSemantics?.contributesTypeIdentity;
+  if (explicit !== undefined) {
+    return explicit;
+  }
+
+  if (!/^[A-Z]/.test(alias)) {
+    return false;
+  }
+
+  recordBindingsSemanticsHeuristicHit({
+    heuristicKind: "typeIdentity",
+    family: `type-identity:${alias}`,
+    site,
+    alias,
+    clrType: descriptor.type,
+  });
+  return true;
+};
+
 /**
  * Registry of all loaded bindings
  * Supports simple (global/module) and hierarchical (namespace/type/member) formats
@@ -367,6 +391,7 @@ export class BindingRegistry {
             // Include parameter modifiers for ref/out/in parameters
             parameterModifiers: method.parameterModifiers,
             isExtensionMethod: method.isExtensionMethod ?? false,
+            emitSemantics: method.emitSemantics,
           };
 
           members.push(memberBinding);
@@ -686,20 +711,17 @@ export class BindingRegistry {
   getEmitterTypeMap(): ReadonlyMap<string, TypeBinding> {
     const result = new Map(this.types);
 
-    const isTypeLikeSimpleAlias = (alias: string): boolean =>
-      /^[A-Z]/.test(alias);
-
     for (const [alias, descriptor] of this.simpleBindings) {
-      if (!isTypeLikeSimpleAlias(alias)) continue;
+      if (
+        !simpleBindingContributesTypeIdentity(
+          alias,
+          descriptor,
+          "BindingRegistry.getEmitterTypeMap"
+        )
+      ) {
+        continue;
+      }
       if (result.has(alias)) continue;
-
-      recordBindingsSemanticsHeuristicHit({
-        heuristicKind: "typeIdentity",
-        family: `type-identity:${alias}`,
-        site: "BindingRegistry.getEmitterTypeMap",
-        alias,
-        clrType: descriptor.type,
-      });
 
       result.set(alias, {
         alias,
