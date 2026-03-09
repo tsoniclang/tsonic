@@ -103,6 +103,54 @@ describe("Dependency Graph", () => {
     }
   });
 
+  it("should expose type-like simple bindings to the emitter graph", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-dependency-graph-simple-bindings-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        [
+          "const cb: (err: Error | undefined) => void = (_err) => {};",
+          "cb(undefined);",
+          "export const ok = true;",
+        ].join("\n")
+      );
+
+      const result = buildModuleDependencyGraph(entryPath, {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.value.bindings.get("Error")?.name).to.equal(
+        "Tsonic.JSRuntime.Error"
+      );
+      expect(JSON.stringify(result.value.modules)).to.include(
+        '"clrName":"Tsonic.JSRuntime.Error"'
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("should traverse awaited relative dynamic-import side effects", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-dependency-graph-dynamic-import-")

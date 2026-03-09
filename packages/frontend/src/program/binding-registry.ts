@@ -672,6 +672,38 @@ export class BindingRegistry {
   }
 
   /**
+   * Get the type map used by the emitter.
+   *
+   * This includes:
+   * - hierarchical tsbindgen/full-manifest types
+   * - simple global bindings that are type-like (e.g. Error, Date, Uint8Array)
+   *
+   * Expression lowering still uses the full binding registry. This view exists so
+   * type emission can resolve ambient global constructors/types that are authored
+   * via simple bindings instead of hierarchical type manifests.
+   */
+  getEmitterTypeMap(): ReadonlyMap<string, TypeBinding> {
+    const result = new Map(this.types);
+
+    const isTypeLikeSimpleAlias = (alias: string): boolean =>
+      /^[A-Z]/.test(alias);
+
+    for (const [alias, descriptor] of this.simpleBindings) {
+      if (!isTypeLikeSimpleAlias(alias)) continue;
+      if (result.has(alias)) continue;
+
+      result.set(alias, {
+        alias,
+        name: descriptor.type,
+        kind: "class",
+        members: [],
+      });
+    }
+
+    return result;
+  }
+
+  /**
    * Clear all loaded bindings
    */
   clear(): void {

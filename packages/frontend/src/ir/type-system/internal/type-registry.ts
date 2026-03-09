@@ -119,6 +119,7 @@ export type TypeRegistryEntry = {
   readonly kind: "class" | "interface" | "typeAlias";
   readonly name: string; // Simple name (e.g., "User")
   readonly fullyQualifiedName: string; // FQ name (e.g., "MyApp.Models.User")
+  readonly isDeclarationFile: boolean;
   readonly typeParameters: readonly TypeParameterEntry[]; // PURE IR
   readonly members: ReadonlyMap<string, MemberInfo>; // PURE IR
   readonly heritage: readonly HeritageInfo[]; // PURE IR
@@ -652,6 +653,7 @@ export const buildTypeRegistry = (
         kind: "class",
         name: simpleName,
         fullyQualifiedName: fqName,
+        isDeclarationFile: sf.isDeclarationFile,
         typeParameters: extractTypeParameters(node.typeParameters, convert),
         members: extractMembers(node.members, convert),
         heritage: extractHeritage(
@@ -686,6 +688,7 @@ export const buildTypeRegistry = (
         }
         entries.set(fqName, {
           ...existing,
+          isDeclarationFile: existing.isDeclarationFile,
           members: mergedMembers,
           heritage: [
             ...existing.heritage,
@@ -704,6 +707,7 @@ export const buildTypeRegistry = (
           kind: "interface",
           name: simpleName,
           fullyQualifiedName: fqName,
+          isDeclarationFile: sf.isDeclarationFile,
           typeParameters: extractTypeParameters(node.typeParameters, convert),
           members: extractMembers(node.members, convert),
           heritage: extractHeritage(
@@ -732,6 +736,7 @@ export const buildTypeRegistry = (
         kind: "typeAlias",
         name: simpleName,
         fullyQualifiedName: fqName,
+        isDeclarationFile: sf.isDeclarationFile,
         typeParameters: extractTypeParameters(node.typeParameters, convert),
         members: aliasedMembers,
         heritage: [],

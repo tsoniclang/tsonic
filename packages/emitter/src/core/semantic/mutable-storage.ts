@@ -8,10 +8,7 @@ import {
   IrType,
 } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import {
-  resolveTypeAlias,
-  stripNullish,
-} from "./type-resolution.js";
+import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 
 type MutableStorageAnalysis = {
   readonly mutableModuleBindings: ReadonlySet<string>;
@@ -50,7 +47,9 @@ const collectPatternNames = (pattern: IrPattern): readonly string[] => {
   }
 };
 
-const collectTopLevelConstBindings = (module: IrModule): ReadonlySet<string> => {
+const collectTopLevelConstBindings = (
+  module: IrModule
+): ReadonlySet<string> => {
   const result = new Set<string>();
   for (const stmt of module.body) {
     if (stmt.kind !== "variableDeclaration") continue;
@@ -425,7 +424,9 @@ const visitExpression = (
     case "functionExpression": {
       const names = [
         ...(expr.name ? [expr.name] : []),
-        ...expr.parameters.flatMap((param) => collectPatternNames(param.pattern)),
+        ...expr.parameters.flatMap((param) =>
+          collectPatternNames(param.pattern)
+        ),
       ];
       pushScope(scopes, names);
       visitStatement(

@@ -390,7 +390,7 @@ export const buildModuleDependencyGraph = (
   // This is the final validation before emitter can run
   const soundnessResult = validateIrSoundness(attributeResult.modules, {
     knownReferenceTypes: new Set([
-      ...tsonicProgram.bindings.getTypesMap().keys(),
+      ...tsonicProgram.bindings.getEmitterTypeMap().keys(),
       ...collectSynthesizedTypeNames(attributeResult.modules),
     ]),
   });
@@ -461,6 +461,6 @@ export const buildModuleDependencyGraph = (
   return ok({
     modules: processedModules,
     entryModule,
-    bindings: tsonicProgram.bindings.getTypesMap(),
+    bindings: tsonicProgram.bindings.getEmitterTypeMap(),
   });
 };

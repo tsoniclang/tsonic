@@ -137,16 +137,24 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::System.Threading.Tasks.Task<string>");
     });
 
-    it("should fail for Error type (not supported)", () => {
+    it("should emit Error when provided through emitter bindings", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Error",
       });
 
-      // Error is not in globals, so it should fail as unresolved
-      expect(() => emitModule(module)).to.throw(
-        "ICE: Unresolved reference type 'Error'"
-      );
+      const errorBinding: FrontendTypeBinding = {
+        name: "Tsonic.JSRuntime.Error",
+        alias: "Error",
+        kind: "class",
+        members: [],
+      };
+
+      const result = emitModule(module, {
+        clrBindings: new Map([["Error", errorBinding]]),
+      });
+
+      expect(result).to.include("global::Tsonic.JSRuntime.Error x");
     });
   });
 

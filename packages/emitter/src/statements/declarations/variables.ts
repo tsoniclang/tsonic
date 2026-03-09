@@ -329,7 +329,9 @@ const shouldEmitReadonlyStaticField = (
 ): boolean => {
   if (stmt.declarationKind !== "const") return false;
   if (decl.name.kind !== "identifierPattern") return true;
-  return !(decl.name.name && context.mutableModuleBindings?.has(decl.name.name));
+  return !(
+    decl.name.name && context.mutableModuleBindings?.has(decl.name.name)
+  );
 };
 
 /**

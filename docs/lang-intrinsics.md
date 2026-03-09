@@ -44,7 +44,7 @@ const zero: int = defaultof<int>();
 import { nameof } from "@tsonic/core/lang.js";
 
 const field = nameof(user.name); // "name"
-const local = nameof(user);      // "user"
+const local = nameof(user); // "user"
 ```
 
 Current supported forms:
