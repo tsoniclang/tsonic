@@ -17,6 +17,7 @@ import {
   isFullBindingManifest,
   isTsbindgenBindingFile,
 } from "./binding-types.js";
+import { recordBindingsSemanticsHeuristicHit } from "./bindings-semantics-heuristics.js";
 
 /**
  * Registry of all loaded bindings
@@ -691,6 +692,14 @@ export class BindingRegistry {
     for (const [alias, descriptor] of this.simpleBindings) {
       if (!isTypeLikeSimpleAlias(alias)) continue;
       if (result.has(alias)) continue;
+
+      recordBindingsSemanticsHeuristicHit({
+        heuristicKind: "typeIdentity",
+        family: `type-identity:${alias}`,
+        site: "BindingRegistry.getEmitterTypeMap",
+        alias,
+        clrType: descriptor.type,
+      });
 
       result.set(alias, {
         alias,

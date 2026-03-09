@@ -6,9 +6,11 @@
 export type { CompilerOptions, TsonicProgram } from "./program/index.js";
 export type { ModuleDependencyGraphResult } from "./program/dependency-graph.js";
 export type { TypeBinding } from "./program/index.js";
+export type { BindingsSemanticsHeuristicHit } from "./program/index.js";
 export {
   createProgram,
   getSourceFile,
   BindingRegistry,
   buildModuleDependencyGraph,
+  recordBindingsSemanticsHeuristicHit,
 } from "./program/index.js";
