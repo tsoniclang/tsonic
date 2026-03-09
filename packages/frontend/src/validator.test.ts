@@ -628,6 +628,23 @@ describe("Static Safety Validation", () => {
       expect(objDiag).to.equal(undefined);
     });
 
+    it("should allow object literal getter shorthand that returns this-bound property type", () => {
+      const source = `
+        const counter = {
+          x: 1,
+          get value() {
+            return this.x;
+          },
+        };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
     it("should allow object literal with interface type", () => {
       const source = `
         interface Point { x: number; y: number }

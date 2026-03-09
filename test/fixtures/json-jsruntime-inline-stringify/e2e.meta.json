@@ -1,0 +1,3 @@
+{
+  "description": "inline JSON.stringify object literals register NativeAOT metadata and build successfully."
+}

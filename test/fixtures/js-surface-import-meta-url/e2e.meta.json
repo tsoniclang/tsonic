@@ -1,0 +1,3 @@
+{
+  "description": "js surface exposes import.meta.url/filename/dirname without local declaration merging."
+}

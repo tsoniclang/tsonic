@@ -779,6 +779,9 @@ const resolveFromAikyaManifest = (
   }
 
   const kind = manifest.kind;
+  if (kind === "tsonic-source-package") {
+    return { ok: true, value: null };
+  }
   if (kind !== "tsonic-library") {
     return errorWithCode(
       AIKYA_DIAGNOSTIC.invalidSchema,
@@ -1089,6 +1092,37 @@ export const resolveInstalledPackageBindingsManifest = (
     packageRoot,
     info.value.name,
     info.value.version
+  );
+};
+
+export const hasInstalledSourcePackageManifest = (
+  packageRoot: string
+): Result<boolean, string> => {
+  const path = join(packageRoot, "tsonic", "package-manifest.json");
+  if (!existsSync(path)) return { ok: true, value: false };
+
+  const parsed = readJsonObject(path, AIKYA_DIAGNOSTIC.invalidSchema);
+  if (!parsed.ok) return parsed;
+
+  const schemaVersion = parsed.value.schemaVersion;
+  if (schemaVersion !== 1) {
+    return errorWithCode(
+      AIKYA_DIAGNOSTIC.invalidSchema,
+      `schemaVersion must be 1 at ${path}`
+    );
+  }
+
+  const kind = parsed.value.kind;
+  if (kind === "tsonic-source-package") {
+    return { ok: true, value: true };
+  }
+  if (kind === "tsonic-library") {
+    return { ok: true, value: false };
+  }
+
+  return errorWithCode(
+    AIKYA_DIAGNOSTIC.invalidSchema,
+    `Unsupported kind '${String(kind)}' at ${path}`
   );
 };
 

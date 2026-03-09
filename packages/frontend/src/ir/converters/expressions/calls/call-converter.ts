@@ -803,8 +803,34 @@ export const convertCallExpression = (
     : lambdaContextResolved;
 
   const parameterTypes = finalResolved?.parameterTypes ?? initialParameterTypes;
-  const inferredType =
-    finalResolved?.returnType ?? ({ kind: "unknownType" } as const);
+  const inferredType = (() => {
+    const resolvedReturnType = finalResolved?.returnType;
+    if (!resolvedReturnType) {
+      return { kind: "unknownType" } as const;
+    }
+
+    // Airplane-grade rule:
+    // When a call target is already typed as a function value and the resolved
+    // signature has no declared return annotation, the IR must preserve the
+    // callee's deterministically inferred function return type instead of
+    // collapsing the call to `void`.
+    //
+    // This matters for synthesized object-literal methods and other
+    // function-valued members where the TS signature handle may originate from
+    // syntax without an explicit return type while the frontend has already
+    // recovered a precise function type from the body.
+    if (
+      finalResolved?.hasDeclaredReturnType === false &&
+      calleeFunctionType?.returnType &&
+      (resolvedReturnType.kind === "voidType" ||
+        resolvedReturnType.kind === "unknownType" ||
+        resolvedReturnType.kind === "anyType")
+    ) {
+      return calleeFunctionType.returnType;
+    }
+
+    return resolvedReturnType;
+  })();
   const argumentPassingFromBinding = extractArgumentPassingFromBinding(
     callee,
     node.arguments.length,

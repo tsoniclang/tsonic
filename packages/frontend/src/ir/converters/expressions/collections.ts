@@ -5,7 +5,9 @@
 import * as ts from "typescript";
 import {
   IrArrayExpression,
+  IrBlockStatement,
   IrClassMember,
+  IrFunctionExpression,
   IrFunctionType,
   IrInterfaceMember,
   IrObjectExpression,
@@ -14,6 +16,7 @@ import {
   IrType,
   IrExpression,
   IrParameter,
+  IrStatement,
 } from "../../types.js";
 import {
   containsTypeParameter,
@@ -573,8 +576,8 @@ const buildObjectLiteralMethodFunctionType = (
   return {
     kind: "functionType",
     parameters,
-    returnType: declaredReturnType ??
-      expectedFnType?.returnType ?? { kind: "unknownType" },
+    returnType:
+      declaredReturnType ?? expectedFnType?.returnType ?? { kind: "unknownType" },
   };
 };
 
@@ -593,10 +596,12 @@ const getSynthesizedPropertyType = (
 };
 
 const getProvisionalAccessorPropertyType = (
+  memberName: string,
   getter: ts.GetAccessorDeclaration | undefined,
   setter: ts.SetAccessorDeclaration | undefined,
   expectedType: IrType | undefined,
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  objectLiteralThisType: IrType | undefined
 ): IrType | undefined => {
   const getterType = getter?.type
     ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(getter.type))
@@ -608,8 +613,129 @@ const getProvisionalAccessorPropertyType = (
           ctx.binding.captureTypeSyntax(setterValueParam.type)
         )
       : undefined;
+  if (getterType) return getterType;
+  if (setterType) return setterType;
+  if (expectedType) return expectedType;
 
-  return getterType ?? setterType ?? expectedType;
+  if (!getter) return undefined;
+
+  const accessorMember = convertAccessorProperty(
+    memberName,
+    getter,
+    setter,
+    objectLiteralThisType ? { ...ctx, objectLiteralThisType } : ctx,
+    undefined
+  );
+
+  return accessorMember.kind === "propertyDeclaration"
+    ? accessorMember.type
+    : undefined;
+};
+
+const collectReturnExpressionTypes = (
+  stmt: IrStatement,
+  acc: IrType[]
+): void => {
+  switch (stmt.kind) {
+    case "returnStatement":
+      if (stmt.expression?.inferredType) {
+        acc.push(stmt.expression.inferredType);
+      }
+      return;
+    case "blockStatement":
+      for (const inner of stmt.statements) {
+        collectReturnExpressionTypes(inner, acc);
+      }
+      return;
+    case "ifStatement":
+      collectReturnExpressionTypes(stmt.thenStatement, acc);
+      if (stmt.elseStatement) {
+        collectReturnExpressionTypes(stmt.elseStatement, acc);
+      }
+      return;
+    case "whileStatement":
+    case "forStatement":
+    case "forOfStatement":
+    case "forInStatement":
+      collectReturnExpressionTypes(stmt.body, acc);
+      return;
+    case "switchStatement":
+      for (const clause of stmt.cases) {
+        for (const inner of clause.statements) {
+          collectReturnExpressionTypes(inner, acc);
+        }
+      }
+      return;
+    case "tryStatement":
+      collectReturnExpressionTypes(stmt.tryBlock, acc);
+      if (stmt.catchClause) {
+        collectReturnExpressionTypes(stmt.catchClause.body, acc);
+      }
+      if (stmt.finallyBlock) {
+        collectReturnExpressionTypes(stmt.finallyBlock, acc);
+      }
+      return;
+    default:
+      return;
+  }
+};
+
+const inferDeterministicReturnTypeFromBlock = (
+  body: IrBlockStatement
+): IrType | undefined => {
+  const returns: IrType[] = [];
+  collectReturnExpressionTypes(body, returns);
+
+  if (returns.length === 0) {
+    return { kind: "voidType" };
+  }
+
+  const [first] = returns;
+  if (!first) return undefined;
+  if (first.kind === "unknownType" || first.kind === "anyType") {
+    return undefined;
+  }
+
+  for (let index = 1; index < returns.length; index += 1) {
+    const current = returns[index];
+    if (!current || !typesEqual(current, first)) {
+      return undefined;
+    }
+  }
+
+  return first;
+};
+
+const finalizeObjectLiteralMethodExpression = (
+  expr: IrExpression
+): IrExpression => {
+  if (expr.kind !== "functionExpression") return expr;
+
+  const functionInferredType =
+    expr.inferredType?.kind === "functionType" ? expr.inferredType : undefined;
+  const inferredReturnType =
+    expr.returnType ?? functionInferredType?.returnType;
+  const needsInference =
+    inferredReturnType === undefined ||
+    inferredReturnType.kind === "unknownType" ||
+    inferredReturnType.kind === "anyType";
+
+  if (!needsInference) return expr;
+
+  const recoveredReturnType = inferDeterministicReturnTypeFromBlock(expr.body);
+  if (!recoveredReturnType) return expr;
+
+  return {
+    ...expr,
+    returnType: expr.returnType ?? recoveredReturnType,
+    inferredType: {
+      ...(functionInferredType ?? {
+        kind: "functionType" as const,
+        parameters: expr.parameters,
+      }),
+      returnType: recoveredReturnType,
+    },
+  } satisfies IrFunctionExpression;
 };
 
 const collectSynthesizedObjectMembers = (
@@ -920,16 +1046,53 @@ export const convertObjectLiteral = (
     }
   });
 
+  const provisionalAccessorTypeFromContext = Array.from(accessorGroups.entries()).map(
+    ([memberName, group]) => ({
+      memberName,
+      getter: group.getter,
+      setter: group.setter,
+      propertyType: getProvisionalAccessorPropertyType(
+        memberName,
+        group.getter,
+        group.setter,
+        getObjectLiteralPropertyExpectedType(memberName),
+        ctx,
+        undefined
+      ),
+    })
+  );
+
+  const baselineObjectLiteralThisType = (() => {
+    const synthesized = collectSynthesizedObjectMembers(
+      properties,
+      pendingMethods,
+      provisionalAccessorTypeFromContext.filter(
+        (accessor) => accessor.propertyType !== undefined
+      ) as readonly {
+        readonly memberName: string;
+        readonly propertyType: IrType;
+      }[],
+      accessorGroups.size > 0
+    );
+    if (!synthesized.ok || !synthesized.members) return undefined;
+    return {
+      kind: "objectType" as const,
+      members: synthesized.members,
+    };
+  })();
+
   const pendingAccessors = Array.from(accessorGroups.entries()).map(
     ([memberName, group]) => ({
       memberName,
       getter: group.getter,
       setter: group.setter,
       propertyType: getProvisionalAccessorPropertyType(
+        memberName,
         group.getter,
         group.setter,
         getObjectLiteralPropertyExpectedType(memberName),
-        ctx
+        ctx,
+        baselineObjectLiteralThisType
       ),
     })
   );
@@ -994,6 +1157,7 @@ export const convertObjectLiteral = (
   const objectBehaviorContext = objectLiteralThisType
     ? { ...ctx, objectLiteralThisType }
     : ctx;
+  const resolvedMethodTypes = new Map<string, IrFunctionType>();
 
   for (const pendingMethod of pendingMethods) {
     const methodPrelude = createObjectLiteralMethodArgumentPrelude(
@@ -1020,11 +1184,23 @@ export const convertObjectLiteral = (
       ),
       pendingMethod.node
     );
-    const convertedValue = convertExpression(
+    const convertedValue = finalizeObjectLiteralMethodExpression(
+      convertExpression(
       methodAsFunctionExpr,
       objectBehaviorContext,
       pendingMethod.propExpectedType
+      )
     );
+
+    if (
+      convertedValue.kind === "functionExpression" &&
+      convertedValue.inferredType?.kind === "functionType"
+    ) {
+      resolvedMethodTypes.set(
+        pendingMethod.keyName,
+        convertedValue.inferredType
+      );
+    }
 
     properties.push({
       kind: "property",
@@ -1051,6 +1227,21 @@ export const convertObjectLiteral = (
         undefined
       )
     );
+  }
+
+  if (contextualType?.kind === "objectType" && resolvedMethodTypes.size > 0) {
+    contextualType = {
+      ...contextualType,
+      members: contextualType.members.map((member) => {
+        if (member.kind !== "propertySignature") return member;
+        const resolvedMethodType = resolvedMethodTypes.get(member.name);
+        if (!resolvedMethodType) return member;
+        return {
+          ...member,
+          type: resolvedMethodType,
+        };
+      }),
+    };
   }
 
   // DETERMINISTIC TYPING: Object's inferredType comes from contextualType
