@@ -232,6 +232,11 @@ type NamespacePlan = {
   readonly namespace: string;
   readonly typeDeclarations: readonly ExportedSymbol[];
   readonly moduleContainers: readonly ModuleContainerEntry[];
+  readonly crossNamespaceReexports: {
+    readonly dtsStatements: readonly string[];
+    readonly jsValueStatements: readonly string[];
+  };
+  readonly crossNamespaceTypeDeclarations: readonly ExportedSymbol[];
   readonly sourceAliasLines: readonly string[];
   readonly sourceAliasInternalImports: readonly string[];
   readonly memberOverrides: readonly MemberOverride[];
@@ -817,6 +822,39 @@ const collectModuleExports = (
       left.exportName.localeCompare(right.exportName)
     ),
   };
+};
+
+const finalizeCrossNamespaceReexports = (
+  grouped: ReadonlyMap<string, readonly string[]>
+): {
+  readonly dtsStatements: readonly string[];
+  readonly jsValueStatements: readonly string[];
+} => {
+  const dtsStatements: string[] = [];
+  const jsValueStatements: string[] = [];
+
+  for (const [key, specs] of Array.from(grouped.entries()).sort((a, b) =>
+    a[0].localeCompare(b[0])
+  )) {
+    const [moduleSpecifier, kind] = key.split("|") as [
+      string,
+      "type" | "value",
+    ];
+    const unique = Array.from(new Set(specs)).sort((a, b) =>
+      a.localeCompare(b)
+    );
+    if (kind === "type") {
+      dtsStatements.push(
+        `export type { ${unique.join(", ")} } from '${moduleSpecifier}';`
+      );
+      continue;
+    }
+    const statement = `export { ${unique.join(", ")} } from '${moduleSpecifier}';`;
+    dtsStatements.push(statement);
+    jsValueStatements.push(statement);
+  }
+
+  return { dtsStatements, jsValueStatements };
 };
 
 const moduleNamespacePath = (namespace: string): string => {
@@ -1419,54 +1457,6 @@ const collectExtensionWrapperImportsFromSourceType = (opts: {
   }
 
   return { ok: true, value: wrappers };
-};
-
-const classifyExportKind = (
-  module: IrModule,
-  name: string
-): "type" | "value" | "unknown" => {
-  const isNamed = (
-    stmt: IrStatement & { readonly name?: unknown }
-  ): stmt is IrStatement & { readonly name: string } =>
-    typeof stmt.name === "string";
-
-  const findDecl = (): IrStatement | undefined => {
-    for (const stmt of module.body) {
-      if (
-        !("isExported" in stmt) ||
-        (stmt as { isExported?: unknown }).isExported !== true
-      )
-        continue;
-
-      if (isNamed(stmt) && stmt.name === name) return stmt;
-      if (stmt.kind === "variableDeclaration") {
-        for (const decl of stmt.declarations) {
-          if (
-            decl.name.kind === "identifierPattern" &&
-            decl.name.name === name
-          ) {
-            return stmt;
-          }
-        }
-      }
-    }
-    return undefined;
-  };
-
-  const decl = findDecl();
-  if (!decl) return "unknown";
-  switch (decl.kind) {
-    case "typeAliasDeclaration":
-    case "interfaceDeclaration":
-      return "type";
-    case "classDeclaration":
-    case "enumDeclaration":
-    case "functionDeclaration":
-    case "variableDeclaration":
-      return "value";
-    default:
-      return "unknown";
-  }
 };
 
 const moduleNamespaceToInternalSpecifier = (namespace: string): string => {
@@ -2351,6 +2341,9 @@ const collectNamespacePlans = (
   )) {
     const typeDeclarations: ExportedSymbol[] = [];
     const moduleContainers: ModuleContainerEntry[] = [];
+    const crossNamespaceReexportsGrouped = new Map<string, string[]>();
+    const crossNamespaceTypeDeclarations: ExportedSymbol[] = [];
+    const seenCrossNamespaceTypeDeclarationKeys = new Set<string>();
     const valueExportsMap = new Map<
       string,
       {
@@ -2528,6 +2521,34 @@ const collectNamespacePlans = (
         wrapperImportByAlias.set(wrapper.aliasName, wrapper);
       }
       return { ok: true, value: undefined };
+    };
+
+    const registerCrossNamespaceReexport = (opts: {
+      readonly declaringNamespace: string;
+      readonly exportName: string;
+      readonly localName: string;
+      readonly kind: "type" | "value";
+    }): void => {
+      if (opts.declaringNamespace === namespace) return;
+      const moduleSpecifier = `./${moduleNamespacePath(opts.declaringNamespace)}.js`;
+      const key = `${moduleSpecifier}|${opts.kind}`;
+      const specifier =
+        opts.exportName === opts.localName
+          ? opts.exportName
+          : `${opts.localName} as ${opts.exportName}`;
+      const existing = crossNamespaceReexportsGrouped.get(key) ?? [];
+      existing.push(specifier);
+      crossNamespaceReexportsGrouped.set(key, existing);
+    };
+
+    const registerCrossNamespaceTypeDeclaration = (
+      symbol: ExportedSymbol
+    ): void => {
+      if (symbol.declaringNamespace === namespace) return;
+      const key = `${symbol.declaringNamespace}|${symbol.declaringClassName}|${symbol.localName}|${symbol.kind}`;
+      if (seenCrossNamespaceTypeDeclarationKeys.has(key)) return;
+      seenCrossNamespaceTypeDeclarationKeys.add(key);
+      crossNamespaceTypeDeclarations.push(symbol);
     };
 
     const registerSourceTypeImportCandidates = (
@@ -2811,6 +2832,17 @@ const collectNamespacePlans = (
           exportItem.name
         );
         if (!exportKind.ok) return exportKind;
+        if (declarationModule.namespace !== namespace) {
+          registerCrossNamespaceReexport({
+            declaringNamespace: declarationModule.namespace,
+            exportName: exportItem.name,
+            localName: resolved.value.clrName,
+            kind:
+              exportKind.value === "interface" || exportKind.value === "typeAlias"
+                ? "type"
+                : "value",
+          });
+        }
         if (exportKind.value === "function") {
           const functionDeclaration =
             declaration.kind === "functionDeclaration"
@@ -2922,6 +2954,18 @@ const collectNamespacePlans = (
           exportKind.value === "enum" ||
           exportKind.value === "typeAlias"
         ) {
+          if (declarationModule.namespace !== namespace) {
+            registerCrossNamespaceTypeDeclaration({
+              exportName: exportItem.name,
+              localName: resolved.value.clrName,
+              kind: exportKind.value,
+              declaration,
+              declaringNamespace: declarationModule.namespace,
+              declaringClassName: declarationModule.className,
+              declaringFilePath: declarationModule.filePath,
+            });
+            continue;
+          }
           const declarationModuleKey = normalizeModuleFileKey(
             declarationModule.filePath
           );
@@ -2988,6 +3032,19 @@ const collectNamespacePlans = (
           symbol.kind === "enum" ||
           symbol.kind === "typeAlias"
         ) {
+          if (symbol.declaringNamespace !== namespace) {
+            registerCrossNamespaceReexport({
+              declaringNamespace: symbol.declaringNamespace,
+              exportName: symbol.exportName,
+              localName: symbol.localName,
+              kind:
+                symbol.kind === "interface" || symbol.kind === "typeAlias"
+                  ? "type"
+                  : "value",
+            });
+            registerCrossNamespaceTypeDeclaration(symbol);
+            continue;
+          }
           if (
             symbol.kind === "typeAlias" &&
             symbol.declaration.kind === "typeAliasDeclaration" &&
@@ -3003,6 +3060,14 @@ const collectNamespacePlans = (
         }
 
         if (symbol.kind === "function") {
+          if (symbol.declaringNamespace !== namespace) {
+            registerCrossNamespaceReexport({
+              declaringNamespace: symbol.declaringNamespace,
+              exportName: symbol.exportName,
+              localName: symbol.localName,
+              kind: "value",
+            });
+          }
           const functionDeclaration =
             symbol.declaration.kind === "functionDeclaration"
               ? symbol.declaration
@@ -3054,6 +3119,14 @@ const collectNamespacePlans = (
         }
 
         if (symbol.kind === "variable") {
+          if (symbol.declaringNamespace !== namespace) {
+            registerCrossNamespaceReexport({
+              declaringNamespace: symbol.declaringNamespace,
+              exportName: symbol.exportName,
+              localName: symbol.localName,
+              kind: "value",
+            });
+          }
           const declaration =
             symbol.declaration.kind === "variableDeclaration"
               ? symbol.declaration
@@ -3136,6 +3209,16 @@ const collectNamespacePlans = (
       moduleContainers: moduleContainers.sort((left, right) =>
         left.module.className.localeCompare(right.module.className)
       ),
+      crossNamespaceReexports: finalizeCrossNamespaceReexports(
+        crossNamespaceReexportsGrouped
+      ),
+      crossNamespaceTypeDeclarations: crossNamespaceTypeDeclarations.sort(
+        (left, right) => {
+          const leftKey = `${left.exportName}|${left.declaringNamespace}|${left.localName}|${left.kind}`;
+          const rightKey = `${right.exportName}|${right.declaringNamespace}|${right.localName}|${right.kind}`;
+          return leftKey.localeCompare(rightKey);
+        }
+      ),
       sourceAliasLines: Array.from(sourceAliasLines.values()).sort(
         (left, right) => left.localeCompare(right)
       ),
@@ -3170,88 +3253,10 @@ const collectNamespacePlans = (
   };
 };
 
-const collectEntrypointReexports = (
-  entryModule: IrModule,
-  modulesByFileKey: ReadonlyMap<string, IrModule>
-): Result<
-  {
-    readonly dtsStatements: readonly string[];
-    readonly jsValueStatements: readonly string[];
-  },
-  string
-> => {
-  const grouped = new Map<string, string[]>();
-
-  for (const exported of entryModule.exports) {
-    if (exported.kind !== "reexport") continue;
-    const targetModule = resolveLocalModuleFile(
-      exported.fromModule,
-      entryModule.filePath,
-      modulesByFileKey
-    );
-    if (!targetModule) {
-      return {
-        ok: false,
-        error: `Failed to resolve re-export '${exported.name}' from '${exported.fromModule}' in ${entryModule.filePath}.`,
-      };
-    }
-    if (targetModule.namespace === entryModule.namespace) continue;
-
-    const kind = classifyExportKind(targetModule, exported.originalName);
-    if (kind === "unknown") {
-      return {
-        ok: false,
-        error: `Failed to classify re-export '${exported.name}' from '${exported.fromModule}' in ${entryModule.filePath}.`,
-      };
-    }
-    const moduleSpecifier = `./${moduleNamespacePath(targetModule.namespace)}.js`;
-    const key = `${moduleSpecifier}|${kind}`;
-    const specifier =
-      exported.name === exported.originalName
-        ? exported.name
-        : `${exported.originalName} as ${exported.name}`;
-    const list = grouped.get(key) ?? [];
-    list.push(specifier);
-    grouped.set(key, list);
-  }
-
-  const dtsStatements: string[] = [];
-  const jsValueStatements: string[] = [];
-  for (const [key, specs] of Array.from(grouped.entries()).sort((a, b) =>
-    a[0].localeCompare(b[0])
-  )) {
-    const [moduleSpecifier, kind] = key.split("|") as [
-      string,
-      "type" | "value",
-    ];
-    const unique = Array.from(new Set(specs)).sort((a, b) =>
-      a.localeCompare(b)
-    );
-    if (kind === "type") {
-      dtsStatements.push(
-        `export type { ${unique.join(", ")} } from '${moduleSpecifier}';`
-      );
-      continue;
-    }
-    const statement = `export { ${unique.join(", ")} } from '${moduleSpecifier}';`;
-    dtsStatements.push(statement);
-    jsValueStatements.push(statement);
-  }
-
-  return {
-    ok: true,
-    value: { dtsStatements, jsValueStatements },
-  };
-};
-
 const writeNamespaceArtifacts = (
   config: ResolvedConfig,
   outDir: string,
-  plan: NamespacePlan,
-  entrypointReexports?: {
-    readonly dtsStatements: readonly string[];
-    readonly jsValueStatements: readonly string[];
-  }
+  plan: NamespacePlan
 ): Result<void, string> => {
   const namespacePath = moduleNamespacePath(plan.namespace);
   const namespaceDir = join(outDir, namespacePath);
@@ -3368,6 +3373,62 @@ const writeNamespaceArtifacts = (
         config.outputName
       )
     );
+  }
+
+  for (const symbol of plan.crossNamespaceTypeDeclarations) {
+    if (
+      symbol.kind === "class" &&
+      symbol.declaration.kind === "classDeclaration"
+    ) {
+      typeBindings.push(
+        buildTypeBindingFromClass(
+          symbol.declaration,
+          symbol.declaringNamespace,
+          config.outputName
+        )
+      );
+      continue;
+    }
+
+    if (
+      symbol.kind === "interface" &&
+      symbol.declaration.kind === "interfaceDeclaration"
+    ) {
+      typeBindings.push(
+        buildTypeBindingFromInterface(
+          symbol.declaration,
+          symbol.declaringNamespace,
+          config.outputName
+        )
+      );
+      continue;
+    }
+
+    if (
+      symbol.kind === "enum" &&
+      symbol.declaration.kind === "enumDeclaration"
+    ) {
+      typeBindings.push(
+        buildTypeBindingFromEnum(
+          symbol.declaration,
+          symbol.declaringNamespace,
+          config.outputName
+        )
+      );
+      continue;
+    }
+
+    if (
+      symbol.kind === "typeAlias" &&
+      symbol.declaration.kind === "typeAliasDeclaration"
+    ) {
+      const binding = buildTypeBindingFromStructuralAlias(
+        symbol.declaration,
+        symbol.declaringNamespace,
+        config.outputName
+      );
+      if (binding) typeBindings.push(binding);
+    }
   }
 
   const requiredInternalTypeImports = selectSourceTypeImportsForRenderedText(
@@ -3511,11 +3572,11 @@ const writeNamespaceArtifacts = (
     facadeLines.push("// End Tsonic source type aliases");
   }
 
-  if (entrypointReexports && entrypointReexports.dtsStatements.length > 0) {
+  if (plan.crossNamespaceReexports.dtsStatements.length > 0) {
     facadeLines.push("");
-    facadeLines.push("// Tsonic entrypoint re-exports (generated)");
-    facadeLines.push(...entrypointReexports.dtsStatements);
-    facadeLines.push("// End Tsonic entrypoint re-exports");
+    facadeLines.push("// Tsonic cross-namespace re-exports (generated)");
+    facadeLines.push(...plan.crossNamespaceReexports.dtsStatements);
+    facadeLines.push("// End Tsonic cross-namespace re-exports");
   }
 
   for (const valueExport of plan.valueExports) {
@@ -3573,7 +3634,7 @@ const writeNamespaceArtifacts = (
     plan.moduleContainers.length === 0 &&
     plan.valueExports.length === 0 &&
     plan.sourceAliasLines.length === 0 &&
-    (!entrypointReexports || entrypointReexports.dtsStatements.length === 0)
+    plan.crossNamespaceReexports.dtsStatements.length === 0
   ) {
     facadeLines.push("export {};");
   }
@@ -3591,12 +3652,11 @@ const writeNamespaceArtifacts = (
       "// Generated by Tsonic - Source bindings",
       "// Module Stub - Do Not Execute",
       "",
-      ...(entrypointReexports &&
-      entrypointReexports.jsValueStatements.length > 0
+      ...(plan.crossNamespaceReexports.jsValueStatements.length > 0
         ? [
-            "// Tsonic entrypoint value re-exports (generated)",
-            ...entrypointReexports.jsValueStatements,
-            "// End Tsonic entrypoint value re-exports",
+            "// Tsonic cross-namespace value re-exports (generated)",
+            ...plan.crossNamespaceReexports.jsValueStatements,
+            "// End Tsonic cross-namespace value re-exports",
             "",
           ]
         : []),
@@ -3694,11 +3754,6 @@ export const generateFirstPartyLibraryBindings = (
   rmSync(bindingsOutDir, { recursive: true, force: true });
   mkdirSync(bindingsOutDir, { recursive: true });
 
-  const modulesByFileKey = new Map<string, IrModule>();
-  for (const module of graphResult.value.modules) {
-    modulesByFileKey.set(normalizeModuleFileKey(module.filePath), module);
-  }
-
   const sourceIndexByFileKey = new Map<string, ModuleSourceIndex>();
   for (const module of graphResult.value.modules) {
     if (module.filePath.startsWith("__tsonic/")) continue;
@@ -3717,21 +3772,8 @@ export const generateFirstPartyLibraryBindings = (
   );
   if (!plansResult.ok) return plansResult;
 
-  const entrypointReexportsResult = collectEntrypointReexports(
-    graphResult.value.entryModule,
-    modulesByFileKey
-  );
-  if (!entrypointReexportsResult.ok) return entrypointReexportsResult;
-
   for (const plan of plansResult.value) {
-    const result = writeNamespaceArtifacts(
-      config,
-      bindingsOutDir,
-      plan,
-      plan.namespace === graphResult.value.entryModule.namespace
-        ? entrypointReexportsResult.value
-        : undefined
-    );
+    const result = writeNamespaceArtifacts(config, bindingsOutDir, plan);
     if (!result.ok) return result;
   }
 

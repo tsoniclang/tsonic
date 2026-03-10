@@ -11,6 +11,7 @@ import { IrImport, IrImportSpecifier } from "../types.js";
 import type { ProgramContext } from "../program-context.js";
 import type { Binding } from "../binding/index.js";
 import type { TypeAuthority } from "../type-system/type-system.js";
+import type { TypeBinding } from "../../program/binding-types.js";
 import { createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
 import { resolveImport } from "../../resolver.js";
@@ -30,6 +31,12 @@ const getSourceSpan = (
     return undefined;
   }
 };
+
+const clrTypeNameToCSharp = (clr: string): string =>
+  clr
+    .trim()
+    .replace(/`\d+/g, "")
+    .replace(/\+/g, ".");
 
 /**
  * Extract import declarations from source file.
@@ -179,6 +186,27 @@ export const extractImports = (
         return readNamespaceFromBindingsJson(bindingsPath);
       };
 
+      const resolveClrTypeBindingForNamedImport = (
+        exportName: string
+      ): TypeBinding | undefined => {
+        const owningNamespace = resolveTsbindgenNamespaceForNamedImport(exportName);
+        if (owningNamespace) {
+          const namespaceBinding = ctx.bindings.getNamespace(owningNamespace);
+          const exact = namespaceBinding?.types.find(
+            (type) => type.alias === exportName
+          );
+          if (exact) return exact;
+
+          const simpleAliasMatch = namespaceBinding?.types.find((type) => {
+            const arityMatch = type.alias.match(/^(.+)_(\d+)$/);
+            return arityMatch?.[1] === exportName;
+          });
+          if (simpleAliasMatch) return simpleAliasMatch;
+        }
+
+        return ctx.bindings.getType(exportName);
+      };
+
       // Resolve CLR identities for named imports from both CLR namespace facades
       // and module-bound surface facades (e.g. node:http -> @tsonic/nodejs/nodejs.Http.js).
       //
@@ -200,9 +228,15 @@ export const extractImports = (
         // form itself (`import type`) or checker result.
         const isType =
           spec.isType === true ||
-          (isClr && resolvedNamespace && !!ctx.bindings.getType(spec.name));
+          ((isClr || hasModuleBinding) &&
+            resolvedNamespace &&
+            !!resolveClrTypeBindingForNamedImport(spec.name));
 
         if (isType) {
+          const resolvedTypeBinding = resolveClrTypeBindingForNamedImport(
+            spec.name
+          );
+
           if (hasModuleBinding) {
             const expNamespace = resolveTsbindgenNamespaceForNamedImport(
               spec.name
@@ -210,8 +244,10 @@ export const extractImports = (
             return {
               ...spec,
               isType: true,
-              resolvedClrType: expNamespace
-                ? `${expNamespace}.${spec.name}`
+              resolvedClrType: resolvedTypeBinding?.name
+                ? clrTypeNameToCSharp(resolvedTypeBinding.name)
+                : expNamespace
+                  ? `${expNamespace}.${spec.name}`
                 : spec.resolvedClrType,
             };
           }
@@ -228,9 +264,12 @@ export const extractImports = (
               ...spec,
               isType: true,
               resolvedClrType:
-                expNamespace !== resolvedNamespace
+                (resolvedTypeBinding?.name
+                  ? clrTypeNameToCSharp(resolvedTypeBinding.name)
+                  : undefined) ??
+                (expNamespace !== resolvedNamespace
                   ? `${expNamespace}.${spec.name}`
-                  : undefined,
+                  : undefined),
             };
           }
 

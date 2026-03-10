@@ -356,6 +356,8 @@ export class BindingRegistry {
       }
     } else if (isTsbindgenBindingFile(manifest)) {
       // tsbindgen format: convert to internal format
+      const namespaceTypes: TypeBinding[] = [];
+
       for (const tsbType of manifest.types) {
         // Create members from methods, properties, and fields
         const members: MemberBinding[] = [];
@@ -476,6 +478,7 @@ export class BindingRegistry {
           members,
         };
         this.clrTypeNames.add(tsbType.clrName);
+        namespaceTypes.push(typeBinding);
 
         // Index the type by its TS name.
         this.types.set(typeBinding.alias, typeBinding);
@@ -525,6 +528,12 @@ export class BindingRegistry {
 
         this.tsbindgenExports.set(manifest.namespace, nsExports);
       }
+
+      this.namespaces.set(manifest.namespace, {
+        name: manifest.namespace,
+        alias: manifest.namespace,
+        types: namespaceTypes,
+      });
     } else {
       // Simple format: global/module bindings
       for (const [name, descriptor] of Object.entries(manifest.bindings)) {

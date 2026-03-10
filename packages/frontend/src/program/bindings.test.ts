@@ -1090,5 +1090,34 @@ describe("Binding System", () => {
           ?.[0]?.emitSemantics?.callStyle
       ).to.equal("receiver");
     });
+
+    it("should expose tsbindgen namespace types for namespace-scoped import identity", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/System.Collections.Generic/bindings.json", {
+        namespace: "System.Collections.Generic",
+        types: [
+          {
+            clrName: "System.Collections.Generic.IEnumerable`1",
+            assemblyName: "System.Runtime",
+            kind: "Interface",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const namespace = registry.getNamespace("System.Collections.Generic");
+      expect(namespace).to.not.equal(undefined);
+      expect(namespace?.name).to.equal("System.Collections.Generic");
+      expect(
+        namespace?.types.some(
+          (type) =>
+            type.alias === "IEnumerable_1" &&
+            type.name === "System.Collections.Generic.IEnumerable`1"
+        )
+      ).to.equal(true);
+    });
   });
 });
