@@ -182,4 +182,171 @@ describe("CLR bindings discovery (entrypoint re-exports)", () => {
     );
     expect(fooSpec.resolvedClrValue?.memberName).to.equal("foo");
   });
+
+  it("loads CLR bindings referenced only from declaration files", () => {
+    const tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-clr-decl-import-")
+    );
+
+    try {
+      const projectRoot = tmpRoot;
+      fs.writeFileSync(
+        path.join(projectRoot, "package.json"),
+        JSON.stringify(
+          { name: "test-project", private: true, type: "module" },
+          null,
+          2
+        )
+      );
+
+      const efPkgRoot = path.join(projectRoot, "node_modules", "@test", "ef");
+      fs.mkdirSync(efPkgRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(efPkgRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@test/ef",
+            version: "0.0.0",
+            type: "module",
+            exports: {
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const efBindingsRoot = path.join(efPkgRoot, "dist", "tsonic", "bindings");
+      fs.mkdirSync(path.join(efBindingsRoot, "Foo"), { recursive: true });
+      fs.writeFileSync(
+        path.join(efBindingsRoot, "Foo", "bindings.json"),
+        JSON.stringify(
+          {
+            namespace: "Foo",
+            types: [],
+            exports: {
+              mark: {
+                kind: "method",
+                clrName: "mark",
+                declaringClrType: "Foo.Container",
+                declaringAssemblyName: "TestAssembly",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(efBindingsRoot, "Foo.d.ts"),
+        "export interface Marker { ok: true; }\nexport declare function mark(): void;\n"
+      );
+      fs.writeFileSync(
+        path.join(efBindingsRoot, "Foo.js"),
+        'throw new Error("stub");\n'
+      );
+
+      const pkgRoot = path.join(projectRoot, "node_modules", "@test", "pkg");
+      fs.mkdirSync(pkgRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(pkgRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@test/pkg",
+            version: "0.0.0",
+            type: "module",
+            exports: {
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const bindingsRoot = path.join(pkgRoot, "dist", "tsonic", "bindings");
+      fs.mkdirSync(bindingsRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(bindingsRoot, "Root.d.ts"),
+        [
+          'import type { Marker } from "@test/ef/Foo.js";',
+          "",
+          "export interface NeedsMarker {",
+          "  readonly value: Marker;",
+          "}",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        path.join(bindingsRoot, "Root.js"),
+        'throw new Error("stub");\n'
+      );
+      fs.mkdirSync(path.join(bindingsRoot, "Root"), { recursive: true });
+      fs.writeFileSync(
+        path.join(bindingsRoot, "Root", "bindings.json"),
+        JSON.stringify({ namespace: "Root", types: [] }, null, 2)
+      );
+
+      const srcDir = path.join(projectRoot, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+      const entryFile = path.join(srcDir, "main.ts");
+      fs.writeFileSync(
+        entryFile,
+        'import type { NeedsMarker } from "@test/pkg/Root.js";\nexport type Check = NeedsMarker;\n'
+      );
+
+      const program = ts.createProgram({
+        rootNames: [entryFile],
+        options: {
+          target: ts.ScriptTarget.ES2022,
+          module: ts.ModuleKind.NodeNext,
+          moduleResolution: ts.ModuleResolutionKind.NodeNext,
+          strict: true,
+          noLib: true,
+          noEmit: true,
+          skipLibCheck: true,
+        },
+      });
+      const sourceFile = program.getSourceFile(entryFile);
+      if (!sourceFile) throw new Error("failed to read entry source file");
+
+      const checker = program.getTypeChecker();
+      const bindings = new BindingRegistry();
+      const declarationSourceFiles = program
+        .getSourceFiles()
+        .filter((sf) => sf.isDeclarationFile);
+
+      const tsonicProgram = {
+        program,
+        checker,
+        options: {
+          projectRoot,
+          sourceRoot: projectRoot,
+          rootNamespace: "TestApp",
+          strict: true,
+        },
+        sourceFiles: [sourceFile],
+        declarationSourceFiles,
+        metadata: new DotnetMetadataRegistry(),
+        bindings,
+        clrResolver: createClrBindingsResolver(projectRoot),
+        binding: createBinding(checker),
+      };
+
+      discoverAndLoadClrBindings(tsonicProgram);
+
+      expect(bindings.getTsbindgenExport("Foo", "mark")).to.not.equal(
+        undefined
+      );
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
 });

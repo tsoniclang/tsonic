@@ -115,6 +115,71 @@ describe("Program Creation", () => {
     }
   });
 
+  it("should include tsconfig declaration roots for local module augmentation", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-tsconfig-decls-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      fs.writeFileSync(
+        path.join(tempDir, "tsconfig.json"),
+        JSON.stringify(
+          {
+            include: ["src/**/*.ts", "types/**/*.d.ts"],
+          },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      const typesDir = path.join(tempDir, "types");
+      fs.mkdirSync(srcDir, { recursive: true });
+      fs.mkdirSync(typesDir, { recursive: true });
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        path.join(typesDir, "augment.d.ts"),
+        [
+          "declare global {",
+          "  interface Boolean {",
+          "    asTag(): string;",
+          "  }",
+          "}",
+          "",
+          "export {};",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        entryPath,
+        [
+          "export type BoolMethod = Boolean['asTag'];",
+          "",
+        ].join("\n")
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+      });
+
+      expect(result.ok).to.equal(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("should resolve project-local @tsonic/* imports when no authoritative package exists", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-creation-")
