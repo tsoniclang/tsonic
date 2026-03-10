@@ -171,6 +171,12 @@ type SourceTypeImport = {
   readonly importedName: string;
 };
 
+type SourceTypeImportBinding = {
+  readonly source: string;
+  readonly importedName: string;
+  readonly localName: string;
+};
+
 type SourceTypeAliasDef = {
   readonly typeParametersText: string;
   readonly typeParameterNames: readonly string[];
@@ -229,6 +235,8 @@ type NamespacePlan = {
   readonly sourceAliasLines: readonly string[];
   readonly sourceAliasInternalImports: readonly string[];
   readonly memberOverrides: readonly MemberOverride[];
+  readonly internalTypeImports: readonly SourceTypeImportBinding[];
+  readonly facadeTypeImports: readonly SourceTypeImportBinding[];
   readonly wrapperImports: readonly WrapperImport[];
   readonly valueExports: readonly {
     readonly exportName: string;
@@ -276,6 +284,139 @@ const ensureUndefinedInType = (typeText: string): string => {
   const trimmed = typeText.trim();
   if (/\bundefined\b/.test(trimmed)) return trimmed;
   return `${trimmed} | undefined`;
+};
+
+const textContainsIdentifier = (text: string, identifier: string): boolean => {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9_$])${escaped}([^A-Za-z0-9_$]|$)`).test(
+    text
+  );
+};
+
+const toRelativeImportSpecifier = (
+  fromFile: string,
+  targetFile: string
+): string => {
+  const relative = posix.relative(posix.dirname(fromFile), targetFile);
+  if (relative.startsWith(".")) return relative;
+  return `./${relative}`;
+};
+
+const namespaceInternalImportSpecifier = (
+  fromNamespace: string,
+  targetNamespace: string
+): string => {
+  return toRelativeImportSpecifier(
+    posix.join(moduleNamespacePath(fromNamespace), "internal", "index.js"),
+    posix.join(moduleNamespacePath(targetNamespace), "internal", "index.js")
+  );
+};
+
+const namespaceFacadeImportSpecifier = (
+  fromNamespace: string,
+  targetNamespace: string
+): string => {
+  return toRelativeImportSpecifier(
+    `${moduleNamespacePath(fromNamespace)}.js`,
+    `${moduleNamespacePath(targetNamespace)}.js`
+  );
+};
+
+const resolveSourceTypeImportBinding = (opts: {
+  readonly context: "internal" | "facade";
+  readonly currentNamespace: string;
+  readonly currentModuleKey: string;
+  readonly localName: string;
+  readonly imported: SourceTypeImport;
+  readonly modulesByFileKey: ReadonlyMap<string, IrModule>;
+}): Result<SourceTypeImportBinding | undefined, string> => {
+  const source = opts.imported.source.trim();
+  if (source === "@tsonic/core/types.js") {
+    return { ok: true, value: undefined };
+  }
+
+  if (!isRelativeModuleSpecifier(source)) {
+    return {
+      ok: true,
+      value: {
+        source,
+        importedName: opts.imported.importedName,
+        localName: opts.localName,
+      },
+    };
+  }
+
+  const targetModule = resolveLocalModuleFile(
+    source,
+    opts.currentModuleKey,
+    opts.modulesByFileKey
+  );
+  if (!targetModule) {
+    return {
+      ok: false,
+      error:
+        `Unable to resolve source type import '${opts.localName}' from '${source}' in ${opts.currentModuleKey}.\n` +
+        "First-party bindings generation requires public type dependencies to resolve deterministically.",
+    };
+  }
+
+  if (targetModule.namespace === opts.currentNamespace) {
+    return { ok: true, value: undefined };
+  }
+
+  return {
+    ok: true,
+    value: {
+      source:
+        opts.context === "internal"
+          ? namespaceInternalImportSpecifier(
+              opts.currentNamespace,
+              targetModule.namespace
+            )
+          : namespaceFacadeImportSpecifier(
+              opts.currentNamespace,
+              targetModule.namespace
+            ),
+      importedName: opts.imported.importedName,
+      localName: opts.localName,
+    },
+  };
+};
+
+const registerSourceTypeImportBinding = (
+  registry: Map<string, SourceTypeImportBinding>,
+  binding: SourceTypeImportBinding,
+  namespace: string,
+  moduleFilePath: string
+): Result<void, string> => {
+  const existing = registry.get(binding.localName);
+  if (existing) {
+    if (
+      existing.source !== binding.source ||
+      existing.importedName !== binding.importedName
+    ) {
+      return {
+        ok: false,
+        error:
+          `Conflicting source type import alias '${binding.localName}' while generating namespace ${namespace} from ${moduleFilePath}.\n` +
+          `- ${existing.importedName} from '${existing.source}'\n` +
+          `- ${binding.importedName} from '${binding.source}'\n` +
+          "Disambiguate source type imports so generated bindings remain deterministic.",
+      };
+    }
+    return { ok: true, value: undefined };
+  }
+  registry.set(binding.localName, binding);
+  return { ok: true, value: undefined };
+};
+
+const selectSourceTypeImportsForRenderedText = (
+  renderedText: string,
+  candidates: readonly SourceTypeImportBinding[]
+): readonly SourceTypeImportBinding[] => {
+  return candidates
+    .filter((candidate) => textContainsIdentifier(renderedText, candidate.localName))
+    .sort((left, right) => left.localName.localeCompare(right.localName));
 };
 
 const applyWrappersToBaseType = (
@@ -982,9 +1123,6 @@ const buildModuleSourceIndex = (
       for (const spec of namedBindings.elements) {
         const localName = spec.name.text;
         const importedName = (spec.propertyName ?? spec.name).text;
-        const isTypeOnly = clause.isTypeOnly || spec.isTypeOnly;
-        if (!isTypeOnly) continue;
-
         typeImportsByLocalName.set(localName, {
           source: moduleSpecifier,
           importedName,
@@ -2246,6 +2384,8 @@ const collectNamespacePlans = (
     const sourceAliasLines = new Set<string>();
     const sourceAliasInternalImports = new Set<string>();
     const memberOverrides: MemberOverride[] = [];
+    const internalTypeImportByAlias = new Map<string, SourceTypeImportBinding>();
+    const facadeTypeImportByAlias = new Map<string, SourceTypeImportBinding>();
     const wrapperImportByAlias = new Map<string, WrapperImport>();
 
     const registerValueExport = (valueExport: {
@@ -2390,6 +2530,56 @@ const collectNamespacePlans = (
       return { ok: true, value: undefined };
     };
 
+    const registerSourceTypeImportCandidates = (
+      sourceIndex: ModuleSourceIndex,
+      moduleKey: string,
+      moduleFilePath: string
+    ): Result<void, string> => {
+      for (const [localName, imported] of sourceIndex.typeImportsByLocalName) {
+        if (sourceIndex.wrapperImportsByLocalName.has(localName)) continue;
+
+        const internalImport = resolveSourceTypeImportBinding({
+          context: "internal",
+          currentNamespace: namespace,
+          currentModuleKey: moduleKey,
+          localName,
+          imported,
+          modulesByFileKey,
+        });
+        if (!internalImport.ok) return internalImport;
+        if (internalImport.value) {
+          const registered = registerSourceTypeImportBinding(
+            internalTypeImportByAlias,
+            internalImport.value,
+            namespace,
+            moduleFilePath
+          );
+          if (!registered.ok) return registered;
+        }
+
+        const facadeImport = resolveSourceTypeImportBinding({
+          context: "facade",
+          currentNamespace: namespace,
+          currentModuleKey: moduleKey,
+          localName,
+          imported,
+          modulesByFileKey,
+        });
+        if (!facadeImport.ok) return facadeImport;
+        if (facadeImport.value) {
+          const registered = registerSourceTypeImportBinding(
+            facadeTypeImportByAlias,
+            facadeImport.value,
+            namespace,
+            moduleFilePath
+          );
+          if (!registered.ok) return registered;
+        }
+      }
+
+      return { ok: true, value: undefined };
+    };
+
     for (const module of moduleList.sort((left, right) =>
       left.filePath.localeCompare(right.filePath)
     )) {
@@ -2397,6 +2587,13 @@ const collectNamespacePlans = (
       const sourceIndex = sourceIndexByFileKey.get(moduleKey);
 
       if (sourceIndex) {
+        const registered = registerSourceTypeImportCandidates(
+          sourceIndex,
+          moduleKey,
+          module.filePath
+        );
+        if (!registered.ok) return registered;
+
         const exportedAliasDecls = module.body.filter(
           (
             stmt
@@ -2625,6 +2822,19 @@ const collectNamespacePlans = (
               error: `Invalid function export '${exportItem.name}' in ${declarationModule.filePath}: expected function declaration.`,
             };
           }
+          const declarationModuleKey = normalizeModuleFileKey(
+            declarationModule.filePath
+          );
+          const declarationSourceIndex =
+            sourceIndexByFileKey.get(declarationModuleKey);
+          if (declarationSourceIndex) {
+            const registered = registerSourceTypeImportCandidates(
+              declarationSourceIndex,
+              declarationModuleKey,
+              declarationModule.filePath
+            );
+            if (!registered.ok) return registered;
+          }
           const registered = registerValueExport({
             exportName: exportItem.name,
             binding: {
@@ -2660,6 +2870,19 @@ const collectNamespacePlans = (
               ok: false,
               error: `Invalid variable export '${exportItem.name}' in ${declarationModule.filePath}: expected variable declaration.`,
             };
+          }
+          const declarationModuleKey = normalizeModuleFileKey(
+            declarationModule.filePath
+          );
+          const declarationSourceIndex =
+            sourceIndexByFileKey.get(declarationModuleKey);
+          if (declarationSourceIndex) {
+            const registered = registerSourceTypeImportCandidates(
+              declarationSourceIndex,
+              declarationModuleKey,
+              declarationModule.filePath
+            );
+            if (!registered.ok) return registered;
           }
           const declarator = declarationStatement.declarations.find(
             (candidate) =>
@@ -2699,6 +2922,19 @@ const collectNamespacePlans = (
           exportKind.value === "enum" ||
           exportKind.value === "typeAlias"
         ) {
+          const declarationModuleKey = normalizeModuleFileKey(
+            declarationModule.filePath
+          );
+          const declarationSourceIndex =
+            sourceIndexByFileKey.get(declarationModuleKey);
+          if (declarationSourceIndex) {
+            const registered = registerSourceTypeImportCandidates(
+              declarationSourceIndex,
+              declarationModuleKey,
+              declarationModule.filePath
+            );
+            if (!registered.ok) return registered;
+          }
           if (
             exportKind.value === "typeAlias" &&
             declaration.kind === "typeAliasDeclaration" &&
@@ -2772,6 +3008,16 @@ const collectNamespacePlans = (
               ? symbol.declaration
               : undefined;
           if (!functionDeclaration) continue;
+          const symbolModuleKey = normalizeModuleFileKey(symbol.declaringFilePath);
+          const symbolSourceIndex = sourceIndexByFileKey.get(symbolModuleKey);
+          if (symbolSourceIndex) {
+            const registered = registerSourceTypeImportCandidates(
+              symbolSourceIndex,
+              symbolModuleKey,
+              symbol.declaringFilePath
+            );
+            if (!registered.ok) return registered;
+          }
           const isLocalContainerMember =
             symbol.declaringNamespace === module.namespace &&
             symbol.declaringClassName === module.className;
@@ -2813,6 +3059,16 @@ const collectNamespacePlans = (
               ? symbol.declaration
               : undefined;
           if (!declaration) continue;
+          const symbolModuleKey = normalizeModuleFileKey(symbol.declaringFilePath);
+          const symbolSourceIndex = sourceIndexByFileKey.get(symbolModuleKey);
+          if (symbolSourceIndex) {
+            const registered = registerSourceTypeImportCandidates(
+              symbolSourceIndex,
+              symbolModuleKey,
+              symbol.declaringFilePath
+            );
+            if (!registered.ok) return registered;
+          }
           const declarator = declaration.declarations.find(
             (candidate) =>
               candidate.name.kind === "identifierPattern" &&
@@ -2891,6 +3147,12 @@ const collectNamespacePlans = (
         if (classCmp !== 0) return classCmp;
         return left.memberName.localeCompare(right.memberName);
       }),
+      internalTypeImports: Array.from(internalTypeImportByAlias.values()).sort(
+        (left, right) => left.localName.localeCompare(right.localName)
+      ),
+      facadeTypeImports: Array.from(facadeTypeImportByAlias.values()).sort(
+        (left, right) => left.localName.localeCompare(right.localName)
+      ),
       wrapperImports: Array.from(wrapperImportByAlias.values()).sort(
         (left, right) => left.aliasName.localeCompare(right.aliasName)
       ),
@@ -3001,7 +3263,7 @@ const writeNamespaceArtifacts = (
   const facadeJsPath = join(outDir, `${namespacePath}.js`);
   const bindingsPath = join(namespaceDir, "bindings.json");
 
-  const internalLines: string[] = [];
+  const internalBodyLines: string[] = [];
   const memberOverridesByClass = new Map<string, Map<string, MemberOverride>>();
   for (const override of plan.memberOverrides) {
     const byMember =
@@ -3011,29 +3273,6 @@ const writeNamespaceArtifacts = (
     memberOverridesByClass.set(override.className, byMember);
   }
 
-  internalLines.push("// Generated by Tsonic - Source bindings");
-  internalLines.push(`// Namespace: ${plan.namespace}`);
-  internalLines.push(`// Assembly: ${config.outputName}`);
-  internalLines.push("");
-  internalLines.push(primitiveImportLine);
-  if (plan.wrapperImports.length > 0) {
-    internalLines.push("");
-    internalLines.push("// Tsonic source member type imports (generated)");
-    for (const wrapperImport of plan.wrapperImports) {
-      if (wrapperImport.importedName === wrapperImport.aliasName) {
-        internalLines.push(
-          `import type { ${wrapperImport.importedName} } from '${wrapperImport.source}';`
-        );
-        continue;
-      }
-      internalLines.push(
-        `import type { ${wrapperImport.importedName} as ${wrapperImport.aliasName} } from '${wrapperImport.source}';`
-      );
-    }
-    internalLines.push("// End Tsonic source member type imports");
-  }
-  internalLines.push("");
-
   const typeBindings: FirstPartyBindingsType[] = [];
 
   for (const symbol of plan.typeDeclarations) {
@@ -3041,7 +3280,7 @@ const writeNamespaceArtifacts = (
       symbol.kind === "class" &&
       symbol.declaration.kind === "classDeclaration"
     ) {
-      internalLines.push(
+      internalBodyLines.push(
         ...renderClassInternal(
           symbol.declaration,
           plan.namespace,
@@ -3062,7 +3301,7 @@ const writeNamespaceArtifacts = (
       symbol.kind === "interface" &&
       symbol.declaration.kind === "interfaceDeclaration"
     ) {
-      internalLines.push(
+      internalBodyLines.push(
         ...renderInterfaceInternal(
           symbol.declaration,
           plan.namespace,
@@ -3083,7 +3322,7 @@ const writeNamespaceArtifacts = (
       symbol.kind === "enum" &&
       symbol.declaration.kind === "enumDeclaration"
     ) {
-      internalLines.push(...renderEnumInternal(symbol.declaration));
+      internalBodyLines.push(...renderEnumInternal(symbol.declaration));
       typeBindings.push(
         buildTypeBindingFromEnum(
           symbol.declaration,
@@ -3098,7 +3337,7 @@ const writeNamespaceArtifacts = (
       symbol.kind === "typeAlias" &&
       symbol.declaration.kind === "typeAliasDeclaration"
     ) {
-      internalLines.push(
+      internalBodyLines.push(
         ...renderStructuralAliasInternal(
           symbol.declaration,
           plan.namespace,
@@ -3121,7 +3360,7 @@ const writeNamespaceArtifacts = (
   }
 
   for (const container of plan.moduleContainers) {
-    internalLines.push(...renderContainerInternal(container));
+    internalBodyLines.push(...renderContainerInternal(container));
     typeBindings.push(
       buildTypeBindingFromContainer(
         container,
@@ -3130,6 +3369,52 @@ const writeNamespaceArtifacts = (
       )
     );
   }
+
+  const requiredInternalTypeImports = selectSourceTypeImportsForRenderedText(
+    internalBodyLines.join("\n"),
+    plan.internalTypeImports
+  );
+
+  const internalLines: string[] = [];
+  internalLines.push("// Generated by Tsonic - Source bindings");
+  internalLines.push(`// Namespace: ${plan.namespace}`);
+  internalLines.push(`// Assembly: ${config.outputName}`);
+  internalLines.push("");
+  internalLines.push(primitiveImportLine);
+  if (requiredInternalTypeImports.length > 0) {
+    internalLines.push("");
+    internalLines.push("// Tsonic source type imports (generated)");
+    for (const typeImport of requiredInternalTypeImports) {
+      if (typeImport.importedName === typeImport.localName) {
+        internalLines.push(
+          `import type { ${typeImport.importedName} } from '${typeImport.source}';`
+        );
+        continue;
+      }
+      internalLines.push(
+        `import type { ${typeImport.importedName} as ${typeImport.localName} } from '${typeImport.source}';`
+      );
+    }
+    internalLines.push("// End Tsonic source type imports");
+  }
+  if (plan.wrapperImports.length > 0) {
+    internalLines.push("");
+    internalLines.push("// Tsonic source member type imports (generated)");
+    for (const wrapperImport of plan.wrapperImports) {
+      if (wrapperImport.importedName === wrapperImport.aliasName) {
+        internalLines.push(
+          `import type { ${wrapperImport.importedName} } from '${wrapperImport.source}';`
+        );
+        continue;
+      }
+      internalLines.push(
+        `import type { ${wrapperImport.importedName} as ${wrapperImport.aliasName} } from '${wrapperImport.source}';`
+      );
+    }
+    internalLines.push("// End Tsonic source member type imports");
+  }
+  internalLines.push("");
+  internalLines.push(...internalBodyLines);
 
   writeFileSync(
     internalIndexPath,
@@ -3261,6 +3546,25 @@ const writeNamespaceArtifacts = (
       `export declare const ${valueExport.exportName}: ${renderPortableType(
         valueExport.facade.declarator?.type
       )};`
+    );
+  }
+
+  const requiredFacadeTypeImports = selectSourceTypeImportsForRenderedText(
+    facadeLines.join("\n"),
+    plan.facadeTypeImports
+  );
+  if (requiredFacadeTypeImports.length > 0) {
+    facadeLines.splice(
+      4,
+      0,
+      "",
+      "// Tsonic source type imports (generated)",
+      ...requiredFacadeTypeImports.map((typeImport) =>
+        typeImport.importedName === typeImport.localName
+          ? `import type { ${typeImport.importedName} } from '${typeImport.source}';`
+          : `import type { ${typeImport.importedName} as ${typeImport.localName} } from '${typeImport.source}';`
+      ),
+      "// End Tsonic source type imports"
     );
   }
 

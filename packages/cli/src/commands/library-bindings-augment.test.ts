@@ -286,6 +286,69 @@ describe("library-bindings-augment", function () {
     }
   });
 
+  it("injects required imports for value-imported source types in rewritten delegate signatures", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-facade-value-import-"));
+    try {
+      const srcDir = join(dir, "src");
+      mkdirSync(srcDir, { recursive: true });
+      writeFileSync(
+        join(srcDir, "index.ts"),
+        [
+          'import { List } from "@tsonic/dotnet/System.Collections.Generic.js";',
+          "",
+          "export const createNames = (): List<string> => {",
+          "  return new List<string>();",
+          "};",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const bindingsOutDir = join(dir, "dist", "tsonic", "bindings");
+      const internalDir = join(bindingsOutDir, "TestApp", "internal");
+      mkdirSync(internalDir, { recursive: true });
+      writeFileSync(join(internalDir, "index.d.ts"), "", "utf-8");
+
+      const facadePath = join(bindingsOutDir, "TestApp.d.ts");
+      writeFileSync(
+        facadePath,
+        [
+          "// Namespace: TestApp",
+          "import * as Internal from './TestApp/internal/index.js';",
+          "",
+          "export type Service_createNames__Delegate = Internal.Service_createNames__Delegate;",
+          "export declare const createNames: Internal.Service_createNames__Delegate;",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const config = {
+        workspaceRoot: dir,
+        projectRoot: dir,
+        sourceRoot: "src",
+        rootNamespace: "TestApp",
+        entryPoint: "src/index.ts",
+        typeRoots: [],
+        libraries: [],
+      } as unknown as ResolvedConfig;
+
+      const result = augmentLibraryBindingsFromSource(config, bindingsOutDir);
+      expect(result.ok, result.ok ? undefined : result.error).to.equal(true);
+
+      const patched = readFileSync(facadePath, "utf-8");
+      expect(patched).to.include(
+        "import type { List } from '@tsonic/dotnet/System.Collections.Generic.js';"
+      );
+      expect(patched).to.include(
+        "export declare function createNames(): List<string>;"
+      );
+      expect(patched).to.not.include("export declare const createNames:");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("optionalizes brand markers for non-exported source interfaces used in exported signatures", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-local-interface-brand-"));
     try {
