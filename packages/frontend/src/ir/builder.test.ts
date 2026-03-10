@@ -78,6 +78,79 @@ describe("IR Builder", () => {
     return { testProgram, ctx, options };
   };
 
+  const createFilesystemTestProgram = (
+    files: Record<string, string>,
+    entryRelativePath: string
+  ) => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-builder-filesystem-")
+    );
+
+    for (const [relativePath, contents] of Object.entries(files)) {
+      const absolutePath = path.join(tempDir, relativePath);
+      fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+      fs.writeFileSync(absolutePath, contents);
+    }
+
+    const rootNames = Object.keys(files)
+      .filter((relativePath) => /\.(?:ts|mts|cts|d\.ts)$/.test(relativePath))
+      .map((relativePath) => path.join(tempDir, relativePath));
+
+    const tsProgram = ts.createProgram(rootNames, {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+    });
+
+    const checker = tsProgram.getTypeChecker();
+    const entryPath = path.join(tempDir, entryRelativePath);
+    const sourceFile = tsProgram.getSourceFile(entryPath);
+    if (!sourceFile) {
+      throw new Error(`Failed to create source file for ${entryRelativePath}`);
+    }
+
+    const testProgram = {
+      program: tsProgram,
+      checker,
+      options: {
+        projectRoot: tempDir,
+        sourceRoot: path.join(tempDir, "src"),
+        rootNamespace: "TestApp",
+        strict: true,
+      },
+      sourceFiles: rootNames
+        .filter((filePath) => !filePath.endsWith(".d.ts"))
+        .map((filePath) => tsProgram.getSourceFile(filePath))
+        .filter((candidate): candidate is ts.SourceFile => candidate !== undefined),
+      declarationSourceFiles: rootNames
+        .filter((filePath) => filePath.endsWith(".d.ts"))
+        .map((filePath) => tsProgram.getSourceFile(filePath))
+        .filter((candidate): candidate is ts.SourceFile => candidate !== undefined),
+      metadata: new DotnetMetadataRegistry(),
+      bindings: new BindingRegistry(),
+      clrResolver: createClrBindingsResolver(tempDir),
+      binding: createBinding(checker),
+    };
+
+    const options = {
+      sourceRoot: path.join(tempDir, "src"),
+      rootNamespace: "TestApp",
+    };
+    const ctx = createProgramContext(testProgram, options);
+
+    return {
+      tempDir,
+      sourceFile,
+      testProgram,
+      ctx,
+      options,
+      cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true }),
+    };
+  };
+
   describe("Module Structure", () => {
     it("should create IR module with correct namespace and class name", () => {
       const source = `
@@ -1823,6 +1896,156 @@ describe("IR Builder", () => {
       expect(arg0.inferredType?.kind).to.equal("referenceType");
       if (arg0.inferredType?.kind === "referenceType") {
         expect(arg0.inferredType.name).to.equal("Payload");
+      }
+    });
+
+    it("threads expected return generic context through imported declaration aliases", () => {
+      const testFiles = {
+        "package.json": JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "src/index.ts": `
+          import type { Result } from "./core.js";
+          import { ok } from "./core.js";
+
+          interface Payload {
+            foundAnchor: boolean;
+            foundNewest: boolean;
+            foundOldest: boolean;
+          }
+
+          export function run(anchor: string): Result<Payload, string> {
+            const foundAnchor = anchor !== "newest" && anchor !== "oldest";
+            const foundNewest = anchor === "newest";
+            const foundOldest = anchor === "oldest";
+            return ok({ foundAnchor, foundNewest, foundOldest });
+          }
+        `,
+        "src/core.d.ts": `
+          export interface Ok<T> {
+            readonly success: true;
+            readonly data: T;
+          }
+
+          export interface Err<E> {
+            readonly success: false;
+            readonly error: E;
+          }
+
+          export type Result<T, E> = Ok<T> | Err<E>;
+
+          export declare function ok<T>(data: T): Ok<T>;
+        `,
+      };
+
+      const { sourceFile, testProgram, ctx, options, cleanup } =
+        createFilesystemTestProgram(testFiles, "src/index.ts");
+
+      try {
+        const result = buildIrModule(sourceFile, testProgram, options, ctx);
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const run = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(run).to.not.equal(undefined);
+        if (!run) return;
+
+        const retStmt = run.body.statements.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+        expect(retStmt?.expression?.kind).to.equal("call");
+        if (!retStmt?.expression || retStmt.expression.kind !== "call") return;
+
+        const arg0 = retStmt.expression.arguments[0];
+        expect(arg0?.kind).to.equal("object");
+        if (!arg0 || arg0.kind !== "object") return;
+        expect(arg0.inferredType?.kind).to.equal("referenceType");
+        if (arg0.inferredType?.kind === "referenceType") {
+          expect(arg0.inferredType.name).to.equal("Payload");
+        }
+      } finally {
+        cleanup();
+      }
+    });
+
+    it("threads expected return generic context through imported declaration aliases inside Promise wrappers", () => {
+      const testFiles = {
+        "package.json": JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "src/index.ts": `
+          import type { Result } from "./core.js";
+          import { ok } from "./core.js";
+
+          interface Payload {
+            foundAnchor: boolean;
+            foundNewest: boolean;
+            foundOldest: boolean;
+          }
+
+          export async function run(anchor: string): Promise<Result<Payload, string>> {
+            const foundAnchor = anchor !== "newest" && anchor !== "oldest";
+            const foundNewest = anchor === "newest";
+            const foundOldest = anchor === "oldest";
+            return ok({ foundAnchor, foundNewest, foundOldest });
+          }
+        `,
+        "src/core.d.ts": `
+          export interface Ok<T> {
+            readonly success: true;
+            readonly data: T;
+          }
+
+          export interface Err<E> {
+            readonly success: false;
+            readonly error: E;
+          }
+
+          export type Result<T, E> = Ok<T> | Err<E>;
+
+          export declare function ok<T>(data: T): Ok<T>;
+        `,
+      };
+
+      const { sourceFile, testProgram, ctx, options, cleanup } =
+        createFilesystemTestProgram(testFiles, "src/index.ts");
+
+      try {
+        const result = buildIrModule(sourceFile, testProgram, options, ctx);
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const run = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(run).to.not.equal(undefined);
+        if (!run) return;
+
+        const retStmt = run.body.statements.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+        expect(retStmt?.expression?.kind).to.equal("call");
+        if (!retStmt?.expression || retStmt.expression.kind !== "call") return;
+
+        const arg0 = retStmt.expression.arguments[0];
+        expect(arg0?.kind).to.equal("object");
+        if (!arg0 || arg0.kind !== "object") return;
+        expect(arg0.inferredType?.kind).to.equal("referenceType");
+        if (arg0.inferredType?.kind === "referenceType") {
+          expect(arg0.inferredType.name).to.equal("Payload");
+        }
+      } finally {
+        cleanup();
       }
     });
 

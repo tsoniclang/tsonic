@@ -201,6 +201,7 @@ type ModuleSourceIndex = {
   readonly wrapperImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
   readonly typeImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
   readonly typeAliasesByName: ReadonlyMap<string, SourceTypeAliasDef>;
+  readonly exportedTypeDeclarationNames: ReadonlySet<string>;
   readonly exportedFunctionSignaturesByName: ReadonlyMap<
     string,
     readonly SourceFunctionSignatureDef[]
@@ -639,6 +640,101 @@ const renderMethodSignature = (
   );
   const returnTypeText = renderPortableType(returnType, typeParameterNames);
   return `${name}${typeParametersText}(${parametersText}): ${returnTypeText};`;
+};
+
+const collectReferencedPortableTypeNames = (
+  type: IrType | undefined,
+  typeParametersInScope: ReadonlySet<string>,
+  out: Set<string>
+): void => {
+  if (!type) return;
+
+  switch (type.kind) {
+    case "primitiveType":
+    case "literalType":
+    case "voidType":
+    case "neverType":
+    case "unknownType":
+    case "anyType":
+      return;
+    case "typeParameterType":
+      if (!typeParametersInScope.has(type.name)) {
+        out.add(type.name);
+      }
+      return;
+    case "arrayType":
+      collectReferencedPortableTypeNames(type.elementType, typeParametersInScope, out);
+      return;
+    case "tupleType":
+      for (const element of type.elementTypes) {
+        collectReferencedPortableTypeNames(element, typeParametersInScope, out);
+      }
+      return;
+    case "unionType":
+    case "intersectionType":
+      for (const member of type.types) {
+        collectReferencedPortableTypeNames(member, typeParametersInScope, out);
+      }
+      return;
+    case "dictionaryType":
+      collectReferencedPortableTypeNames(type.keyType, typeParametersInScope, out);
+      collectReferencedPortableTypeNames(type.valueType, typeParametersInScope, out);
+      return;
+    case "functionType":
+      for (const parameter of type.parameters) {
+        collectReferencedPortableTypeNames(
+          parameter.type,
+          typeParametersInScope,
+          out
+        );
+      }
+      collectReferencedPortableTypeNames(
+        type.returnType,
+        typeParametersInScope,
+        out
+      );
+      return;
+    case "objectType":
+      for (const member of type.members) {
+        if (member.kind === "propertySignature") {
+          collectReferencedPortableTypeNames(
+            member.type,
+            typeParametersInScope,
+            out
+          );
+          continue;
+        }
+        const nestedTypeParameters = new Set(typeParametersInScope);
+        for (const typeParameter of member.typeParameters ?? []) {
+          nestedTypeParameters.add(typeParameter.name);
+        }
+        for (const parameter of member.parameters) {
+          collectReferencedPortableTypeNames(
+            parameter.type,
+            nestedTypeParameters,
+            out
+          );
+        }
+        collectReferencedPortableTypeNames(
+          member.returnType,
+          nestedTypeParameters,
+          out
+        );
+      }
+      return;
+    case "referenceType":
+      out.add(
+        renderReferenceType(type.name, type.typeArguments, []).split("<")[0]!
+      );
+      for (const typeArgument of type.typeArguments ?? []) {
+        collectReferencedPortableTypeNames(
+          typeArgument,
+          typeParametersInScope,
+          out
+        );
+      }
+      return;
+  }
 };
 
 const declarationNameOf = (statement: IrStatement): string | undefined => {
@@ -1110,6 +1206,7 @@ const buildModuleSourceIndex = (
   const wrapperImportsByLocalName = new Map<string, SourceTypeImport>();
   const typeImportsByLocalName = new Map<string, SourceTypeImport>();
   const typeAliasesByName = new Map<string, SourceTypeAliasDef>();
+  const exportedTypeDeclarationNames = new Set<string>();
   const exportedFunctionSignaturesByName = new Map<
     string,
     SourceFunctionSignatureDef[]
@@ -1177,6 +1274,9 @@ const buildModuleSourceIndex = (
 
     if (ts.isTypeAliasDeclaration(stmt)) {
       const aliasName = stmt.name.text;
+      const hasExport = stmt.modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+      );
       const typeParameterNames = (stmt.typeParameters ?? []).map(
         (tp) => tp.name.text
       );
@@ -1186,6 +1286,9 @@ const buildModuleSourceIndex = (
         type: stmt.type,
         typeText: printTypeNodeText(stmt.type, sourceFile),
       });
+      if (hasExport) {
+        exportedTypeDeclarationNames.add(aliasName);
+      }
       continue;
     }
 
@@ -1236,6 +1339,12 @@ const buildModuleSourceIndex = (
 
     if (ts.isClassDeclaration(stmt) && stmt.name) {
       const className = stmt.name.text;
+      const hasExport = stmt.modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+      );
+      if (hasExport) {
+        exportedTypeDeclarationNames.add(className);
+      }
       const members =
         memberTypesByClassAndMember.get(className) ??
         new Map<string, SourceMemberTypeDef>();
@@ -1273,6 +1382,12 @@ const buildModuleSourceIndex = (
 
     if (ts.isInterfaceDeclaration(stmt)) {
       const interfaceName = stmt.name.text;
+      const hasExport = stmt.modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+      );
+      if (hasExport) {
+        exportedTypeDeclarationNames.add(interfaceName);
+      }
       const members =
         memberTypesByClassAndMember.get(interfaceName) ??
         new Map<string, SourceMemberTypeDef>();
@@ -1293,6 +1408,16 @@ const buildModuleSourceIndex = (
       if (members.size > 0) {
         memberTypesByClassAndMember.set(interfaceName, members);
       }
+      continue;
+    }
+
+    if (ts.isEnumDeclaration(stmt)) {
+      const hasExport = stmt.modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+      );
+      if (hasExport) {
+        exportedTypeDeclarationNames.add(stmt.name.text);
+      }
     }
   }
 
@@ -1303,6 +1428,7 @@ const buildModuleSourceIndex = (
       wrapperImportsByLocalName,
       typeImportsByLocalName,
       typeAliasesByName,
+      exportedTypeDeclarationNames,
       exportedFunctionSignaturesByName,
       memberTypesByClassAndMember,
     },
@@ -2601,6 +2727,57 @@ const collectNamespacePlans = (
       return { ok: true, value: undefined };
     };
 
+    const registerFacadeLocalTypeReferenceImports = (opts: {
+      readonly declarationNamespace: string;
+      readonly declarationFilePath: string;
+      readonly sourceIndex: ModuleSourceIndex | undefined;
+      readonly typeParameters: readonly IrTypeParameter[] | undefined;
+      readonly parameterTypes: readonly (IrType | undefined)[];
+      readonly returnType: IrType | undefined;
+    }): Result<void, string> => {
+      if (!opts.sourceIndex) return { ok: true, value: undefined };
+      if (opts.declarationNamespace === namespace) {
+        return { ok: true, value: undefined };
+      }
+
+      const typeParameterNames = new Set(
+        (opts.typeParameters ?? []).map((typeParameter) => typeParameter.name)
+      );
+      const referencedNames = new Set<string>();
+      for (const parameterType of opts.parameterTypes) {
+        collectReferencedPortableTypeNames(
+          parameterType,
+          typeParameterNames,
+          referencedNames
+        );
+      }
+      collectReferencedPortableTypeNames(
+        opts.returnType,
+        typeParameterNames,
+        referencedNames
+      );
+
+      const moduleSpecifier = `./${moduleNamespacePath(opts.declarationNamespace)}.js`;
+      for (const referencedName of referencedNames) {
+        if (!opts.sourceIndex.exportedTypeDeclarationNames.has(referencedName)) {
+          continue;
+        }
+        const registered = registerSourceTypeImportBinding(
+          facadeTypeImportByAlias,
+          {
+            importedName: referencedName,
+            localName: referencedName,
+            source: moduleSpecifier,
+          },
+          namespace,
+          opts.declarationFilePath
+        );
+        if (!registered.ok) return registered;
+      }
+
+      return { ok: true, value: undefined };
+    };
+
     for (const module of moduleList.sort((left, right) =>
       left.filePath.localeCompare(right.filePath)
     )) {
@@ -2867,6 +3044,18 @@ const collectNamespacePlans = (
             );
             if (!registered.ok) return registered;
           }
+          const registeredLocalTypeRefs =
+            registerFacadeLocalTypeReferenceImports({
+              declarationNamespace: declarationModule.namespace,
+              declarationFilePath: declarationModule.filePath,
+              sourceIndex: declarationSourceIndex,
+              typeParameters: functionDeclaration.typeParameters,
+              parameterTypes: functionDeclaration.parameters.map(
+                (parameter) => parameter.type
+              ),
+              returnType: functionDeclaration.returnType,
+            });
+          if (!registeredLocalTypeRefs.ok) return registeredLocalTypeRefs;
           const registered = registerValueExport({
             exportName: exportItem.name,
             binding: {
@@ -2921,6 +3110,16 @@ const collectNamespacePlans = (
               candidate.name.kind === "identifierPattern" &&
               candidate.name.name === resolved.value.clrName
           );
+          const registeredLocalTypeRefs =
+            registerFacadeLocalTypeReferenceImports({
+              declarationNamespace: declarationModule.namespace,
+              declarationFilePath: declarationModule.filePath,
+              sourceIndex: declarationSourceIndex,
+              typeParameters: undefined,
+              parameterTypes: declarator?.type ? [declarator.type] : [],
+              returnType: undefined,
+            });
+          if (!registeredLocalTypeRefs.ok) return registeredLocalTypeRefs;
           const registered = registerValueExport({
             exportName: exportItem.name,
             binding: {
@@ -3083,6 +3282,18 @@ const collectNamespacePlans = (
             );
             if (!registered.ok) return registered;
           }
+          const registeredLocalTypeRefs =
+            registerFacadeLocalTypeReferenceImports({
+              declarationNamespace: symbol.declaringNamespace,
+              declarationFilePath: symbol.declaringFilePath,
+              sourceIndex: symbolSourceIndex,
+              typeParameters: functionDeclaration.typeParameters,
+              parameterTypes: functionDeclaration.parameters.map(
+                (parameter) => parameter.type
+              ),
+              returnType: functionDeclaration.returnType,
+            });
+          if (!registeredLocalTypeRefs.ok) return registeredLocalTypeRefs;
           const isLocalContainerMember =
             symbol.declaringNamespace === module.namespace &&
             symbol.declaringClassName === module.className;
@@ -3147,6 +3358,16 @@ const collectNamespacePlans = (
               candidate.name.kind === "identifierPattern" &&
               candidate.name.name === symbol.localName
           );
+          const registeredLocalTypeRefs =
+            registerFacadeLocalTypeReferenceImports({
+              declarationNamespace: symbol.declaringNamespace,
+              declarationFilePath: symbol.declaringFilePath,
+              sourceIndex: symbolSourceIndex,
+              typeParameters: undefined,
+              parameterTypes: declarator?.type ? [declarator.type] : [],
+              returnType: undefined,
+            });
+          if (!registeredLocalTypeRefs.ok) return registeredLocalTypeRefs;
           const isLocalContainerMember =
             symbol.declaringNamespace === module.namespace &&
             symbol.declaringClassName === module.className;

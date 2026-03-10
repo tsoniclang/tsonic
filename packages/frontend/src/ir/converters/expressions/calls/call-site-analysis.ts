@@ -7,12 +7,7 @@
 
 import * as ts from "typescript";
 import { IrType } from "../../../types.js";
-import {
-  irTypesEqual,
-  referenceTypeIdentity,
-  stableIrTypeKey,
-  unwrapAsyncWrapperType,
-} from "../../../types/type-ops.js";
+import { irTypesEqual, referenceTypeIdentity } from "../../../types/type-ops.js";
 import { getSourceSpan } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { MemberBinding } from "../../../../program/bindings.js";
@@ -163,40 +158,14 @@ export const unifyTypeTemplate = (
 
 export const deriveSubstitutionsFromExpectedReturn = (
   returnTemplate: IrType | undefined,
-  expectedType: IrType | undefined
+  expectedCandidates: readonly IrType[] | undefined
 ): Map<string, IrType> | undefined => {
-  if (!returnTemplate || !expectedType) return undefined;
-
-  const candidateQueue: IrType[] =
-    expectedType.kind === "unionType"
-      ? [...expectedType.types]
-      : [expectedType];
-  const candidates: IrType[] = [];
-  const seen = new Set<string>();
-  const enqueue = (candidate: IrType): void => {
-    const key = stableIrTypeKey(candidate);
-    if (seen.has(key)) return;
-    seen.add(key);
-    candidateQueue.push(candidate);
-  };
-
-  while (candidateQueue.length > 0) {
-    const candidate = candidateQueue.shift();
-    if (!candidate) continue;
-    candidates.push(candidate);
-
-    const asyncInner = unwrapAsyncWrapperType(candidate);
-    if (asyncInner) {
-      enqueue(asyncInner);
-    } else if (candidate.kind === "unionType") {
-      for (const member of candidate.types) {
-        enqueue(member);
-      }
-    }
+  if (!returnTemplate || !expectedCandidates || expectedCandidates.length === 0) {
+    return undefined;
   }
 
   let matched: Map<string, IrType> | undefined;
-  for (const candidate of candidates) {
+  for (const candidate of expectedCandidates) {
     const attempt = new Map<string, IrType>();
     if (!unifyTypeTemplate(returnTemplate, candidate, attempt)) continue;
     if (attempt.size === 0) continue;
