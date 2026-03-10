@@ -1108,9 +1108,6 @@ const buildModuleSourceIndex = (
       for (const spec of namedBindings.elements) {
         const localName = spec.name.text;
         const importedName = (spec.propertyName ?? spec.name).text;
-        const isTypeOnly = clause.isTypeOnly || spec.isTypeOnly;
-        if (!isTypeOnly) continue;
-
         typeImportsByLocalName.set(localName, {
           source: moduleSpecifier,
           importedName,
