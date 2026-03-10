@@ -124,14 +124,21 @@ export const discoverAndLoadClrBindings = (
     pending.push(bindingsPath);
   };
 
+  const filesToScan = [
+    ...program.sourceFiles,
+    ...program.declarationSourceFiles,
+  ];
+
   if (verbose) {
     console.log(
-      `[CLR Bindings] Scanning ${program.sourceFiles.length} source files`
+      `[CLR Bindings] Scanning ${filesToScan.length} source and declaration files`
     );
   }
 
-  // First: discover direct CLR imports from source files.
-  for (const sourceFile of program.sourceFiles) {
+  // First: discover direct CLR imports from program files, including declaration
+  // files. Generated/source-package .d.ts surfaces can import CLR namespaces from
+  // external packages, and those bindings must be loaded before IR building.
+  for (const sourceFile of filesToScan) {
     if (verbose) {
       console.log(`[CLR Bindings] Scanning: ${sourceFile.fileName}`);
     }

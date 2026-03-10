@@ -252,6 +252,36 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
   return results;
 };
 
+const collectProjectIncludedDeclarationFiles = (
+  projectRoot: string,
+  compilerOptions: ts.CompilerOptions
+): readonly string[] => {
+  const configPath = path.join(projectRoot, "tsconfig.json");
+  if (!fs.existsSync(configPath)) {
+    return [];
+  }
+
+  const configResult = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (configResult.error) {
+    return [];
+  }
+
+  const parsed = ts.parseJsonConfigFileContent(
+    configResult.config,
+    ts.sys,
+    projectRoot,
+    {
+      ...compilerOptions,
+      noEmit: true,
+    },
+    configPath
+  );
+
+  return parsed.fileNames
+    .filter((fileName) => fileName.endsWith(".d.ts"))
+    .map((fileName) => path.resolve(fileName));
+};
+
 /**
  * Create TypeScript compiler options from Tsonic options
  * Exported for use by dependency graph builder
@@ -660,6 +690,12 @@ export const createProgram = (
     }
   }
 
+  const tsOptions = createCompilerOptions(options);
+  const projectDeclarationFiles = collectProjectIncludedDeclarationFiles(
+    options.projectRoot,
+    tsOptions
+  );
+
   const coreGlobalsVirtualPath = path.join(
     options.projectRoot,
     ".tsonic",
@@ -672,14 +708,15 @@ export const createProgram = (
 
   // Combine source files, declaration files, namespace index files, and
   // compiler-owned virtual declarations.
-  const allFiles = [
-    ...absolutePaths,
-    ...declarationFiles,
-    ...namespaceIndexFiles,
-    ...virtualDeclarationFiles,
-  ];
-
-  const tsOptions = createCompilerOptions(options);
+  const allFiles = Array.from(
+    new Set([
+      ...absolutePaths,
+      ...projectDeclarationFiles,
+      ...declarationFiles,
+      ...namespaceIndexFiles,
+      ...virtualDeclarationFiles,
+    ])
+  );
 
   // Create custom compiler host with virtual .NET module declarations
   const host = ts.createCompilerHost(tsOptions);
