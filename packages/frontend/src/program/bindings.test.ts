@@ -233,6 +233,102 @@ describe("Binding System", () => {
       expect(lengthOverloads?.[0]?.binding.member).to.equal("length");
     });
 
+    it("should resolve tsbindgen types by CLR name", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/acme/bindings.json", {
+        namespace: "Acme.Core",
+        types: [
+          {
+            clrName: "Acme.Core.Widget",
+            assemblyName: "Acme.Core",
+            methods: [],
+            properties: [
+              {
+                clrName: "Name",
+                declaringClrType: "Acme.Core.Widget",
+                declaringAssemblyName: "Acme.Core",
+              },
+            ],
+            fields: [],
+          },
+        ],
+      });
+
+      const byAlias = registry.getType("Widget");
+      const byClrName = registry.getType("Acme.Core.Widget");
+
+      expect(byAlias?.name).to.equal("Acme.Core.Widget");
+      expect(byClrName?.alias).to.equal("Widget");
+    });
+
+    it("should resolve member overloads by CLR type name for source-binding canonical identities", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/acme/bindings.json", {
+        namespace: "Acme.Core",
+        types: [
+          {
+            clrName: "Acme.Core.Widget",
+            assemblyName: "Acme.Core",
+            methods: [],
+            properties: [
+              {
+                clrName: "Name",
+                declaringClrType: "Acme.Core.Widget",
+                declaringAssemblyName: "Acme.Core",
+              },
+            ],
+            fields: [],
+          },
+        ],
+      });
+
+      const overloads = registry.getMemberOverloads(
+        "Acme.Core.Widget",
+        "Name"
+      );
+      expect(overloads).to.not.equal(undefined);
+      expect(overloads?.length).to.equal(1);
+      expect(overloads?.[0]?.binding.type).to.equal("Acme.Core.Widget");
+      expect(overloads?.[0]?.binding.member).to.equal("Name");
+    });
+
+    it("should resolve member overloads by qualified TS alias for source-binding canonical identities", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/acme/bindings.json", {
+        namespace: "Acme.Core",
+        types: [
+          {
+            clrName: "Acme.Core.Ok__Alias`1",
+            assemblyName: "Acme.Core",
+            methods: [],
+            properties: [
+              {
+                clrName: "success",
+                declaringClrType: "Acme.Core.Ok__Alias`1",
+                declaringAssemblyName: "Acme.Core",
+              },
+            ],
+            fields: [],
+          },
+        ],
+      });
+
+      const byQualifiedAlias = registry.getType("Acme.Core.Ok__Alias_1");
+      const overloads = registry.getMemberOverloads(
+        "Acme.Core.Ok__Alias_1",
+        "success"
+      );
+
+      expect(byQualifiedAlias?.alias).to.equal("Ok__Alias_1");
+      expect(overloads).to.not.equal(undefined);
+      expect(overloads?.length).to.equal(1);
+      expect(overloads?.[0]?.binding.type).to.equal("Acme.Core.Ok__Alias`1");
+      expect(overloads?.[0]?.binding.member).to.equal("success");
+    });
+
     it("should resolve tsbindgen extension methods for instance-style calls", () => {
       const registry = new BindingRegistry();
 

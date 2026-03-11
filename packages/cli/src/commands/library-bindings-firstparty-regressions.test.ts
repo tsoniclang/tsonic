@@ -155,6 +155,49 @@ const runProjectBuild = (
 describe("library bindings first-party regressions", function () {
   this.timeout(10 * 60 * 1000);
 
+  it("emits canonical binding alias markers for nominal source-binding types", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-lib-bindings-canonical-alias-")
+    );
+    try {
+      const wsConfigPath = writeLibraryScaffold(dir, "Test.Lib", "Test.Lib");
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "index.ts"),
+        [
+          "export class Attachment {",
+          "  Id: string = \"\";",
+          "}",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      runLibraryBuild(dir, wsConfigPath);
+
+      const internal = readFileSync(
+        join(
+          dir,
+          "packages",
+          "lib",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Test.Lib",
+          "internal",
+          "index.d.ts"
+        ),
+        "utf-8"
+      );
+
+      expect(internal).to.include(
+        'readonly "__tsonic_binding_alias_Test.Lib.Attachment"?: never;'
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("uses declaring-module source signatures for transitive re-exported function values", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-declaring-"));
     try {
@@ -225,6 +268,251 @@ describe("library bindings first-party regressions", function () {
       );
       expect(okLine ?? "").to.match(/:\s*Success<\s*T\s*>;/);
       expect(okLine ?? "").to.not.match(/\$instance|__\d+\b/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves declaring-namespace identity for non-exported helper types on re-exported functions", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-lib-bindings-reexported-helper-")
+    );
+
+    try {
+      const wsConfigPath = join(dir, "tsonic.workspace.json");
+      mkdirSync(join(dir, "packages", "messages", "src", "domain"), {
+        recursive: true,
+      });
+      mkdirSync(join(dir, "packages", "app", "src"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test",
+            private: true,
+            type: "module",
+            workspaces: ["packages/*"],
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        wsConfigPath,
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "messages", "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/messages",
+            private: true,
+            type: "module",
+            exports: {
+              "./package.json": "./package.json",
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            private: true,
+            type: "module",
+            dependencies: {
+              "@acme/messages": "workspace:*",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "messages", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Acme.Messages",
+            entryPoint: "src/index.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "Acme.Messages",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Acme.App",
+            entryPoint: "src/App.ts",
+            sourceRoot: "src",
+            references: {
+              libraries: [
+                "../messages/generated/bin/Release/net10.0/Acme.Messages.dll",
+              ],
+            },
+            outputDirectory: "generated",
+            outputName: "Acme.App",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+
+      writeFileSync(
+        join(dir, "packages", "messages", "src", "domain", "send-message.ts"),
+        [
+          `interface SendMessageInput {`,
+          `  type: string;`,
+          `  to: string;`,
+          `  topic?: string;`,
+          `  content: string;`,
+          `}`,
+          ``,
+          `export const sendMessageDomain = async (params: SendMessageInput): Promise<{ id: string }> => {`,
+          `  return { id: params.to + ":" + params.content };`,
+          `};`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "messages", "src", "index.ts"),
+        [`export { sendMessageDomain } from "./domain/send-message.ts";`, ``].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "src", "App.ts"),
+        [
+          `import { sendMessageDomain } from "@acme/messages/Acme.Messages.js";`,
+          ``,
+          `export async function run(): Promise<string> {`,
+          `  const result = await sendMessageDomain({`,
+          `    type: "stream",`,
+          `    to: "general",`,
+          `    topic: "ops",`,
+          `    content: "hello",`,
+          `  });`,
+          `  return result.id;`,
+          `}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      runProjectBuild(dir, wsConfigPath, "messages");
+      linkDir(
+        join(dir, "packages", "messages"),
+        join(dir, "node_modules/@acme/messages")
+      );
+
+      const bindingsRoot = join(
+        dir,
+        "packages",
+        "messages",
+        "dist",
+        "tsonic",
+        "bindings"
+      );
+      const rootInternal = readFileSync(
+        join(bindingsRoot, "Acme.Messages", "internal", "index.d.ts"),
+        "utf-8"
+      );
+      const rootBindings = JSON.parse(
+        readFileSync(
+          join(bindingsRoot, "Acme.Messages", "bindings.json"),
+          "utf-8"
+        )
+      ) as { readonly types: readonly { readonly clrName: string }[] };
+
+      expect(rootInternal).to.include(
+        'readonly "__tsonic_binding_alias_Acme.Messages.domain.SendMessageInput"?: never;'
+      );
+      expect(rootInternal).to.not.include(
+        'readonly "__tsonic_binding_alias_Acme.Messages.SendMessageInput"?: never;'
+      );
+      expect(rootBindings.types.map((item) => item.clrName)).to.not.include(
+        "Acme.Messages.SendMessageInput"
+      );
+      expect(rootBindings.types.map((item) => item.clrName)).to.include(
+        "Acme.Messages.domain.SendMessageInput"
+      );
+
+      runProjectBuild(dir, wsConfigPath, "app");
+
+      const appGenerated = readFileSync(
+        join(dir, "packages", "app", "generated", "App.cs"),
+        "utf-8"
+      );
+      expect(appGenerated).to.include(
+        "new global::Acme.Messages.domain.SendMessageInput"
+      );
+      expect(appGenerated).to.not.include(
+        "new global::Acme.Messages.SendMessageInput"
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1189,6 +1477,259 @@ describe("library bindings first-party regressions", function () {
     }
   });
 
+  it("preserves imported alias return types for exported source-package function values", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-lib-bindings-imported-return-alias-")
+    );
+
+    try {
+      const wsConfigPath = join(dir, "tsonic.workspace.json");
+      mkdirSync(join(dir, "packages", "core", "src"), { recursive: true });
+      mkdirSync(join(dir, "packages", "messages", "src"), { recursive: true });
+      mkdirSync(join(dir, "packages", "app", "src"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test",
+            private: true,
+            type: "module",
+            workspaces: ["packages/*"],
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        wsConfigPath,
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      for (const [name, rootNamespace] of [
+        ["core", "Acme.Core"],
+        ["messages", "Acme.Messages"],
+        ["app", "Acme.App"],
+      ] as const) {
+        writeFileSync(
+          join(dir, "packages", name, "package.json"),
+          JSON.stringify(
+            {
+              name: `@acme/${name}`,
+              private: true,
+              type: "module",
+              dependencies:
+                name === "messages"
+                  ? { "@acme/core": "workspace:*" }
+                  : name === "app"
+                    ? {
+                        "@acme/core": "workspace:*",
+                        "@acme/messages": "workspace:*",
+                      }
+                    : undefined,
+              exports:
+                name === "app"
+                  ? undefined
+                  : {
+                      "./package.json": "./package.json",
+                      "./*.js": {
+                        types: "./dist/tsonic/bindings/*.d.ts",
+                        default: "./dist/tsonic/bindings/*.js",
+                      },
+                    },
+            },
+            null,
+            2
+          ) + "\n",
+          "utf-8"
+        );
+
+        writeFileSync(
+          join(dir, "packages", name, "tsonic.json"),
+          JSON.stringify(
+            {
+              $schema: "https://tsonic.org/schema/v1.json",
+              rootNamespace,
+              entryPoint: name === "app" ? "src/App.ts" : "src/index.ts",
+              sourceRoot: "src",
+              references:
+                name === "messages"
+                  ? {
+                      libraries: ["../core/generated/bin/Release/net10.0/Acme.Core.dll"],
+                    }
+                  : name === "app"
+                    ? {
+                        libraries: [
+                          "../core/generated/bin/Release/net10.0/Acme.Core.dll",
+                          "../messages/generated/bin/Release/net10.0/Acme.Messages.dll",
+                        ],
+                      }
+                    : undefined,
+              outputDirectory: "generated",
+              outputName: rootNamespace,
+              output: {
+                type: "library",
+                targetFrameworks: ["net10.0"],
+                nativeAot: false,
+                generateDocumentation: false,
+                includeSymbols: false,
+                packable: false,
+              },
+            },
+            null,
+            2
+          ) + "\n",
+          "utf-8"
+        );
+      }
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "src", "index.ts"),
+        [
+          `export interface AuthenticatedUser {`,
+          `  id: string;`,
+          `}`,
+          ``,
+          `export type Ok<T> = { success: true; data: T };`,
+          `export type Err<E> = { success: false; error: E };`,
+          `export type Result<T, E = string> = Ok<T> | Err<E>;`,
+          ``,
+          `export function ok<T>(data: T): Ok<T> {`,
+          `  return { success: true, data };`,
+          `}`,
+          ``,
+          `export function err<E>(error: E): Err<E> {`,
+          `  return { success: false, error };`,
+          `}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "messages", "src", "index.ts"),
+        [
+          `import type { AuthenticatedUser, Result } from "@acme/core/Acme.Core.js";`,
+          `import { err, ok } from "@acme/core/Acme.Core.js";`,
+          ``,
+          `interface SendMessageInput {`,
+          `  content: string;`,
+          `}`,
+          ``,
+          `export const sendMessageDomain = async (`,
+          `  user: AuthenticatedUser,`,
+          `  params: SendMessageInput`,
+          `): Promise<Result<{ id: string }, string>> => {`,
+          `  if (params.content === "") return err("empty");`,
+          `  return ok({ id: user.id });`,
+          `};`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "src", "App.ts"),
+        [
+          `import { sendMessageDomain } from "@acme/messages/Acme.Messages.js";`,
+          ``,
+          `export async function run(): Promise<string> {`,
+          `  const result = await sendMessageDomain({ id: "u1" }, { content: "hello" });`,
+          `  if (!result.success) return result.error;`,
+          `  return result.data.id;`,
+          `}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      runProjectBuild(dir, wsConfigPath, "core");
+      linkDir(join(dir, "packages", "core"), join(dir, "node_modules/@acme/core"));
+      runProjectBuild(dir, wsConfigPath, "messages");
+      linkDir(
+        join(dir, "packages", "messages"),
+        join(dir, "node_modules/@acme/messages")
+      );
+
+      const facade = readFileSync(
+        join(
+          dir,
+          "packages",
+          "messages",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Acme.Messages.d.ts"
+        ),
+        "utf-8"
+      );
+      const internal = readFileSync(
+        join(
+          dir,
+          "packages",
+          "messages",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Acme.Messages",
+          "internal",
+          "index.d.ts"
+        ),
+        "utf-8"
+      );
+
+      expect(facade).to.include(
+        `import type { AuthenticatedUser } from '@acme/core/Acme.Core.js';`
+      );
+      expect(facade).to.include(
+        `import type { Result } from '@acme/core/Acme.Core.js';`
+      );
+      expect(facade).to.match(
+        /export declare const sendMessageDomain: \(user: AuthenticatedUser, params: __Local_.*SendMessageInput\) => Promise<Result<__Anon_.*?, string>>;/
+      );
+      expect(facade).to.not.match(/Ok__Alias_1|Err__Alias_1/);
+
+      expect(internal).to.include(
+        `import type { AuthenticatedUser } from '@acme/core/Acme.Core.js';`
+      );
+      expect(internal).to.include(
+        `import type { Result } from '@acme/core/Acme.Core.js';`
+      );
+      expect(internal).to.match(
+        /static sendMessageDomain: \(user: AuthenticatedUser, params: __Local_.*SendMessageInput\) => Promise<Result<__Anon_.*?, string>>;/
+      );
+      expect(internal).to.not.match(/Ok__Alias_1|Err__Alias_1/);
+
+      runProjectBuild(dir, wsConfigPath, "app");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("preserves canonical type identity for cross-namespace source re-exports", () => {
     const dir = mkdtempSync(
       join(tmpdir(), "tsonic-lib-bindings-canonical-reexport-")
@@ -1895,13 +2436,22 @@ describe("library bindings first-party regressions", function () {
         ),
         "utf-8"
       );
+      const stripInternalMarkers = (text: string): string =>
+        text
+          .replace(/^\s*readonly __tsonic_type_[^\n]*\n/gm, "")
+          .replace(
+            /^\s*readonly "__tsonic_binding_alias_[^"]+"[^\n]*\n/gm,
+            ""
+          );
+      const sanitizedFacade = stripInternalMarkers(facade);
+      const sanitizedInternal = stripInternalMarkers(internal);
 
-      expect(facade).to.include("import type { __Local_");
-      expect(facade).to.not.match(/\bSendAInput\b/);
-      expect(facade).to.not.match(/\bSendBInput\b/);
-      expect(internal).to.include("export interface __Local_");
-      expect(internal).to.not.match(/\bSendAInput\b/);
-      expect(internal).to.not.match(/\bSendBInput\b/);
+      expect(sanitizedFacade).to.include("import type { __Local_");
+      expect(sanitizedFacade).to.not.match(/\bSendAInput\b/);
+      expect(sanitizedFacade).to.not.match(/\bSendBInput\b/);
+      expect(sanitizedInternal).to.include("export interface __Local_");
+      expect(sanitizedInternal).to.not.match(/\bSendAInput\b/);
+      expect(sanitizedInternal).to.not.match(/\bSendBInput\b/);
 
       runProjectBuild(dir, wsConfigPath, "app");
     } finally {

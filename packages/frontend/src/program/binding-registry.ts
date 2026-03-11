@@ -46,6 +46,7 @@ export class BindingRegistry {
   // Hierarchical format: namespace/type/member bindings
   private readonly namespaces = new Map<string, NamespaceBinding>();
   private readonly types = new Map<string, TypeBinding>(); // Flat lookup by TS name
+  private readonly typeLookupAliasMap = new Map<string, string>(); // CLR FQN or qualified TS alias -> canonical TS alias
   private readonly members = new Map<string, MemberBinding>(); // Flat lookup by "type.member"
   private readonly memberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by "type.member"
   private readonly clrMemberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by CLR target key
@@ -478,6 +479,11 @@ export class BindingRegistry {
           members,
         };
         this.clrTypeNames.add(tsbType.clrName);
+        this.typeLookupAliasMap.set(tsbType.clrName, typeBinding.alias);
+        this.typeLookupAliasMap.set(
+          `${manifest.namespace}.${typeBinding.alias}`,
+          typeBinding.alias
+        );
         namespaceTypes.push(typeBinding);
 
         // Index the type by its TS name.
@@ -564,7 +570,7 @@ export class BindingRegistry {
    * Look up a type binding by TS alias
    */
   getType(tsAlias: string): TypeBinding | undefined {
-    return this.types.get(tsAlias);
+    return this.types.get(this.resolveLookupAlias(tsAlias));
   }
 
   /**
@@ -578,19 +584,20 @@ export class BindingRegistry {
    * Look up a member binding by TS type alias and member alias
    */
   getMember(typeAlias: string, memberAlias: string): MemberBinding | undefined {
-    const key = `${typeAlias}.${memberAlias}`;
+    const normalizedTypeAlias = this.resolveLookupAlias(typeAlias);
+    const key = `${normalizedTypeAlias}.${memberAlias}`;
     const direct = this.members.get(key);
     if (direct) return direct;
 
     // tsbindgen encodes protected CLR members on a synthetic `${TypeName}$protected` class.
     // Those members are still declared on the real CLR type, so bindings must resolve
     // through the owning type alias.
-    if (typeAlias.endsWith("$protected")) {
-      const ownerAlias = typeAlias.slice(0, -"$protected".length);
+    if (normalizedTypeAlias.endsWith("$protected")) {
+      const ownerAlias = normalizedTypeAlias.slice(0, -"$protected".length);
       return this.members.get(`${ownerAlias}.${memberAlias}`);
     }
 
-    const mappedAlias = this.resolveSimpleBindingAlias(typeAlias);
+    const mappedAlias = this.resolveSimpleBindingAlias(normalizedTypeAlias);
     if (mappedAlias) {
       const mapped = this.members.get(`${mappedAlias}.${memberAlias}`);
       if (mapped) return mapped;
@@ -616,19 +623,23 @@ export class BindingRegistry {
     typeAlias: string,
     memberAlias: string
   ): readonly MemberBinding[] | undefined {
-    const key = `${typeAlias}.${memberAlias}`;
+    const normalizedTypeAlias = this.resolveLookupAlias(typeAlias);
+    const key = `${normalizedTypeAlias}.${memberAlias}`;
     const direct = this.memberOverloads.get(key);
     if (direct && direct.length > 0) return direct;
 
     // See getMember(): map `${TypeName}$protected` to `${TypeName}` for CLR binding lookup.
-    if (typeAlias.endsWith("$protected")) {
-      const ownerAlias = typeAlias.slice(0, -"$protected".length);
+    if (normalizedTypeAlias.endsWith("$protected")) {
+      const ownerAlias = normalizedTypeAlias.slice(
+        0,
+        -"$protected".length
+      );
       const ownerKey = `${ownerAlias}.${memberAlias}`;
       const owner = this.memberOverloads.get(ownerKey);
       if (owner && owner.length > 0) return owner;
     }
 
-    const mappedAlias = this.resolveSimpleBindingAlias(typeAlias);
+    const mappedAlias = this.resolveSimpleBindingAlias(normalizedTypeAlias);
     if (mappedAlias) {
       const mappedKey = `${mappedAlias}.${memberAlias}`;
       const mapped = this.memberOverloads.get(mappedKey);
@@ -732,6 +743,7 @@ export class BindingRegistry {
     this.simpleBindingsLowercase.clear();
     this.namespaces.clear();
     this.types.clear();
+    this.typeLookupAliasMap.clear();
     this.members.clear();
     this.memberOverloads.clear();
     this.clrMemberOverloads.clear();
@@ -739,6 +751,10 @@ export class BindingRegistry {
     this.tsbindgenExports.clear();
     this.tsSupertypes.clear();
     this.clrTypeNames.clear();
+  }
+
+  private resolveLookupAlias(typeAlias: string): string {
+    return this.typeLookupAliasMap.get(typeAlias) ?? typeAlias;
   }
 
   private resolveSimpleBindingAlias(typeAlias: string): string | undefined {

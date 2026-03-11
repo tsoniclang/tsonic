@@ -18,7 +18,8 @@ const isNominalMarkerProperty = (name: string): boolean => {
   return (
     name === "__brand" ||
     name.startsWith("__tsonic_type_") ||
-    name.startsWith("__tsonic_iface_")
+    name.startsWith("__tsonic_iface_") ||
+    name.startsWith("__tsonic_binding_alias_")
   );
 };
 

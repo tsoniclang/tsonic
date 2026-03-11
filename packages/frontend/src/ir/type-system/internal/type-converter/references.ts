@@ -2,9 +2,13 @@
  * Reference type conversion
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import * as ts from "typescript";
 import { IrType, IrDictionaryType, IrInterfaceMember } from "../../../types.js";
 import { substituteIrType } from "../../../types/ir-substitution.js";
+import type { DeclId } from "../../../type-system/types.js";
+import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import {
   isPrimitiveTypeName,
   getPrimitiveType,
@@ -237,6 +241,102 @@ const isTsonicBindingsDeclarationFile = (fileName: string): boolean => {
     fileName.includes("/tsonic/bindings/") ||
     fileName.includes("\\tsonic\\bindings\\")
   );
+};
+
+const bindingAliasClrIdentityCache = new Map<
+  string,
+  ReadonlyMap<string, string>
+>();
+
+const findOwningBindingsJson = (fileName: string): string | undefined => {
+  let currentDir = dirname(fileName);
+  while (true) {
+    const candidate = join(currentDir, "bindings.json");
+    if (existsSync(candidate)) return candidate;
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+
+  if (fileName.endsWith(".d.ts")) {
+    const baseName = fileName.slice(0, -".d.ts".length);
+    const lastSep = Math.max(baseName.lastIndexOf("/"), baseName.lastIndexOf("\\"));
+    const stem = lastSep >= 0 ? baseName.slice(lastSep + 1) : baseName;
+    if (stem.length > 0) {
+      const sibling = join(dirname(fileName), stem, "bindings.json");
+      if (existsSync(sibling)) return sibling;
+    }
+  }
+
+  return undefined;
+};
+
+const buildBindingAliasClrIdentityMap = (
+  bindingsPath: string
+): ReadonlyMap<string, string> => {
+  const cached = bindingAliasClrIdentityCache.get(bindingsPath);
+  if (cached) return cached;
+
+  const aliasToClr = new Map<string, string>();
+
+  try {
+    const raw = JSON.parse(readFileSync(bindingsPath, "utf-8")) as unknown;
+    if (
+      raw &&
+      typeof raw === "object" &&
+      Array.isArray((raw as { readonly types?: unknown }).types)
+    ) {
+      for (const type of (raw as { readonly types: readonly unknown[] }).types) {
+        if (!type || typeof type !== "object") continue;
+        const clrName = (type as { readonly clrName?: unknown }).clrName;
+        if (typeof clrName !== "string" || clrName.trim().length === 0) continue;
+
+        const tsAlias = tsbindgenClrTypeNameToTsTypeName(clrName);
+        const lastDot = clrName.lastIndexOf(".");
+        if (lastDot <= 0) continue;
+
+        const namespace = clrName.slice(0, lastDot);
+        aliasToClr.set(`${namespace}.${tsAlias}`, clrName);
+      }
+    }
+  } catch {
+    // Fall through to the conservative fallback.
+  }
+
+  bindingAliasClrIdentityCache.set(bindingsPath, aliasToClr);
+  return aliasToClr;
+};
+
+const resolveSourceBindingsClrIdentity = (
+  declId: DeclId | undefined,
+  binding: Binding
+): string | undefined => {
+  if (!declId) return undefined;
+  const declInfo = (binding as BindingInternal)
+    ._getHandleRegistry()
+    .getDecl(declId);
+  const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
+    | ts.Declaration
+    | undefined;
+  if (!declNode) return undefined;
+  if (!declNode.getSourceFile().isDeclarationFile) return undefined;
+  if (!isTsonicBindingsDeclarationFile(declNode.getSourceFile().fileName)) {
+    return undefined;
+  }
+
+  const fqName = declInfo?.fqName?.trim();
+  if (!fqName || !fqName.includes(".")) return undefined;
+
+  const bindingsPath = findOwningBindingsJson(declNode.getSourceFile().fileName);
+  if (bindingsPath) {
+    const exactClrName = buildBindingAliasClrIdentityMap(bindingsPath).get(
+      fqName
+    );
+    if (exactClrName) return exactClrName;
+  }
+
+  return fqName;
 };
 
 /**
@@ -1118,6 +1218,7 @@ export const convertTypeReference = (
       .getDecl(declId);
     return declInfo?.fqName ?? typeName;
   })();
+  const resolvedClrType = resolveSourceBindingsClrIdentity(declId, binding);
 
   // tsbindgen exports extension method helpers as:
   //   export type { ExtensionMethods_System_Linq as ExtensionMethods } from "./__internal/extensions/index.js";
@@ -1145,6 +1246,7 @@ export const convertTypeReference = (
     kind: "referenceType",
     name: resolvedName,
     typeArguments: node.typeArguments?.map((t) => convertType(t, binding)),
+    resolvedClrType,
     structuralMembers,
   };
 };

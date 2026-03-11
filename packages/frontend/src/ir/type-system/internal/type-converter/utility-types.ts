@@ -146,6 +146,12 @@ const isTypeParameterNode = (node: ts.TypeNode, binding: Binding): boolean => {
   return decl ? ts.isTypeParameterDeclaration(decl) : false;
 };
 
+const isInternalMarkerMemberName = (name: string): boolean =>
+  name === "__brand" ||
+  name.startsWith("__tsonic_type_") ||
+  name.startsWith("__tsonic_iface_") ||
+  name.startsWith("__tsonic_binding_alias_");
+
 /**
  * Extract members from an interface or type alias declaration (AST-based).
  * Used for utility type expansion.
@@ -183,7 +189,7 @@ const extractMembersFromDeclaration = (
           ? member.name.text
           : undefined;
 
-      if (!propName || !member.type) {
+      if (!propName || !member.type || isInternalMarkerMemberName(propName)) {
         continue; // Skip computed keys or untyped properties
       }
 
@@ -205,9 +211,11 @@ const extractMembersFromDeclaration = (
     if (ts.isMethodSignature(member)) {
       const methodName = ts.isIdentifier(member.name)
         ? member.name.text
-        : undefined;
+        : ts.isStringLiteral(member.name)
+          ? member.name.text
+          : undefined;
 
-      if (!methodName) {
+      if (!methodName || isInternalMarkerMemberName(methodName)) {
         continue; // Skip computed keys
       }
 
