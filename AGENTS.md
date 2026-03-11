@@ -18,6 +18,9 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 - Hard rule: **no unmerged parallel branches with unique commits**. Any branch that’s ahead of `main` must be either:
   - the current active PR branch, or
   - immediately turned into a PR (or explicitly abandoned) before starting new work.
+- Before starting work, and again before creating a new branch, run:
+  - `bash scripts/check-branch-hygiene.sh`
+- Do not proceed if that script reports warnings unless the maintainer explicitly says to ignore them for the current task.
 - **Do not create a new branch without explicit maintainer approval.**
   - Before branching, first verify all current work is already PR’ed and merged (or is the one active PR branch).
   - If any “dangling” branches exist (ahead of `main`), stop and ask what to do with them.
