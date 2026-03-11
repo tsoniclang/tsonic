@@ -408,7 +408,11 @@ const extractStructuralMembersFromDeclarations = (
             ? member.name.text
             : undefined;
 
-        if (!accessorName || accessorName.startsWith("__tsonic_type_")) {
+        if (
+          !accessorName ||
+          accessorName.startsWith("__tsonic_type_") ||
+          accessorName.startsWith("__tsonic_binding_alias_")
+        ) {
           continue;
         }
 
@@ -430,7 +434,11 @@ const extractStructuralMembersFromDeclarations = (
             ? member.name.text
             : undefined;
 
-        if (!propName || propName.startsWith("__tsonic_type_")) {
+        if (
+          !propName ||
+          propName.startsWith("__tsonic_type_") ||
+          propName.startsWith("__tsonic_binding_alias_")
+        ) {
           continue; // Skip computed/symbol keys
         }
 

@@ -100,11 +100,31 @@ const findTsonicPackages = (nodeModulesPath: string): string[] => {
  */
 const findBindingsFiles = (packagePath: string): string[] => {
   const bindingsFiles: string[] = [];
+  const isIgnorableDirReadError = (error: unknown): boolean => {
+    if (!(error instanceof Error)) return false;
+    const err = error as NodeJS.ErrnoException;
+    return (
+      err.code === "EACCES" ||
+      err.code === "EPERM" ||
+      err.code === "ENOENT" ||
+      err.code === "ENOTDIR"
+    );
+  };
 
   const walk = (dir: string) => {
     if (!fs.existsSync(dir)) return;
 
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (error) {
+      if (isIgnorableDirReadError(error)) {
+        return;
+      }
+      throw error;
+    }
+
+    for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(fullPath);

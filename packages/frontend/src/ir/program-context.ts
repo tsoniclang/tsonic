@@ -206,18 +206,56 @@ export const createProgramContext = (
     | undefined
   >();
   const packageHasMetadataCache = new Map<string, boolean>();
+  const projectRootResolved = path.resolve(program.options.projectRoot);
+
+  const getCommonAncestor = (leftPath: string, rightPath: string): string => {
+    const leftResolved = path.resolve(leftPath);
+    const rightResolved = path.resolve(rightPath);
+    const leftParts = leftResolved.split(path.sep).filter(Boolean);
+    const rightParts = rightResolved.split(path.sep).filter(Boolean);
+    const shared: string[] = [];
+
+    for (
+      let index = 0;
+      index < Math.min(leftParts.length, rightParts.length);
+      index += 1
+    ) {
+      const leftPart = leftParts[index];
+      const rightPart = rightParts[index];
+      if (leftPart === undefined || rightPart === undefined) break;
+      if (leftPart !== rightPart) break;
+      shared.push(leftPart);
+    }
+
+    if (shared.length === 0) {
+      return path.parse(leftResolved).root;
+    }
+
+    return path.join(path.parse(leftResolved).root, ...shared);
+  };
 
   const findPackageRootForFile = (fileName: string): string | undefined => {
     const normalized = fileName.replace(/\\/g, "/");
     if (packageRootCache.has(normalized))
       return packageRootCache.get(normalized);
 
-    let dir = path.dirname(fileName);
+    const resolvedFileName = path.resolve(fileName);
+    const searchFloor = resolvedFileName.startsWith(
+      `${projectRootResolved}${path.sep}`
+    )
+      ? projectRootResolved
+      : getCommonAncestor(resolvedFileName, projectRootResolved);
+
+    let dir = path.dirname(resolvedFileName);
     while (true) {
       const pkgJson = path.join(dir, "package.json");
       if (fs.existsSync(pkgJson)) {
         packageRootCache.set(normalized, dir);
         return dir;
+      }
+      if (dir === searchFloor) {
+        packageRootCache.set(normalized, undefined);
+        return undefined;
       }
       const parent = path.dirname(dir);
       if (parent === dir) {
@@ -447,7 +485,9 @@ export const createProgramContext = (
   // must be in the universe.
   for (const sourceFile of program.declarationSourceFiles) {
     const pkgRoot = findPackageRootForFile(sourceFile.fileName);
-    if (pkgRoot) extraPackageRoots.push(pkgRoot);
+    if (pkgRoot && packageHasClrMetadata(pkgRoot)) {
+      extraPackageRoots.push(pkgRoot);
+    }
   }
 
   // Include any additional CLR packages discovered via imports (e.g., efcore, aspnetcore).

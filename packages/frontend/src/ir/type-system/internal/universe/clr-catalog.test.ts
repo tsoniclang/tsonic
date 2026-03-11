@@ -85,4 +85,77 @@ describe("loadClrCatalog", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("skips unreadable directories while scanning CLR bindings", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-clr-catalog-")
+    );
+
+    const unreadableDir = path.join(
+      tempDir,
+      "node_modules",
+      "@tsonic",
+      "blocked",
+      "secret"
+    );
+
+    try {
+      const nodeModulesRoot = path.join(tempDir, "node_modules");
+      const dotnetRoot = path.join(nodeModulesRoot, "@tsonic", "dotnet");
+      const dotnetNsRoot = path.join(dotnetRoot, "System");
+      const dotnetInternalRoot = path.join(dotnetNsRoot, "internal");
+
+      fs.mkdirSync(dotnetInternalRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(dotnetRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/dotnet", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(dotnetNsRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            namespace: "System",
+            types: [
+              {
+                stableId: "System:System.Console",
+                clrName: "System.Console",
+                kind: "class",
+                accessibility: "public",
+                isAbstract: false,
+                isSealed: true,
+                isStatic: true,
+                arity: 0,
+                methods: [],
+                properties: [],
+                fields: [],
+                constructors: [],
+                assemblyName: "System.Console",
+              },
+            ],
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(dotnetInternalRoot, "index.d.ts"),
+        "export {};\n"
+      );
+
+      fs.mkdirSync(unreadableDir, { recursive: true });
+      fs.chmodSync(unreadableDir, 0);
+
+      const catalog = loadClrCatalog(nodeModulesRoot);
+      expect(catalog.entries.has("System:System.Console")).to.equal(true);
+    } finally {
+      if (fs.existsSync(unreadableDir)) {
+        fs.chmodSync(unreadableDir, 0o755);
+      }
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

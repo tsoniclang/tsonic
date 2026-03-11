@@ -1,6 +1,13 @@
 import { expect } from "chai";
 import { describe, it } from "mocha";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -162,6 +169,68 @@ describe("Frontend Surface Profiles", () => {
       );
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers sibling @tsonic surface packages over stray ancestor node_modules installs", () => {
+    const strayJsRoot = join(tmpdir(), "node_modules", "@tsonic", "js");
+    const strayPackageJsonPath = join(strayJsRoot, "package.json");
+    const strayManifestPath = join(strayJsRoot, "tsonic.surface.json");
+    const hadStray = existsSync(strayJsRoot);
+    const originalPackageJson = existsSync(strayPackageJsonPath)
+      ? readFileSync(strayPackageJsonPath, "utf-8")
+      : undefined;
+    const originalManifest = existsSync(strayManifestPath)
+      ? readFileSync(strayManifestPath, "utf-8")
+      : undefined;
+    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-stray-"));
+    try {
+      mkdirSync(strayJsRoot, { recursive: true });
+      writeFileSync(
+        strayPackageJsonPath,
+        JSON.stringify(
+          { name: "@tsonic/js", version: "0.0.0-test", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        strayManifestPath,
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["types"],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
+      );
+
+      const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
+      expect(
+        caps.requiredTypeRoots.some((root) => /[/\\]js[/\\]versions[/\\]\d+$/.test(root))
+      ).to.equal(true);
+      expect(caps.requiredTypeRoots).to.not.include(resolve(strayJsRoot, "types"));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+      if (hadStray) {
+        if (originalPackageJson !== undefined) {
+          writeFileSync(strayPackageJsonPath, originalPackageJson);
+        }
+        if (originalManifest !== undefined) {
+          writeFileSync(strayManifestPath, originalManifest);
+        }
+      } else {
+        rmSync(strayJsRoot, { recursive: true, force: true });
+      }
     }
   });
 
