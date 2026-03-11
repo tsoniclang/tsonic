@@ -2542,6 +2542,8 @@ const renderClassInternal = (
   bindingAlias = declaration.name
 ): readonly string[] => {
   const lines: string[] = [];
+  const isSyntheticAnonymousStructuralClass =
+    emittedName.startsWith("__Anon_") || brandName.startsWith("__Anon_");
   const typeParameterScope = (declaration.typeParameters ?? []).map(
     (typeParameter) => typeParameter.name
   );
@@ -2580,7 +2582,9 @@ const renderClassInternal = (
   lines.push(
     `export interface ${emittedName}$instance${typeParameters}${extendsClause} {`
   );
-  lines.push(`    readonly ${markerName}: never;`);
+  if (!isSyntheticAnonymousStructuralClass) {
+    lines.push(`    readonly ${markerName}: never;`);
+  }
   lines.push(renderBindingAliasMarker(namespace, bindingAlias));
 
   const instanceMembers = declaration.members.filter((member) => {
@@ -2640,6 +2644,12 @@ const renderClassInternal = (
 
   lines.push("}");
   lines.push("");
+  if (isSyntheticAnonymousStructuralClass) {
+    lines.push(
+      `export type ${emittedName}${typeParameters} = ${emittedName}$instance${typeParameters};`
+    );
+    return lines;
+  }
   lines.push(`export const ${emittedName}: {`);
   lines.push(
     `    new(...args: unknown[]): ${emittedName}${typeParameters};`
