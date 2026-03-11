@@ -3374,6 +3374,43 @@ describe("IR Builder", () => {
       });
     });
 
+    it("allows arbitrary property access on Record<string, unknown> without unknown poison", () => {
+      const source = `
+        export function fill(): Record<string, unknown> {
+          const state: Record<string, unknown> = {};
+          state.zulip_version = "1.0";
+          state.realm_users = [];
+          return state;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+    });
+
+    it("allows declared unknown members on structural callback parameters", () => {
+      const source = `
+        export function project(
+          rawUpdates: { stream_id: string; property: string; value: unknown }[]
+        ): string[] {
+          return rawUpdates.map((update) => String(update.value ?? ""));
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+    });
+
     it("types inferred array Length access as int without unknown poison", () => {
       const source = `
         export function count(items: string[]): int {

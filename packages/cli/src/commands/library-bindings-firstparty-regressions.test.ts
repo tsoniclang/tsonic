@@ -198,6 +198,70 @@ describe("library bindings first-party regressions", function () {
     }
   });
 
+  it("emits canonical manifest aliases for generic source-binding types", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-lib-bindings-generic-alias-")
+    );
+    try {
+      const wsConfigPath = writeLibraryScaffold(dir, "Test.Lib", "Test.Lib");
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "index.ts"),
+        [
+          "export type Result<T> = {",
+          "  ok: T;",
+          "};",
+          "",
+          "export class Box<T> {",
+          "  value!: T;",
+          "}",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      runLibraryBuild(dir, wsConfigPath);
+
+      const bindings = JSON.parse(
+        readFileSync(
+          join(
+            dir,
+            "packages",
+            "lib",
+            "dist",
+            "tsonic",
+            "bindings",
+            "Test.Lib",
+            "bindings.json"
+          ),
+          "utf-8"
+        )
+      ) as {
+        readonly types?: ReadonlyArray<{
+          readonly clrName?: string;
+          readonly alias?: string;
+        }>;
+      };
+
+      expect(
+        bindings.types?.some(
+          (type) =>
+            type.clrName === "Test.Lib.Result__Alias`1" &&
+            type.alias === "Test.Lib.Result__Alias_1"
+        )
+      ).to.equal(true);
+      expect(
+        bindings.types?.some(
+          (type) =>
+            type.clrName === "Test.Lib.Box`1" &&
+            type.alias === "Test.Lib.Box_1"
+        )
+      ).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("uses declaring-module source signatures for transitive re-exported function values", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-declaring-"));
     try {
@@ -2865,6 +2929,292 @@ describe("library bindings first-party regressions", function () {
 
       expect(internal).to.not.match(/readonly __tsonic_type_[^\n]*__Anon_/);
       expect(internal).to.not.match(/new\(...args: unknown\[\]\): __Anon_/);
+
+      runProjectBuild(dir, wsConfigPath, "app");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps same-named local helper types from sibling namespaces unambiguous for consumers", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-lib-bindings-sibling-local-type-")
+    );
+
+    try {
+      const wsConfigPath = join(dir, "tsonic.workspace.json");
+      mkdirSync(join(dir, "packages", "channels", "src", "domain"), {
+        recursive: true,
+      });
+      mkdirSync(join(dir, "packages", "channels", "src", "repo"), {
+        recursive: true,
+      });
+      mkdirSync(join(dir, "packages", "app", "src"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test",
+            private: true,
+            type: "module",
+            workspaces: ["packages/*"],
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        wsConfigPath,
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "channels", "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/channels",
+            private: true,
+            type: "module",
+            exports: {
+              "./package.json": "./package.json",
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "package.json"),
+        JSON.stringify(
+          {
+            name: "app",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "channels", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Acme.Channels",
+            entryPoint: "src/index.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "Acme.Channels",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Acme.App",
+            entryPoint: "src/App.ts",
+            sourceRoot: "src",
+            references: {
+              libraries: [
+                "../channels/generated/bin/Release/net10.0/Acme.Channels.dll",
+              ],
+            },
+            outputDirectory: "generated",
+            outputName: "Acme.App",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+
+      writeFileSync(
+        join(dir, "packages", "channels", "src", "entities.ts"),
+        [
+          "export class ChannelFolder {",
+          "  Id: string = \"\";",
+          "}",
+          "",
+          "export class ChannelFolderItem {",
+          "  ChannelId: string = \"\";",
+          "}",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "channels", "src", "repo", "get-channel-folders.ts"),
+        [
+          'import { ChannelFolder, ChannelFolderItem } from "../entities.ts";',
+          "",
+          "interface ChannelFolderWithItems {",
+          "  folder: ChannelFolder;",
+          "  items: ChannelFolderItem[];",
+          "}",
+          "",
+          "export const getChannelFolders = (): ChannelFolderWithItems[] => {",
+          "  const folder = new ChannelFolder();",
+          '  folder.Id = "folder-1";',
+          "  const item = new ChannelFolderItem();",
+          '  item.ChannelId = "channel-1";',
+          "  return [{ folder, items: [item] }];",
+          "};",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(
+          dir,
+          "packages",
+          "channels",
+          "src",
+          "domain",
+          "get-channel-folders-domain.ts"
+        ),
+        [
+          'import { ChannelFolder, ChannelFolderItem } from "../entities.ts";',
+          'import { getChannelFolders } from "../repo/get-channel-folders.ts";',
+          "",
+          "interface ChannelFolderWithItems {",
+          "  folder: ChannelFolder;",
+          "  items: ChannelFolderItem[];",
+          "}",
+          "",
+          "export const getChannelFoldersDomain = (): ChannelFolderWithItems[] => {",
+          "  return getChannelFolders();",
+          "};",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "channels", "src", "index.ts"),
+        [
+          'export { ChannelFolder, ChannelFolderItem } from "./entities.ts";',
+          'export { getChannelFoldersDomain } from "./domain/get-channel-folders-domain.ts";',
+          'export { getChannelFolders } from "./repo/get-channel-folders.ts";',
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "src", "App.ts"),
+        [
+          'import { getChannelFoldersDomain } from "@acme/channels/Acme.Channels.js";',
+          "",
+          "export function run(): string {",
+          "  const folders = getChannelFoldersDomain();",
+          "  const entry = folders[0];",
+          '  if (entry === undefined) return "none";',
+          '  return entry.folder.Id + ":" + entry.items[0]!.ChannelId;',
+          "}",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      runProjectBuild(dir, wsConfigPath, "channels");
+
+      const topLevelBindings = JSON.parse(
+        readFileSync(
+          join(
+            dir,
+            "packages",
+            "channels",
+            "dist",
+            "tsonic",
+            "bindings",
+            "Acme.Channels",
+            "bindings.json"
+          ),
+          "utf-8"
+        )
+      ) as {
+        readonly types?: ReadonlyArray<{
+          readonly clrName?: string;
+          readonly alias?: string;
+        }>;
+      };
+
+      expect(
+        topLevelBindings.types?.some(
+          (type) =>
+            type.clrName === "Acme.Channels.domain.ChannelFolderWithItems" &&
+            type.alias === "Acme.Channels.domain.ChannelFolderWithItems"
+        )
+      ).to.equal(true);
+      expect(
+        topLevelBindings.types?.some(
+          (type) =>
+            type.clrName === "Acme.Channels.repo.ChannelFolderWithItems" &&
+            type.alias === "Acme.Channels.repo.ChannelFolderWithItems"
+        )
+      ).to.equal(true);
+
+      linkDir(
+        join(dir, "packages", "channels"),
+        join(dir, "node_modules/@acme/channels")
+      );
 
       runProjectBuild(dir, wsConfigPath, "app");
     } finally {

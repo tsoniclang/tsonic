@@ -130,6 +130,7 @@ export type TsbindgenTypeRef = {
 
 export type TsbindgenType = {
   readonly clrName: string; // Full CLR type name (e.g., "System.Console")
+  readonly alias?: string; // Optional explicit TS lookup alias (used by first-party bindings)
   readonly assemblyName: string;
   readonly baseType?: TsbindgenTypeRef;
   readonly interfaces?: readonly TsbindgenTypeRef[];
@@ -273,6 +274,13 @@ export const validateBindingFile = (
     for (const [typeIndex, typeValue] of manifest.types.entries()) {
       if (typeValue === null || typeof typeValue !== "object") continue;
       const typeRecord = typeValue as Record<string, unknown>;
+      if (
+        "alias" in typeRecord &&
+        typeRecord.alias !== undefined &&
+        typeof typeRecord.alias !== "string"
+      ) {
+        return `${filePath}: 'types[${typeIndex}].alias' must be a string when present`;
+      }
       const methods = Array.isArray(typeRecord.methods) ? typeRecord.methods : [];
       for (const [methodIndex, methodValue] of methods.entries()) {
         if (methodValue === null || typeof methodValue !== "object") continue;

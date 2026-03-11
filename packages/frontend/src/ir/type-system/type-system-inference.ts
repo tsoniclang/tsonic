@@ -47,7 +47,6 @@ import {
 import { typesEqual, containsTypeParameter } from "./type-system-relations.js";
 import {
   convertTypeNode,
-  lookupStructuralMember,
   resolveCall,
   delegateToFunctionType,
 } from "./type-system-call-resolution.js";
@@ -975,6 +974,8 @@ const resolveMemberTypeNoDiag = (
     if (memberName === "Count" || memberName === "Length") {
       return { kind: "primitiveType", name: "int" };
     }
+
+    return receiver.valueType;
   }
 
   // Built-in array pseudo-members.
@@ -1008,12 +1009,44 @@ const resolveMemberTypeNoDiag = (
   const normalized = normalizeToNominal(state, receiver);
   if (!normalized) {
     // Handle structural types (objectType)
+    if (receiver.kind === "objectType") {
+      const member = receiver.members.find((m) => m.name === memberName);
+      if (!member) return undefined;
+      if (member.kind === "propertySignature") {
+        if (!member.isOptional) return member.type;
+        return {
+          kind: "unionType",
+          types: [member.type, { kind: "primitiveType", name: "undefined" }],
+        };
+      }
+
+      return {
+        kind: "functionType",
+        parameters: member.parameters,
+        returnType: member.returnType ?? voidType,
+      };
+    }
+
     if (
-      receiver.kind === "objectType" ||
-      (receiver.kind === "referenceType" && receiver.structuralMembers)
+      receiver.kind === "referenceType" &&
+      receiver.structuralMembers &&
+      receiver.structuralMembers.length > 0
     ) {
-      const structural = lookupStructuralMember(state, receiver, memberName);
-      return structural.kind === "unknownType" ? undefined : structural;
+      const member = receiver.structuralMembers.find((m) => m.name === memberName);
+      if (!member) return undefined;
+      if (member.kind === "propertySignature") {
+        if (!member.isOptional) return member.type;
+        return {
+          kind: "unionType",
+          types: [member.type, { kind: "primitiveType", name: "undefined" }],
+        };
+      }
+
+      return {
+        kind: "functionType",
+        parameters: member.parameters,
+        returnType: member.returnType ?? voidType,
+      };
     }
     return undefined;
   }

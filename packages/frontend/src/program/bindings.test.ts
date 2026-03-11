@@ -262,6 +262,68 @@ describe("Binding System", () => {
       expect(byClrName?.alias).to.equal("Widget");
     });
 
+    it("should keep explicit tsbindgen aliases disambiguated when simple names collide", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/acme/bindings.json", {
+        namespace: "Acme",
+        types: [
+          {
+            clrName: "Acme.domain.ChannelFolderWithItems",
+            alias: "Acme.domain.ChannelFolderWithItems",
+            assemblyName: "Acme",
+            methods: [],
+            properties: [
+              {
+                clrName: "folder",
+                declaringClrType: "Acme.domain.ChannelFolderWithItems",
+                declaringAssemblyName: "Acme",
+              },
+            ],
+            fields: [],
+          },
+          {
+            clrName: "Acme.repo.ChannelFolderWithItems",
+            alias: "Acme.repo.ChannelFolderWithItems",
+            assemblyName: "Acme",
+            methods: [],
+            properties: [
+              {
+                clrName: "folder",
+                declaringClrType: "Acme.repo.ChannelFolderWithItems",
+                declaringAssemblyName: "Acme",
+              },
+            ],
+            fields: [],
+          },
+        ],
+      });
+
+      const domainOverloads = registry.getMemberOverloads(
+        "Acme.domain.ChannelFolderWithItems",
+        "folder"
+      );
+      expect(domainOverloads).to.not.equal(undefined);
+      expect(domainOverloads?.length).to.equal(1);
+      expect(domainOverloads?.[0]?.binding.type).to.equal(
+        "Acme.domain.ChannelFolderWithItems"
+      );
+
+      const repoOverloads = registry.getMemberOverloads(
+        "Acme.repo.ChannelFolderWithItems",
+        "folder"
+      );
+      expect(repoOverloads).to.not.equal(undefined);
+      expect(repoOverloads?.length).to.equal(1);
+      expect(repoOverloads?.[0]?.binding.type).to.equal(
+        "Acme.repo.ChannelFolderWithItems"
+      );
+
+      expect(
+        registry.getMemberOverloads("ChannelFolderWithItems", "folder")
+      ).to.equal(undefined);
+    });
+
     it("should resolve member overloads by CLR type name for source-binding canonical identities", () => {
       const registry = new BindingRegistry();
 

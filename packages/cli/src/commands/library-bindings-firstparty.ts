@@ -85,6 +85,7 @@ type FirstPartyBindingsConstructor = {
 type FirstPartyBindingsType = {
   readonly stableId: string;
   readonly clrName: string;
+  readonly alias: string;
   readonly assemblyName: string;
   readonly kind: "Class" | "Interface" | "Struct" | "Enum";
   readonly accessibility: "Public" | "Internal" | "Private" | "Protected";
@@ -2344,6 +2345,15 @@ const toClrTypeName = (
   return `${namespace}.${typeName}${suffix}`;
 };
 
+const toBindingTypeAlias = (
+  namespace: string,
+  typeName: string,
+  arity?: number
+): string => {
+  const normalizedName = normalizeTypeReferenceName(typeName, arity);
+  return namespace.length > 0 ? `${namespace}.${normalizedName}` : normalizedName;
+};
+
 const toStableId = (assemblyName: string, clrName: string): string => {
   return `${assemblyName}:${clrName}`;
 };
@@ -3051,6 +3061,11 @@ const buildTypeBindingFromClass = (
   return {
     stableId: typeStableId,
     clrName: declaringClrType,
+    alias: toBindingTypeAlias(
+      namespace,
+      declaration.name,
+      declaration.typeParameters?.length ?? 0
+    ),
     assemblyName,
     kind: declaration.isStruct ? "Struct" : "Class",
     accessibility: "Public",
@@ -3139,6 +3154,11 @@ const buildTypeBindingFromInterface = (
   return {
     stableId: typeStableId,
     clrName: declaringClrType,
+    alias: toBindingTypeAlias(
+      namespace,
+      declaration.name,
+      declaration.typeParameters?.length ?? 0
+    ),
     assemblyName,
     kind: declaration.isStruct ? "Struct" : "Interface",
     accessibility: "Public",
@@ -3179,6 +3199,7 @@ const buildTypeBindingFromEnum = (
   return {
     stableId: typeStableId,
     clrName: declaringClrType,
+    alias: toBindingTypeAlias(namespace, declaration.name),
     assemblyName,
     kind: "Enum",
     accessibility: "Public",
@@ -3256,6 +3277,7 @@ const buildTypeBindingFromStructuralAlias = (
   return {
     stableId: typeStableId,
     clrName: declaringClrType,
+    alias: toBindingTypeAlias(namespace, internalAliasName, arity),
     assemblyName,
     kind: declaration.isStruct ? "Struct" : "Class",
     accessibility: "Public",
@@ -3322,6 +3344,7 @@ const buildTypeBindingFromContainer = (
   return {
     stableId: typeStableId,
     clrName: declaringClrType,
+    alias: toBindingTypeAlias(namespace, entry.module.className),
     assemblyName,
     kind: "Class",
     accessibility: "Public",

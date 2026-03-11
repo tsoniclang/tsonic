@@ -10,6 +10,42 @@ import * as ts from "typescript";
 import { IrType, ComputedAccessKind } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 
+const receiverHasDeclaredUnknownMember = (
+  receiverIrType: IrType | undefined,
+  propertyName: string,
+  ctx: ProgramContext
+): boolean => {
+  if (!receiverIrType || receiverIrType.kind === "unknownType") return false;
+
+  if (receiverIrType.kind === "dictionaryType") {
+    return true;
+  }
+
+  if (receiverIrType.kind === "objectType") {
+    return receiverIrType.members.some((member) => member.name === propertyName);
+  }
+
+  if (
+    receiverIrType.kind === "referenceType" &&
+    receiverIrType.structuralMembers &&
+    receiverIrType.structuralMembers.length > 0
+  ) {
+    return receiverIrType.structuralMembers.some(
+      (member) => member.name === propertyName
+    );
+  }
+
+  if (receiverIrType.kind === "referenceType") {
+    const indexer = ctx.typeSystem.getIndexerInfo(receiverIrType);
+    return (
+      indexer?.keyClrType === "System.String" ||
+      indexer?.keyClrType === "System.Object"
+    );
+  }
+
+  return false;
+};
+
 /**
  * Fallback for getDeclaredPropertyType when TypeSystem can't resolve the member.
  * Uses TypeSystem.typeOfMemberId() to get member types for:
@@ -87,6 +123,9 @@ export const getDeclaredPropertyType = (
     }
     // If TypeSystem returned a valid type (not unknownType), use it
     if (memberType.kind !== "unknownType") {
+      return memberType;
+    }
+    if (receiverHasDeclaredUnknownMember(receiverIrType, propertyName, ctx)) {
       return memberType;
     }
     // Fall through to Binding fallback
