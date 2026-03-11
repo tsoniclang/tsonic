@@ -1818,6 +1818,52 @@ describe("Expression Emission", () => {
     );
   });
 
+  it("should preserve resolved CLR identity for source-bound array element types", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "attachments",
+              inferredType: {
+                kind: "arrayType",
+                elementType: {
+                  kind: "referenceType",
+                  name: "Acme.Core.Attachment",
+                  resolvedClrType: "Acme.Core.Attachment",
+                },
+              },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+            memberBinding: {
+              kind: "property",
+              assembly: "Tsonic.JSRuntime",
+              type: "Tsonic.JSRuntime.JSArray`1",
+              member: "length",
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::Acme.Core.Attachment>(attachments).length"
+    );
+  });
+
   it("should emit array wrapper property access for ReadonlyArray receivers", () => {
     const module: IrModule = {
       kind: "module",

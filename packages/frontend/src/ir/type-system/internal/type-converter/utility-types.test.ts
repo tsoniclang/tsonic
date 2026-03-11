@@ -493,6 +493,36 @@ describe("Utility Type Expansion Safety", () => {
         expect(greetMethod.parameters).to.have.length(1);
       }
     });
+
+    it("should ignore internal marker members during utility expansion", () => {
+      const source = `
+        interface Probe {
+          readonly "__tsonic_binding_alias_Acme.Core.Probe"?: never;
+          readonly __tsonic_type_Acme_Core_Probe?: never;
+          readonly __tsonic_iface_Acme_Core_Probe?: never;
+          value?: number;
+          greet(name: string): string;
+        }
+        type RequiredProbe = Required<Probe>;
+      `;
+
+      const { binding, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "RequiredProbe");
+
+      const result = expandUtilityType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        "Required",
+        binding,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("objectType");
+
+      const memberNames =
+        result?.members.map((member) => member.name).sort() ?? [];
+      expect(memberNames).to.deep.equal(["greet", "value"]);
+    });
   });
 
   describe("Pick and Omit with multiple keys", () => {

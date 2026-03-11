@@ -62,6 +62,7 @@ import {
 
 import {
   resolveCall as crResolveCall,
+  collectExpectedReturnCandidates as crCollectExpectedReturnCandidates,
   delegateToFunctionType as crDelegateToFunctionType,
 } from "./type-system-call-resolution.js";
 
@@ -166,6 +167,15 @@ export type TypeAuthority = {
    * Returns poisoned call on conflict (TSN5202).
    */
   resolveCall(query: CallQuery): ResolvedCall;
+
+  /**
+   * Expand a contextual expected type into inference candidates.
+   *
+   * Used by the frontend before full argument conversion so imported aliases,
+   * union members, and async wrapper shapes can participate in early
+   * contextual call specialization.
+   */
+  collectExpectedReturnCandidates(type: IrType): readonly IrType[];
 
   /**
    * Convert a CLR delegate nominal type (Func/Action/custom delegates) into a function type.
@@ -545,6 +555,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
 
     // Call resolution (call-resolution module)
     resolveCall: (query) => crResolveCall(state, query),
+    collectExpectedReturnCandidates: (type) =>
+      crCollectExpectedReturnCandidates(state, type),
     delegateToFunctionType: (type) => crDelegateToFunctionType(state, type),
 
     // Utility type expansion (utilities module)

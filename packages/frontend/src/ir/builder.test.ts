@@ -78,6 +78,79 @@ describe("IR Builder", () => {
     return { testProgram, ctx, options };
   };
 
+  const createFilesystemTestProgram = (
+    files: Record<string, string>,
+    entryRelativePath: string
+  ) => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-builder-filesystem-")
+    );
+
+    for (const [relativePath, contents] of Object.entries(files)) {
+      const absolutePath = path.join(tempDir, relativePath);
+      fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+      fs.writeFileSync(absolutePath, contents);
+    }
+
+    const rootNames = Object.keys(files)
+      .filter((relativePath) => /\.(?:ts|mts|cts|d\.ts)$/.test(relativePath))
+      .map((relativePath) => path.join(tempDir, relativePath));
+
+    const tsProgram = ts.createProgram(rootNames, {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+    });
+
+    const checker = tsProgram.getTypeChecker();
+    const entryPath = path.join(tempDir, entryRelativePath);
+    const sourceFile = tsProgram.getSourceFile(entryPath);
+    if (!sourceFile) {
+      throw new Error(`Failed to create source file for ${entryRelativePath}`);
+    }
+
+    const testProgram = {
+      program: tsProgram,
+      checker,
+      options: {
+        projectRoot: tempDir,
+        sourceRoot: path.join(tempDir, "src"),
+        rootNamespace: "TestApp",
+        strict: true,
+      },
+      sourceFiles: rootNames
+        .filter((filePath) => !filePath.endsWith(".d.ts"))
+        .map((filePath) => tsProgram.getSourceFile(filePath))
+        .filter((candidate): candidate is ts.SourceFile => candidate !== undefined),
+      declarationSourceFiles: rootNames
+        .filter((filePath) => filePath.endsWith(".d.ts"))
+        .map((filePath) => tsProgram.getSourceFile(filePath))
+        .filter((candidate): candidate is ts.SourceFile => candidate !== undefined),
+      metadata: new DotnetMetadataRegistry(),
+      bindings: new BindingRegistry(),
+      clrResolver: createClrBindingsResolver(tempDir),
+      binding: createBinding(checker),
+    };
+
+    const options = {
+      sourceRoot: path.join(tempDir, "src"),
+      rootNamespace: "TestApp",
+    };
+    const ctx = createProgramContext(testProgram, options);
+
+    return {
+      tempDir,
+      sourceFile,
+      testProgram,
+      ctx,
+      options,
+      cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true }),
+    };
+  };
+
   describe("Module Structure", () => {
     it("should create IR module with correct namespace and class name", () => {
       const source = `
@@ -616,6 +689,250 @@ describe("IR Builder", () => {
           kind: "primitiveType",
           name: "string",
         });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("preserves canonical CLR identity for array elements from source-binding declarations", function () {
+      this.timeout(30_000);
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-source-array-identity-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const bindingsRoot = path.join(tempDir, "tsonic", "bindings");
+        fs.mkdirSync(path.join(bindingsRoot, "Acme.Core", "internal"), {
+          recursive: true,
+        });
+        fs.writeFileSync(
+          path.join(bindingsRoot, "Acme.Core", "internal", "index.d.ts"),
+          [
+            "export interface Attachment$instance {",
+            '  readonly "__tsonic_binding_alias_Acme.Core.Attachment"?: never;',
+            "  readonly __tsonic_type_Acme_Core_Attachment?: never;",
+            "  Id: string;",
+            "}",
+            "export type Attachment = Attachment$instance;",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(bindingsRoot, "Acme.Core.d.ts"),
+          [
+            'import type { Attachment } from "./Acme.Core/internal/index.js";',
+            "export declare function getAttachments(): Attachment[];",
+          ].join("\n")
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            'import { getAttachments } from "../tsonic/bindings/Acme.Core.js";',
+            "const attachments = getAttachments();",
+            "export const attachmentCount = attachments.length;",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          useStandardLib: true,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const attachmentsDecl = moduleResult.value.body.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0]?.name.name === "attachments"
+        );
+        expect(attachmentsDecl).to.not.equal(undefined);
+        if (!attachmentsDecl) return;
+
+        const attachmentsType = attachmentsDecl.declarations[0]?.type;
+        expect(attachmentsType?.kind).to.equal("arrayType");
+        if (!attachmentsType || attachmentsType.kind !== "arrayType") return;
+
+        expect(attachmentsType.elementType.kind).to.equal("referenceType");
+        if (attachmentsType.elementType.kind !== "referenceType") return;
+
+        expect(attachmentsType.elementType.name).to.equal(
+          "Acme.Core.Attachment"
+        );
+        expect(attachmentsType.elementType.resolvedClrType).to.equal(
+          "Acme.Core.Attachment"
+        );
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("preserves CLR identity for generic structural aliases from source-binding declarations", function () {
+      this.timeout(30_000);
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-source-generic-alias-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const bindingsRoot = path.join(tempDir, "tsonic", "bindings");
+        fs.mkdirSync(path.join(bindingsRoot, "Acme.Core", "internal"), {
+          recursive: true,
+        });
+        fs.writeFileSync(
+          path.join(bindingsRoot, "Acme.Core", "bindings.json"),
+          JSON.stringify(
+            {
+              namespace: "Acme.Core",
+              types: [
+                {
+                  clrName: "Acme.Core.Ok__Alias`1",
+                  assemblyName: "Acme.Core",
+                  methods: [],
+                  properties: [],
+                  fields: [],
+                },
+              ],
+            },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(
+          path.join(bindingsRoot, "Acme.Core", "internal", "index.d.ts"),
+          [
+            "export interface Ok__Alias_1$instance<T> {",
+            '  readonly "__tsonic_binding_alias_Acme.Core.Ok__Alias_1"?: never;',
+            "  readonly value: T;",
+            "}",
+            "export type Ok__Alias_1<T> = Ok__Alias_1$instance<T>;",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(bindingsRoot, "Acme.Core.d.ts"),
+          [
+            'import type { Ok__Alias_1 } from "./Acme.Core/internal/index.js";',
+            "export type Ok<T> = Ok__Alias_1<T>;",
+          ].join("\n")
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            'import type { Ok } from "../tsonic/bindings/Acme.Core.js";',
+            'export const value: Ok<string> | undefined = undefined;',
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          useStandardLib: true,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const valueDecl = moduleResult.value.body.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0]?.name.name === "value"
+        );
+        expect(valueDecl).to.not.equal(undefined);
+        if (!valueDecl) return;
+
+        const declaredType = valueDecl.declarations[0]?.type;
+        expect(declaredType?.kind).to.equal("unionType");
+        if (!declaredType || declaredType.kind !== "unionType") return;
+
+        const okType = declaredType.types.find(
+          (type) => type.kind === "referenceType"
+        );
+        expect(okType).to.not.equal(undefined);
+        if (!okType || okType.kind !== "referenceType") return;
+
+        expect(okType.name).to.equal("Acme.Core.Ok__Alias_1");
+        expect(okType.resolvedClrType).to.equal("Acme.Core.Ok__Alias`1");
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
@@ -1823,6 +2140,156 @@ describe("IR Builder", () => {
       expect(arg0.inferredType?.kind).to.equal("referenceType");
       if (arg0.inferredType?.kind === "referenceType") {
         expect(arg0.inferredType.name).to.equal("Payload");
+      }
+    });
+
+    it("threads expected return generic context through imported declaration aliases", () => {
+      const testFiles = {
+        "package.json": JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "src/index.ts": `
+          import type { Result } from "./core.js";
+          import { ok } from "./core.js";
+
+          interface Payload {
+            foundAnchor: boolean;
+            foundNewest: boolean;
+            foundOldest: boolean;
+          }
+
+          export function run(anchor: string): Result<Payload, string> {
+            const foundAnchor = anchor !== "newest" && anchor !== "oldest";
+            const foundNewest = anchor === "newest";
+            const foundOldest = anchor === "oldest";
+            return ok({ foundAnchor, foundNewest, foundOldest });
+          }
+        `,
+        "src/core.d.ts": `
+          export interface Ok<T> {
+            readonly success: true;
+            readonly data: T;
+          }
+
+          export interface Err<E> {
+            readonly success: false;
+            readonly error: E;
+          }
+
+          export type Result<T, E> = Ok<T> | Err<E>;
+
+          export declare function ok<T>(data: T): Ok<T>;
+        `,
+      };
+
+      const { sourceFile, testProgram, ctx, options, cleanup } =
+        createFilesystemTestProgram(testFiles, "src/index.ts");
+
+      try {
+        const result = buildIrModule(sourceFile, testProgram, options, ctx);
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const run = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(run).to.not.equal(undefined);
+        if (!run) return;
+
+        const retStmt = run.body.statements.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+        expect(retStmt?.expression?.kind).to.equal("call");
+        if (!retStmt?.expression || retStmt.expression.kind !== "call") return;
+
+        const arg0 = retStmt.expression.arguments[0];
+        expect(arg0?.kind).to.equal("object");
+        if (!arg0 || arg0.kind !== "object") return;
+        expect(arg0.inferredType?.kind).to.equal("referenceType");
+        if (arg0.inferredType?.kind === "referenceType") {
+          expect(arg0.inferredType.name).to.equal("Payload");
+        }
+      } finally {
+        cleanup();
+      }
+    });
+
+    it("threads expected return generic context through imported declaration aliases inside Promise wrappers", () => {
+      const testFiles = {
+        "package.json": JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        ),
+        "src/index.ts": `
+          import type { Result } from "./core.js";
+          import { ok } from "./core.js";
+
+          interface Payload {
+            foundAnchor: boolean;
+            foundNewest: boolean;
+            foundOldest: boolean;
+          }
+
+          export async function run(anchor: string): Promise<Result<Payload, string>> {
+            const foundAnchor = anchor !== "newest" && anchor !== "oldest";
+            const foundNewest = anchor === "newest";
+            const foundOldest = anchor === "oldest";
+            return ok({ foundAnchor, foundNewest, foundOldest });
+          }
+        `,
+        "src/core.d.ts": `
+          export interface Ok<T> {
+            readonly success: true;
+            readonly data: T;
+          }
+
+          export interface Err<E> {
+            readonly success: false;
+            readonly error: E;
+          }
+
+          export type Result<T, E> = Ok<T> | Err<E>;
+
+          export declare function ok<T>(data: T): Ok<T>;
+        `,
+      };
+
+      const { sourceFile, testProgram, ctx, options, cleanup } =
+        createFilesystemTestProgram(testFiles, "src/index.ts");
+
+      try {
+        const result = buildIrModule(sourceFile, testProgram, options, ctx);
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const run = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(run).to.not.equal(undefined);
+        if (!run) return;
+
+        const retStmt = run.body.statements.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+        expect(retStmt?.expression?.kind).to.equal("call");
+        if (!retStmt?.expression || retStmt.expression.kind !== "call") return;
+
+        const arg0 = retStmt.expression.arguments[0];
+        expect(arg0?.kind).to.equal("object");
+        if (!arg0 || arg0.kind !== "object") return;
+        expect(arg0.inferredType?.kind).to.equal("referenceType");
+        if (arg0.inferredType?.kind === "referenceType") {
+          expect(arg0.inferredType.name).to.equal("Payload");
+        }
+      } finally {
+        cleanup();
       }
     });
 

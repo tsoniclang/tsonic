@@ -101,10 +101,10 @@ export const resolveDependencyPackageRoot = (
   packageRoot: string,
   packageName: string
 ): string | undefined => {
-  const installed = tryResolveInstalledPackage(packageRoot, packageName);
-  if (installed) {
-    return installed;
+  const sibling = tryResolveSiblingWorkspacePackage(packageRoot, packageName);
+  if (sibling) {
+    return sibling;
   }
 
-  return tryResolveSiblingWorkspacePackage(packageRoot, packageName);
+  return tryResolveInstalledPackage(packageRoot, packageName);
 };

@@ -88,7 +88,7 @@ const resolveImportedTypeClrName = (
   for (const candidate of candidates) {
     const binding = context.importBindings?.get(candidate);
     if (!binding || binding.kind !== "type") continue;
-    return binding.clrName;
+    return clrTypeNameToCSharp(binding.clrName);
   }
 
   return undefined;
@@ -239,17 +239,18 @@ export const emitReferenceType = (
 
   // If the type has a pre-resolved CLR type (from IR), use it
   if (resolvedClrType) {
-    const qualifiedClr = CSHARP_PRIMITIVES.has(resolvedClrType)
-      ? resolvedClrType
-      : toGlobalClr(resolvedClrType);
+    const normalizedClr = clrTypeNameToCSharp(resolvedClrType);
+    const qualifiedClr = CSHARP_PRIMITIVES.has(normalizedClr)
+      ? normalizedClr
+      : toGlobalClr(normalizedClr);
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
       return [identifierTypeWithArgs(qualifiedClr, typeArgAsts), newContext];
     }
     // For primitives, emit as predefinedType; for others, identifierType
     return [
-      CSHARP_PRIMITIVES.has(resolvedClrType)
-        ? { kind: "predefinedType", keyword: resolvedClrType }
+      CSHARP_PRIMITIVES.has(normalizedClr)
+        ? { kind: "predefinedType", keyword: normalizedClr }
         : { kind: "identifierType", name: qualifiedClr },
       context,
     ];
@@ -260,11 +261,14 @@ export const emitReferenceType = (
   // so imported type identity remains stable even when global aliases collide.
   const qualifiedName = resolveImportedTypeClrName(name, context);
   if (qualifiedName) {
+    if (CSHARP_PRIMITIVES.has(qualifiedName)) {
+      return [{ kind: "predefinedType", keyword: qualifiedName }, context];
+    }
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
-      return [identifierTypeWithArgs(qualifiedName, typeArgAsts), newContext];
+      return [identifierTypeWithArgs(toGlobalClr(qualifiedName), typeArgAsts), newContext];
     }
-    return [{ kind: "identifierType", name: qualifiedName }, context];
+    return [{ kind: "identifierType", name: toGlobalClr(qualifiedName) }, context];
   }
 
   // Check for unsupported support types

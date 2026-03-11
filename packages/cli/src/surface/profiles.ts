@@ -69,6 +69,16 @@ type ResolvedSurfacePackage = {
   readonly packageRoot: string;
 };
 
+const isWithinDirectory = (parent: string, candidate: string): boolean => {
+  const base = resolve(parent).replace(/[/\\]+$/, "");
+  const resolvedCandidate = resolve(candidate).replace(/[/\\]+$/, "");
+  return (
+    resolvedCandidate === base ||
+    resolvedCandidate.startsWith(`${base}/`) ||
+    resolvedCandidate.startsWith(`${base}\\`)
+  );
+};
+
 const readPackageName = (pkgJsonPath: string): string | undefined => {
   if (!existsSync(pkgJsonPath)) return undefined;
   try {
@@ -152,6 +162,13 @@ const resolveSurfacePackage = (
   try {
     const pkgJsonPath = req.resolve(`${packageName}/package.json`);
     const installed = { packageName, packageRoot: dirname(pkgJsonPath) };
+    if (
+      sibling &&
+      !isWithinDirectory(workspaceRoot, installed.packageRoot) &&
+      existsSync(join(sibling.packageRoot, "tsonic.surface.json"))
+    ) {
+      return sibling;
+    }
     if (existsSync(join(installed.packageRoot, "tsonic.surface.json"))) {
       return installed;
     }

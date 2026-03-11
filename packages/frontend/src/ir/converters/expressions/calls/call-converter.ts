@@ -647,10 +647,13 @@ export const convertCallExpression = (
         expectedReturnType: expectedType,
       })
     : undefined;
+  const expectedReturnCandidates = expectedType
+    ? typeSystem.collectExpectedReturnCandidates(expectedType)
+    : undefined;
   const initialParameterTypes = (() => {
     const substitutions = deriveSubstitutionsFromExpectedReturn(
       initialResolved?.returnType,
-      expectedType
+      expectedReturnCandidates
     );
     if (!substitutions || !initialResolved?.parameterTypes) {
       return initialResolved?.parameterTypes;

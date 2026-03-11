@@ -49,12 +49,20 @@ describe("build command (library bindings)", function () {
       mkdirSync(join(dir, "packages", "lib", "src", "config"), {
         recursive: true,
       });
+      mkdirSync(join(dir, "packages", "app", "src"), {
+        recursive: true,
+      });
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
       writeFileSync(
         join(dir, "package.json"),
         JSON.stringify(
-          { name: "test", private: true, type: "module" },
+          {
+            name: "test",
+            private: true,
+            type: "module",
+            workspaces: ["packages/*"],
+          },
           null,
           2
         ) + "\n",
@@ -96,6 +104,23 @@ describe("build command (library bindings)", function () {
       );
 
       writeFileSync(
+        join(dir, "packages", "app", "package.json"),
+        JSON.stringify(
+          {
+            name: "app",
+            private: true,
+            type: "module",
+            dependencies: {
+              lib: "workspace:*",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
         join(dir, "packages", "lib", "tsonic.json"),
         JSON.stringify(
           {
@@ -105,6 +130,34 @@ describe("build command (library bindings)", function () {
             sourceRoot: "src",
             outputDirectory: "generated",
             outputName: "Test.Lib",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Test.App",
+            entryPoint: "src/App.ts",
+            sourceRoot: "src",
+            references: {
+              libraries: ["../lib/generated/bin/Release/net10.0/Test.Lib.dll"],
+            },
+            outputDirectory: "generated",
+            outputName: "Test.App",
             output: {
               type: "library",
               targetFrameworks: ["net10.0"],
@@ -215,6 +268,19 @@ describe("build command (library bindings)", function () {
         "utf-8"
       );
 
+      writeFileSync(
+        join(dir, "packages", "app", "src", "App.ts"),
+        [
+          `import { QueryHolder } from "lib/Test.Lib.js";`,
+          ``,
+          `export function run(): QueryHolder {`,
+          `  return new QueryHolder();`,
+          `}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
       // Provide required standard bindings packages (no network).
       linkDir(
         join(repoRoot, "node_modules/@tsonic/dotnet"),
@@ -265,7 +331,7 @@ describe("build command (library bindings)", function () {
         content: readFileSync(p, "utf-8"),
       }));
       const entryFacade = all.find((f) =>
-        f.content.includes("Tsonic entrypoint re-exports (generated)")
+        f.content.includes("Tsonic cross-namespace re-exports (generated)")
       );
       const typesFacade = all.find((f) =>
         f.content.includes("// Namespace: Test.Lib.types")
@@ -276,7 +342,7 @@ describe("build command (library bindings)", function () {
 
       expect(
         entryFacade,
-        `Expected an entry facade to include the entrypoint re-export marker. Found:\n` +
+        `Expected an entry facade to include the cross-namespace re-export marker. Found:\n` +
           dtsFiles.map((p) => `- ${p}`).join("\n")
       ).to.not.equal(undefined);
       expect(
@@ -332,7 +398,7 @@ describe("build command (library bindings)", function () {
       expect(Object.keys(rootBindings.exports ?? {})).to.include("loadConfig");
       expect(
         (rootBindings.types ?? []).some(
-          (entry) => entry.clrName === "Test.Lib.QueryHolder"
+          (entry) => entry.clrName === "Test.Lib.db.QueryHolder"
         )
       ).to.equal(true);
 
@@ -353,7 +419,7 @@ describe("build command (library bindings)", function () {
 
       // Root namespace facade must re-export the entrypoint's type/value surface.
       expect(rootContent).to.include(
-        "Tsonic entrypoint re-exports (generated)"
+        "Tsonic cross-namespace re-exports (generated)"
       );
       expect(rootContent).to.include("from './");
       expect(rootContent).to.include(".types.js';");
@@ -374,12 +440,30 @@ describe("build command (library bindings)", function () {
       expect(rootJsPath.endsWith(".js")).to.equal(true);
       const rootJs = readFileSync(rootJsPath, "utf-8");
       expect(rootJs).to.include(
-        "Tsonic entrypoint value re-exports (generated)"
+        "Tsonic cross-namespace value re-exports (generated)"
       );
       expect(rootJs).to.include("export {");
       expect(rootJs).to.include("ok");
       expect(rootJs).to.include("err");
       expect(rootJs).to.include("loadConfig");
+
+      linkDir(join(dir, "packages", "lib"), join(dir, "node_modules/lib"));
+
+      const appResult = spawnSync(
+        "node",
+        [
+          cliPath,
+          "build",
+          "--project",
+          "app",
+          "--config",
+          wsConfigPath,
+          "--quiet",
+        ],
+        { cwd: dir, encoding: "utf-8" }
+      );
+
+      expect(appResult.status, appResult.stderr || appResult.stdout).to.equal(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -944,7 +1028,13 @@ describe("build command (library bindings)", function () {
       expect(facade).to.match(
         /export declare function loadSiteConfig\(\):\s*LoadedConfig/
       );
-      expect(internal).to.match(/interface\s+LoadedConfig\$instance/);
+      expect(facade).to.include(
+        "import type { LoadedConfig } from './Test.Lib.config.js';"
+      );
+      expect(facade).to.include(
+        "export type { LoadedConfig } from './Test.Lib.config.js';"
+      );
+      expect(internal).to.not.match(/interface\s+LoadedConfig\$instance/);
       expect(rootBindings.exports?.loadSiteConfig?.kind).to.equal("method");
     } finally {
       rmSync(dir, { recursive: true, force: true });

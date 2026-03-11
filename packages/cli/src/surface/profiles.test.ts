@@ -1,6 +1,13 @@
 import { expect } from "chai";
 import { describe, it } from "mocha";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -142,6 +149,70 @@ describe("CLI Surface Profiles", () => {
       ).to.equal(true);
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers sibling @tsonic surface packages over stray ancestor node_modules installs", () => {
+    const originalTmpNodeModules = join(tmpdir(), "node_modules");
+    const strayJsRoot = join(originalTmpNodeModules, "@tsonic", "js");
+    const hadStray = existsSync(strayJsRoot);
+    const strayPackageJsonPath = join(strayJsRoot, "package.json");
+    const strayManifestPath = join(strayJsRoot, "tsonic.surface.json");
+    const originalPackageJson = existsSync(strayPackageJsonPath)
+      ? readFileSync(strayPackageJsonPath, "utf-8")
+      : undefined;
+    const originalManifest = existsSync(strayManifestPath)
+      ? readFileSync(strayManifestPath, "utf-8")
+      : undefined;
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "tsonic-surface-stray-"));
+    try {
+      mkdirSync(strayJsRoot, { recursive: true });
+      writeFileSync(
+        strayPackageJsonPath,
+        JSON.stringify(
+          { name: "@tsonic/js", version: "0.0.0-test", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        strayManifestPath,
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["types"],
+            requiredNpmPackages: ["@tsonic/js"],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+
+      writeFileSync(
+        join(workspaceRoot, "package.json"),
+        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
+      );
+
+      const caps = resolveSurfaceCapabilities("@tsonic/js", { workspaceRoot });
+      expect(
+        caps.requiredTypeRoots.some((root) => /[/\\]js[/\\]versions[/\\]\d+$/.test(root))
+      ).to.equal(true);
+      expect(caps.requiredTypeRoots).to.not.include(resolve(strayJsRoot, "types"));
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      if (hadStray) {
+        if (originalPackageJson !== undefined) {
+          writeFileSync(strayPackageJsonPath, originalPackageJson);
+        }
+        if (originalManifest !== undefined) {
+          writeFileSync(strayManifestPath, originalManifest);
+        }
+      } else {
+        rmSync(strayJsRoot, { recursive: true, force: true });
+      }
     }
   });
 

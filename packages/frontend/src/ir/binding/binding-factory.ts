@@ -77,6 +77,46 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
   // INTERNAL HELPERS
   // ─────────────────────────────────────────────────────────────────────────
 
+  const isSyntheticBindingMarkerName = (name: string): boolean =>
+    name.startsWith("__tsonic_type_") ||
+    name.startsWith("__tsonic_binding_alias_");
+
+  const getStaticPropertyName = (name: ts.PropertyName): string | undefined => {
+    if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
+    return undefined;
+  };
+
+  const getBindingAliasFromDeclaration = (
+    decl:
+      | ts.InterfaceDeclaration
+      | ts.ClassDeclaration
+      | ts.TypeAliasDeclaration
+  ): string | undefined => {
+    const members = ts.isTypeAliasDeclaration(decl)
+      ? ts.isTypeLiteralNode(decl.type)
+        ? decl.type.members
+        : undefined
+      : decl.members;
+    if (!members) return undefined;
+
+    for (const member of members) {
+      if (
+        !ts.isPropertySignature(member) &&
+        !ts.isPropertyDeclaration(member) &&
+        !ts.isGetAccessorDeclaration(member) &&
+        !ts.isSetAccessorDeclaration(member)
+      ) {
+        continue;
+      }
+      if (!member.name) continue;
+      const name = getStaticPropertyName(member.name);
+      if (!name || !name.startsWith("__tsonic_binding_alias_")) continue;
+      return name.slice("__tsonic_binding_alias_".length) || undefined;
+    }
+
+    return undefined;
+  };
+
   const getOrCreateDeclId = (symbol: ts.Symbol): DeclId => {
     const existing = symbolToDeclId.get(symbol);
     if (existing) return existing;
@@ -131,7 +171,13 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       valueDeclNode: valueDecl,
       typeNode: decl ? getTypeNodeFromDeclaration(decl) : undefined,
       kind: decl ? getDeclKind(decl) : "variable",
-      fqName: symbol.getName(),
+      fqName:
+        typeDecl &&
+        (ts.isTypeAliasDeclaration(typeDecl) ||
+          ts.isInterfaceDeclaration(typeDecl) ||
+          ts.isClassDeclaration(typeDecl))
+          ? getBindingAliasFromDeclaration(typeDecl) ?? symbol.getName()
+          : symbol.getName(),
       classMemberNames,
     };
     declMap.set(id.id, entry);
@@ -594,7 +640,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
           ) {
             if (!member.name) continue;
             const name = getStaticPropertyName(member.name);
-            if (!name || name.startsWith("__tsonic_type_")) continue;
+            if (!name || isSyntheticBindingMarkerName(name)) continue;
             names.add(name);
           }
         }
@@ -664,7 +710,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
           ) {
             if (!member.name) continue;
             const name = getStaticPropertyName(member.name);
-            if (!name || name.startsWith("__tsonic_type_")) continue;
+            if (!name || isSyntheticBindingMarkerName(name)) continue;
             names.add(name);
           }
         }
@@ -1008,10 +1054,11 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
 
     const parent = decl.parent;
     if (ts.isInterfaceDeclaration(parent) && parent.name)
-      return parent.name.text;
-    if (ts.isClassDeclaration(parent) && parent.name) return parent.name.text;
+      return getBindingAliasFromDeclaration(parent) ?? parent.name.text;
+    if (ts.isClassDeclaration(parent) && parent.name)
+      return getBindingAliasFromDeclaration(parent) ?? parent.name.text;
     if (ts.isTypeAliasDeclaration(parent) && parent.name)
-      return parent.name.text;
+      return getBindingAliasFromDeclaration(parent) ?? parent.name.text;
 
     // tsbindgen static containers can be emitted as:
     //   export const Foo: { bar(...): ... }

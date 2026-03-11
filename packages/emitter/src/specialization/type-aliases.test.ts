@@ -248,6 +248,13 @@ describe("Type Aliases (spec/16 §3)", () => {
               },
               {
                 kind: "propertySignature",
+                name: "__tsonic_binding_alias_MyApp.ProbeBoxRequired",
+                type: { kind: "neverType" },
+                isOptional: true,
+                isReadonly: true,
+              },
+              {
+                kind: "propertySignature",
                 name: "value",
                 type: { kind: "primitiveType", name: "number" },
                 isOptional: false,
@@ -267,6 +274,9 @@ describe("Type Aliases (spec/16 §3)", () => {
     expect(result).to.include("public sealed class ProbeBoxRequired__Alias");
     expect(result).to.include("public required double value { get; set; }");
     expect(result).to.not.include("__tsonic_type_MyApp_ProbeBoxRequired");
+    expect(result).to.not.include(
+      "__tsonic_binding_alias_MyApp.ProbeBoxRequired"
+    );
     expect(result).to.not.include("void __tsonic_type_");
   });
 });
