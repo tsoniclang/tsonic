@@ -97,6 +97,26 @@ describe("Module Resolver", () => {
       }
     });
 
+    it("should reject local imports that only match the source root by string prefix", () => {
+      fs.mkdirSync(path.join(tempDir, "src-private"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempDir, "src-private", "Secret.ts"),
+        "export const secret = 1;\n"
+      );
+
+      const result = resolveImport(
+        "../src-private/Secret.ts",
+        path.join(tempDir, "src", "index.ts"),
+        path.join(tempDir, "src")
+      );
+
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error.code).to.equal("TSN1004");
+        expect(result.error.message).to.include("Import outside allowed module root");
+      }
+    });
+
     it("should error on local imports without .js or .ts extension", () => {
       const result = resolveImport(
         "./models/User",
@@ -193,6 +213,57 @@ describe("Module Resolver", () => {
         expect(result.value.resolvedPath).to.equal(
           path.join(packageRoot, "src", "index.ts")
         );
+      }
+    });
+
+    it("should reject source-package local imports that only match the package root by string prefix", () => {
+      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
+      const packageEntry = path.join(packageRoot, "src", "index.ts");
+      const siblingRoot = path.join(tempDir, "node_modules", "@acme", "math-private");
+      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.mkdirSync(path.join(siblingRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/math", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(packageEntry, "export const clamp = 1;\n");
+      fs.writeFileSync(
+        path.join(siblingRoot, "src", "secret.ts"),
+        "export const secret = 1;\n"
+      );
+
+      const result = resolveImport(
+        "../../math-private/src/secret.ts",
+        packageEntry,
+        path.join(tempDir, "src")
+      );
+
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error.code).to.equal("TSN1004");
+        expect(result.error.message).to.include("Import outside allowed module root");
       }
     });
 

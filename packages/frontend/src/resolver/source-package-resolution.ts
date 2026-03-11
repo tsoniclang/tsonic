@@ -73,13 +73,22 @@ const findContainingSourcePackageRoot = (
   }
 };
 
+export const isPathWithinBoundary = (
+  filePath: string,
+  boundary: string
+): boolean => {
+  const relative = path.relative(path.resolve(boundary), path.resolve(filePath));
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+};
+
 export const getLocalResolutionBoundary = (
   containingFile: string,
   defaultSourceRoot: string
 ): string => {
-  if (
-    path.resolve(containingFile).startsWith(path.resolve(defaultSourceRoot))
-  ) {
+  if (isPathWithinBoundary(containingFile, defaultSourceRoot)) {
     return defaultSourceRoot;
   }
   return findContainingSourcePackageRoot(containingFile) ?? defaultSourceRoot;

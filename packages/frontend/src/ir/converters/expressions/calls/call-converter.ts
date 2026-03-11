@@ -37,6 +37,7 @@ import {
   convertDynamicImportNamespaceObject,
   getDynamicImportPromiseType,
 } from "../dynamic-import.js";
+import { isIdentifierFromCore } from "../../../../core-intrinsics/provenance.js";
 
 // DELETED: getReturnTypeFromFunctionType - Was part of fallback path
 // DELETED: getCalleesDeclaredType - Was part of fallback path
@@ -190,6 +191,11 @@ export const convertCallExpression = (
   | IrDefaultOfExpression
   | IrNameOfExpression
   | IrSizeOfExpression => {
+  const isCoreLangIntrinsicCall = (name: string): boolean =>
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === name &&
+    isIdentifierFromCore(ctx.checker, node.expression, "lang");
+
   const extractNameofTarget = (expr: ts.Expression): string | undefined => {
     if (ts.isIdentifier(expr)) return expr.text;
     if (expr.kind === ts.SyntaxKind.ThisKeyword) return "this";
@@ -248,8 +254,7 @@ export const convertCallExpression = (
   // - Must not introduce runtime casts in emitted C#.
   // - Used to treat a value as a CLR interface/nominal type for TS type-checking.
   if (
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "asinterface" &&
+    isCoreLangIntrinsicCall("asinterface") &&
     node.typeArguments &&
     node.typeArguments.length === 1 &&
     node.arguments.length === 1
@@ -322,8 +327,7 @@ export const convertCallExpression = (
   // Check for defaultof<T>() - language intrinsic for default value.
   // defaultof<T>() compiles to C#: default(T)
   if (
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "defaultof" &&
+    isCoreLangIntrinsicCall("defaultof") &&
     node.typeArguments &&
     node.typeArguments.length === 1 &&
     node.arguments.length === 0
@@ -347,8 +351,7 @@ export const convertCallExpression = (
   }
 
   if (
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "nameof" &&
+    isCoreLangIntrinsicCall("nameof") &&
     (!node.typeArguments || node.typeArguments.length === 0) &&
     node.arguments.length === 1
   ) {
@@ -384,8 +387,7 @@ export const convertCallExpression = (
   }
 
   if (
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "sizeof" &&
+    isCoreLangIntrinsicCall("sizeof") &&
     node.typeArguments &&
     node.typeArguments.length === 1 &&
     node.arguments.length === 0
@@ -422,8 +424,7 @@ export const convertCallExpression = (
   // Check for trycast<T>(x) - special intrinsic for safe casting
   // trycast<T>(x) compiles to C#: x as T (safe cast, returns null on failure)
   if (
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "trycast" &&
+    isCoreLangIntrinsicCall("trycast") &&
     node.typeArguments &&
     node.typeArguments.length === 1 &&
     node.arguments.length === 1
@@ -462,8 +463,7 @@ export const convertCallExpression = (
   // Check for stackalloc<T>(size) - language intrinsic for stack allocation.
   // stackalloc<T>(size) compiles to C#: stackalloc T[size]
   if (
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "stackalloc" &&
+    isCoreLangIntrinsicCall("stackalloc") &&
     node.typeArguments &&
     node.typeArguments.length === 1 &&
     node.arguments.length === 1
