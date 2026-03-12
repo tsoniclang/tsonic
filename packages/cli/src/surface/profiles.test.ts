@@ -198,7 +198,9 @@ describe("CLI Surface Profiles", () => {
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { workspaceRoot });
       expect(
-        caps.requiredTypeRoots.some((root) => /[/\\]js[/\\]versions[/\\]\d+$/.test(root))
+        caps.requiredTypeRoots.some((root) =>
+          /[/\\]js[/\\]versions[/\\]\d+(?:[/\\]types)?$/.test(root)
+        )
       ).to.equal(true);
       expect(caps.requiredTypeRoots).to.not.include(resolve(strayJsRoot, "types"));
     } finally {

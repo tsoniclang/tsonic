@@ -234,6 +234,12 @@ export type NarrowedBinding =
       readonly kind: "expr";
       readonly exprAst: CSharpExpressionAst;
       readonly type?: IrType;
+    }
+  | {
+      readonly kind: "runtimeSubset";
+      readonly runtimeMemberNs: readonly number[];
+      readonly runtimeUnionArity: number;
+      readonly type?: IrType;
     };
 
 export type ValueSymbolKind = "function" | "variable";

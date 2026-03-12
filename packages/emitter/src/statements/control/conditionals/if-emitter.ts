@@ -4,7 +4,7 @@
  */
 
 import { IrStatement } from "@tsonic/frontend";
-import { EmitterContext } from "../../../types.js";
+import { EmitterContext, NarrowedBinding } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { emitTypeAst } from "../../../type-emitter.js";
@@ -25,6 +25,7 @@ import {
   tryResolveInstanceofGuard,
   tryResolveInGuard,
   tryResolveDiscriminantEqualityGuard,
+  tryResolvePropertyTruthinessGuard,
   tryResolveSimpleNullableGuard,
   tryResolveNullableGuard,
   isDefinitelyTerminating,
@@ -51,6 +52,83 @@ const buildUnionNarrowAst = (
     arguments: [],
   },
 });
+
+const buildSubsetUnionType = (
+  members: readonly import("@tsonic/frontend").IrType[]
+): import("@tsonic/frontend").IrType | undefined => {
+  if (members.length === 0) return undefined;
+  if (members.length === 1) return members[0];
+  return { kind: "unionType", types: [...members] };
+};
+
+const buildComplementNarrowedBinding = (
+  escapedOrig: string,
+  runtimeUnionArity: number,
+  candidateMemberNs: readonly number[],
+  candidateMembers: readonly import("@tsonic/frontend").IrType[],
+  selectedMemberN: number
+): NarrowedBinding | undefined => {
+  const remainingPairs = candidateMemberNs.flatMap((runtimeMemberN, index) => {
+    if (runtimeMemberN === selectedMemberN) {
+      return [];
+    }
+
+    const memberType = candidateMembers[index];
+    if (!memberType) {
+      return [];
+    }
+
+    return [{ runtimeMemberN, memberType }];
+  });
+
+  if (remainingPairs.length === 0) {
+    return undefined;
+  }
+
+  if (remainingPairs.length === 1) {
+    const remaining = remainingPairs[0];
+    if (!remaining) return undefined;
+
+    return {
+      kind: "expr",
+      exprAst: buildUnionNarrowAst(escapedOrig, remaining.runtimeMemberN),
+      type: remaining.memberType,
+    };
+  }
+
+  return {
+    kind: "runtimeSubset",
+    runtimeMemberNs: remainingPairs.map((pair) => pair.runtimeMemberN),
+    runtimeUnionArity,
+    type: buildSubsetUnionType(remainingPairs.map((pair) => pair.memberType)),
+  };
+};
+
+const withComplementNarrowing = (
+  originalName: string,
+  escapedOrig: string,
+  runtimeUnionArity: number,
+  candidateMemberNs: readonly number[],
+  candidateMembers: readonly import("@tsonic/frontend").IrType[],
+  selectedMemberN: number,
+  baseContext: EmitterContext
+): EmitterContext => {
+  const binding = buildComplementNarrowedBinding(
+    escapedOrig,
+    runtimeUnionArity,
+    candidateMemberNs,
+    candidateMembers,
+    selectedMemberN
+  );
+
+  if (!binding) {
+    return baseContext;
+  }
+
+  const narrowedBindings = new Map(baseContext.narrowedBindings ?? []);
+  narrowedBindings.set(originalName, binding);
+  return { ...baseContext, narrowedBindings };
+};
 
 /** Wrap an array of statements in a single statement (block if >1). */
 const wrapInBlock = (
@@ -284,8 +362,18 @@ export const emitIfStatementAst = (
   if (stmt.condition.kind === "call") {
     const guard = tryResolvePredicateGuard(stmt.condition, context);
     if (guard) {
-      const { memberN, ctxWithId, escapedOrig, escapedNarrow, narrowedMap } =
-        guard;
+      const {
+        originalName,
+        memberN,
+        unionArity,
+        runtimeUnionArity,
+        candidateMemberNs,
+        candidateMembers,
+        ctxWithId,
+        escapedOrig,
+        escapedNarrow,
+        narrowedMap,
+      } = guard;
 
       const condAst = buildIsNCondition(escapedOrig, memberN, false);
       const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
@@ -308,12 +396,50 @@ export const emitIfStatementAst = (
 
       let elseStmt: CSharpStatementAst | undefined;
       if (stmt.elseStatement) {
+        const elseCtxBase =
+          unionArity === 2
+            ? withComplementNarrowing(
+                originalName,
+                escapedOrig,
+                runtimeUnionArity,
+                candidateMemberNs,
+                candidateMembers,
+                memberN,
+                finalContext
+              )
+            : finalContext;
         const [elseStmts, elseCtx] = emitStatementAst(
           stmt.elseStatement,
-          finalContext
+          elseCtxBase
         );
         elseStmt = wrapInBlock(elseStmts);
-        finalContext = elseCtx;
+        finalContext = {
+          ...elseCtx,
+          narrowedBindings: ctxWithId.narrowedBindings,
+        };
+        return [
+          [
+            {
+              kind: "ifStatement",
+              condition: condAst,
+              thenStatement: thenBlock,
+              elseStatement: elseStmt,
+            },
+          ],
+          finalContext,
+        ];
+      }
+
+      if (isDefinitelyTerminating(stmt.thenStatement)) {
+        finalContext = withComplementNarrowing(
+          originalName,
+          escapedOrig,
+          runtimeUnionArity,
+          candidateMemberNs,
+          candidateMembers,
+          memberN,
+          finalContext
+        );
       }
 
       const ifStmt: CSharpStatementAst = {
@@ -335,6 +461,9 @@ export const emitIfStatementAst = (
       originalName,
       memberN,
       unionArity,
+      runtimeUnionArity,
+      candidateMemberNs,
+      candidateMembers,
       ctxWithId,
       escapedOrig,
       escapedNarrow,
@@ -361,15 +490,15 @@ export const emitIfStatementAst = (
 
     if (stmt.elseStatement) {
       if (unionArity === 2) {
-        const otherMemberN = memberN === 1 ? 2 : 1;
-        const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
-        const elseNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-        elseNarrowedMap.set(originalName, { kind: "expr", exprAst });
-
-        const elseCtx: EmitterContext = {
-          ...finalContext,
-          narrowedBindings: elseNarrowedMap,
-        };
+        const elseCtx = withComplementNarrowing(
+          originalName,
+          escapedOrig,
+          runtimeUnionArity,
+          candidateMemberNs,
+          candidateMembers,
+          memberN,
+          finalContext
+        );
 
         const [elseStmts, elseCtxAfter] = emitStatementAst(
           stmt.elseStatement,
@@ -419,12 +548,137 @@ export const emitIfStatementAst = (
     }
 
     // Post-if narrowing for early-exit patterns (2-member unions only)
-    if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
-      const otherMemberN = memberN === 1 ? 2 : 1;
-      const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
-      const postMap = new Map(ctxWithId.narrowedBindings ?? []);
-      postMap.set(originalName, { kind: "expr", exprAst });
-      finalContext = { ...finalContext, narrowedBindings: postMap };
+    if (isDefinitelyTerminating(stmt.thenStatement)) {
+      finalContext = withComplementNarrowing(
+        originalName,
+        escapedOrig,
+        runtimeUnionArity,
+        candidateMemberNs,
+        candidateMembers,
+        memberN,
+        finalContext
+      );
+      return [
+        [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
+        finalContext,
+      ];
+    }
+
+    finalContext = {
+      ...finalContext,
+      narrowedBindings: ctxWithId.narrowedBindings,
+    };
+    return [
+      [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
+      finalContext,
+    ];
+  }
+
+  // Case A3b: if (result.success) { ... } / if (!result.success) { ... }
+  // Truthy/falsy discriminant narrowing over runtime unions.
+  const propertyTruthinessGuard = tryResolvePropertyTruthinessGuard(
+    stmt.condition,
+    context
+  );
+  if (propertyTruthinessGuard) {
+    const {
+      originalName,
+      memberN,
+      unionArity,
+      runtimeUnionArity,
+      candidateMemberNs,
+      candidateMembers,
+      ctxWithId,
+      escapedOrig,
+      escapedNarrow,
+      narrowedMap,
+    } = propertyTruthinessGuard;
+
+    const condAst = buildIsNCondition(escapedOrig, memberN, false);
+    const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
+
+    const thenCtx: EmitterContext = {
+      ...ctxWithId,
+      narrowedBindings: narrowedMap,
+    };
+
+    const [thenBlock, thenBodyCtx] = emitForcedBlockWithPreambleAst(
+      [castStmt],
+      stmt.thenStatement,
+      thenCtx
+    );
+
+    let finalContext: EmitterContext = thenBodyCtx;
+    let elseStmt: CSharpStatementAst | undefined;
+
+    if (stmt.elseStatement) {
+      if (unionArity === 2) {
+        const elseCtx = withComplementNarrowing(
+          originalName,
+          escapedOrig,
+          runtimeUnionArity,
+          candidateMemberNs,
+          candidateMembers,
+          memberN,
+          finalContext
+        );
+
+        const [elseStmts, elseCtxAfter] = emitStatementAst(
+          stmt.elseStatement,
+          elseCtx
+        );
+        elseStmt = wrapInBlock(elseStmts);
+        finalContext = {
+          ...elseCtxAfter,
+          narrowedBindings: ctxWithId.narrowedBindings,
+        };
+
+        return [
+          [
+            {
+              kind: "ifStatement",
+              condition: condAst,
+              thenStatement: thenBlock,
+              elseStatement: elseStmt,
+            },
+          ],
+          finalContext,
+        ];
+      }
+
+      const [elseStmts, elseCtx] = emitStatementAst(stmt.elseStatement, {
+        ...finalContext,
+        narrowedBindings: ctxWithId.narrowedBindings,
+      });
+      elseStmt = wrapInBlock(elseStmts);
+      finalContext = {
+        ...elseCtx,
+        narrowedBindings: ctxWithId.narrowedBindings,
+      };
+
+      return [
+        [
+          {
+            kind: "ifStatement",
+            condition: condAst,
+            thenStatement: thenBlock,
+            elseStatement: elseStmt,
+          },
+        ],
+        finalContext,
+      ];
+    }
+
+    if (isDefinitelyTerminating(stmt.thenStatement)) {
+      finalContext = withComplementNarrowing(
+        originalName,
+        escapedOrig,
+        runtimeUnionArity,
+        candidateMemberNs,
+        candidateMembers,
+        memberN,
+        finalContext
+      );
       return [
         [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
         finalContext,
@@ -450,6 +704,9 @@ export const emitIfStatementAst = (
       operator,
       memberN,
       unionArity,
+      runtimeUnionArity,
+      candidateMemberNs,
+      candidateMembers,
       ctxWithId,
       escapedOrig,
       escapedNarrow,
@@ -478,14 +735,17 @@ export const emitIfStatementAst = (
       let elseStmt: CSharpStatementAst | undefined;
       if (stmt.elseStatement) {
         if (unionArity === 2) {
-          const otherMemberN = memberN === 1 ? 2 : 1;
-          const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
-          const elseNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-          elseNarrowedMap.set(originalName, { kind: "expr", exprAst });
-
           const [elseStmts, elseCtxAfter] = emitStatementAst(
             stmt.elseStatement,
-            { ...finalContext, narrowedBindings: elseNarrowedMap }
+            withComplementNarrowing(
+              originalName,
+              escapedOrig,
+              runtimeUnionArity,
+              candidateMemberNs,
+              candidateMembers,
+              memberN,
+              finalContext
+            )
           );
           elseStmt = wrapInBlock(elseStmts);
           finalContext = {
@@ -528,12 +788,16 @@ export const emitIfStatementAst = (
       }
 
       // Post-if narrowing for early-exit patterns (2-member unions only)
-      if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
-        const otherMemberN = memberN === 1 ? 2 : 1;
-        const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
-        const postMap = new Map(ctxWithId.narrowedBindings ?? []);
-        postMap.set(originalName, { kind: "expr", exprAst });
-        finalContext = { ...finalContext, narrowedBindings: postMap };
+      if (isDefinitelyTerminating(stmt.thenStatement)) {
+        finalContext = withComplementNarrowing(
+          originalName,
+          escapedOrig,
+          runtimeUnionArity,
+          candidateMemberNs,
+          candidateMembers,
+          memberN,
+          finalContext
+        );
         return [
           [
             {
@@ -562,14 +826,16 @@ export const emitIfStatementAst = (
       let thenCtx: EmitterContext;
 
       if (unionArity === 2) {
-        const otherMemberN = memberN === 1 ? 2 : 1;
-        const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
-        const thenNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-        thenNarrowedMap.set(originalName, { kind: "expr", exprAst });
-
         const [thenStmts, thenCtxAfter] = emitStatementAst(stmt.thenStatement, {
-          ...ctxWithId,
-          narrowedBindings: thenNarrowedMap,
+          ...withComplementNarrowing(
+            originalName,
+            escapedOrig,
+            runtimeUnionArity,
+            candidateMemberNs,
+            candidateMembers,
+            memberN,
+            ctxWithId
+          ),
         });
         thenStmt = wrapInBlock(thenStmts);
         thenCtx = thenCtxAfter;
@@ -615,11 +881,17 @@ export const emitIfStatementAst = (
       }
 
       // Post-if narrowing for early-exit patterns
-      if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
-        const exprAst = buildUnionNarrowAst(escapedOrig, memberN);
-        const postMap = new Map(ctxWithId.narrowedBindings ?? []);
-        postMap.set(originalName, { kind: "expr", exprAst });
-        finalContext = { ...finalContext, narrowedBindings: postMap };
+      if (isDefinitelyTerminating(stmt.thenStatement)) {
+        const narrowedBindings = new Map(finalContext.narrowedBindings ?? []);
+        narrowedBindings.set(originalName, {
+          kind: "expr",
+          exprAst: buildUnionNarrowAst(escapedOrig, memberN),
+          type:
+            candidateMembers[
+              candidateMemberNs.findIndex((runtimeMemberN) => runtimeMemberN === memberN)
+            ],
+        });
+        finalContext = { ...finalContext, narrowedBindings };
         return [
           [
             {
@@ -713,6 +985,8 @@ export const emitIfStatementAst = (
         originalName,
         memberN,
         unionArity,
+        candidateMemberNs,
+        candidateMembers,
         ctxWithId,
         escapedOrig,
         escapedNarrow,
@@ -726,7 +1000,18 @@ export const emitIfStatementAst = (
       let thenCtx: EmitterContext;
 
       if (unionArity === 2) {
-        const otherMemberN = memberN === 1 ? 2 : 1;
+        const otherIndex = candidateMemberNs.findIndex(
+          (runtimeMemberN) => runtimeMemberN !== memberN
+        );
+        const otherMemberN =
+          otherIndex >= 0 ? candidateMemberNs[otherIndex] : undefined;
+        const otherMemberType =
+          otherIndex >= 0 ? candidateMembers[otherIndex] : undefined;
+        if (!otherMemberN || !otherMemberType) {
+          throw new Error(
+            "ICE: Failed to resolve complement runtime union member for negated predicate guard."
+          );
+        }
         const nextId = (ctxWithId.tempVarId ?? 0) + 1;
         const thenCtxWithId: EmitterContext = {
           ...ctxWithId,
@@ -740,6 +1025,7 @@ export const emitIfStatementAst = (
         thenNarrowedMap.set(originalName, {
           kind: "rename",
           name: thenNarrowedName,
+          type: otherMemberType,
         });
 
         const thenCastStmt = buildCastLocalDecl(

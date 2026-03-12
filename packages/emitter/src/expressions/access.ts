@@ -359,7 +359,9 @@ export const emitMemberAccess = (
           context,
         ];
       }
-      return [narrowed.exprAst, context];
+      if (narrowed.kind === "expr") {
+        return [narrowed.exprAst, context];
+      }
     }
   }
 
@@ -374,6 +376,9 @@ export const emitMemberAccess = (
         }
         if (narrowed?.kind === "expr") {
           return narrowed.type ?? undefined;
+        }
+        if (narrowed?.kind === "runtimeSubset") {
+          return narrowed.type ?? expr.object.inferredType;
         }
       }
       return expr.object.inferredType;

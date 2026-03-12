@@ -58,10 +58,18 @@ export const emitIdentifier = (
           },
           context,
         ];
-      } else {
+      } else if (narrowed.kind === "expr") {
         // kind === "expr" - emit pre-built AST (e.g., parenthesized AsN() call)
         return [narrowed.exprAst, context];
       }
+
+      return [
+        {
+          kind: "identifierExpression",
+          identifier: escapeCSharpIdentifier(expr.name),
+        },
+        context,
+      ];
     }
   }
 

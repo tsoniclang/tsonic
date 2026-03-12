@@ -172,6 +172,48 @@ export const convertMemberExpression = (
     // Element access (computed): obj[expr]
     const object = convertExpression(node.expression, ctx, undefined);
 
+    const stringLiteralProperty = (() => {
+      const arg = node.argumentExpression;
+      if (!arg) return undefined;
+      if (
+        ts.isStringLiteral(arg) ||
+        ts.isNoSubstitutionTemplateLiteral(arg)
+      ) {
+        return /^[$A-Z_a-z][$\w]*$/u.test(arg.text)
+          ? arg.text
+          : undefined;
+      }
+      return undefined;
+    })();
+
+    if (
+      stringLiteralProperty !== undefined &&
+      object.inferredType !== undefined &&
+      object.inferredType.kind !== "dictionaryType"
+    ) {
+      const declaredType = ctx.typeSystem.typeOfMember(object.inferredType, {
+        kind: "byName",
+        name: stringLiteralProperty,
+      });
+      if (declaredType.kind !== "unknownType") {
+        const memberBinding = resolveHierarchicalBinding(
+          object,
+          stringLiteralProperty,
+          ctx
+        );
+        return {
+          kind: "memberAccess",
+          object,
+          property: stringLiteralProperty,
+          isComputed: false,
+          isOptional,
+          inferredType: declaredType,
+          sourceSpan,
+          memberBinding,
+        };
+      }
+    }
+
     // DETERMINISTIC TYPING: Use object's inferredType (not getInferredType)
     const objectType = object.inferredType;
 

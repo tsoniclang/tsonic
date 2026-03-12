@@ -3411,6 +3411,162 @@ describe("IR Builder", () => {
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
     });
 
+    it("supports indexed access on generic discriminated-union payloads after narrowing", () => {
+      const source = `
+        type Ok<T> = { success: true; data: T };
+        type Err<E> = { success: false; error: E };
+        type Result<T, E> = Ok<T> | Err<E>;
+
+        declare function listTenants(): Result<{ Id: string }[], string>;
+
+        export function run(): string {
+          const result = listTenants();
+          if (!result.success) {
+            return result.error;
+          }
+
+          const data = result.data;
+          return data[0]!.Id;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const dataDecl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations.some(
+            (declaration) =>
+              declaration.name.kind === "identifierPattern" &&
+              declaration.name.name === "data"
+          )
+      );
+      expect(dataDecl).to.not.equal(undefined);
+      const dataInit = dataDecl?.declarations[0]?.initializer;
+      expect(dataInit?.kind).to.equal("memberAccess");
+      if (!dataInit || dataInit.kind !== "memberAccess") return;
+      expect(dataInit.inferredType?.kind).to.equal("arrayType");
+      if (!dataInit.inferredType || dataInit.inferredType.kind !== "arrayType") {
+        return;
+      }
+      expect(dataInit.inferredType.elementType.kind).to.equal("objectType");
+      if (dataInit.inferredType.elementType.kind !== "objectType") return;
+      expect(dataInit.inferredType.elementType.members).to.have.length(1);
+      const idMember = dataInit.inferredType.elementType.members[0];
+      expect(idMember?.kind).to.equal("propertySignature");
+      if (!idMember || idMember.kind !== "propertySignature") return;
+      expect(idMember.name).to.equal("Id");
+      expect(idMember.type).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+      expect(idMember.isOptional).to.equal(false);
+      expect(idMember.isReadonly).to.equal(false);
+    });
+
+    it("treats string-literal element access on narrowed unions like property access", () => {
+      const source = `
+        type Err = { error: string; code?: string };
+        type Ok = { events: string[] };
+
+        declare function getEvents(): Err | Ok;
+
+        export function run(): string {
+          const result = getEvents();
+          if ("error" in result) {
+            return result["code"] ?? result["error"];
+          }
+          return result["events"][0] ?? "";
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const ifStmt = run.body.statements.find((stmt) => stmt.kind === "ifStatement");
+      expect(ifStmt).to.not.equal(undefined);
+      if (!ifStmt || ifStmt.kind !== "ifStatement") return;
+
+      const thenReturn = ifStmt.thenStatement.kind === "blockStatement"
+        ? ifStmt.thenStatement.statements.find((stmt) => stmt.kind === "returnStatement")
+        : undefined;
+      expect(thenReturn).to.not.equal(undefined);
+      if (
+        !thenReturn ||
+        thenReturn.kind !== "returnStatement" ||
+        !thenReturn.expression ||
+        thenReturn.expression.kind !== "logical"
+      ) {
+        return;
+      }
+
+      const codeAccess = thenReturn.expression.left;
+      expect(codeAccess.kind).to.equal("memberAccess");
+      if (codeAccess.kind !== "memberAccess") return;
+      expect(codeAccess.accessKind).to.not.equal("unknown");
+      expect(codeAccess.inferredType).to.deep.equal({
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      });
+
+      const finalReturn = [...run.body.statements]
+        .reverse()
+        .find(
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+      expect(finalReturn).to.not.equal(undefined);
+      if (
+        !finalReturn ||
+        !finalReturn.expression ||
+        finalReturn.expression.kind !== "logical" ||
+        finalReturn.expression.left.kind !== "memberAccess"
+      ) {
+        return;
+      }
+
+      const eventsIndex = finalReturn.expression.left;
+      expect(eventsIndex.accessKind).to.equal("clrIndexer");
+      expect(eventsIndex.inferredType).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+    });
+
     it("types inferred array Length access as int without unknown poison", () => {
       const source = `
         export function count(items: string[]): int {

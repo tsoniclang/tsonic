@@ -15,6 +15,8 @@ import {
   stripNullish,
   getAllPropertySignatures,
   isDefinitelyValueType,
+  resolveLocalTypeInfo,
+  getPropertyType,
 } from "../../core/semantic/type-resolution.js";
 import {
   isCharTyped,
@@ -25,6 +27,60 @@ import {
 } from "./helpers.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+
+const hasDeterministicPropertyMembership = (
+  type: IrType,
+  propertyName: string,
+  context: EmitterContext
+): boolean | undefined => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
+  if (resolved.kind === "objectType") {
+    return resolved.members.some(
+      (member) =>
+        member.kind === "propertySignature" && member.name === propertyName
+    );
+  }
+
+  if (resolved.kind !== "referenceType") {
+    return undefined;
+  }
+
+  if (resolved.structuralMembers?.length) {
+    return resolved.structuralMembers.some(
+      (member) =>
+        member.kind === "propertySignature" && member.name === propertyName
+    );
+  }
+
+  if (getPropertyType(resolved, propertyName, context)) {
+    return true;
+  }
+
+  const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
+  if (!localInfo) {
+    return undefined;
+  }
+
+  if (localInfo.kind === "interface") {
+    return (
+      getAllPropertySignatures(resolved, context)?.some(
+        (member) => member.name === propertyName
+      ) ?? false
+    );
+  }
+
+  if (localInfo.kind === "class") {
+    return localInfo.members.some(
+      (member) =>
+        (member.kind === "propertyDeclaration" ||
+          member.kind === "methodDeclaration") &&
+        member.name === propertyName
+    );
+  }
+
+  return undefined;
+};
 
 /**
  * Emit a binary operator expression as CSharpExpressionAst
@@ -222,6 +278,21 @@ export const emitBinary = (
         arguments: [keyAst],
       };
       return [containsKeyAst, keyCtx];
+    }
+
+    const deterministicMembership = hasDeterministicPropertyMembership(
+      rhsType,
+      expr.left.value,
+      rhsCtx
+    );
+    if (deterministicMembership !== undefined) {
+      return [
+        {
+          kind: "literalExpression",
+          text: deterministicMembership ? "true" : "false",
+        },
+        rhsCtx,
+      ];
     }
 
     throw new Error(
