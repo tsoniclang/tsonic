@@ -1103,6 +1103,30 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("inviteAsRole = inviteAsRole");
       expect(csharp).not.to.include("Object literal cannot be synthesized");
     });
+
+    it("preserves optional value-type properties in object literals", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function parseLimit(raw: string, fallback: int): int;
+
+        type Options = {
+          limit?: int;
+        };
+
+        export function run(limitRaw: string | undefined): int {
+          const limit = limitRaw ? parseLimit(limitRaw, 100 as int) : undefined;
+          const options: Options = { limit };
+          return options.limit ?? (0 as int);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("limit = limit");
+      expect(csharp).not.to.include("limit = limit.Value");
+      expect(csharp).to.include("int? limit =");
+      expect(csharp).not.to.include("var limit =");
+    });
   });
 
   describe("Object Literal Methods", () => {

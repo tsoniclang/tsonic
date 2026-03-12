@@ -424,10 +424,26 @@ const findPropertyInMembers = (
 ): IrType | undefined => {
   for (const member of members) {
     if (member.kind === "propertySignature" && member.name === propertyName) {
-      return member.type;
+      return withOptionalUndefined(member.type, member.isOptional);
     }
   }
   return undefined;
+};
+
+const withOptionalUndefined = (type: IrType, isOptional: boolean): IrType => {
+  if (!isOptional) return type;
+  if (
+    type.kind === "unionType" &&
+    type.types.some(
+      (t) => t.kind === "primitiveType" && t.name === "undefined"
+    )
+  ) {
+    return type;
+  }
+  return {
+    kind: "unionType",
+    types: [type, { kind: "primitiveType", name: "undefined" }],
+  };
 };
 
 /**

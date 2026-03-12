@@ -26,6 +26,7 @@ import {
   registerLocalName,
 } from "../../core/format/local-names.js";
 import {
+  isDefinitelyValueType,
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
@@ -828,6 +829,19 @@ const isNullishInitializer = (init: {
     ((init as { name: string }).name === "undefined" ||
       (init as { name: string }).name === "null"));
 
+const isNullableValueUnion = (type: IrType | undefined): boolean => {
+  if (!type || type.kind !== "unionType") return false;
+
+  const hasNullish = type.types.some(
+    (member) =>
+      member.kind === "primitiveType" &&
+      (member.name === "undefined" || member.name === "null")
+  );
+  if (!hasNullish) return false;
+
+  return isDefinitelyValueType(stripNullish(type));
+};
+
 /**
  * Determine the C# type AST for a local variable declaration.
  *
@@ -886,6 +900,14 @@ const resolveLocalTypeAst = (
       return emitTypeAst(fallbackType, context);
     }
     return [{ kind: "identifierType", name: "object?" }, context];
+  }
+
+  if (
+    !decl.type &&
+    decl.initializer &&
+    isNullableValueUnion(decl.initializer.inferredType)
+  ) {
+    return emitTypeAst(decl.initializer.inferredType!, context);
   }
 
   if (
