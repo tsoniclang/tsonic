@@ -186,10 +186,12 @@ export const convertMemberExpression = (
       return undefined;
     })();
 
+    const computedAccessKind = classifyComputedAccess(object.inferredType, ctx);
+
     if (
       stringLiteralProperty !== undefined &&
       object.inferredType !== undefined &&
-      object.inferredType.kind !== "dictionaryType"
+      computedAccessKind !== "dictionary"
     ) {
       const declaredType = ctx.typeSystem.typeOfMember(object.inferredType, {
         kind: "byName",
@@ -219,7 +221,8 @@ export const convertMemberExpression = (
 
     // Classify the access kind for proof pass
     // This determines whether Int32 proof is required for the index
-    const accessKind = classifyComputedAccess(objectType, ctx);
+    const accessKind =
+      objectType === object.inferredType ? computedAccessKind : classifyComputedAccess(objectType, ctx);
 
     // Derive element type from object type
     const elementType = deriveElementType(objectType, ctx);

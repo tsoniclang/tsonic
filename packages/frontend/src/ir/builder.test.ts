@@ -3567,6 +3567,100 @@ describe("IR Builder", () => {
       });
     });
 
+    it("keeps string-literal element access computed for alias-wrapped string dictionaries", () => {
+      const source = `
+        interface SettingsMap {
+          [key: string]: string;
+        }
+
+        declare function load(): SettingsMap;
+
+        export function run(): string | undefined {
+          const settings = load();
+          return settings["waiting_period_threshold"];
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const returnStmt = run.body.statements.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+          stmt.kind === "returnStatement"
+      );
+      expect(returnStmt).to.not.equal(undefined);
+      if (!returnStmt?.expression) return;
+
+      expect(returnStmt.expression.kind).to.equal("memberAccess");
+      if (returnStmt.expression.kind !== "memberAccess") return;
+      expect(returnStmt.expression.isComputed).to.equal(true);
+      expect(returnStmt.expression.accessKind).to.equal("dictionary");
+    });
+
+    it("keeps string-literal element access computed after generic return narrowing", () => {
+      const source = `
+        type SettingsMap = { [key: string]: string };
+
+        declare const JsonSerializer: {
+          Deserialize<T>(json: string): T | undefined;
+        };
+
+        export function run(json: string): string | undefined {
+          const settingsOrNull = JsonSerializer.Deserialize<SettingsMap>(json);
+          if (settingsOrNull === undefined) {
+            return undefined;
+          }
+          const settings = settingsOrNull;
+          return settings["waiting_period_threshold"];
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const returnStmt = [...run.body.statements]
+        .reverse()
+        .find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+      expect(returnStmt).to.not.equal(undefined);
+      if (!returnStmt?.expression) return;
+
+      expect(returnStmt.expression.kind).to.equal("memberAccess");
+      if (returnStmt.expression.kind !== "memberAccess") return;
+      expect(returnStmt.expression.isComputed).to.equal(true);
+      expect(returnStmt.expression.accessKind).to.equal("dictionary");
+    });
+
     it("types inferred array Length access as int without unknown poison", () => {
       const source = `
         export function count(items: string[]): int {

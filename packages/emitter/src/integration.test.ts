@@ -1008,6 +1008,48 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).not.to.include("Dictionary<string, object?>");
     });
+
+    it("emits indexer access for alias-wrapped string dictionaries", () => {
+      const source = `
+        interface SettingsMap {
+          [key: string]: string;
+        }
+
+        declare function load(): SettingsMap;
+
+        export function readSetting(): string | undefined {
+          const settings = load();
+          return settings["waiting_period_threshold"];
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include('return settings["waiting_period_threshold"];');
+      expect(csharp).not.to.include("settings.waiting_period_threshold");
+    });
+
+    it("emits indexer access for generic-return dictionary aliases after null narrowing", () => {
+      const source = `
+        type SettingsMap = { [key: string]: string };
+
+        declare const JsonSerializer: {
+          Deserialize<T>(json: string): T | undefined;
+        };
+
+        export function readSetting(json: string): string | undefined {
+          const settingsOrNull = JsonSerializer.Deserialize<SettingsMap>(json);
+          if (settingsOrNull === undefined) {
+            return undefined;
+          }
+          const settings = settingsOrNull;
+          return settings["waiting_period_threshold"];
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include('return settings["waiting_period_threshold"];');
+      expect(csharp).not.to.include("settings.waiting_period_threshold");
+    });
   });
 
   describe("Object Literal Methods", () => {
