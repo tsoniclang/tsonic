@@ -555,6 +555,49 @@ export const emitBinary = (
     ];
   }
 
+  const leftResolved = expr.left.inferredType
+    ? resolveTypeAlias(stripNullish(expr.left.inferredType), context)
+    : undefined;
+  const rightResolved = expr.right.inferredType
+    ? resolveTypeAlias(stripNullish(expr.right.inferredType), context)
+    : undefined;
+  const needsRuntimeEquality =
+    (op === "==" || op === "!=") &&
+    ((leftResolved?.kind === "unknownType" ||
+      rightResolved?.kind === "unknownType" ||
+      (leftResolved?.kind === "referenceType" &&
+        leftResolved.name === "object") ||
+      (rightResolved?.kind === "referenceType" &&
+        rightResolved.name === "object")));
+
+  if (needsRuntimeEquality) {
+    const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+    const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+    const equalsAst: CSharpExpressionAst = {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "global::System.Object",
+        },
+        memberName: "Equals",
+      },
+      arguments: [leftAst, rightAst],
+    };
+    if (op === "==") {
+      return [equalsAst, rightContext];
+    }
+    return [
+      {
+        kind: "prefixUnaryExpression",
+        operatorToken: "!",
+        operand: equalsAst,
+      },
+      rightContext,
+    ];
+  }
+
   // Standard emission path
   // Emit operands without contextual type propagation
   // Literals will emit using their raw lexeme (42 vs 42.0)

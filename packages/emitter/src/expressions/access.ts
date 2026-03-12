@@ -71,6 +71,11 @@ const stripGlobalPrefix = (name: string): string =>
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
 
+const createStringLiteralExpression = (value: string): CSharpExpressionAst => ({
+  kind: "literalExpression",
+  text: JSON.stringify(value),
+});
+
 const getMemberAccessNarrowKey = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>
 ): string | undefined => {
@@ -837,6 +842,27 @@ export const emitMemberAccess = (
         ctxAfterType,
       ];
     }
+
+    const keyAst = createStringLiteralExpression(prop);
+    if (expr.isOptional) {
+      return [
+        {
+          kind: "conditionalElementAccessExpression",
+          expression: objectAst,
+          arguments: [keyAst],
+        },
+        newContext,
+      ];
+    }
+
+    return [
+      {
+        kind: "elementAccessExpression",
+        expression: objectAst,
+        arguments: [keyAst],
+      },
+      newContext,
+    ];
   }
 
   // Regular property access

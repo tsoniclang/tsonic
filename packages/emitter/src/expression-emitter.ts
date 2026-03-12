@@ -23,9 +23,18 @@ import {
   substituteTypeArgs,
   resolveTypeAlias,
   stripNullish,
+  getPropertyType,
+  getAllPropertySignatures,
+  resolveLocalTypeInfo,
 } from "./core/semantic/type-resolution.js";
-import type { CSharpExpressionAst } from "./core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpStatementAst,
+  CSharpTypeAst,
+} from "./core/format/backend-ast/types.js";
 import { renderTypeAst } from "./core/format/backend-ast/utils.js";
+import { allocateLocalName } from "./core/format/local-names.js";
+import { emitCSharpName } from "./naming-policy.js";
 
 // Import expression emitters from specialized modules
 import { emitLiteral } from "./expressions/literals.js";
@@ -51,6 +60,746 @@ import {
   emitSpread,
   emitAwait,
 } from "./expressions/other.js";
+import type { LocalTypeInfo } from "./emitter-types/core.js";
+
+type StructuralPropertyInfo = {
+  readonly name: string;
+  readonly type: IrType;
+  readonly isOptional: boolean;
+};
+
+const hasNullishBranch = (type: IrType | undefined): boolean => {
+  if (!type || type.kind !== "unionType") return false;
+  return type.types.some(
+    (member) =>
+      member.kind === "primitiveType" &&
+      (member.name === "null" || member.name === "undefined")
+  );
+};
+
+const buildDelegateType = (
+  parameterTypes: readonly CSharpTypeAst[],
+  returnType: CSharpTypeAst
+): CSharpTypeAst => ({
+  kind: "identifierType",
+  name: "global::System.Func",
+  typeArguments: [...parameterTypes, returnType],
+});
+
+const collectLocalStructuralProperties = (
+  info: LocalTypeInfo
+): readonly StructuralPropertyInfo[] | undefined => {
+  switch (info.kind) {
+    case "interface": {
+      if (info.members.some((member) => member.kind === "methodSignature")) {
+        return undefined;
+      }
+      const props: StructuralPropertyInfo[] = [];
+      for (const member of info.members) {
+        if (member.kind !== "propertySignature") continue;
+        props.push({
+          name: member.name,
+          type: member.type,
+          isOptional: member.isOptional,
+        });
+      }
+      return props;
+    }
+
+    case "class": {
+      if (info.members.some((member) => member.kind === "methodDeclaration")) {
+        return undefined;
+      }
+      const props: StructuralPropertyInfo[] = [];
+      for (const member of info.members) {
+        if (member.kind !== "propertyDeclaration") continue;
+        if (!member.type) return undefined;
+        props.push({
+          name: member.name,
+          type: member.type,
+          isOptional: false,
+        });
+      }
+      return props;
+    }
+
+    case "typeAlias": {
+      const aliasType = info.type;
+      if (aliasType.kind !== "objectType") return undefined;
+      if (aliasType.members.some((member) => member.kind === "methodSignature")) {
+        return undefined;
+      }
+      return aliasType.members
+        .filter(
+          (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
+            member.kind === "propertySignature"
+        )
+        .map((member) => ({
+          name: member.name,
+          type: member.type,
+          isOptional: member.isOptional,
+        }));
+    }
+
+    default:
+      return undefined;
+  }
+};
+
+const collectStructuralProperties = (
+  type: IrType | undefined,
+  context: EmitterContext
+): readonly StructuralPropertyInfo[] | undefined => {
+  if (!type) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
+  if (resolved.kind === "objectType") {
+    if (resolved.members.some((member) => member.kind === "methodSignature")) {
+      return undefined;
+    }
+    return resolved.members
+      .filter(
+        (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
+          member.kind === "propertySignature"
+      )
+      .map((member) => ({
+        name: member.name,
+        type: member.type,
+        isOptional: member.isOptional,
+      }));
+  }
+
+  if (resolved.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const inheritedInterfaceProps = getAllPropertySignatures(resolved, context);
+  if (inheritedInterfaceProps && inheritedInterfaceProps.length > 0) {
+    return inheritedInterfaceProps.map((member) => ({
+      name: member.name,
+      type: member.type,
+      isOptional: member.isOptional,
+    }));
+  }
+
+  const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
+  if (localInfo) {
+    return collectLocalStructuralProperties(localInfo);
+  }
+
+  if (resolved.structuralMembers && resolved.structuralMembers.length > 0) {
+    if (resolved.structuralMembers.some((member) => member.kind === "methodSignature")) {
+      return undefined;
+    }
+    return resolved.structuralMembers
+      .filter(
+        (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
+          member.kind === "propertySignature"
+      )
+      .map((member) => ({
+        name: member.name,
+        type: member.type,
+        isOptional: member.isOptional,
+      }));
+  }
+
+  return undefined;
+};
+
+const resolveAnonymousStructuralReferenceType = (
+  type: IrType,
+  context: EmitterContext
+): IrType | undefined => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind !== "objectType") return undefined;
+
+  const propertyNames = resolved.members
+    .filter(
+      (
+        member
+      ): member is Extract<typeof member, { kind: "propertySignature"; name: string }> =>
+        member.kind === "propertySignature"
+    )
+    .map((member) => member.name)
+    .sort();
+
+  if (propertyNames.length === 0) return undefined;
+
+  const candidateMaps: ReadonlyMap<string, LocalTypeInfo>[] = [];
+  if (context.localTypes) {
+    candidateMaps.push(context.localTypes);
+  }
+  if (context.options.moduleMap) {
+    for (const module of context.options.moduleMap.values()) {
+      if (module.localTypes) {
+        candidateMaps.push(module.localTypes);
+      }
+    }
+  }
+
+  const matches = new Set<string>();
+  for (const localTypes of candidateMaps) {
+    for (const [typeName, info] of localTypes.entries()) {
+      if (info.kind !== "class" || !typeName.startsWith("__Anon_")) continue;
+      const candidateProps = info.members
+        .filter(
+          (
+            member
+          ): member is Extract<typeof member, { kind: "propertyDeclaration"; name: string }> =>
+            member.kind === "propertyDeclaration"
+        )
+        .map((member) => member.name)
+        .sort();
+      if (
+        candidateProps.length === propertyNames.length &&
+        candidateProps.every((name, index) => name === propertyNames[index])
+      ) {
+        matches.add(typeName);
+      }
+    }
+  }
+
+  if (matches.size !== 1) return undefined;
+  const onlyMatch = [...matches][0];
+  return onlyMatch ? ({ kind: "referenceType", name: onlyMatch } satisfies IrType) : undefined;
+};
+
+const isSameNominalType = (
+  sourceType: IrType | undefined,
+  targetType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!sourceType || !targetType) return false;
+
+  const sourceBase = stripNullish(sourceType);
+  const targetBase = stripNullish(targetType);
+
+  if (
+    sourceBase.kind === "referenceType" &&
+    targetBase.kind === "referenceType"
+  ) {
+    if (sourceBase.name === targetBase.name) {
+      return true;
+    }
+
+    if (
+      sourceBase.typeId?.stableId !== undefined &&
+      sourceBase.typeId.stableId === targetBase.typeId?.stableId
+    ) {
+      return true;
+    }
+
+    if (
+      sourceBase.resolvedClrType !== undefined &&
+      sourceBase.resolvedClrType === targetBase.resolvedClrType
+    ) {
+      return true;
+    }
+  }
+
+  const sourceResolved = resolveTypeAlias(sourceBase, context);
+  const targetResolved = resolveTypeAlias(targetBase, context);
+  if (
+    sourceResolved.kind !== "referenceType" ||
+    targetResolved.kind !== "referenceType"
+  ) {
+    return false;
+  }
+
+  return (
+    sourceResolved.name === targetResolved.name ||
+    (sourceResolved.resolvedClrType !== undefined &&
+      sourceResolved.resolvedClrType === targetResolved.resolvedClrType)
+  );
+};
+
+const buildStructuralSourceAccess = (
+  sourceExpression: CSharpExpressionAst,
+  sourceType: IrType,
+  propertyName: string,
+  context: EmitterContext
+): CSharpExpressionAst => {
+  const resolvedSource = resolveTypeAlias(stripNullish(sourceType), context);
+  if (resolvedSource.kind === "dictionaryType") {
+    return {
+      kind: "elementAccessExpression",
+      expression: sourceExpression,
+      arguments: [
+        {
+          kind: "literalExpression",
+          text: JSON.stringify(propertyName),
+        },
+      ],
+    };
+  }
+
+  return {
+    kind: "memberAccessExpression",
+    expression: sourceExpression,
+    memberName: emitCSharpName(propertyName, "properties", context),
+  };
+};
+
+const isDirectlyReusableExpression = (
+  expression: CSharpExpressionAst
+): boolean =>
+  expression.kind === "identifierExpression" ||
+  expression.kind === "memberAccessExpression" ||
+  expression.kind === "elementAccessExpression";
+
+const getArrayElementType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type) return undefined;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "arrayType") return resolved.elementType;
+  if (resolved.kind === "tupleType") {
+    if (resolved.elementTypes.length === 1) return resolved.elementTypes[0];
+    return undefined;
+  }
+  if (
+    resolved.kind === "referenceType" &&
+    (resolved.name === "Array" ||
+      resolved.name === "ReadonlyArray" ||
+      resolved.name === "JSArray") &&
+    resolved.typeArguments?.length === 1
+  ) {
+    return resolved.typeArguments[0];
+  }
+  return undefined;
+};
+
+const getDictionaryValueType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type) return undefined;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind !== "dictionaryType") return undefined;
+  return resolved.valueType;
+};
+
+const tryAdaptStructuralExpressionAst = (
+  emittedAst: CSharpExpressionAst,
+  sourceType: IrType | undefined,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!expectedType || !sourceType) return undefined;
+  if (isSameNominalType(sourceType, expectedType, context)) {
+    return undefined;
+  }
+
+  const strippedExpectedType = stripNullish(expectedType);
+  const anonymousStructuralTarget = resolveAnonymousStructuralReferenceType(
+    expectedType,
+    context
+  );
+  const targetStructuralType =
+    anonymousStructuralTarget ??
+    resolveTypeAlias(strippedExpectedType, context);
+  const targetEmissionType =
+    anonymousStructuralTarget ??
+    (strippedExpectedType.kind === "referenceType"
+      ? strippedExpectedType
+      : undefined);
+  const targetProps = collectStructuralProperties(targetStructuralType, context);
+  if (targetProps && targetProps.length > 0) {
+    if (!targetEmissionType && targetStructuralType.kind === "objectType") {
+      return undefined;
+    }
+
+    const sourceProps = collectStructuralProperties(sourceType, context);
+    if (!sourceProps || sourceProps.length === 0) return undefined;
+
+    const sourcePropNames = new Set(sourceProps.map((prop) => prop.name));
+    const materializedProps = targetProps.filter(
+      (prop) => prop.isOptional || sourcePropNames.has(prop.name)
+    );
+    if (materializedProps.length === 0) return undefined;
+
+    for (const prop of targetProps) {
+      if (!prop.isOptional && !sourcePropNames.has(prop.name)) {
+        return undefined;
+      }
+      if (!sourcePropNames.has(prop.name)) continue;
+      if (!getPropertyType(sourceType, prop.name, context)) {
+        return undefined;
+      }
+    }
+
+    let currentContext = context;
+    const [targetTypeAst, withType] = emitTypeAst(
+      targetEmissionType ?? targetStructuralType,
+      currentContext
+    );
+    currentContext = withType;
+    const safeTargetTypeAst =
+      targetTypeAst.kind === "nullableType"
+        ? targetTypeAst.underlyingType
+        : targetTypeAst;
+
+    const buildInitializer = (
+      sourceExpression: CSharpExpressionAst
+    ): CSharpExpressionAst => ({
+      kind: "objectCreationExpression",
+      type: safeTargetTypeAst,
+      arguments: [],
+      initializer: materializedProps
+        .filter((prop) => sourcePropNames.has(prop.name))
+        .map((prop) => ({
+          kind: "assignmentExpression",
+          operatorToken: "=",
+          left: {
+            kind: "identifierExpression",
+            identifier: emitCSharpName(prop.name, "properties", currentContext),
+          },
+          right: buildStructuralSourceAccess(
+            sourceExpression,
+            sourceType,
+            prop.name,
+            currentContext
+          ),
+        })),
+    });
+
+    const sourceMayBeNullish = hasNullishBranch(sourceType);
+    if (emittedAst.kind === "identifierExpression") {
+      const initializer = buildInitializer(emittedAst);
+      if (!sourceMayBeNullish) {
+        return [initializer, currentContext];
+      }
+      return [
+        {
+          kind: "conditionalExpression",
+          condition: {
+            kind: "binaryExpression",
+            operatorToken: "==",
+            left: emittedAst,
+            right: { kind: "literalExpression", text: "null" },
+          },
+          whenTrue: {
+            kind: "defaultExpression",
+            type: safeTargetTypeAst,
+          },
+          whenFalse: initializer,
+        },
+        currentContext,
+      ];
+    }
+
+    const temp = allocateLocalName("__struct", currentContext);
+    currentContext = temp.context;
+    const tempIdentifier: CSharpExpressionAst = {
+      kind: "identifierExpression",
+      identifier: temp.emittedName,
+    };
+
+    const statements: CSharpStatementAst[] = [
+      {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "varType" },
+        declarators: [{ name: temp.emittedName, initializer: emittedAst }],
+      },
+    ];
+
+    if (sourceMayBeNullish) {
+      statements.push({
+        kind: "ifStatement",
+        condition: {
+          kind: "binaryExpression",
+          operatorToken: "==",
+          left: tempIdentifier,
+          right: { kind: "literalExpression", text: "null" },
+        },
+        thenStatement: {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "returnStatement",
+              expression: {
+                kind: "defaultExpression",
+                type: safeTargetTypeAst,
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    statements.push({
+      kind: "returnStatement",
+      expression: buildInitializer(tempIdentifier),
+    });
+
+    const lambdaAst: CSharpExpressionAst = {
+      kind: "lambdaExpression",
+      isAsync: false,
+      parameters: [],
+      body: {
+        kind: "blockStatement",
+        statements,
+      },
+    };
+
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "parenthesizedExpression",
+          expression: {
+            kind: "castExpression",
+            type: buildDelegateType([], safeTargetTypeAst),
+            expression: {
+              kind: "parenthesizedExpression",
+              expression: lambdaAst,
+            },
+          },
+        },
+        arguments: [],
+      },
+      currentContext,
+    ];
+  }
+
+  const targetElementType = getArrayElementType(expectedType, context);
+  const sourceElementType = getArrayElementType(sourceType, context);
+  if (targetElementType && sourceElementType) {
+    const item = allocateLocalName("__item", context);
+    let currentContext = item.context;
+    const itemIdentifier: CSharpExpressionAst = {
+      kind: "identifierExpression",
+      identifier: item.emittedName,
+    };
+    const [adaptedElementAst, adaptedContext] =
+      tryAdaptStructuralExpressionAst(
+        itemIdentifier,
+        sourceElementType,
+        currentContext,
+        targetElementType
+      ) ?? [undefined, currentContext];
+    currentContext = adaptedContext;
+    if (adaptedElementAst !== undefined) {
+      const selectAst: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "global::System.Linq.Enumerable.Select",
+        },
+        arguments: [
+          emittedAst,
+          {
+            kind: "lambdaExpression",
+            isAsync: false,
+            parameters: [{ name: item.emittedName }],
+            body: adaptedElementAst,
+          },
+        ],
+      };
+      const toArrayAst: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "global::System.Linq.Enumerable.ToArray",
+        },
+        arguments: [selectAst],
+      };
+
+      if (!hasNullishBranch(sourceType)) {
+        return [toArrayAst, currentContext];
+      }
+
+      if (isDirectlyReusableExpression(emittedAst)) {
+        return [
+          {
+            kind: "conditionalExpression",
+            condition: {
+              kind: "binaryExpression",
+              operatorToken: "==",
+              left: emittedAst,
+              right: { kind: "literalExpression", text: "null" },
+            },
+            whenTrue: { kind: "defaultExpression" },
+            whenFalse: toArrayAst,
+          },
+          currentContext,
+        ];
+      }
+    }
+  }
+
+  const targetValueType = getDictionaryValueType(expectedType, context);
+  const sourceValueType = getDictionaryValueType(sourceType, context);
+  if (targetValueType && sourceValueType) {
+    let currentContext = context;
+    const [targetValueTypeAst, valueTypeContext] = emitTypeAst(
+      targetValueType,
+      currentContext
+    );
+    currentContext = valueTypeContext;
+    const dictTypeAst: CSharpTypeAst = {
+      kind: "identifierType",
+      name: "global::System.Collections.Generic.Dictionary",
+      typeArguments: [
+        { kind: "predefinedType", keyword: "string" },
+        targetValueTypeAst,
+      ],
+    };
+    const sourceTemp = allocateLocalName("__dict", currentContext);
+    currentContext = sourceTemp.context;
+    const entryTemp = allocateLocalName("__entry", currentContext);
+    currentContext = entryTemp.context;
+    const resultTemp = allocateLocalName("__result", currentContext);
+    currentContext = resultTemp.context;
+
+    const entryValueAst: CSharpExpressionAst = {
+      kind: "memberAccessExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: entryTemp.emittedName,
+      },
+      memberName: "Value",
+    };
+    const [adaptedValueAst, adaptedContext] =
+      tryAdaptStructuralExpressionAst(
+        entryValueAst,
+        sourceValueType,
+        currentContext,
+        targetValueType
+      ) ?? [undefined, currentContext];
+    currentContext = adaptedContext;
+    if (adaptedValueAst !== undefined) {
+      const statements: CSharpStatementAst[] = [
+        {
+          kind: "localDeclarationStatement",
+          modifiers: [],
+          type: { kind: "varType" },
+          declarators: [
+            {
+              name: sourceTemp.emittedName,
+              initializer: emittedAst,
+            },
+          ],
+        },
+        {
+          kind: "ifStatement",
+          condition: {
+            kind: "binaryExpression",
+            operatorToken: "==",
+            left: {
+              kind: "identifierExpression",
+              identifier: sourceTemp.emittedName,
+            },
+            right: { kind: "literalExpression", text: "null" },
+          },
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: { kind: "defaultExpression", type: dictTypeAst },
+              },
+            ],
+          },
+        },
+        {
+          kind: "localDeclarationStatement",
+          modifiers: [],
+          type: { kind: "varType" },
+          declarators: [
+            {
+              name: resultTemp.emittedName,
+              initializer: {
+                kind: "objectCreationExpression",
+                type: dictTypeAst,
+                arguments: [],
+              },
+            },
+          ],
+        },
+        {
+          kind: "foreachStatement",
+          isAwait: false,
+          type: { kind: "varType" },
+          identifier: entryTemp.emittedName,
+          expression: {
+            kind: "identifierExpression",
+            identifier: sourceTemp.emittedName,
+          },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "assignmentExpression",
+                  operatorToken: "=",
+                  left: {
+                    kind: "elementAccessExpression",
+                    expression: {
+                      kind: "identifierExpression",
+                      identifier: resultTemp.emittedName,
+                    },
+                    arguments: [
+                      {
+                        kind: "memberAccessExpression",
+                        expression: {
+                          kind: "identifierExpression",
+                          identifier: entryTemp.emittedName,
+                        },
+                        memberName: "Key",
+                      },
+                    ],
+                  },
+                  right: adaptedValueAst,
+                },
+              },
+            ],
+          },
+        },
+        {
+          kind: "returnStatement",
+          expression: {
+            kind: "identifierExpression",
+            identifier: resultTemp.emittedName,
+          },
+        },
+      ];
+
+      return [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "castExpression",
+              type: buildDelegateType([], dictTypeAst),
+              expression: {
+                kind: "parenthesizedExpression",
+                expression: {
+                  kind: "lambdaExpression",
+                  isAsync: false,
+                  parameters: [],
+                  body: {
+                    kind: "blockStatement",
+                    statements,
+                  },
+                },
+              },
+            },
+          },
+          arguments: [],
+        },
+        currentContext,
+      ];
+    }
+  }
+
+  return undefined;
+};
 
 const getBareTypeParameterName = (
   type: IrType,
@@ -916,11 +1665,18 @@ export const emitExpressionAst = (
     castedContext,
     expectedType
   );
+  const [materializedAst, materializedContext] =
+    tryAdaptStructuralExpressionAst(
+      dictUpcastAst,
+      expr.inferredType,
+      dictUpcastContext,
+      expectedType
+    ) ?? [dictUpcastAst, dictUpcastContext];
   const [stringAdjustedAst, stringAdjustedContext] =
     maybeConvertCharToStringAst(
       expr,
-      dictUpcastAst,
-      dictUpcastContext,
+      materializedAst,
+      materializedContext,
       expectedType
     );
   return maybeUnwrapNullableValueTypeAst(
