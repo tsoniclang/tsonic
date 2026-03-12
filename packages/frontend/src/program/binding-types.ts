@@ -3,6 +3,8 @@
  * See spec/bindings.md for full manifest format
  */
 
+import type { IrParameter, IrType } from "../ir/index.js";
+
 /**
  * Parameter modifier for ref/out/in parameters
  * Matches the format from tsbindgen: { index: number, modifier: "ref" | "out" | "in" }
@@ -22,12 +24,21 @@ export type TypeSemantics = {
   readonly contributesTypeIdentity: boolean;
 };
 
+export type BindingSemanticSignature = {
+  readonly typeParameters?: readonly string[];
+  readonly parameters: readonly IrParameter[];
+  readonly returnType?: IrType;
+};
+
 /**
  * Member binding (method/property level)
  */
 export type MemberBinding = {
   readonly kind: "method" | "property";
   readonly signature?: string; // Optional TS signature for diagnostics
+  readonly semanticType?: IrType;
+  readonly semanticOptional?: boolean;
+  readonly semanticSignature?: BindingSemanticSignature;
   /** Total CLR parameter count (includes extension receiver for extension methods). */
   readonly parameterCount?: number;
   readonly name: string; // CLR member name (e.g., "SelectMany")
@@ -100,6 +111,7 @@ export type TsbindgenMethod = {
   readonly clrName: string;
   /** Normalized signature string (tsbindgen metadata, used for extension receiver inference) */
   readonly normalizedSignature?: string;
+  readonly semanticSignature?: BindingSemanticSignature;
   /** Total parameter count in CLR signature (includes extension receiver) */
   readonly parameterCount?: number;
   readonly declaringClrType: string;
@@ -112,12 +124,18 @@ export type TsbindgenMethod = {
 
 export type TsbindgenProperty = {
   readonly clrName: string;
+  readonly normalizedSignature?: string;
+  readonly semanticType?: IrType;
+  readonly semanticOptional?: boolean;
   readonly declaringClrType: string;
   readonly declaringAssemblyName: string;
 };
 
 export type TsbindgenField = {
   readonly clrName: string;
+  readonly normalizedSignature?: string;
+  readonly semanticType?: IrType;
+  readonly semanticOptional?: boolean;
   readonly declaringClrType: string;
   readonly declaringAssemblyName: string;
 };
@@ -168,10 +186,13 @@ export type TsbindgenType = {
  *   }
  */
 export type TsbindgenExport = {
-  readonly kind: "method" | "property" | "field";
+  readonly kind: "method" | "property" | "field" | "functionType";
   readonly clrName: string;
   readonly declaringClrType: string;
   readonly declaringAssemblyName: string;
+  readonly semanticType?: IrType;
+  readonly semanticOptional?: boolean;
+  readonly semanticSignature?: BindingSemanticSignature;
 };
 
 export type TsbindgenBindingFile = {
@@ -214,6 +235,81 @@ const validateTypeSemantics = (
   const record = value as Record<string, unknown>;
   if (typeof record.contributesTypeIdentity !== "boolean") {
     return `${filePath}: '${label}.contributesTypeIdentity' must be a boolean`;
+  }
+
+  return undefined;
+};
+
+const validateBindingSemanticSignature = (
+  value: unknown,
+  filePath: string,
+  label: string
+): string | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return `${filePath}: '${label}' must be an object`;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    "typeParameters" in record &&
+    record.typeParameters !== undefined &&
+    !(
+      Array.isArray(record.typeParameters) &&
+      record.typeParameters.every((entry) => typeof entry === "string")
+    )
+  ) {
+    return `${filePath}: '${label}.typeParameters' must be a string array when present`;
+  }
+  if (!Array.isArray(record.parameters)) {
+    return `${filePath}: '${label}.parameters' must be an array`;
+  }
+
+  return undefined;
+};
+
+const validateTsbindgenExport = (
+  value: unknown,
+  filePath: string,
+  label: string
+): string | undefined => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return `${filePath}: '${label}' must be an object`;
+  }
+
+  const record = value as Record<string, unknown>;
+  const kind = record.kind;
+  if (
+    kind !== "method" &&
+    kind !== "property" &&
+    kind !== "field" &&
+    kind !== "functionType"
+  ) {
+    return `${filePath}: '${label}.kind' must be 'method', 'property', 'field', or 'functionType'`;
+  }
+  if (typeof record.clrName !== "string") {
+    return `${filePath}: '${label}.clrName' must be a string`;
+  }
+  if (typeof record.declaringClrType !== "string") {
+    return `${filePath}: '${label}.declaringClrType' must be a string`;
+  }
+  if (typeof record.declaringAssemblyName !== "string") {
+    return `${filePath}: '${label}.declaringAssemblyName' must be a string`;
+  }
+
+  const semanticSignatureError = validateBindingSemanticSignature(
+    record.semanticSignature,
+    filePath,
+    `${label}.semanticSignature`
+  );
+  if (semanticSignatureError) return semanticSignatureError;
+
+  if (
+    "semanticOptional" in record &&
+    record.semanticOptional !== undefined &&
+    typeof record.semanticOptional !== "boolean"
+  ) {
+    return `${filePath}: '${label}.semanticOptional' must be a boolean when present`;
   }
 
   return undefined;
@@ -290,6 +386,27 @@ export const validateBindingFile = (
           `types[${typeIndex}].methods[${methodIndex}].emitSemantics`
         );
         if (error) return error;
+      }
+    }
+    if ("exports" in manifest) {
+      const exportsValue = manifest.exports;
+      if (
+        exportsValue !== undefined &&
+        (exportsValue === null ||
+          typeof exportsValue !== "object" ||
+          Array.isArray(exportsValue))
+      ) {
+        return `${filePath}: 'exports' must be an object when present`;
+      }
+      if (exportsValue && typeof exportsValue === "object") {
+        for (const [exportName, exportValue] of Object.entries(exportsValue)) {
+          const error = validateTsbindgenExport(
+            exportValue,
+            filePath,
+            `exports.${exportName}`
+          );
+          if (error) return error;
+        }
       }
     }
     return undefined; // Valid tsbindgen format

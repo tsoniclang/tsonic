@@ -3,6 +3,8 @@
  */
 
 import {
+  getAwaitedIrType,
+  isAwaitableIrType,
   IrBlockStatement,
   IrExpression,
   IrStatement,
@@ -1052,48 +1054,8 @@ const emitFlattenedRestArguments = (
 
 const stableIrTypeKey = (type: IrType): string => JSON.stringify(type);
 
-const unwrapAsyncWrapperIrType = (type: IrType): IrType | undefined => {
-  if (type.kind !== "referenceType") return undefined;
-  if (!type.typeArguments || type.typeArguments.length !== 1) return undefined;
-  const inner = type.typeArguments[0];
-  if (!inner) return undefined;
-
-  const simpleName = type.name.split(".").pop() ?? type.name;
-  const clrName = type.resolvedClrType ?? type.name;
-  const isAsyncWrapper =
-    simpleName === "Promise" ||
-    simpleName === "PromiseLike" ||
-    simpleName === "Task_1" ||
-    simpleName === "Task`1" ||
-    simpleName === "ValueTask_1" ||
-    simpleName === "ValueTask`1" ||
-    clrName === "System.Threading.Tasks.Task" ||
-    clrName === "System.Threading.Tasks.ValueTask" ||
-    clrName.startsWith("System.Threading.Tasks.Task`1") ||
-    clrName.startsWith("System.Threading.Tasks.ValueTask`1");
-  return isAsyncWrapper ? inner : undefined;
-};
-
 const isAsyncWrapperIrTypeLike = (type: IrType): boolean => {
-  if (type.kind !== "referenceType") return false;
-
-  const simpleName = type.name.split(".").pop() ?? type.name;
-  const clrName = type.resolvedClrType ?? type.name;
-
-  return (
-    simpleName === "Promise" ||
-    simpleName === "PromiseLike" ||
-    simpleName === "Task" ||
-    simpleName === "Task_1" ||
-    simpleName === "Task`1" ||
-    simpleName === "ValueTask" ||
-    simpleName === "ValueTask_1" ||
-    simpleName === "ValueTask`1" ||
-    clrName === "System.Threading.Tasks.Task" ||
-    clrName === "System.Threading.Tasks.ValueTask" ||
-    clrName.startsWith("System.Threading.Tasks.Task`1") ||
-    clrName.startsWith("System.Threading.Tasks.ValueTask`1")
-  );
+  return isAwaitableIrType(type);
 };
 
 const containsPromiseChainArtifact = (type: IrType | undefined): boolean => {
@@ -1117,9 +1079,11 @@ const normalizePromiseChainResultIrType = (
 ): IrType | undefined => {
   if (!type) return undefined;
 
-  const asyncInner = unwrapAsyncWrapperIrType(type);
-  if (asyncInner) {
-    return normalizePromiseChainResultIrType(asyncInner);
+  const awaited = getAwaitedIrType(type);
+  if (awaited) {
+    return awaited.kind === "voidType"
+      ? awaited
+      : normalizePromiseChainResultIrType(awaited);
   }
 
   if (type.kind === "unionType") {
@@ -1365,10 +1329,7 @@ const emitPromiseNormalizedTaskAst = (
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
-  const asyncInner = valueType
-    ? unwrapAsyncWrapperIrType(valueType)
-    : undefined;
-  if (asyncInner) {
+  if (valueType && isAwaitableIrType(valueType)) {
     if (isValueTaskLikeIrType(valueType)) {
       return [
         {

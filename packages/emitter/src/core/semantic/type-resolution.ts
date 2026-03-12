@@ -14,6 +14,7 @@ import type {
   IrInterfaceMember,
   IrClassMember,
   IrPropertySignature, // NEW: needed for union-member matching
+  TypeBinding as FrontendTypeBinding,
 } from "@tsonic/frontend";
 import type { LocalTypeInfo, EmitterContext } from "../../types.js";
 
@@ -258,6 +259,23 @@ export const resolveLocalTypeInfo = (
   ref: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
 ): { readonly info: LocalTypeInfo; readonly namespace: string } | undefined => {
+  const direct = resolveLocalTypeInfoWithoutBindings(ref, context);
+  if (direct) {
+    return direct;
+  }
+
+  const rebound = resolveBindingBackedReferenceType(ref, context);
+  if (!rebound) {
+    return undefined;
+  }
+
+  return resolveLocalTypeInfoWithoutBindings(rebound, context);
+};
+
+const resolveLocalTypeInfoWithoutBindings = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): { readonly info: LocalTypeInfo; readonly namespace: string } | undefined => {
   const lookupName = ref.name.includes(".")
     ? (ref.name.split(".").pop() ?? ref.name)
     : ref.name;
@@ -312,6 +330,130 @@ export const resolveLocalTypeInfo = (
   return undefined;
 };
 
+const getReferenceBindingLookupCandidates = (
+  ref: Extract<IrType, { kind: "referenceType" }>
+): readonly string[] => {
+  const candidates = new Set<string>();
+  const add = (value: string | undefined): void => {
+    if (value && value.length > 0) {
+      candidates.add(value);
+    }
+  };
+
+  add(ref.name);
+  add(ref.resolvedClrType);
+  add(ref.typeId?.tsName);
+  add(ref.typeId?.clrName);
+
+  for (const value of [...candidates]) {
+    if (!value.includes(".")) continue;
+    add(value.split(".").pop());
+  }
+
+  return [...candidates];
+};
+
+const getBindingScopedReference = (
+  binding: FrontendTypeBinding,
+  ref: Extract<IrType, { kind: "referenceType" }>
+): Extract<IrType, { kind: "referenceType" }> => ({
+  ...ref,
+  name: binding.alias,
+  resolvedClrType: binding.name,
+});
+
+const resolveBindingBackedReferenceType = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): Extract<IrType, { kind: "referenceType" }> | undefined => {
+  const registry = context.bindingsRegistry;
+  if (!registry || registry.size === 0) {
+    return undefined;
+  }
+
+  for (const candidate of getReferenceBindingLookupCandidates(ref)) {
+    const binding = registry.get(candidate);
+    if (!binding) continue;
+
+    const scopedRef = getBindingScopedReference(binding, ref);
+    const localInfo = resolveLocalTypeInfoWithoutBindings(scopedRef, context);
+    if (localInfo) {
+      return scopedRef;
+    }
+  }
+
+  return undefined;
+};
+
+const resolveBindingBackedPropertyType = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  propertyName: string,
+  context: EmitterContext
+): IrType | undefined => {
+  const registry = context.bindingsRegistry;
+  if (!registry || registry.size === 0) {
+    return undefined;
+  }
+
+  for (const candidate of getReferenceBindingLookupCandidates(ref)) {
+    const binding = registry.get(candidate);
+    if (!binding) continue;
+
+    const member = binding.members.find(
+      (candidateMember) =>
+        candidateMember.kind === "property" &&
+        candidateMember.alias === propertyName
+    );
+    if (!member?.semanticType) continue;
+
+    return withOptionalUndefined(member.semanticType, member.semanticOptional === true);
+  }
+
+  return undefined;
+};
+
+const resolveBindingBackedPropertySignatures = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): readonly IrPropertySignature[] | undefined => {
+  const registry = context.bindingsRegistry;
+  if (!registry || registry.size === 0) {
+    return undefined;
+  }
+
+  for (const candidate of getReferenceBindingLookupCandidates(ref)) {
+    const binding = registry.get(candidate);
+    if (!binding) continue;
+
+    const properties = binding.members
+      .filter(
+        (candidateMember): candidateMember is typeof candidateMember & {
+          readonly semanticType: IrType;
+        } =>
+          candidateMember.kind === "property" &&
+          candidateMember.semanticType !== undefined
+      )
+      .map(
+        (member): IrPropertySignature => ({
+          kind: "propertySignature",
+          name: member.alias,
+          type: withOptionalUndefined(
+            member.semanticType,
+            member.semanticOptional === true
+          ),
+          isOptional: member.semanticOptional === true,
+          isReadonly: false,
+        })
+      );
+
+    if (properties.length > 0) {
+      return properties;
+    }
+  }
+
+  return undefined;
+};
+
 /**
  * Internal helper for property type resolution with cycle detection
  */
@@ -325,8 +467,7 @@ const resolvePropertyType = (
   if (type.kind === "referenceType") {
     const typeInfoResult = resolveLocalTypeInfo(type, context);
     if (!typeInfoResult) {
-      // External type - cannot resolve property type
-      return undefined;
+      return resolveBindingBackedPropertyType(type, propertyName, context);
     }
     const typeInfo = typeInfoResult.info;
 
@@ -446,6 +587,99 @@ const withOptionalUndefined = (type: IrType, isOptional: boolean): IrType => {
   };
 };
 
+const stripGlobalPrefix = (name: string): string =>
+  name.startsWith("global::") ? name.slice("global::".length) : name;
+
+const getTypeMemberIndexCandidates = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): readonly string[] | undefined => {
+  const index = context.options.typeMemberIndex;
+  if (!index) return undefined;
+
+  if (ref.resolvedClrType) {
+    return [stripGlobalPrefix(ref.resolvedClrType)];
+  }
+
+  if (ref.name.includes(".")) {
+    return [ref.name];
+  }
+
+  const matches: string[] = [];
+  for (const fqn of index.keys()) {
+    if (
+      fqn.endsWith(`.${ref.name}`) ||
+      fqn.endsWith(`.${ref.name}__Alias`)
+    ) {
+      matches.push(fqn);
+    }
+  }
+
+  if (matches.length <= 1) {
+    return matches;
+  }
+
+  const list = matches.sort().join(", ");
+  throw new Error(
+    `ICE: Ambiguous type member index entry for '${ref.name}'. Candidates: ${list}`
+  );
+};
+
+export const hasDeterministicPropertyMembership = (
+  type: IrType,
+  propertyName: string,
+  context: EmitterContext
+): boolean | undefined => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
+  if (resolved.kind === "objectType") {
+    return resolved.members.some(
+      (member) =>
+        member.kind === "propertySignature" && member.name === propertyName
+    );
+  }
+
+  if (resolved.kind !== "referenceType") {
+    return undefined;
+  }
+
+  if (resolved.structuralMembers?.length) {
+    return resolved.structuralMembers.some(
+      (member) =>
+        member.kind === "propertySignature" && member.name === propertyName
+    );
+  }
+
+  if (getPropertyType(resolved, propertyName, context)) {
+    return true;
+  }
+
+  const knownProps = getAllPropertySignatures(resolved, context);
+  if (knownProps) {
+    return knownProps.some((member) => member.name === propertyName);
+  }
+
+  const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
+  if (localInfo?.kind === "class") {
+    return localInfo.members.some(
+      (member) =>
+        (member.kind === "propertyDeclaration" ||
+          member.kind === "methodDeclaration") &&
+        member.name === propertyName
+    );
+  }
+
+  const candidates = getTypeMemberIndexCandidates(resolved, context);
+  if (!candidates || candidates.length === 0) {
+    return undefined;
+  }
+
+  return candidates.some((fqn) => {
+    const perType = context.options.typeMemberIndex?.get(fqn);
+    return perType?.has(propertyName) ?? false;
+  });
+};
+
 /**
  * Get all property signatures for a type, including inherited interface members.
  *
@@ -462,7 +696,9 @@ export const getAllPropertySignatures = (
   if (type.kind !== "referenceType") return undefined;
 
   const typeInfoResult = resolveLocalTypeInfo(type, context);
-  if (!typeInfoResult) return undefined;
+  if (!typeInfoResult) {
+    return resolveBindingBackedPropertySignatures(type, context);
+  }
   const typeInfo = typeInfoResult.info;
   if (!typeInfo || typeInfo.kind !== "interface") return undefined;
 

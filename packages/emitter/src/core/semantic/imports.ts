@@ -225,6 +225,15 @@ const createClrImportBinding = (
           },
         };
       }
+      if (spec.resolvedClrType) {
+        return {
+          localName,
+          importBinding: {
+            kind: "namespace",
+            clrName: `global::${spec.resolvedClrType}`,
+          },
+        };
+      }
       throw new Error(
         `ICE: Missing resolvedClrValue for CLR value import '${spec.name}' from '${namespace}'.`
       );

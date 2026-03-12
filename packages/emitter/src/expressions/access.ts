@@ -843,6 +843,19 @@ export const emitMemberAccess = (
       ];
     }
 
+    if (prop === "Count" || prop === "Length") {
+      return [
+        {
+          kind: expr.isOptional
+            ? "conditionalMemberAccessExpression"
+            : "memberAccessExpression",
+          expression: objectAst,
+          memberName: "Count",
+        },
+        newContext,
+      ];
+    }
+
     const keyAst = createStringLiteralExpression(prop);
     if (expr.isOptional) {
       return [
@@ -873,6 +886,26 @@ export const emitMemberAccess = (
     context,
     usage
   );
+
+  if (usage === "value") {
+    if (
+      resolvedObjectType?.kind === "arrayType" ||
+      resolvedObjectType?.kind === "tupleType"
+    ) {
+      if (prop === "length" || prop === "Length" || prop === "Count") {
+        return [
+          {
+            kind: expr.isOptional
+              ? "conditionalMemberAccessExpression"
+              : "memberAccessExpression",
+            expression: objectAst,
+            memberName: "Length",
+          },
+          newContext,
+        ];
+      }
+    }
+  }
 
   if (expr.isOptional) {
     return [

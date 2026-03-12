@@ -2,6 +2,8 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrType } from "./index.js";
 import {
+  getAwaitedIrType,
+  isAwaitableIrType,
   irTypesEqual,
   normalizedUnionType,
   stableIrTypeKey,
@@ -81,5 +83,52 @@ describe("type-ops", () => {
     expect(unwrapAsyncWrapperType(taskType)).to.deep.equal(payload);
     expect(unwrapAsyncWrapperType(valueTaskType)).to.deep.equal(payload);
     expect(unwrapAsyncWrapperType(plainType)).to.equal(undefined);
+  });
+
+  it("treats non-generic Task and ValueTask as awaitable void wrappers", () => {
+    const taskType: IrType = {
+      kind: "referenceType",
+      name: "Task",
+      resolvedClrType: "System.Threading.Tasks.Task",
+      typeArguments: [],
+    };
+    const valueTaskType: IrType = {
+      kind: "referenceType",
+      name: "ValueTask",
+      resolvedClrType: "System.Threading.Tasks.ValueTask",
+      typeArguments: [],
+    };
+
+    expect(isAwaitableIrType(taskType)).to.equal(true);
+    expect(isAwaitableIrType(valueTaskType)).to.equal(true);
+    expect(getAwaitedIrType(taskType)).to.deep.equal({ kind: "voidType" });
+    expect(getAwaitedIrType(valueTaskType)).to.deep.equal({
+      kind: "voidType",
+    });
+    expect(unwrapAsyncWrapperType(taskType)).to.equal(undefined);
+    expect(unwrapAsyncWrapperType(valueTaskType)).to.equal(undefined);
+  });
+
+  it("unwraps fully-qualified Task and ValueTask wrappers using type arguments", () => {
+    const payload: IrType = { kind: "primitiveType", name: "string" };
+    const taskType: IrType = {
+      kind: "referenceType",
+      name: "System.Threading.Tasks.Task",
+      resolvedClrType: "global::System.Threading.Tasks.Task",
+      typeArguments: [payload],
+    };
+    const valueTaskType: IrType = {
+      kind: "referenceType",
+      name: "System.Threading.Tasks.ValueTask",
+      resolvedClrType: "global::System.Threading.Tasks.ValueTask",
+      typeArguments: [payload],
+    };
+
+    expect(isAwaitableIrType(taskType)).to.equal(true);
+    expect(isAwaitableIrType(valueTaskType)).to.equal(true);
+    expect(getAwaitedIrType(taskType)).to.deep.equal(payload);
+    expect(getAwaitedIrType(valueTaskType)).to.deep.equal(payload);
+    expect(unwrapAsyncWrapperType(taskType)).to.deep.equal(payload);
+    expect(unwrapAsyncWrapperType(valueTaskType)).to.deep.equal(payload);
   });
 });

@@ -1262,6 +1262,65 @@ describe("IR Builder", () => {
       });
     });
 
+    it("should attach resolvedClrType for CLR type imports used as values", () => {
+      const source = `
+        import { Task as TaskValue } from "@tsonic/dotnet/System.Threading.Tasks.js";
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+
+      (
+        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
+      ).clrResolver = {
+        resolve: (s: string) =>
+          s === "@tsonic/dotnet/System.Threading.Tasks.js"
+            ? {
+                isClr: true,
+                packageName: "@tsonic/dotnet",
+                resolvedNamespace: "System.Threading.Tasks",
+                bindingsPath: "/x/tasks.bindings.json",
+                assembly: "System.Runtime",
+              }
+            : { isClr: false },
+      };
+
+      ctx.bindings.addBindings("/x/tasks.bindings.json", {
+        namespace: "System.Threading.Tasks",
+        types: [
+          {
+            alias: "Task",
+            clrName: "System.Threading.Tasks.Task",
+            assemblyName: "System.Runtime",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+        exports: {},
+      });
+
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const imp = result.value.imports[0];
+      if (!imp) throw new Error("Missing imports");
+      const spec = imp.specifiers[0];
+      if (!spec || spec.kind !== "named") {
+        throw new Error("Missing named specifier");
+      }
+      expect(spec.name).to.equal("Task");
+      expect(spec.localName).to.equal("TaskValue");
+      expect(spec.isType).to.not.equal(true);
+      expect(spec.resolvedClrType).to.equal("System.Threading.Tasks.Task");
+      expect(spec.resolvedClrValue).to.equal(undefined);
+    });
+
     it("should error if a CLR namespace value import lacks tsbindgen exports mapping", () => {
       const source = `
         import { buildSite } from "@demo/pkg/Demo.js";

@@ -24,11 +24,11 @@ import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types
 const extractIdentifierText = (ast: CSharpExpressionAst): string =>
   extractCalleeNameFromAst(ast);
 import {
+  hasDeterministicPropertyMembership,
   resolveTypeAlias,
   stripNullish,
   findUnionMemberIndex,
   getPropertyType,
-  getAllPropertySignatures,
   isDefinitelyValueType,
 } from "../../../core/semantic/type-resolution.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
@@ -177,101 +177,6 @@ export type NullableGuardInfo = {
 /**
  * Check if a local nominal type (class/interface) has a property with the given TS name.
  */
-const hasLocalProperty = (
-  type: Extract<IrType, { kind: "referenceType" }>,
-  propertyName: string,
-  context: EmitterContext
-): boolean => {
-  if (type.structuralMembers?.length) {
-    return type.structuralMembers.some(
-      (member) =>
-        member.kind === "propertySignature" && member.name === propertyName
-    );
-  }
-
-  if (!context.localTypes) return false;
-
-  const info = context.localTypes.get(type.name);
-  if (!info) return false;
-
-  if (info.kind === "interface") {
-    const props = getAllPropertySignatures(type, context);
-    return props?.some((p) => p.name === propertyName) ?? false;
-  }
-
-  if (info.kind === "class") {
-    return info.members.some(
-      (m) => m.kind === "propertyDeclaration" && m.name === propertyName
-    );
-  }
-
-  return false;
-};
-
-/**
- * Check if a nominal type has a property, including cross-module local types.
- *
- * For same-module types, consult `context.localTypes`.
- * For cross-module types, consult the batch `typeMemberIndex` and resolve the
- * member's fully-qualified name deterministically.
- */
-const hasProperty = (
-  type: Extract<IrType, { kind: "referenceType" }>,
-  propertyName: string,
-  context: EmitterContext
-): boolean => {
-  if (type.structuralMembers?.length) {
-    return type.structuralMembers.some(
-      (member) =>
-        member.kind === "propertySignature" && member.name === propertyName
-    );
-  }
-
-  if (hasLocalProperty(type, propertyName, context)) {
-    return true;
-  }
-
-  const index = context.options.typeMemberIndex;
-  if (!index) return false;
-
-  const stripGlobalPrefix = (name: string): string =>
-    name.startsWith("global::") ? name.slice("global::".length) : name;
-
-  const candidates: string[] = [];
-
-  if (type.resolvedClrType) {
-    candidates.push(stripGlobalPrefix(type.resolvedClrType));
-  } else if (type.name.includes(".")) {
-    candidates.push(type.name);
-  } else {
-    // Resolve by suffix match in the type member index.
-    const matches: string[] = [];
-    for (const fqn of index.keys()) {
-      if (
-        fqn.endsWith(`.${type.name}`) ||
-        fqn.endsWith(`.${type.name}__Alias`)
-      ) {
-        matches.push(fqn);
-      }
-    }
-
-    if (matches.length === 1) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      candidates.push(matches[0]!);
-    } else if (matches.length > 1) {
-      const list = matches.sort().join(", ");
-      throw new Error(
-        `ICE: Ambiguous union member type '${type.name}' for \`in\` narrowing. Candidates: ${list}`
-      );
-    }
-  }
-
-  return candidates.some((fqn) => {
-    const perType = index.get(fqn);
-    return perType?.has(propertyName) ?? false;
-  });
-};
-
 const getGuardPropertyType = (
   type: IrType,
   propertyName: string,
@@ -855,7 +760,7 @@ export const tryResolveInGuard = (
   for (let i = 0; i < members.length; i++) {
     const member = members[i];
     if (!member || member.kind !== "referenceType") continue;
-    if (hasProperty(member, propertyName, context)) {
+    if (hasDeterministicPropertyMembership(member, propertyName, context) === true) {
       matchingIndices.push(i);
       matchingMemberNs.push(candidateMemberNs[i] ?? i + 1);
     }

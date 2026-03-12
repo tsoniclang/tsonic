@@ -1938,6 +1938,85 @@ describe("Expression Emission", () => {
     expect(result).to.include("value.length");
   });
 
+  it("should emit CLR Length for structural array length without member binding", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "channels",
+              inferredType: {
+                kind: "arrayType",
+                elementType: {
+                  kind: "referenceType",
+                  name: "Acme.Core.Channel",
+                  resolvedClrType: "Acme.Core.Channel",
+                },
+              },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("channels.Length");
+    expect(result).to.not.include("channels.length");
+  });
+
+  it("should emit CLR Count for structural dictionary count without member binding", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "items",
+              inferredType: {
+                kind: "dictionaryType",
+                keyType: { kind: "primitiveType", name: "string" },
+                valueType: {
+                  kind: "referenceType",
+                  name: "Acme.Core.Channel",
+                  resolvedClrType: "Acme.Core.Channel",
+                },
+              },
+            },
+            property: "Length",
+            isComputed: false,
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("items.Count");
+    expect(result).to.not.include("items.Length");
+  });
+
   it("should project CLR Union_n member access deterministically", () => {
     const unionReference: IrType = {
       kind: "referenceType",

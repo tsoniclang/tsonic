@@ -10,5 +10,6 @@ export {
   createProgram,
   getSourceFile,
   BindingRegistry,
+  loadBindings,
   buildModuleDependencyGraph,
 } from "./program/index.js";

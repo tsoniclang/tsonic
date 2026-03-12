@@ -379,6 +379,7 @@ export class BindingRegistry {
             // No naming policy: TS member names are the CLR names as authored.
             alias: method.clrName,
             signature: method.normalizedSignature,
+            semanticSignature: method.semanticSignature,
             parameterCount: method.parameterCount,
             binding: {
               assembly: method.declaringAssemblyName,
@@ -427,6 +428,9 @@ export class BindingRegistry {
         for (const prop of tsbType.properties) {
           members.push({
             kind: "property",
+            signature: prop.normalizedSignature,
+            semanticType: prop.semanticType,
+            semanticOptional: prop.semanticOptional,
             name: prop.clrName,
             alias: prop.clrName,
             binding: {
@@ -441,6 +445,9 @@ export class BindingRegistry {
           // Fields are treated as properties for binding purposes
           members.push({
             kind: "property",
+            signature: field.normalizedSignature,
+            semanticType: field.semanticType,
+            semanticOptional: field.semanticOptional,
             name: field.clrName,
             alias: field.clrName,
             binding: {

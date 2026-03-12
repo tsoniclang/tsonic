@@ -15,7 +15,7 @@
  * - MethodSignatureEntry: Full method signature with parameters
  */
 
-import type { IrType } from "../../../types/index.js";
+import type { IrParameter, IrType } from "../../../types/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CANONICAL TYPE IDENTITY
@@ -370,6 +370,11 @@ export type RawBindingsMethod = {
   readonly stableId: string;
   readonly clrName: string;
   readonly normalizedSignature: string;
+  readonly semanticSignature?: {
+    readonly typeParameters?: readonly string[];
+    readonly parameters: readonly IrParameter[];
+    readonly returnType?: IrType;
+  };
   readonly provenance?: string;
   readonly emitScope?: string;
   readonly isStatic: boolean;
@@ -394,6 +399,8 @@ export type RawBindingsProperty = {
   readonly stableId: string;
   readonly clrName: string;
   readonly normalizedSignature: string;
+  readonly semanticType?: IrType;
+  readonly semanticOptional?: boolean;
   readonly provenance?: string;
   readonly emitScope?: string;
   readonly isStatic: boolean;
@@ -412,6 +419,8 @@ export type RawBindingsField = {
   readonly stableId: string;
   readonly clrName: string;
   readonly normalizedSignature: string;
+  readonly semanticType?: IrType;
+  readonly semanticOptional?: boolean;
   readonly isStatic: boolean;
   readonly isReadOnly: boolean;
   readonly isLiteral: boolean;

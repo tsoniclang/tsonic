@@ -170,6 +170,8 @@ export {
 
 export {
   referenceTypeIdentity,
+  isAwaitableIrType,
+  getAwaitedIrType,
   unwrapAsyncWrapperType,
   stableIrTypeKey,
   irTypesEqual,

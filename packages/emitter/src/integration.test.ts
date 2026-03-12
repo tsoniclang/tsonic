@@ -11,10 +11,10 @@ import { createRequire } from "node:module";
 import {
   buildIrModule,
   DotnetMetadataRegistry,
-  BindingRegistry,
   createClrBindingsResolver,
   createBinding,
   createProgramContext,
+  loadBindings,
   runAnonymousTypeLoweringPass,
   runAttributeCollectionPass,
   runNumericProofPass,
@@ -26,6 +26,32 @@ const corePackageRoot = path.dirname(require.resolve("@tsonic/core/package.json"
 const coreTypesPath = path.join(corePackageRoot, "types.d.ts");
 const coreLangPath = path.join(corePackageRoot, "lang.d.ts");
 
+const resolveTsonicModule = (
+  moduleName: string
+): { readonly filePath: string; readonly packageRoot: string } | undefined => {
+  if (!moduleName.startsWith("@tsonic/")) {
+    return undefined;
+  }
+
+  const parts = moduleName.split("/");
+  if (parts.length < 2) {
+    return undefined;
+  }
+
+  const packageName = parts.slice(0, 2).join("/");
+  const packageRoot = path.dirname(require.resolve(`${packageName}/package.json`));
+  const subPath = moduleName.slice(packageName.length + 1);
+  const declarationPath = path.join(
+    packageRoot,
+    subPath.replace(/\.js$/, ".d.ts")
+  );
+
+  return {
+    filePath: declarationPath,
+    packageRoot,
+  };
+};
+
 /**
  * Helper to compile TypeScript source to C#
  */
@@ -33,6 +59,8 @@ const compileToCSharp = (
   source: string,
   fileName = "/test/test.ts"
 ): string => {
+  const resolvedPackageRoots = new Set<string>();
+
   // Phase 5: Each test creates fresh ProgramContext - no global cleanup needed
 
   const sourceFile = ts.createSourceFile(
@@ -83,15 +111,16 @@ const compileToCSharp = (
   ): (ts.ResolvedModule | undefined)[] => {
     const resolutionOptions = options ?? compilerOptions;
     return moduleNames.map((moduleName) => {
-      const resolvedFileName =
+      const resolvedTsonicModule =
         moduleName === "@tsonic/core/types.js"
-          ? coreTypesPath
+          ? { filePath: coreTypesPath, packageRoot: corePackageRoot }
           : moduleName === "@tsonic/core/lang.js"
-            ? coreLangPath
-            : undefined;
-      if (resolvedFileName) {
+            ? { filePath: coreLangPath, packageRoot: corePackageRoot }
+            : resolveTsonicModule(moduleName);
+      if (resolvedTsonicModule) {
+        resolvedPackageRoots.add(resolvedTsonicModule.packageRoot);
         return {
-          resolvedFileName,
+          resolvedFileName: resolvedTsonicModule.filePath,
           extension: ts.Extension.Dts,
           isExternalLibraryImport: true,
         };
@@ -129,7 +158,7 @@ const compileToCSharp = (
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
     metadata: new DotnetMetadataRegistry(),
-    bindings: new BindingRegistry(),
+    bindings: loadBindings(Array.from(resolvedPackageRoots)),
     clrResolver: createClrBindingsResolver("/test"),
   };
 
@@ -917,6 +946,48 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("Task.FromException<double>");
       expect(csharp).to.include('"Promise rejected"');
       expect(csharp).not.to.include("Promise.reject(");
+    });
+  });
+
+  describe("Await Lowering", () => {
+    it("awaits non-generic Task values directly", () => {
+      const source = `
+        import type { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
+        import { Task as TaskValue } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
+        function flush(): Task {
+          return TaskValue.CompletedTask;
+        }
+
+        export async function run(): Promise<void> {
+          await flush();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("await flush();");
+      expect(csharp).not.to.include("Task.FromResult");
+    });
+
+    it("awaits non-generic ValueTask values directly", () => {
+      const source = `
+        import type { ValueTask } from "@tsonic/dotnet/System.Threading.Tasks.js";
+        import { ValueTask as ValueTaskValue } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
+        function flush(): ValueTask {
+          return ValueTaskValue.CompletedTask;
+        }
+
+        export async function run(): Promise<void> {
+          await flush();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("await flush();");
+      expect(csharp).not.to.include("Task.FromResult");
     });
   });
 

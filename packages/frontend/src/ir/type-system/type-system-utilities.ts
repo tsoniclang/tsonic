@@ -17,6 +17,7 @@ import { unknownType, neverType, voidType } from "./types.js";
 import type { TypeSystemState, Site } from "./type-system-state.js";
 import { emitDiagnostic, isNullishPrimitive } from "./type-system-state.js";
 import { typesEqual, containsTypeParameter } from "./type-system-relations.js";
+import { getAwaitedIrType } from "../types/type-ops.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // expandUtility — Utility type expansion (Step 8)
@@ -445,37 +446,9 @@ export const expandExcludeExtractUtility = (
  * Expand Awaited<T>: Recursively unwrap Promise/Task/ValueTask.
  */
 export const expandAwaitedUtility = (type: IrType): IrType => {
-  // Direct Promise<T>
-  if (type.kind === "referenceType") {
-    if (
-      (type.name === "Promise" || type.name === "PromiseLike") &&
-      (type.typeArguments?.length ?? 0) === 1
-    ) {
-      const inner = type.typeArguments?.[0];
-      return inner ? expandAwaitedUtility(inner) : type;
-    }
-
-    // CLR async types
-    const clrName = type.typeId?.clrName;
-
-    // Non-generic Task/ValueTask → void
-    if (
-      clrName === "System.Threading.Tasks.Task" ||
-      clrName === "System.Threading.Tasks.ValueTask"
-    ) {
-      if (!type.typeArguments || type.typeArguments.length === 0) {
-        return voidType;
-      }
-    }
-
-    // Generic Task<T>/ValueTask<T>
-    if (
-      clrName?.startsWith("System.Threading.Tasks.Task`") ||
-      clrName?.startsWith("System.Threading.Tasks.ValueTask`")
-    ) {
-      const inner = type.typeArguments?.[0];
-      return inner ? expandAwaitedUtility(inner) : type;
-    }
+  const awaited = getAwaitedIrType(type);
+  if (awaited) {
+    return awaited.kind === "voidType" ? awaited : expandAwaitedUtility(awaited);
   }
 
   // Union: Awaited each member
