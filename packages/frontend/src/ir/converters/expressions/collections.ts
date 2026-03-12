@@ -955,16 +955,22 @@ export const convertObjectLiteral = (
     } else if (ts.isShorthandPropertyAssignment(prop)) {
       // DETERMINISTIC: Derive identifier type from the VALUE being assigned, not the property
       // For { value }, we need to get the type of the variable `value`, not the property `value`
-      // ALICE'S SPEC: Use TypeSystem.typeOfDecl() to get the variable's type
+      // Prefer lexical flow/local env types first so shorthand properties preserve
+      // exact narrowed/inferred local types from earlier statements in the block.
       const declId = ctx.binding.resolveShorthandAssignment(prop);
       let inferredType: IrType | undefined;
 
       if (declId) {
-        const typeSystem = ctx.typeSystem;
-        const declType = typeSystem.typeOfDecl(declId);
-        // If TypeSystem returns unknownType, treat as not found
-        if (declType.kind !== "unknownType") {
-          inferredType = declType;
+        const fromEnv = ctx.typeEnv?.get(declId.id);
+        if (fromEnv && fromEnv.kind !== "unknownType" && fromEnv.kind !== "anyType") {
+          inferredType = fromEnv;
+        } else {
+          const typeSystem = ctx.typeSystem;
+          const declType = typeSystem.typeOfDecl(declId);
+          // If TypeSystem returns unknownType, treat as not found
+          if (declType.kind !== "unknownType") {
+            inferredType = declType;
+          }
         }
       }
 

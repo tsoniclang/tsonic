@@ -15,8 +15,11 @@ import {
   createClrBindingsResolver,
   createBinding,
   createProgramContext,
+  runAnonymousTypeLoweringPass,
+  runAttributeCollectionPass,
+  runNumericProofPass,
 } from "@tsonic/frontend";
-import { emitModule } from "./emitter.js";
+import { emitCSharpFiles } from "./emitter.js";
 
 const require = createRequire(import.meta.url);
 const corePackageRoot = path.dirname(require.resolve("@tsonic/core/package.json"));
@@ -139,8 +142,37 @@ const compileToCSharp = (
     throw new Error(`IR build failed: ${irResult.error.message}`);
   }
 
-  // Emit C#
-  return emitModule(irResult.value);
+  // Integration tests emit directly from a single built module, so they must
+  // still run the frontend lowering/validation passes required by the emitter
+  // contract instead of bypassing them with raw builder output.
+  const loweredModules = runAnonymousTypeLoweringPass([irResult.value]).modules;
+  const proofResult = runNumericProofPass(loweredModules);
+  if (!proofResult.ok) {
+    throw new Error(
+      `Numeric proof validation failed: ${proofResult.diagnostics.map((d) => d.message).join("; ")}`
+    );
+  }
+
+  const attributeResult = runAttributeCollectionPass(proofResult.modules);
+  if (!attributeResult.ok) {
+    throw new Error(
+      `Attribute collection failed: ${attributeResult.diagnostics.map((d) => d.message).join("; ")}`
+    );
+  }
+
+  const emitResult = emitCSharpFiles(attributeResult.modules, {
+    rootNamespace: "Test",
+  });
+  if (!emitResult.ok) {
+    throw new Error(
+      `Emit failed: ${emitResult.errors.map((d) => d.message).join("; ")}`
+    );
+  }
+
+  return [...emitResult.files.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, code]) => code)
+    .join("\n\n");
 };
 
 describe("End-to-End Integration", () => {
@@ -1049,6 +1081,27 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.include('return settings["waiting_period_threshold"];');
       expect(csharp).not.to.include("settings.waiting_period_threshold");
+    });
+
+    it("emits object literals with exact numeric properties after nullish fallback narrowing", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function parseRole(raw: string): int | undefined;
+
+        export function run(raw: string): int {
+          const parsedInviteAsRole = parseRole(raw);
+          const inviteAsRole = parsedInviteAsRole ?? (400 as int);
+          const input = {
+            inviteAsRole,
+          };
+          return input.inviteAsRole;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("inviteAsRole = inviteAsRole");
+      expect(csharp).not.to.include("Object literal cannot be synthesized");
     });
   });
 
