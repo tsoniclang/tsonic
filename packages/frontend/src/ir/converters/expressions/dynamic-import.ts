@@ -61,22 +61,24 @@ const getDynamicImportEntryType = (
       ts.isMethodDeclaration(functionDecl) ||
       ts.isArrowFunction(functionDecl)
     ) {
-      const parameters: IrParameter[] = functionDecl.parameters.map((param) => ({
-        kind: "parameter",
-        pattern: {
-          kind: "identifierPattern",
-          name: ts.isIdentifier(param.name) ? param.name.text : "__arg",
-        },
-        type: param.type
-          ? ctx.typeSystem.typeFromSyntax(
-              ctx.binding.captureTypeSyntax(param.type)
-            )
-          : undefined,
-        initializer: undefined,
-        isOptional: !!param.questionToken,
-        isRest: !!param.dotDotDotToken,
-        passing: "value",
-      }));
+      const parameters: IrParameter[] = functionDecl.parameters.map(
+        (param) => ({
+          kind: "parameter",
+          pattern: {
+            kind: "identifierPattern",
+            name: ts.isIdentifier(param.name) ? param.name.text : "__arg",
+          },
+          type: param.type
+            ? ctx.typeSystem.typeFromSyntax(
+                ctx.binding.captureTypeSyntax(param.type)
+              )
+            : undefined,
+          initializer: undefined,
+          isOptional: !!param.questionToken,
+          isRest: !!param.dotDotDotToken,
+          passing: "value",
+        })
+      );
 
       const returnType = functionDecl.type
         ? ctx.typeSystem.typeFromSyntax(

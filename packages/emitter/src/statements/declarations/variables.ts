@@ -22,6 +22,7 @@ import {
   lowerPatternAst,
   lowerPatternToStaticMembersAst,
 } from "../../patterns.js";
+import { getIdentifierTypeName } from "../../core/format/backend-ast/utils.js";
 import {
   allocateLocalName,
   registerLocalName,
@@ -33,6 +34,10 @@ import {
 } from "../../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
+import {
+  identifierExpression,
+  identifierType,
+} from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
   CSharpTypeAst,
@@ -140,7 +145,10 @@ const resolveAsInterfaceTargetType = (
   // Unwrap tsbindgen's `ExtensionMethods<TShape>` wrapper (type-only).
   if (resolved.kind === "referenceType" && resolved.typeArguments?.length) {
     const importBinding = context.importBindings?.get(resolved.name);
-    const clrName = importBinding?.kind === "type" ? importBinding.clrName : "";
+    const clrName =
+      importBinding?.kind === "type"
+        ? (getIdentifierTypeName(importBinding.typeAst) ?? "")
+        : "";
     if (clrName.endsWith(".ExtensionMethods")) {
       const shape = resolved.typeArguments[0];
       if (shape) return resolveAsInterfaceTargetType(shape, context);
@@ -219,7 +227,7 @@ const resolveStaticFieldType = (
   // numericNarrowing
   if (init?.kind === "numericNarrowing" && init.targetKind) {
     const csharpType = NUMERIC_KIND_TO_CSHARP.get(init.targetKind) ?? "double";
-    return [{ kind: "identifierType", name: csharpType }, context];
+    return [identifierType(csharpType), context];
   }
 
   // typeAssertion
@@ -260,30 +268,27 @@ const resolveStaticFieldType = (
         typeArgs.push(typeArgAst);
         currentContext = newCtx;
       }
-      return [
-        { kind: "identifierType", name: calleeText, typeArguments: typeArgs },
-        currentContext,
-      ];
+      return [identifierType(calleeText, typeArgs), currentContext];
     }
-    return [{ kind: "identifierType", name: calleeText }, currentContext];
+    return [identifierType(calleeText), currentContext];
   }
 
   // Infer from literal
   if (init?.kind === "literal") {
     const lit = init as { value: unknown; numericIntent?: NumericKind };
     if (typeof lit.value === "string") {
-      return [{ kind: "identifierType", name: "string" }, context];
+      return [identifierType("string"), context];
     }
     if (typeof lit.value === "number") {
       const csharpType = lit.numericIntent
         ? (NUMERIC_KIND_TO_CSHARP.get(lit.numericIntent) ?? "double")
         : "double";
-      return [{ kind: "identifierType", name: csharpType }, context];
+      return [identifierType(csharpType), context];
     }
     if (typeof lit.value === "boolean") {
-      return [{ kind: "identifierType", name: "bool" }, context];
+      return [identifierType("bool"), context];
     }
-    return [{ kind: "identifierType", name: "object" }, context];
+    return [identifierType("object"), context];
   }
 
   // Infer from initializer's inferred type
@@ -301,7 +306,7 @@ const resolveStaticFieldType = (
     return emitTypeAst(init.inferredType, context);
   }
 
-  return [{ kind: "identifierType", name: "object" }, context];
+  return [identifierType("object"), context];
 };
 
 const shouldEmitReadonlyStaticField = (
@@ -539,7 +544,7 @@ const emitStaticArrowFieldMembers = (
       parameters: delegateParams,
     });
 
-    fieldTypeAst = { kind: "identifierType", name: delegateTypeName };
+    fieldTypeAst = identifierType(delegateTypeName);
   } else {
     // Func<> or Action<>
     const isVoidReturn =
@@ -550,18 +555,13 @@ const emitStaticArrowFieldMembers = (
     if (isVoidReturn) {
       fieldTypeAst =
         paramTypeAsts.length === 0
-          ? { kind: "identifierType", name: "global::System.Action" }
-          : {
-              kind: "identifierType",
-              name: "global::System.Action",
-              typeArguments: paramTypeAsts,
-            };
+          ? identifierType("global::System.Action")
+          : identifierType("global::System.Action", paramTypeAsts);
     } else {
-      fieldTypeAst = {
-        kind: "identifierType",
-        name: "global::System.Func",
-        typeArguments: [...paramTypeAsts, returnTypeAst],
-      };
+      fieldTypeAst = identifierType("global::System.Func", [
+        ...paramTypeAsts,
+        returnTypeAst,
+      ]);
     }
   }
 
@@ -578,7 +578,7 @@ const emitStaticArrowFieldMembers = (
     modifiers: fieldModifiers,
     type: fieldTypeAst,
     name: fieldName,
-    initializer: { kind: "identifierExpression", identifier: implName },
+    initializer: identifierExpression(implName),
   });
 
   // __Impl method: private static ReturnType implName(params) { ... }
@@ -885,7 +885,13 @@ const resolveLocalTypeAst = (
     if (fallbackType && canEmitTypeExplicitly(fallbackType)) {
       return emitTypeAst(fallbackType, context);
     }
-    return [{ kind: "identifierType", name: "object?" }, context];
+    return [
+      {
+        kind: "nullableType",
+        underlyingType: { kind: "predefinedType", keyword: "object" },
+      },
+      context,
+    ];
   }
 
   if (
@@ -893,7 +899,10 @@ const resolveLocalTypeAst = (
     decl.initializer &&
     isNullableValueUnion(decl.initializer.inferredType)
   ) {
-    return emitTypeAst(decl.initializer.inferredType!, context);
+    const inferredType = decl.initializer.inferredType;
+    if (inferredType) {
+      return emitTypeAst(inferredType, context);
+    }
   }
 
   if (
@@ -902,25 +911,21 @@ const resolveLocalTypeAst = (
       decl.initializer?.kind === "functionExpression")
   ) {
     const functionInitializer = decl.initializer;
+    const inferredReturnType =
+      functionInitializer.body &&
+      functionInitializer.body.kind !== "blockStatement"
+        ? functionInitializer.body.inferredType
+        : undefined;
     const functionType =
       functionInitializer.inferredType?.kind === "functionType"
         ? functionInitializer.inferredType
         : functionInitializer.parameters &&
             functionInitializer.parameters.every((param) => !!param.type) &&
-            (functionInitializer.returnType ??
-              (functionInitializer.body &&
-              functionInitializer.body.kind !== "blockStatement"
-                ? functionInitializer.body.inferredType
-                : undefined))
+            (functionInitializer.returnType ?? inferredReturnType)
           ? {
               kind: "functionType" as const,
               parameters: functionInitializer.parameters,
-              returnType:
-                functionInitializer.returnType ??
-                (functionInitializer.body &&
-                functionInitializer.body.kind !== "blockStatement"
-                  ? functionInitializer.body.inferredType
-                  : undefined)!,
+              returnType: functionInitializer.returnType ?? inferredReturnType,
             }
           : undefined;
 

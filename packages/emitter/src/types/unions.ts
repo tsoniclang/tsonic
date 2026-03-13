@@ -6,6 +6,7 @@ import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 
 const getBareTypeParameterName = (type: IrType): string | undefined => {
   if (type.kind === "typeParameterType") return type.name;
@@ -155,11 +156,7 @@ export const emitUnionType = (
 
   if (uniqueTypeAsts.length >= 2 && uniqueTypeAsts.length <= 8) {
     return [
-      {
-        kind: "identifierType",
-        name: "global::Tsonic.Runtime.Union",
-        typeArguments: uniqueTypeAsts,
-      },
+      identifierType("global::Tsonic.Runtime.Union", uniqueTypeAsts),
       currentContext,
     ];
   }

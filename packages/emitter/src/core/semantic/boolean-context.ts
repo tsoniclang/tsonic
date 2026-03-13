@@ -16,9 +16,18 @@ import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { allocateLocalName } from "../format/local-names.js";
 import { substituteTypeArgs } from "./type-resolution.js";
+import {
+  booleanLiteral,
+  charLiteral,
+  decimalIntegerLiteral,
+  identifierType as buildIdentifierType,
+  nullLiteral,
+  numericLiteral,
+} from "../format/backend-ast/builders.js";
 import type {
   CSharpExpressionAst,
   CSharpPatternAst,
+  CSharpPredefinedTypeKeyword,
   CSharpTypeAst,
 } from "../format/backend-ast/types.js";
 
@@ -156,20 +165,20 @@ const identifierExpr = (name: string): CSharpExpressionAst => ({
   identifier: name,
 });
 
-const literalExpr = (text: string): CSharpExpressionAst => ({
-  kind: "literalExpression",
-  text,
+const typeReferenceExpr = (type: CSharpTypeAst): CSharpExpressionAst => ({
+  kind: "typeReferenceExpression",
+  type,
 });
 
-const predefinedType = (keyword: string): CSharpTypeAst => ({
+const predefinedType = (
+  keyword: CSharpPredefinedTypeKeyword
+): CSharpTypeAst => ({
   kind: "predefinedType",
   keyword,
 });
 
-const identifierType = (name: string): CSharpTypeAst => ({
-  kind: "identifierType",
-  name,
-});
+const identifierType = (name: string): CSharpTypeAst =>
+  buildIdentifierType(name);
 
 const castExpr = (
   type: CSharpTypeAst,
@@ -212,11 +221,11 @@ const notExpr = (operand: CSharpExpressionAst): CSharpExpressionAst => ({
 });
 
 const staticMemberExpr = (
-  typeName: string,
+  typeExpr: CSharpExpressionAst,
   memberName: string
 ): CSharpExpressionAst => ({
   kind: "memberAccessExpression",
-  expression: identifierExpr(typeName),
+  expression: typeExpr,
   memberName,
 });
 
@@ -242,29 +251,33 @@ const buildTruthySwitchAst = (tmp: string): CSharpExpressionAst => {
 
   const typedNonZeroArm = (
     type: CSharpTypeAst,
-    zeroLiteralText: string
+    zeroExpr: CSharpExpressionAst
   ): {
     readonly pattern: CSharpPatternAst;
     readonly expression: CSharpExpressionAst;
   } =>
     makeSwitchArm(
       typePattern(type),
-      notEqualsExpr(castExpr(type, tmpExpr), literalExpr(zeroLiteralText))
+      notEqualsExpr(castExpr(type, tmpExpr), zeroExpr)
     );
 
   const floatLikeArm = (
     type: CSharpTypeAst,
     isNaNStaticTypeName: string,
-    zeroLiteralText: string
+    zeroExpr: CSharpExpressionAst
   ): {
     readonly pattern: CSharpPatternAst;
     readonly expression: CSharpExpressionAst;
   } => {
     const casted = castExpr(type, tmpExpr);
-    const nonZero = notEqualsExpr(casted, literalExpr(zeroLiteralText));
-    const isNaNCall = callExpr(staticMemberExpr(isNaNStaticTypeName, "IsNaN"), [
-      castExpr(type, tmpExpr),
-    ]);
+    const nonZero = notEqualsExpr(casted, zeroExpr);
+    const isNaNCall = callExpr(
+      staticMemberExpr(
+        typeReferenceExpr(identifierType(isNaNStaticTypeName)),
+        "IsNaN"
+      ),
+      [castExpr(type, tmpExpr)]
+    );
     return makeSwitchArm(
       typePattern(type),
       andExpr(nonZero, notExpr(isNaNCall))
@@ -287,31 +300,60 @@ const buildTruthySwitchAst = (tmp: string): CSharpExpressionAst => {
             expression: castExpr(predefinedType("string"), tmpExpr),
             memberName: "Length",
           },
-          literalExpr("0")
+          decimalIntegerLiteral(0)
         )
       ),
-      typedNonZeroArm(predefinedType("sbyte"), "0"),
-      typedNonZeroArm(predefinedType("byte"), "0"),
-      typedNonZeroArm(predefinedType("short"), "0"),
-      typedNonZeroArm(predefinedType("ushort"), "0"),
-      typedNonZeroArm(predefinedType("int"), "0"),
-      typedNonZeroArm(predefinedType("uint"), "0U"),
-      typedNonZeroArm(predefinedType("long"), "0L"),
-      typedNonZeroArm(predefinedType("ulong"), "0UL"),
-      typedNonZeroArm(predefinedType("nint"), "0"),
-      typedNonZeroArm(predefinedType("nuint"), "0"),
-      typedNonZeroArm(identifierType("global::System.Int128"), "0"),
-      typedNonZeroArm(identifierType("global::System.UInt128"), "0"),
+      typedNonZeroArm(predefinedType("sbyte"), decimalIntegerLiteral(0)),
+      typedNonZeroArm(predefinedType("byte"), decimalIntegerLiteral(0)),
+      typedNonZeroArm(predefinedType("short"), decimalIntegerLiteral(0)),
+      typedNonZeroArm(predefinedType("ushort"), decimalIntegerLiteral(0)),
+      typedNonZeroArm(predefinedType("int"), decimalIntegerLiteral(0)),
+      typedNonZeroArm(
+        predefinedType("uint"),
+        numericLiteral({ base: "decimal", wholePart: "0", suffix: "U" })
+      ),
+      typedNonZeroArm(
+        predefinedType("long"),
+        numericLiteral({ base: "decimal", wholePart: "0", suffix: "L" })
+      ),
+      typedNonZeroArm(
+        predefinedType("ulong"),
+        numericLiteral({ base: "decimal", wholePart: "0", suffix: "UL" })
+      ),
+      typedNonZeroArm(predefinedType("nint"), decimalIntegerLiteral(0)),
+      typedNonZeroArm(predefinedType("nuint"), decimalIntegerLiteral(0)),
+      typedNonZeroArm(
+        identifierType("global::System.Int128"),
+        decimalIntegerLiteral(0)
+      ),
+      typedNonZeroArm(
+        identifierType("global::System.UInt128"),
+        decimalIntegerLiteral(0)
+      ),
       floatLikeArm(
         identifierType("global::System.Half"),
         "global::System.Half",
-        "(global::System.Half)0"
+        castExpr(
+          identifierType("global::System.Half"),
+          decimalIntegerLiteral(0)
+        )
       ),
-      floatLikeArm(predefinedType("float"), "global::System.Single", "0f"),
-      floatLikeArm(predefinedType("double"), "global::System.Double", "0d"),
-      typedNonZeroArm(predefinedType("decimal"), "0m"),
-      typedNonZeroArm(predefinedType("char"), "'\\0'"),
-      makeSwitchArm({ kind: "discardPattern" }, literalExpr("true")),
+      floatLikeArm(
+        predefinedType("float"),
+        "global::System.Single",
+        numericLiteral({ base: "decimal", wholePart: "0", suffix: "f" })
+      ),
+      floatLikeArm(
+        predefinedType("double"),
+        "global::System.Double",
+        numericLiteral({ base: "decimal", wholePart: "0", suffix: "d" })
+      ),
+      typedNonZeroArm(
+        predefinedType("decimal"),
+        numericLiteral({ base: "decimal", wholePart: "0", suffix: "m" })
+      ),
+      typedNonZeroArm(predefinedType("char"), charLiteral("\0")),
+      makeSwitchArm({ kind: "discardPattern" }, booleanLiteral(true)),
     ],
   };
 };
@@ -508,7 +550,7 @@ const emitUnionTruthinessConditionAst = (
   // Nullable union: (T | null | undefined) → treat as `T?` truthiness.
   if (hasNullish && nonNullTypes.length === 1) {
     const nonNull = nonNullTypes[0];
-    if (!nonNull) return [literalExpr("false"), context];
+    if (!nonNull) return [booleanLiteral(false), context];
 
     // For non-primitive nullable unions (e.g. `T[] | undefined`, `SomeRef | null`),
     // emit truthiness directly against the operand with non-null inferred type.
@@ -593,7 +635,7 @@ const emitUnionTruthinessConditionAst = (
       const memberN = i + 1;
       const memberType = unionType.types[i];
       if (!memberType || isNullishType(memberType)) {
-        branchAsts.push(literalExpr("false"));
+        branchAsts.push(booleanLiteral(false));
         continue;
       }
 
@@ -624,7 +666,7 @@ const emitUnionTruthinessConditionAst = (
     const buildChain = (start: number): CSharpExpressionAst => {
       const last = branchAsts[branchAsts.length - 1];
       if (start === branchAsts.length - 1) {
-        return last ?? literalExpr("false");
+        return last ?? booleanLiteral(false);
       }
       const branch = branchAsts[start];
       return {
@@ -640,7 +682,7 @@ const emitUnionTruthinessConditionAst = (
         },
         whenTrue: {
           kind: "parenthesizedExpression",
-          expression: branch ?? literalExpr("false"),
+          expression: branch ?? booleanLiteral(false),
         },
         whenFalse: {
           kind: "parenthesizedExpression",
@@ -673,7 +715,7 @@ const emitUnionTruthinessConditionAst = (
                 kind: "negatedPattern",
                 pattern: {
                   kind: "constantPattern",
-                  expression: literalExpr("null"),
+                  expression: nullLiteral(),
                 },
               },
             },
@@ -725,16 +767,16 @@ export const toBooleanConditionAst = (
   // Literal truthiness can be fully resolved without re-evaluating anything.
   if (expr.kind === "literal") {
     if (expr.value === null || expr.value === undefined) {
-      return [literalExpr("false"), context];
+      return [booleanLiteral(false), context];
     }
     if (typeof expr.value === "boolean") {
-      return [literalExpr(expr.value ? "true" : "false"), context];
+      return [booleanLiteral(expr.value), context];
     }
     if (typeof expr.value === "number") {
-      return [literalExpr(expr.value === 0 ? "false" : "true"), context];
+      return [booleanLiteral(expr.value !== 0), context];
     }
     if (typeof expr.value === "string") {
-      return [literalExpr(expr.value.length === 0 ? "false" : "true"), context];
+      return [booleanLiteral(expr.value.length !== 0), context];
     }
   }
 
@@ -770,7 +812,7 @@ export const toBooleanConditionAst = (
     switch (type.name) {
       case "null":
       case "undefined":
-        return [literalExpr("false"), context];
+        return [booleanLiteral(false), context];
 
       case "string":
         // !string.IsNullOrEmpty(expr)
@@ -784,7 +826,7 @@ export const toBooleanConditionAst = (
                 kind: "invocationExpression",
                 expression: {
                   kind: "memberAccessExpression",
-                  expression: literalExpr("string"),
+                  expression: typeReferenceExpr(predefinedType("string")),
                   memberName: "IsNullOrEmpty",
                 },
                 arguments: [emittedAst],
@@ -803,7 +845,7 @@ export const toBooleanConditionAst = (
               kind: "binaryExpression",
               operatorToken: "!=",
               left: emittedAst,
-              right: literalExpr("0"),
+              right: decimalIntegerLiteral(0),
             },
           },
           context,
@@ -818,7 +860,7 @@ export const toBooleanConditionAst = (
               kind: "binaryExpression",
               operatorToken: "!=",
               left: emittedAst,
-              right: literalExpr("'\\0'"),
+              right: charLiteral("\0"),
             },
           },
           context,
@@ -857,7 +899,7 @@ export const toBooleanConditionAst = (
                   kind: "binaryExpression",
                   operatorToken: "!=",
                   left: identifierExpr(tmp),
-                  right: literalExpr("0"),
+                  right: decimalIntegerLiteral(0),
                 },
                 right: {
                   kind: "prefixUnaryExpression",
@@ -866,7 +908,7 @@ export const toBooleanConditionAst = (
                     kind: "invocationExpression",
                     expression: {
                       kind: "memberAccessExpression",
-                      expression: literalExpr("double"),
+                      expression: typeReferenceExpr(predefinedType("double")),
                       memberName: "IsNaN",
                     },
                     arguments: [identifierExpr(tmp)],

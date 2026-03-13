@@ -8,6 +8,7 @@ import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { typeUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpTypeDeclarationAst,
   CSharpMemberAst,
@@ -117,10 +118,7 @@ const emitStructuralTypeAlias = (
         if (member.type) {
           return emitTypeAst(member.type, currentContext);
         }
-        const objType: CSharpTypeAst = {
-          kind: "identifierType",
-          name: "object",
-        };
+        const objType: CSharpTypeAst = identifierType("object");
         return [objType, currentContext] as const;
       })();
       currentContext = typeContext;
@@ -153,10 +151,9 @@ const emitStructuralTypeAlias = (
       kind: "constructorDeclaration",
       attributes: [
         {
-          type: {
-            kind: "identifierType",
-            name: "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute",
-          },
+          type: identifierType(
+            "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute"
+          ),
         },
       ],
       modifiers: ["public"],

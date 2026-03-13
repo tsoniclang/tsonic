@@ -102,7 +102,7 @@ const findBindingsFiles = (packagePath: string): string[] => {
   const bindingsFiles: string[] = [];
   const isIgnorableDirReadError = (error: unknown): boolean => {
     if (!(error instanceof Error)) return false;
-    const err = error as NodeJS.ErrnoException;
+    const err = error as Error & { code?: string };
     return (
       err.code === "EACCES" ||
       err.code === "EPERM" ||

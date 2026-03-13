@@ -9,6 +9,7 @@ import { IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
 import { emitCSharpName } from "./naming-policy.js";
+import { identifierType } from "./core/format/backend-ast/builders.js";
 import type {
   CSharpTypeDeclarationAst,
   CSharpMemberAst,
@@ -89,7 +90,7 @@ export const generateStructuralAdapter = (
     attributes: [],
     modifiers: ["public", "sealed"],
     name: wrapperName,
-    interfaces: [{ kind: "identifierType", name: interfaceName }],
+    interfaces: [identifierType(interfaceName)],
     members: wrapperMembers,
   };
 

@@ -11,9 +11,12 @@
 
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
-import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import type {
+  CSharpPredefinedTypeKeyword,
+  CSharpTypeAst,
+} from "../core/format/backend-ast/types.js";
 
-const PRIMITIVE_TYPE_MAP: Record<string, string> = {
+const PRIMITIVE_TYPE_MAP: Record<string, CSharpPredefinedTypeKeyword> = {
   number: "double",
   int: "int",
   string: "string",

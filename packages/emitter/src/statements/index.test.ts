@@ -637,6 +637,89 @@ describe("Statement Emission", () => {
     expect(result).to.include('return "negative or zero"');
   });
 
+  it("should emit instanceof guards as declaration patterns, not synthetic text expressions", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "classDeclaration",
+          name: "Widget",
+          isExported: false,
+          isStruct: false,
+          typeParameters: [],
+          implements: [],
+          members: [],
+        },
+        {
+          kind: "functionDeclaration",
+          name: "isWidget",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: { kind: "referenceType", name: "object" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "boolean" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "instanceof",
+                  left: {
+                    kind: "identifier",
+                    name: "value",
+                    inferredType: { kind: "referenceType", name: "object" },
+                  },
+                  right: {
+                    kind: "identifier",
+                    name: "Widget",
+                    inferredType: { kind: "referenceType", name: "Widget" },
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: true },
+                    },
+                  ],
+                },
+                elseStatement: undefined,
+              },
+              {
+                kind: "returnStatement",
+                expression: { kind: "literal", value: false },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("if (value is Widget value__is_1)");
+    expect(result).to.include("return true;");
+    expect(result).to.include("return false;");
+  });
+
   it("narrows discriminated unions on truthy/falsy property guards", () => {
     const okType: IrType = { kind: "referenceType", name: "Ok" };
     const errType: IrType = { kind: "referenceType", name: "Err" };
@@ -795,8 +878,14 @@ describe("Statement Emission", () => {
 
   it("narrows `in`-guards for cross-module union members via the type member index", () => {
     const typeMemberIndex = new Map<string, Map<string, TypeMemberKind>>([
-      ["MyApp.Models.OkEvents", new Map<string, TypeMemberKind>([["events", "property"]])],
-      ["MyApp.Models.ErrEvents", new Map<string, TypeMemberKind>([["error", "property"]])],
+      [
+        "MyApp.Models.OkEvents",
+        new Map<string, TypeMemberKind>([["events", "property"]]),
+      ],
+      [
+        "MyApp.Models.ErrEvents",
+        new Map<string, TypeMemberKind>([["error", "property"]]),
+      ],
     ]);
 
     const unionReference: IrType = {
@@ -1168,7 +1257,7 @@ describe("Statement Emission", () => {
                 condition: {
                   kind: "binary",
                   operator: "in",
-                  left: { kind: "literal", value: "a", raw: "\"a\"" },
+                  left: { kind: "literal", value: "a", raw: '"a"' },
                   right: {
                     kind: "identifier",
                     name: "s",
@@ -1190,7 +1279,7 @@ describe("Statement Emission", () => {
                 condition: {
                   kind: "binary",
                   operator: "in",
-                  left: { kind: "literal", value: "b", raw: "\"b\"" },
+                  left: { kind: "literal", value: "b", raw: '"b"' },
                   right: {
                     kind: "identifier",
                     name: "s",
@@ -1218,7 +1307,7 @@ describe("Statement Emission", () => {
                 condition: {
                   kind: "binary",
                   operator: "in",
-                  left: { kind: "literal", value: "c", raw: "\"c\"" },
+                  left: { kind: "literal", value: "c", raw: '"c"' },
                   right: {
                     kind: "identifier",
                     name: "s",
@@ -1364,7 +1453,7 @@ describe("Statement Emission", () => {
                     isComputed: false,
                     isOptional: false,
                   },
-                  right: { kind: "literal", value: "a", raw: "\"a\"" },
+                  right: { kind: "literal", value: "a", raw: '"a"' },
                 },
                 thenStatement: {
                   kind: "blockStatement",
@@ -1398,7 +1487,7 @@ describe("Statement Emission", () => {
                     isComputed: false,
                     isOptional: false,
                   },
-                  right: { kind: "literal", value: "b", raw: "\"b\"" },
+                  right: { kind: "literal", value: "b", raw: '"b"' },
                 },
                 thenStatement: {
                   kind: "blockStatement",
@@ -1426,7 +1515,7 @@ describe("Statement Emission", () => {
                     isComputed: false,
                     isOptional: false,
                   },
-                  right: { kind: "literal", value: "c", raw: "\"c\"" },
+                  right: { kind: "literal", value: "c", raw: '"c"' },
                 },
                 thenStatement: {
                   kind: "blockStatement",

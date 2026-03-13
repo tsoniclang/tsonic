@@ -20,9 +20,16 @@ import {
   isCharTyped,
   isStringTyped,
   getSingleCharLiteral,
-  escapeCharLiteral,
   isNullishLiteral,
 } from "./helpers.js";
+import {
+  booleanLiteral,
+  charLiteral,
+  decimalIntegerLiteral,
+  identifierExpression,
+  identifierType,
+  nullLiteral,
+} from "../../core/format/backend-ast/builders.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
@@ -149,7 +156,7 @@ export const emitBinary = (
       }
 
       if (matchingMembers.length === 0) {
-        return [{ kind: "literalExpression", text: "false" }, rhsCtx];
+        return [booleanLiteral(false), rhsCtx];
       }
 
       // Build IsN() call ASTs and chain with ||
@@ -216,13 +223,7 @@ export const emitBinary = (
       rhsCtx
     );
     if (deterministicMembership !== undefined) {
-      return [
-        {
-          kind: "literalExpression",
-          text: deterministicMembership ? "true" : "false",
-        },
-        rhsCtx,
-      ];
+      return [booleanLiteral(deterministicMembership), rhsCtx];
     }
 
     throw new Error(
@@ -241,7 +242,7 @@ export const emitBinary = (
       expression: leftAst,
       pattern: {
         kind: "typePattern",
-        type: { kind: "identifierType", name: rightText },
+        type: identifierType(rightText),
       },
     };
     return [isExpr, rightContext];
@@ -268,10 +269,7 @@ export const emitBinary = (
     // Case 1: left is char-typed, right is single-char literal → emit right as char
     if (leftIsChar && rightSingleChar !== undefined) {
       const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
-      const charLiteralAst: CSharpExpressionAst = {
-        kind: "literalExpression",
-        text: `'${escapeCharLiteral(rightSingleChar)}'`,
-      };
+      const charLiteralAst = charLiteral(rightSingleChar);
       return [
         {
           kind: "binaryExpression",
@@ -286,10 +284,7 @@ export const emitBinary = (
     // Case 2: right is char-typed, left is single-char literal → emit left as char
     if (rightIsChar && leftSingleChar !== undefined) {
       const [rightAst, rightContext] = emitExpressionAst(expr.right, context);
-      const charLiteralAst: CSharpExpressionAst = {
-        kind: "literalExpression",
-        text: `'${escapeCharLiteral(leftSingleChar)}'`,
-      };
+      const charLiteralAst = charLiteral(leftSingleChar);
       return [
         {
           kind: "binaryExpression",
@@ -315,8 +310,7 @@ export const emitBinary = (
     const compareAst: CSharpExpressionAst = {
       kind: "invocationExpression",
       expression: {
-        kind: "identifierExpression",
-        identifier: "global::System.String.CompareOrdinal",
+        ...identifierExpression("global::System.String.CompareOrdinal"),
       },
       arguments: [leftAst, rightAst],
     };
@@ -325,7 +319,7 @@ export const emitBinary = (
         kind: "binaryExpression",
         operatorToken: op,
         left: compareAst,
-        right: { kind: "literalExpression", text: "0" },
+        right: decimalIntegerLiteral(0),
       },
       rightContext,
     ];
@@ -452,17 +446,14 @@ export const emitBinary = (
         typeParamConstraint === "struct");
     const needsObjectCastForValueType = isDefiniteNonUnionValueType;
 
-    const nullLiteral: CSharpExpressionAst = {
-      kind: "literalExpression",
-      text: "null",
-    };
+    const nullLiteralAst = nullLiteral();
     const nullOp = op === "==" ? "==" : "!=";
 
     if (needsObjectCastForTypeParam || needsObjectCastForValueType) {
       // ((global::System.Object)(expr)) == null
       const castExpr: CSharpExpressionAst = {
         kind: "castExpression",
-        type: { kind: "identifierType", name: "global::System.Object" },
+        type: identifierType("global::System.Object"),
         expression: {
           kind: "parenthesizedExpression",
           expression: nonNullishAst,
@@ -476,7 +467,7 @@ export const emitBinary = (
             kind: "parenthesizedExpression",
             expression: castExpr,
           },
-          right: nullLiteral,
+          right: nullLiteralAst,
         },
         resultContext,
       ];
@@ -487,7 +478,7 @@ export const emitBinary = (
         kind: "binaryExpression",
         operatorToken: nullOp,
         left: nonNullishAst,
-        right: nullLiteral,
+        right: nullLiteralAst,
       },
       resultContext,
     ];
@@ -501,12 +492,12 @@ export const emitBinary = (
     : undefined;
   const needsRuntimeEquality =
     (op === "==" || op === "!=") &&
-    ((leftResolved?.kind === "unknownType" ||
+    (leftResolved?.kind === "unknownType" ||
       rightResolved?.kind === "unknownType" ||
       (leftResolved?.kind === "referenceType" &&
         leftResolved.name === "object") ||
       (rightResolved?.kind === "referenceType" &&
-        rightResolved.name === "object")));
+        rightResolved.name === "object"));
 
   if (needsRuntimeEquality) {
     const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
@@ -516,8 +507,7 @@ export const emitBinary = (
       expression: {
         kind: "memberAccessExpression",
         expression: {
-          kind: "identifierExpression",
-          identifier: "global::System.Object",
+          ...identifierExpression("global::System.Object"),
         },
         memberName: "Equals",
       },

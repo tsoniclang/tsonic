@@ -317,7 +317,7 @@ export const emitModule = (
 
   // Assemble final output from AST declarations
   const parts: AssemblyParts = {
-    header,
+    leadingTrivia: header,
     adapterDecls,
     specializationDecls,
     exchangeDecls,

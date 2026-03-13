@@ -86,14 +86,20 @@ export const convertBlockStatement = (
       );
     }
 
-    if (ts.isIfStatement(s) && converted !== null && !Array.isArray(converted)) {
+    if (
+      ts.isIfStatement(s) &&
+      converted !== null &&
+      !Array.isArray(converted)
+    ) {
       const singleStatement = converted as IrStatement;
       const ifStatement =
         singleStatement.kind === "ifStatement" ? singleStatement : undefined;
       if (!ifStatement) {
         continue;
       }
-      const thenTerminates = statementAlwaysTerminates(ifStatement.thenStatement);
+      const thenTerminates = statementAlwaysTerminates(
+        ifStatement.thenStatement
+      );
       const elseTerminates = ifStatement.elseStatement
         ? statementAlwaysTerminates(ifStatement.elseStatement)
         : false;

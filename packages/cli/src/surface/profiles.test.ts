@@ -202,7 +202,9 @@ describe("CLI Surface Profiles", () => {
           /[/\\]js[/\\]versions[/\\]\d+(?:[/\\]types)?$/.test(root)
         )
       ).to.equal(true);
-      expect(caps.requiredTypeRoots).to.not.include(resolve(strayJsRoot, "types"));
+      expect(caps.requiredTypeRoots).to.not.include(
+        resolve(strayJsRoot, "types")
+      );
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
       if (hadStray) {

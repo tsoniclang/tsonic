@@ -448,7 +448,9 @@ export const expandExcludeExtractUtility = (
 export const expandAwaitedUtility = (type: IrType): IrType => {
   const awaited = getAwaitedIrType(type);
   if (awaited) {
-    return awaited.kind === "voidType" ? awaited : expandAwaitedUtility(awaited);
+    return awaited.kind === "voidType"
+      ? awaited
+      : expandAwaitedUtility(awaited);
   }
 
   // Union: Awaited each member

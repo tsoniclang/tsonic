@@ -22,7 +22,9 @@ const receiverHasDeclaredUnknownMember = (
   }
 
   if (receiverIrType.kind === "objectType") {
-    return receiverIrType.members.some((member) => member.name === propertyName);
+    return receiverIrType.members.some(
+      (member) => member.name === propertyName
+    );
   }
 
   if (

@@ -11,6 +11,10 @@ import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
+import {
+  identifierExpression,
+  identifierType,
+} from "../../core/format/backend-ast/builders.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
@@ -84,15 +88,12 @@ export const emitUnary = (
       ];
     }
 
-    const [targetAst, newContext] = emitExpressionAst(target, context);
+    const [targetAst] = emitExpressionAst(target, context);
     const targetText = extractCalleeNameFromAst(targetAst);
-    return [
-      {
-        kind: "identifierExpression",
-        identifier: `/* delete ${targetText} */`,
-      },
-      newContext,
-    ];
+    throw new Error(
+      `ICE: Unsupported delete target reached emitter: delete ${targetText}. ` +
+        `Only dictionary/index-signature deletes should survive validation.`
+    );
   }
 
   const [operandAst, newContext] = emitExpressionAst(expr.expression, context);
@@ -103,8 +104,7 @@ export const emitUnary = (
       {
         kind: "invocationExpression",
         expression: {
-          kind: "identifierExpression",
-          identifier: "global::Tsonic.Runtime.Operators.@typeof",
+          ...identifierExpression("global::Tsonic.Runtime.Operators.@typeof"),
         },
         arguments: [operandAst],
       },
@@ -198,11 +198,9 @@ export const emitUnary = (
           { kind: "returnStatement", expression: defaultExpr },
         ],
       };
-      const funcTypeAst: CSharpTypeAst = {
-        kind: "identifierType",
-        name: "global::System.Func",
-        typeArguments: [funcReturnTypeAst],
-      };
+      const funcTypeAst: CSharpTypeAst = identifierType("global::System.Func", [
+        funcReturnTypeAst,
+      ]);
       const lambdaAst: CSharpExpressionAst = {
         kind: "lambdaExpression",
         isAsync,
@@ -234,11 +232,10 @@ export const emitUnary = (
         );
       }
 
-      const taskTypeAst: CSharpTypeAst = {
-        kind: "identifierType",
-        name: "global::System.Threading.Tasks.Task",
-        typeArguments: [returnTypeAst],
-      };
+      const taskTypeAst: CSharpTypeAst = identifierType(
+        "global::System.Threading.Tasks.Task",
+        [returnTypeAst]
+      );
       const iifeAst = buildIife(true, taskTypeAst);
       return [{ kind: "awaitExpression", expression: iifeAst }, currentContext];
     }

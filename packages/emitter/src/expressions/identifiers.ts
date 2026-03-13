@@ -6,7 +6,8 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
-import { renderTypeAst } from "../core/format/backend-ast/utils.js";
+import { identifierExpression } from "../core/format/backend-ast/builders.js";
+import { stableIdentifierSuffixFromTypeAst } from "../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -41,7 +42,7 @@ export const emitIdentifier = (
   // TypeScript `super` maps to C# `base` for member access/calls.
   // (`super()` constructor calls are handled separately in constructor emission.)
   if (expr.name === "super") {
-    return [{ kind: "identifierExpression", identifier: "base" }, context];
+    return [identifierExpression("base"), context];
   }
 
   // Narrowing remap for union type guards
@@ -52,10 +53,7 @@ export const emitIdentifier = (
     if (narrowed) {
       if (narrowed.kind === "rename") {
         return [
-          {
-            kind: "identifierExpression",
-            identifier: escapeCSharpIdentifier(narrowed.name),
-          },
+          identifierExpression(escapeCSharpIdentifier(narrowed.name)),
           context,
         ];
       } else if (narrowed.kind === "expr") {
@@ -63,23 +61,14 @@ export const emitIdentifier = (
         return [narrowed.exprAst, context];
       }
 
-      return [
-        {
-          kind: "identifierExpression",
-          identifier: escapeCSharpIdentifier(expr.name),
-        },
-        context,
-      ];
+      return [identifierExpression(escapeCSharpIdentifier(expr.name)), context];
     }
   }
 
   // Lexical remap for locals/parameters (prevents C# CS0136 shadowing errors).
   const remappedLocal = context.localNameMap?.get(expr.name);
   if (remappedLocal) {
-    return [
-      { kind: "identifierExpression", identifier: remappedLocal },
-      context,
-    ];
+    return [identifierExpression(remappedLocal), context];
   }
 
   // Check if this identifier is from an import
@@ -87,22 +76,24 @@ export const emitIdentifier = (
     const binding = context.importBindings.get(expr.name);
     if (binding) {
       // Imported identifier - always use fully-qualified reference
-      // Use pre-computed clrName directly (all resolution done when building binding)
-      if (binding.member) {
+      if (binding.kind === "value") {
         // Value import with member - Container.member
         return [
+          identifierExpression(`${binding.clrName}.${binding.member}`),
+          context,
+        ];
+      }
+      if (binding.kind === "type") {
+        return [
           {
-            kind: "identifierExpression",
-            identifier: `${binding.clrName}.${binding.member}`,
+            kind: "typeReferenceExpression",
+            type: binding.typeAst,
           },
           context,
         ];
       }
-      // Type, namespace, or default import - use clrName directly
-      return [
-        { kind: "identifierExpression", identifier: binding.clrName },
-        context,
-      ];
+      // Namespace import - use precomputed container name directly
+      return [identifierExpression(binding.clrName), context];
     }
   }
 
@@ -116,37 +107,28 @@ export const emitIdentifier = (
       context.className !== context.moduleStaticClassName
     ) {
       return [
-        {
-          kind: "identifierExpression",
-          identifier: `${context.moduleStaticClassName}.${memberName}`,
-        },
+        identifierExpression(`${context.moduleStaticClassName}.${memberName}`),
         context,
       ];
     }
-    return [{ kind: "identifierExpression", identifier: memberName }, context];
+    return [identifierExpression(memberName), context];
   }
 
   // Use custom C# name from binding if specified (with global:: prefix)
   if (expr.csharpName && expr.resolvedAssembly) {
     const fqn = `global::${expr.resolvedAssembly}.${expr.csharpName}`;
-    return [{ kind: "identifierExpression", identifier: fqn }, context];
+    return [identifierExpression(fqn), context];
   }
 
   // Use resolved binding if available (from binding manifest) with global:: prefix
   // resolvedClrType is already the full CLR type name, just add global::
   if (expr.resolvedClrType) {
     const fqn = `global::${expr.resolvedClrType}`;
-    return [{ kind: "identifierExpression", identifier: fqn }, context];
+    return [identifierExpression(fqn), context];
   }
 
   // Fallback: use identifier as-is (escape C# keywords)
-  return [
-    {
-      kind: "identifierExpression",
-      identifier: escapeCSharpIdentifier(expr.name),
-    },
-    context,
-  ];
+  return [identifierExpression(escapeCSharpIdentifier(expr.name)), context];
 };
 
 /**
@@ -211,10 +193,7 @@ export const generateSpecializedName = (
   for (const typeArg of typeArgs) {
     const [typeAst, newContext] = emitTypeAst(typeArg, currentContext);
     currentContext = newContext;
-    const typeName = renderTypeAst(typeAst);
-    // Sanitize type name for use in identifier (remove <>, ?, etc.)
-    const sanitized = typeName.replace(/[<>?,\s]/g, "_").replace(/\./g, "_");
-    typeNames.push(sanitized);
+    typeNames.push(stableIdentifierSuffixFromTypeAst(typeAst));
   }
 
   const specializedName = `${baseName}__${typeNames.join("__")}`;

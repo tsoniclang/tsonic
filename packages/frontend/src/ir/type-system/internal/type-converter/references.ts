@@ -261,7 +261,10 @@ const findOwningBindingsJson = (fileName: string): string | undefined => {
 
   if (fileName.endsWith(".d.ts")) {
     const baseName = fileName.slice(0, -".d.ts".length);
-    const lastSep = Math.max(baseName.lastIndexOf("/"), baseName.lastIndexOf("\\"));
+    const lastSep = Math.max(
+      baseName.lastIndexOf("/"),
+      baseName.lastIndexOf("\\")
+    );
     const stem = lastSep >= 0 ? baseName.slice(lastSep + 1) : baseName;
     if (stem.length > 0) {
       const sibling = join(dirname(fileName), stem, "bindings.json");
@@ -287,10 +290,12 @@ const buildBindingAliasClrIdentityMap = (
       typeof raw === "object" &&
       Array.isArray((raw as { readonly types?: unknown }).types)
     ) {
-      for (const type of (raw as { readonly types: readonly unknown[] }).types) {
+      for (const type of (raw as { readonly types: readonly unknown[] })
+        .types) {
         if (!type || typeof type !== "object") continue;
         const clrName = (type as { readonly clrName?: unknown }).clrName;
-        if (typeof clrName !== "string" || clrName.trim().length === 0) continue;
+        if (typeof clrName !== "string" || clrName.trim().length === 0)
+          continue;
 
         const tsAlias = tsbindgenClrTypeNameToTsTypeName(clrName);
         const lastDot = clrName.lastIndexOf(".");
@@ -328,11 +333,12 @@ const resolveSourceBindingsClrIdentity = (
   const fqName = declInfo?.fqName?.trim();
   if (!fqName || !fqName.includes(".")) return undefined;
 
-  const bindingsPath = findOwningBindingsJson(declNode.getSourceFile().fileName);
+  const bindingsPath = findOwningBindingsJson(
+    declNode.getSourceFile().fileName
+  );
   if (bindingsPath) {
-    const exactClrName = buildBindingAliasClrIdentityMap(bindingsPath).get(
-      fqName
-    );
+    const exactClrName =
+      buildBindingAliasClrIdentityMap(bindingsPath).get(fqName);
     if (exactClrName) return exactClrName;
   }
 

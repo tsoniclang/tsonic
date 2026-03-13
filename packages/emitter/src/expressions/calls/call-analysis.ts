@@ -2,13 +2,15 @@
  * Call expression analysis and detection helpers
  */
 
-import {
-  IrExpression,
-  IrType,
-} from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import { renderTypeAst } from "../../core/format/backend-ast/utils.js";
+import type { CSharpTypeAst } from "../../core/format/backend-ast/types.js";
+import {
+  globallyQualifyTypeAst,
+  stableTypeKeyFromAst,
+  stripNullableTypeAst,
+} from "../../core/format/backend-ast/utils.js";
 import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
 
 /**
@@ -144,15 +146,13 @@ export const isInstanceMemberAccess = (
  * Exception: certain toolchains (notably EF query precompilation) require the *syntax*
  * of extension-method invocation so the analyzer can locate queries in user code.
  */
-export const shouldEmitFluentExtensionCall = (
-  memberBinding: {
-    readonly type: string;
-    readonly member: string;
-    readonly emitSemantics?: {
-      readonly callStyle: "receiver" | "static";
-    };
-  }
-): boolean => {
+export const shouldEmitFluentExtensionCall = (memberBinding: {
+  readonly type: string;
+  readonly member: string;
+  readonly emitSemantics?: {
+    readonly callStyle: "receiver" | "static";
+  };
+}): boolean => {
   if (memberBinding.emitSemantics?.callStyle === "receiver") {
     return true;
   }
@@ -167,69 +167,6 @@ export const getTypeNamespace = (typeName: string): string | undefined => {
   const lastDot = typeName.lastIndexOf(".");
   if (lastDot <= 0) return undefined;
   return typeName.slice(0, lastDot);
-};
-
-/**
- * Whether a C# type string is a builtin/keyword type (optionally nullable).
- *
- * These must NOT be qualified with a namespace (e.g. `object`, not `MyNs.object`).
- */
-export const isCSharpBuiltinType = (typeStr: string): boolean => {
-  const base = typeStr.endsWith("?") ? typeStr.slice(0, -1) : typeStr;
-  return (
-    base === "string" ||
-    base === "int" ||
-    base === "long" ||
-    base === "short" ||
-    base === "byte" ||
-    base === "sbyte" ||
-    base === "uint" ||
-    base === "ulong" ||
-    base === "ushort" ||
-    base === "float" ||
-    base === "double" ||
-    base === "decimal" ||
-    base === "bool" ||
-    base === "char" ||
-    base === "object" ||
-    base === "void"
-  );
-};
-
-/**
- * Ensure a C# type string has global:: prefix for unambiguous resolution
- */
-export const ensureGlobalPrefix = (typeStr: string): string => {
-  // Skip already-prefixed types
-  if (typeStr.startsWith("global::")) {
-    return typeStr;
-  }
-
-  // Handle pointer types (T*). `global::int*` is invalid; qualify the element type only.
-  if (typeStr.endsWith("*")) {
-    const inner = typeStr.slice(0, -1);
-    return `${ensureGlobalPrefix(inner)}*`;
-  }
-
-  // Handle arrays (T[], T[,], jagged arrays, ...). `global::string[]` is invalid; qualify
-  // the element type only.
-  const arrayMatch = /(\[[,\s]*\])$/.exec(typeStr);
-  if (arrayMatch) {
-    const suffix = arrayMatch[1];
-    if (!suffix) return typeStr;
-    const inner = typeStr.slice(0, -suffix.length);
-    return `${ensureGlobalPrefix(inner)}${suffix}`;
-  }
-
-  // Skip primitives (and other builtin keyword types) after handling suffix forms.
-  if (isCSharpBuiltinType(typeStr)) {
-    return typeStr;
-  }
-
-  // Handle generic types: List<Foo> -> global::List<global::Foo>
-  // For now, just add prefix to the outer type
-  // The inner types should already be handled by emitType
-  return `global::${typeStr}`;
 };
 
 /**
@@ -257,12 +194,13 @@ export const registerJsonAotType = (
     ...context,
     qualifyLocalTypes: true,
   });
-  const rawTypeStr = renderTypeAst(rawTypeAst);
-  const typeStr = rawTypeStr.endsWith("?")
-    ? rawTypeStr.slice(0, -1)
-    : rawTypeStr;
-
-  registry.rootTypes.add(ensureGlobalPrefix(typeStr));
+  const normalizedTypeAst: CSharpTypeAst = globallyQualifyTypeAst(
+    stripNullableTypeAst(rawTypeAst)
+  );
+  registry.rootTypes.set(
+    stableTypeKeyFromAst(normalizedTypeAst),
+    normalizedTypeAst
+  );
   registry.needsJsonAot = true;
 };
 

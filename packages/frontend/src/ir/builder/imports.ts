@@ -33,10 +33,7 @@ const getSourceSpan = (
 };
 
 const clrTypeNameToCSharp = (clr: string): string =>
-  clr
-    .trim()
-    .replace(/`\d+/g, "")
-    .replace(/\+/g, ".");
+  clr.trim().replace(/`\d+/g, "").replace(/\+/g, ".");
 
 /**
  * Extract import declarations from source file.
@@ -200,7 +197,8 @@ export const extractImports = (
           return normalizedClrName === exportName;
         };
 
-        const owningNamespace = resolveTsbindgenNamespaceForNamedImport(exportName);
+        const owningNamespace =
+          resolveTsbindgenNamespaceForNamedImport(exportName);
         if (owningNamespace) {
           const namespaceBinding = ctx.bindings.getNamespace(owningNamespace);
           const exact = namespaceBinding?.types.find(matchesExportName);
@@ -253,7 +251,7 @@ export const extractImports = (
                 ? clrTypeNameToCSharp(resolvedTypeBinding.name)
                 : expNamespace
                   ? `${expNamespace}.${spec.name}`
-                : spec.resolvedClrType,
+                  : spec.resolvedClrType,
             };
           }
 

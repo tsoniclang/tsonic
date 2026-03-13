@@ -22,6 +22,7 @@ import {
 import { emitAttributes } from "../../core/format/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
   CSharpParameterAst,
@@ -136,22 +137,20 @@ export const emitFunctionDeclaration = (
   if (stmt.isGenerator) {
     if (isBidirectional) {
       const wrapperName = `${csharpBaseName}_Generator`;
-      returnTypeAst = { kind: "identifierType", name: wrapperName };
+      returnTypeAst = identifierType(wrapperName);
     } else {
       const exchangeName = `${csharpBaseName}_exchange`;
       if (stmt.isAsync) {
         modifiers.push("async");
-        returnTypeAst = {
-          kind: "identifierType",
-          name: "global::System.Collections.Generic.IAsyncEnumerable",
-          typeArguments: [{ kind: "identifierType", name: exchangeName }],
-        };
+        returnTypeAst = identifierType(
+          "global::System.Collections.Generic.IAsyncEnumerable",
+          [identifierType(exchangeName)]
+        );
       } else {
-        returnTypeAst = {
-          kind: "identifierType",
-          name: "global::System.Collections.Generic.IEnumerable",
-          typeArguments: [{ kind: "identifierType", name: exchangeName }],
-        };
+        returnTypeAst = identifierType(
+          "global::System.Collections.Generic.IEnumerable",
+          [identifierType(exchangeName)]
+        );
       }
     }
   } else if (stmt.returnType) {
@@ -167,23 +166,18 @@ export const emitFunctionDeclaration = (
     ) {
       returnTypeAst = retAst;
     } else if (stmt.isAsync) {
-      returnTypeAst = {
-        kind: "identifierType",
-        name: "global::System.Threading.Tasks.Task",
-        typeArguments: [retAst],
-      };
+      returnTypeAst = identifierType("global::System.Threading.Tasks.Task", [
+        retAst,
+      ]);
     } else {
       returnTypeAst = retAst;
     }
   } else {
     if (stmt.isAsync) {
       modifiers.push("async");
-      returnTypeAst = {
-        kind: "identifierType",
-        name: "global::System.Threading.Tasks.Task",
-      };
+      returnTypeAst = identifierType("global::System.Threading.Tasks.Task");
     } else {
-      returnTypeAst = { kind: "identifierType", name: "void" };
+      returnTypeAst = { kind: "predefinedType", keyword: "void" };
     }
   }
 
@@ -259,16 +253,12 @@ export const emitFunctionDeclaration = (
     const exchangeName = `${csharpBaseName}_exchange`;
     const wrapperName = `${csharpBaseName}_Generator`;
     const enumerableType: CSharpTypeAst = stmt.isAsync
-      ? {
-          kind: "identifierType",
-          name: "global::System.Collections.Generic.IAsyncEnumerable",
-          typeArguments: [{ kind: "identifierType", name: exchangeName }],
-        }
-      : {
-          kind: "identifierType",
-          name: "global::System.Collections.Generic.IEnumerable",
-          typeArguments: [{ kind: "identifierType", name: exchangeName }],
-        };
+      ? identifierType("global::System.Collections.Generic.IAsyncEnumerable", [
+          identifierType(exchangeName),
+        ])
+      : identifierType("global::System.Collections.Generic.IEnumerable", [
+          identifierType(exchangeName),
+        ]);
 
     const wrapperBodyStatements: CSharpStatementAst[] = [];
 
@@ -282,7 +272,7 @@ export const emitFunctionDeclaration = (
           name: generatorExchangeVar,
           initializer: {
             kind: "objectCreationExpression",
-            type: { kind: "identifierType", name: exchangeName },
+            type: identifierType(exchangeName),
             arguments: [],
           },
         },
@@ -364,7 +354,7 @@ export const emitFunctionDeclaration = (
       kind: "returnStatement",
       expression: {
         kind: "objectCreationExpression",
-        type: { kind: "identifierType", name: wrapperName },
+        type: identifierType(wrapperName),
         arguments: constructorArgs,
       },
     });
@@ -392,7 +382,7 @@ export const emitFunctionDeclaration = (
             name: generatorExchangeVar,
             initializer: {
               kind: "objectCreationExpression",
-              type: { kind: "identifierType", name: exchangeName },
+              type: identifierType(exchangeName),
               arguments: [],
             },
           },
@@ -478,7 +468,7 @@ const buildParameterAsts = (
 
   for (const param of parameters) {
     // Type
-    let typeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
+    let typeAst: CSharpTypeAst = identifierType("object");
     if (param.type) {
       const [t, c] = emitTypeAst(param.type, currentCtx);
       typeAst = t;
@@ -633,22 +623,20 @@ export const emitFunctionDeclarationAst = (
   if (stmt.isGenerator) {
     if (isBidirectional) {
       const wrapperName = `${csharpBaseName}_Generator`;
-      returnTypeAst = { kind: "identifierType", name: wrapperName };
+      returnTypeAst = identifierType(wrapperName);
     } else {
       const exchangeName = `${csharpBaseName}_exchange`;
       if (stmt.isAsync) {
         modifiers.push("async");
-        returnTypeAst = {
-          kind: "identifierType",
-          name: "global::System.Collections.Generic.IAsyncEnumerable",
-          typeArguments: [{ kind: "identifierType", name: exchangeName }],
-        };
+        returnTypeAst = identifierType(
+          "global::System.Collections.Generic.IAsyncEnumerable",
+          [identifierType(exchangeName)]
+        );
       } else {
-        returnTypeAst = {
-          kind: "identifierType",
-          name: "global::System.Collections.Generic.IEnumerable",
-          typeArguments: [{ kind: "identifierType", name: exchangeName }],
-        };
+        returnTypeAst = identifierType(
+          "global::System.Collections.Generic.IEnumerable",
+          [identifierType(exchangeName)]
+        );
       }
     }
   } else if (stmt.returnType) {
@@ -664,18 +652,16 @@ export const emitFunctionDeclarationAst = (
     ) {
       returnTypeAst = retAst; // Already Task<T> from emitTypeAst
     } else if (stmt.isAsync) {
-      returnTypeAst = {
-        kind: "identifierType",
-        name: "global::System.Threading.Tasks.Task",
-        typeArguments: [retAst],
-      };
+      returnTypeAst = identifierType("global::System.Threading.Tasks.Task", [
+        retAst,
+      ]);
     } else {
       returnTypeAst = retAst;
     }
   } else {
     returnTypeAst = stmt.isAsync
-      ? { kind: "identifierType", name: "global::System.Threading.Tasks.Task" }
-      : { kind: "identifierType", name: "void" };
+      ? identifierType("global::System.Threading.Tasks.Task")
+      : { kind: "predefinedType", keyword: "void" };
   }
 
   // Parameters as AST
@@ -748,16 +734,12 @@ export const emitFunctionDeclarationAst = (
     const exchangeName = `${csharpBaseName}_exchange`;
     const wrapperName = `${csharpBaseName}_Generator`;
     const enumerableType: CSharpTypeAst = stmt.isAsync
-      ? {
-          kind: "identifierType",
-          name: "global::System.Collections.Generic.IAsyncEnumerable",
-          typeArguments: [{ kind: "identifierType", name: exchangeName }],
-        }
-      : {
-          kind: "identifierType",
-          name: "global::System.Collections.Generic.IEnumerable",
-          typeArguments: [{ kind: "identifierType", name: exchangeName }],
-        };
+      ? identifierType("global::System.Collections.Generic.IAsyncEnumerable", [
+          identifierType(exchangeName),
+        ])
+      : identifierType("global::System.Collections.Generic.IEnumerable", [
+          identifierType(exchangeName),
+        ]);
 
     const wrapperBodyStatements: CSharpStatementAst[] = [];
 
@@ -771,7 +753,7 @@ export const emitFunctionDeclarationAst = (
           name: generatorExchangeVar,
           initializer: {
             kind: "objectCreationExpression",
-            type: { kind: "identifierType", name: exchangeName },
+            type: identifierType(exchangeName),
             arguments: [],
           },
         },
@@ -853,7 +835,7 @@ export const emitFunctionDeclarationAst = (
       kind: "returnStatement",
       expression: {
         kind: "objectCreationExpression",
-        type: { kind: "identifierType", name: wrapperName },
+        type: identifierType(wrapperName),
         arguments: constructorArgs,
       },
     });
@@ -892,7 +874,7 @@ export const emitFunctionDeclarationAst = (
           name: generatorExchangeVar,
           initializer: {
             kind: "objectCreationExpression",
-            type: { kind: "identifierType", name: exchangeName },
+            type: identifierType(exchangeName),
             arguments: [],
           },
         },

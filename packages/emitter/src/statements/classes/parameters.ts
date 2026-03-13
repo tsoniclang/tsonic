@@ -13,6 +13,7 @@ import { emitParameterType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPatternAst } from "../../patterns.js";
 import { emitParameterAttributes } from "../../core/format/attributes.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpExpressionAst,
   CSharpParameterAst,
@@ -93,7 +94,7 @@ export const emitParametersWithDestructuring = (
     const actualType: IrType | undefined = param.type;
 
     // Parameter type
-    let typeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
+    let typeAst: CSharpTypeAst = identifierType("object");
     if (actualType) {
       const [tAst, newContext] = emitParameterType(
         actualType,

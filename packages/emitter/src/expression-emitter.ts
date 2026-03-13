@@ -32,7 +32,13 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "./core/format/backend-ast/types.js";
-import { renderTypeAst } from "./core/format/backend-ast/utils.js";
+import {
+  identifierExpression,
+  identifierType,
+  nullLiteral,
+  stringLiteral,
+} from "./core/format/backend-ast/builders.js";
+import { getIdentifierTypeName } from "./core/format/backend-ast/utils.js";
 import { allocateLocalName } from "./core/format/local-names.js";
 import { emitCSharpName } from "./naming-policy.js";
 
@@ -80,11 +86,8 @@ const hasNullishBranch = (type: IrType | undefined): boolean => {
 const buildDelegateType = (
   parameterTypes: readonly CSharpTypeAst[],
   returnType: CSharpTypeAst
-): CSharpTypeAst => ({
-  kind: "identifierType",
-  name: "global::System.Func",
-  typeArguments: [...parameterTypes, returnType],
-});
+): CSharpTypeAst =>
+  identifierType("global::System.Func", [...parameterTypes, returnType]);
 
 const collectLocalStructuralProperties = (
   info: LocalTypeInfo
@@ -126,12 +129,16 @@ const collectLocalStructuralProperties = (
     case "typeAlias": {
       const aliasType = info.type;
       if (aliasType.kind !== "objectType") return undefined;
-      if (aliasType.members.some((member) => member.kind === "methodSignature")) {
+      if (
+        aliasType.members.some((member) => member.kind === "methodSignature")
+      ) {
         return undefined;
       }
       return aliasType.members
         .filter(
-          (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
+          (
+            member
+          ): member is Extract<typeof member, { kind: "propertySignature" }> =>
             member.kind === "propertySignature"
         )
         .map((member) => ({
@@ -199,7 +206,9 @@ const parseEmitterClrTypeString = (clrType: string): IrType => {
     return { kind: "typeParameterType", name: clrType };
   }
 
-  const underscoreInstantiationMatch = clrType.match(/^(.+?)_(\d+)\[\[(.+)\]\]$/);
+  const underscoreInstantiationMatch = clrType.match(
+    /^(.+?)_(\d+)\[\[(.+)\]\]$/
+  );
   if (
     underscoreInstantiationMatch?.[1] &&
     underscoreInstantiationMatch[2] &&
@@ -353,7 +362,9 @@ const collectBindingStructuralProperties = (
 
     const props = binding.members
       .filter(
-        (member): member is (typeof binding.members)[number] & {
+        (
+          member
+        ): member is (typeof binding.members)[number] & {
           kind: "property";
         } => member.kind === "property"
       )
@@ -390,7 +401,9 @@ const collectStructuralProperties = (
     }
     return resolved.members
       .filter(
-        (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
+        (
+          member
+        ): member is Extract<typeof member, { kind: "propertySignature" }> =>
           member.kind === "propertySignature"
       )
       .map((member) => ({
@@ -419,12 +432,18 @@ const collectStructuralProperties = (
   }
 
   if (resolved.structuralMembers && resolved.structuralMembers.length > 0) {
-    if (resolved.structuralMembers.some((member) => member.kind === "methodSignature")) {
+    if (
+      resolved.structuralMembers.some(
+        (member) => member.kind === "methodSignature"
+      )
+    ) {
       return undefined;
     }
     return resolved.structuralMembers
       .filter(
-        (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
+        (
+          member
+        ): member is Extract<typeof member, { kind: "propertySignature" }> =>
           member.kind === "propertySignature"
       )
       .map((member) => ({
@@ -448,8 +467,10 @@ const resolveAnonymousStructuralReferenceType = (
     .filter(
       (
         member
-      ): member is Extract<typeof member, { kind: "propertySignature"; name: string }> =>
-        member.kind === "propertySignature"
+      ): member is Extract<
+        typeof member,
+        { kind: "propertySignature"; name: string }
+      > => member.kind === "propertySignature"
     )
     .map((member) => member.name)
     .sort();
@@ -476,8 +497,10 @@ const resolveAnonymousStructuralReferenceType = (
         .filter(
           (
             member
-          ): member is Extract<typeof member, { kind: "propertyDeclaration"; name: string }> =>
-            member.kind === "propertyDeclaration"
+          ): member is Extract<
+            typeof member,
+            { kind: "propertyDeclaration"; name: string }
+          > => member.kind === "propertyDeclaration"
         )
         .map((member) => member.name)
         .sort();
@@ -492,7 +515,9 @@ const resolveAnonymousStructuralReferenceType = (
 
   if (matches.size !== 1) return undefined;
   const onlyMatch = [...matches][0];
-  return onlyMatch ? ({ kind: "referenceType", name: onlyMatch } satisfies IrType) : undefined;
+  return onlyMatch
+    ? ({ kind: "referenceType", name: onlyMatch } satisfies IrType)
+    : undefined;
 };
 
 const isSameNominalType = (
@@ -555,12 +580,7 @@ const buildStructuralSourceAccess = (
     return {
       kind: "elementAccessExpression",
       expression: sourceExpression,
-      arguments: [
-        {
-          kind: "literalExpression",
-          text: JSON.stringify(propertyName),
-        },
-      ],
+      arguments: [stringLiteral(propertyName)],
     };
   }
 
@@ -635,7 +655,10 @@ const tryAdaptStructuralExpressionAst = (
     (strippedExpectedType.kind === "referenceType"
       ? strippedExpectedType
       : undefined);
-  const targetProps = collectStructuralProperties(targetStructuralType, context);
+  const targetProps = collectStructuralProperties(
+    targetStructuralType,
+    context
+  );
   if (targetProps && targetProps.length > 0) {
     if (!targetEmissionType && targetStructuralType.kind === "objectType") {
       return undefined;
@@ -739,7 +762,7 @@ const tryAdaptStructuralExpressionAst = (
             kind: "binaryExpression",
             operatorToken: "==",
             left: emittedAst,
-            right: { kind: "literalExpression", text: "null" },
+            right: nullLiteral(),
           },
           whenTrue: {
             kind: "defaultExpression",
@@ -774,7 +797,7 @@ const tryAdaptStructuralExpressionAst = (
           kind: "binaryExpression",
           operatorToken: "==",
           left: tempIdentifier,
-          right: { kind: "literalExpression", text: "null" },
+          right: nullLiteral(),
         },
         thenStatement: {
           kind: "blockStatement",
@@ -841,20 +864,18 @@ const tryAdaptStructuralExpressionAst = (
       kind: "identifierExpression",
       identifier: item.emittedName,
     };
-    const [adaptedElementAst, adaptedContext] =
-      tryAdaptStructuralExpressionAst(
-        itemIdentifier,
-        sourceElementType,
-        currentContext,
-        targetElementType
-      ) ?? [undefined, currentContext];
+    const [adaptedElementAst, adaptedContext] = tryAdaptStructuralExpressionAst(
+      itemIdentifier,
+      sourceElementType,
+      currentContext,
+      targetElementType
+    ) ?? [undefined, currentContext];
     currentContext = adaptedContext;
     if (adaptedElementAst !== undefined) {
       const selectAst: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: {
-          kind: "identifierExpression",
-          identifier: "global::System.Linq.Enumerable.Select",
+          ...identifierExpression("global::System.Linq.Enumerable.Select"),
         },
         arguments: [
           emittedAst,
@@ -869,8 +890,7 @@ const tryAdaptStructuralExpressionAst = (
       const toArrayAst: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: {
-          kind: "identifierExpression",
-          identifier: "global::System.Linq.Enumerable.ToArray",
+          ...identifierExpression("global::System.Linq.Enumerable.ToArray"),
         },
         arguments: [selectAst],
       };
@@ -887,7 +907,7 @@ const tryAdaptStructuralExpressionAst = (
               kind: "binaryExpression",
               operatorToken: "==",
               left: emittedAst,
-              right: { kind: "literalExpression", text: "null" },
+              right: nullLiteral(),
             },
             whenTrue: { kind: "defaultExpression" },
             whenFalse: toArrayAst,
@@ -907,14 +927,10 @@ const tryAdaptStructuralExpressionAst = (
       currentContext
     );
     currentContext = valueTypeContext;
-    const dictTypeAst: CSharpTypeAst = {
-      kind: "identifierType",
-      name: "global::System.Collections.Generic.Dictionary",
-      typeArguments: [
-        { kind: "predefinedType", keyword: "string" },
-        targetValueTypeAst,
-      ],
-    };
+    const dictTypeAst: CSharpTypeAst = identifierType(
+      "global::System.Collections.Generic.Dictionary",
+      [{ kind: "predefinedType", keyword: "string" }, targetValueTypeAst]
+    );
     const sourceTemp = allocateLocalName("__dict", currentContext);
     currentContext = sourceTemp.context;
     const entryTemp = allocateLocalName("__entry", currentContext);
@@ -930,13 +946,12 @@ const tryAdaptStructuralExpressionAst = (
       },
       memberName: "Value",
     };
-    const [adaptedValueAst, adaptedContext] =
-      tryAdaptStructuralExpressionAst(
-        entryValueAst,
-        sourceValueType,
-        currentContext,
-        targetValueType
-      ) ?? [undefined, currentContext];
+    const [adaptedValueAst, adaptedContext] = tryAdaptStructuralExpressionAst(
+      entryValueAst,
+      sourceValueType,
+      currentContext,
+      targetValueType
+    ) ?? [undefined, currentContext];
     currentContext = adaptedContext;
     if (adaptedValueAst !== undefined) {
       const statements: CSharpStatementAst[] = [
@@ -960,7 +975,7 @@ const tryAdaptStructuralExpressionAst = (
               kind: "identifierExpression",
               identifier: sourceTemp.emittedName,
             },
-            right: { kind: "literalExpression", text: "null" },
+            right: nullLiteral(),
           },
           thenStatement: {
             kind: "blockStatement",
@@ -1441,7 +1456,6 @@ const maybeUpcastDictionaryUnionValueAst = (
   if (matchingMemberIndex === -1) return [ast, context];
 
   const [unionValueTypeAst, ctx1] = emitTypeAst(expected.valueType, context);
-  const unionTypeText = renderTypeAst(unionValueTypeAst);
   const kvpId = "kvp";
   const keySelector: CSharpExpressionAst = {
     kind: "lambdaExpression",
@@ -1462,8 +1476,8 @@ const maybeUpcastDictionaryUnionValueAst = (
       expression: {
         kind: "memberAccessExpression",
         expression: {
-          kind: "identifierExpression",
-          identifier: unionTypeText,
+          kind: "typeReferenceExpression",
+          type: unionValueTypeAst,
         },
         memberName: `From${matchingMemberIndex}`,
       },
@@ -1482,8 +1496,7 @@ const maybeUpcastDictionaryUnionValueAst = (
     expression: {
       kind: "memberAccessExpression",
       expression: {
-        kind: "identifierExpression",
-        identifier: "global::System.Linq.Enumerable",
+        ...identifierExpression("global::System.Linq.Enumerable"),
       },
       memberName: "ToDictionary",
     },
@@ -1628,7 +1641,9 @@ const emitTypeAssertion = (
     if (resolved.kind === "referenceType" && resolved.typeArguments?.length) {
       const importBinding = ctx1.importBindings?.get(resolved.name);
       const clrName =
-        importBinding?.kind === "type" ? importBinding.clrName : "";
+        importBinding?.kind === "type"
+          ? (getIdentifierTypeName(importBinding.typeAst) ?? "")
+          : "";
       if (clrName.endsWith(".ExtensionMethods")) {
         return true;
       }
@@ -1672,7 +1687,9 @@ const emitTypeAssertion = (
     if (target.kind === "referenceType" && target.typeArguments?.length) {
       const importBinding = ctx.importBindings?.get(target.name);
       const clrName =
-        importBinding?.kind === "type" ? importBinding.clrName : "";
+        importBinding?.kind === "type"
+          ? (getIdentifierTypeName(importBinding.typeAst) ?? "")
+          : "";
       if (clrName.endsWith(".ExtensionMethods")) {
         const shape = target.typeArguments[0];
         if (shape) return resolveRuntimeCastTarget(shape, ctx);
@@ -1786,13 +1803,7 @@ const emitDefaultOf = (
 const emitNameOf = (
   expr: IrNameOfExpression,
   context: EmitterContext
-): [CSharpExpressionAst, EmitterContext] => [
-  {
-    kind: "literalExpression",
-    text: JSON.stringify(expr.name),
-  },
-  context,
-];
+): [CSharpExpressionAst, EmitterContext] => [stringLiteral(expr.name), context];
 
 /**
  * Emit a sizeof expression as C# sizeof(T).

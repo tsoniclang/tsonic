@@ -11,6 +11,7 @@ import {
   allocateLocalName,
   registerLocalName,
 } from "../../core/format/local-names.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
   CSharpBlockStatementAst,
@@ -52,10 +53,7 @@ export const emitTryStatementAst = (
       catchScopeContext
     );
     catches.push({
-      type: {
-        kind: "identifierType",
-        name: "global::System.Exception",
-      },
+      type: identifierType("global::System.Exception"),
       identifier: alloc.emittedName,
       body: catchBody,
     });

@@ -26,13 +26,13 @@ Recommended form:
 
 Record every current hardcoded family or exception that affects fluent vs static emission.
 
-| Row | Family / Binding Type | Member Scope | Current Style | Owning Repo / Package | Authoring Point For Phase 1 | Why It Exists | Must Preserve In Phase 1 |
-|---|---|---|---|---|---|---|---|
-| `A1` | `Tsonic.JSRuntime.*` | receiver helpers | receiver | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | preserve JS authored shape | yes |
-| `A2` | `System.Linq.Queryable.*` | query ops | receiver | `dotnet` | `dotnet/__build/templates/10/tsbindgen.bindings-semantics.json` | query/precompilation tooling | yes |
-| `A3` | `Microsoft.EntityFrameworkCore.*` | query ops | receiver | `efcore` | `efcore/__build/templates/10/tsbindgen.bindings-semantics.json` | EF query tooling | yes |
-| `A4` | `System.Linq.Enumerable` | default | static | `dotnet` | `dotnet/__build/templates/10/tsbindgen.bindings-semantics.json` | avoid accidental instance collisions | yes |
-| `A5` | `System.Linq.Enumerable` | `ToList`, `ToArray` | receiver | `dotnet` | `dotnet/__build/templates/10/tsbindgen.bindings-semantics.json` | current special-case behavior | yes |
+| Row  | Family / Binding Type             | Member Scope        | Current Style | Owning Repo / Package       | Authoring Point For Phase 1                                     | Why It Exists                        | Must Preserve In Phase 1 |
+| ---- | --------------------------------- | ------------------- | ------------- | --------------------------- | --------------------------------------------------------------- | ------------------------------------ | ------------------------ |
+| `A1` | `Tsonic.JSRuntime.*`              | receiver helpers    | receiver      | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json`          | preserve JS authored shape           | yes                      |
+| `A2` | `System.Linq.Queryable.*`         | query ops           | receiver      | `dotnet`                    | `dotnet/__build/templates/10/tsbindgen.bindings-semantics.json` | query/precompilation tooling         | yes                      |
+| `A3` | `Microsoft.EntityFrameworkCore.*` | query ops           | receiver      | `efcore`                    | `efcore/__build/templates/10/tsbindgen.bindings-semantics.json` | EF query tooling                     | yes                      |
+| `A4` | `System.Linq.Enumerable`          | default             | static        | `dotnet`                    | `dotnet/__build/templates/10/tsbindgen.bindings-semantics.json` | avoid accidental instance collisions | yes                      |
+| `A5` | `System.Linq.Enumerable`          | `ToList`, `ToArray` | receiver      | `dotnet`                    | `dotnet/__build/templates/10/tsbindgen.bindings-semantics.json` | current special-case behavior        | yes                      |
 
 For each row, add real test cases and verify emitted output before changing metadata flow.
 
@@ -53,7 +53,7 @@ s.trim()
 #### Optional chaining case
 
 ```ts
-value?.toString()
+value?.toString();
 ```
 
 Expected current output shape:
@@ -65,7 +65,7 @@ value?.toString()
 #### EF query helper
 
 ```ts
-query.Include((x) => x.posts)
+query.Include((x) => x.posts);
 ```
 
 Expected current output shape:
@@ -86,22 +86,22 @@ Expected current output shape should be recorded from current behavior and prese
 
 Record every simple/global alias currently treated as type-like for emitter/type-space purposes.
 
-| Row | Alias | Current Type-Like? | Owning Repo / Package | Authoring Point For Phase 1 | Expected Reason | Must Preserve In Phase 1 |
-|---|---|---|---|---|---|---|
-| `B1` | `Array` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity | yes |
-| `B2` | `Date` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity | yes |
-| `B3` | `Error` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | used in type positions | yes |
-| `B4` | `JSON` | no | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | static/global container | yes |
-| `B5` | `Map` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity | yes |
-| `B6` | `Math` | no | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | static/global container | yes |
-| `B7` | `Number` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity | yes |
-| `B8` | `Object` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity | yes |
-| `B9` | `RangeError` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity | yes |
-| `B10` | `ReadonlyArray` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | generic container type identity | yes |
-| `B11` | `RegExp` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity | yes |
-| `B12` | `Set` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity | yes |
-| `B13` | `String` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity | yes |
-| `B14` | `Uint8Array` | yes | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity | yes |
+| Row   | Alias           | Current Type-Like? | Owning Repo / Package       | Authoring Point For Phase 1                            | Expected Reason                 | Must Preserve In Phase 1 |
+| ----- | --------------- | ------------------ | --------------------------- | ------------------------------------------------------ | ------------------------------- | ------------------------ |
+| `B1`  | `Array`         | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity     | yes                      |
+| `B2`  | `Date`          | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity     | yes                      |
+| `B3`  | `Error`         | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | used in type positions          | yes                      |
+| `B4`  | `JSON`          | no                 | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | static/global container         | yes                      |
+| `B5`  | `Map`           | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity     | yes                      |
+| `B6`  | `Math`          | no                 | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | static/global container         | yes                      |
+| `B7`  | `Number`        | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity     | yes                      |
+| `B8`  | `Object`        | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity     | yes                      |
+| `B9`  | `RangeError`    | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity     | yes                      |
+| `B10` | `ReadonlyArray` | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | generic container type identity | yes                      |
+| `B11` | `RegExp`        | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity     | yes                      |
+| `B12` | `Set`           | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity     | yes                      |
+| `B13` | `String`        | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity     | yes                      |
+| `B14` | `Uint8Array`    | yes                | `js-runtime` / `@tsonic/js` | `js-runtime/surface/10/tsbindgen.surface-package.json` | constructor + type identity     | yes                      |
 
 ### Required example set
 

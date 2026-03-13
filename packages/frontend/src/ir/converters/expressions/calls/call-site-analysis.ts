@@ -7,7 +7,10 @@
 
 import * as ts from "typescript";
 import { IrType } from "../../../types.js";
-import { irTypesEqual, referenceTypeIdentity } from "../../../types/type-ops.js";
+import {
+  irTypesEqual,
+  referenceTypeIdentity,
+} from "../../../types/type-ops.js";
 import { getSourceSpan } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { MemberBinding } from "../../../../program/bindings.js";
@@ -160,7 +163,11 @@ export const deriveSubstitutionsFromExpectedReturn = (
   returnTemplate: IrType | undefined,
   expectedCandidates: readonly IrType[] | undefined
 ): Map<string, IrType> | undefined => {
-  if (!returnTemplate || !expectedCandidates || expectedCandidates.length === 0) {
+  if (
+    !returnTemplate ||
+    !expectedCandidates ||
+    expectedCandidates.length === 0
+  ) {
     return undefined;
   }
 

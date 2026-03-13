@@ -40,10 +40,12 @@ describe("dynamic import resolver", () => {
       });
       const entrySourceFile = program.getSourceFile(entryPath);
       if (!entrySourceFile) throw new Error("Missing entry source file.");
+      const moduleSourceFile = program.getSourceFile(modulePath);
+      if (!moduleSourceFile) throw new Error("Missing module source file.");
       const checker = program.getTypeChecker();
       const sourceFilesByPath = new Map<string, ts.SourceFile>([
         [entryPath.replace(/\\/g, "/"), entrySourceFile],
-        [modulePath.replace(/\\/g, "/"), program.getSourceFile(modulePath)!],
+        [modulePath.replace(/\\/g, "/"), moduleSourceFile],
       ]);
       const importCall = entrySourceFile.statements
         .flatMap((statement) =>
@@ -110,22 +112,23 @@ describe("dynamic import resolver", () => {
       });
       const entrySourceFile = program.getSourceFile(entryPath);
       if (!entrySourceFile) throw new Error("Missing entry source file.");
+      const moduleSourceFile = program.getSourceFile(modulePath);
+      if (!moduleSourceFile) throw new Error("Missing module source file.");
       const checker = program.getTypeChecker();
       const sites = collectClosedWorldDynamicImportSites(entrySourceFile);
 
       expect(sites).to.have.length(1);
+      const site = sites[0];
+      if (!site) return;
       const resolution = resolveDynamicImportNamespace(
-        sites[0]!.node,
+        site.node,
         entryPath.replace(/\\/g, "/"),
         {
           checker,
           compilerOptions: program.getCompilerOptions(),
           sourceFilesByPath: new Map<string, ts.SourceFile>([
             [entryPath.replace(/\\/g, "/"), entrySourceFile],
-            [
-              modulePath.replace(/\\/g, "/"),
-              program.getSourceFile(modulePath)!,
-            ],
+            [modulePath.replace(/\\/g, "/"), moduleSourceFile],
           ]),
         }
       );
@@ -167,22 +170,23 @@ describe("dynamic import resolver", () => {
       });
       const entrySourceFile = program.getSourceFile(entryPath);
       if (!entrySourceFile) throw new Error("Missing entry source file.");
+      const moduleSourceFile = program.getSourceFile(modulePath);
+      if (!moduleSourceFile) throw new Error("Missing module source file.");
       const checker = program.getTypeChecker();
       const sites = collectClosedWorldDynamicImportSites(entrySourceFile);
 
       expect(sites).to.have.length(1);
+      const site = sites[0];
+      if (!site) return;
       const resolution = resolveDynamicImportNamespace(
-        sites[0]!.node,
+        site.node,
         entryPath.replace(/\\/g, "/"),
         {
           checker,
           compilerOptions: program.getCompilerOptions(),
           sourceFilesByPath: new Map<string, ts.SourceFile>([
             [entryPath.replace(/\\/g, "/"), entrySourceFile],
-            [
-              modulePath.replace(/\\/g, "/"),
-              program.getSourceFile(modulePath)!,
-            ],
+            [modulePath.replace(/\\/g, "/"), moduleSourceFile],
           ]),
         }
       );

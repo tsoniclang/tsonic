@@ -1112,7 +1112,9 @@ describe("Binding Resolution in IR", () => {
       }
       expect(returnStmt.expression.kind).to.equal("call");
       if (returnStmt.expression.kind !== "call") return;
-      expect(returnStmt.expression.inferredType?.kind).to.equal("primitiveType");
+      expect(returnStmt.expression.inferredType?.kind).to.equal(
+        "primitiveType"
+      );
       if (returnStmt.expression.inferredType?.kind !== "primitiveType") return;
       expect(returnStmt.expression.inferredType.name).to.equal("string");
 

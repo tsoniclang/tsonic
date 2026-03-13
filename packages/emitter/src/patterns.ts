@@ -23,6 +23,15 @@ import {
   emitRemappedLocalName,
   registerLocalName,
 } from "./core/format/local-names.js";
+import {
+  booleanLiteral,
+  decimalIntegerLiteral,
+  identifierExpression,
+  identifierType,
+  nullLiteral,
+  parseNumericLiteral,
+  stringLiteral,
+} from "./core/format/backend-ast/builders.js";
 import type {
   CSharpExpressionAst,
   CSharpMemberAst,
@@ -30,7 +39,7 @@ import type {
   CSharpTypeAst,
 } from "./core/format/backend-ast/types.js";
 
-const objectTypeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
+const objectTypeAst: CSharpTypeAst = identifierType("object");
 
 const tupleElementMemberName = (index: number): string =>
   index < 7 ? `Item${index + 1}` : "Rest";
@@ -139,19 +148,16 @@ const emitDefaultExprAst = (
 ): [CSharpExpressionAst, EmitterContext] => {
   if (expr.kind === "literal") {
     if (typeof expr.value === "string") {
-      return [{ kind: "literalExpression", text: `"${expr.value}"` }, ctx];
+      return [stringLiteral(expr.value), ctx];
     }
     if (typeof expr.value === "number") {
-      return [{ kind: "literalExpression", text: String(expr.value) }, ctx];
+      return [parseNumericLiteral(String(expr.value)), ctx];
     }
     if (typeof expr.value === "boolean") {
-      return [
-        { kind: "literalExpression", text: expr.value ? "true" : "false" },
-        ctx,
-      ];
+      return [booleanLiteral(expr.value), ctx];
     }
     if (expr.value === null) {
-      return [{ kind: "literalExpression", text: "null" }, ctx];
+      return [nullLiteral(), ctx];
     }
   }
   if (expr.kind === "identifier") {
@@ -285,13 +291,10 @@ const lowerArrayPatternAst = (
         kind: "invocationExpression",
         expression: {
           kind: "memberAccessExpression",
-          expression: {
-            kind: "identifierExpression",
-            identifier: "Tsonic.Runtime.ArrayHelpers",
-          },
+          expression: identifierExpression("Tsonic.Runtime.ArrayHelpers"),
           memberName: "Slice",
         },
-        arguments: [tempId, { kind: "literalExpression", text: String(index) }],
+        arguments: [tempId, decimalIntegerLiteral(index)],
       };
       const rest = lowerPatternAst(
         elem.pattern,
@@ -307,7 +310,7 @@ const lowerArrayPatternAst = (
     const accessExpr: CSharpExpressionAst = {
       kind: "elementAccessExpression",
       expression: tempId,
-      arguments: [{ kind: "literalExpression", text: String(index) }],
+      arguments: [decimalIntegerLiteral(index)],
     };
 
     let valueExpr: CSharpExpressionAst = accessExpr;
@@ -469,7 +472,7 @@ const lowerObjectPatternAst = (
 
       const restExpr: CSharpExpressionAst = {
         kind: "objectCreationExpression",
-        type: { kind: "identifierType", name: prop.restSynthTypeName },
+        type: identifierType(prop.restSynthTypeName),
         arguments: [],
         initializer: initMembers,
       };
@@ -617,16 +620,10 @@ const lowerArrayPatternStaticAst = (
         kind: "invocationExpression",
         expression: {
           kind: "memberAccessExpression",
-          expression: {
-            kind: "identifierExpression",
-            identifier: "Tsonic.Runtime.ArrayHelpers",
-          },
+          expression: identifierExpression("Tsonic.Runtime.ArrayHelpers"),
           memberName: "Slice",
         },
-        arguments: [
-          tempExpr,
-          { kind: "literalExpression", text: String(index) },
-        ],
+        arguments: [tempExpr, decimalIntegerLiteral(index)],
       };
       const rest = lowerPatternToStaticMembersAst(
         elem.pattern,
@@ -642,7 +639,7 @@ const lowerArrayPatternStaticAst = (
     const accessExpr: CSharpExpressionAst = {
       kind: "elementAccessExpression",
       expression: tempExpr,
-      arguments: [{ kind: "literalExpression", text: String(index) }],
+      arguments: [decimalIntegerLiteral(index)],
     };
     let valueExpr: CSharpExpressionAst = accessExpr;
     if (elem.defaultExpr) {
@@ -794,7 +791,7 @@ const lowerObjectPatternStaticAst = (
 
       const restExpr: CSharpExpressionAst = {
         kind: "objectCreationExpression",
-        type: { kind: "identifierType", name: prop.restSynthTypeName },
+        type: identifierType(prop.restSynthTypeName),
         arguments: [],
         initializer: initMembers,
       };
@@ -1009,16 +1006,10 @@ const lowerAssignmentPatternStatementsAst = (
           kind: "invocationExpression",
           expression: {
             kind: "memberAccessExpression",
-            expression: {
-              kind: "identifierExpression",
-              identifier: "Tsonic.Runtime.ArrayHelpers",
-            },
+            expression: identifierExpression("Tsonic.Runtime.ArrayHelpers"),
             memberName: "Slice",
           },
-          arguments: [
-            tempExpr,
-            { kind: "literalExpression", text: String(index) },
-          ],
+          arguments: [tempExpr, decimalIntegerLiteral(index)],
         };
         const rest = lowerAssignmentPatternStatementsAst(
           elem.pattern,
@@ -1034,7 +1025,7 @@ const lowerAssignmentPatternStatementsAst = (
       const accessExpr: CSharpExpressionAst = {
         kind: "elementAccessExpression",
         expression: tempExpr,
-        arguments: [{ kind: "literalExpression", text: String(index) }],
+        arguments: [decimalIntegerLiteral(index)],
       };
       let valueExpr: CSharpExpressionAst = accessExpr;
       if (elem.defaultExpr) {
@@ -1090,7 +1081,7 @@ const lowerAssignmentPatternStatementsAst = (
 
       const restExpr: CSharpExpressionAst = {
         kind: "objectCreationExpression",
-        type: { kind: "identifierType", name: prop.restSynthTypeName },
+        type: identifierType(prop.restSynthTypeName),
         arguments: [],
         initializer: initMembers,
       };
@@ -1204,11 +1195,7 @@ export const lowerAssignmentPatternAst = (
       kind: "parenthesizedExpression",
       expression: {
         kind: "castExpression",
-        type: {
-          kind: "identifierType",
-          name: "global::System.Func",
-          typeArguments: [resultTypeAst],
-        },
+        type: identifierType("global::System.Func", [resultTypeAst]),
         expression: {
           kind: "parenthesizedExpression",
           expression: {

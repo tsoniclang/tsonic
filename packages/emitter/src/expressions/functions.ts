@@ -7,7 +7,7 @@ import { EmitterContext, withStatic } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitBlockStatementAst } from "../statement-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
-import { escapeCSharpIdentifier, getIndent } from "../emitter-types/index.js";
+import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { lowerPatternAst } from "../patterns.js";
 import type {
   CSharpBlockStatementAst,
@@ -279,10 +279,6 @@ export const emitFunctionExpression = (
     isAsync: expr.isAsync ?? false,
     parameters: paramInfos.map((p) => p.ast),
     body: bodyAst,
-    bodyIndent:
-      bodyAst.kind === "blockStatement"
-        ? getIndent(bodyContextSeeded)
-        : undefined,
   };
   return [result, paramContext];
 };
@@ -323,10 +319,6 @@ export const emitArrowFunction = (
       isAsync: expr.isAsync ?? false,
       parameters: paramInfos.map((p) => p.ast),
       body: bodyAst,
-      bodyIndent:
-        bodyAst.kind === "blockStatement"
-          ? getIndent(bodyContextSeeded)
-          : undefined,
     };
     return [result, paramContext];
   }

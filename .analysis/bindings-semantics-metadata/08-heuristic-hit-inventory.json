@@ -12,11 +12,7 @@
       "ownerRepo": "js-runtime / @tsonic/js",
       "authoringPoint": "js-runtime/surface/10/tsbindgen.surface-package.json",
       "heuristicKind": "callStyle",
-      "suites": [
-        "proof-is-in-the-pudding",
-        "tsonic:run-all",
-        "tsumo"
-      ],
+      "suites": ["proof-is-in-the-pudding", "tsonic:run-all", "tsumo"],
       "projects": [
         "fixture:import-meta-object",
         "fixture:js-string-array-returns",
@@ -60,10 +56,7 @@
       "ownerRepo": "@tsonic/dotnet",
       "authoringPoint": "dotnet/__build/templates/10/tsbindgen.bindings-semantics.json",
       "heuristicKind": "callStyle",
-      "suites": [
-        "clickmeter",
-        "tsonic:run-all"
-      ],
+      "suites": ["clickmeter", "tsonic:run-all"],
       "projects": [
         "fixture:efcore-linq-async-dotnet",
         "fixture:efcore-precompile-queries-dotnet",
@@ -87,10 +80,7 @@
       "ownerRepo": "@tsonic/efcore",
       "authoringPoint": "efcore/__build/templates/10/tsbindgen.bindings-semantics.json",
       "heuristicKind": "callStyle",
-      "suites": [
-        "clickmeter",
-        "tsonic:run-all"
-      ],
+      "suites": ["clickmeter", "tsonic:run-all"],
       "projects": [
         "fixture:efcore-linq-async-dotnet",
         "tsonic:run-all",
@@ -112,9 +102,7 @@
       "ownerRepo": "@tsonic/dotnet",
       "authoringPoint": "dotnet/__build/templates/10/tsbindgen.bindings-semantics.json",
       "heuristicKind": "callStyle",
-      "suites": [
-        "tsonic:run-all"
-      ],
+      "suites": ["tsonic:run-all"],
       "projects": [
         "fixture:efcore-precompile-queries-dotnet",
         "fixture:extension-methods-dotnet",
@@ -134,19 +122,9 @@
       "ownerRepo": "js-runtime / @tsonic/js",
       "authoringPoint": "js-runtime/surface/10/tsbindgen.surface-package.json",
       "heuristicKind": "typeIdentity",
-      "suites": [
-        "proof-is-in-the-pudding",
-        "tsonic:run-all",
-        "tsumo"
-      ],
-      "projects": [
-        "proof-is-in-the-pudding",
-        "tsonic:run-all",
-        "tsumo"
-      ],
-      "sampleBindings": [
-        "ReadonlyArray -> Tsonic.JSRuntime.JSArray`1"
-      ],
+      "suites": ["proof-is-in-the-pudding", "tsonic:run-all", "tsumo"],
+      "projects": ["proof-is-in-the-pudding", "tsonic:run-all", "tsumo"],
+      "sampleBindings": ["ReadonlyArray -> Tsonic.JSRuntime.JSArray`1"],
       "count": 6
     },
     {
@@ -156,19 +134,9 @@
       "ownerRepo": "js-runtime / @tsonic/js",
       "authoringPoint": "js-runtime/surface/10/tsbindgen.surface-package.json",
       "heuristicKind": "typeIdentity",
-      "suites": [
-        "proof-is-in-the-pudding",
-        "tsonic:run-all",
-        "tsumo"
-      ],
-      "projects": [
-        "proof-is-in-the-pudding",
-        "tsonic:run-all",
-        "tsumo"
-      ],
-      "sampleBindings": [
-        "Set -> Tsonic.JSRuntime.Set`1"
-      ],
+      "suites": ["proof-is-in-the-pudding", "tsonic:run-all", "tsumo"],
+      "projects": ["proof-is-in-the-pudding", "tsonic:run-all", "tsumo"],
+      "sampleBindings": ["Set -> Tsonic.JSRuntime.Set`1"],
       "count": 3
     },
     {
@@ -178,19 +146,9 @@
       "ownerRepo": "js-runtime / @tsonic/js",
       "authoringPoint": "js-runtime/surface/10/tsbindgen.surface-package.json",
       "heuristicKind": "typeIdentity",
-      "suites": [
-        "clickmeter",
-        "proof-is-in-the-pudding",
-        "tsonic:run-all"
-      ],
-      "projects": [
-        "clickmeter",
-        "proof-is-in-the-pudding",
-        "tsonic:run-all"
-      ],
-      "sampleBindings": [
-        "Error -> System.Exception"
-      ],
+      "suites": ["clickmeter", "proof-is-in-the-pudding", "tsonic:run-all"],
+      "projects": ["clickmeter", "proof-is-in-the-pudding", "tsonic:run-all"],
+      "sampleBindings": ["Error -> System.Exception"],
       "count": 6
     },
     {
@@ -200,19 +158,9 @@
       "ownerRepo": "js-runtime / @tsonic/js",
       "authoringPoint": "js-runtime/surface/10/tsbindgen.surface-package.json",
       "heuristicKind": "typeIdentity",
-      "suites": [
-        "proof-is-in-the-pudding",
-        "tsonic:run-all",
-        "tsumo"
-      ],
-      "projects": [
-        "proof-is-in-the-pudding",
-        "tsonic:run-all",
-        "tsumo"
-      ],
-      "sampleBindings": [
-        "Map -> Tsonic.JSRuntime.Map`2"
-      ],
+      "suites": ["proof-is-in-the-pudding", "tsonic:run-all", "tsumo"],
+      "projects": ["proof-is-in-the-pudding", "tsonic:run-all", "tsumo"],
+      "sampleBindings": ["Map -> Tsonic.JSRuntime.Map`2"],
       "count": 3
     }
   ],

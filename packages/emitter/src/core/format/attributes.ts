@@ -22,10 +22,14 @@
 import { IrAttribute, IrAttributeArg } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst } from "../../type-emitter.js";
+import {
+  booleanLiteral,
+  parseNumericLiteral,
+  stringLiteral,
+} from "./backend-ast/builders.js";
 import type {
   CSharpAttributeAst,
   CSharpExpressionAst,
-  CSharpTypeAst,
 } from "./backend-ast/types.js";
 
 /**
@@ -37,20 +41,11 @@ const emitAttributeArgAst = (
 ): [CSharpExpressionAst, EmitterContext] => {
   switch (arg.kind) {
     case "string":
-      return [
-        {
-          kind: "literalExpression",
-          text: `"${arg.value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
-        },
-        context,
-      ];
+      return [stringLiteral(arg.value), context];
     case "number":
-      return [{ kind: "literalExpression", text: String(arg.value) }, context];
+      return [parseNumericLiteral(String(arg.value)), context];
     case "boolean":
-      return [
-        { kind: "literalExpression", text: arg.value ? "true" : "false" },
-        context,
-      ];
+      return [booleanLiteral(arg.value), context];
     case "typeof": {
       const [typeAst, newContext] = emitTypeAst(arg.type, context);
       return [{ kind: "typeofExpression", type: typeAst }, newContext];
@@ -60,10 +55,7 @@ const emitAttributeArgAst = (
       return [
         {
           kind: "memberAccessExpression",
-          expression: {
-            kind: "identifierExpression",
-            identifier: extractTypeName(typeAst),
-          },
+          expression: { kind: "typeReferenceExpression", type: typeAst },
           memberName: arg.member,
         },
         newContext,
@@ -87,51 +79,6 @@ const emitAttributeArgAst = (
       ];
     }
   }
-};
-
-/**
- * Extract a printable type name from a CSharpTypeAst without calling printType.
- * Handles the common cases (identifierType, predefinedType).
- * Falls back to printType for exotic shapes.
- */
-const extractTypeName = (typeAst: CSharpTypeAst): string => {
-  if (typeAst.kind === "predefinedType") {
-    return typeAst.keyword;
-  }
-  if (typeAst.kind === "identifierType") {
-    const args =
-      typeAst.typeArguments && typeAst.typeArguments.length > 0
-        ? `<${typeAst.typeArguments.map(extractTypeName).join(", ")}>`
-        : "";
-    return `${typeAst.name}${args}`;
-  }
-  if (typeAst.kind === "nullableType") {
-    return `${extractTypeName(typeAst.underlyingType)}?`;
-  }
-  if (typeAst.kind === "arrayType") {
-    const rank =
-      typeAst.rank > 1
-        ? `[${",".repeat(Math.max(0, typeAst.rank - 1))}]`
-        : "[]";
-    return `${extractTypeName(typeAst.elementType)}${rank}`;
-  }
-  if (typeAst.kind === "pointerType") {
-    return `${extractTypeName(typeAst.elementType)}*`;
-  }
-  if (typeAst.kind === "tupleType") {
-    const elems = typeAst.elements
-      .map((e) =>
-        e.name
-          ? `${extractTypeName(e.type)} ${e.name}`
-          : extractTypeName(e.type)
-      )
-      .join(", ");
-    return `(${elems})`;
-  }
-  if (typeAst.kind === "varType") {
-    return "var";
-  }
-  throw new Error("ICE: Unsupported attribute type AST.");
 };
 
 /**

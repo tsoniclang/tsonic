@@ -48,7 +48,10 @@ describe("Interface mutable storage emission", () => {
     };
 
     const [decls] = emitInterfaceDeclaration(stmt, context);
-    const code = printTypeDeclaration(decls[0]!, "");
+    const firstDecl = decls[0];
+    expect(firstDecl).to.not.equal(undefined);
+    if (!firstDecl) return;
+    const code = printTypeDeclaration(firstDecl, "");
     expect(code).to.include("public class ResultBag");
     expect(code).to.include("public required string[] items { get; set; }");
     expect(code).to.not.include("init");
@@ -85,7 +88,10 @@ describe("Interface mutable storage emission", () => {
     };
 
     const [decls] = emitInterfaceDeclaration(stmt, context);
-    const code = printTypeDeclaration(decls[0]!, "");
+    const firstDecl = decls[0];
+    expect(firstDecl).to.not.equal(undefined);
+    if (!firstDecl) return;
+    const code = printTypeDeclaration(firstDecl, "");
     expect(code).to.include("public interface ResultBag");
     expect(code).to.include("string[] items { get; }");
     expect(code).to.not.include("set;");

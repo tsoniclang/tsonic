@@ -15,6 +15,7 @@ import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { isMutablePropertySlot } from "../../core/semantic/mutable-storage.js";
 import { emitCSharpName } from "../../naming-policy.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpTypeDeclarationAst,
   CSharpMemberAst,
@@ -130,10 +131,7 @@ export const emitInterfaceDeclaration = (
         if (member.type) {
           return emitTypeAst(member.type, currentContext);
         }
-        const objType: CSharpTypeAst = {
-          kind: "identifierType",
-          name: "object",
-        };
+        const objType: CSharpTypeAst = identifierType("object");
         return [objType, currentContext] as const;
       })();
       currentContext = typeContext;
@@ -165,10 +163,7 @@ export const emitInterfaceDeclaration = (
         if (member.returnType) {
           return emitTypeAst(member.returnType, currentContext);
         }
-        const voidType: CSharpTypeAst = {
-          kind: "identifierType",
-          name: "void",
-        };
+        const voidType: CSharpTypeAst = identifierType("void");
         return [voidType, currentContext] as const;
       })();
       currentContext = returnTypeContext;
@@ -202,10 +197,9 @@ export const emitInterfaceDeclaration = (
       kind: "constructorDeclaration",
       attributes: [
         {
-          type: {
-            kind: "identifierType",
-            name: "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute",
-          },
+          type: identifierType(
+            "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute"
+          ),
         },
       ],
       modifiers: ["public"],

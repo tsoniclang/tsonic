@@ -346,10 +346,7 @@ describe("Binding System", () => {
         ],
       });
 
-      const overloads = registry.getMemberOverloads(
-        "Acme.Core.Widget",
-        "Name"
-      );
+      const overloads = registry.getMemberOverloads("Acme.Core.Widget", "Name");
       expect(overloads).to.not.equal(undefined);
       expect(overloads?.length).to.equal(1);
       expect(overloads?.[0]?.binding.type).to.equal("Acme.Core.Widget");
@@ -1243,9 +1240,11 @@ describe("Binding System", () => {
       expect(where?.emitSemantics?.callStyle).to.equal("static");
       expect(toList?.emitSemantics?.callStyle).to.equal("receiver");
       expect(
-        registry
-          .getClrMemberOverloads("System.Linq", "System.Linq.Enumerable", "ToList")
-          ?.[0]?.emitSemantics?.callStyle
+        registry.getClrMemberOverloads(
+          "System.Linq",
+          "System.Linq.Enumerable",
+          "ToList"
+        )?.[0]?.emitSemantics?.callStyle
       ).to.equal("receiver");
     });
 

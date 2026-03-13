@@ -16,6 +16,7 @@ import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js
 const containsConditionalAccess = (ast: CSharpExpressionAst): boolean => {
   switch (ast.kind) {
     case "conditionalMemberAccessExpression":
+    case "conditionalElementAccessExpression":
       return true;
     case "memberAccessExpression":
       return containsConditionalAccess(ast.expression);
@@ -25,9 +26,6 @@ const containsConditionalAccess = (ast: CSharpExpressionAst): boolean => {
       return containsConditionalAccess(ast.expression);
     case "parenthesizedExpression":
       return containsConditionalAccess(ast.expression);
-    case "identifierExpression":
-      // Pre-rendered text may contain ?. or ?[ patterns
-      return ast.identifier.includes("?.") || ast.identifier.includes("?[");
     default:
       return false;
   }

@@ -14,16 +14,49 @@
 // Type AST
 // ============================================================
 
+export type CSharpPredefinedTypeKeyword =
+  | "bool"
+  | "byte"
+  | "sbyte"
+  | "short"
+  | "ushort"
+  | "int"
+  | "uint"
+  | "long"
+  | "ulong"
+  | "nint"
+  | "nuint"
+  | "char"
+  | "float"
+  | "double"
+  | "decimal"
+  | "string"
+  | "object"
+  | "void";
+
 export type CSharpPredefinedTypeAst = {
   readonly kind: "predefinedType";
-  /** C# keyword: "int", "string", "bool", "double", "void", "object", "char", "decimal", "float", "long", etc. */
-  readonly keyword: string;
+  /** True C# predefined type keyword (for example "int", "string", "bool", "double", "void", "object"). */
+  readonly keyword: CSharpPredefinedTypeKeyword;
 };
 
 export type CSharpIdentifierTypeAst = {
   readonly kind: "identifierType";
-  /** Type name, potentially fully-qualified (e.g. "global::System.Collections.Generic.List") */
+  /** Simple type name without qualification (e.g. "List", "Task", "MyType"). */
   readonly name: string;
+  readonly typeArguments?: readonly CSharpTypeAst[];
+};
+
+export type CSharpQualifiedNameAst = {
+  /** Optional alias qualifier like `global` in `global::System.String`. */
+  readonly aliasQualifier?: string;
+  /** Dot-separated identifier path segments. */
+  readonly segments: readonly string[];
+};
+
+export type CSharpQualifiedIdentifierTypeAst = {
+  readonly kind: "qualifiedIdentifierType";
+  readonly name: CSharpQualifiedNameAst;
   readonly typeArguments?: readonly CSharpTypeAst[];
 };
 
@@ -61,6 +94,7 @@ export type CSharpVarTypeAst = {
 export type CSharpTypeAst =
   | CSharpPredefinedTypeAst
   | CSharpIdentifierTypeAst
+  | CSharpQualifiedIdentifierTypeAst
   | CSharpNullableTypeAst
   | CSharpArrayTypeAst
   | CSharpPointerTypeAst
@@ -71,15 +105,53 @@ export type CSharpTypeAst =
 // Expression AST
 // ============================================================
 
-export type CSharpLiteralExpressionAst = {
-  readonly kind: "literalExpression";
-  /** The literal token text: "null", "default", "true", "false", "42", "3.14", `"hello"`, `'c'` */
-  readonly text: string;
+export type CSharpNullLiteralExpressionAst = {
+  readonly kind: "nullLiteralExpression";
+};
+
+export type CSharpBooleanLiteralExpressionAst = {
+  readonly kind: "booleanLiteralExpression";
+  readonly value: boolean;
+};
+
+export type CSharpStringLiteralExpressionAst = {
+  readonly kind: "stringLiteralExpression";
+  readonly value: string;
+};
+
+export type CSharpCharLiteralExpressionAst = {
+  readonly kind: "charLiteralExpression";
+  readonly value: string;
+};
+
+export type CSharpNumericLiteralBase = "decimal" | "hexadecimal" | "binary";
+
+export type CSharpNumericLiteralSuffix = "L" | "U" | "UL" | "f" | "d" | "m";
+
+export type CSharpNumericLiteralExpressionAst = {
+  readonly kind: "numericLiteralExpression";
+  readonly base: CSharpNumericLiteralBase;
+  readonly wholePart: string;
+  readonly fractionalPart?: string;
+  readonly exponentSign?: "+" | "-";
+  readonly exponentDigits?: string;
+  readonly suffix?: CSharpNumericLiteralSuffix;
 };
 
 export type CSharpIdentifierExpressionAst = {
   readonly kind: "identifierExpression";
+  /** Simple identifier without qualification. */
   readonly identifier: string;
+};
+
+export type CSharpQualifiedIdentifierExpressionAst = {
+  readonly kind: "qualifiedIdentifierExpression";
+  readonly name: CSharpQualifiedNameAst;
+};
+
+export type CSharpTypeReferenceExpressionAst = {
+  readonly kind: "typeReferenceExpression";
+  readonly type: CSharpTypeAst;
 };
 
 export type CSharpParenthesizedExpressionAst = {
@@ -108,6 +180,11 @@ export type CSharpElementAccessExpressionAst = {
 export type CSharpConditionalElementAccessExpressionAst = {
   readonly kind: "conditionalElementAccessExpression";
   readonly expression: CSharpExpressionAst;
+  readonly arguments: readonly CSharpExpressionAst[];
+};
+
+export type CSharpImplicitElementAccessExpressionAst = {
+  readonly kind: "implicitElementAccessExpression";
   readonly arguments: readonly CSharpExpressionAst[];
 };
 
@@ -222,8 +299,6 @@ export type CSharpLambdaExpressionAst = {
   readonly isAsync: boolean;
   readonly parameters: readonly CSharpLambdaParameterAst[];
   readonly body: CSharpExpressionAst | CSharpBlockStatementAst;
-  /** Indent hint for block bodies (expressions don't track indentation) */
-  readonly bodyIndent?: string;
 };
 
 export type CSharpInterpolatedStringPartText = {
@@ -286,13 +361,20 @@ export type CSharpSwitchExpressionAst = {
 };
 
 export type CSharpExpressionAst =
-  | CSharpLiteralExpressionAst
+  | CSharpNullLiteralExpressionAst
+  | CSharpBooleanLiteralExpressionAst
+  | CSharpStringLiteralExpressionAst
+  | CSharpCharLiteralExpressionAst
+  | CSharpNumericLiteralExpressionAst
   | CSharpIdentifierExpressionAst
+  | CSharpQualifiedIdentifierExpressionAst
+  | CSharpTypeReferenceExpressionAst
   | CSharpParenthesizedExpressionAst
   | CSharpMemberAccessExpressionAst
   | CSharpConditionalMemberAccessExpressionAst
   | CSharpElementAccessExpressionAst
   | CSharpConditionalElementAccessExpressionAst
+  | CSharpImplicitElementAccessExpressionAst
   | CSharpInvocationExpressionAst
   | CSharpObjectCreationExpressionAst
   | CSharpArrayCreationExpressionAst
@@ -688,18 +770,31 @@ export type CSharpTypeDeclarationAst =
 
 export type CSharpUsingDirectiveAst = {
   readonly kind: "usingDirective";
-  readonly namespace: string;
+  readonly namespace: CSharpQualifiedNameAst;
 };
+
+export type CSharpSingleLineCommentTriviaAst = {
+  readonly kind: "singleLineCommentTrivia";
+  readonly text: string;
+};
+
+export type CSharpBlankLineTriviaAst = {
+  readonly kind: "blankLineTrivia";
+};
+
+export type CSharpTriviaAst =
+  | CSharpSingleLineCommentTriviaAst
+  | CSharpBlankLineTriviaAst;
 
 export type CSharpNamespaceDeclarationAst = {
   readonly kind: "namespaceDeclaration";
-  readonly name: string;
+  readonly name: CSharpQualifiedNameAst;
   readonly members: readonly CSharpTypeDeclarationAst[];
 };
 
 export type CSharpCompilationUnitAst = {
   readonly kind: "compilationUnit";
-  readonly header?: string;
+  readonly leadingTrivia?: readonly CSharpTriviaAst[];
   readonly usings: readonly CSharpUsingDirectiveAst[];
   readonly members: readonly (
     | CSharpNamespaceDeclarationAst

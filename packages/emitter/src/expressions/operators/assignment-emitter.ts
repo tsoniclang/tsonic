@@ -118,12 +118,10 @@ export const emitAssignment = (
       leftContext = context;
       leftType = pattern.type;
     } else {
-      // Compound assignment to array/object pattern - not valid in JS
-      leftAst = {
-        kind: "identifierExpression",
-        identifier: "/* invalid compound destructuring */",
-      };
-      leftContext = context;
+      throw new Error(
+        "ICE: Compound assignment to array/object destructuring pattern reached emitter. " +
+          "Validation should have rejected this invalid JavaScript shape."
+      );
     }
   } else {
     const leftExpr = expr.left as IrExpression;

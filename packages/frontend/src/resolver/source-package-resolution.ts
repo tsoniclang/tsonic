@@ -77,7 +77,10 @@ export const isPathWithinBoundary = (
   filePath: string,
   boundary: string
 ): boolean => {
-  const relative = path.relative(path.resolve(boundary), path.resolve(filePath));
+  const relative = path.relative(
+    path.resolve(boundary),
+    path.resolve(filePath)
+  );
   return (
     relative === "" ||
     (!relative.startsWith("..") && !path.isAbsolute(relative))

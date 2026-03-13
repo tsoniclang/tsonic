@@ -14,8 +14,12 @@ import {
 } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
+import { emitTypeAst } from "../../../type-emitter.js";
 import { extractCalleeNameFromAst } from "../../../core/format/backend-ast/utils.js";
-import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../../../core/format/backend-ast/types.js";
 
 /**
  * Extract the identifier string from an expression AST that is known to be
@@ -60,7 +64,7 @@ export type GuardInfo = {
  */
 export type InstanceofGuardInfo = {
   readonly originalName: string;
-  readonly rhsTypeText: string;
+  readonly rhsTypeAst: CSharpTypeAst;
   readonly ctxWithId: EmitterContext;
   readonly ctxAfterRhs: EmitterContext;
   readonly narrowedName: string;
@@ -184,7 +188,9 @@ const getGuardPropertyType = (
 ): IrType | undefined => {
   if (type.kind === "objectType") {
     const prop = type.members.find(
-      (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
+      (
+        member
+      ): member is Extract<typeof member, { kind: "propertySignature" }> =>
         member.kind === "propertySignature" && member.name === propertyName
     );
     return prop?.type;
@@ -193,7 +199,9 @@ const getGuardPropertyType = (
   if (type.kind === "referenceType") {
     if (type.structuralMembers?.length) {
       const prop = type.structuralMembers.find(
-        (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
+        (
+          member
+        ): member is Extract<typeof member, { kind: "propertySignature" }> =>
           member.kind === "propertySignature" && member.name === propertyName
       );
       if (prop) return prop.type;
@@ -387,7 +395,9 @@ const buildRenameNarrowedMap = (
   return narrowedMap;
 };
 
-const isDefinitelyTruthyLiteral = (value: string | number | boolean): boolean => {
+const isDefinitelyTruthyLiteral = (
+  value: string | number | boolean
+): boolean => {
   if (typeof value === "string") return value.length > 0;
   if (typeof value === "number") return value !== 0 && !Number.isNaN(value);
   return value === true;
@@ -406,7 +416,9 @@ const isDefinitelyFalsyType = (
     return resolved.name === "undefined" || resolved.name === "null";
   }
   if (resolved.kind === "unionType") {
-    return resolved.types.every((member) => isDefinitelyFalsyType(member, context));
+    return resolved.types.every((member) =>
+      isDefinitelyFalsyType(member, context)
+    );
   }
   return false;
 };
@@ -422,7 +434,9 @@ const isDefinitelyTruthyType = (
 
   const resolved = resolveTypeAlias(type, context);
   if (resolved.kind === "unionType") {
-    return resolved.types.every((member) => isDefinitelyTruthyType(member, context));
+    return resolved.types.every((member) =>
+      isDefinitelyTruthyType(member, context)
+    );
   }
 
   return false;
@@ -512,7 +526,11 @@ export const tryResolveDiscriminantEqualityGuard = (
   const unionSourceType = receiver.inferredType;
   if (!unionSourceType) return undefined;
 
-  const frame = resolveRuntimeUnionFrame(originalName, unionSourceType, context);
+  const frame = resolveRuntimeUnionFrame(
+    originalName,
+    unionSourceType,
+    context
+  );
   if (!frame) return undefined;
 
   const { members, candidateMemberNs, runtimeUnionArity } = frame;
@@ -628,14 +646,23 @@ export const tryResolvePropertyTruthinessGuard = (
   const match = extract(condition);
   if (!match) return undefined;
 
-  const { receiver, propertyName, wantTruthy, bindingType, bindingValueTruthiness } =
-    match;
+  const {
+    receiver,
+    propertyName,
+    wantTruthy,
+    bindingType,
+    bindingValueTruthiness,
+  } = match;
   const originalName = receiver.name;
 
   const unionSourceType = receiver.inferredType;
   if (!unionSourceType) return undefined;
 
-  const frame = resolveRuntimeUnionFrame(originalName, unionSourceType, context);
+  const frame = resolveRuntimeUnionFrame(
+    originalName,
+    unionSourceType,
+    context
+  );
   if (!frame) return undefined;
 
   const { members, candidateMemberNs, runtimeUnionArity } = frame;
@@ -652,7 +679,9 @@ export const tryResolvePropertyTruthinessGuard = (
       const candidateClr = member.resolvedClrType
         ? stripGlobalPrefix(member.resolvedClrType)
         : undefined;
-      return candidateClr === bindingTypeName || member.name === bindingTypeName;
+      return (
+        candidateClr === bindingTypeName || member.name === bindingTypeName
+      );
     });
 
     if (boundMemberIndex >= 0) {
@@ -747,7 +776,11 @@ export const tryResolveInGuard = (
   const unionSourceType = condition.right.inferredType;
   if (!unionSourceType) return undefined;
 
-  const frame = resolveRuntimeUnionFrame(originalName, unionSourceType, context);
+  const frame = resolveRuntimeUnionFrame(
+    originalName,
+    unionSourceType,
+    context
+  );
   if (!frame) return undefined;
 
   const { members, candidateMemberNs, runtimeUnionArity } = frame;
@@ -760,7 +793,9 @@ export const tryResolveInGuard = (
   for (let i = 0; i < members.length; i++) {
     const member = members[i];
     if (!member || member.kind !== "referenceType") continue;
-    if (hasDeterministicPropertyMembership(member, propertyName, context) === true) {
+    if (
+      hasDeterministicPropertyMembership(member, propertyName, context) === true
+    ) {
       matchingIndices.push(i);
       matchingMemberNs.push(candidateMemberNs[i] ?? i + 1);
     }
@@ -851,7 +886,11 @@ export const tryResolvePredicateGuard = (
   const unionSourceType = arg.inferredType;
   if (!unionSourceType) return undefined;
 
-  const frame = resolveRuntimeUnionFrame(originalName, unionSourceType, context);
+  const frame = resolveRuntimeUnionFrame(
+    originalName,
+    unionSourceType,
+    context
+  );
   if (!frame) return undefined;
 
   const resolved: IrType = {
@@ -917,9 +956,29 @@ export const tryResolveInstanceofGuard = (
   const nextId = (ctxAfterLhs.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...ctxAfterLhs, tempVarId: nextId };
 
-  // Emit RHS as a type name (e.g., global::System.String)
-  const [rhsAst, ctxAfterRhs] = emitExpressionAst(condition.right, ctxWithId);
-  const rhsTypeText = extractIdentifierText(rhsAst);
+  const [rhsAst, rhsCtxAfterExpr] = emitExpressionAst(
+    condition.right,
+    ctxWithId
+  );
+
+  const inferredRhsType = condition.right.inferredType;
+  let rhsTypeAst: CSharpTypeAst | undefined;
+  let ctxAfterRhs = rhsCtxAfterExpr;
+
+  if (rhsAst.kind === "typeReferenceExpression") {
+    rhsTypeAst = rhsAst.type;
+  } else if (inferredRhsType) {
+    const [emittedTypeAst, nextCtx] = emitTypeAst(
+      inferredRhsType,
+      rhsCtxAfterExpr
+    );
+    rhsTypeAst = emittedTypeAst;
+    ctxAfterRhs = nextCtx;
+  }
+
+  if (!rhsTypeAst) {
+    return undefined;
+  }
 
   // Pattern variable name for the narrowed value.
   const narrowedName = `${originalName}__is_${nextId}`;
@@ -934,7 +993,7 @@ export const tryResolveInstanceofGuard = (
 
   return {
     originalName,
-    rhsTypeText,
+    rhsTypeAst,
     ctxWithId,
     ctxAfterRhs,
     narrowedName,

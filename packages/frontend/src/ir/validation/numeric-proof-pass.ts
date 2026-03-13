@@ -153,20 +153,20 @@ const extractInt32BoundFact = (
     return undefined;
   }
 
+  const leftBound = extractIntegerLiteralBound(expr.right);
+  const rightBound = extractIntegerLiteralBound(expr.left);
   const directIdentifier =
-    isIdentifierExpr(expr.left) &&
-    extractIntegerLiteralBound(expr.right) !== undefined
+    isIdentifierExpr(expr.left) && leftBound !== undefined
       ? {
           name: expr.left.name,
-          bound: extractIntegerLiteralBound(expr.right)!,
+          bound: leftBound,
           operator: expr.operator,
           reversed: false,
         }
-      : isIdentifierExpr(expr.right) &&
-          extractIntegerLiteralBound(expr.left) !== undefined
+      : isIdentifierExpr(expr.right) && rightBound !== undefined
         ? {
             name: expr.right.name,
-            bound: extractIntegerLiteralBound(expr.left)!,
+            bound: rightBound,
             operator: expr.operator,
             reversed: true,
           }
@@ -1434,7 +1434,7 @@ const processStatement = <T extends IrStatement>(
           : undefined,
       } as T;
 
-    case "ifStatement":
+    case "ifStatement": {
       const processedCondition = processExpression(stmt.condition, ctx);
       const thenCtx = withInt32ProofsFromTruthyCondition(
         cloneProofContext(ctx),
@@ -1448,6 +1448,7 @@ const processStatement = <T extends IrStatement>(
           ? processStatement(stmt.elseStatement, ctx)
           : undefined,
       } as T;
+    }
 
     case "whileStatement":
       return {

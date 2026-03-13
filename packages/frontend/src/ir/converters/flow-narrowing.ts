@@ -185,7 +185,9 @@ const tryResolveTruthyNarrowing = (
     return memberType.kind === "unknownType" ? undefined : memberType;
   };
 
-  const propertyTypeIsDefinitelyTruthy = (type: IrType | undefined): boolean => {
+  const propertyTypeIsDefinitelyTruthy = (
+    type: IrType | undefined
+  ): boolean => {
     if (!type) return false;
     if (type.kind === "literalType") {
       return type.value === true;
@@ -239,7 +241,8 @@ const tryResolveTruthyNarrowing = (
     const kept = collectPropertyNarrowingCandidates(currentType).filter(
       (member): member is IrType => {
         if (!member) return false;
-        const hasMember = getMemberTypeForNarrowing(member, propertyName) !== undefined;
+        const hasMember =
+          getMemberTypeForNarrowing(member, propertyName) !== undefined;
         return hasMember === wantPresent;
       }
     );
@@ -482,7 +485,9 @@ const tryResolveFalsyNarrowing = (
         if (!member) return false;
         const memberType = getMemberTypeForNarrowing(member, propertyName);
         if (!memberType || memberType.kind !== "literalType") return false;
-        return wantTruthy ? memberType.value === true : memberType.value === false;
+        return wantTruthy
+          ? memberType.value === true
+          : memberType.value === false;
       }
     );
 
@@ -499,7 +504,8 @@ const tryResolveFalsyNarrowing = (
     const kept = collectPropertyNarrowingCandidates(currentType).filter(
       (member): member is IrType => {
         if (!member) return false;
-        const hasMember = getMemberTypeForNarrowing(member, propertyName) !== undefined;
+        const hasMember =
+          getMemberTypeForNarrowing(member, propertyName) !== undefined;
         return hasMember === wantPresent;
       }
     );

@@ -176,7 +176,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         (ts.isTypeAliasDeclaration(typeDecl) ||
           ts.isInterfaceDeclaration(typeDecl) ||
           ts.isClassDeclaration(typeDecl))
-          ? getBindingAliasFromDeclaration(typeDecl) ?? symbol.getName()
+          ? (getBindingAliasFromDeclaration(typeDecl) ?? symbol.getName())
           : symbol.getName(),
       classMemberNames,
     };

@@ -1032,7 +1032,9 @@ const resolveMemberTypeNoDiag = (
       receiver.structuralMembers &&
       receiver.structuralMembers.length > 0
     ) {
-      const member = receiver.structuralMembers.find((m) => m.name === memberName);
+      const member = receiver.structuralMembers.find(
+        (m) => m.name === memberName
+      );
       if (!member) return undefined;
       if (member.kind === "propertySignature") {
         if (!member.isOptional) return member.type;
