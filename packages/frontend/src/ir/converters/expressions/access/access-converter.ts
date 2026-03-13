@@ -175,13 +175,8 @@ export const convertMemberExpression = (
     const stringLiteralProperty = (() => {
       const arg = node.argumentExpression;
       if (!arg) return undefined;
-      if (
-        ts.isStringLiteral(arg) ||
-        ts.isNoSubstitutionTemplateLiteral(arg)
-      ) {
-        return /^[$A-Z_a-z][$\w]*$/u.test(arg.text)
-          ? arg.text
-          : undefined;
+      if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
+        return /^[$A-Z_a-z][$\w]*$/u.test(arg.text) ? arg.text : undefined;
       }
       return undefined;
     })();
@@ -222,7 +217,9 @@ export const convertMemberExpression = (
     // Classify the access kind for proof pass
     // This determines whether Int32 proof is required for the index
     const accessKind =
-      objectType === object.inferredType ? computedAccessKind : classifyComputedAccess(objectType, ctx);
+      objectType === object.inferredType
+        ? computedAccessKind
+        : classifyComputedAccess(objectType, ctx);
 
     // Derive element type from object type
     const elementType = deriveElementType(objectType, ctx);

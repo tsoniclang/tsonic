@@ -460,7 +460,8 @@ export class BindingRegistry {
 
         const derivedAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
         const tsAlias = tsbType.alias ?? derivedAlias;
-        const uniqueDerivedAlias = (derivedAliasCounts.get(derivedAlias) ?? 0) === 1;
+        const uniqueDerivedAlias =
+          (derivedAliasCounts.get(derivedAlias) ?? 0) === 1;
 
         // Record CLR inheritance relationships (base type + interfaces) so extension-method
         // binding lookup can follow the CLR graph deterministically.
@@ -662,10 +663,7 @@ export class BindingRegistry {
 
     // See getMember(): map `${TypeName}$protected` to `${TypeName}` for CLR binding lookup.
     if (normalizedTypeAlias.endsWith("$protected")) {
-      const ownerAlias = normalizedTypeAlias.slice(
-        0,
-        -"$protected".length
-      );
+      const ownerAlias = normalizedTypeAlias.slice(0, -"$protected".length);
       const ownerKey = `${ownerAlias}.${memberAlias}`;
       const owner = this.memberOverloads.get(ownerKey);
       if (owner && owner.length > 0) return owner;

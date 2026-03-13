@@ -7,10 +7,10 @@ namespace TestCases.common.functions.closures
         {
             var count = 0;
             return () =>
-            {
-            count++;
-            return count;
-            };
+                {
+                count++;
+                return count;
+                };
         }
 
         public static global::System.Func<double, double> makeAdder(double x)

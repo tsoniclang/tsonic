@@ -10,5 +10,10 @@ export function main(): void {
   const firstMatch = maybeMatch === undefined ? "" : maybeMatch[0]!;
   const firstAll = allMatches.length === 0 ? "" : allMatches[0]![0]!;
 
-  console.log(takeParts(parts), firstMatch, firstAll, selected.length.toString());
+  console.log(
+    takeParts(parts),
+    firstMatch,
+    firstAll,
+    selected.length.toString()
+  );
 }

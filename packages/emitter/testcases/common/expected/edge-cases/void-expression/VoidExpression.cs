@@ -17,7 +17,11 @@ namespace TestCases.common.edgecases.voidexpression
 
         public static object? voidReturnValue()
         {
-            return ((global::System.Func<object?>)(() => { sideEffect(); return default(object?); }))();
+            return ((global::System.Func<object?>)(() =>
+                {
+                sideEffect();
+                return default(object?);
+                }))();
         }
 
         internal static int sideEffect()

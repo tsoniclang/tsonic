@@ -22,7 +22,9 @@ import {
 import { emitCSharpFiles } from "./emitter.js";
 
 const require = createRequire(import.meta.url);
-const corePackageRoot = path.dirname(require.resolve("@tsonic/core/package.json"));
+const corePackageRoot = path.dirname(
+  require.resolve("@tsonic/core/package.json")
+);
 const coreTypesPath = path.join(corePackageRoot, "types.d.ts");
 const coreLangPath = path.join(corePackageRoot, "lang.d.ts");
 
@@ -39,7 +41,9 @@ const resolveTsonicModule = (
   }
 
   const packageName = parts.slice(0, 2).join("/");
-  const packageRoot = path.dirname(require.resolve(`${packageName}/package.json`));
+  const packageRoot = path.dirname(
+    require.resolve(`${packageName}/package.json`)
+  );
   const subPath = moduleName.slice(packageName.length + 1);
   const declarationPath = path.join(
     packageRoot,
@@ -1352,7 +1356,9 @@ describe("End-to-End Integration", () => {
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.include("new global::System.Collections.Generic.Dictionary");
+      expect(csharp).to.include(
+        "new global::System.Collections.Generic.Dictionary"
+      );
       expect(csharp).to.include("value =");
       expect(csharp).not.to.include("updateProfileData(profileData);");
     });
@@ -1402,7 +1408,7 @@ describe("End-to-End Integration", () => {
         /inputs\.Add\(new .* \{ type = "stream", to = "general", topic = "t", content = "hi" \}\);/
       );
       expect(csharp).not.to.include(
-        'inputs.Add(new global::System.Collections.Generic.Dictionary'
+        "inputs.Add(new global::System.Collections.Generic.Dictionary"
       );
     });
 
@@ -1448,7 +1454,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(
         /__Anon_[A-Za-z0-9_]+\s+updates\s*=\s*new\s+global::Test\.__Anon_[A-Za-z0-9_]+\(\);/
       );
-      expect(csharp).not.to.include("new global::System.Collections.Generic.Dictionary");
+      expect(csharp).not.to.include(
+        "new global::System.Collections.Generic.Dictionary"
+      );
     });
   });
 

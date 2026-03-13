@@ -8,6 +8,7 @@ import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { emitAttributes } from "../../core/format/attributes.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import { substituteType } from "../../specialization/substitution.js";
 import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
@@ -265,10 +266,9 @@ export const emitClassDeclaration = (
     (m) => m.kind === "propertyDeclaration" && m.modifiers.includes("required")
   );
   const setsRequiredAttribute: CSharpAttributeAst = {
-    type: {
-      kind: "identifierType",
-      name: "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute",
-    },
+    type: identifierType(
+      "global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute"
+    ),
   };
   const memberAstsWithRequiredCtor = (() => {
     if (stmt.isStruct || !hasRequiredProperties) return memberAsts;

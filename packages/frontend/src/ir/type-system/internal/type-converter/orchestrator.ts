@@ -108,14 +108,20 @@ function buildFunctionTypeFromSignatureDeclaration(
         ? { kind: "identifierPattern", name: parameter.name.text }
         : { kind: "identifierPattern", name: `p${parameter.pos}` },
       type: parameter.type
-        ? convertType(withTypeParameterConstraint(parameter.type, binding), binding)
+        ? convertType(
+            withTypeParameterConstraint(parameter.type, binding),
+            binding
+          )
         : { kind: "unknownType" },
       isOptional: !!parameter.questionToken || !!parameter.initializer,
       isRest: !!parameter.dotDotDotToken,
       passing: "value",
     })),
     returnType: declaration.type
-      ? convertType(withTypeParameterConstraint(declaration.type, binding), binding)
+      ? convertType(
+          withTypeParameterConstraint(declaration.type, binding),
+          binding
+        )
       : { kind: "voidType" },
   };
 }
@@ -127,13 +133,19 @@ function inferTypeFromValueDeclaration(
 ): IrType | undefined {
   if (!declaration) return undefined;
 
-  if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) {
+  if (
+    ts.isFunctionDeclaration(declaration) ||
+    ts.isMethodDeclaration(declaration)
+  ) {
     return buildFunctionTypeFromSignatureDeclaration(declaration, binding);
   }
 
   if (ts.isVariableDeclaration(declaration)) {
     if (declaration.type) {
-      return convertType(withTypeParameterConstraint(declaration.type, binding), binding);
+      return convertType(
+        withTypeParameterConstraint(declaration.type, binding),
+        binding
+      );
     }
     if (declaration.initializer) {
       return inferTypeFromValueExpression(
@@ -155,7 +167,8 @@ function inferTypeFromValueDeclaration(
   }
 
   if (
-    (ts.isClassDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) &&
+    (ts.isClassDeclaration(declaration) ||
+      ts.isInterfaceDeclaration(declaration)) &&
     declaration.name
   ) {
     return { kind: "referenceType", name: declaration.name.text };
@@ -239,7 +252,10 @@ function inferTypeFromObjectLiteral(
         parameters: buildFunctionTypeFromSignatureDeclaration(property, binding)
           .parameters,
         returnType: property.type
-          ? convertType(withTypeParameterConstraint(property.type, binding), binding)
+          ? convertType(
+              withTypeParameterConstraint(property.type, binding),
+              binding
+            )
           : { kind: "voidType" },
         typeParameters: property.typeParameters?.map((typeParameter) => ({
           kind: "typeParameter",
@@ -269,7 +285,10 @@ function inferTypeFromValueExpression(
   }
 
   if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current)) {
-    return convertType(withTypeParameterConstraint(current.type, binding), binding);
+    return convertType(
+      withTypeParameterConstraint(current.type, binding),
+      binding
+    );
   }
 
   if (ts.isStringLiteral(current)) {
@@ -312,11 +331,16 @@ function inferTypeFromValueExpression(
   if (ts.isCallExpression(current)) {
     const signatureId = binding.resolveCallSignature(current);
     const signature = signatureId
-      ? (binding as BindingInternal)._getHandleRegistry().getSignature(signatureId)
+      ? (binding as BindingInternal)
+          ._getHandleRegistry()
+          .getSignature(signatureId)
       : undefined;
     if (signature?.returnTypeNode) {
       return convertType(
-        withTypeParameterConstraint(signature.returnTypeNode as ts.TypeNode, binding),
+        withTypeParameterConstraint(
+          signature.returnTypeNode as ts.TypeNode,
+          binding
+        ),
         binding
       );
     }
@@ -333,7 +357,9 @@ function inferTypeFromValueExpression(
 
     const unwrapAwaitedType = (type: IrType): IrType => {
       if (type.kind === "unionType") {
-        return toUnionOrSingle(type.types.map((member) => unwrapAwaitedType(member)));
+        return toUnionOrSingle(
+          type.types.map((member) => unwrapAwaitedType(member))
+        );
       }
 
       if (
@@ -342,9 +368,7 @@ function inferTypeFromValueExpression(
         type.typeArguments.length >= 1
       ) {
         const promiseLikeName =
-          type.typeId?.tsName ??
-          type.name.split(".").pop() ??
-          type.name;
+          type.typeId?.tsName ?? type.name.split(".").pop() ?? type.name;
         if (
           promiseLikeName === "Promise" ||
           promiseLikeName === "PromiseLike" ||
@@ -352,7 +376,9 @@ function inferTypeFromValueExpression(
           promiseLikeName === "PromiseLike_1"
         ) {
           const innerType = type.typeArguments[0];
-          return innerType ? unwrapAwaitedType(innerType) : { kind: "unknownType" };
+          return innerType
+            ? unwrapAwaitedType(innerType)
+            : { kind: "unknownType" };
         }
       }
 
@@ -368,7 +394,11 @@ function inferTypeFromValueExpression(
     }
     const elementTypes = current.elements
       .map((element) =>
-        inferTypeFromValueExpression(element as ts.Expression, binding, seenDeclIds)
+        inferTypeFromValueExpression(
+          element as ts.Expression,
+          binding,
+          seenDeclIds
+        )
       )
       .filter((element): element is IrType => element !== undefined);
     if (elementTypes.length !== current.elements.length) {
@@ -378,7 +408,10 @@ function inferTypeFromValueExpression(
       return { kind: "arrayType", elementType: { kind: "unknownType" } };
     }
     const first = elementTypes[0];
-    if (first && elementTypes.every((element) => typesSyntacticallyEqual(element, first))) {
+    if (
+      first &&
+      elementTypes.every((element) => typesSyntacticallyEqual(element, first))
+    ) {
       return { kind: "arrayType", elementType: first };
     }
     return { kind: "tupleType", elementTypes };
@@ -395,7 +428,9 @@ function inferTypeFromValueExpression(
       seenDeclIds
     );
     const members = receiverType ? getMembersFromType(receiverType) : undefined;
-    const member = members?.find((candidate) => candidate.name === current.name.text);
+    const member = members?.find(
+      (candidate) => candidate.name === current.name.text
+    );
     return member ? memberValueType(member) : undefined;
   }
 
@@ -410,7 +445,10 @@ function inferTypeFromValueExpression(
       return receiverType.elementType;
     }
     if (receiverType.kind === "tupleType") {
-      if (current.argumentExpression && ts.isNumericLiteral(current.argumentExpression)) {
+      if (
+        current.argumentExpression &&
+        ts.isNumericLiteral(current.argumentExpression)
+      ) {
         const index = Number.parseInt(current.argumentExpression.text, 10);
         return receiverType.elementTypes[index];
       }

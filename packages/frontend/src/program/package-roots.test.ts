@@ -13,8 +13,18 @@ describe("resolveDependencyPackageRoot", () => {
     try {
       const workspaceRoot = path.join(tempDir, "tsoniclang");
       const globalsRoot = path.join(workspaceRoot, "globals", "versions", "10");
-      const dotnetSiblingRoot = path.join(workspaceRoot, "dotnet", "versions", "10");
-      const strayInstalledRoot = path.join(tempDir, "node_modules", "@tsonic", "dotnet");
+      const dotnetSiblingRoot = path.join(
+        workspaceRoot,
+        "dotnet",
+        "versions",
+        "10"
+      );
+      const strayInstalledRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@tsonic",
+        "dotnet"
+      );
 
       fs.mkdirSync(globalsRoot, { recursive: true });
       fs.mkdirSync(dotnetSiblingRoot, { recursive: true });
@@ -45,9 +55,9 @@ describe("resolveDependencyPackageRoot", () => {
         )
       );
 
-      expect(resolveDependencyPackageRoot(globalsRoot, "@tsonic/dotnet")).to.equal(
-        dotnetSiblingRoot
-      );
+      expect(
+        resolveDependencyPackageRoot(globalsRoot, "@tsonic/dotnet")
+      ).to.equal(dotnetSiblingRoot);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -59,7 +69,12 @@ describe("resolveDependencyPackageRoot", () => {
     );
 
     try {
-      const packageRoot = path.join(tempDir, "node_modules", "@tsonic", "globals");
+      const packageRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@tsonic",
+        "globals"
+      );
       const installedDotnetRoot = path.join(
         tempDir,
         "node_modules",
@@ -87,9 +102,9 @@ describe("resolveDependencyPackageRoot", () => {
         )
       );
 
-      expect(resolveDependencyPackageRoot(packageRoot, "@tsonic/dotnet")).to.equal(
-        installedDotnetRoot
-      );
+      expect(
+        resolveDependencyPackageRoot(packageRoot, "@tsonic/dotnet")
+      ).to.equal(installedDotnetRoot);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

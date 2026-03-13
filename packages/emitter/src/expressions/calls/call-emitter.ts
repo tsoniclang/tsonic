@@ -33,7 +33,10 @@ import {
   isAsyncWrapperType,
 } from "./call-analysis.js";
 import type { ModuleIdentity } from "../../emitter-types/core.js";
-import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
+import {
+  extractCalleeNameFromAst,
+  getIdentifierTypeLeafName,
+} from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpBlockStatementAst,
   CSharpCatchClauseAst,
@@ -44,6 +47,12 @@ import type {
 import { resolveImportPath } from "../../core/semantic/index.js";
 import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
+import {
+  identifierExpression,
+  identifierType,
+  nullLiteral,
+  stringLiteral,
+} from "../../core/format/backend-ast/builders.js";
 
 /**
  * Wrap an expression AST with an optional argument modifier (ref/out/in).
@@ -116,6 +125,9 @@ const captureAssignableArrayTarget = (
   const [receiverAst, receiverContext] = emitExpressionAst(expr, context);
 
   if (receiverAst.kind === "identifierExpression") {
+    const indexArgument = receiverAst.arguments[0];
+    if (!indexArgument) return undefined;
+
     return {
       readExpression: receiverAst,
       writeExpression: receiverAst,
@@ -172,6 +184,8 @@ const captureAssignableArrayTarget = (
       kind: "identifierExpression",
       identifier: indexTemp.emittedName,
     };
+    const indexArgument = receiverAst.arguments[0];
+    if (!indexArgument) return undefined;
 
     return {
       readExpression: {
@@ -186,7 +200,7 @@ const captureAssignableArrayTarget = (
       },
       setupStatements: [
         createVarLocal(objectTemp.emittedName, receiverAst.expression),
-        createVarLocal(indexTemp.emittedName, receiverAst.arguments[0]!),
+        createVarLocal(indexTemp.emittedName, indexArgument),
       ],
       context: indexTemp.context,
     };
@@ -300,11 +314,9 @@ const emitArrayMutationInteropCall = (
         ...captured.setupStatements,
         createVarLocal(wrapperTemp.emittedName, {
           kind: "objectCreationExpression",
-          type: {
-            kind: "identifierType",
-            name: "global::Tsonic.JSRuntime.JSArray",
-            typeArguments: [elementTypeAst],
-          },
+          type: identifierType("global::Tsonic.JSRuntime.JSArray", [
+            elementTypeAst,
+          ]),
           arguments: [captured.readExpression],
         }),
         createVarLocal(resultTemp.emittedName, mutationCall),
@@ -395,11 +407,10 @@ const emitArrayWrapperInteropCall = (
 
   const wrapperAst: CSharpExpressionAst = {
     kind: "objectCreationExpression",
-    type: {
-      kind: "identifierType",
-      name: `global::${stripClrGenericArity(bindingType)}`,
-      typeArguments,
-    },
+    type: identifierType(
+      `global::${stripClrGenericArity(bindingType)}`,
+      typeArguments
+    ),
     arguments: [receiverAst],
   };
 
@@ -439,22 +450,21 @@ const emitArrayWrapperInteropCall = (
   ];
 };
 
-const isTaskTypeAst = (
-  typeAst: CSharpTypeAst
-): typeAst is Extract<CSharpTypeAst, { kind: "identifierType" }> => {
-  if (typeAst.kind !== "identifierType") return false;
-  const simple = typeAst.name.includes(".")
-    ? typeAst.name.slice(typeAst.name.lastIndexOf(".") + 1)
-    : typeAst.name;
-  return simple === "Task";
-};
+const isTaskTypeAst = (typeAst: CSharpTypeAst): boolean =>
+  getIdentifierTypeLeafName(typeAst) === "Task";
 
 const containsVoidTypeAst = (typeAst: CSharpTypeAst): boolean => {
   if (typeAst.kind === "predefinedType" && typeAst.keyword === "void") {
     return true;
   }
   if (typeAst.kind === "identifierType") {
-    if (typeAst.name === "void" || typeAst.name.endsWith(".void")) {
+    if (typeAst.name === "void") {
+      return true;
+    }
+    return (typeAst.typeArguments ?? []).some((t) => containsVoidTypeAst(t));
+  }
+  if (typeAst.kind === "qualifiedIdentifierType") {
+    if (getIdentifierTypeLeafName(typeAst) === "void") {
       return true;
     }
     return (typeAst.typeArguments ?? []).some((t) => containsVoidTypeAst(t));
@@ -476,10 +486,20 @@ const containsVoidTypeAst = (typeAst: CSharpTypeAst): boolean => {
 
 const getTaskResultType = (
   typeAst: CSharpTypeAst
-): CSharpTypeAst | undefined =>
-  isTaskTypeAst(typeAst) && typeAst.typeArguments?.length === 1
+): CSharpTypeAst | undefined => {
+  if (!isTaskTypeAst(typeAst)) {
+    return undefined;
+  }
+  if (
+    typeAst.kind !== "identifierType" &&
+    typeAst.kind !== "qualifiedIdentifierType"
+  ) {
+    return undefined;
+  }
+  return typeAst.typeArguments?.length === 1
     ? typeAst.typeArguments[0]
     : undefined;
+};
 
 const callbackParameterCount = (callbackExpr: IrExpression): number => {
   if (
@@ -612,31 +632,16 @@ const buildDelegateType = (
     returnType?.kind === "predefinedType" && returnType.keyword === "void";
   if (returnType === undefined) {
     return parameterTypes.length === 0
-      ? { kind: "identifierType", name: "global::System.Action" }
-      : {
-          kind: "identifierType",
-          name: "global::System.Action",
-          typeArguments: parameterTypes,
-        };
+      ? identifierType("global::System.Action")
+      : identifierType("global::System.Action", parameterTypes);
   }
-  if (
-    isVoidReturn ||
-    (returnType.kind === "identifierType" && returnType.name === "void")
-  ) {
+  if (isVoidReturn || getIdentifierTypeLeafName(returnType) === "void") {
     return parameterTypes.length === 0
-      ? { kind: "identifierType", name: "global::System.Action" }
-      : {
-          kind: "identifierType",
-          name: "global::System.Action",
-          typeArguments: parameterTypes,
-        };
+      ? identifierType("global::System.Action")
+      : identifierType("global::System.Action", parameterTypes);
   }
 
-  return {
-    kind: "identifierType",
-    name: "global::System.Func",
-    typeArguments: [...parameterTypes, returnType],
-  };
+  return identifierType("global::System.Func", [...parameterTypes, returnType]);
 };
 
 const isVoidOrUnknownIrType = (type: IrType | undefined): boolean =>
@@ -791,8 +796,8 @@ const emitFunctionValueCallArguments = (
           ? parameter.type.elementType
           : undefined;
       let elementTypeAst: CSharpTypeAst = {
-        kind: "identifierType",
-        name: "object",
+        kind: "predefinedType",
+        keyword: "object",
       };
       if (restElementType) {
         const [emittedType, typeCtx] = emitTypeAst(
@@ -1014,8 +1019,7 @@ const emitFlattenedRestArguments = (
         {
           kind: "invocationExpression",
           expression: {
-            kind: "identifierExpression",
-            identifier: "global::System.Array.Empty",
+            ...identifierExpression("global::System.Array.Empty"),
           },
           typeArguments: [elementTypeAst],
           arguments: [],
@@ -1025,15 +1029,29 @@ const emitFlattenedRestArguments = (
     ];
   }
 
-  let concatAst = segments[0]!;
+  const firstSegment = segments[0];
+  if (!firstSegment) {
+    return [
+      {
+        kind: "arrayCreationExpression",
+        type: elementTypeAst,
+        size: { kind: "numericLiteralExpression", value: "0" },
+        initializer: [],
+      },
+      currentContext,
+    ];
+  }
+
+  let concatAst = firstSegment;
   for (let index = 1; index < segments.length; index++) {
+    const segment = segments[index];
+    if (!segment) continue;
     concatAst = {
       kind: "invocationExpression",
       expression: {
-        kind: "identifierExpression",
-        identifier: "global::System.Linq.Enumerable.Concat",
+        ...identifierExpression("global::System.Linq.Enumerable.Concat"),
       },
-      arguments: [concatAst, segments[index]!],
+      arguments: [concatAst, segment],
     };
   }
 
@@ -1042,8 +1060,7 @@ const emitFlattenedRestArguments = (
       {
         kind: "invocationExpression",
         expression: {
-          kind: "identifierExpression",
-          identifier: "global::System.Linq.Enumerable.ToArray",
+          ...identifierExpression("global::System.Linq.Enumerable.ToArray"),
         },
         arguments: [concatAst],
       },
@@ -1150,15 +1167,8 @@ const buildTaskTypeAst = (
   resultType: CSharpTypeAst | undefined
 ): CSharpTypeAst =>
   resultType
-    ? {
-        kind: "identifierType",
-        name: "global::System.Threading.Tasks.Task",
-        typeArguments: [resultType],
-      }
-    : {
-        kind: "identifierType",
-        name: "global::System.Threading.Tasks.Task",
-      };
+    ? identifierType("global::System.Threading.Tasks.Task", [resultType])
+    : identifierType("global::System.Threading.Tasks.Task");
 
 const buildTaskRunInvocation = (
   outputTaskType: CSharpTypeAst,
@@ -1170,10 +1180,7 @@ const buildTaskRunInvocation = (
     kind: "invocationExpression",
     expression: {
       kind: "memberAccessExpression",
-      expression: {
-        kind: "identifierExpression",
-        identifier: "global::System.Threading.Tasks.Task",
-      },
+      expression: identifierExpression("global::System.Threading.Tasks.Task"),
       memberName: "Run",
     },
     arguments: [
@@ -1190,22 +1197,14 @@ const buildTaskRunInvocation = (
 
 const buildCompletedTaskAst = (): CSharpExpressionAst => ({
   kind: "memberAccessExpression",
-  expression: {
-    kind: "identifierExpression",
-    identifier: "global::System.Threading.Tasks.Task",
-  },
+  expression: identifierExpression("global::System.Threading.Tasks.Task"),
   memberName: "CompletedTask",
 });
 
 const buildPromiseRejectedExceptionAst = (
   reasonAst: CSharpExpressionAst | undefined
 ): CSharpExpressionAst => {
-  const reasonExpr =
-    reasonAst ??
-    ({
-      kind: "literalExpression",
-      text: "null",
-    } satisfies CSharpExpressionAst);
+  const reasonExpr = reasonAst ?? (nullLiteral() satisfies CSharpExpressionAst);
 
   return {
     kind: "binaryExpression",
@@ -1213,17 +1212,11 @@ const buildPromiseRejectedExceptionAst = (
     left: {
       kind: "asExpression",
       expression: reasonExpr,
-      type: {
-        kind: "identifierType",
-        name: "global::System.Exception",
-      },
+      type: identifierType("global::System.Exception"),
     },
     right: {
       kind: "objectCreationExpression",
-      type: {
-        kind: "identifierType",
-        name: "global::System.Exception",
-      },
+      type: identifierType("global::System.Exception"),
       arguments: [
         {
           kind: "binaryExpression",
@@ -1238,8 +1231,7 @@ const buildPromiseRejectedExceptionAst = (
             arguments: [],
           },
           right: {
-            kind: "literalExpression",
-            text: '"Promise rejected"',
+            ...stringLiteral("Promise rejected"),
           },
         },
       ],
@@ -1402,10 +1394,7 @@ const emitPromiseNormalizedTaskAst = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: {
-          kind: "identifierExpression",
-          identifier: "global::System.Threading.Tasks.Task",
-        },
+        expression: identifierExpression("global::System.Threading.Tasks.Task"),
         memberName: "FromResult",
       },
       typeArguments: [resultTypeAst],
@@ -1471,10 +1460,9 @@ const emitPromiseStaticCall = (
         kind: "invocationExpression",
         expression: {
           kind: "memberAccessExpression",
-          expression: {
-            kind: "identifierExpression",
-            identifier: "global::System.Threading.Tasks.Task",
-          },
+          expression: identifierExpression(
+            "global::System.Threading.Tasks.Task"
+          ),
           memberName: "FromException",
         },
         typeArguments: outputResultType ? [outputResultType] : undefined,
@@ -1522,10 +1510,7 @@ const emitPromiseStaticCall = (
 
     normalizedValuesAst = {
       kind: "invocationExpression",
-      expression: {
-        kind: "identifierExpression",
-        identifier: "global::System.Linq.Enumerable.Select",
-      },
+      expression: identifierExpression("global::System.Linq.Enumerable.Select"),
       arguments: [
         valuesAst,
         {
@@ -1549,10 +1534,9 @@ const emitPromiseStaticCall = (
         kind: "invocationExpression",
         expression: {
           kind: "memberAccessExpression",
-          expression: {
-            kind: "identifierExpression",
-            identifier: "global::System.Threading.Tasks.Task",
-          },
+          expression: identifierExpression(
+            "global::System.Threading.Tasks.Task"
+          ),
           memberName: "WhenAll",
         },
         arguments: [normalizedValuesAst],
@@ -1565,10 +1549,7 @@ const emitPromiseStaticCall = (
     kind: "invocationExpression",
     expression: {
       kind: "memberAccessExpression",
-      expression: {
-        kind: "identifierExpression",
-        identifier: "global::System.Threading.Tasks.Task",
-      },
+      expression: identifierExpression("global::System.Threading.Tasks.Task"),
       memberName: "WhenAny",
     },
     arguments: [normalizedValuesAst],
@@ -1671,10 +1652,7 @@ const buildDynamicImportContainerType = (
     ? `${targetModule.className}__Module`
     : targetModule.className;
 
-  return {
-    kind: "identifierType",
-    name: `global::${targetModule.namespace}.${containerName}`,
-  };
+  return identifierType(`global::${targetModule.namespace}.${containerName}`);
 };
 
 const buildRunClassConstructorExpression = (
@@ -1684,8 +1662,9 @@ const buildRunClassConstructorExpression = (
   expression: {
     kind: "memberAccessExpression",
     expression: {
-      kind: "identifierExpression",
-      identifier: "global::System.Runtime.CompilerServices.RuntimeHelpers",
+      ...identifierExpression(
+        "global::System.Runtime.CompilerServices.RuntimeHelpers"
+      ),
     },
     memberName: "RunClassConstructor",
   },
@@ -1714,10 +1693,7 @@ const emitDynamicImportCall = (
 
   const completedTaskExpr: CSharpExpressionAst = {
     kind: "memberAccessExpression",
-    expression: {
-      kind: "identifierExpression",
-      identifier: "global::System.Threading.Tasks.Task",
-    },
+    expression: identifierExpression("global::System.Threading.Tasks.Task"),
     memberName: "CompletedTask",
   };
 
@@ -1737,10 +1713,9 @@ const emitDynamicImportCall = (
         kind: "invocationExpression",
         expression: {
           kind: "memberAccessExpression",
-          expression: {
-            kind: "identifierExpression",
-            identifier: "global::System.Threading.Tasks.Task",
-          },
+          expression: identifierExpression(
+            "global::System.Threading.Tasks.Task"
+          ),
           memberName: "Run",
         },
         arguments: [
@@ -1778,9 +1753,9 @@ const emitDynamicImportCall = (
       ? [
           {
             kind: "objectCreationExpression" as const,
-            type: { kind: "identifierType" as const, name: "object" },
+            type: { kind: "predefinedType" as const, keyword: "object" },
             arguments: [],
-          },
+          } satisfies CSharpExpressionAst,
           currentContext,
         ]
       : emitExpressionAst(
@@ -1844,11 +1819,10 @@ const emitPromiseThenCatchFinally = (
     currentContext
   );
   currentContext = outputTaskCtx;
+  const rawOutputTaskResultType = getTaskResultType(rawOutputTaskType);
   const defaultOutputTaskType: CSharpTypeAst =
-    isTaskTypeAst(rawOutputTaskType) &&
-    rawOutputTaskType.typeArguments?.length === 1 &&
-    containsVoidTypeAst(rawOutputTaskType.typeArguments[0] as CSharpTypeAst)
-      ? { kind: "identifierType", name: "global::System.Threading.Tasks.Task" }
+    rawOutputTaskResultType && containsVoidTypeAst(rawOutputTaskResultType)
+      ? identifierType("global::System.Threading.Tasks.Task")
       : rawOutputTaskType;
 
   const [sourceTaskType, sourceTaskCtx] = emitTypeAst(
@@ -1951,7 +1925,7 @@ const emitPromiseThenCatchFinally = (
       : ({
           kind: "localDeclarationStatement",
           modifiers: [],
-          type: { kind: "identifierType", name: "var" },
+          type: { kind: "varType" },
           declarators: [
             {
               name: valueIdent,
@@ -2091,7 +2065,7 @@ const emitPromiseThenCatchFinally = (
         ? ({
             kind: "castExpression",
             type: buildDelegateType(
-              [{ kind: "identifierType", name: "global::System.Exception" }],
+              [identifierType("global::System.Exception")],
               callbackReturnTypeAst
             ),
             expression: rejectedAst,
@@ -2179,10 +2153,7 @@ const emitPromiseThenCatchFinally = (
             body: { kind: "blockStatement", statements: thenStatements },
             catches: [
               {
-                type: {
-                  kind: "identifierType",
-                  name: "global::System.Exception",
-                },
+                type: identifierType("global::System.Exception"),
                 identifier: exIdent,
                 body: {
                   kind: "blockStatement",
@@ -2218,7 +2189,7 @@ const emitPromiseThenCatchFinally = (
           ];
     const catches: readonly CSharpCatchClauseAst[] = [
       {
-        type: { kind: "identifierType", name: "global::System.Exception" },
+        type: identifierType("global::System.Exception"),
         identifier: exIdent,
         body: {
           kind: "blockStatement",
@@ -2417,10 +2388,7 @@ const emitJsRuntimeJsonParseCall = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: {
-          kind: "identifierExpression",
-          identifier: "global::Tsonic.JSRuntime.JSON",
-        },
+        expression: identifierExpression("global::Tsonic.JSRuntime.JSON"),
         memberName: "parse",
       },
       arguments: argAsts,
@@ -2495,20 +2463,16 @@ const emitJsonSerializerCall = (
   // unknown and should emit plain JsonSerializer calls without requiring the
   // generated TsonicJson helper.
   if (context.options.jsonAotRegistry?.needsJsonAot) {
-    argAsts.push({
-      kind: "identifierExpression",
-      identifier: "TsonicJson.Options",
-    });
+    argAsts.push(identifierExpression("TsonicJson.Options"));
   }
 
   const invocation: CSharpExpressionAst = {
     kind: "invocationExpression",
     expression: {
       kind: "memberAccessExpression",
-      expression: {
-        kind: "identifierExpression",
-        identifier: "global::System.Text.Json.JsonSerializer",
-      },
+      expression: identifierExpression(
+        "global::System.Text.Json.JsonSerializer"
+      ),
       memberName: method,
     },
     arguments: argAsts,
@@ -2662,11 +2626,7 @@ export const emitCall = (
     currentContext = receiverContext;
 
     // Fluent extension method path
-    if (
-      shouldEmitFluentExtensionCall(
-        binding
-      )
-    ) {
+    if (shouldEmitFluentExtensionCall(binding)) {
       const ns = getTypeNamespace(binding.type);
       if (ns) {
         currentContext.usings.add(ns);
@@ -2751,10 +2711,7 @@ export const emitCall = (
 
     const invocation: CSharpExpressionAst = {
       kind: "invocationExpression",
-      expression: {
-        kind: "identifierExpression",
-        identifier: finalCalleeName,
-      },
+      expression: identifierExpression(finalCalleeName),
       arguments: allArgAsts,
       typeArguments: typeArgAsts.length > 0 ? typeArgAsts : undefined,
     };
@@ -2764,10 +2721,9 @@ export const emitCall = (
       expr.inferredType?.kind === "arrayType"
         ? {
             kind: "invocationExpression",
-            expression: {
-              kind: "identifierExpression",
-              identifier: "global::System.Linq.Enumerable.ToArray",
-            },
+            expression: identifierExpression(
+              "global::System.Linq.Enumerable.ToArray"
+            ),
             arguments: [invocation],
           }
         : invocation;

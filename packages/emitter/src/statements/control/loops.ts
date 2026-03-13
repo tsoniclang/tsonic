@@ -20,6 +20,7 @@ import {
   allocateLocalName,
   registerLocalName,
 } from "../../core/format/local-names.js";
+import { decimalIntegerLiteral } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
   CSharpExpressionAst,
@@ -303,14 +304,11 @@ export const emitForStatementAst = (
       declaration = {
         kind: "localDeclarationStatement",
         modifiers: [],
-        type: { kind: "identifierType", name: "int" },
+        type: { kind: "predefinedType", keyword: "int" },
         declarators: [
           {
             name: alloc.emittedName,
-            initializer: {
-              kind: "literalExpression",
-              text: String(canonicalLoop.initialValue),
-            },
+            initializer: decimalIntegerLiteral(canonicalLoop.initialValue),
           },
         ],
       };

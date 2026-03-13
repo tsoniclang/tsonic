@@ -2635,6 +2635,144 @@ describe("Expression Emission", () => {
     expect(result).to.include("dict.Remove(key);");
   });
 
+  it("should hard-fail unsupported delete targets instead of emitting comment placeholders", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "unary",
+            operator: "delete",
+            expression: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "obj",
+                inferredType: { kind: "referenceType", name: "Thing" },
+              },
+              property: "value",
+              isComputed: false,
+              isOptional: false,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    expect(() => emitModule(module)).to.throw(
+      "ICE: Unsupported delete target reached emitter"
+    );
+  });
+
+  it("should hard-fail compound destructuring assignments instead of emitting fake identifiers", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "+=",
+            left: {
+              kind: "arrayPattern",
+              elements: [
+                {
+                  pattern: {
+                    kind: "identifierPattern",
+                    name: "x",
+                  },
+                },
+              ],
+            },
+            right: { kind: "literal", value: 1 },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    expect(() => emitModule(module)).to.throw(
+      "ICE: Compound assignment to array/object destructuring pattern reached emitter"
+    );
+  });
+
+  it("should hard-fail object spreads that reach emission without inferred source types", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "Target",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "count",
+              type: { kind: "primitiveType", name: "number" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "value" },
+              type: { kind: "referenceType", name: "Target" },
+              initializer: {
+                kind: "object",
+                hasSpreads: true,
+                inferredType: { kind: "referenceType", name: "Target" },
+                properties: [
+                  {
+                    kind: "spread",
+                    expression: {
+                      kind: "identifier",
+                      name: "source",
+                    },
+                  },
+                  {
+                    kind: "property",
+                    key: "count",
+                    value: { kind: "literal", value: 1 },
+                    shorthand: false,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    expect(() => emitModule(module)).to.throw("ICE: Object spread source");
+  });
+
   it("should infer arrow function return type from inferredType", () => {
     const module: IrModule = {
       kind: "module",

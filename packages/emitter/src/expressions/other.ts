@@ -6,6 +6,10 @@ import { getAwaitedIrType, IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitTypeAst } from "../types/emitter.js";
+import {
+  identifierExpression,
+  stringLiteral,
+} from "../core/format/backend-ast/builders.js";
 import type {
   CSharpExpressionAst,
   CSharpInterpolatedStringPart,
@@ -61,12 +65,11 @@ const buildNullishSafeExpr = (
   left: {
     kind: "invocationExpression",
     expression: {
-      kind: "identifierExpression",
-      identifier: "global::System.Convert.ToString",
+      ...identifierExpression("global::System.Convert.ToString"),
     },
     arguments: [exprAst],
   },
-  right: { kind: "literalExpression", text: '"undefined"' },
+  right: stringLiteral("undefined"),
 });
 
 const classifyAwaitability = (
@@ -94,8 +97,7 @@ const buildTaskFromResultExpression = (
   expression: {
     kind: "memberAccessExpression",
     expression: {
-      kind: "identifierExpression",
-      identifier: "global::System.Threading.Tasks.Task",
+      ...identifierExpression("global::System.Threading.Tasks.Task"),
     },
     memberName: "FromResult",
   },
@@ -106,12 +108,9 @@ const buildTaskFromResultExpression = (
 const requiresExplicitTaskFromResultType = (
   exprAst: CSharpExpressionAst
 ): boolean => {
-  if (exprAst.kind !== "literalExpression") return false;
-  const text = exprAst.text.trim();
   return (
-    text === "null" ||
-    text === "default" ||
-    text.startsWith("default(")
+    exprAst.kind === "nullLiteralExpression" ||
+    exprAst.kind === "defaultExpression"
   );
 };
 

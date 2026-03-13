@@ -377,7 +377,9 @@ export const validateBindingFile = (
       ) {
         return `${filePath}: 'types[${typeIndex}].alias' must be a string when present`;
       }
-      const methods = Array.isArray(typeRecord.methods) ? typeRecord.methods : [];
+      const methods = Array.isArray(typeRecord.methods)
+        ? typeRecord.methods
+        : [];
       for (const [methodIndex, methodValue] of methods.entries()) {
         if (methodValue === null || typeof methodValue !== "object") continue;
         const error = validateEmitSemantics(
@@ -420,14 +422,22 @@ export const validateBindingFile = (
     if (!Array.isArray(manifest.namespaces)) {
       return `${filePath}: 'namespaces' must be an array`;
     }
-    for (const [namespaceIndex, namespaceValue] of manifest.namespaces.entries()) {
-      if (namespaceValue === null || typeof namespaceValue !== "object") continue;
+    for (const [
+      namespaceIndex,
+      namespaceValue,
+    ] of manifest.namespaces.entries()) {
+      if (namespaceValue === null || typeof namespaceValue !== "object")
+        continue;
       const namespaceRecord = namespaceValue as Record<string, unknown>;
-      const types = Array.isArray(namespaceRecord.types) ? namespaceRecord.types : [];
+      const types = Array.isArray(namespaceRecord.types)
+        ? namespaceRecord.types
+        : [];
       for (const [typeIndex, typeValue] of types.entries()) {
         if (typeValue === null || typeof typeValue !== "object") continue;
         const typeRecord = typeValue as Record<string, unknown>;
-        const members = Array.isArray(typeRecord.members) ? typeRecord.members : [];
+        const members = Array.isArray(typeRecord.members)
+          ? typeRecord.members
+          : [];
         for (const [memberIndex, memberValue] of members.entries()) {
           if (memberValue === null || typeof memberValue !== "object") continue;
           const error = validateEmitSemantics(

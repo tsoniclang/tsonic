@@ -12,6 +12,7 @@ import type {
   CSharpExpressionAst,
   CSharpStatementAst,
   CSharpBlockStatementAst,
+  CSharpTypeAst,
 } from "../../../core/format/backend-ast/types.js";
 import { emitStatementAst } from "../../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
@@ -233,11 +234,16 @@ const buildIsNCondition = (
  */
 const buildIsPatternCondition = (
   escapedOrig: string,
-  rhsTypeText: string,
+  rhsTypeAst: CSharpTypeAst,
   escapedNarrow: string
 ): CSharpExpressionAst => ({
-  kind: "identifierExpression",
-  identifier: `${escapedOrig} is ${rhsTypeText} ${escapedNarrow}`,
+  kind: "isExpression",
+  expression: { kind: "identifierExpression", identifier: escapedOrig },
+  pattern: {
+    kind: "declarationPattern",
+    type: rhsTypeAst,
+    designation: escapedNarrow,
+  },
 });
 
 const tryExtractTypeofEqualityGuard = (
@@ -886,10 +892,11 @@ export const emitIfStatementAst = (
         narrowedBindings.set(originalName, {
           kind: "expr",
           exprAst: buildUnionNarrowAst(escapedOrig, memberN),
-          type:
-            candidateMembers[
-              candidateMemberNs.findIndex((runtimeMemberN) => runtimeMemberN === memberN)
-            ],
+          type: candidateMembers[
+            candidateMemberNs.findIndex(
+              (runtimeMemberN) => runtimeMemberN === memberN
+            )
+          ],
         });
         finalContext = { ...finalContext, narrowedBindings };
         return [
@@ -919,17 +926,12 @@ export const emitIfStatementAst = (
   // C# pattern var narrowing → if (x is Foo x__is_k) { ... }
   const instanceofGuard = tryResolveInstanceofGuard(stmt.condition, context);
   if (instanceofGuard) {
-    const {
-      ctxAfterRhs,
-      escapedOrig,
-      escapedNarrow,
-      rhsTypeText,
-      narrowedMap,
-    } = instanceofGuard;
+    const { ctxAfterRhs, escapedOrig, escapedNarrow, rhsTypeAst, narrowedMap } =
+      instanceofGuard;
 
     const condAst = buildIsPatternCondition(
       escapedOrig,
-      rhsTypeText,
+      rhsTypeAst,
       escapedNarrow
     );
 
@@ -1090,13 +1092,13 @@ export const emitIfStatementAst = (
         ctxAfterRhs,
         escapedOrig,
         escapedNarrow,
-        rhsTypeText,
+        rhsTypeAst,
         narrowedMap,
       } = guard;
 
       const condAst = buildIsPatternCondition(
         escapedOrig,
-        rhsTypeText,
+        rhsTypeAst,
         escapedNarrow
       );
 
@@ -1235,7 +1237,7 @@ export const emitIfStatementAst = (
           ctxAfterRhs,
           escapedOrig,
           escapedNarrow,
-          rhsTypeText,
+          rhsTypeAst,
           narrowedMap,
         } = guard;
 
@@ -1254,7 +1256,7 @@ export const emitIfStatementAst = (
         // Combined condition: (orig is TypeName narrow && rhsCond)
         const isPatternAst = buildIsPatternCondition(
           escapedOrig,
-          rhsTypeText,
+          rhsTypeAst,
           escapedNarrow
         );
         const combinedCondAst: CSharpExpressionAst = {

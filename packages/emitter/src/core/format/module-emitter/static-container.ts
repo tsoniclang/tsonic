@@ -28,6 +28,7 @@ import { emitExport } from "../exports.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { statementUsesPointer } from "../../semantic/unsafe.js";
 import { getCSharpName } from "../../../naming-policy.js";
+import { identifierType } from "../backend-ast/builders.js";
 import type {
   CSharpClassDeclarationAst,
   CSharpMemberAst,
@@ -220,7 +221,7 @@ export const emitStaticContainer = (
       kind: "methodDeclaration",
       attributes: [],
       modifiers: ["public", "static"],
-      returnType: { kind: "identifierType", name: "void" },
+      returnType: { kind: "predefinedType", keyword: "void" },
       name: "__TopLevel",
       parameters: [],
       body: { kind: "blockStatement", statements: topLevelStatements },
@@ -254,10 +255,9 @@ export const emitStaticContainer = (
     kind: "classDeclaration",
     attributes: [
       {
-        type: {
-          kind: "identifierType",
-          name: "global::Tsonic.Internal.ModuleContainerAttribute",
-        },
+        type: identifierType(
+          "global::Tsonic.Internal.ModuleContainerAttribute"
+        ),
       },
     ],
     modifiers,

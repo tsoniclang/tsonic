@@ -576,8 +576,8 @@ const buildObjectLiteralMethodFunctionType = (
   return {
     kind: "functionType",
     parameters,
-    returnType:
-      declaredReturnType ?? expectedFnType?.returnType ?? { kind: "unknownType" },
+    returnType: declaredReturnType ??
+      expectedFnType?.returnType ?? { kind: "unknownType" },
   };
 };
 
@@ -962,7 +962,11 @@ export const convertObjectLiteral = (
 
       if (declId) {
         const fromEnv = ctx.typeEnv?.get(declId.id);
-        if (fromEnv && fromEnv.kind !== "unknownType" && fromEnv.kind !== "anyType") {
+        if (
+          fromEnv &&
+          fromEnv.kind !== "unknownType" &&
+          fromEnv.kind !== "anyType"
+        ) {
           inferredType = fromEnv;
         } else {
           const typeSystem = ctx.typeSystem;
@@ -1052,21 +1056,21 @@ export const convertObjectLiteral = (
     }
   });
 
-  const provisionalAccessorTypeFromContext = Array.from(accessorGroups.entries()).map(
-    ([memberName, group]) => ({
+  const provisionalAccessorTypeFromContext = Array.from(
+    accessorGroups.entries()
+  ).map(([memberName, group]) => ({
+    memberName,
+    getter: group.getter,
+    setter: group.setter,
+    propertyType: getProvisionalAccessorPropertyType(
       memberName,
-      getter: group.getter,
-      setter: group.setter,
-      propertyType: getProvisionalAccessorPropertyType(
-        memberName,
-        group.getter,
-        group.setter,
-        getObjectLiteralPropertyExpectedType(memberName),
-        ctx,
-        undefined
-      ),
-    })
-  );
+      group.getter,
+      group.setter,
+      getObjectLiteralPropertyExpectedType(memberName),
+      ctx,
+      undefined
+    ),
+  }));
 
   const baselineObjectLiteralThisType = (() => {
     const synthesized = collectSynthesizedObjectMembers(
@@ -1192,9 +1196,9 @@ export const convertObjectLiteral = (
     );
     const convertedValue = finalizeObjectLiteralMethodExpression(
       convertExpression(
-      methodAsFunctionExpr,
-      objectBehaviorContext,
-      pendingMethod.propExpectedType
+        methodAsFunctionExpr,
+        objectBehaviorContext,
+        pendingMethod.propExpectedType
       )
     );
 

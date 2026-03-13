@@ -581,7 +581,9 @@ describe("Import Handling", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("global::System.Threading.Tasks.Task.CompletedTask");
+    expect(result).to.include(
+      "global::System.Threading.Tasks.Task.CompletedTask"
+    );
     expect(result).not.to.include("ICE: Missing resolvedClrValue");
   });
 });

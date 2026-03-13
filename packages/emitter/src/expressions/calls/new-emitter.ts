@@ -12,6 +12,13 @@ import {
 import { emitTypeAst } from "../../type-emitter.js";
 import { isLValue, getPassingModifierFromCast } from "./call-analysis.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
+import {
+  booleanLiteral,
+  decimalIntegerLiteral,
+  identifierType,
+  stringLiteral,
+  withTypeArguments,
+} from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -120,8 +127,8 @@ const emitListCollectionInitializer = (
 
   const typeAst: CSharpTypeAst =
     typeArgAsts.length > 0
-      ? { kind: "identifierType", name: calleeText, typeArguments: typeArgAsts }
-      : { kind: "identifierType", name: calleeText };
+      ? identifierType(calleeText, typeArgAsts)
+      : identifierType(calleeText);
 
   const result: CSharpExpressionAst = {
     kind: "objectCreationExpression",
@@ -166,7 +173,7 @@ const emitArrayConstructor = (
       {
         kind: "arrayCreationExpression",
         elementType: { kind: "predefinedType", keyword: "object" },
-        sizeExpression: { kind: "literalExpression", text: "0" },
+        sizeExpression: decimalIntegerLiteral(0),
       },
       currentContext,
     ];
@@ -177,10 +184,7 @@ const emitArrayConstructor = (
   );
   currentContext = typeContext;
 
-  let sizeAstNode: CSharpExpressionAst = {
-    kind: "literalExpression",
-    text: "0",
-  };
+  let sizeAstNode: CSharpExpressionAst = decimalIntegerLiteral(0);
   if (expr.arguments.length > 0) {
     const sizeArg = expr.arguments[0];
     if (sizeArg && sizeArg.kind !== "spread") {
@@ -294,17 +298,11 @@ const emitPromiseConstructor = (
   let currentContext = context;
   const [taskTypeAstRaw, taskTypeContext] = expr.inferredType
     ? emitTypeAst(expr.inferredType, currentContext)
-    : [
-        {
-          kind: "identifierType" as const,
-          name: "global::System.Threading.Tasks.Task",
-        },
-        currentContext,
-      ];
+    : [identifierType("global::System.Threading.Tasks.Task"), currentContext];
   currentContext = taskTypeContext;
   const taskTypeAst: CSharpTypeAst =
     taskTypeAstRaw.kind === "identifierType" && taskTypeAstRaw.name.length === 0
-      ? { kind: "identifierType", name: "global::System.Threading.Tasks.Task" }
+      ? identifierType("global::System.Threading.Tasks.Task")
       : taskTypeAstRaw;
   const promiseValueType = getPromiseValueType(expr);
   let valueTypeAst: CSharpTypeAst = {
@@ -364,43 +362,32 @@ const emitPromiseConstructor = (
 
   const executorArity = getExecutorArity(expr);
 
-  const tcsTypeAst: CSharpTypeAst = {
-    kind: "identifierType",
-    name: "global::System.Threading.Tasks.TaskCompletionSource",
-    typeArguments: [valueTypeAst],
-  };
+  const tcsTypeAst: CSharpTypeAst = identifierType(
+    "global::System.Threading.Tasks.TaskCompletionSource",
+    [valueTypeAst]
+  );
 
   const resolveCallbackTypeAst: CSharpTypeAst = promiseValueType
-    ? {
-        kind: "identifierType",
-        name: "global::System.Action",
-        typeArguments: [valueTypeAst],
-      }
-    : { kind: "identifierType", name: "global::System.Action" };
+    ? identifierType("global::System.Action", [valueTypeAst])
+    : identifierType("global::System.Action");
 
-  const rejectCallbackTypeAst: CSharpTypeAst = {
-    kind: "identifierType",
-    name: "global::System.Action",
-    typeArguments: [
+  const rejectCallbackTypeAst: CSharpTypeAst = identifierType(
+    "global::System.Action",
+    [
       {
         kind: "nullableType",
-        underlyingType: { kind: "identifierType", name: "object" },
+        underlyingType: { kind: "predefinedType", keyword: "object" },
       },
-    ],
-  };
+    ]
+  );
 
   const executorDelegateTypeAst: CSharpTypeAst =
     executorArity >= 2
-      ? {
-          kind: "identifierType",
-          name: "global::System.Action",
-          typeArguments: [resolveCallbackTypeAst, rejectCallbackTypeAst],
-        }
-      : {
-          kind: "identifierType",
-          name: "global::System.Action",
-          typeArguments: [resolveCallbackTypeAst],
-        };
+      ? identifierType("global::System.Action", [
+          resolveCallbackTypeAst,
+          rejectCallbackTypeAst,
+        ])
+      : identifierType("global::System.Action", [resolveCallbackTypeAst]);
 
   const resolveLambda: CSharpExpressionAst = promiseValueType
     ? {
@@ -449,7 +436,7 @@ const emitPromiseConstructor = (
                   },
                   memberName: "TrySetResult",
                 },
-                arguments: [{ kind: "literalExpression", text: "true" }],
+                arguments: [booleanLiteral(true)],
               },
             },
           ],
@@ -464,7 +451,7 @@ const emitPromiseConstructor = (
         name: "error",
         type: {
           kind: "nullableType",
-          underlyingType: { kind: "identifierType", name: "object" },
+          underlyingType: { kind: "predefinedType", keyword: "object" },
         },
       },
     ],
@@ -493,17 +480,11 @@ const emitPromiseConstructor = (
                     kind: "identifierExpression",
                     identifier: "error",
                   },
-                  type: {
-                    kind: "identifierType",
-                    name: "global::System.Exception",
-                  },
+                  type: identifierType("global::System.Exception"),
                 },
                 right: {
                   kind: "objectCreationExpression",
-                  type: {
-                    kind: "identifierType",
-                    name: "global::System.Exception",
-                  },
+                  type: identifierType("global::System.Exception"),
                   arguments: [
                     {
                       kind: "binaryExpression",
@@ -520,10 +501,7 @@ const emitPromiseConstructor = (
                         },
                         arguments: [],
                       },
-                      right: {
-                        kind: "literalExpression",
-                        text: '"Promise rejected"',
-                      },
+                      right: stringLiteral("Promise rejected"),
                     },
                   ],
                 },
@@ -600,7 +578,7 @@ const emitPromiseConstructor = (
       },
       catches: [
         {
-          type: { kind: "identifierType", name: "global::System.Exception" },
+          type: identifierType("global::System.Exception"),
           identifier: "ex",
           body: {
             kind: "blockStatement",
@@ -641,11 +619,9 @@ const emitPromiseConstructor = (
   ];
 
   // IIFE: ((System.Func<Task<T>>)(() => { body }))()
-  const funcTypeAst: CSharpTypeAst = {
-    kind: "identifierType",
-    name: "global::System.Func",
-    typeArguments: [taskTypeAst],
-  };
+  const funcTypeAst: CSharpTypeAst = identifierType("global::System.Func", [
+    taskTypeAst,
+  ]);
   const lambdaAst: CSharpExpressionAst = {
     kind: "lambdaExpression",
     isAsync: false,
@@ -701,6 +677,8 @@ export const emitNew = (
   const [calleeAst, newContext] = emitExpressionAst(expr.callee, context);
   let currentContext = newContext;
   let calleeText = extractCalleeNameFromAst(calleeAst);
+  let explicitCalleeTypeAst: CSharpTypeAst | undefined =
+    calleeAst.kind === "typeReferenceExpression" ? calleeAst.type : undefined;
 
   let typeArgAsts: readonly CSharpTypeAst[] = [];
 
@@ -776,9 +754,11 @@ export const emitNew = (
   }
 
   const typeAst: CSharpTypeAst =
-    typeArgAsts.length > 0
-      ? { kind: "identifierType", name: calleeText, typeArguments: typeArgAsts }
-      : { kind: "identifierType", name: calleeText };
+    explicitCalleeTypeAst !== undefined
+      ? withTypeArguments(explicitCalleeTypeAst, typeArgAsts)
+      : typeArgAsts.length > 0
+        ? identifierType(calleeText, typeArgAsts)
+        : identifierType(calleeText);
 
   const result: CSharpExpressionAst = {
     kind: "objectCreationExpression",

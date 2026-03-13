@@ -14,7 +14,11 @@ import type { ModuleIdentity } from "../../emitter-types/core.js";
 import { canonicalizeFilePath, resolveImportPath } from "./module-map.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import { renderTypeAst } from "../format/backend-ast/utils.js";
+import { identifierType } from "../format/backend-ast/builders.js";
+import {
+  clrTypeNameToTypeAst,
+  globallyQualifyTypeAst,
+} from "../format/backend-ast/utils.js";
 
 /**
  * Process imports and build ImportBindings for local and CLR modules.
@@ -186,7 +190,7 @@ export const processImports = (
  * Create import binding for CLR types/values.
  * CLR types are emitted with global:: FQN.
  *
- * - Type imports: clrName is global::namespace.TypeName
+ * - Type imports: typeAst is the type's fully-qualified AST
  * - Value imports: clrName is global::namespace, member is the export name
  */
 const createClrImportBinding = (
@@ -195,21 +199,24 @@ const createClrImportBinding = (
 ): { localName: string; importBinding: ImportBinding } | null => {
   const localName = spec.localName;
   const namespaceFqn = `global::${namespace}`;
+  const createTypeBinding = (clrName: string): ImportBinding => ({
+    kind: "type",
+    typeAst: clrTypeNameToTypeAst(clrName),
+  });
 
   if (spec.kind === "named") {
     // Use isType from frontend (determined by TS checker)
     const isType = spec.isType === true;
 
     if (isType) {
-      // Type import: clrName is the type's FQN
+      // Type import: preserve the type as AST instead of rendering text eagerly
       return {
         localName,
-        importBinding: {
-          kind: "type",
-          clrName: spec.resolvedClrType
+        importBinding: createTypeBinding(
+          spec.resolvedClrType
             ? `global::${spec.resolvedClrType}`
-            : `${namespaceFqn}.${spec.name}`,
-        },
+            : `${namespaceFqn}.${spec.name}`
+        ),
       };
     } else {
       // Value import:
@@ -259,7 +266,7 @@ const createClrImportBinding = (
  * Create import binding with fully-qualified global:: CLR names.
  * Uses isType from frontend (set by TS checker) to determine kind.
  *
- * - Type imports: clrName is the type's global:: FQN (global::namespace.TypeName)
+ * - Type imports: typeAst is the type's fully-qualified AST
  * - Value imports: clrName is the container global:: FQN, member is the export name
  * - Namespace imports: clrName is the container global:: FQN
  */
@@ -296,7 +303,9 @@ const createImportBinding = (
             localName,
             importBinding: {
               kind: "type",
-              clrName: `global::${namespace}.${resolvedExportName}__Alias`,
+              typeAst: identifierType(
+                `global::${namespace}.${resolvedExportName}__Alias`
+              ),
             },
           };
         }
@@ -315,13 +324,12 @@ const createImportBinding = (
           // so the resulting C# type is usable across files.
           qualifyLocalTypes: true,
         });
-        const typeName = renderTypeAst(typeAst);
 
         return {
           localName,
           importBinding: {
             kind: "type",
-            clrName: typeName,
+            typeAst: globallyQualifyTypeAst(typeAst),
           },
         };
       }
@@ -332,7 +340,7 @@ const createImportBinding = (
         localName,
         importBinding: {
           kind: "type",
-          clrName: `global::${namespace}.${resolvedExportName}`,
+          typeAst: identifierType(`global::${namespace}.${resolvedExportName}`),
         },
       };
     } else {
@@ -422,7 +430,7 @@ const createModuleImportBinding = (
         localName,
         importBinding: {
           kind: "type",
-          clrName,
+          typeAst: clrTypeNameToTypeAst(clrName),
         },
       };
     }

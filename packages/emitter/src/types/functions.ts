@@ -6,6 +6,7 @@ import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 
 /**
  * Emit function types as CSharpTypeAst (identifierType nodes for Func<>/Action<>)
@@ -41,38 +42,17 @@ export const emitFunctionType = (
 
   if (isVoidReturn) {
     if (paramTypeAsts.length === 0) {
-      return [
-        { kind: "identifierType", name: "global::System.Action" },
-        newContext,
-      ];
+      return [identifierType("global::System.Action"), newContext];
     }
-    return [
-      {
-        kind: "identifierType",
-        name: "global::System.Action",
-        typeArguments: paramTypeAsts,
-      },
-      newContext,
-    ];
+    return [identifierType("global::System.Action", paramTypeAsts), newContext];
   }
 
   if (paramTypeAsts.length === 0) {
-    return [
-      {
-        kind: "identifierType",
-        name: "global::System.Func",
-        typeArguments: [returnTypeAst],
-      },
-      newContext,
-    ];
+    return [identifierType("global::System.Func", [returnTypeAst]), newContext];
   }
 
   return [
-    {
-      kind: "identifierType",
-      name: "global::System.Func",
-      typeArguments: [...paramTypeAsts, returnTypeAst],
-    },
+    identifierType("global::System.Func", [...paramTypeAsts, returnTypeAst]),
     newContext,
   ];
 };

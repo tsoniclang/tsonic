@@ -8,6 +8,7 @@
 import { IrModule, IrFunctionDeclaration } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
+import { identifierType } from "./core/format/backend-ast/builders.js";
 import {
   needsBidirectionalSupport,
   generateWrapperClass,
@@ -46,8 +47,8 @@ export const generateExchangeClassAst = (
   const exchangeName = `${csharpBaseName}_exchange`;
 
   // Determine output/input types from return type
-  let outputTypeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
-  let inputTypeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
+  let outputTypeAst: CSharpTypeAst = identifierType("object");
+  let inputTypeAst: CSharpTypeAst = identifierType("object");
 
   if (func.returnType && func.returnType.kind === "referenceType") {
     const typeRef = func.returnType;

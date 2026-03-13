@@ -124,11 +124,15 @@ describe("IR Builder", () => {
       sourceFiles: rootNames
         .filter((filePath) => !filePath.endsWith(".d.ts"))
         .map((filePath) => tsProgram.getSourceFile(filePath))
-        .filter((candidate): candidate is ts.SourceFile => candidate !== undefined),
+        .filter(
+          (candidate): candidate is ts.SourceFile => candidate !== undefined
+        ),
       declarationSourceFiles: rootNames
         .filter((filePath) => filePath.endsWith(".d.ts"))
         .map((filePath) => tsProgram.getSourceFile(filePath))
-        .filter((candidate): candidate is ts.SourceFile => candidate !== undefined),
+        .filter(
+          (candidate): candidate is ts.SourceFile => candidate !== undefined
+        ),
       metadata: new DotnetMetadataRegistry(),
       bindings: new BindingRegistry(),
       clrResolver: createClrBindingsResolver(tempDir),
@@ -873,7 +877,7 @@ describe("IR Builder", () => {
           entryPath,
           [
             'import type { Ok } from "../tsonic/bindings/Acme.Core.js";',
-            'export const value: Ok<string> | undefined = undefined;',
+            "export const value: Ok<string> | undefined = undefined;",
           ].join("\n")
         );
 
@@ -1105,7 +1109,8 @@ describe("IR Builder", () => {
 
       const declaration = variableStmt.declarations.find(
         (decl) =>
-          decl.name.kind === "identifierPattern" && decl.name.name === variableName
+          decl.name.kind === "identifierPattern" &&
+          decl.name.name === variableName
       );
       expect(declaration?.initializer?.kind).to.equal(expectedKind);
     };
@@ -2193,8 +2198,7 @@ describe("IR Builder", () => {
 
       const inviteAsRoleMember = objectType.members.find(
         (member) =>
-          member.kind === "propertySignature" &&
-          member.name === "inviteAsRole"
+          member.kind === "propertySignature" && member.name === "inviteAsRole"
       );
       expect(inviteAsRoleMember?.kind).to.equal("propertySignature");
       if (
@@ -2906,6 +2910,11 @@ describe("IR Builder", () => {
         const sourceFile = tsProgram.getSourceFile(entryPath);
         expect(sourceFile).to.not.equal(undefined);
         if (!sourceFile) return;
+        const moduleSourceFile = tsProgram.getSourceFile(
+          path.join(srcDir, "module.ts")
+        );
+        expect(moduleSourceFile).to.not.equal(undefined);
+        if (!moduleSourceFile) return;
 
         const program = {
           program: tsProgram,
@@ -2916,10 +2925,7 @@ describe("IR Builder", () => {
             rootNamespace: "TestApp",
             strict: true,
           },
-          sourceFiles: [
-            sourceFile,
-            tsProgram.getSourceFile(path.join(srcDir, "module.ts"))!,
-          ],
+          sourceFiles: [sourceFile, moduleSourceFile],
           declarationSourceFiles: [],
           metadata: new DotnetMetadataRegistry(),
           bindings: new BindingRegistry(),
@@ -3021,6 +3027,11 @@ describe("IR Builder", () => {
         const sourceFile = tsProgram.getSourceFile(entryPath);
         expect(sourceFile).to.not.equal(undefined);
         if (!sourceFile) return;
+        const moduleSourceFile = tsProgram.getSourceFile(
+          path.join(srcDir, "module.ts")
+        );
+        expect(moduleSourceFile).to.not.equal(undefined);
+        if (!moduleSourceFile) return;
 
         const program = {
           program: tsProgram,
@@ -3031,10 +3042,7 @@ describe("IR Builder", () => {
             rootNamespace: "TestApp",
             strict: true,
           },
-          sourceFiles: [
-            sourceFile,
-            tsProgram.getSourceFile(path.join(srcDir, "module.ts"))!,
-          ],
+          sourceFiles: [sourceFile, moduleSourceFile],
           declarationSourceFiles: [],
           metadata: new DotnetMetadataRegistry(),
           bindings: new BindingRegistry(),
@@ -3136,6 +3144,11 @@ describe("IR Builder", () => {
         const sourceFile = tsProgram.getSourceFile(entryPath);
         expect(sourceFile).to.not.equal(undefined);
         if (!sourceFile) return;
+        const moduleSourceFile = tsProgram.getSourceFile(
+          path.join(srcDir, "module.ts")
+        );
+        expect(moduleSourceFile).to.not.equal(undefined);
+        if (!moduleSourceFile) return;
 
         const program = {
           program: tsProgram,
@@ -3146,10 +3159,7 @@ describe("IR Builder", () => {
             rootNamespace: "TestApp",
             strict: true,
           },
-          sourceFiles: [
-            sourceFile,
-            tsProgram.getSourceFile(path.join(srcDir, "module.ts"))!,
-          ],
+          sourceFiles: [sourceFile, moduleSourceFile],
           declarationSourceFiles: [],
           metadata: new DotnetMetadataRegistry(),
           bindings: new BindingRegistry(),
@@ -3596,7 +3606,10 @@ describe("IR Builder", () => {
       expect(dataInit?.kind).to.equal("memberAccess");
       if (!dataInit || dataInit.kind !== "memberAccess") return;
       expect(dataInit.inferredType?.kind).to.equal("arrayType");
-      if (!dataInit.inferredType || dataInit.inferredType.kind !== "arrayType") {
+      if (
+        !dataInit.inferredType ||
+        dataInit.inferredType.kind !== "arrayType"
+      ) {
         return;
       }
       expect(dataInit.inferredType.elementType.kind).to.equal("objectType");
@@ -3647,13 +3660,18 @@ describe("IR Builder", () => {
       expect(run).to.not.equal(undefined);
       if (!run) return;
 
-      const ifStmt = run.body.statements.find((stmt) => stmt.kind === "ifStatement");
+      const ifStmt = run.body.statements.find(
+        (stmt) => stmt.kind === "ifStatement"
+      );
       expect(ifStmt).to.not.equal(undefined);
       if (!ifStmt || ifStmt.kind !== "ifStatement") return;
 
-      const thenReturn = ifStmt.thenStatement.kind === "blockStatement"
-        ? ifStmt.thenStatement.statements.find((stmt) => stmt.kind === "returnStatement")
-        : undefined;
+      const thenReturn =
+        ifStmt.thenStatement.kind === "blockStatement"
+          ? ifStmt.thenStatement.statements.find(
+              (stmt) => stmt.kind === "returnStatement"
+            )
+          : undefined;
       expect(thenReturn).to.not.equal(undefined);
       if (
         !thenReturn ||
@@ -3679,9 +3697,7 @@ describe("IR Builder", () => {
       const finalReturn = [...run.body.statements]
         .reverse()
         .find(
-          (
-            stmt
-          ): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
             stmt.kind === "returnStatement"
         );
       expect(finalReturn).to.not.equal(undefined);

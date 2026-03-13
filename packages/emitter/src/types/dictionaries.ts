@@ -6,6 +6,7 @@ import { IrDictionaryType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 
 /**
  * Emit dictionary type as CSharpTypeAst (identifierType node)
@@ -31,11 +32,10 @@ export const emitDictionaryType = (
   const [valueTypeAst, ctx2] = emitTypeAst(type.valueType, ctx1);
 
   return [
-    {
-      kind: "identifierType",
-      name: "global::System.Collections.Generic.Dictionary",
-      typeArguments: [keyTypeAst, valueTypeAst],
-    },
+    identifierType("global::System.Collections.Generic.Dictionary", [
+      keyTypeAst,
+      valueTypeAst,
+    ]),
     ctx2,
   ];
 };

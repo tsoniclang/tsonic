@@ -1124,7 +1124,11 @@ const expandReferenceAlias = (
   const aliasSubst = new Map<string, IrType>();
   const aliasTypeParams = entry.typeParameters;
   const aliasTypeArgs = type.typeArguments ?? [];
-  for (let i = 0; i < Math.min(aliasTypeParams.length, aliasTypeArgs.length); i++) {
+  for (
+    let i = 0;
+    i < Math.min(aliasTypeParams.length, aliasTypeArgs.length);
+    i++
+  ) {
     const tp = aliasTypeParams[i];
     const ta = aliasTypeArgs[i];
     if (tp && ta) aliasSubst.set(tp.name, ta);

@@ -15,7 +15,8 @@ import { IrModule, IrType } from "@tsonic/frontend";
 import type { TypeBinding as FrontendTypeBinding } from "@tsonic/frontend";
 import { emitReferenceType } from "./references.js";
 import type { EmitterContext } from "../types.js";
-import { renderTypeAst } from "../core/format/backend-ast/utils.js";
+import { clrTypeNameToTypeAst } from "../core/format/backend-ast/utils.js";
+import { printType } from "../core/format/backend-ast/printer.js";
 
 /**
  * Helper to create a minimal module with a variable declaration of a given type
@@ -55,70 +56,56 @@ describe("Reference Type Emission", () => {
   };
 
   describe("C# Primitive Types", () => {
-    it("should emit int without qualification", () => {
-      const module = createModuleWithType({
-        kind: "referenceType",
-        name: "int",
-      });
+    it("should emit every real C# predefined reference keyword without qualification", () => {
+      const keywords = [
+        "bool",
+        "byte",
+        "sbyte",
+        "short",
+        "ushort",
+        "int",
+        "uint",
+        "long",
+        "ulong",
+        "nint",
+        "nuint",
+        "char",
+        "float",
+        "double",
+        "decimal",
+        "string",
+        "object",
+      ] as const;
 
-      const result = emitModule(module);
+      for (const keyword of keywords) {
+        const module = createModuleWithType({
+          kind: "referenceType",
+          name: keyword,
+        });
 
-      expect(result).to.include("int x");
+        const result = emitModule(module);
+        expect(result).to.include(`${keyword} x`);
+      }
     });
 
-    it("should emit long without qualification", () => {
-      const module = createModuleWithType({
-        kind: "referenceType",
-        name: "long",
-      });
+    it("should emit exact BCL numeric aliases as System value types", () => {
+      const cases = [
+        ["half", "global::System.Half"],
+        ["int128", "global::System.Int128"],
+        ["uint128", "global::System.UInt128"],
+      ] as const;
 
-      const result = emitModule(module);
+      for (const [typeName, expected] of cases) {
+        const [typeAst] = emitReferenceType(
+          {
+            kind: "referenceType",
+            name: typeName,
+          },
+          baseContext
+        );
 
-      expect(result).to.include("long x");
-    });
-
-    it("should emit double without qualification", () => {
-      const module = createModuleWithType({
-        kind: "referenceType",
-        name: "double",
-      });
-
-      const result = emitModule(module);
-
-      expect(result).to.include("double x");
-    });
-
-    it("should emit decimal without qualification", () => {
-      const module = createModuleWithType({
-        kind: "referenceType",
-        name: "decimal",
-      });
-
-      const result = emitModule(module);
-
-      expect(result).to.include("decimal x");
-    });
-
-    it("should emit bool without qualification", () => {
-      const module = createModuleWithType({
-        kind: "referenceType",
-        name: "bool",
-      });
-
-      const result = emitModule(module);
-
-      expect(result).to.include("bool x");
-    });
-
-    it("should emit nint (native int) without qualification", () => {
-      const module = createModuleWithType({
-        kind: "referenceType",
-        name: "nint",
-      });
-
-      const result = emitModule(module);
-
-      expect(result).to.include("nint x");
+        expect(printType(typeAst)).to.equal(expected);
+      }
     });
   });
 
@@ -208,9 +195,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include(
-        "global::Jotster.Core.types.Ok__Alias<string>"
-      );
+      expect(result).to.include("global::Jotster.Core.types.Ok__Alias<string>");
       expect(result).to.not.include("Ok__Alias`1");
     });
   });
@@ -334,14 +319,14 @@ describe("Reference Type Emission", () => {
               "MetricName",
               {
                 kind: "type",
-                clrName: "string",
+                typeAst: clrTypeNameToTypeAst("string"),
               },
             ],
           ]),
         }
       );
 
-      expect(renderTypeAst(typeAst)).to.equal("string");
+      expect(printType(typeAst)).to.equal("string");
     });
 
     it("should emit arrays of imported primitive aliases without global qualification", () => {
@@ -363,14 +348,14 @@ describe("Reference Type Emission", () => {
               "MetricName",
               {
                 kind: "type",
-                clrName: "string",
+                typeAst: clrTypeNameToTypeAst("string"),
               },
             ],
           ]),
         }
       );
 
-      expect(renderTypeAst(typeAst)).to.equal("string[]");
+      expect(printType(typeAst)).to.equal("string[]");
     });
 
     it("should use module-bound imported type FQNs instead of module container members", () => {
@@ -453,6 +438,25 @@ describe("Reference Type Emission", () => {
         "global::System.Collections.Generic.Dictionary<int, string>"
       );
       expect(result).to.not.include("Dictionary`2");
+    });
+
+    it("should preserve generic arguments for qualified canonical type identities", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "List",
+        typeArguments: [{ kind: "primitiveType", name: "int" }],
+        typeId: {
+          stableId: "System.Private.CoreLib:System.Collections.Generic.List`1",
+          clrName: "System.Collections.Generic.List`1",
+          assemblyName: "System.Private.CoreLib",
+          tsName: "List",
+        },
+      });
+
+      const result = emitModule(module);
+
+      expect(result).to.include("global::System.Collections.Generic.List<int>");
+      expect(result).to.not.include("List`1");
     });
 
     it("should resolve tsbindgen instance aliases through registry base names", () => {

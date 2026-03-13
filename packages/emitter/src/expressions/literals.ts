@@ -16,7 +16,17 @@ import {
   resolveTypeAlias,
 } from "../core/semantic/type-resolution.js";
 import { emitTypeAst } from "../type-emitter.js";
-import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import {
+  booleanLiteral,
+  charLiteral,
+  nullLiteral,
+  parseNumericLiteral,
+  stringLiteral,
+} from "../core/format/backend-ast/builders.js";
+import type {
+  CSharpExpressionAst,
+  CSharpNumericLiteralSuffix,
+} from "../core/format/backend-ast/types.js";
 
 /**
  * Get the C# literal suffix for a numeric type.
@@ -25,7 +35,9 @@ import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
  * @param typeName - The primitive type name (e.g., "long", "float")
  * @returns The suffix string (e.g., "L", "f") or empty string if no suffix needed
  */
-const getNumericSuffix = (typeName: string): string => {
+const getNumericSuffix = (
+  typeName: string
+): CSharpNumericLiteralSuffix | undefined => {
   switch (typeName) {
     case "long":
       return "L";
@@ -39,7 +51,7 @@ const getNumericSuffix = (typeName: string): string => {
       return "m";
     // int, byte, sbyte, short, ushort, double - no suffix needed
     default:
-      return "";
+      return undefined;
   }
 };
 
@@ -53,25 +65,6 @@ const isCharExpectedType = (
     (effective.kind === "primitiveType" && effective.name === "char") ||
     (effective.kind === "referenceType" && effective.name === "char")
   );
-};
-
-const escapeCSharpChar = (char: string): string => {
-  switch (char) {
-    case "'":
-      return "\\'";
-    case "\\":
-      return "\\\\";
-    case "\n":
-      return "\\n";
-    case "\r":
-      return "\\r";
-    case "\t":
-      return "\\t";
-    case "\0":
-      return "\\0";
-    default:
-      return char;
-  }
 };
 
 /**
@@ -102,7 +95,7 @@ export const emitLiteral = (
         return [{ kind: "defaultExpression" }, context];
       }
     }
-    return [{ kind: "literalExpression", text: "null" }, context];
+    return [nullLiteral(), context];
   }
 
   if (value === undefined) {
@@ -131,20 +124,11 @@ export const emitLiteral = (
             `Frontend validation should have rejected this.`
         );
       }
-      return [
-        { kind: "literalExpression", text: `'${escapeCSharpChar(value)}'` },
-        context,
-      ];
+      return [charLiteral(value), context];
     }
 
     // Escape the string for C#
-    const escaped = value
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"')
-      .replace(/\n/g, "\\n")
-      .replace(/\r/g, "\\r")
-      .replace(/\t/g, "\\t");
-    return [{ kind: "literalExpression", text: `"${escaped}"` }, context];
+    return [stringLiteral(value), context];
   }
 
   if (typeof value === "number") {
@@ -186,23 +170,17 @@ export const emitLiteral = (
               );
             }
           }
-          return [
-            { kind: "literalExpression", text: baseLiteral + suffix },
-            context,
-          ];
+          return [parseNumericLiteral(baseLiteral, suffix), context];
         }
       }
     }
 
-    return [{ kind: "literalExpression", text: baseLiteral }, context];
+    return [parseNumericLiteral(baseLiteral), context];
   }
 
   if (typeof value === "boolean") {
-    return [
-      { kind: "literalExpression", text: value ? "true" : "false" },
-      context,
-    ];
+    return [booleanLiteral(value), context];
   }
 
-  return [{ kind: "literalExpression", text: String(value) }, context];
+  return [stringLiteral(String(value)), context];
 };

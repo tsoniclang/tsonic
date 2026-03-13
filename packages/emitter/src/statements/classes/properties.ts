@@ -8,6 +8,7 @@ import { emitTypeAst } from "../../type-emitter.js";
 import { emitParameters } from "./parameters.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
 import { isMutablePropertySlot } from "../../core/semantic/mutable-storage.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpMemberAst,
   CSharpTypeAst,
@@ -38,18 +39,12 @@ export const emitInterfaceMemberAsProperty = (
           // If this is an inline object type, use the extracted class name
           if (member.type.kind === "objectType") {
             const typeName = getCSharpName(member.name, "classes", context);
-            const typeAst: CSharpTypeAst = {
-              kind: "identifierType",
-              name: typeName,
-            };
+            const typeAst: CSharpTypeAst = identifierType(typeName);
             return [typeAst, currentContext] as const;
           }
           return emitTypeAst(member.type, currentContext);
         }
-        const typeAst: CSharpTypeAst = {
-          kind: "identifierType",
-          name: "object",
-        };
+        const typeAst: CSharpTypeAst = identifierType("object");
         return [typeAst, currentContext] as const;
       })();
 
@@ -93,10 +88,7 @@ export const emitInterfaceMemberAsProperty = (
         if (member.returnType) {
           return emitTypeAst(member.returnType, currentContext);
         }
-        const voidType: CSharpTypeAst = {
-          kind: "identifierType",
-          name: "void",
-        };
+        const voidType: CSharpTypeAst = identifierType("void");
         return [voidType, currentContext] as const;
       })();
 
@@ -121,10 +113,7 @@ export const emitInterfaceMemberAsProperty = (
           kind: "throwExpression",
           expression: {
             kind: "objectCreationExpression",
-            type: {
-              kind: "identifierType",
-              name: "global::System.NotImplementedException",
-            },
+            type: identifierType("global::System.NotImplementedException"),
             arguments: [],
           },
         },

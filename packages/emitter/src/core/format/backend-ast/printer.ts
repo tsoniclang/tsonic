@@ -30,7 +30,272 @@ import type {
   CSharpCompilationUnitAst,
   CSharpNamespaceDeclarationAst,
   CSharpLambdaParameterAst,
+  CSharpTriviaAst,
+  CSharpQualifiedNameAst,
 } from "./types.js";
+
+const escapeCSharpStringLiteral = (value: string): string =>
+  value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t");
+
+const escapeCSharpCharLiteral = (value: string): string => {
+  switch (value) {
+    case "'":
+      return "\\'";
+    case "\\":
+      return "\\\\";
+    case "\n":
+      return "\\n";
+    case "\r":
+      return "\\r";
+    case "\t":
+      return "\\t";
+    case "\0":
+      return "\\0";
+    default:
+      return value;
+  }
+};
+
+const printTrivia = (trivia: CSharpTriviaAst): string => {
+  switch (trivia.kind) {
+    case "singleLineCommentTrivia":
+      return `// ${trivia.text}`;
+    case "blankLineTrivia":
+      return "";
+    default: {
+      const exhaustive: never = trivia;
+      throw new Error(
+        `ICE: Unhandled trivia kind '${(exhaustive as CSharpTriviaAst).kind}' in printTrivia`
+      );
+    }
+  }
+};
+
+const nameMayPrintColon = (name: CSharpQualifiedNameAst): boolean =>
+  name.aliasQualifier !== undefined;
+
+const typeMayPrintColon = (type: CSharpTypeAst): boolean => {
+  switch (type.kind) {
+    case "predefinedType":
+    case "varType":
+      return false;
+    case "identifierType":
+      return type.typeArguments?.some(typeMayPrintColon) === true;
+    case "qualifiedIdentifierType":
+      return (
+        nameMayPrintColon(type.name) ||
+        type.typeArguments?.some(typeMayPrintColon) === true
+      );
+    case "nullableType":
+      return typeMayPrintColon(type.underlyingType);
+    case "arrayType":
+      return typeMayPrintColon(type.elementType);
+    case "pointerType":
+      return typeMayPrintColon(type.elementType);
+    case "tupleType":
+      return type.elements.some((element) => typeMayPrintColon(element.type));
+    default: {
+      const exhaustive: never = type;
+      throw new Error(
+        `ICE: Unhandled type AST kind '${(exhaustive as CSharpTypeAst).kind}' in typeMayPrintColon`
+      );
+    }
+  }
+};
+
+const patternMayPrintColon = (pattern: CSharpPatternAst): boolean => {
+  switch (pattern.kind) {
+    case "typePattern":
+    case "declarationPattern":
+      return typeMayPrintColon(pattern.type);
+    case "varPattern":
+    case "discardPattern":
+      return false;
+    case "constantPattern":
+      return expressionMayPrintColon(pattern.expression);
+    case "negatedPattern":
+      return patternMayPrintColon(pattern.pattern);
+    default: {
+      const exhaustive: never = pattern;
+      throw new Error(
+        `ICE: Unhandled pattern AST kind '${(exhaustive as CSharpPatternAst).kind}' in patternMayPrintColon`
+      );
+    }
+  }
+};
+
+const expressionMayPrintColon = (expr: CSharpExpressionAst): boolean => {
+  switch (expr.kind) {
+    case "conditionalExpression":
+      return true;
+    case "identifierExpression":
+      return false;
+    case "qualifiedIdentifierExpression":
+      return nameMayPrintColon(expr.name);
+    case "typeReferenceExpression":
+      return typeMayPrintColon(expr.type);
+    case "parenthesizedExpression":
+    case "awaitExpression":
+    case "throwExpression":
+    case "suppressNullableWarningExpression":
+    case "argumentModifierExpression":
+      return expressionMayPrintColon(expr.expression);
+    case "prefixUnaryExpression":
+    case "postfixUnaryExpression":
+      return expressionMayPrintColon(expr.operand);
+    case "memberAccessExpression":
+    case "conditionalMemberAccessExpression":
+      return expressionMayPrintColon(expr.expression);
+    case "elementAccessExpression":
+    case "conditionalElementAccessExpression":
+      return (
+        expressionMayPrintColon(expr.expression) ||
+        expr.arguments.some(expressionMayPrintColon)
+      );
+    case "implicitElementAccessExpression":
+      return expr.arguments.some(expressionMayPrintColon);
+    case "invocationExpression":
+      return (
+        expressionMayPrintColon(expr.expression) ||
+        expr.arguments.some(expressionMayPrintColon) ||
+        expr.typeArguments?.some(typeMayPrintColon) === true
+      );
+    case "objectCreationExpression":
+      return (
+        typeMayPrintColon(expr.type) ||
+        expr.arguments.some(expressionMayPrintColon) ||
+        expr.initializer?.some(expressionMayPrintColon) === true
+      );
+    case "arrayCreationExpression":
+      return (
+        typeMayPrintColon(expr.elementType) ||
+        (expr.sizeExpression
+          ? expressionMayPrintColon(expr.sizeExpression)
+          : false) ||
+        expr.initializer?.some(expressionMayPrintColon) === true
+      );
+    case "stackAllocArrayCreationExpression":
+      return (
+        typeMayPrintColon(expr.elementType) ||
+        expressionMayPrintColon(expr.sizeExpression)
+      );
+    case "assignmentExpression":
+    case "binaryExpression":
+      return (
+        expressionMayPrintColon(expr.left) ||
+        expressionMayPrintColon(expr.right)
+      );
+    case "castExpression":
+      return (
+        typeMayPrintColon(expr.type) || expressionMayPrintColon(expr.expression)
+      );
+    case "asExpression":
+      return (
+        typeMayPrintColon(expr.type) || expressionMayPrintColon(expr.expression)
+      );
+    case "isExpression":
+      return (
+        expressionMayPrintColon(expr.expression) ||
+        patternMayPrintColon(expr.pattern)
+      );
+    case "defaultExpression":
+      return expr.type ? typeMayPrintColon(expr.type) : false;
+    case "sizeOfExpression":
+    case "typeofExpression":
+      return typeMayPrintColon(expr.type);
+    case "lambdaExpression":
+      return expr.parameters.some((p) =>
+        p.type ? typeMayPrintColon(p.type) : false
+      );
+    case "interpolatedStringExpression":
+      return expr.parts.some(
+        (part) =>
+          part.kind === "interpolation" &&
+          expressionMayPrintColon(part.expression)
+      );
+    case "switchExpression":
+      return (
+        expressionMayPrintColon(expr.governingExpression) ||
+        expr.arms.some(
+          (arm) =>
+            patternMayPrintColon(arm.pattern) ||
+            (arm.whenClause
+              ? expressionMayPrintColon(arm.whenClause)
+              : false) ||
+            expressionMayPrintColon(arm.expression)
+        )
+      );
+    case "tupleExpression":
+      return expr.elements.some(expressionMayPrintColon);
+    case "nullLiteralExpression":
+    case "booleanLiteralExpression":
+    case "stringLiteralExpression":
+    case "charLiteralExpression":
+    case "numericLiteralExpression":
+      return false;
+    default: {
+      const exhaustive: never = expr;
+      throw new Error(
+        `ICE: Unhandled expression AST kind '${(exhaustive as CSharpExpressionAst).kind}' in expressionMayPrintColon`
+      );
+    }
+  }
+};
+
+const needsPrefixUnarySeparator = (
+  operatorToken: string,
+  operand: CSharpExpressionAst
+): boolean => {
+  if (operatorToken !== "-" && operatorToken !== "+") {
+    return false;
+  }
+
+  const unwrapped =
+    operand.kind === "parenthesizedExpression" ? operand.expression : operand;
+
+  return (
+    unwrapped.kind === "prefixUnaryExpression" &&
+    unwrapped.operatorToken === operatorToken
+  );
+};
+
+const printNumericLiteral = (
+  expr: Extract<CSharpExpressionAst, { kind: "numericLiteralExpression" }>
+): string => {
+  const suffix = expr.suffix ?? "";
+  const hasRealParts =
+    expr.fractionalPart !== undefined || expr.exponentDigits !== undefined;
+
+  if (hasRealParts) {
+    const fractional =
+      expr.fractionalPart !== undefined ? `.${expr.fractionalPart}` : "";
+    const exponent =
+      expr.exponentDigits !== undefined
+        ? `e${expr.exponentSign ?? ""}${expr.exponentDigits}`
+        : "";
+    return `${expr.wholePart}${fractional}${exponent}${suffix}`;
+  }
+
+  switch (expr.base) {
+    case "decimal":
+      return `${expr.wholePart}${suffix}`;
+    case "hexadecimal":
+      return `0x${expr.wholePart}${suffix}`;
+    case "binary":
+      return `0b${expr.wholePart}${suffix}`;
+    default: {
+      const exhaustive: never = expr.base;
+      throw new Error(
+        `ICE: Unhandled numeric literal base '${exhaustive as string}'`
+      );
+    }
+  }
+};
 
 // ============================================================
 // C# reserved keywords for identifier escaping
@@ -145,19 +410,13 @@ const escapeIdentifier = (name: string): string =>
   CSHARP_KEYWORDS.has(name) ? `@${name}` : name;
 
 /**
- * Escape segments in a qualified name (e.g. "global::Foo.stackalloc.Bar").
- * The "global::" prefix and predefined type keywords are preserved.
+ * Escape segments in a qualified name AST.
  */
 const escapeQualifiedName = (
-  name: string,
+  name: CSharpQualifiedNameAst,
   preservePredefinedTypeKeywords: boolean = false
 ): string => {
-  const globalPrefix = "global::";
-  const hasGlobal = name.startsWith(globalPrefix);
-  const body = hasGlobal ? name.slice(globalPrefix.length) : name;
-
-  const escaped = body
-    .split(".")
+  const escaped = [...name.segments]
     .map((segment) =>
       CSHARP_KEYWORDS.has(segment) &&
       !(preservePredefinedTypeKeywords && PREDEFINED_TYPE_KEYWORDS.has(segment))
@@ -166,7 +425,7 @@ const escapeQualifiedName = (
     )
     .join(".");
 
-  return hasGlobal ? `${globalPrefix}${escaped}` : escaped;
+  return name.aliasQualifier ? `${name.aliasQualifier}::${escaped}` : escaped;
 };
 
 // ============================================================
@@ -264,13 +523,20 @@ const getExpressionPrecedence = (expr: CSharpExpressionAst): number => {
     case "awaitExpression":
       return 14; // Await is at unary level
     // Primary expressions (highest precedence)
-    case "literalExpression":
+    case "nullLiteralExpression":
+    case "booleanLiteralExpression":
+    case "stringLiteralExpression":
+    case "charLiteralExpression":
+    case "numericLiteralExpression":
     case "identifierExpression":
+    case "qualifiedIdentifierExpression":
+    case "typeReferenceExpression":
     case "parenthesizedExpression":
     case "memberAccessExpression":
     case "conditionalMemberAccessExpression":
     case "elementAccessExpression":
     case "conditionalElementAccessExpression":
+    case "implicitElementAccessExpression":
     case "invocationExpression":
     case "objectCreationExpression":
     case "arrayCreationExpression":
@@ -342,9 +608,10 @@ const needsParensInBinary = (
 const parenthesizeIfNeeded = (
   expr: CSharpExpressionAst,
   parentPrecedence: number,
-  isRightOperand: boolean
+  isRightOperand: boolean,
+  indent: string
 ): string => {
-  const text = printExpression(expr);
+  const text = printExpression(expr, indent);
   return needsParensInBinary(expr, parentPrecedence, isRightOperand)
     ? `(${text})`
     : text;
@@ -360,6 +627,20 @@ export const printType = (type: CSharpTypeAst): string => {
       return type.keyword;
 
     case "identifierType": {
+      if (type.name.includes(".") || type.name.includes("::")) {
+        throw new Error(
+          `ICE: Simple identifierType '${type.name}' contains qualification. Use qualifiedIdentifierType AST instead.`
+        );
+      }
+      const name = escapeIdentifier(type.name);
+      if (!type.typeArguments || type.typeArguments.length === 0) {
+        return name;
+      }
+      const args = type.typeArguments.map(printType).join(", ");
+      return `${name}<${args}>`;
+    }
+
+    case "qualifiedIdentifierType": {
       const name = escapeQualifiedName(type.name, true);
       if (!type.typeArguments || type.typeArguments.length === 0) {
         return name;
@@ -408,49 +689,90 @@ export const printType = (type: CSharpTypeAst): string => {
 // Expression Printer
 // ============================================================
 
-export const printExpression = (expr: CSharpExpressionAst): string => {
+export const printExpression = (
+  expr: CSharpExpressionAst,
+  indent = ""
+): string => {
   switch (expr.kind) {
-    case "literalExpression":
-      return expr.text;
+    case "nullLiteralExpression":
+      return "null";
+
+    case "booleanLiteralExpression":
+      return expr.value ? "true" : "false";
+
+    case "stringLiteralExpression":
+      return `"${escapeCSharpStringLiteral(expr.value)}"`;
+
+    case "charLiteralExpression":
+      return `'${escapeCSharpCharLiteral(expr.value)}'`;
+
+    case "numericLiteralExpression":
+      return printNumericLiteral(expr);
 
     case "identifierExpression":
+      if (expr.identifier.includes(".") || expr.identifier.includes("::")) {
+        throw new Error(
+          `ICE: Simple identifierExpression '${expr.identifier}' contains qualification. Use qualifiedIdentifierExpression AST instead.`
+        );
+      }
       return escapeIdentifier(expr.identifier);
 
+    case "qualifiedIdentifierExpression":
+      return escapeQualifiedName(expr.name);
+
+    case "typeReferenceExpression":
+      return printType(expr.type);
+
     case "parenthesizedExpression":
-      return `(${printExpression(expr.expression)})`;
+      return `(${printExpression(expr.expression, indent)})`;
 
     case "memberAccessExpression":
-      return `${printPrimaryExpression(expr.expression)}.${escapeIdentifier(expr.memberName)}`;
+      return `${printPrimaryExpression(expr.expression, indent)}.${escapeIdentifier(expr.memberName)}`;
 
     case "conditionalMemberAccessExpression":
-      return `${printPrimaryExpression(expr.expression)}?.${escapeIdentifier(expr.memberName)}`;
+      return `${printPrimaryExpression(expr.expression, indent)}?.${escapeIdentifier(expr.memberName)}`;
 
     case "elementAccessExpression": {
-      const args = expr.arguments.map(printExpression).join(", ");
-      return `${printPrimaryExpression(expr.expression)}[${args}]`;
+      const args = expr.arguments
+        .map((arg) => printExpression(arg, indent))
+        .join(", ");
+      return `${printPrimaryExpression(expr.expression, indent)}[${args}]`;
     }
 
     case "conditionalElementAccessExpression": {
-      const args = expr.arguments.map(printExpression).join(", ");
-      return `${printPrimaryExpression(expr.expression)}?[${args}]`;
+      const args = expr.arguments
+        .map((arg) => printExpression(arg, indent))
+        .join(", ");
+      return `${printPrimaryExpression(expr.expression, indent)}?[${args}]`;
+    }
+
+    case "implicitElementAccessExpression": {
+      const args = expr.arguments
+        .map((arg) => printExpression(arg, indent))
+        .join(", ");
+      return `[${args}]`;
     }
 
     case "invocationExpression": {
-      const callee = printPrimaryExpression(expr.expression);
+      const callee = printPrimaryExpression(expr.expression, indent);
       const typeArgs =
         expr.typeArguments && expr.typeArguments.length > 0
           ? `<${expr.typeArguments.map(printType).join(", ")}>`
           : "";
-      const args = expr.arguments.map(printExpression).join(", ");
+      const args = expr.arguments
+        .map((arg) => printExpression(arg, indent))
+        .join(", ");
       return `${callee}${typeArgs}(${args})`;
     }
 
     case "objectCreationExpression": {
       const typeName = printType(expr.type);
-      const args = expr.arguments.map(printExpression).join(", ");
+      const args = expr.arguments
+        .map((arg) => printExpression(arg, indent))
+        .join(", ");
       const init =
         expr.initializer && expr.initializer.length > 0
-          ? ` { ${expr.initializer.map(printExpression).join(", ")} }`
+          ? ` { ${expr.initializer.map((item) => printExpression(item, indent)).join(", ")} }`
           : "";
       // Omit () when using collection/object initializer with no constructor args
       // (C# allows `new List<T> { ... }` without parentheses)
@@ -466,69 +788,67 @@ export const printExpression = (expr: CSharpExpressionAst): string => {
       const isImplicit = expr.elementType.kind === "varType";
       const elemType = isImplicit ? "" : ` ${printType(expr.elementType)}`;
       if (expr.initializer && expr.initializer.length > 0) {
-        const elems = expr.initializer.map(printExpression).join(", ");
+        const elems = expr.initializer
+          .map((item) => printExpression(item, indent))
+          .join(", ");
         if (expr.sizeExpression) {
-          return `new${elemType}[${printExpression(expr.sizeExpression)}] { ${elems} }`;
+          return `new${elemType}[${printExpression(expr.sizeExpression, indent)}] { ${elems} }`;
         }
         return `new${elemType}[] { ${elems} }`;
       }
       if (expr.sizeExpression) {
-        return `new${elemType}[${printExpression(expr.sizeExpression)}]`;
+        return `new${elemType}[${printExpression(expr.sizeExpression, indent)}]`;
       }
       return `new${elemType}[0]`;
     }
 
     case "stackAllocArrayCreationExpression":
-      return `stackalloc ${printType(expr.elementType)}[${printExpression(expr.sizeExpression)}]`;
+      return `stackalloc ${printType(expr.elementType)}[${printExpression(expr.sizeExpression, indent)}]`;
 
     case "assignmentExpression": {
-      const left = printExpression(expr.left);
-      const right = printExpression(expr.right);
+      const left = printExpression(expr.left, indent);
+      const right = printExpression(expr.right, indent);
       return `${left} ${expr.operatorToken} ${right}`;
     }
 
     case "binaryExpression": {
       const prec = getOperatorPrecedence(expr.operatorToken);
-      const left = parenthesizeIfNeeded(expr.left, prec, false);
-      const right = parenthesizeIfNeeded(expr.right, prec, true);
+      const left = parenthesizeIfNeeded(expr.left, prec, false, indent);
+      const right = parenthesizeIfNeeded(expr.right, prec, true, indent);
       return `${left} ${expr.operatorToken} ${right}`;
     }
 
     case "prefixUnaryExpression": {
-      const operand = printUnaryOperand(expr.operand, true);
-      // Operators like ++ and -- need no space, but ! and - do if operand starts with same char
-      if (
-        (expr.operatorToken === "-" && operand.startsWith("-")) ||
-        (expr.operatorToken === "+" && operand.startsWith("+"))
-      ) {
+      const operand = printUnaryOperand(expr.operand, true, indent);
+      if (needsPrefixUnarySeparator(expr.operatorToken, expr.operand)) {
         return `${expr.operatorToken} ${operand}`;
       }
       return `${expr.operatorToken}${operand}`;
     }
 
     case "postfixUnaryExpression":
-      return `${printUnaryOperand(expr.operand, false)}${expr.operatorToken}`;
+      return `${printUnaryOperand(expr.operand, false, indent)}${expr.operatorToken}`;
 
     case "conditionalExpression": {
-      const cond = printExpression(expr.condition);
-      const whenTrue = printExpression(expr.whenTrue);
-      const whenFalse = printExpression(expr.whenFalse);
+      const cond = printExpression(expr.condition, indent);
+      const whenTrue = printExpression(expr.whenTrue, indent);
+      const whenFalse = printExpression(expr.whenFalse, indent);
       return `${cond} ? ${whenTrue} : ${whenFalse}`;
     }
 
     case "castExpression": {
       const typeName = printType(expr.type);
-      const operand = printCastOperand(expr.expression);
+      const operand = printCastOperand(expr.expression, indent);
       return `(${typeName})${operand}`;
     }
 
     case "asExpression": {
-      const inner = printExpression(expr.expression);
+      const inner = printExpression(expr.expression, indent);
       return `${inner} as ${printType(expr.type)}`;
     }
 
     case "isExpression": {
-      const inner = printExpression(expr.expression);
+      const inner = printExpression(expr.expression, indent);
       const pattern = printPattern(expr.pattern);
       return `${inner} is ${pattern}`;
     }
@@ -540,31 +860,33 @@ export const printExpression = (expr: CSharpExpressionAst): string => {
       return `sizeof(${printType(expr.type)})`;
 
     case "awaitExpression":
-      return `await ${printUnaryOperand(expr.expression, true)}`;
+      return `await ${printUnaryOperand(expr.expression, true, indent)}`;
 
     case "lambdaExpression":
-      return printLambdaExpression(expr);
+      return printLambdaExpression(expr, indent);
 
     case "interpolatedStringExpression":
-      return printInterpolatedString(expr.parts);
+      return printInterpolatedString(expr.parts, indent);
 
     case "throwExpression":
-      return `throw ${printExpression(expr.expression)}`;
+      return `throw ${printExpression(expr.expression, indent)}`;
 
     case "suppressNullableWarningExpression":
-      return `${printPrimaryExpression(expr.expression)}!`;
+      return `${printPrimaryExpression(expr.expression, indent)}!`;
 
     case "typeofExpression":
       return `typeof(${printType(expr.type)})`;
 
     case "switchExpression":
-      return printSwitchExpression(expr);
+      return printSwitchExpression(expr, indent);
 
     case "argumentModifierExpression":
-      return `${expr.modifier} ${printExpression(expr.expression)}`;
+      return `${expr.modifier} ${printExpression(expr.expression, indent)}`;
 
     case "tupleExpression": {
-      const elems = expr.elements.map(printExpression).join(", ");
+      const elems = expr.elements
+        .map((element) => printExpression(element, indent))
+        .join(", ");
       return `(${elems})`;
     }
 
@@ -582,16 +904,24 @@ export const printExpression = (expr: CSharpExpressionAst): string => {
  * (before `.member`, `[index]`, `(args)`, etc.).
  * Wraps in parens if needed.
  */
-const printPrimaryExpression = (expr: CSharpExpressionAst): string => {
-  const text = printExpression(expr);
+const printPrimaryExpression = (
+  expr: CSharpExpressionAst,
+  indent: string
+): string => {
+  const text = printExpression(expr, indent);
   const prec = getExpressionPrecedence(expr);
   // Primary position requires precedence >= 15 (postfix and primary)
   // or the expression is already a parenthesized/literal/identifier
   if (prec >= 15) return text;
   if (
     expr.kind === "parenthesizedExpression" ||
-    expr.kind === "literalExpression" ||
+    expr.kind === "nullLiteralExpression" ||
+    expr.kind === "booleanLiteralExpression" ||
+    expr.kind === "stringLiteralExpression" ||
+    expr.kind === "charLiteralExpression" ||
+    expr.kind === "numericLiteralExpression" ||
     expr.kind === "identifierExpression" ||
+    expr.kind === "qualifiedIdentifierExpression" ||
     expr.kind === "defaultExpression" ||
     expr.kind === "sizeOfExpression" ||
     expr.kind === "typeofExpression" ||
@@ -609,9 +939,10 @@ const printPrimaryExpression = (expr: CSharpExpressionAst): string => {
  */
 const printUnaryOperand = (
   expr: CSharpExpressionAst,
-  isPrefix: boolean
+  isPrefix: boolean,
+  indent: string
 ): string => {
-  const text = printExpression(expr);
+  const text = printExpression(expr, indent);
   const prec = getExpressionPrecedence(expr);
   if (isPrefix) {
     // Prefix unary needs operand to be at least unary precedence
@@ -625,8 +956,11 @@ const printUnaryOperand = (
  * Print an expression that appears as a cast operand.
  * Special rules: unary minus after cast needs parens to avoid ambiguity.
  */
-const printCastOperand = (expr: CSharpExpressionAst): string => {
-  const text = printExpression(expr);
+const printCastOperand = (
+  expr: CSharpExpressionAst,
+  indent: string
+): string => {
+  const text = printExpression(expr, indent);
 
   // Cast operand needs at least unary precedence
   if (getExpressionPrecedence(expr) < 14) {
@@ -639,32 +973,22 @@ const printCastOperand = (expr: CSharpExpressionAst): string => {
     return `(${text})`;
   }
 
-  if (expr.kind === "literalExpression" && text.startsWith("-")) {
-    return `(${text})`;
-  }
-
   return text;
 };
 
 const printLambdaExpression = (
-  expr: Extract<CSharpExpressionAst, { kind: "lambdaExpression" }>
+  expr: Extract<CSharpExpressionAst, { kind: "lambdaExpression" }>,
+  indent: string
 ): string => {
   const asyncPrefix = expr.isAsync ? "async " : "";
   const params = printLambdaParameters(expr.parameters);
 
   if (expr.body.kind === "blockStatement") {
-    if (expr.bodyIndent != null) {
-      // Multi-line block body with flat-block convention (braces + body at same indent)
-      return `${asyncPrefix}${params} =>\n${printStatementFlatBlock(expr.body, expr.bodyIndent)}`;
-    }
-    // Inline single-line block body: () => { stmt1; stmt2; }
-    const stmts = expr.body.statements
-      .map((s) => printStatement(s, ""))
-      .join(" ");
-    return `${asyncPrefix}${params} => { ${stmts} }`;
+    const bodyIndent = `${indent}    `;
+    return `${asyncPrefix}${params} =>\n${printStatementFlatBlock(expr.body, bodyIndent)}`;
   }
 
-  return `${asyncPrefix}${params} => ${printExpression(expr.body)}`;
+  return `${asyncPrefix}${params} => ${printExpression(expr.body, indent)}`;
 };
 
 const printLambdaParameters = (
@@ -684,16 +1008,16 @@ const printLambdaParameters = (
 };
 
 const printInterpolatedString = (
-  parts: readonly CSharpInterpolatedStringPart[]
+  parts: readonly CSharpInterpolatedStringPart[],
+  indent: string
 ): string => {
   const inner = parts
     .map((part) => {
       if (part.kind === "text") return part.text;
-      const exprText = printExpression(part.expression);
-      // Wrap in parens if the expression text contains ':' to prevent
-      // C# from interpreting it as a format specifier delimiter.
-      // Common case: global::Namespace.Type, ternary a ? b : c
-      const safeText = exprText.includes(":") ? `(${exprText})` : exprText;
+      const exprText = printExpression(part.expression, indent);
+      const safeText = expressionMayPrintColon(part.expression)
+        ? `(${exprText})`
+        : exprText;
       return part.formatClause
         ? `{${safeText}:${part.formatClause}}`
         : `{${safeText}}`;
@@ -703,21 +1027,25 @@ const printInterpolatedString = (
 };
 
 const printSwitchExpression = (
-  expr: Extract<CSharpExpressionAst, { kind: "switchExpression" }>
+  expr: Extract<CSharpExpressionAst, { kind: "switchExpression" }>,
+  indent: string
 ): string => {
-  const gov = printExpression(expr.governingExpression);
-  const arms = expr.arms.map(printSwitchExpressionArm).join(", ");
+  const gov = printExpression(expr.governingExpression, indent);
+  const arms = expr.arms
+    .map((arm) => printSwitchExpressionArm(arm, indent))
+    .join(", ");
   return `${gov} switch { ${arms} }`;
 };
 
 const printSwitchExpressionArm = (
-  arm: CSharpSwitchExpressionArmAst
+  arm: CSharpSwitchExpressionArmAst,
+  indent: string
 ): string => {
   const pattern = printPattern(arm.pattern);
   const whenClause = arm.whenClause
-    ? ` when ${printExpression(arm.whenClause)}`
+    ? ` when ${printExpression(arm.whenClause, indent)}`
     : "";
-  const result = printExpression(arm.expression);
+  const result = printExpression(arm.expression, indent);
   return `${pattern}${whenClause} => ${result}`;
 };
 
@@ -773,7 +1101,7 @@ export const printStatement = (
       const decls = stmt.declarators
         .map((d) =>
           d.initializer
-            ? `${escapeIdentifier(d.name)} = ${printExpression(d.initializer)}`
+            ? `${escapeIdentifier(d.name)} = ${printExpression(d.initializer, indent)}`
             : escapeIdentifier(d.name)
         )
         .join(", ");
@@ -794,13 +1122,13 @@ export const printStatement = (
     }
 
     case "expressionStatement":
-      return `${indent}${printExpression(stmt.expression)};`;
+      return `${indent}${printExpression(stmt.expression, indent)};`;
 
     case "ifStatement":
       return printIfStatement(stmt, indent);
 
     case "whileStatement": {
-      const cond = printExpression(stmt.condition);
+      const cond = printExpression(stmt.condition, indent);
       const body = printStatement(stmt.body, indent);
       return `${indent}while (${cond})\n${body}`;
     }
@@ -812,7 +1140,7 @@ export const printStatement = (
       const awaitStr = stmt.isAwait ? "await " : "";
       const typeStr = printType(stmt.type);
       const ident = escapeIdentifier(stmt.identifier);
-      const collection = printExpression(stmt.expression);
+      const collection = printExpression(stmt.expression, indent);
       const body = printStatement(stmt.body, indent);
       return `${indent}${awaitStr}foreach (${typeStr} ${ident} in ${collection})\n${body}`;
     }
@@ -825,12 +1153,12 @@ export const printStatement = (
 
     case "throwStatement":
       return stmt.expression
-        ? `${indent}throw ${printExpression(stmt.expression)};`
+        ? `${indent}throw ${printExpression(stmt.expression, indent)};`
         : `${indent}throw;`;
 
     case "returnStatement":
       return stmt.expression
-        ? `${indent}return ${printExpression(stmt.expression)};`
+        ? `${indent}return ${printExpression(stmt.expression, indent)};`
         : `${indent}return;`;
 
     case "breakStatement":
@@ -847,7 +1175,7 @@ export const printStatement = (
         return `${indent}yield break;`;
       }
       return stmt.expression
-        ? `${indent}yield return ${printExpression(stmt.expression)};`
+        ? `${indent}yield return ${printExpression(stmt.expression, indent)};`
         : `${indent}yield return;`;
 
     default: {
@@ -874,7 +1202,7 @@ const printIfStatement = (
   stmt: Extract<CSharpStatementAst, { kind: "ifStatement" }>,
   indent: string
 ): string => {
-  const cond = printExpression(stmt.condition);
+  const cond = printExpression(stmt.condition, indent);
   const thenBody = printStatement(stmt.thenStatement, indent);
 
   if (!stmt.elseStatement) {
@@ -905,22 +1233,26 @@ const printForStatement = (
     const decls = stmt.declaration.declarators
       .map((d) =>
         d.initializer
-          ? `${escapeIdentifier(d.name)} = ${printExpression(d.initializer)}`
+          ? `${escapeIdentifier(d.name)} = ${printExpression(d.initializer, indent)}`
           : escapeIdentifier(d.name)
       )
       .join(", ");
     parts.push(`${typeStr} ${decls}`);
   } else if (stmt.initializers && stmt.initializers.length > 0) {
-    parts.push(stmt.initializers.map(printExpression).join(", "));
+    parts.push(
+      stmt.initializers.map((expr) => printExpression(expr, indent)).join(", ")
+    );
   } else {
     parts.push("");
   }
 
   // Condition
-  parts.push(stmt.condition ? printExpression(stmt.condition) : "");
+  parts.push(stmt.condition ? printExpression(stmt.condition, indent) : "");
 
   // Incrementors
-  parts.push(stmt.incrementors.map(printExpression).join(", "));
+  parts.push(
+    stmt.incrementors.map((expr) => printExpression(expr, indent)).join(", ")
+  );
 
   const header = parts.join("; ");
   const body = printStatement(stmt.body, indent);
@@ -931,7 +1263,7 @@ const printSwitchStatement = (
   stmt: Extract<CSharpStatementAst, { kind: "switchStatement" }>,
   indent: string
 ): string => {
-  const expr = printExpression(stmt.expression);
+  const expr = printExpression(stmt.expression, indent);
   const innerIndent = indent + "    ";
   const sections = stmt.sections
     .map((s) => printSwitchSection(s, innerIndent))
@@ -959,11 +1291,11 @@ const printSwitchLabel = (
 ): string => {
   switch (label.kind) {
     case "caseSwitchLabel":
-      return `${indent}case ${printExpression(label.value)}:`;
+      return `${indent}case ${printExpression(label.value, indent)}:`;
     case "casePatternSwitchLabel": {
       const pattern = printPattern(label.pattern);
       const when = label.whenClause
-        ? ` when ${printExpression(label.whenClause)}`
+        ? ` when ${printExpression(label.whenClause, indent)}`
         : "";
       return `${indent}case ${pattern}${when}:`;
     }
@@ -999,7 +1331,7 @@ const printCatchClause = (
     ? ` ${escapeIdentifier(clause.identifier)}`
     : "";
   const filter = clause.filter
-    ? ` when (${printExpression(clause.filter)})`
+    ? ` when (${printExpression(clause.filter, indent)})`
     : "";
   return `${indent}catch (${typeName}${ident})${filter}\n${body}`;
 };
@@ -1012,7 +1344,7 @@ export const printParameter = (param: CSharpParameterAst): string => {
             const targetPrefix = a.target ? `${a.target}: ` : "";
             const args =
               a.arguments && a.arguments.length > 0
-                ? `(${a.arguments.map(printExpression).join(", ")})`
+                ? `(${a.arguments.map((arg) => printExpression(arg)).join(", ")})`
                 : "";
             return `[${targetPrefix}${printType(a.type)}${args}]`;
           })
@@ -1046,7 +1378,7 @@ export const printMember = (
       const typeName = printType(member.type);
       const name = escapeIdentifier(member.name);
       const init = member.initializer
-        ? ` = ${printExpression(member.initializer)}`
+        ? ` = ${printExpression(member.initializer, indent)}`
         : "";
       return `${attrs}${indent}${mods}${typeName} ${name}${init};`;
     }
@@ -1067,7 +1399,7 @@ export const printMember = (
             : "";
         const accessors = ` { ${getStr}${setStr}}`;
         const init = member.initializer
-          ? ` = ${printExpression(member.initializer)};`
+          ? ` = ${printExpression(member.initializer, indent)};`
           : "";
         return `${attrs}${indent}${mods}${typeName} ${name}${accessors}${init}`;
       }
@@ -1100,7 +1432,7 @@ export const printMember = (
       const constraints = printConstraints(member.constraints, indent);
 
       if (member.expressionBody) {
-        return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints} => ${printExpression(member.expressionBody)};`;
+        return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints} => ${printExpression(member.expressionBody, indent)};`;
       }
       if (member.body) {
         return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints}\n${printBlockStatement(member.body, indent)}`;
@@ -1116,7 +1448,7 @@ export const printMember = (
       const params = member.parameters.map(printParameter).join(", ");
       const baseCall =
         member.baseArguments !== undefined
-          ? ` : base(${member.baseArguments.map(printExpression).join(", ")})`
+          ? ` : base(${member.baseArguments.map((arg) => printExpression(arg, indent)).join(", ")})`
           : "";
       return `${attrs}${indent}${mods}${escapeIdentifier(member.name)}(${params})${baseCall}\n${printBlockStatement(member.body, indent)}`;
     }
@@ -1198,7 +1530,7 @@ const printEnumMember = (
   indent: string
 ): string =>
   member.value
-    ? `${indent}${escapeIdentifier(member.name)} = ${printExpression(member.value)}`
+    ? `${indent}${escapeIdentifier(member.name)} = ${printExpression(member.value, indent)}`
     : `${indent}${escapeIdentifier(member.name)}`;
 
 const printTypeParameters = (
@@ -1255,7 +1587,7 @@ export const printAttributes = (
       const targetPrefix = a.target ? `${a.target}: ` : "";
       const args =
         a.arguments && a.arguments.length > 0
-          ? `(${a.arguments.map(printExpression).join(", ")})`
+          ? `(${a.arguments.map((arg) => printExpression(arg, indent)).join(", ")})`
           : "";
       return `${indent}[${targetPrefix}${printType(a.type)}${args}]\n`;
     })
@@ -1271,8 +1603,8 @@ export const printCompilationUnit = (
 ): string => {
   const parts: string[] = [];
 
-  if (unit.header) {
-    parts.push(unit.header);
+  if (unit.leadingTrivia && unit.leadingTrivia.length > 0) {
+    parts.push(unit.leadingTrivia.map(printTrivia).join("\n"));
   }
 
   const usings = unit.usings
@@ -1338,7 +1670,7 @@ export const printStatementFlatBlock = (
     }
 
     case "ifStatement": {
-      const cond = printExpression(stmt.condition);
+      const cond = printExpression(stmt.condition, indent);
       const thenBody = printStatementFlatBlock(stmt.thenStatement, bodyIndent);
 
       if (!stmt.elseStatement) {
@@ -1357,7 +1689,7 @@ export const printStatementFlatBlock = (
     }
 
     case "whileStatement": {
-      const cond = printExpression(stmt.condition);
+      const cond = printExpression(stmt.condition, indent);
       const body = printStatementFlatBlock(stmt.body, bodyIndent);
       return `${indent}while (${cond})\n${body}`;
     }
@@ -1369,18 +1701,26 @@ export const printStatementFlatBlock = (
         const decls = stmt.declaration.declarators
           .map((d) =>
             d.initializer
-              ? `${escapeIdentifier(d.name)} = ${printExpression(d.initializer)}`
+              ? `${escapeIdentifier(d.name)} = ${printExpression(d.initializer, indent)}`
               : escapeIdentifier(d.name)
           )
           .join(", ");
         parts.push(`${typeStr} ${decls}`);
       } else if (stmt.initializers && stmt.initializers.length > 0) {
-        parts.push(stmt.initializers.map(printExpression).join(", "));
+        parts.push(
+          stmt.initializers
+            .map((expr) => printExpression(expr, indent))
+            .join(", ")
+        );
       } else {
         parts.push("");
       }
-      parts.push(stmt.condition ? printExpression(stmt.condition) : "");
-      parts.push(stmt.incrementors.map(printExpression).join(", "));
+      parts.push(stmt.condition ? printExpression(stmt.condition, indent) : "");
+      parts.push(
+        stmt.incrementors
+          .map((expr) => printExpression(expr, indent))
+          .join(", ")
+      );
       const header = parts.join("; ");
       const body = printStatementFlatBlock(stmt.body, bodyIndent);
       return `${indent}for (${header})\n${body}`;
@@ -1390,13 +1730,13 @@ export const printStatementFlatBlock = (
       const awaitStr = stmt.isAwait ? "await " : "";
       const typeStr = printType(stmt.type);
       const ident = escapeIdentifier(stmt.identifier);
-      const collection = printExpression(stmt.expression);
+      const collection = printExpression(stmt.expression, indent);
       const body = printStatementFlatBlock(stmt.body, bodyIndent);
       return `${indent}${awaitStr}foreach (${typeStr} ${ident} in ${collection})\n${body}`;
     }
 
     case "switchStatement": {
-      const expr = printExpression(stmt.expression);
+      const expr = printExpression(stmt.expression, indent);
       const sections = stmt.sections
         .map((s) => {
           const labels = s.labels
@@ -1426,7 +1766,9 @@ export const printStatementFlatBlock = (
           const ident = c.identifier
             ? ` ${escapeIdentifier(c.identifier)}`
             : "";
-          const filter = c.filter ? ` when (${printExpression(c.filter)})` : "";
+          const filter = c.filter
+            ? ` when (${printExpression(c.filter, indent)})`
+            : "";
           return `${indent}catch (${typeName}${ident})${filter}\n${catchBody}`;
         })
         .join("\n");

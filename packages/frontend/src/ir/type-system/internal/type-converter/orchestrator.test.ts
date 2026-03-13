@@ -256,8 +256,8 @@ describe("Type Converter - TypeQuery from awaited locals", () => {
     const converted = convertAlias(
       [
         "class Channel {",
-        "  Id: string = \"\";",
-        "  Name: string = \"\";",
+        '  Id: string = "";',
+        '  Name: string = "";',
         "}",
         "declare function getChannels(): Promise<Channel[]>;",
         "const allChannels = await getChannels();",

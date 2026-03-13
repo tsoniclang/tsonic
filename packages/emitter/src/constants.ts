@@ -2,6 +2,8 @@
  * Shared constants for the Tsonic emitter
  */
 
+import type { CSharpTriviaAst } from "./core/format/backend-ast/types.js";
+
 /**
  * Generate standard file header for emitted C# files
  *
@@ -9,24 +11,33 @@
  * @param options - Header generation options
  * @returns Multi-line header string with trailing newline
  */
-export const generateFileHeader = (
+export const generateFileHeaderTrivia = (
   filePath: string,
   options: {
     readonly includeTimestamp?: boolean;
     readonly timestamp?: string;
   } = {}
-): string => {
-  const lines: string[] = [];
+): readonly CSharpTriviaAst[] => {
+  const lines: CSharpTriviaAst[] = [];
 
-  lines.push(`// Generated from: ${filePath}`);
+  lines.push({
+    kind: "singleLineCommentTrivia",
+    text: `Generated from: ${filePath}`,
+  });
 
   if (options.includeTimestamp ?? true) {
     const timestamp = options.timestamp ?? new Date().toISOString();
-    lines.push(`// Generated at: ${timestamp}`);
+    lines.push({
+      kind: "singleLineCommentTrivia",
+      text: `Generated at: ${timestamp}`,
+    });
   }
 
-  lines.push("// WARNING: Do not modify this file manually");
-  lines.push("");
+  lines.push({
+    kind: "singleLineCommentTrivia",
+    text: "WARNING: Do not modify this file manually",
+  });
+  lines.push({ kind: "blankLineTrivia" });
 
-  return lines.join("\n");
+  return lines;
 };

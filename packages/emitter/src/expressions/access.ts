@@ -17,7 +17,14 @@ import {
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import {
+  identifierExpression,
+  identifierType,
+  nullLiteral,
+  stringLiteral,
+} from "../core/format/backend-ast/builders.js";
 import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
+import { getIdentifierTypeName } from "../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -71,10 +78,8 @@ const stripGlobalPrefix = (name: string): string =>
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
 
-const createStringLiteralExpression = (value: string): CSharpExpressionAst => ({
-  kind: "literalExpression",
-  text: JSON.stringify(value),
-});
+const createStringLiteralExpression = (value: string): CSharpExpressionAst =>
+  stringLiteral(value);
 
 const getMemberAccessNarrowKey = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>
@@ -198,7 +203,8 @@ const resolveReceiverTypeFqn = (
   if (receiverExpr.kind === "identifier") {
     const binding = context.importBindings?.get(receiverExpr.name);
     if (binding?.kind === "type") {
-      return stripGlobalPrefix(binding.clrName);
+      const typeName = getIdentifierTypeName(binding.typeAst);
+      return typeName ? stripGlobalPrefix(typeName) : undefined;
     }
   }
 
@@ -357,10 +363,7 @@ export const emitMemberAccess = (
     if (narrowed) {
       if (narrowed.kind === "rename") {
         return [
-          {
-            kind: "identifierExpression",
-            identifier: escapeCSharpIdentifier(narrowed.name),
-          },
+          identifierExpression(escapeCSharpIdentifier(narrowed.name)),
           context,
         ];
       }
@@ -538,11 +541,10 @@ export const emitMemberAccess = (
 
         const wrapperAst: CSharpExpressionAst = {
           kind: "objectCreationExpression",
-          type: {
-            kind: "identifierType",
-            name: `global::${stripClrGenericArity(type)}`,
-            typeArguments: wrapperTypeArguments,
-          },
+          type: identifierType(
+            `global::${stripClrGenericArity(type)}`,
+            wrapperTypeArguments
+          ),
           arguments: [objectAst],
         };
 
@@ -572,10 +574,7 @@ export const emitMemberAccess = (
       const [objectAst, newContext] = emitExpressionAst(expr.object, context);
       const extensionCallAst: CSharpExpressionAst = {
         kind: "invocationExpression",
-        expression: {
-          kind: "identifierExpression",
-          identifier: `global::${type}.${escapedMember}`,
-        },
+        expression: identifierExpression(`global::${type}.${escapedMember}`),
         arguments: [objectAst],
       };
 
@@ -590,7 +589,7 @@ export const emitMemberAccess = (
             kind: "binaryExpression",
             operatorToken: "==",
             left: objectAst,
-            right: { kind: "literalExpression", text: "null" },
+            right: nullLiteral(),
           },
           whenTrue: { kind: "defaultExpression" },
           whenFalse: extensionCallAst,
@@ -617,10 +616,7 @@ export const emitMemberAccess = (
     if (isStaticTypeReference(expr, context) || isGlobalSimpleBindingAccess) {
       // Static access: emit full CLR type and member with global:: prefix
       return [
-        {
-          kind: "identifierExpression",
-          identifier: `global::${type}.${escapedMember}`,
-        },
+        identifierExpression(`global::${type}.${escapedMember}`),
         context,
       ];
     } else {
@@ -817,11 +813,10 @@ export const emitMemberAccess = (
         newContext
       );
 
-      const listTypeAst = {
-        kind: "identifierType",
-        name: "global::System.Collections.Generic.List",
-        typeArguments: [elementTypeAst],
-      } as const;
+      const listTypeAst = identifierType(
+        "global::System.Collections.Generic.List",
+        [elementTypeAst]
+      );
 
       const listExprAst: CSharpExpressionAst = {
         kind: "objectCreationExpression",

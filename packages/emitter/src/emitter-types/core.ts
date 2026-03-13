@@ -8,7 +8,10 @@ import type {
   IrInterfaceMember,
   IrClassMember,
 } from "@tsonic/frontend";
-import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../core/format/backend-ast/types.js";
 
 /**
  * Module identity for import resolution
@@ -183,18 +186,30 @@ export type EmitterOptions = {
  * All CLR name resolution is done in the frontend - the emitter just uses
  * the pre-computed clrName directly (no string parsing or type lookup).
  */
-export type ImportBinding = {
-  /** Import kind: type (interface/class), value (function/variable), or namespace (import *) */
-  readonly kind: "type" | "value" | "namespace";
-  /**
-   * Fully-qualified CLR name.
-   * - For types: the type's FQN (e.g., "MultiFileTypes.models.User")
-   * - For values/namespaces: the container class FQN (e.g., "MultiFileTypes.models.user")
-   */
-  readonly clrName: string;
-  /** For value imports: the member name inside the container (e.g., "createUser") */
-  readonly member?: string;
-};
+export type ImportBinding =
+  | {
+      /** Type import (class/interface/enum/erased alias) */
+      readonly kind: "type";
+      /** Fully-qualified or keyword-preserving type AST */
+      readonly typeAst: CSharpTypeAst;
+    }
+  | {
+      /** Value import (function/variable) */
+      readonly kind: "value";
+      /**
+       * Fully-qualified CLR container name.
+       * Example: "global::MultiFileTypes.models.user"
+       */
+      readonly clrName: string;
+      /** Member name inside the container (e.g. "createUser") */
+      readonly member: string;
+    }
+  | {
+      /** Namespace/module-object import (import * as x / canonical module object) */
+      readonly kind: "namespace";
+      /** Fully-qualified CLR container/type name */
+      readonly clrName: string;
+    };
 
 /**
  * Information about a locally-defined type (class/interface/typeAlias).
@@ -369,8 +384,8 @@ export type EmitResult = {
  * This is a mutable structure shared across all modules during emission.
  */
 export type JsonAotRegistry = {
-  /** Set of C# type strings used at JsonSerializer call sites */
-  readonly rootTypes: Set<string>;
+  /** Stable-keyed set of C# types used at JsonSerializer call sites */
+  readonly rootTypes: Map<string, CSharpTypeAst>;
   /** Whether any JsonSerializer calls were detected */
   needsJsonAot: boolean;
 };

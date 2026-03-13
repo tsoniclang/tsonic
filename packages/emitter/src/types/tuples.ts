@@ -10,6 +10,7 @@ import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 
 /**
  * Helper to emit a list of tuple element types as CSharpTypeAst, threading context through.
@@ -46,23 +47,13 @@ export const emitTupleType = (
 
   // Empty tuple type [] → ValueTuple (non-generic)
   if (elems.length === 0) {
-    return [
-      { kind: "identifierType", name: "global::System.ValueTuple" },
-      context,
-    ];
+    return [identifierType("global::System.ValueTuple"), context];
   }
 
   // 1-7 elements: direct ValueTuple<T1, ..., Tn>
   if (elems.length <= 7) {
     const [typeAsts, ctx] = emitTupleElems(elems, context);
-    return [
-      {
-        kind: "identifierType",
-        name: "global::System.ValueTuple",
-        typeArguments: typeAsts,
-      },
-      ctx,
-    ];
+    return [identifierType("global::System.ValueTuple", typeAsts), ctx];
   }
 
   // 8+ elements: nest as ValueTuple<T1..T7, ValueTuple<T8..>>
@@ -78,11 +69,10 @@ export const emitTupleType = (
   );
 
   return [
-    {
-      kind: "identifierType",
-      name: "global::System.ValueTuple",
-      typeArguments: [...first7TypeAsts, restTypeAst],
-    },
+    identifierType("global::System.ValueTuple", [
+      ...first7TypeAsts,
+      restTypeAst,
+    ]),
     ctxAfterRest,
   ];
 };

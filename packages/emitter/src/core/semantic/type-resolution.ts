@@ -406,7 +406,10 @@ const resolveBindingBackedPropertyType = (
     );
     if (!member?.semanticType) continue;
 
-    return withOptionalUndefined(member.semanticType, member.semanticOptional === true);
+    return withOptionalUndefined(
+      member.semanticType,
+      member.semanticOptional === true
+    );
   }
 
   return undefined;
@@ -427,7 +430,9 @@ const resolveBindingBackedPropertySignatures = (
 
     const properties = binding.members
       .filter(
-        (candidateMember): candidateMember is typeof candidateMember & {
+        (
+          candidateMember
+        ): candidateMember is typeof candidateMember & {
           readonly semanticType: IrType;
         } =>
           candidateMember.kind === "property" &&
@@ -575,9 +580,7 @@ const withOptionalUndefined = (type: IrType, isOptional: boolean): IrType => {
   if (!isOptional) return type;
   if (
     type.kind === "unionType" &&
-    type.types.some(
-      (t) => t.kind === "primitiveType" && t.name === "undefined"
-    )
+    type.types.some((t) => t.kind === "primitiveType" && t.name === "undefined")
   ) {
     return type;
   }
@@ -607,10 +610,7 @@ const getTypeMemberIndexCandidates = (
 
   const matches: string[] = [];
   for (const fqn of index.keys()) {
-    if (
-      fqn.endsWith(`.${ref.name}`) ||
-      fqn.endsWith(`.${ref.name}__Alias`)
-    ) {
+    if (fqn.endsWith(`.${ref.name}`) || fqn.endsWith(`.${ref.name}__Alias`)) {
       matches.push(fqn);
     }
   }

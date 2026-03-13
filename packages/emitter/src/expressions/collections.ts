@@ -14,7 +14,16 @@ import {
 } from "../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../core/format/local-names.js";
 import { emitCSharpName } from "../naming-policy.js";
-import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
+import {
+  identifierExpression,
+  identifierType,
+  stringLiteral,
+  withTypeArguments,
+} from "../core/format/backend-ast/builders.js";
+import {
+  extractCalleeNameFromAst,
+  getIdentifierTypeName,
+} from "../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -98,7 +107,8 @@ const resolveReceiverTypeFqn = (
 
   const binding = context.importBindings?.get(resolved.name);
   if (binding?.kind === "type") {
-    return stripGlobalPrefix(binding.clrName);
+    const typeName = getIdentifierTypeName(binding.typeAst);
+    return typeName ? stripGlobalPrefix(typeName) : undefined;
   }
 
   return undefined;
@@ -186,34 +196,26 @@ const isDictionaryLikeSpreadType = (
   context: EmitterContext
 ): boolean => {
   const resolved = resolveTypeAlias(stripNullish(type), context);
-  return resolved.kind === "dictionaryType" || isObjectRootType(resolved, context);
+  return (
+    resolved.kind === "dictionaryType" || isObjectRootType(resolved, context)
+  );
 };
 
-const createStringLiteralExpression = (value: string): CSharpExpressionAst => ({
-  kind: "literalExpression",
-  text: `"${escapeCSharpString(value)}"`,
-});
+const createStringLiteralExpression = (value: string): CSharpExpressionAst =>
+  stringLiteral(value);
 
 const createDictionaryElementAccess = (
   targetIdentifier: string,
   key: CSharpExpressionAst
 ): CSharpExpressionAst => ({
   kind: "elementAccessExpression",
-  expression: { kind: "identifierExpression", identifier: targetIdentifier },
+  expression: identifierExpression(targetIdentifier),
   arguments: [key],
 });
 
 /**
  * Escape a string for use in a C# string literal.
  */
-const escapeCSharpString = (str: string): string =>
-  str
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t");
-
 /**
  * Emit an array literal as CSharpExpressionAst
  */
@@ -390,10 +392,7 @@ export const emitArray = (
       return [
         {
           kind: "invocationExpression",
-          expression: {
-            kind: "identifierExpression",
-            identifier: "global::System.Array.Empty",
-          },
+          expression: identifierExpression("global::System.Array.Empty"),
           typeArguments: [elementTypeAst],
           arguments: [],
         },
@@ -401,25 +400,38 @@ export const emitArray = (
       ];
     }
 
-    let concatAst = segments[0]!;
+    const firstSegment = segments[0];
+    if (!firstSegment) {
+      return [
+        {
+          kind: "invocationExpression",
+          expression: identifierExpression("global::System.Array.Empty"),
+          typeArguments: [elementTypeAst],
+          arguments: [],
+        },
+        currentContext,
+      ];
+    }
+
+    let concatAst = firstSegment;
     for (let index = 1; index < segments.length; index++) {
+      const segment = segments[index];
+      if (!segment) continue;
       concatAst = {
         kind: "invocationExpression",
-        expression: {
-          kind: "identifierExpression",
-          identifier: "global::System.Linq.Enumerable.Concat",
-        },
-        arguments: [concatAst, segments[index]!],
+        expression: identifierExpression(
+          "global::System.Linq.Enumerable.Concat"
+        ),
+        arguments: [concatAst, segment],
       };
     }
 
     return [
       {
         kind: "invocationExpression",
-        expression: {
-          kind: "identifierExpression",
-          identifier: "global::System.Linq.Enumerable.ToArray",
-        },
+        expression: identifierExpression(
+          "global::System.Linq.Enumerable.ToArray"
+        ),
         arguments: [concatAst],
       },
       currentContext,
@@ -448,10 +460,7 @@ export const emitArray = (
     return [
       {
         kind: "invocationExpression",
-        expression: {
-          kind: "identifierExpression",
-          identifier: "global::System.Array.Empty",
-        },
+        expression: identifierExpression("global::System.Array.Empty"),
         arguments: [],
         typeArguments: [elementTypeAst],
       },
@@ -732,11 +741,9 @@ const emitObjectWithSpreads = (
   });
 
   // IIFE: ((System.Func<T>)(() => { body }))()
-  const funcTypeAst: CSharpTypeAst = {
-    kind: "identifierType",
-    name: "global::System.Func",
-    typeArguments: [typeAst],
-  };
+  const funcTypeAst: CSharpTypeAst = identifierType("global::System.Func", [
+    typeAst,
+  ]);
   const lambdaAst: CSharpExpressionAst = {
     kind: "lambdaExpression",
     isAsync: false,
@@ -778,16 +785,12 @@ const emitSpreadPropertyCopyStatements = (
   const spreadType = spreadExpr.inferredType;
 
   if (!spreadType) {
-    const [exprAst, newContext] = emitExpressionAst(spreadExpr, currentContext);
+    const [exprAst] = emitExpressionAst(spreadExpr, currentContext);
     const exprText = extractCalleeNameFromAst(exprAst);
-    statements.push({
-      kind: "expressionStatement",
-      expression: {
-        kind: "identifierExpression",
-        identifier: `/* spread: ${exprText} (no type info) */`,
-      },
-    });
-    return [statements, newContext];
+    throw new Error(
+      `ICE: Object spread source '${exprText}' reached emitter without inferredType. ` +
+        "Validation/type conversion should preserve spread source shape before emission."
+    );
   }
 
   const [sourceAst, sourceContext] = emitExpressionAst(
@@ -1131,11 +1134,10 @@ const emitDictionaryLiteral = (
   const [valueTypeAst, ctx2] = emitTypeAst(dictType.valueType, currentContext);
   currentContext = ctx2;
 
-  const dictTypeAst: CSharpTypeAst = {
-    kind: "identifierType",
-    name: "global::System.Collections.Generic.Dictionary",
-    typeArguments: [keyTypeAst, valueTypeAst],
-  };
+  const dictTypeAst: CSharpTypeAst = identifierType(
+    "global::System.Collections.Generic.Dictionary",
+    [keyTypeAst, valueTypeAst]
+  );
 
   const initializerAsts: CSharpExpressionAst[] = [];
 
@@ -1154,13 +1156,12 @@ const emitDictionaryLiteral = (
         currentContext,
         dictType.valueType
       );
-      // Dictionary initializer: ["key"] = value
       initializerAsts.push({
         kind: "assignmentExpression",
         operatorToken: "=",
         left: {
-          kind: "identifierExpression",
-          identifier: `["${escapeCSharpString(prop.key)}"]`,
+          kind: "implicitElementAccessExpression",
+          arguments: [stringLiteral(prop.key)],
         },
         right: valueAst,
       });
@@ -1190,11 +1191,10 @@ const emitDictionaryLiteralWithSpreads = (
   const [valueTypeAst, ctx2] = emitTypeAst(dictType.valueType, currentContext);
   currentContext = ctx2;
 
-  const dictTypeAst: CSharpTypeAst = {
-    kind: "identifierType",
-    name: "global::System.Collections.Generic.Dictionary",
-    typeArguments: [keyTypeAst, valueTypeAst],
-  };
+  const dictTypeAst: CSharpTypeAst = identifierType(
+    "global::System.Collections.Generic.Dictionary",
+    [keyTypeAst, valueTypeAst]
+  );
 
   const bodyStatements: CSharpStatementAst[] = [
     {
@@ -1216,11 +1216,12 @@ const emitDictionaryLiteralWithSpreads = (
 
   for (const prop of expr.properties) {
     if (prop.kind === "spread") {
-      const [spreadStatements, nextContext] = emitDictionarySpreadCopyStatements(
-        "__tmp",
-        prop.expression,
-        currentContext
-      );
+      const [spreadStatements, nextContext] =
+        emitDictionarySpreadCopyStatements(
+          "__tmp",
+          prop.expression,
+          currentContext
+        );
       bodyStatements.push(...spreadStatements);
       currentContext = nextContext;
       continue;
@@ -1257,11 +1258,9 @@ const emitDictionaryLiteralWithSpreads = (
     expression: { kind: "identifierExpression", identifier: "__tmp" },
   });
 
-  const funcTypeAst: CSharpTypeAst = {
-    kind: "identifierType",
-    name: "global::System.Func",
-    typeArguments: [dictTypeAst],
-  };
+  const funcTypeAst: CSharpTypeAst = identifierType("global::System.Func", [
+    dictTypeAst,
+  ]);
   const lambdaAst: CSharpExpressionAst = {
     kind: "lambdaExpression",
     isAsync: false,
@@ -1340,15 +1339,11 @@ const resolveContextualTypeAst = (
           currentContext = newContext;
         }
         return [
-          {
-            kind: "identifierType",
-            name: importBinding.clrName,
-            typeArguments: typeArgAsts,
-          },
+          withTypeArguments(importBinding.typeAst, typeArgAsts),
           currentContext,
         ];
       }
-      return [{ kind: "identifierType", name: importBinding.clrName }, context];
+      return [importBinding.typeAst, context];
     }
   }
 

@@ -31,10 +31,7 @@ export const CORE_TYPES_TYPE_NAMES = new Set([
   "struct",
 ]);
 
-export const CORE_LANG_TYPE_NAMES = new Set([
-  "thisarg",
-  "field",
-]);
+export const CORE_LANG_TYPE_NAMES = new Set(["thisarg", "field"]);
 
 export const CORE_LANG_VALUE_NAMES = new Set([
   "stackalloc",
@@ -125,4 +122,5 @@ export const isIdentifierFromCore = (
   checker: ts.TypeChecker,
   node: ts.Identifier,
   module: CoreModule
-): boolean => isSymbolFromCore(checker, checker.getSymbolAtLocation(node), module);
+): boolean =>
+  isSymbolFromCore(checker, checker.getSymbolAtLocation(node), module);

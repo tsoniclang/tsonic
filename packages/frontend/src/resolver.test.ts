@@ -113,7 +113,9 @@ describe("Module Resolver", () => {
       expect(result.ok).to.equal(false);
       if (!result.ok) {
         expect(result.error.code).to.equal("TSN1004");
-        expect(result.error.message).to.include("Import outside allowed module root");
+        expect(result.error.message).to.include(
+          "Import outside allowed module root"
+        );
       }
     });
 
@@ -219,7 +221,12 @@ describe("Module Resolver", () => {
     it("should reject source-package local imports that only match the package root by string prefix", () => {
       const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
       const packageEntry = path.join(packageRoot, "src", "index.ts");
-      const siblingRoot = path.join(tempDir, "node_modules", "@acme", "math-private");
+      const siblingRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@acme",
+        "math-private"
+      );
       fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
       fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
       fs.mkdirSync(path.join(siblingRoot, "src"), { recursive: true });
@@ -263,7 +270,9 @@ describe("Module Resolver", () => {
       expect(result.ok).to.equal(false);
       if (!result.ok) {
         expect(result.error.code).to.equal("TSN1004");
-        expect(result.error.message).to.include("Import outside allowed module root");
+        expect(result.error.message).to.include(
+          "Import outside allowed module root"
+        );
       }
     });
 

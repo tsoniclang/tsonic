@@ -13,15 +13,17 @@
 import { IrModule } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import { printCompilationUnit } from "../backend-ast/printer.js";
+import { qualifiedName } from "../backend-ast/builders.js";
 import type {
   CSharpCompilationUnitAst,
   CSharpNamespaceDeclarationAst,
   CSharpTypeDeclarationAst,
+  CSharpTriviaAst,
   CSharpUsingDirectiveAst,
 } from "../backend-ast/types.js";
 
 export type AssemblyParts = {
-  readonly header: string;
+  readonly leadingTrivia: readonly CSharpTriviaAst[];
   readonly adapterDecls: readonly CSharpTypeDeclarationAst[];
   readonly specializationDecls: readonly CSharpTypeDeclarationAst[];
   readonly exchangeDecls: readonly CSharpTypeDeclarationAst[];
@@ -52,18 +54,22 @@ export const assembleOutput = (
 
   const namespaceDecl: CSharpNamespaceDeclarationAst = {
     kind: "namespaceDeclaration",
-    name: module.namespace,
+    name: qualifiedName(module.namespace),
     members: namespaceMembers,
   };
 
   // Collect using directives
   const usings: CSharpUsingDirectiveAst[] = Array.from(finalContext.usings)
     .sort()
-    .map((ns) => ({ kind: "usingDirective" as const, namespace: ns }));
+    .map((ns) => ({
+      kind: "usingDirective" as const,
+      namespace: qualifiedName(ns),
+    }));
 
   const compilationUnit: CSharpCompilationUnitAst = {
     kind: "compilationUnit",
-    header: parts.header || undefined,
+    leadingTrivia:
+      parts.leadingTrivia.length > 0 ? parts.leadingTrivia : undefined,
     usings,
     members: [namespaceDecl],
   };

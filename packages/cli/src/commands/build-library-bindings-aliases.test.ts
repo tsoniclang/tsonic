@@ -463,7 +463,9 @@ describe("build command (library bindings)", function () {
         { cwd: dir, encoding: "utf-8" }
       );
 
-      expect(appResult.status, appResult.stderr || appResult.stdout).to.equal(0);
+      expect(appResult.status, appResult.stderr || appResult.stdout).to.equal(
+        0
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

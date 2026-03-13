@@ -164,12 +164,7 @@ describe("library bindings first-party regressions", function () {
 
       writeFileSync(
         join(dir, "packages", "lib", "src", "index.ts"),
-        [
-          "export class Attachment {",
-          "  Id: string = \"\";",
-          "}",
-          "",
-        ].join("\n"),
+        ["export class Attachment {", '  Id: string = "";', "}", ""].join("\n"),
         "utf-8"
       );
 
@@ -253,8 +248,7 @@ describe("library bindings first-party regressions", function () {
       expect(
         bindings.types?.some(
           (type) =>
-            type.clrName === "Test.Lib.Box`1" &&
-            type.alias === "Test.Lib.Box_1"
+            type.clrName === "Test.Lib.Box`1" && type.alias === "Test.Lib.Box_1"
         )
       ).to.equal(true);
     } finally {
@@ -504,7 +498,10 @@ describe("library bindings first-party regressions", function () {
 
       writeFileSync(
         join(dir, "packages", "messages", "src", "index.ts"),
-        [`export { sendMessageDomain } from "./domain/send-message.ts";`, ``].join("\n"),
+        [
+          `export { sendMessageDomain } from "./domain/send-message.ts";`,
+          ``,
+        ].join("\n"),
         "utf-8"
       );
 
@@ -1020,7 +1017,10 @@ describe("library bindings first-party regressions", function () {
       );
 
       runProjectBuild(dir, wsConfigPath, "core");
-      linkDir(join(dir, "packages", "core"), join(dir, "node_modules/@acme/core"));
+      linkDir(
+        join(dir, "packages", "core"),
+        join(dir, "node_modules/@acme/core")
+      );
 
       const bindingsRoot = join(
         dir,
@@ -1034,7 +1034,10 @@ describe("library bindings first-party regressions", function () {
         join(bindingsRoot, "Acme.Core.db", "internal", "index.d.ts"),
         "utf-8"
       );
-      const facade = readFileSync(join(bindingsRoot, "Acme.Core.db.d.ts"), "utf-8");
+      const facade = readFileSync(
+        join(bindingsRoot, "Acme.Core.db.d.ts"),
+        "utf-8"
+      );
       const rootFacade = readFileSync(
         join(bindingsRoot, "Acme.Core.d.ts"),
         "utf-8"
@@ -1059,7 +1062,7 @@ describe("library bindings first-party regressions", function () {
         "import type { User } from './Acme.Core.entities.js';"
       );
       expect(facade).to.match(
-        /export declare function createSeed\(\): List<User>;/,
+        /export declare function createSeed\(\): List<User>;/
       );
       expect(rootFacade).to.include(
         "import type { List } from '@tsonic/dotnet/System.Collections.Generic.js';"
@@ -1068,7 +1071,7 @@ describe("library bindings first-party regressions", function () {
         "import type { User } from './Acme.Core.entities.js';"
       );
       expect(rootFacade).to.match(
-        /export declare function createSeed\(\): List<User>;/,
+        /export declare function createSeed\(\): List<User>;/
       );
 
       runProjectBuild(dir, wsConfigPath, "app");
@@ -1299,7 +1302,10 @@ describe("library bindings first-party regressions", function () {
       );
 
       runProjectBuild(dir, wsConfigPath, "core");
-      linkDir(join(dir, "packages", "core"), join(dir, "node_modules/@acme/core"));
+      linkDir(
+        join(dir, "packages", "core"),
+        join(dir, "node_modules/@acme/core")
+      );
 
       const bindingsRoot = join(
         dir,
@@ -1520,17 +1526,14 @@ describe("library bindings first-party regressions", function () {
       );
 
       runProjectBuild(dir, wsConfigPath, "core");
-      linkDir(join(dir, "packages", "core"), join(dir, "node_modules/@acme/core"));
+      linkDir(
+        join(dir, "packages", "core"),
+        join(dir, "node_modules/@acme/core")
+      );
       runProjectBuild(dir, wsConfigPath, "app");
 
       const generated = readFileSync(
-        join(
-          dir,
-          "packages",
-          "app",
-          "generated",
-          "App.cs"
-        ),
+        join(dir, "packages", "app", "generated", "App.cs"),
         "utf-8"
       );
 
@@ -1630,7 +1633,9 @@ describe("library bindings first-party regressions", function () {
               references:
                 name === "messages"
                   ? {
-                      libraries: ["../core/generated/bin/Release/net10.0/Acme.Core.dll"],
+                      libraries: [
+                        "../core/generated/bin/Release/net10.0/Acme.Core.dll",
+                      ],
                     }
                   : name === "app"
                     ? {
@@ -1732,7 +1737,10 @@ describe("library bindings first-party regressions", function () {
       );
 
       runProjectBuild(dir, wsConfigPath, "core");
-      linkDir(join(dir, "packages", "core"), join(dir, "node_modules/@acme/core"));
+      linkDir(
+        join(dir, "packages", "core"),
+        join(dir, "node_modules/@acme/core")
+      );
       runProjectBuild(dir, wsConfigPath, "messages");
       linkDir(
         join(dir, "packages", "messages"),
@@ -2018,7 +2026,10 @@ describe("library bindings first-party regressions", function () {
       );
 
       runProjectBuild(dir, wsConfigPath, "core");
-      linkDir(join(dir, "packages", "core"), join(dir, "node_modules/@acme/core"));
+      linkDir(
+        join(dir, "packages", "core"),
+        join(dir, "node_modules/@acme/core")
+      );
 
       const bindingsRoot = join(
         dir,
@@ -2037,10 +2048,7 @@ describe("library bindings first-party regressions", function () {
         "utf-8"
       );
       const rootBindings = JSON.parse(
-        readFileSync(
-          join(bindingsRoot, "Acme.Core", "bindings.json"),
-          "utf-8"
-        )
+        readFileSync(join(bindingsRoot, "Acme.Core", "bindings.json"), "utf-8")
       ) as { readonly types: readonly { readonly clrName: string }[] };
 
       expect(rootInternal).to.not.include("export interface User$instance");
@@ -2058,7 +2066,9 @@ describe("library bindings first-party regressions", function () {
   });
 
   it("honors included module augmentations during project build", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-augmentation-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-lib-bindings-augmentation-")
+    );
 
     try {
       const wsConfigPath = join(dir, "tsonic.workspace.json");
@@ -2253,7 +2263,10 @@ describe("library bindings first-party regressions", function () {
       );
 
       runProjectBuild(dir, wsConfigPath, "core");
-      linkDir(join(dir, "packages", "core"), join(dir, "node_modules/@acme/core"));
+      linkDir(
+        join(dir, "packages", "core"),
+        join(dir, "node_modules/@acme/core")
+      );
       runProjectBuild(dir, wsConfigPath, "app");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -2503,10 +2516,7 @@ describe("library bindings first-party regressions", function () {
       const stripInternalMarkers = (text: string): string =>
         text
           .replace(/^\s*readonly __tsonic_type_[^\n]*\n/gm, "")
-          .replace(
-            /^\s*readonly "__tsonic_binding_alias_[^"]+"[^\n]*\n/gm,
-            ""
-          );
+          .replace(/^\s*readonly "__tsonic_binding_alias_[^"]+"[^\n]*\n/gm, "");
       const sanitizedFacade = stripInternalMarkers(facade);
       const sanitizedInternal = stripInternalMarkers(internal);
 
@@ -2524,9 +2534,7 @@ describe("library bindings first-party regressions", function () {
   });
 
   it("keeps anonymous inline object parameters structural across source-package consumers", () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "tsonic-lib-bindings-anon-param-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-anon-param-"));
 
     try {
       const wsConfigPath = join(dir, "tsonic.workspace.json");
@@ -2677,7 +2685,14 @@ describe("library bindings first-party regressions", function () {
       );
 
       writeFileSync(
-        join(dir, "packages", "messages", "src", "domain", "create-user-domain.ts"),
+        join(
+          dir,
+          "packages",
+          "messages",
+          "src",
+          "domain",
+          "create-user-domain.ts"
+        ),
         [
           `export const createUserDomain = (input: { email: string; fullName: string }): string => {`,
           `  return input.email + ":" + input.fullName;`,
@@ -2884,7 +2899,14 @@ describe("library bindings first-party regressions", function () {
       );
 
       writeFileSync(
-        join(dir, "packages", "messages", "src", "domain", "create-user-domain.ts"),
+        join(
+          dir,
+          "packages",
+          "messages",
+          "src",
+          "domain",
+          "create-user-domain.ts"
+        ),
         [
           `export const createUserDomain = (input: { email: string; fullName: string }): string => {`,
           `  return input.email + ":" + input.fullName;`,
@@ -3074,7 +3096,14 @@ describe("library bindings first-party regressions", function () {
       );
 
       writeFileSync(
-        join(dir, "packages", "messages", "src", "domain", "create-drafts-domain.ts"),
+        join(
+          dir,
+          "packages",
+          "messages",
+          "src",
+          "domain",
+          "create-drafts-domain.ts"
+        ),
         [
           `export const createDraftsDomain = (drafts: { type: string; to: string; topic?: string; content: string }[]): string => {`,
           `  return drafts[0]?.content ?? "";`,
@@ -3114,9 +3143,7 @@ describe("library bindings first-party regressions", function () {
   });
 
   it("keeps nested anonymous record value types structural across source-package consumers", () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "tsonic-lib-bindings-anon-record-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-anon-record-"));
 
     try {
       const wsConfigPath = join(dir, "tsonic.workspace.json");
@@ -3223,7 +3250,9 @@ describe("library bindings first-party regressions", function () {
             entryPoint: "src/App.ts",
             sourceRoot: "src",
             references: {
-              libraries: ["../users/generated/bin/Release/net10.0/Acme.Users.dll"],
+              libraries: [
+                "../users/generated/bin/Release/net10.0/Acme.Users.dll",
+              ],
             },
             outputDirectory: "generated",
             outputName: "Acme.App",
@@ -3265,7 +3294,14 @@ describe("library bindings first-party regressions", function () {
       );
 
       writeFileSync(
-        join(dir, "packages", "users", "src", "domain", "update-profile-data-domain.ts"),
+        join(
+          dir,
+          "packages",
+          "users",
+          "src",
+          "domain",
+          "update-profile-data-domain.ts"
+        ),
         [
           `export const updateProfileDataDomain = (profileData: Record<string, { value: string }>): string => {`,
           `  const item = profileData["name"];`,
@@ -3470,11 +3506,11 @@ describe("library bindings first-party regressions", function () {
         join(dir, "packages", "channels", "src", "entities.ts"),
         [
           "export class ChannelFolder {",
-          "  Id: string = \"\";",
+          '  Id: string = "";',
           "}",
           "",
           "export class ChannelFolderItem {",
-          "  ChannelId: string = \"\";",
+          '  ChannelId: string = "";',
           "}",
           "",
         ].join("\n"),
@@ -3482,7 +3518,14 @@ describe("library bindings first-party regressions", function () {
       );
 
       writeFileSync(
-        join(dir, "packages", "channels", "src", "repo", "get-channel-folders.ts"),
+        join(
+          dir,
+          "packages",
+          "channels",
+          "src",
+          "repo",
+          "get-channel-folders.ts"
+        ),
         [
           'import { ChannelFolder, ChannelFolderItem } from "../entities.ts";',
           "",
@@ -3939,7 +3982,9 @@ describe("library bindings first-party regressions", function () {
             entryPoint: "src/App.ts",
             sourceRoot: "src",
             references: {
-              libraries: ["../queue/generated/bin/Release/net10.0/Acme.Queue.dll"],
+              libraries: [
+                "../queue/generated/bin/Release/net10.0/Acme.Queue.dll",
+              ],
             },
             outputDirectory: "generated",
             outputName: "Acme.App",
@@ -4142,7 +4187,9 @@ describe("library bindings first-party regressions", function () {
             entryPoint: "src/App.ts",
             sourceRoot: "src",
             references: {
-              libraries: ["../users/generated/bin/Release/net10.0/Acme.Users.dll"],
+              libraries: [
+                "../users/generated/bin/Release/net10.0/Acme.Users.dll",
+              ],
             },
             outputDirectory: "generated",
             outputName: "Acme.App",
@@ -4445,13 +4492,7 @@ describe("library bindings first-party regressions", function () {
       runProjectBuild(dir, wsConfigPath, "app");
 
       const emitted = readFileSync(
-        join(
-          dir,
-          "packages",
-          "app",
-          "generated",
-          "App.cs"
-        ),
+        join(dir, "packages", "app", "generated", "App.cs"),
         "utf-8"
       );
 
@@ -4593,10 +4634,10 @@ describe("library bindings first-party regressions", function () {
           "  narrowRaw: string | undefined",
           "): RegisterParams {",
           "  const clientCapabilities = clientCapabilitiesRaw",
-          "    ? (JSON.parse(clientCapabilitiesRaw) as RegisterParams[\"clientCapabilities\"])",
+          '    ? (JSON.parse(clientCapabilitiesRaw) as RegisterParams["clientCapabilities"])',
           "    : undefined;",
           "  const narrow = narrowRaw",
-          "    ? (JSON.parse(narrowRaw) as RegisterParams[\"narrow\"])",
+          '    ? (JSON.parse(narrowRaw) as RegisterParams["narrow"])',
           "    : undefined;",
           "  return { clientCapabilities, narrow };",
           "}",
@@ -4828,7 +4869,9 @@ describe("library bindings first-party regressions", function () {
       expect(emitted).to.include(
         "global::System.Collections.Generic.Dictionary<string, global::Acme.Core.Channel>"
       );
-      expect(emitted).to.include('return mapped == null ? "missing" : mapped.Name + ":" + mapped.Description;');
+      expect(emitted).to.include(
+        'return mapped == null ? "missing" : mapped.Name + ":" + mapped.Description;'
+      );
       expect(emitted).to.not.include(
         "global::System.Collections.Generic.Dictionary<string, object?>"
       );

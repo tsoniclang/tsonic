@@ -8,6 +8,12 @@ import { IrFunctionDeclaration, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
 import { emitCSharpName, getCSharpName } from "./naming-policy.js";
+import {
+  booleanLiteral,
+  identifierExpression,
+  identifierType,
+  stringLiteral,
+} from "./core/format/backend-ast/builders.js";
 import type {
   CSharpExpressionAst,
   CSharpMemberAst,
@@ -25,18 +31,14 @@ type GeneratorTypeArgs = {
   readonly newContext: EmitterContext;
 };
 
-const objectTypeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
+const objectTypeAst: CSharpTypeAst = {
+  kind: "predefinedType",
+  keyword: "object",
+};
 const boolTypeAst: CSharpTypeAst = { kind: "predefinedType", keyword: "bool" };
 
-const literal = (text: string): CSharpExpressionAst => ({
-  kind: "literalExpression",
-  text,
-});
-
-const id = (identifier: string): CSharpExpressionAst => ({
-  kind: "identifierExpression",
-  identifier,
-});
+const id = (identifier: string): CSharpExpressionAst =>
+  identifierExpression(identifier);
 
 const member = (
   expression: CSharpExpressionAst,
@@ -71,11 +73,8 @@ const suppressDefault = (): CSharpExpressionAst => ({
   expression: { kind: "defaultExpression" },
 });
 
-const iteratorResultType = (yieldType: CSharpTypeAst): CSharpTypeAst => ({
-  kind: "identifierType",
-  name: "global::Tsonic.Runtime.IteratorResult",
-  typeArguments: [yieldType],
-});
+const iteratorResultType = (yieldType: CSharpTypeAst): CSharpTypeAst =>
+  identifierType("global::Tsonic.Runtime.IteratorResult", [yieldType]);
 
 const iteratorResultCtor = (
   yieldType: CSharpTypeAst,
@@ -84,20 +83,14 @@ const iteratorResultCtor = (
 ): CSharpExpressionAst => ({
   kind: "objectCreationExpression",
   type: iteratorResultType(yieldType),
-  arguments: [value, literal(done ? "true" : "false")],
+  arguments: [value, booleanLiteral(done)],
 });
 
-const taskOf = (typeArg: CSharpTypeAst): CSharpTypeAst => ({
-  kind: "identifierType",
-  name: "global::System.Threading.Tasks.Task",
-  typeArguments: [typeArg],
-});
+const taskOf = (typeArg: CSharpTypeAst): CSharpTypeAst =>
+  identifierType("global::System.Threading.Tasks.Task", [typeArg]);
 
-const funcType = (typeArg: CSharpTypeAst): CSharpTypeAst => ({
-  kind: "identifierType",
-  name: "global::System.Func",
-  typeArguments: [typeArg],
-});
+const funcType = (typeArg: CSharpTypeAst): CSharpTypeAst =>
+  identifierType("global::System.Func", [typeArg]);
 
 /**
  * Extract generator type arguments as CSharpTypeAst.
@@ -173,17 +166,16 @@ const buildConstructor = (
   isAsync: boolean,
   returnType: CSharpTypeAst | undefined
 ): CSharpMemberAst => {
-  const enumerableType: CSharpTypeAst = {
-    kind: "identifierType",
-    name: isAsync
+  const enumerableType: CSharpTypeAst = identifierType(
+    isAsync
       ? "global::System.Collections.Generic.IAsyncEnumerable"
       : "global::System.Collections.Generic.IEnumerable",
-    typeArguments: [{ kind: "identifierType", name: exchangeName }],
-  };
+    [identifierType(exchangeName)]
+  );
 
   const parameters: CSharpParameterAst[] = [
     { name: "enumerable", type: enumerableType },
-    { name: "exchange", type: { kind: "identifierType", name: exchangeName } },
+    { name: "exchange", type: identifierType(exchangeName) },
   ];
 
   if (returnType) {
@@ -302,7 +294,7 @@ const buildNextMethod = (
         },
         {
           kind: "expressionStatement",
-          expression: assign(id("_done"), literal("true")),
+          expression: assign(id("_done"), booleanLiteral(true)),
         },
         {
           kind: "returnStatement",
@@ -365,7 +357,7 @@ const buildReturnMethod = (
   const statements: CSharpStatementAst[] = [
     {
       kind: "expressionStatement",
-      expression: assign(id("_done"), literal("true")),
+      expression: assign(id("_done"), booleanLiteral(true)),
     },
   ];
 
@@ -377,7 +369,10 @@ const buildReturnMethod = (
       },
       {
         kind: "expressionStatement",
-        expression: assign(id("_wasExternallyTerminated"), literal("true")),
+        expression: assign(
+          id("_wasExternallyTerminated"),
+          booleanLiteral(true)
+        ),
       }
     );
   }
@@ -430,7 +425,7 @@ const buildThrowMethod = (
 
   const exPattern = {
     kind: "declarationPattern" as const,
-    type: { kind: "identifierType" as const, name: "global::System.Exception" },
+    type: identifierType("global::System.Exception"),
     designation: "ex",
   };
 
@@ -446,7 +441,7 @@ const buildThrowMethod = (
       statements: [
         {
           kind: "expressionStatement",
-          expression: assign(id("_done"), literal("true")),
+          expression: assign(id("_done"), booleanLiteral(true)),
         },
         { kind: "expressionStatement", expression: disposeCall },
         {
@@ -465,10 +460,7 @@ const buildThrowMethod = (
           kind: "throwStatement",
           expression: {
             kind: "objectCreationExpression",
-            type: {
-              kind: "identifierType",
-              name: "global::System.Exception",
-            },
+            type: identifierType("global::System.Exception"),
             arguments: [
               {
                 kind: "binaryExpression",
@@ -478,10 +470,7 @@ const buildThrowMethod = (
                   expression: id("e"),
                   memberName: "ToString",
                 }),
-                right: {
-                  kind: "literalExpression",
-                  text: '"Unknown error"',
-                },
+                right: stringLiteral("Unknown error"),
               },
             ],
           },
@@ -521,13 +510,12 @@ export const generateWrapperClass = (
   } = extractGeneratorTypeArgs(func.returnType, currentContext);
   currentContext = typeContext;
 
-  const enumeratorType: CSharpTypeAst = {
-    kind: "identifierType",
-    name: func.isAsync
+  const enumeratorType: CSharpTypeAst = identifierType(
+    func.isAsync
       ? "global::System.Collections.Generic.IAsyncEnumerator"
       : "global::System.Collections.Generic.IEnumerator",
-    typeArguments: [{ kind: "identifierType", name: exchangeName }],
-  };
+    [identifierType(exchangeName)]
+  );
 
   const members: CSharpMemberAst[] = [
     {
@@ -541,7 +529,7 @@ export const generateWrapperClass = (
       kind: "fieldDeclaration",
       attributes: [],
       modifiers: ["private", "readonly"],
-      type: { kind: "identifierType", name: exchangeName },
+      type: identifierType(exchangeName),
       name: "_exchange",
     },
   ];
@@ -569,7 +557,7 @@ export const generateWrapperClass = (
         modifiers: ["private"],
         type: boolTypeAst,
         name: "_wasExternallyTerminated",
-        initializer: literal("false"),
+        initializer: booleanLiteral(false),
       }
     );
   }
@@ -580,7 +568,7 @@ export const generateWrapperClass = (
     modifiers: ["private"],
     type: boolTypeAst,
     name: "_done",
-    initializer: literal("false"),
+    initializer: booleanLiteral(false),
   });
 
   members.push(

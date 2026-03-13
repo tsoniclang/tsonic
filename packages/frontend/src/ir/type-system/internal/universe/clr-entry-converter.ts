@@ -690,21 +690,24 @@ export const parseMethodSignature = (
   if (method.semanticSignature) {
     return {
       stableId: method.stableId,
-      parameters: method.semanticSignature.parameters.map((parameter, index) => ({
-        name:
-          parameter.pattern.kind === "identifierPattern"
-            ? parameter.pattern.name
-            : `p${index}`,
-        type: parameter.type ?? { kind: "unknownType" },
-        mode: parameter.passing,
-        isOptional: parameter.isOptional,
-        isRest: parameter.isRest,
-      })),
+      parameters: method.semanticSignature.parameters.map(
+        (parameter, index) => ({
+          name:
+            parameter.pattern.kind === "identifierPattern"
+              ? parameter.pattern.name
+              : `p${index}`,
+          type: parameter.type ?? { kind: "unknownType" },
+          mode: parameter.passing,
+          isOptional: parameter.isOptional,
+          isRest: parameter.isRest,
+        })
+      ),
       returnType: method.semanticSignature.returnType ?? {
         kind: "voidType" as const,
       },
       typeParameters:
-        method.semanticSignature.typeParameters?.map((name) => ({ name })) ?? [],
+        method.semanticSignature.typeParameters?.map((name) => ({ name })) ??
+        [],
       parameterCount: method.parameterCount,
       isStatic: method.isStatic,
       isExtensionMethod: method.isExtensionMethod,

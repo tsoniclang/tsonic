@@ -7,6 +7,8 @@ export type {
   CSharpTypeAst,
   CSharpPredefinedTypeAst,
   CSharpIdentifierTypeAst,
+  CSharpQualifiedNameAst,
+  CSharpQualifiedIdentifierTypeAst,
   CSharpNullableTypeAst,
   CSharpArrayTypeAst,
   CSharpPointerTypeAst,
@@ -14,13 +16,22 @@ export type {
   CSharpTupleElementAst,
   // Expression AST
   CSharpExpressionAst,
-  CSharpLiteralExpressionAst,
+  CSharpNullLiteralExpressionAst,
+  CSharpBooleanLiteralExpressionAst,
+  CSharpStringLiteralExpressionAst,
+  CSharpCharLiteralExpressionAst,
+  CSharpNumericLiteralExpressionAst,
+  CSharpNumericLiteralBase,
+  CSharpNumericLiteralSuffix,
   CSharpIdentifierExpressionAst,
+  CSharpQualifiedIdentifierExpressionAst,
+  CSharpTypeReferenceExpressionAst,
   CSharpParenthesizedExpressionAst,
   CSharpMemberAccessExpressionAst,
   CSharpConditionalMemberAccessExpressionAst,
   CSharpElementAccessExpressionAst,
   CSharpConditionalElementAccessExpressionAst,
+  CSharpImplicitElementAccessExpressionAst,
   CSharpInvocationExpressionAst,
   CSharpObjectCreationExpressionAst,
   CSharpArrayCreationExpressionAst,
@@ -94,6 +105,9 @@ export type {
   CSharpEnumDeclarationAst,
   // Top-level
   CSharpUsingDirectiveAst,
+  CSharpTriviaAst,
+  CSharpSingleLineCommentTriviaAst,
+  CSharpBlankLineTriviaAst,
   CSharpNamespaceDeclarationAst,
   CSharpCompilationUnitAst,
 } from "./types.js";
@@ -110,4 +124,27 @@ export {
   printParameter,
 } from "./printer.js";
 
-export { extractCalleeNameFromAst, renderTypeAst } from "./utils.js";
+export {
+  clrTypeNameToTypeAst,
+  extractCalleeNameFromAst,
+  getIdentifierTypeLeafName,
+  getIdentifierTypeName,
+  globallyQualifyTypeAst,
+  stableTypeKeyFromAst,
+  stableIdentifierSuffixFromTypeAst,
+  stripNullableTypeAst,
+} from "./utils.js";
+
+export {
+  nullLiteral,
+  booleanLiteral,
+  stringLiteral,
+  charLiteral,
+  decimalIntegerLiteral,
+  qualifiedName,
+  identifierExpression,
+  identifierType,
+  numericLiteral,
+  parseNumericLiteral,
+  withTypeArguments,
+} from "./builders.js";

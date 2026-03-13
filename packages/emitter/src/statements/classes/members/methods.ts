@@ -22,6 +22,7 @@ import {
   generateParameterDestructuringAst,
 } from "../parameters.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
+import { identifierType } from "../../../core/format/backend-ast/builders.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
 import { emitCSharpName } from "../../../naming-policy.js";
 import type {
@@ -124,19 +125,12 @@ export const emitMethodMember = (
       returnTypeAst = rAst; // Already Task<T> from emitType
     } else {
       returnTypeAst = member.isAsync
-        ? {
-            kind: "identifierType",
-            name: "global::System.Threading.Tasks.Task",
-            typeArguments: [rAst],
-          }
+        ? identifierType("global::System.Threading.Tasks.Task", [rAst])
         : rAst;
     }
   } else {
     returnTypeAst = member.isAsync
-      ? {
-          kind: "identifierType",
-          name: "global::System.Threading.Tasks.Task",
-        }
+      ? identifierType("global::System.Threading.Tasks.Task")
       : { kind: "predefinedType", keyword: "void" };
   }
 

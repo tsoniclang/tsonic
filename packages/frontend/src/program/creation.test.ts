@@ -162,10 +162,7 @@ describe("Program Creation", () => {
       );
       fs.writeFileSync(
         entryPath,
-        [
-          "export type BoolMethod = Boolean['asTag'];",
-          "",
-        ].join("\n")
+        ["export type BoolMethod = Boolean['asTag'];", ""].join("\n")
       );
 
       const result = createProgram([entryPath], {
