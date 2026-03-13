@@ -74,6 +74,9 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
   - content drift since the last version bump commit for each published package path.
 - Treat this as “needs publish” when package content changed after the last published-version commit, even if `local == npm` (indicates missing version bump).
 - In monorepos, run this check per publishable package (not just once at repo root).
+- When the maintainer says “wave publish”, treat that as the full wave:
+  - npm packages and NuGet packages
+  - no implicit omission of runtime packages.
 
 ## Compatibility Policy (IMPORTANT)
 
