@@ -172,12 +172,57 @@ export const convertMemberExpression = (
     // Element access (computed): obj[expr]
     const object = convertExpression(node.expression, ctx, undefined);
 
+    const stringLiteralProperty = (() => {
+      const arg = node.argumentExpression;
+      if (!arg) return undefined;
+      if (
+        ts.isStringLiteral(arg) ||
+        ts.isNoSubstitutionTemplateLiteral(arg)
+      ) {
+        return /^[$A-Z_a-z][$\w]*$/u.test(arg.text)
+          ? arg.text
+          : undefined;
+      }
+      return undefined;
+    })();
+
+    const computedAccessKind = classifyComputedAccess(object.inferredType, ctx);
+
+    if (
+      stringLiteralProperty !== undefined &&
+      object.inferredType !== undefined &&
+      computedAccessKind !== "dictionary"
+    ) {
+      const declaredType = ctx.typeSystem.typeOfMember(object.inferredType, {
+        kind: "byName",
+        name: stringLiteralProperty,
+      });
+      if (declaredType.kind !== "unknownType") {
+        const memberBinding = resolveHierarchicalBinding(
+          object,
+          stringLiteralProperty,
+          ctx
+        );
+        return {
+          kind: "memberAccess",
+          object,
+          property: stringLiteralProperty,
+          isComputed: false,
+          isOptional,
+          inferredType: declaredType,
+          sourceSpan,
+          memberBinding,
+        };
+      }
+    }
+
     // DETERMINISTIC TYPING: Use object's inferredType (not getInferredType)
     const objectType = object.inferredType;
 
     // Classify the access kind for proof pass
     // This determines whether Int32 proof is required for the index
-    const accessKind = classifyComputedAccess(objectType, ctx);
+    const accessKind =
+      objectType === object.inferredType ? computedAccessKind : classifyComputedAccess(objectType, ctx);
 
     // Derive element type from object type
     const elementType = deriveElementType(objectType, ctx);

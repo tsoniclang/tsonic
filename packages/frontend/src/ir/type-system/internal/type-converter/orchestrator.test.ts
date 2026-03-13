@@ -251,6 +251,30 @@ describe("Type Converter - Mapped/Conditional Syntax", () => {
   });
 });
 
+describe("Type Converter - TypeQuery from awaited locals", () => {
+  it("preserves array element identity for typeof awaitedImportedArray[0]", () => {
+    const converted = convertAlias(
+      [
+        "class Channel {",
+        "  Id: string = \"\";",
+        "  Name: string = \"\";",
+        "}",
+        "declare function getChannels(): Promise<Channel[]>;",
+        "const allChannels = await getChannels();",
+        "type T = typeof allChannels[0];",
+        "export {};",
+      ].join("\n"),
+      "T"
+    );
+
+    expect(converted.kind).to.equal("referenceType");
+    if (converted.kind !== "referenceType") {
+      return;
+    }
+    expect(converted.name).to.equal("Channel");
+  });
+});
+
 describe("Type Converter - Deterministic Type Operators", () => {
   it("lowers keyof object literal types to a union of key literals", () => {
     const converted = convertAlias(

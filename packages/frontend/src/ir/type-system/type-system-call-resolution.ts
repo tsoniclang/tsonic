@@ -1034,9 +1034,37 @@ export const collectExpectedReturnCandidates = (
   state: TypeSystemState,
   type: IrType
 ): readonly IrType[] => {
+  return collectExpandedTypeCandidates(state, type, {
+    includeOriginal: true,
+    unwrapAsyncWrappers: true,
+    flattenToLeaves: false,
+  });
+};
+
+export const collectNarrowingCandidates = (
+  state: TypeSystemState,
+  type: IrType
+): readonly IrType[] => {
+  return collectExpandedTypeCandidates(state, type, {
+    includeOriginal: false,
+    unwrapAsyncWrappers: false,
+    flattenToLeaves: true,
+  });
+};
+
+const collectExpandedTypeCandidates = (
+  state: TypeSystemState,
+  type: IrType,
+  options: {
+    readonly includeOriginal: boolean;
+    readonly unwrapAsyncWrappers: boolean;
+    readonly flattenToLeaves: boolean;
+  }
+): readonly IrType[] => {
   const queue: IrType[] = [type];
   const out: IrType[] = [];
   const seen = new Set<string>();
+
   const enqueue = (candidate: IrType | undefined): void => {
     if (!candidate) return;
     const key = stableIrTypeKey(candidate);
@@ -1048,48 +1076,63 @@ export const collectExpectedReturnCandidates = (
   while (queue.length > 0) {
     const current = queue.shift();
     if (!current) continue;
-    out.push(current);
 
     if (current.kind === "unionType") {
       for (const member of current.types) enqueue(member);
+      if (!options.flattenToLeaves) {
+        out.push(current);
+      }
       continue;
     }
 
-    if (current.kind === "referenceType" && current.typeArguments) {
-      const typeId =
-        current.typeId ??
-        resolveTypeIdByName(
-          state,
-          current.resolvedClrType ?? current.name,
-          current.typeArguments.length
-        );
-      if (typeId) {
-        const entry = state.unifiedCatalog.getByTypeId(typeId);
-        if (entry?.aliasedType) {
-          const aliasSubst = new Map<string, IrType>();
-          const aliasTypeParams = entry.typeParameters;
-          const aliasTypeArgs = current.typeArguments;
-          for (
-            let i = 0;
-            i < Math.min(aliasTypeParams.length, aliasTypeArgs.length);
-            i++
-          ) {
-            const tp = aliasTypeParams[i];
-            const ta = aliasTypeArgs[i];
-            if (tp && ta) aliasSubst.set(tp.name, ta);
-          }
-          const expanded =
-            aliasSubst.size > 0
-              ? irSubstitute(entry.aliasedType, aliasSubst as IrSubstitutionMap)
-              : entry.aliasedType;
-          enqueue(expanded);
-        }
+    let expandedAlias: IrType | undefined;
+    if (current.kind === "referenceType") {
+      expandedAlias = expandReferenceAlias(state, current);
+      if (expandedAlias) {
+        enqueue(expandedAlias);
       }
-      enqueue(unwrapAsyncWrapperType(current));
+
+      if (options.unwrapAsyncWrappers) {
+        enqueue(unwrapAsyncWrapperType(current));
+      }
+    }
+
+    if (options.includeOriginal || !expandedAlias) {
+      out.push(current);
     }
   }
 
   return out;
+};
+
+const expandReferenceAlias = (
+  state: TypeSystemState,
+  type: IrReferenceType
+): IrType | undefined => {
+  const typeId =
+    type.typeId ??
+    resolveTypeIdByName(
+      state,
+      type.resolvedClrType ?? type.name,
+      type.typeArguments?.length ?? 0
+    );
+  if (!typeId) return undefined;
+
+  const entry = state.unifiedCatalog.getByTypeId(typeId);
+  if (!entry?.aliasedType) return undefined;
+
+  const aliasSubst = new Map<string, IrType>();
+  const aliasTypeParams = entry.typeParameters;
+  const aliasTypeArgs = type.typeArguments ?? [];
+  for (let i = 0; i < Math.min(aliasTypeParams.length, aliasTypeArgs.length); i++) {
+    const tp = aliasTypeParams[i];
+    const ta = aliasTypeArgs[i];
+    if (tp && ta) aliasSubst.set(tp.name, ta);
+  }
+
+  return aliasSubst.size > 0
+    ? irSubstitute(entry.aliasedType, aliasSubst as IrSubstitutionMap)
+    : entry.aliasedType;
 };
 
 // ─────────────────────────────────────────────────────────────────────────

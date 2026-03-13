@@ -3,6 +3,7 @@
  */
 
 import {
+  getAwaitedIrType,
   IrBlockStatement,
   IrExpression,
   IrParameter,
@@ -26,6 +27,7 @@ import {
   registerLocalName,
 } from "../../core/format/local-names.js";
 import {
+  isDefinitelyValueType,
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
@@ -44,22 +46,7 @@ const getAsyncBodyReturnType = (
   returnType: IrType | undefined
 ): IrType | undefined => {
   if (!isAsync || !returnType) return returnType;
-  const simpleName =
-    returnType.kind === "referenceType"
-      ? returnType.name.includes(".")
-        ? returnType.name.slice(returnType.name.lastIndexOf(".") + 1)
-        : returnType.name
-      : undefined;
-  if (
-    returnType.kind === "referenceType" &&
-    (simpleName === "Promise" ||
-      simpleName === "Task" ||
-      simpleName === "ValueTask") &&
-    returnType.typeArguments?.length === 1
-  ) {
-    return returnType.typeArguments[0];
-  }
-  return returnType;
+  return getAwaitedIrType(returnType) ?? returnType;
 };
 
 /**
@@ -828,6 +815,19 @@ const isNullishInitializer = (init: {
     ((init as { name: string }).name === "undefined" ||
       (init as { name: string }).name === "null"));
 
+const isNullableValueUnion = (type: IrType | undefined): boolean => {
+  if (!type || type.kind !== "unionType") return false;
+
+  const hasNullish = type.types.some(
+    (member) =>
+      member.kind === "primitiveType" &&
+      (member.name === "undefined" || member.name === "null")
+  );
+  if (!hasNullish) return false;
+
+  return isDefinitelyValueType(stripNullish(type));
+};
+
 /**
  * Determine the C# type AST for a local variable declaration.
  *
@@ -886,6 +886,14 @@ const resolveLocalTypeAst = (
       return emitTypeAst(fallbackType, context);
     }
     return [{ kind: "identifierType", name: "object?" }, context];
+  }
+
+  if (
+    !decl.type &&
+    decl.initializer &&
+    isNullableValueUnion(decl.initializer.inferredType)
+  ) {
+    return emitTypeAst(decl.initializer.inferredType!, context);
   }
 
   if (

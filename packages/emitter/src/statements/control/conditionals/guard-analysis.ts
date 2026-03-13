@@ -24,11 +24,11 @@ import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types
 const extractIdentifierText = (ast: CSharpExpressionAst): string =>
   extractCalleeNameFromAst(ast);
 import {
+  hasDeterministicPropertyMembership,
   resolveTypeAlias,
   stripNullish,
   findUnionMemberIndex,
   getPropertyType,
-  getAllPropertySignatures,
   isDefinitelyValueType,
 } from "../../../core/semantic/type-resolution.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
@@ -42,7 +42,10 @@ export type GuardInfo = {
   readonly originalName: string;
   readonly targetType: IrType;
   readonly memberN: number;
-  readonly unionArity: number; // Number of members in the union (for negation handling)
+  readonly unionArity: number; // Number of currently reachable members
+  readonly runtimeUnionArity: number;
+  readonly candidateMemberNs: readonly number[];
+  readonly candidateMembers: readonly IrType[];
   readonly ctxWithId: EmitterContext;
   readonly narrowedName: string;
   readonly escapedOrig: string;
@@ -84,6 +87,9 @@ export type InGuardInfo = {
   readonly propertyName: string;
   readonly memberN: number;
   readonly unionArity: number;
+  readonly runtimeUnionArity: number;
+  readonly candidateMemberNs: readonly number[];
+  readonly candidateMembers: readonly IrType[];
   readonly ctxWithId: EmitterContext;
   readonly narrowedName: string;
   readonly escapedOrig: string;
@@ -113,11 +119,44 @@ export type DiscriminantEqualityGuardInfo = {
   readonly operator: "===" | "!==" | "==" | "!=";
   readonly memberN: number;
   readonly unionArity: number;
+  readonly runtimeUnionArity: number;
+  readonly candidateMemberNs: readonly number[];
+  readonly candidateMembers: readonly IrType[];
   readonly ctxWithId: EmitterContext;
   readonly narrowedName: string;
   readonly escapedOrig: string;
   readonly escapedNarrow: string;
   readonly narrowedMap: Map<string, NarrowedBinding>;
+};
+
+/**
+ * Information extracted from a truthy/falsy property guard:
+ *   if (result.success) { ... }
+ *   if (!result.success) { ... }
+ *
+ * Supports the airplane-grade case where a union member property is definitively
+ * truthy or falsy by literal/nullish contract, and exactly one member matches the
+ * condition branch.
+ */
+export type PropertyTruthinessGuardInfo = {
+  readonly originalName: string;
+  readonly propertyName: string;
+  readonly memberN: number;
+  readonly unionArity: number;
+  readonly runtimeUnionArity: number;
+  readonly candidateMemberNs: readonly number[];
+  readonly candidateMembers: readonly IrType[];
+  readonly ctxWithId: EmitterContext;
+  readonly narrowedName: string;
+  readonly escapedOrig: string;
+  readonly escapedNarrow: string;
+  readonly narrowedMap: Map<string, NarrowedBinding>;
+};
+
+export type RuntimeUnionFrame = {
+  readonly members: readonly IrType[];
+  readonly candidateMemberNs: readonly number[];
+  readonly runtimeUnionArity: number;
 };
 
 /**
@@ -138,85 +177,46 @@ export type NullableGuardInfo = {
 /**
  * Check if a local nominal type (class/interface) has a property with the given TS name.
  */
-const hasLocalProperty = (
-  type: Extract<IrType, { kind: "referenceType" }>,
+const getGuardPropertyType = (
+  type: IrType,
   propertyName: string,
   context: EmitterContext
-): boolean => {
-  if (!context.localTypes) return false;
-
-  const info = context.localTypes.get(type.name);
-  if (!info) return false;
-
-  if (info.kind === "interface") {
-    const props = getAllPropertySignatures(type, context);
-    return props?.some((p) => p.name === propertyName) ?? false;
-  }
-
-  if (info.kind === "class") {
-    return info.members.some(
-      (m) => m.kind === "propertyDeclaration" && m.name === propertyName
+): IrType | undefined => {
+  if (type.kind === "objectType") {
+    const prop = type.members.find(
+      (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
+        member.kind === "propertySignature" && member.name === propertyName
     );
+    return prop?.type;
   }
 
-  return false;
-};
-
-/**
- * Check if a nominal type has a property, including cross-module local types.
- *
- * For same-module types, consult `context.localTypes`.
- * For cross-module types, consult the batch `typeMemberIndex` and resolve the
- * member's fully-qualified name deterministically.
- */
-const hasProperty = (
-  type: Extract<IrType, { kind: "referenceType" }>,
-  propertyName: string,
-  context: EmitterContext
-): boolean => {
-  if (hasLocalProperty(type, propertyName, context)) {
-    return true;
-  }
-
-  const index = context.options.typeMemberIndex;
-  if (!index) return false;
-
-  const stripGlobalPrefix = (name: string): string =>
-    name.startsWith("global::") ? name.slice("global::".length) : name;
-
-  const candidates: string[] = [];
-
-  if (type.resolvedClrType) {
-    candidates.push(stripGlobalPrefix(type.resolvedClrType));
-  } else if (type.name.includes(".")) {
-    candidates.push(type.name);
-  } else {
-    // Resolve by suffix match in the type member index.
-    const matches: string[] = [];
-    for (const fqn of index.keys()) {
-      if (
-        fqn.endsWith(`.${type.name}`) ||
-        fqn.endsWith(`.${type.name}__Alias`)
-      ) {
-        matches.push(fqn);
-      }
-    }
-
-    if (matches.length === 1) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      candidates.push(matches[0]!);
-    } else if (matches.length > 1) {
-      const list = matches.sort().join(", ");
-      throw new Error(
-        `ICE: Ambiguous union member type '${type.name}' for \`in\` narrowing. Candidates: ${list}`
+  if (type.kind === "referenceType") {
+    if (type.structuralMembers?.length) {
+      const prop = type.structuralMembers.find(
+        (member): member is Extract<typeof member, { kind: "propertySignature" }> =>
+          member.kind === "propertySignature" && member.name === propertyName
       );
+      if (prop) return prop.type;
     }
+
+    const localTypes = resolveLocalTypesForReference(type, context);
+    if (localTypes) {
+      const lookupName = type.name.includes(".")
+        ? (type.name.split(".").pop() ?? type.name)
+        : type.name;
+      const localPropType = getPropertyType(
+        { ...type, name: lookupName },
+        propertyName,
+        { ...context, localTypes }
+      );
+      if (localPropType) return localPropType;
+    }
+
+    const resolvedPropType = getPropertyType(type, propertyName, context);
+    if (resolvedPropType) return resolvedPropType;
   }
 
-  return candidates.some((fqn) => {
-    const perType = index.get(fqn);
-    return perType?.has(propertyName) ?? false;
-  });
+  return undefined;
 };
 
 /**
@@ -304,6 +304,130 @@ const tryGetLiteralSet = (
   return undefined;
 };
 
+const isClrUnionName = (name: string): boolean =>
+  /^Union_[2-8]$/.test(name) || name === "Union" || name.endsWith(".Union");
+
+const stripGlobalPrefix = (name: string): string =>
+  name.startsWith("global::") ? name.slice("global::".length) : name;
+
+const extractUnionMembers = (
+  type: IrType,
+  context: EmitterContext
+): readonly IrType[] | undefined => {
+  const resolvedBase = resolveTypeAlias(stripNullish(type), context);
+  const resolved =
+    resolvedBase.kind === "intersectionType"
+      ? (resolvedBase.types.find(
+          (member): member is Extract<IrType, { kind: "referenceType" }> =>
+            member.kind === "referenceType" && isClrUnionName(member.name)
+        ) ?? resolvedBase)
+      : resolvedBase;
+
+  if (resolved.kind === "unionType") {
+    return resolved.types;
+  }
+
+  if (
+    resolved.kind === "referenceType" &&
+    isClrUnionName(resolved.name) &&
+    resolved.typeArguments &&
+    resolved.typeArguments.length >= 2 &&
+    resolved.typeArguments.length <= 8
+  ) {
+    return resolved.typeArguments;
+  }
+
+  return undefined;
+};
+
+const resolveRuntimeUnionFrame = (
+  originalName: string,
+  unionSourceType: IrType,
+  context: EmitterContext
+): RuntimeUnionFrame | undefined => {
+  const members = extractUnionMembers(unionSourceType, context);
+  if (!members) return undefined;
+
+  const narrowed = context.narrowedBindings?.get(originalName);
+  if (!narrowed) {
+    return {
+      members,
+      candidateMemberNs: members.map((_, index) => index + 1),
+      runtimeUnionArity: members.length,
+    };
+  }
+
+  if (narrowed.kind !== "runtimeSubset") {
+    return undefined;
+  }
+
+  if (narrowed.runtimeMemberNs.length !== members.length) {
+    return undefined;
+  }
+
+  return {
+    members,
+    candidateMemberNs: [...narrowed.runtimeMemberNs],
+    runtimeUnionArity: narrowed.runtimeUnionArity,
+  };
+};
+
+const buildRenameNarrowedMap = (
+  originalName: string,
+  narrowedName: string,
+  memberType: IrType,
+  ctxWithId: EmitterContext
+): Map<string, NarrowedBinding> => {
+  const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
+  narrowedMap.set(originalName, {
+    kind: "rename",
+    name: narrowedName,
+    type: memberType,
+  });
+  return narrowedMap;
+};
+
+const isDefinitelyTruthyLiteral = (value: string | number | boolean): boolean => {
+  if (typeof value === "string") return value.length > 0;
+  if (typeof value === "number") return value !== 0 && !Number.isNaN(value);
+  return value === true;
+};
+
+const isDefinitelyFalsyType = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(type, context);
+  if (resolved.kind === "literalType") {
+    const value = resolved.value;
+    return value === false || value === 0 || value === "";
+  }
+  if (resolved.kind === "primitiveType") {
+    return resolved.name === "undefined" || resolved.name === "null";
+  }
+  if (resolved.kind === "unionType") {
+    return resolved.types.every((member) => isDefinitelyFalsyType(member, context));
+  }
+  return false;
+};
+
+const isDefinitelyTruthyType = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const literals = tryGetLiteralSet(type, context);
+  if (literals) {
+    return Array.from(literals).every(isDefinitelyTruthyLiteral);
+  }
+
+  const resolved = resolveTypeAlias(type, context);
+  if (resolved.kind === "unionType") {
+    return resolved.types.every((member) => isDefinitelyTruthyType(member, context));
+  }
+
+  return false;
+};
+
 /**
  * Try to extract guard info from `x.prop === <literal>` or `x.prop !== <literal>`.
  *
@@ -385,67 +509,43 @@ export const tryResolveDiscriminantEqualityGuard = (
   const { receiver, propertyName, literal } = match;
   const originalName = receiver.name;
 
-  // If this identifier is already narrowed (union guard emitted earlier), do NOT try to
-  // apply another union narrowing rule. This avoids mis-emitting `.IsN()` on a narrowed member type.
-  if (context.narrowedBindings?.has(originalName)) return undefined;
-
   const unionSourceType = receiver.inferredType;
   if (!unionSourceType) return undefined;
 
-  const resolved = resolveTypeAlias(stripNullish(unionSourceType), context);
-  if (resolved.kind !== "unionType") return undefined;
+  const frame = resolveRuntimeUnionFrame(originalName, unionSourceType, context);
+  if (!frame) return undefined;
 
-  const unionArity = resolved.types.length;
+  const { members, candidateMemberNs, runtimeUnionArity } = frame;
+  const unionArity = members.length;
   if (unionArity < 2 || unionArity > 8) return undefined;
 
   // Find which union members have a discriminant property type that includes the literal.
-  const matchingMembers: number[] = [];
+  const matchingIndices: number[] = [];
+  const matchingMemberNs: number[] = [];
 
-  for (let i = 0; i < resolved.types.length; i++) {
-    const member = resolved.types[i];
+  for (let i = 0; i < members.length; i++) {
+    const member = members[i];
     if (!member) continue;
 
-    let propType: IrType | undefined;
-
-    if (member.kind === "objectType") {
-      const prop = member.members.find(
-        (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
-          m.kind === "propertySignature" && m.name === propertyName
-      );
-      propType = prop?.type;
-    } else if (member.kind === "referenceType") {
-      const localTypes = resolveLocalTypesForReference(member, context);
-      if (!localTypes) continue;
-
-      const lookupName = member.name.includes(".")
-        ? (member.name.split(".").pop() ?? member.name)
-        : member.name;
-
-      // Use the target module's localTypes for property type resolution.
-      propType = getPropertyType(
-        { ...member, name: lookupName },
-        propertyName,
-        { ...context, localTypes }
-      );
-    } else {
-      continue;
-    }
-
+    const propType = getGuardPropertyType(member, propertyName, context);
     if (!propType) continue;
 
     const literals = tryGetLiteralSet(propType, context);
     if (!literals) continue;
 
     if (literals.has(literal)) {
-      matchingMembers.push(i + 1);
+      matchingIndices.push(i);
+      matchingMemberNs.push(candidateMemberNs[i] ?? i + 1);
     }
   }
 
   // Only support the common airplane-grade case: exactly one matching member.
-  if (matchingMembers.length !== 1) return undefined;
+  if (matchingMemberNs.length !== 1) return undefined;
 
-  const memberN = matchingMembers[0];
+  const memberN = matchingMemberNs[0];
   if (!memberN) return undefined;
+  const matchingIndex = matchingIndices[0];
+  if (matchingIndex === undefined) return undefined;
 
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
@@ -453,14 +553,14 @@ export const tryResolveDiscriminantEqualityGuard = (
   const narrowedName = `${originalName}__${memberN}_${nextId}`;
   const escapedOrig = emitRemappedLocalName(originalName, context);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
-
-  const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-  const memberType = resolved.types[memberN - 1];
-  narrowedMap.set(originalName, {
-    kind: "rename",
-    name: narrowedName,
-    type: memberType,
-  });
+  const memberType = members[matchingIndex];
+  if (!memberType) return undefined;
+  const narrowedMap = buildRenameNarrowedMap(
+    originalName,
+    narrowedName,
+    memberType,
+    ctxWithId
+  );
 
   return {
     originalName,
@@ -469,6 +569,153 @@ export const tryResolveDiscriminantEqualityGuard = (
     operator: condition.operator,
     memberN,
     unionArity,
+    runtimeUnionArity,
+    candidateMemberNs,
+    candidateMembers: members,
+    ctxWithId,
+    narrowedName,
+    escapedOrig,
+    escapedNarrow,
+    narrowedMap,
+  };
+};
+
+/**
+ * Try to extract guard info from `x.prop` / `!x.prop` where the property acts as a
+ * boolean-style discriminant over a runtime union.
+ */
+export const tryResolvePropertyTruthinessGuard = (
+  condition: IrExpression,
+  context: EmitterContext
+): PropertyTruthinessGuardInfo | undefined => {
+  const extract = (
+    expr: IrExpression
+  ):
+    | {
+        readonly receiver: Extract<IrExpression, { kind: "identifier" }>;
+        readonly propertyName: string;
+        readonly wantTruthy: boolean;
+        readonly bindingType: string | undefined;
+        readonly bindingValueTruthiness: boolean | undefined;
+      }
+    | undefined => {
+    if (expr.kind === "unary" && expr.operator === "!") {
+      const inner = extract(expr.expression);
+      return inner ? { ...inner, wantTruthy: !inner.wantTruthy } : undefined;
+    }
+
+    if (expr.kind !== "memberAccess") return undefined;
+    if (expr.isOptional || expr.isComputed) return undefined;
+    if (expr.object.kind !== "identifier") return undefined;
+    if (typeof expr.property !== "string") return undefined;
+
+    return {
+      receiver: expr.object,
+      propertyName: expr.property,
+      wantTruthy: true,
+      bindingType: expr.memberBinding?.type,
+      bindingValueTruthiness:
+        expr.inferredType?.kind === "literalType"
+          ? isDefinitelyTruthyLiteral(expr.inferredType.value)
+          : expr.inferredType?.kind === "primitiveType" &&
+              (expr.inferredType.name === "undefined" ||
+                expr.inferredType.name === "null")
+            ? false
+            : undefined,
+    };
+  };
+
+  const match = extract(condition);
+  if (!match) return undefined;
+
+  const { receiver, propertyName, wantTruthy, bindingType, bindingValueTruthiness } =
+    match;
+  const originalName = receiver.name;
+
+  const unionSourceType = receiver.inferredType;
+  if (!unionSourceType) return undefined;
+
+  const frame = resolveRuntimeUnionFrame(originalName, unionSourceType, context);
+  if (!frame) return undefined;
+
+  const { members, candidateMemberNs, runtimeUnionArity } = frame;
+  const unionArity = members.length;
+  if (unionArity < 2 || unionArity > 8) return undefined;
+
+  const matchingIndices: number[] = [];
+  const matchingMemberNs: number[] = [];
+
+  if (bindingType && bindingValueTruthiness !== undefined) {
+    const bindingTypeName = stripGlobalPrefix(bindingType);
+    const boundMemberIndex = members.findIndex((member) => {
+      if (member?.kind !== "referenceType") return false;
+      const candidateClr = member.resolvedClrType
+        ? stripGlobalPrefix(member.resolvedClrType)
+        : undefined;
+      return candidateClr === bindingTypeName || member.name === bindingTypeName;
+    });
+
+    if (boundMemberIndex >= 0) {
+      if (wantTruthy === bindingValueTruthiness) {
+        matchingIndices.push(boundMemberIndex);
+        matchingMemberNs.push(
+          candidateMemberNs[boundMemberIndex] ?? boundMemberIndex + 1
+        );
+      } else if (unionArity === 2) {
+        const otherIndex = boundMemberIndex === 0 ? 1 : 0;
+        matchingIndices.push(otherIndex);
+        matchingMemberNs.push(candidateMemberNs[otherIndex] ?? otherIndex + 1);
+      }
+    }
+  }
+
+  if (matchingMemberNs.length === 0) {
+    for (let i = 0; i < members.length; i++) {
+      const member = members[i];
+      if (!member) continue;
+
+      const propType = getGuardPropertyType(member, propertyName, context);
+      if (!propType) continue;
+
+      const matches = wantTruthy
+        ? isDefinitelyTruthyType(propType, context)
+        : isDefinitelyFalsyType(propType, context);
+      if (matches) {
+        matchingIndices.push(i);
+        matchingMemberNs.push(candidateMemberNs[i] ?? i + 1);
+      }
+    }
+  }
+
+  if (matchingMemberNs.length !== 1) return undefined;
+
+  const memberN = matchingMemberNs[0];
+  if (!memberN) return undefined;
+  const matchingIndex = matchingIndices[0];
+  if (matchingIndex === undefined) return undefined;
+
+  const nextId = (context.tempVarId ?? 0) + 1;
+  const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+  const narrowedName = `${originalName}__${memberN}_${nextId}`;
+  const escapedOrig = emitRemappedLocalName(originalName, context);
+  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
+  const memberType = members[matchingIndex];
+  if (!memberType) return undefined;
+  const narrowedMap = buildRenameNarrowedMap(
+    originalName,
+    narrowedName,
+    memberType,
+    ctxWithId
+  );
+
+  return {
+    originalName,
+    propertyName,
+    memberN,
+    unionArity,
+    runtimeUnionArity,
+    candidateMemberNs,
+    candidateMembers: members,
     ctxWithId,
     narrowedName,
     escapedOrig,
@@ -500,27 +747,32 @@ export const tryResolveInGuard = (
   const unionSourceType = condition.right.inferredType;
   if (!unionSourceType) return undefined;
 
-  const resolved = resolveTypeAlias(stripNullish(unionSourceType), context);
-  if (resolved.kind !== "unionType") return undefined;
+  const frame = resolveRuntimeUnionFrame(originalName, unionSourceType, context);
+  if (!frame) return undefined;
 
-  const unionArity = resolved.types.length;
+  const { members, candidateMemberNs, runtimeUnionArity } = frame;
+  const unionArity = members.length;
   if (unionArity < 2 || unionArity > 8) return undefined;
 
   // Find which union members contain the property.
-  const matchingMembers: number[] = [];
-  for (let i = 0; i < resolved.types.length; i++) {
-    const member = resolved.types[i];
+  const matchingIndices: number[] = [];
+  const matchingMemberNs: number[] = [];
+  for (let i = 0; i < members.length; i++) {
+    const member = members[i];
     if (!member || member.kind !== "referenceType") continue;
-    if (hasProperty(member, propertyName, context)) {
-      matchingMembers.push(i + 1);
+    if (hasDeterministicPropertyMembership(member, propertyName, context) === true) {
+      matchingIndices.push(i);
+      matchingMemberNs.push(candidateMemberNs[i] ?? i + 1);
     }
   }
 
   // Only support the common "exactly one matching member" narrowing case.
-  if (matchingMembers.length !== 1) return undefined;
+  if (matchingMemberNs.length !== 1) return undefined;
 
-  const memberN = matchingMembers[0];
+  const memberN = matchingMemberNs[0];
   if (!memberN) return undefined;
+  const matchingIndex = matchingIndices[0];
+  if (matchingIndex === undefined) return undefined;
 
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
@@ -529,20 +781,23 @@ export const tryResolveInGuard = (
   const [rhsAst] = emitIdentifier(condition.right, context);
   const escapedOrig = extractIdentifierText(rhsAst);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
-
-  const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-  const memberType = resolved.types[memberN - 1];
-  narrowedMap.set(originalName, {
-    kind: "rename",
-    name: narrowedName,
-    type: memberType,
-  });
+  const memberType = members[matchingIndex];
+  if (!memberType) return undefined;
+  const narrowedMap = buildRenameNarrowedMap(
+    originalName,
+    narrowedName,
+    memberType,
+    ctxWithId
+  );
 
   return {
     originalName,
     propertyName,
     memberN,
     unionArity,
+    runtimeUnionArity,
+    candidateMemberNs,
+    candidateMembers: members,
     ctxWithId,
     narrowedName,
     escapedOrig,
@@ -596,14 +851,18 @@ export const tryResolvePredicateGuard = (
   const unionSourceType = arg.inferredType;
   if (!unionSourceType) return undefined;
 
-  const resolved = resolveTypeAlias(stripNullish(unionSourceType), context);
-  if (resolved.kind !== "unionType") return undefined;
+  const frame = resolveRuntimeUnionFrame(originalName, unionSourceType, context);
+  if (!frame) return undefined;
 
+  const resolved: IrType = {
+    kind: "unionType",
+    types: [...frame.members],
+  };
   const idx = findUnionMemberIndex(resolved, narrowing.targetType, context);
   if (idx === undefined) return undefined;
 
-  const memberN = idx + 1;
-  const unionArity = resolved.types.length;
+  const memberN = frame.candidateMemberNs[idx] ?? idx + 1;
+  const unionArity = frame.members.length;
 
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
@@ -612,19 +871,21 @@ export const tryResolvePredicateGuard = (
   const [argAst] = emitIdentifier(arg, context);
   const escapedOrig = extractIdentifierText(argAst);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
-
-  const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-  narrowedMap.set(originalName, {
-    kind: "rename",
-    name: narrowedName,
-    type: narrowing.targetType,
-  });
+  const narrowedMap = buildRenameNarrowedMap(
+    originalName,
+    narrowedName,
+    narrowing.targetType,
+    ctxWithId
+  );
 
   return {
     originalName,
     targetType: narrowing.targetType,
     memberN,
     unionArity,
+    runtimeUnionArity: frame.runtimeUnionArity,
+    candidateMemberNs: frame.candidateMemberNs,
+    candidateMembers: frame.members,
     ctxWithId,
     narrowedName,
     escapedOrig,

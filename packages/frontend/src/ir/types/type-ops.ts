@@ -65,17 +65,22 @@ export const referenceTypeIdentity = (
       ? `clr:${type.resolvedClrType}`
       : `name:${type.name}`;
 
-export const unwrapAsyncWrapperType = (type: IrType): IrType | undefined => {
-  if (type.kind !== "referenceType") return undefined;
-  if (!type.typeArguments || type.typeArguments.length !== 1) return undefined;
-  const inner = type.typeArguments[0];
-  if (!inner) return undefined;
-
+const getReferenceTypeAsyncWrapperKind = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): "generic" | "nongeneric" | undefined => {
   const simpleName = type.name.split(".").pop() ?? type.name;
-  const clrName = type.resolvedClrType ?? type.name;
-  const isAsyncWrapper =
-    simpleName === "Promise" ||
-    simpleName === "PromiseLike" ||
+  const clrName = (type.resolvedClrType ?? type.name).replace(/^global::/, "");
+  const typeArgumentCount = type.typeArguments?.length ?? 0;
+
+  const isPromiseLike =
+    simpleName === "Promise" || simpleName === "PromiseLike";
+  if (isPromiseLike) {
+    return typeArgumentCount === 1 ? "generic" : undefined;
+  }
+
+  const isTaskLike =
+    simpleName === "Task" ||
+    simpleName === "ValueTask" ||
     simpleName === "Task_1" ||
     simpleName === "Task`1" ||
     simpleName === "ValueTask_1" ||
@@ -84,7 +89,36 @@ export const unwrapAsyncWrapperType = (type: IrType): IrType | undefined => {
     clrName === "System.Threading.Tasks.ValueTask" ||
     clrName.startsWith("System.Threading.Tasks.Task`1") ||
     clrName.startsWith("System.Threading.Tasks.ValueTask`1");
-  return isAsyncWrapper ? inner : undefined;
+  if (isTaskLike) {
+    if (typeArgumentCount === 1) {
+      return "generic";
+    }
+    return "nongeneric";
+  }
+
+  return undefined;
+};
+
+export const isAwaitableIrType = (type: IrType): boolean =>
+  type.kind === "referenceType" &&
+  getReferenceTypeAsyncWrapperKind(type) !== undefined;
+
+export const getAwaitedIrType = (type: IrType): IrType | undefined => {
+  if (type.kind !== "referenceType") return undefined;
+
+  const wrapperKind = getReferenceTypeAsyncWrapperKind(type);
+  if (!wrapperKind) return undefined;
+  if (wrapperKind === "nongeneric") {
+    return { kind: "voidType" };
+  }
+
+  const inner = type.typeArguments?.[0];
+  return inner;
+};
+
+export const unwrapAsyncWrapperType = (type: IrType): IrType | undefined => {
+  const awaited = getAwaitedIrType(type);
+  return awaited?.kind === "voidType" ? undefined : awaited;
 };
 
 export const stableIrTypeKey = (type: IrType): string => {

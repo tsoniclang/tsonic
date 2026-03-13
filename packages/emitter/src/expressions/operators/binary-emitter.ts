@@ -13,7 +13,7 @@ import { emitExpressionAst } from "../../expression-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
-  getAllPropertySignatures,
+  hasDeterministicPropertyMembership,
   isDefinitelyValueType,
 } from "../../core/semantic/type-resolution.js";
 import {
@@ -25,6 +25,44 @@ import {
 } from "./helpers.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+
+const getNarrowingTargetKey = (expr: IrExpression): string | undefined => {
+  switch (expr.kind) {
+    case "identifier":
+      return expr.name;
+
+    case "memberAccess": {
+      if (expr.isComputed || typeof expr.property !== "string") {
+        return undefined;
+      }
+      const parentKey = getNarrowingTargetKey(expr.object);
+      return parentKey ? `${parentKey}.${expr.property}` : undefined;
+    }
+
+    default:
+      return undefined;
+  }
+};
+
+const buildNullishComparisonContext = (
+  expr: IrExpression,
+  context: EmitterContext
+): EmitterContext => {
+  const targetKey = getNarrowingTargetKey(expr);
+  if (!targetKey) return context;
+
+  const narrowed = context.narrowedBindings?.get(targetKey);
+  if (!narrowed || narrowed.kind !== "expr") {
+    return context;
+  }
+
+  const next = new Map(context.narrowedBindings);
+  next.delete(targetKey);
+  return {
+    ...context,
+    narrowedBindings: next,
+  };
+};
 
 /**
  * Emit a binary operator expression as CSharpExpressionAst
@@ -83,83 +121,31 @@ export const emitBinary = (
     if (resolvedRhs.kind === "unionType") {
       const propName = expr.left.value;
       const matchingMembers: number[] = [];
+      const unresolvedMembers: string[] = [];
 
       for (let i = 0; i < resolvedRhs.types.length; i++) {
         const member = resolvedRhs.types[i];
-        if (!member || member.kind !== "referenceType") continue;
+        if (!member) continue;
 
-        const localInfo = rhsCtx.localTypes?.get(member.name);
-        if (localInfo?.kind === "interface") {
-          const props = getAllPropertySignatures(member, rhsCtx);
-          if (props?.some((p) => p.name === propName)) {
-            matchingMembers.push(i + 1);
-          }
-          continue;
-        }
-
-        if (localInfo?.kind === "class") {
-          if (
-            localInfo.members.some(
-              (m) =>
-                (m.kind === "propertyDeclaration" ||
-                  m.kind === "methodDeclaration") &&
-                m.name === propName
-            )
-          ) {
-            matchingMembers.push(i + 1);
-          }
-          continue;
-        }
-
-        // Cross-module union members: consult the batch type-member index.
-        const candidates: string[] = [];
-
-        const stripGlobalPrefix = (name: string): string =>
-          name.startsWith("global::") ? name.slice("global::".length) : name;
-
-        if (member.resolvedClrType) {
-          candidates.push(stripGlobalPrefix(member.resolvedClrType));
-        }
-        if (member.name.includes(".")) {
-          candidates.push(member.name);
-        }
-
-        if (!member.name.includes(".") && rhsCtx.options.typeMemberIndex) {
-          const matches: string[] = [];
-          for (const fqn of rhsCtx.options.typeMemberIndex.keys()) {
-            if (
-              fqn.endsWith(`.${member.name}`) ||
-              fqn.endsWith(`.${member.name}__Alias`)
-            ) {
-              matches.push(fqn);
-            }
-          }
-
-          if (matches.length === 1) {
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-            candidates.push(matches[0]!);
-          } else if (matches.length > 1) {
-            const list = matches.sort().join(", ");
-            throw new Error(
-              `ICE: Ambiguous union member type '${member.name}' for \`in\` narrowing. Candidates: ${list}`
-            );
-          }
-        }
-
-        // Single-file fallback (no batch indexes): assume same namespace.
-        if (rhsCtx.moduleNamespace) {
-          candidates.push(`${rhsCtx.moduleNamespace}.${member.name}`);
-          candidates.push(`${rhsCtx.moduleNamespace}.${member.name}__Alias`);
-        }
-
-        const hasMember = candidates.some((fqn) => {
-          const perType = rhsCtx.options.typeMemberIndex?.get(fqn);
-          return perType?.has(propName) ?? false;
-        });
-
-        if (hasMember) {
+        const hasMember = hasDeterministicPropertyMembership(
+          member,
+          propName,
+          rhsCtx
+        );
+        if (hasMember === true) {
           matchingMembers.push(i + 1);
+          continue;
         }
+        if (hasMember === undefined) {
+          unresolvedMembers.push(JSON.stringify(member));
+        }
+      }
+
+      if (unresolvedMembers.length > 0) {
+        throw new Error(
+          "ICE: Unable to deterministically resolve `in`-operator membership for one or more union members. " +
+            `Property: '${propName}'. Members: ${unresolvedMembers.join(", ")}`
+        );
       }
 
       if (matchingMembers.length === 0) {
@@ -222,6 +208,21 @@ export const emitBinary = (
         arguments: [keyAst],
       };
       return [containsKeyAst, keyCtx];
+    }
+
+    const deterministicMembership = hasDeterministicPropertyMembership(
+      rhsType,
+      expr.left.value,
+      rhsCtx
+    );
+    if (deterministicMembership !== undefined) {
+      return [
+        {
+          kind: "literalExpression",
+          text: deterministicMembership ? "true" : "false",
+        },
+        rhsCtx,
+      ];
     }
 
     throw new Error(
@@ -352,7 +353,9 @@ export const emitBinary = (
 
   if (isNullishComparison) {
     // One side is null/undefined literal, emit the other side as a C# null check.
-    // Clear narrowedBindings so we emit the raw identifier (not .Value)
+    // Suppress only direct nullable unwrapping for the comparison target
+    // (e.g. `id.Value == null` should stay `id == null`) while preserving
+    // unrelated narrowing such as renamed union members.
     const nonNullishExpr = leftIsNullish ? expr.right : expr.left;
     const nullishExpr = leftIsNullish ? expr.left : expr.right;
 
@@ -373,7 +376,10 @@ export const emitBinary = (
       (nonNullishExpr.accessKind === "dictionary" ||
         nonNullishExpr.object.inferredType?.kind === "dictionaryType")
     ) {
-      const nonNullishContext = { ...context, narrowedBindings: undefined };
+      const nonNullishContext = buildNullishComparisonContext(
+        nonNullishExpr,
+        context
+      );
       const [dictAst, dictContext] = emitExpressionAst(
         nonNullishExpr.object,
         nonNullishContext
@@ -405,7 +411,10 @@ export const emitBinary = (
       return [resultAst, keyContext];
     }
 
-    const nonNullishContext = { ...context, narrowedBindings: undefined };
+    const nonNullishContext = buildNullishComparisonContext(
+      nonNullishExpr,
+      context
+    );
     const [nonNullishAst, resultContext] = emitExpressionAst(
       nonNullishExpr,
       nonNullishContext
@@ -481,6 +490,49 @@ export const emitBinary = (
         right: nullLiteral,
       },
       resultContext,
+    ];
+  }
+
+  const leftResolved = expr.left.inferredType
+    ? resolveTypeAlias(stripNullish(expr.left.inferredType), context)
+    : undefined;
+  const rightResolved = expr.right.inferredType
+    ? resolveTypeAlias(stripNullish(expr.right.inferredType), context)
+    : undefined;
+  const needsRuntimeEquality =
+    (op === "==" || op === "!=") &&
+    ((leftResolved?.kind === "unknownType" ||
+      rightResolved?.kind === "unknownType" ||
+      (leftResolved?.kind === "referenceType" &&
+        leftResolved.name === "object") ||
+      (rightResolved?.kind === "referenceType" &&
+        rightResolved.name === "object")));
+
+  if (needsRuntimeEquality) {
+    const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+    const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+    const equalsAst: CSharpExpressionAst = {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "global::System.Object",
+        },
+        memberName: "Equals",
+      },
+      arguments: [leftAst, rightAst],
+    };
+    if (op === "==") {
+      return [equalsAst, rightContext];
+    }
+    return [
+      {
+        kind: "prefixUnaryExpression",
+        operatorToken: "!",
+        operand: equalsAst,
+      },
+      rightContext,
     ];
   }
 

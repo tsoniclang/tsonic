@@ -1262,6 +1262,65 @@ describe("IR Builder", () => {
       });
     });
 
+    it("should attach resolvedClrType for CLR type imports used as values", () => {
+      const source = `
+        import { Task as TaskValue } from "@tsonic/dotnet/System.Threading.Tasks.js";
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+
+      (
+        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
+      ).clrResolver = {
+        resolve: (s: string) =>
+          s === "@tsonic/dotnet/System.Threading.Tasks.js"
+            ? {
+                isClr: true,
+                packageName: "@tsonic/dotnet",
+                resolvedNamespace: "System.Threading.Tasks",
+                bindingsPath: "/x/tasks.bindings.json",
+                assembly: "System.Runtime",
+              }
+            : { isClr: false },
+      };
+
+      ctx.bindings.addBindings("/x/tasks.bindings.json", {
+        namespace: "System.Threading.Tasks",
+        types: [
+          {
+            alias: "Task",
+            clrName: "System.Threading.Tasks.Task",
+            assemblyName: "System.Runtime",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+        exports: {},
+      });
+
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const imp = result.value.imports[0];
+      if (!imp) throw new Error("Missing imports");
+      const spec = imp.specifiers[0];
+      if (!spec || spec.kind !== "named") {
+        throw new Error("Missing named specifier");
+      }
+      expect(spec.name).to.equal("Task");
+      expect(spec.localName).to.equal("TaskValue");
+      expect(spec.isType).to.not.equal(true);
+      expect(spec.resolvedClrType).to.equal("System.Threading.Tasks.Task");
+      expect(spec.resolvedClrValue).to.equal(undefined);
+    });
+
     it("should error if a CLR namespace value import lacks tsbindgen exports mapping", () => {
       const source = `
         import { buildSite } from "@demo/pkg/Demo.js";
@@ -2070,6 +2129,82 @@ describe("IR Builder", () => {
         "unknownType"
       );
       expect(returnStmt.expression.inferredType?.kind).to.not.equal("anyType");
+    });
+
+    it("synthesizes exact numeric properties after nullish fallback narrowing", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function parseRole(raw: string): int | undefined;
+
+        export function run(raw: string): int {
+          const parsedInviteAsRole = parseRole(raw);
+          const inviteAsRole = parsedInviteAsRole ?? (400 as int);
+          const input = {
+            inviteAsRole,
+          };
+          return input.inviteAsRole;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(
+        ctx.diagnostics.some(
+          (diagnostic) =>
+            diagnostic.code === "TSN5203" &&
+            diagnostic.message.includes("inviteAsRole")
+        )
+      ).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations.some(
+            (declaration) =>
+              declaration.name.kind === "identifierPattern" &&
+              declaration.name.name === "input" &&
+              declaration.initializer?.kind === "object"
+          )
+      );
+      const initializer = decl?.declarations.find(
+        (declaration) =>
+          declaration.name.kind === "identifierPattern" &&
+          declaration.name.name === "input"
+      )?.initializer;
+      expect(initializer?.kind).to.equal("object");
+      if (!initializer || initializer.kind !== "object") return;
+
+      const objectType = initializer.inferredType;
+      expect(objectType?.kind).to.equal("objectType");
+      if (!objectType || objectType.kind !== "objectType") return;
+
+      const inviteAsRoleMember = objectType.members.find(
+        (member) =>
+          member.kind === "propertySignature" &&
+          member.name === "inviteAsRole"
+      );
+      expect(inviteAsRoleMember?.kind).to.equal("propertySignature");
+      if (
+        !inviteAsRoleMember ||
+        inviteAsRoleMember.kind !== "propertySignature"
+      )
+        return;
+      expect(inviteAsRoleMember.type.kind).to.equal("primitiveType");
+      if (inviteAsRoleMember.type.kind !== "primitiveType") return;
+      expect(inviteAsRoleMember.type.name).to.equal("int");
     });
 
     it("normalizes computed const-literal numeric keys during synthesis", () => {
@@ -3372,6 +3507,293 @@ describe("IR Builder", () => {
         kind: "arrayType",
         elementType: { kind: "unknownType" },
       });
+    });
+
+    it("allows arbitrary property access on Record<string, unknown> without unknown poison", () => {
+      const source = `
+        export function fill(): Record<string, unknown> {
+          const state: Record<string, unknown> = {};
+          state.zulip_version = "1.0";
+          state.realm_users = [];
+          return state;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+    });
+
+    it("allows declared unknown members on structural callback parameters", () => {
+      const source = `
+        export function project(
+          rawUpdates: { stream_id: string; property: string; value: unknown }[]
+        ): string[] {
+          return rawUpdates.map((update) => String(update.value ?? ""));
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+    });
+
+    it("supports indexed access on generic discriminated-union payloads after narrowing", () => {
+      const source = `
+        type Ok<T> = { success: true; data: T };
+        type Err<E> = { success: false; error: E };
+        type Result<T, E> = Ok<T> | Err<E>;
+
+        declare function listTenants(): Result<{ Id: string }[], string>;
+
+        export function run(): string {
+          const result = listTenants();
+          if (!result.success) {
+            return result.error;
+          }
+
+          const data = result.data;
+          return data[0]!.Id;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const dataDecl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations.some(
+            (declaration) =>
+              declaration.name.kind === "identifierPattern" &&
+              declaration.name.name === "data"
+          )
+      );
+      expect(dataDecl).to.not.equal(undefined);
+      const dataInit = dataDecl?.declarations[0]?.initializer;
+      expect(dataInit?.kind).to.equal("memberAccess");
+      if (!dataInit || dataInit.kind !== "memberAccess") return;
+      expect(dataInit.inferredType?.kind).to.equal("arrayType");
+      if (!dataInit.inferredType || dataInit.inferredType.kind !== "arrayType") {
+        return;
+      }
+      expect(dataInit.inferredType.elementType.kind).to.equal("objectType");
+      if (dataInit.inferredType.elementType.kind !== "objectType") return;
+      expect(dataInit.inferredType.elementType.members).to.have.length(1);
+      const idMember = dataInit.inferredType.elementType.members[0];
+      expect(idMember?.kind).to.equal("propertySignature");
+      if (!idMember || idMember.kind !== "propertySignature") return;
+      expect(idMember.name).to.equal("Id");
+      expect(idMember.type).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+      expect(idMember.isOptional).to.equal(false);
+      expect(idMember.isReadonly).to.equal(false);
+    });
+
+    it("treats string-literal element access on narrowed unions like property access", () => {
+      const source = `
+        type Err = { error: string; code?: string };
+        type Ok = { events: string[] };
+
+        declare function getEvents(): Err | Ok;
+
+        export function run(): string {
+          const result = getEvents();
+          if ("error" in result) {
+            return result["code"] ?? result["error"];
+          }
+          return result["events"][0] ?? "";
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const ifStmt = run.body.statements.find((stmt) => stmt.kind === "ifStatement");
+      expect(ifStmt).to.not.equal(undefined);
+      if (!ifStmt || ifStmt.kind !== "ifStatement") return;
+
+      const thenReturn = ifStmt.thenStatement.kind === "blockStatement"
+        ? ifStmt.thenStatement.statements.find((stmt) => stmt.kind === "returnStatement")
+        : undefined;
+      expect(thenReturn).to.not.equal(undefined);
+      if (
+        !thenReturn ||
+        thenReturn.kind !== "returnStatement" ||
+        !thenReturn.expression ||
+        thenReturn.expression.kind !== "logical"
+      ) {
+        return;
+      }
+
+      const codeAccess = thenReturn.expression.left;
+      expect(codeAccess.kind).to.equal("memberAccess");
+      if (codeAccess.kind !== "memberAccess") return;
+      expect(codeAccess.accessKind).to.not.equal("unknown");
+      expect(codeAccess.inferredType).to.deep.equal({
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      });
+
+      const finalReturn = [...run.body.statements]
+        .reverse()
+        .find(
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+      expect(finalReturn).to.not.equal(undefined);
+      if (
+        !finalReturn ||
+        !finalReturn.expression ||
+        finalReturn.expression.kind !== "logical" ||
+        finalReturn.expression.left.kind !== "memberAccess"
+      ) {
+        return;
+      }
+
+      const eventsIndex = finalReturn.expression.left;
+      expect(eventsIndex.accessKind).to.equal("clrIndexer");
+      expect(eventsIndex.inferredType).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+    });
+
+    it("keeps string-literal element access computed for alias-wrapped string dictionaries", () => {
+      const source = `
+        interface SettingsMap {
+          [key: string]: string;
+        }
+
+        declare function load(): SettingsMap;
+
+        export function run(): string | undefined {
+          const settings = load();
+          return settings["waiting_period_threshold"];
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const returnStmt = run.body.statements.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+          stmt.kind === "returnStatement"
+      );
+      expect(returnStmt).to.not.equal(undefined);
+      if (!returnStmt?.expression) return;
+
+      expect(returnStmt.expression.kind).to.equal("memberAccess");
+      if (returnStmt.expression.kind !== "memberAccess") return;
+      expect(returnStmt.expression.isComputed).to.equal(true);
+      expect(returnStmt.expression.accessKind).to.equal("dictionary");
+    });
+
+    it("keeps string-literal element access computed after generic return narrowing", () => {
+      const source = `
+        type SettingsMap = { [key: string]: string };
+
+        declare const JsonSerializer: {
+          Deserialize<T>(json: string): T | undefined;
+        };
+
+        export function run(json: string): string | undefined {
+          const settingsOrNull = JsonSerializer.Deserialize<SettingsMap>(json);
+          if (settingsOrNull === undefined) {
+            return undefined;
+          }
+          const settings = settingsOrNull;
+          return settings["waiting_period_threshold"];
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5107")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const returnStmt = [...run.body.statements]
+        .reverse()
+        .find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+      expect(returnStmt).to.not.equal(undefined);
+      if (!returnStmt?.expression) return;
+
+      expect(returnStmt.expression.kind).to.equal("memberAccess");
+      if (returnStmt.expression.kind !== "memberAccess") return;
+      expect(returnStmt.expression.isComputed).to.equal(true);
+      expect(returnStmt.expression.accessKind).to.equal("dictionary");
     });
 
     it("types inferred array Length access as int without unknown poison", () => {

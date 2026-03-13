@@ -358,6 +358,15 @@ export class BindingRegistry {
     } else if (isTsbindgenBindingFile(manifest)) {
       // tsbindgen format: convert to internal format
       const namespaceTypes: TypeBinding[] = [];
+      const derivedAliasCounts = new Map<string, number>();
+
+      for (const tsbType of manifest.types) {
+        const derivedAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
+        derivedAliasCounts.set(
+          derivedAlias,
+          (derivedAliasCounts.get(derivedAlias) ?? 0) + 1
+        );
+      }
 
       for (const tsbType of manifest.types) {
         // Create members from methods, properties, and fields
@@ -370,6 +379,7 @@ export class BindingRegistry {
             // No naming policy: TS member names are the CLR names as authored.
             alias: method.clrName,
             signature: method.normalizedSignature,
+            semanticSignature: method.semanticSignature,
             parameterCount: method.parameterCount,
             binding: {
               assembly: method.declaringAssemblyName,
@@ -418,6 +428,9 @@ export class BindingRegistry {
         for (const prop of tsbType.properties) {
           members.push({
             kind: "property",
+            signature: prop.normalizedSignature,
+            semanticType: prop.semanticType,
+            semanticOptional: prop.semanticOptional,
             name: prop.clrName,
             alias: prop.clrName,
             binding: {
@@ -432,6 +445,9 @@ export class BindingRegistry {
           // Fields are treated as properties for binding purposes
           members.push({
             kind: "property",
+            signature: field.normalizedSignature,
+            semanticType: field.semanticType,
+            semanticOptional: field.semanticOptional,
             name: field.clrName,
             alias: field.clrName,
             binding: {
@@ -442,7 +458,9 @@ export class BindingRegistry {
           });
         }
 
-        const tsAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
+        const derivedAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
+        const tsAlias = tsbType.alias ?? derivedAlias;
+        const uniqueDerivedAlias = (derivedAliasCounts.get(derivedAlias) ?? 0) === 1;
 
         // Record CLR inheritance relationships (base type + interfaces) so extension-method
         // binding lookup can follow the CLR graph deterministically.
@@ -480,20 +498,27 @@ export class BindingRegistry {
         };
         this.clrTypeNames.add(tsbType.clrName);
         this.typeLookupAliasMap.set(tsbType.clrName, typeBinding.alias);
-        this.typeLookupAliasMap.set(
-          `${manifest.namespace}.${typeBinding.alias}`,
-          typeBinding.alias
-        );
+        if (!typeBinding.alias.includes(".")) {
+          this.typeLookupAliasMap.set(
+            `${manifest.namespace}.${typeBinding.alias}`,
+            typeBinding.alias
+          );
+        }
         namespaceTypes.push(typeBinding);
 
         // Index the type by its TS name.
         this.types.set(typeBinding.alias, typeBinding);
 
+        if (uniqueDerivedAlias && derivedAlias !== typeBinding.alias) {
+          this.types.set(derivedAlias, typeBinding);
+          this.typeLookupAliasMap.set(derivedAlias, typeBinding.alias);
+        }
+
         // Also index by simple name if ts alias has arity suffix (e.g., "List_1" -> also index as "List")
         // This is needed because TS exports both List_1 and List as aliases, and TS code uses List<T>
         // IMPORTANT: Only set if not already present - non-generic versions should take precedence
         // (e.g., Action should resolve to System.Action, not System.Action`9)
-        const arityMatch = typeBinding.alias.match(/^(.+)_(\d+)$/);
+        const arityMatch = derivedAlias.match(/^(.+)_(\d+)$/);
         const simpleAlias = arityMatch ? arityMatch[1] : null;
         if (
           simpleAlias &&
@@ -505,10 +530,17 @@ export class BindingRegistry {
 
         // Index members for direct lookup.
         for (const member of members) {
-          // Key by TS name (e.g., "List_1.Add")
+          // Key by canonical TS alias.
           const tsKey = `${typeBinding.alias}.${member.alias}`;
           this.members.set(tsKey, member);
           addMemberOverload(tsKey, member);
+
+          // Also key by the derived/simple alias when it is uniquely owned.
+          if (uniqueDerivedAlias && derivedAlias !== typeBinding.alias) {
+            const derivedKey = `${derivedAlias}.${member.alias}`;
+            this.members.set(derivedKey, member);
+            addMemberOverload(derivedKey, member);
+          }
 
           // Also key by simple alias if applicable (e.g., "List.Add")
           if (simpleAlias) {

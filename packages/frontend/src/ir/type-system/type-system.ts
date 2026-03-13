@@ -63,6 +63,7 @@ import {
 import {
   resolveCall as crResolveCall,
   collectExpectedReturnCandidates as crCollectExpectedReturnCandidates,
+  collectNarrowingCandidates as crCollectNarrowingCandidates,
   delegateToFunctionType as crDelegateToFunctionType,
 } from "./type-system-call-resolution.js";
 
@@ -176,6 +177,15 @@ export type TypeAuthority = {
    * contextual call specialization.
    */
   collectExpectedReturnCandidates(type: IrType): readonly IrType[];
+
+  /**
+   * Expand a type into concrete narrowing candidates.
+   *
+   * Used by flow analysis when a nominal alias (for example `Result<T, E>`)
+   * expands to an underlying union that must participate in discriminant or
+   * property-presence narrowing.
+   */
+  collectNarrowingCandidates(type: IrType): readonly IrType[];
 
   /**
    * Convert a CLR delegate nominal type (Func/Action/custom delegates) into a function type.
@@ -557,6 +567,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     resolveCall: (query) => crResolveCall(state, query),
     collectExpectedReturnCandidates: (type) =>
       crCollectExpectedReturnCandidates(state, type),
+    collectNarrowingCandidates: (type) =>
+      crCollectNarrowingCandidates(state, type),
     delegateToFunctionType: (type) => crDelegateToFunctionType(state, type),
 
     // Utility type expansion (utilities module)

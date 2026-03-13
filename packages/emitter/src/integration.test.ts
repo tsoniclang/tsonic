@@ -11,17 +11,46 @@ import { createRequire } from "node:module";
 import {
   buildIrModule,
   DotnetMetadataRegistry,
-  BindingRegistry,
   createClrBindingsResolver,
   createBinding,
   createProgramContext,
+  loadBindings,
+  runAnonymousTypeLoweringPass,
+  runAttributeCollectionPass,
+  runNumericProofPass,
 } from "@tsonic/frontend";
-import { emitModule } from "./emitter.js";
+import { emitCSharpFiles } from "./emitter.js";
 
 const require = createRequire(import.meta.url);
 const corePackageRoot = path.dirname(require.resolve("@tsonic/core/package.json"));
 const coreTypesPath = path.join(corePackageRoot, "types.d.ts");
 const coreLangPath = path.join(corePackageRoot, "lang.d.ts");
+
+const resolveTsonicModule = (
+  moduleName: string
+): { readonly filePath: string; readonly packageRoot: string } | undefined => {
+  if (!moduleName.startsWith("@tsonic/")) {
+    return undefined;
+  }
+
+  const parts = moduleName.split("/");
+  if (parts.length < 2) {
+    return undefined;
+  }
+
+  const packageName = parts.slice(0, 2).join("/");
+  const packageRoot = path.dirname(require.resolve(`${packageName}/package.json`));
+  const subPath = moduleName.slice(packageName.length + 1);
+  const declarationPath = path.join(
+    packageRoot,
+    subPath.replace(/\.js$/, ".d.ts")
+  );
+
+  return {
+    filePath: declarationPath,
+    packageRoot,
+  };
+};
 
 /**
  * Helper to compile TypeScript source to C#
@@ -30,6 +59,8 @@ const compileToCSharp = (
   source: string,
   fileName = "/test/test.ts"
 ): string => {
+  const resolvedPackageRoots = new Set<string>();
+
   // Phase 5: Each test creates fresh ProgramContext - no global cleanup needed
 
   const sourceFile = ts.createSourceFile(
@@ -43,10 +74,12 @@ const compileToCSharp = (
   const compilerOptions: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
     strict: true,
     noEmit: true,
     noLib: true,
     skipLibCheck: true,
+    allowImportingTsExtensions: true,
   };
 
   const host = ts.createCompilerHost(compilerOptions);
@@ -78,15 +111,16 @@ const compileToCSharp = (
   ): (ts.ResolvedModule | undefined)[] => {
     const resolutionOptions = options ?? compilerOptions;
     return moduleNames.map((moduleName) => {
-      const resolvedFileName =
+      const resolvedTsonicModule =
         moduleName === "@tsonic/core/types.js"
-          ? coreTypesPath
+          ? { filePath: coreTypesPath, packageRoot: corePackageRoot }
           : moduleName === "@tsonic/core/lang.js"
-            ? coreLangPath
-            : undefined;
-      if (resolvedFileName) {
+            ? { filePath: coreLangPath, packageRoot: corePackageRoot }
+            : resolveTsonicModule(moduleName);
+      if (resolvedTsonicModule) {
+        resolvedPackageRoots.add(resolvedTsonicModule.packageRoot);
         return {
-          resolvedFileName,
+          resolvedFileName: resolvedTsonicModule.filePath,
           extension: ts.Extension.Dts,
           isExternalLibraryImport: true,
         };
@@ -124,7 +158,7 @@ const compileToCSharp = (
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
     metadata: new DotnetMetadataRegistry(),
-    bindings: new BindingRegistry(),
+    bindings: loadBindings(Array.from(resolvedPackageRoots)),
     clrResolver: createClrBindingsResolver("/test"),
   };
 
@@ -139,8 +173,37 @@ const compileToCSharp = (
     throw new Error(`IR build failed: ${irResult.error.message}`);
   }
 
-  // Emit C#
-  return emitModule(irResult.value);
+  // Integration tests emit directly from a single built module, so they must
+  // still run the frontend lowering/validation passes required by the emitter
+  // contract instead of bypassing them with raw builder output.
+  const loweredModules = runAnonymousTypeLoweringPass([irResult.value]).modules;
+  const proofResult = runNumericProofPass(loweredModules);
+  if (!proofResult.ok) {
+    throw new Error(
+      `Numeric proof validation failed: ${proofResult.diagnostics.map((d) => d.message).join("; ")}`
+    );
+  }
+
+  const attributeResult = runAttributeCollectionPass(proofResult.modules);
+  if (!attributeResult.ok) {
+    throw new Error(
+      `Attribute collection failed: ${attributeResult.diagnostics.map((d) => d.message).join("; ")}`
+    );
+  }
+
+  const emitResult = emitCSharpFiles(attributeResult.modules, {
+    rootNamespace: "Test",
+  });
+  if (!emitResult.ok) {
+    throw new Error(
+      `Emit failed: ${emitResult.errors.map((d) => d.message).join("; ")}`
+    );
+  }
+
+  return [...emitResult.files.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, code]) => code)
+    .join("\n\n");
 };
 
 describe("End-to-End Integration", () => {
@@ -886,6 +949,48 @@ describe("End-to-End Integration", () => {
     });
   });
 
+  describe("Await Lowering", () => {
+    it("awaits non-generic Task values directly", () => {
+      const source = `
+        import type { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
+        import { Task as TaskValue } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
+        function flush(): Task {
+          return TaskValue.CompletedTask;
+        }
+
+        export async function run(): Promise<void> {
+          await flush();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("await flush();");
+      expect(csharp).not.to.include("Task.FromResult");
+    });
+
+    it("awaits non-generic ValueTask values directly", () => {
+      const source = `
+        import type { ValueTask } from "@tsonic/dotnet/System.Threading.Tasks.js";
+        import { ValueTask as ValueTaskValue } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
+        function flush(): ValueTask {
+          return ValueTaskValue.CompletedTask;
+        }
+
+        export async function run(): Promise<void> {
+          await flush();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("await flush();");
+      expect(csharp).not.to.include("Task.FromResult");
+    });
+  });
+
   describe("Core Intrinsics", () => {
     it("lowers nameof to a compile-time string literal using TS-authored names", () => {
       const source = `
@@ -1007,6 +1112,343 @@ describe("End-to-End Integration", () => {
         "fs.mkdirSync(dir, new global::Test.MkdirOptions"
       );
       expect(csharp).not.to.include("Dictionary<string, object?>");
+    });
+
+    it("emits indexer access for alias-wrapped string dictionaries", () => {
+      const source = `
+        interface SettingsMap {
+          [key: string]: string;
+        }
+
+        declare function load(): SettingsMap;
+
+        export function readSetting(): string | undefined {
+          const settings = load();
+          return settings["waiting_period_threshold"];
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include('return settings["waiting_period_threshold"];');
+      expect(csharp).not.to.include("settings.waiting_period_threshold");
+    });
+
+    it("emits indexer access for generic-return dictionary aliases after null narrowing", () => {
+      const source = `
+        type SettingsMap = { [key: string]: string };
+
+        declare const JsonSerializer: {
+          Deserialize<T>(json: string): T | undefined;
+        };
+
+        export function readSetting(json: string): string | undefined {
+          const settingsOrNull = JsonSerializer.Deserialize<SettingsMap>(json);
+          if (settingsOrNull === undefined) {
+            return undefined;
+          }
+          const settings = settingsOrNull;
+          return settings["waiting_period_threshold"];
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include('return settings["waiting_period_threshold"];');
+      expect(csharp).not.to.include("settings.waiting_period_threshold");
+    });
+
+    it("emits object literals with exact numeric properties after nullish fallback narrowing", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function parseRole(raw: string): int | undefined;
+
+        export function run(raw: string): int {
+          const parsedInviteAsRole = parseRole(raw);
+          const inviteAsRole = parsedInviteAsRole ?? (400 as int);
+          const input = {
+            inviteAsRole,
+          };
+          return input.inviteAsRole;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("inviteAsRole = inviteAsRole");
+      expect(csharp).not.to.include("Object literal cannot be synthesized");
+    });
+
+    it("preserves optional value-type properties in object literals", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function parseLimit(raw: string, fallback: int): int;
+
+        type Options = {
+          limit?: int;
+        };
+
+        export function run(limitRaw: string | undefined): int {
+          const limit = limitRaw ? parseLimit(limitRaw, 100 as int) : undefined;
+          const options: Options = { limit };
+          return options.limit ?? (0 as int);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("limit = limit");
+      expect(csharp).not.to.include("limit = limit.Value");
+      expect(csharp).to.include("int? limit =");
+      expect(csharp).not.to.include("var limit =");
+    });
+
+    it("lowers typed object spreads into object-root dictionary results", () => {
+      const source = `
+        type ApiKeyData = {
+          apiKey: string;
+          userId: string;
+        };
+
+        export function buildResponse(data: ApiKeyData): object {
+          return { result: "success", msg: "", ...data };
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "global::System.Collections.Generic.Dictionary<string, object?>"
+      );
+      expect(csharp).to.include('__tmp["result"] = "success"');
+      expect(csharp).to.include('__tmp["msg"] = ""');
+      expect(csharp).to.include('__tmp["apiKey"] = __spread.apiKey');
+      expect(csharp).to.include('__tmp["userId"] = __spread.userId');
+    });
+
+    it("lowers dictionary spreads into object-root dictionary results", () => {
+      const source = `
+        type StringMap = {
+          [key: string]: string;
+        };
+
+        export function buildResponse(data: StringMap): object {
+          return { result: "success", ...data, msg: "" };
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("foreach (var __entry in __spread)");
+      expect(csharp).to.include("__tmp[__entry.Key] = __entry.Value;");
+      expect(csharp).to.include('__tmp["result"] = "success";');
+      expect(csharp).to.include('__tmp["msg"] = "";');
+    });
+
+    it("uses element access for index-signature property reads and writes", () => {
+      const source = `
+        export function buildState(): Record<string, unknown> {
+          const state: Record<string, unknown> = {};
+          state.user_id = "u1";
+          state.email = "u@example.com";
+          const bot = state.user_id;
+          state.is_bot = bot === "u1";
+          return state;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include('state["user_id"] = "u1";');
+      expect(csharp).to.include('state["email"] = "u@example.com";');
+      expect(csharp).to.include('var bot = state["user_id"];');
+      expect(csharp).to.include('state["is_bot"] = bot == "u1";');
+      expect(csharp).not.to.include("state.user_id");
+      expect(csharp).not.to.include("state.email");
+      expect(csharp).not.to.include("state.is_bot");
+    });
+
+    it("materializes structural object arguments using the callee interface type", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        interface CreateParams {
+          isPrivate?: int;
+        }
+
+        declare function subscribe(params?: CreateParams): void;
+
+        export function run(inviteOnly: int | undefined): void {
+          const createParams: { isPrivate?: int } = { isPrivate: inviteOnly };
+          subscribe(createParams);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "subscribe(new CreateParams { isPrivate = createParams.isPrivate });"
+      );
+      expect(csharp).not.to.include("subscribe(createParams);");
+    });
+
+    it("uses runtime equality for unknown-vs-boolean strict comparisons", () => {
+      const source = `
+        export function hasSubdomain(body: Record<string, unknown>): boolean {
+          return body.allow_subdomains === true;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        'global::System.Object.Equals(body["allow_subdomains"], true)'
+      );
+      expect(csharp).not.to.include('body["allow_subdomains"] == true');
+    });
+
+    it("materializes structural object arguments for inline object-type parameters", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        type CreateInput = { fullName: string; shortName: string; botType?: int };
+
+        declare function createBotDomain(input: { fullName: string; shortName: string; botType?: int }): void;
+
+        export function run(botType: int | undefined): void {
+          const input: CreateInput = { fullName: "Bot", shortName: "bot", botType };
+          createBotDomain(input);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.match(
+        /createBotDomain\(new .* \{ fullName = input\.fullName, shortName = input\.shortName, botType = input\.botType \}\);/
+      );
+      expect(csharp).not.to.include("createBotDomain(input);");
+    });
+
+    it("materializes structural arrays for inline object-type element parameters", () => {
+      const source = `
+        type AddItem = { name: string; description?: string };
+
+        declare function bulkUpdate(add?: { name: string; description?: string }[]): void;
+
+        export function run(addRaw: string | undefined): void {
+          const addList = addRaw ? JSON.parse(addRaw) as AddItem[] : undefined;
+          bulkUpdate(addList);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("global::System.Linq.Enumerable.ToArray");
+      expect(csharp).to.include("name =");
+      expect(csharp).to.include("description =");
+      expect(csharp).not.to.include("bulkUpdate(addList);");
+    });
+
+    it("materializes structural dictionary values for inline object-type parameters", () => {
+      const source = `
+        type ProfileEntry = { value: string };
+
+        declare function updateProfileData(profileData: Record<string, { value: string }>): void;
+
+        export function run(profileData: Record<string, ProfileEntry>): void {
+          updateProfileData(profileData);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("new global::System.Collections.Generic.Dictionary");
+      expect(csharp).to.include("value =");
+      expect(csharp).not.to.include("updateProfileData(profileData);");
+    });
+
+    it("materializes imported structural alias locals without re-emitting anonymous object types", () => {
+      const csharp = compileToCSharp(`
+        type AppContext = {
+          readonly options: string;
+          readonly config: string;
+        };
+
+        export function run(): void {
+          const options = "cs";
+          const config = "http://localhost:3000";
+          const ctx: AppContext = { options, config };
+          void ctx;
+        }
+      `);
+
+      expect(csharp).to.include("class AppContext__Alias");
+      expect(csharp).to.match(
+        /AppContext__Alias\s+ctx\s*=\s*new\s+AppContext__Alias\s*\{\s*options\s*=\s*options,\s*config\s*=\s*config\s*\}/
+      );
+      expect(csharp).not.to.include(
+        "ICE: Anonymous object type reached emitter"
+      );
+    });
+
+    it("materializes inline object-type elements through generic List<T>.Add", () => {
+      const source = `
+        declare class List<T> {
+          Add(item: T): void;
+          ToArray(): T[];
+        }
+
+        declare function createDraftsDomain(inputs: { type: string; to: string; topic?: string; content: string }[]): void;
+
+        export function run(): void {
+          const inputs = new List<{ type: string; to: string; topic?: string; content: string }>();
+          inputs.Add({ type: "stream", to: "general", topic: "t", content: "hi" });
+          createDraftsDomain(inputs.ToArray());
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.match(
+        /inputs\.Add\(new .* \{ type = "stream", to = "general", topic = "t", content = "hi" \}\);/
+      );
+      expect(csharp).not.to.include(
+        'inputs.Add(new global::System.Collections.Generic.Dictionary'
+      );
+    });
+
+    it("materializes inline object-type arrays through generic List<T>.ToArray()", () => {
+      const source = `
+        declare class List<T> {
+          Add(item: T): void;
+          ToArray(): T[];
+        }
+
+        declare function createDraftsDomain(inputs: { type: string; to: string; topic?: string; content: string }[]): void;
+
+        export function run(drafts: { type: string; to: string; topic?: string; content: string }[]): void {
+          const inputs = new List<{ type: string; to: string; topic?: string; content: string }>();
+          for (let i = 0; i < drafts.length; i++) {
+            const d = drafts[i];
+            inputs.Add({ type: d.type, to: d.to, topic: d.topic, content: d.content });
+          }
+          createDraftsDomain(inputs.ToArray());
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.match(
+        /inputs\.Add\(new .* \{ type = d\.type, to = d\.to, topic = d\.topic, content = d\.content \}\);/
+      );
+      expect(csharp).to.include("createDraftsDomain(inputs.ToArray());");
+    });
+
+    it("emits empty inline object-type locals with optional properties", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        export function run(name: string | undefined, active: int | undefined): void {
+          const updates: { name?: string; active?: int } = {};
+          if (name) updates.name = name;
+          if (active !== undefined) updates.active = active;
+          void updates;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.match(
+        /__Anon_[A-Za-z0-9_]+\s+updates\s*=\s*new\s+global::Test\.__Anon_[A-Za-z0-9_]+\(\);/
+      );
+      expect(csharp).not.to.include("new global::System.Collections.Generic.Dictionary");
     });
   });
 

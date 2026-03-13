@@ -197,6 +197,46 @@ describe("type-resolution", () => {
       expect(result).to.deep.equal({ kind: "primitiveType", name: "string" });
     });
 
+    it("preserves undefined for optional interface properties", () => {
+      const members: IrInterfaceMember[] = [
+        {
+          kind: "propertySignature",
+          name: "limit",
+          type: { kind: "primitiveType", name: "int" },
+          isOptional: true,
+          isReadonly: false,
+        },
+      ];
+
+      const localTypes = new Map<string, LocalTypeInfo>([
+        [
+          "Options",
+          {
+            kind: "interface",
+            typeParameters: [],
+            members,
+            extends: [],
+          },
+        ],
+      ]);
+
+      const contextualType: IrType = {
+        kind: "referenceType",
+        name: "Options",
+      };
+
+      const context = createContext(localTypes);
+      const result = getPropertyType(contextualType, "limit", context);
+
+      expect(result).to.deep.equal({
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      });
+    });
+
     it("returns undefined for unknown property", () => {
       const members: IrInterfaceMember[] = [
         {

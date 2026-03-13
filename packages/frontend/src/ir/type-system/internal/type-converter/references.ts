@@ -381,12 +381,14 @@ const isSafeToEraseUserTypeAliasTarget = (node: ts.TypeNode): boolean => {
 const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
   const sourceFile = decl.getSourceFile();
   const fileName = sourceFile.fileName;
+  const isSourceBindingsDecl =
+    sourceFile.isDeclarationFile && isTsonicBindingsDeclarationFile(fileName);
 
   // Skip library types (node_modules, lib.*.d.ts, or declaration files)
   if (
     fileName.includes("node_modules") ||
     fileName.includes("lib.") ||
-    sourceFile.isDeclarationFile
+    (sourceFile.isDeclarationFile && !isSourceBindingsDecl)
   ) {
     return false;
   }

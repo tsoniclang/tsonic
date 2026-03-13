@@ -12,6 +12,7 @@ import {
   resolveTypeAlias,
   selectUnionMemberForObjectLiteral,
 } from "../core/semantic/type-resolution.js";
+import { allocateLocalName } from "../core/format/local-names.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
 import type {
@@ -174,6 +175,33 @@ const isObjectRootTypeAst = (typeAst: CSharpTypeAst): boolean => {
   }
   return false;
 };
+
+const isObjectRootType = (type: IrType, context: EmitterContext): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return resolved.kind === "referenceType" && resolved.name === "object";
+};
+
+const isDictionaryLikeSpreadType = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return resolved.kind === "dictionaryType" || isObjectRootType(resolved, context);
+};
+
+const createStringLiteralExpression = (value: string): CSharpExpressionAst => ({
+  kind: "literalExpression",
+  text: `"${escapeCSharpString(value)}"`,
+});
+
+const createDictionaryElementAccess = (
+  targetIdentifier: string,
+  key: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "elementAccessExpression",
+  expression: { kind: "identifierExpression", identifier: targetIdentifier },
+  arguments: [key],
+});
 
 /**
  * Escape a string for use in a C# string literal.
@@ -529,11 +557,21 @@ export const emitObject = (
     typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
 
   if (isObjectRootTypeAst(safeTypeAst)) {
-    return emitDictionaryLiteral(expr, currentContext, {
+    const dictionaryType = {
       kind: "dictionaryType",
       keyType: { kind: "primitiveType", name: "string" },
       valueType: { kind: "unknownType" },
-    });
+    } as const;
+
+    if (expr.hasSpreads) {
+      return emitDictionaryLiteralWithSpreads(
+        expr,
+        currentContext,
+        dictionaryType
+      );
+    }
+
+    return emitDictionaryLiteral(expr, currentContext, dictionaryType);
   }
 
   // Check if object has spreads - use IIFE pattern
@@ -758,6 +796,25 @@ const emitSpreadPropertyCopyStatements = (
   );
   currentContext = sourceContext;
 
+  const sourceTemp = allocateLocalName("__spread", currentContext);
+  currentContext = sourceTemp.context;
+  statements.push({
+    kind: "localDeclarationStatement",
+    modifiers: [],
+    type: { kind: "varType" },
+    declarators: [
+      {
+        name: sourceTemp.emittedName,
+        initializer: sourceAst,
+      },
+    ],
+  });
+
+  const sourceRef: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: sourceTemp.emittedName,
+  };
+
   const propertyNames = getObjectTypePropertyNames(spreadType, currentContext);
 
   for (const propName of propertyNames) {
@@ -783,7 +840,117 @@ const emitSpreadPropertyCopyStatements = (
         },
         right: {
           kind: "memberAccessExpression",
-          expression: sourceAst,
+          expression: sourceRef,
+          memberName: sourceMember,
+        },
+      },
+    });
+  }
+
+  return [statements, currentContext];
+};
+
+const emitDictionarySpreadCopyStatements = (
+  targetIdentifier: string,
+  spreadExpr: IrExpression,
+  context: EmitterContext
+): [CSharpStatementAst[], EmitterContext] => {
+  let currentContext = context;
+  const statements: CSharpStatementAst[] = [];
+  const spreadType = spreadExpr.inferredType;
+
+  if (!spreadType) {
+    throw new Error(
+      "ICE: Spread in dictionary literal reached emitter without inferred type"
+    );
+  }
+
+  const [sourceAst, sourceContext] = emitExpressionAst(
+    spreadExpr,
+    currentContext
+  );
+  currentContext = sourceContext;
+
+  const sourceTemp = allocateLocalName("__spread", currentContext);
+  currentContext = sourceTemp.context;
+  statements.push({
+    kind: "localDeclarationStatement",
+    modifiers: [],
+    type: { kind: "varType" },
+    declarators: [
+      {
+        name: sourceTemp.emittedName,
+        initializer: sourceAst,
+      },
+    ],
+  });
+
+  const sourceRef: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: sourceTemp.emittedName,
+  };
+
+  if (isDictionaryLikeSpreadType(spreadType, currentContext)) {
+    const entryTemp = allocateLocalName("__entry", currentContext);
+    currentContext = entryTemp.context;
+    statements.push({
+      kind: "foreachStatement",
+      isAwait: false,
+      type: { kind: "varType" },
+      identifier: entryTemp.emittedName,
+      expression: sourceRef,
+      body: {
+        kind: "blockStatement",
+        statements: [
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "assignmentExpression",
+              operatorToken: "=",
+              left: createDictionaryElementAccess(targetIdentifier, {
+                kind: "memberAccessExpression",
+                expression: {
+                  kind: "identifierExpression",
+                  identifier: entryTemp.emittedName,
+                },
+                memberName: "Key",
+              }),
+              right: {
+                kind: "memberAccessExpression",
+                expression: {
+                  kind: "identifierExpression",
+                  identifier: entryTemp.emittedName,
+                },
+                memberName: "Value",
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    return [statements, currentContext];
+  }
+
+  const propertyNames = getObjectTypePropertyNames(spreadType, currentContext);
+  for (const propName of propertyNames) {
+    const sourceMember = emitObjectMemberName(
+      spreadType,
+      propName,
+      currentContext
+    );
+    statements.push({
+      kind: "expressionStatement",
+      expression: {
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: createDictionaryElementAccess(
+          targetIdentifier,
+          createStringLiteralExpression(propName)
+        ),
+        right: {
+          kind: "memberAccessExpression",
+          expression: sourceRef,
           memberName: sourceMember,
         },
       },
@@ -1007,6 +1174,117 @@ const emitDictionaryLiteral = (
       type: dictTypeAst,
       arguments: [],
       initializer: initializerAsts.length > 0 ? initializerAsts : undefined,
+    },
+    currentContext,
+  ];
+};
+
+const emitDictionaryLiteralWithSpreads = (
+  expr: Extract<IrExpression, { kind: "object" }>,
+  context: EmitterContext,
+  dictType: Extract<IrType, { kind: "dictionaryType" }>
+): [CSharpExpressionAst, EmitterContext] => {
+  let currentContext = context;
+
+  const keyTypeAst = emitDictKeyTypeAst(dictType.keyType);
+  const [valueTypeAst, ctx2] = emitTypeAst(dictType.valueType, currentContext);
+  currentContext = ctx2;
+
+  const dictTypeAst: CSharpTypeAst = {
+    kind: "identifierType",
+    name: "global::System.Collections.Generic.Dictionary",
+    typeArguments: [keyTypeAst, valueTypeAst],
+  };
+
+  const bodyStatements: CSharpStatementAst[] = [
+    {
+      kind: "localDeclarationStatement",
+      modifiers: [],
+      type: { kind: "varType" },
+      declarators: [
+        {
+          name: "__tmp",
+          initializer: {
+            kind: "objectCreationExpression",
+            type: dictTypeAst,
+            arguments: [],
+          },
+        },
+      ],
+    },
+  ];
+
+  for (const prop of expr.properties) {
+    if (prop.kind === "spread") {
+      const [spreadStatements, nextContext] = emitDictionarySpreadCopyStatements(
+        "__tmp",
+        prop.expression,
+        currentContext
+      );
+      bodyStatements.push(...spreadStatements);
+      currentContext = nextContext;
+      continue;
+    }
+
+    if (typeof prop.key !== "string") {
+      throw new Error(
+        "ICE: Computed property key in dictionary literal - validation gap"
+      );
+    }
+
+    const [valueAst, nextContext] = emitExpressionAst(
+      prop.value,
+      currentContext,
+      dictType.valueType
+    );
+    currentContext = nextContext;
+    bodyStatements.push({
+      kind: "expressionStatement",
+      expression: {
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: createDictionaryElementAccess(
+          "__tmp",
+          createStringLiteralExpression(prop.key)
+        ),
+        right: valueAst,
+      },
+    });
+  }
+
+  bodyStatements.push({
+    kind: "returnStatement",
+    expression: { kind: "identifierExpression", identifier: "__tmp" },
+  });
+
+  const funcTypeAst: CSharpTypeAst = {
+    kind: "identifierType",
+    name: "global::System.Func",
+    typeArguments: [dictTypeAst],
+  };
+  const lambdaAst: CSharpExpressionAst = {
+    kind: "lambdaExpression",
+    isAsync: false,
+    parameters: [],
+    body: { kind: "blockStatement", statements: bodyStatements },
+  };
+  const castAst: CSharpExpressionAst = {
+    kind: "castExpression",
+    type: funcTypeAst,
+    expression: {
+      kind: "parenthesizedExpression",
+      expression: lambdaAst,
+    },
+  };
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "parenthesizedExpression",
+        expression: castAst,
+      },
+      arguments: [],
     },
     currentContext,
   ];

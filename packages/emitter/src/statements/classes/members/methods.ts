@@ -2,7 +2,12 @@
  * Method member emission — returns CSharpMemberAst (method declaration)
  */
 
-import { IrClassMember, IrType, type IrParameter } from "@tsonic/frontend";
+import {
+  getAwaitedIrType,
+  IrClassMember,
+  IrType,
+  type IrParameter,
+} from "@tsonic/frontend";
 import {
   EmitterContext,
   indent,
@@ -32,22 +37,7 @@ const getAsyncBodyReturnType = (
   returnType: IrType | undefined
 ): IrType | undefined => {
   if (!isAsync || !returnType) return returnType;
-  const simpleName =
-    returnType.kind === "referenceType"
-      ? returnType.name.includes(".")
-        ? returnType.name.slice(returnType.name.lastIndexOf(".") + 1)
-        : returnType.name
-      : undefined;
-  if (
-    returnType.kind === "referenceType" &&
-    (simpleName === "Promise" ||
-      simpleName === "Task" ||
-      simpleName === "ValueTask") &&
-    returnType.typeArguments?.length === 1
-  ) {
-    return returnType.typeArguments[0];
-  }
-  return returnType;
+  return getAwaitedIrType(returnType) ?? returnType;
 };
 
 const seedLocalNameMapFromParameters = (

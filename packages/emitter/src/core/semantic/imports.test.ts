@@ -539,4 +539,49 @@ describe("Import Handling", () => {
     expect(result).to.include('global::nodejs.path.join("a", "b")');
     expect(result).not.to.include("ICE: Missing resolvedClrValue");
   });
+
+  it("binds CLR named imports with only resolvedClrType as static type containers", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "@tsonic/dotnet/System.Threading.Tasks.js",
+          isLocal: false,
+          isClr: true,
+          resolvedNamespace: "System.Threading.Tasks",
+          specifiers: [
+            {
+              kind: "named",
+              name: "Task",
+              localName: "TaskValue",
+              isType: false,
+              resolvedClrType: "System.Threading.Tasks.Task",
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: { kind: "identifier", name: "TaskValue" },
+            property: "CompletedTask",
+            isComputed: false,
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("global::System.Threading.Tasks.Task.CompletedTask");
+    expect(result).not.to.include("ICE: Missing resolvedClrValue");
+  });
 });

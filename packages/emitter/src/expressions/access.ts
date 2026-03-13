@@ -71,6 +71,11 @@ const stripGlobalPrefix = (name: string): string =>
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
 
+const createStringLiteralExpression = (value: string): CSharpExpressionAst => ({
+  kind: "literalExpression",
+  text: JSON.stringify(value),
+});
+
 const getMemberAccessNarrowKey = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>
 ): string | undefined => {
@@ -359,7 +364,9 @@ export const emitMemberAccess = (
           context,
         ];
       }
-      return [narrowed.exprAst, context];
+      if (narrowed.kind === "expr") {
+        return [narrowed.exprAst, context];
+      }
     }
   }
 
@@ -374,6 +381,9 @@ export const emitMemberAccess = (
         }
         if (narrowed?.kind === "expr") {
           return narrowed.type ?? undefined;
+        }
+        if (narrowed?.kind === "runtimeSubset") {
+          return narrowed.type ?? expr.object.inferredType;
         }
       }
       return expr.object.inferredType;
@@ -832,6 +842,40 @@ export const emitMemberAccess = (
         ctxAfterType,
       ];
     }
+
+    if (prop === "Count" || prop === "Length") {
+      return [
+        {
+          kind: expr.isOptional
+            ? "conditionalMemberAccessExpression"
+            : "memberAccessExpression",
+          expression: objectAst,
+          memberName: "Count",
+        },
+        newContext,
+      ];
+    }
+
+    const keyAst = createStringLiteralExpression(prop);
+    if (expr.isOptional) {
+      return [
+        {
+          kind: "conditionalElementAccessExpression",
+          expression: objectAst,
+          arguments: [keyAst],
+        },
+        newContext,
+      ];
+    }
+
+    return [
+      {
+        kind: "elementAccessExpression",
+        expression: objectAst,
+        arguments: [keyAst],
+      },
+      newContext,
+    ];
   }
 
   // Regular property access
@@ -842,6 +886,26 @@ export const emitMemberAccess = (
     context,
     usage
   );
+
+  if (usage === "value") {
+    if (
+      resolvedObjectType?.kind === "arrayType" ||
+      resolvedObjectType?.kind === "tupleType"
+    ) {
+      if (prop === "length" || prop === "Length" || prop === "Count") {
+        return [
+          {
+            kind: expr.isOptional
+              ? "conditionalMemberAccessExpression"
+              : "memberAccessExpression",
+            expression: objectAst,
+            memberName: "Length",
+          },
+          newContext,
+        ];
+      }
+    }
+  }
 
   if (expr.isOptional) {
     return [

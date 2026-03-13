@@ -17,6 +17,39 @@ import {
 } from "../../../statement-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { withVariableTypeEnv } from "../../type-env.js";
+import {
+  collectTypeNarrowingsInFalsyExpr,
+  collectTypeNarrowingsInTruthyExpr,
+  withAppliedNarrowings,
+} from "../../flow-narrowing.js";
+
+const statementAlwaysTerminates = (stmt: IrStatement): boolean => {
+  switch (stmt.kind) {
+    case "returnStatement":
+    case "throwStatement":
+    case "generatorReturnStatement":
+      return true;
+    case "blockStatement":
+      return stmt.statements.some((inner) => statementAlwaysTerminates(inner));
+    case "ifStatement":
+      return stmt.elseStatement
+        ? statementAlwaysTerminates(stmt.thenStatement) &&
+            statementAlwaysTerminates(stmt.elseStatement)
+        : false;
+    case "tryStatement": {
+      const tryTerminates = statementAlwaysTerminates(stmt.tryBlock);
+      const catchTerminates = stmt.catchClause
+        ? statementAlwaysTerminates(stmt.catchClause.body)
+        : true;
+      const finallyTerminates = stmt.finallyBlock
+        ? statementAlwaysTerminates(stmt.finallyBlock)
+        : true;
+      return tryTerminates && catchTerminates && finallyTerminates;
+    }
+    default:
+      return false;
+  }
+};
 
 /**
  * Convert block statement
@@ -51,6 +84,34 @@ export const convertBlockStatement = (
         s.declarationList.declarations,
         varDecl
       );
+    }
+
+    if (ts.isIfStatement(s) && converted !== null && !Array.isArray(converted)) {
+      const singleStatement = converted as IrStatement;
+      const ifStatement =
+        singleStatement.kind === "ifStatement" ? singleStatement : undefined;
+      if (!ifStatement) {
+        continue;
+      }
+      const thenTerminates = statementAlwaysTerminates(ifStatement.thenStatement);
+      const elseTerminates = ifStatement.elseStatement
+        ? statementAlwaysTerminates(ifStatement.elseStatement)
+        : false;
+
+      if (thenTerminates && !elseTerminates) {
+        currentCtx = withAppliedNarrowings(
+          currentCtx,
+          collectTypeNarrowingsInFalsyExpr(s.expression, currentCtx)
+        );
+        continue;
+      }
+
+      if (elseTerminates && !thenTerminates) {
+        currentCtx = withAppliedNarrowings(
+          currentCtx,
+          collectTypeNarrowingsInTruthyExpr(s.expression, currentCtx)
+        );
+      }
     }
   }
 

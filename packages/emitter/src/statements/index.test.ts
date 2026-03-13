@@ -6,7 +6,8 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../emitter.js";
-import { IrModule } from "@tsonic/frontend";
+import { IrModule, type IrType } from "@tsonic/frontend";
+import type { TypeMemberKind } from "../types.js";
 
 describe("Statement Emission", () => {
   it("should drop method-group-only void statements without emitting discard assignments", () => {
@@ -634,6 +635,971 @@ describe("Statement Emission", () => {
     expect(result).to.include('return "positive"');
     expect(result).to.include("else");
     expect(result).to.include('return "negative or zero"');
+  });
+
+  it("narrows discriminated unions on truthy/falsy property guards", () => {
+    const okType: IrType = { kind: "referenceType", name: "Ok" };
+    const errType: IrType = { kind: "referenceType", name: "Err" };
+    const unionReference: IrType = {
+      kind: "referenceType",
+      name: "Union_2",
+      resolvedClrType: "global::Tsonic.Runtime.Union_2",
+      typeArguments: [okType, errType],
+    };
+    const unionWrapper: IrType = {
+      kind: "intersectionType",
+      types: [unionReference, { kind: "referenceType", name: "__Union$views" }],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "Ok",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "success",
+              type: { kind: "literalType", value: true },
+              isOptional: false,
+              isReadonly: false,
+            },
+            {
+              kind: "propertySignature",
+              name: "data",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Err",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "success",
+              type: { kind: "literalType", value: false },
+              isOptional: false,
+              isReadonly: false,
+            },
+            {
+              kind: "propertySignature",
+              name: "error",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "readResult",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "result" },
+              type: unionWrapper,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "unary",
+                  operator: "!",
+                  expression: {
+                    kind: "memberAccess",
+                    object: {
+                      kind: "identifier",
+                      name: "result",
+                      inferredType: unionWrapper,
+                    },
+                    property: "success",
+                    isComputed: false,
+                    isOptional: false,
+                    inferredType: { kind: "literalType", value: true },
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: {
+                        kind: "memberAccess",
+                        object: {
+                          kind: "identifier",
+                          name: "result",
+                          inferredType: errType,
+                        },
+                        property: "error",
+                        isComputed: false,
+                        isOptional: false,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "memberAccess",
+                  object: {
+                    kind: "identifier",
+                    name: "result",
+                    inferredType: okType,
+                  },
+                  property: "data",
+                  isComputed: false,
+                  isOptional: false,
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("if (result.Is2())");
+    expect(result).to.include("return result__2_1.error;");
+    expect(result).to.include("return (result.As1()).data;");
+  });
+
+  it("narrows `in`-guards for cross-module union members via the type member index", () => {
+    const typeMemberIndex = new Map<string, Map<string, TypeMemberKind>>([
+      ["MyApp.Models.OkEvents", new Map<string, TypeMemberKind>([["events", "property"]])],
+      ["MyApp.Models.ErrEvents", new Map<string, TypeMemberKind>([["error", "property"]])],
+    ]);
+
+    const unionReference: IrType = {
+      kind: "referenceType",
+      name: "Union_2",
+      resolvedClrType: "global::Tsonic.Runtime.Union_2",
+      typeArguments: [
+        { kind: "referenceType", name: "MyApp.Models.OkEvents" },
+        { kind: "referenceType", name: "MyApp.Models.ErrEvents" },
+      ],
+    };
+    const unionWrapper: IrType = {
+      kind: "intersectionType",
+      types: [unionReference, { kind: "referenceType", name: "__Union$views" }],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "handle",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "result" },
+              type: unionWrapper,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "in",
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                  left: { kind: "literal", value: "error" },
+                  right: {
+                    kind: "identifier",
+                    name: "result",
+                    inferredType: unionWrapper,
+                  },
+                },
+                thenStatement: { kind: "blockStatement", statements: [] },
+                elseStatement: undefined,
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { typeMemberIndex });
+
+    expect(result).to.include("if (result.Is2())");
+  });
+
+  it("preserves renamed union narrowing through nullish property comparisons", () => {
+    const okType: IrType = { kind: "referenceType", name: "OkEvents" };
+    const errType: IrType = { kind: "referenceType", name: "ErrEvents" };
+    const unionReference: IrType = {
+      kind: "referenceType",
+      name: "Union_2",
+      resolvedClrType: "global::Tsonic.Runtime.Union_2",
+      typeArguments: [okType, errType],
+    };
+    const unionWrapper: IrType = {
+      kind: "intersectionType",
+      types: [unionReference, { kind: "referenceType", name: "__Union$views" }],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "OkEvents",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "events",
+              type: {
+                kind: "arrayType",
+                elementType: { kind: "primitiveType", name: "string" },
+              },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "ErrEvents",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "error",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isReadonly: false,
+            },
+            {
+              kind: "propertySignature",
+              name: "code",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: true,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "readEvents",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "result" },
+              type: unionWrapper,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "in",
+                  left: { kind: "literal", value: "error" },
+                  right: {
+                    kind: "identifier",
+                    name: "result",
+                    inferredType: unionWrapper,
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: {
+                        kind: "conditional",
+                        condition: {
+                          kind: "binary",
+                          operator: "===",
+                          left: {
+                            kind: "memberAccess",
+                            object: {
+                              kind: "identifier",
+                              name: "result",
+                              inferredType: errType,
+                            },
+                            property: "code",
+                            isComputed: false,
+                            isOptional: false,
+                            inferredType: {
+                              kind: "unionType",
+                              types: [
+                                { kind: "primitiveType", name: "string" },
+                                { kind: "primitiveType", name: "undefined" },
+                              ],
+                            },
+                          },
+                          right: { kind: "identifier", name: "undefined" },
+                        },
+                        whenTrue: {
+                          kind: "memberAccess",
+                          object: {
+                            kind: "identifier",
+                            name: "result",
+                            inferredType: errType,
+                          },
+                          property: "error",
+                          isComputed: false,
+                          isOptional: false,
+                        },
+                        whenFalse: {
+                          kind: "binary",
+                          operator: "+",
+                          left: {
+                            kind: "binary",
+                            operator: "+",
+                            left: {
+                              kind: "memberAccess",
+                              object: {
+                                kind: "identifier",
+                                name: "result",
+                                inferredType: errType,
+                              },
+                              property: "code",
+                              isComputed: false,
+                              isOptional: false,
+                              inferredType: {
+                                kind: "unionType",
+                                types: [
+                                  { kind: "primitiveType", name: "string" },
+                                  { kind: "primitiveType", name: "undefined" },
+                                ],
+                              },
+                            },
+                            right: { kind: "literal", value: ":" },
+                          },
+                          right: {
+                            kind: "memberAccess",
+                            object: {
+                              kind: "identifier",
+                              name: "result",
+                              inferredType: errType,
+                            },
+                            property: "error",
+                            isComputed: false,
+                            isOptional: false,
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "returnStatement",
+                expression: { kind: "literal", value: "" },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("if (result.Is2())");
+    expect(result).to.include(
+      'return result__2_1.code == null ? result__2_1.error : result__2_1.code + ":" + result__2_1.error;'
+    );
+    expect(result).to.not.include("return result.code == null");
+  });
+
+  it("handles `in` guards after earlier narrowing collapses a union to one member", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__0",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "a",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__1",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "b",
+              type: { kind: "primitiveType", name: "number" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__2",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "c",
+              type: { kind: "primitiveType", name: "boolean" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "typeAliasDeclaration",
+          name: "Shape",
+          typeParameters: [],
+          type: {
+            kind: "unionType",
+            types: [
+              { kind: "referenceType", name: "Shape__0" },
+              { kind: "referenceType", name: "Shape__1" },
+              { kind: "referenceType", name: "Shape__2" },
+            ],
+          },
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "fmt",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "s" },
+              type: { kind: "referenceType", name: "Shape" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "in",
+                  left: { kind: "literal", value: "a", raw: "\"a\"" },
+                  right: {
+                    kind: "identifier",
+                    name: "s",
+                    inferredType: { kind: "referenceType", name: "Shape" },
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "A" },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "in",
+                  left: { kind: "literal", value: "b", raw: "\"b\"" },
+                  right: {
+                    kind: "identifier",
+                    name: "s",
+                    inferredType: {
+                      kind: "unionType",
+                      types: [
+                        { kind: "referenceType", name: "Shape__1" },
+                        { kind: "referenceType", name: "Shape__2" },
+                      ],
+                    },
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "B" },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "in",
+                  left: { kind: "literal", value: "c", raw: "\"c\"" },
+                  right: {
+                    kind: "identifier",
+                    name: "s",
+                    inferredType: { kind: "referenceType", name: "Shape__2" },
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "C" },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "returnStatement",
+                expression: { kind: "literal", value: "unreachable" },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("if (s.Is1())");
+    expect(result).to.include("if (s.Is2())");
+    expect(result).to.include("if (true)");
+  });
+
+  it("maps discriminant guards to original runtime union members after earlier narrowing", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__0",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "kind",
+              type: { kind: "literalType", value: "a" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__1",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "kind",
+              type: { kind: "literalType", value: "b" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__2",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "kind",
+              type: { kind: "literalType", value: "c" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "typeAliasDeclaration",
+          name: "Shape",
+          typeParameters: [],
+          type: {
+            kind: "unionType",
+            types: [
+              { kind: "referenceType", name: "Shape__0" },
+              { kind: "referenceType", name: "Shape__1" },
+              { kind: "referenceType", name: "Shape__2" },
+            ],
+          },
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "fmt",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "s" },
+              type: { kind: "referenceType", name: "Shape" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "===",
+                  left: {
+                    kind: "memberAccess",
+                    object: {
+                      kind: "identifier",
+                      name: "s",
+                      inferredType: { kind: "referenceType", name: "Shape" },
+                    },
+                    property: "kind",
+                    isComputed: false,
+                    isOptional: false,
+                  },
+                  right: { kind: "literal", value: "a", raw: "\"a\"" },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "A" },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "===",
+                  left: {
+                    kind: "memberAccess",
+                    object: {
+                      kind: "identifier",
+                      name: "s",
+                      inferredType: {
+                        kind: "unionType",
+                        types: [
+                          { kind: "referenceType", name: "Shape__1" },
+                          { kind: "referenceType", name: "Shape__2" },
+                        ],
+                      },
+                    },
+                    property: "kind",
+                    isComputed: false,
+                    isOptional: false,
+                  },
+                  right: { kind: "literal", value: "b", raw: "\"b\"" },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "B" },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "===",
+                  left: {
+                    kind: "memberAccess",
+                    object: {
+                      kind: "identifier",
+                      name: "s",
+                      inferredType: { kind: "referenceType", name: "Shape__2" },
+                    },
+                    property: "kind",
+                    isComputed: false,
+                    isOptional: false,
+                  },
+                  right: { kind: "literal", value: "c", raw: "\"c\"" },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "C" },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("if (s.Is1())");
+    expect(result).to.include("if (s.Is2())");
+    expect(result).to.include('if ((s.As3()).kind == "c")');
+  });
+
+  it("maps predicate guards to original runtime union members after earlier narrowing", () => {
+    const shape0: IrType = { kind: "referenceType", name: "Shape__0" };
+    const shape1: IrType = { kind: "referenceType", name: "Shape__1" };
+    const shape2: IrType = { kind: "referenceType", name: "Shape__2" };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__0",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__1",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__2",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "typeAliasDeclaration",
+          name: "Shape",
+          typeParameters: [],
+          type: {
+            kind: "unionType",
+            types: [shape0, shape1, shape2],
+          },
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "fmt",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "s" },
+              type: { kind: "referenceType", name: "Shape" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "isA" },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "s",
+                      inferredType: { kind: "referenceType", name: "Shape" },
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                  narrowing: {
+                    kind: "typePredicate",
+                    argIndex: 0,
+                    targetType: shape0,
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "A" },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "isB" },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "s",
+                      inferredType: {
+                        kind: "unionType",
+                        types: [shape1, shape2],
+                      },
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                  narrowing: {
+                    kind: "typePredicate",
+                    argIndex: 0,
+                    targetType: shape1,
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "B" },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("if (s.Is1())");
+    expect(result).to.include("if (s.Is2())");
   });
 
   it("should emit canonical for loops with int counter and no cast", () => {

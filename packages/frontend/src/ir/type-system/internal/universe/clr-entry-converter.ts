@@ -646,6 +646,23 @@ export const parsePropertyType = (normalizedSig: string): IrType => {
   return { kind: "unknownType" };
 };
 
+const addUndefinedToSemanticType = (type: IrType): IrType => {
+  if (
+    type.kind === "unionType" &&
+    type.types.some(
+      (candidate) =>
+        candidate.kind === "primitiveType" && candidate.name === "undefined"
+    )
+  ) {
+    return type;
+  }
+
+  return {
+    kind: "unionType",
+    types: [type, { kind: "primitiveType", name: "undefined" }],
+  };
+};
+
 /**
  * Parse type from normalized signature for fields.
  *
@@ -670,6 +687,32 @@ export const parseMethodSignature = (
   normalizedSig: string,
   method: RawBindingsMethod
 ): MethodSignatureEntry => {
+  if (method.semanticSignature) {
+    return {
+      stableId: method.stableId,
+      parameters: method.semanticSignature.parameters.map((parameter, index) => ({
+        name:
+          parameter.pattern.kind === "identifierPattern"
+            ? parameter.pattern.name
+            : `p${index}`,
+        type: parameter.type ?? { kind: "unknownType" },
+        mode: parameter.passing,
+        isOptional: parameter.isOptional,
+        isRest: parameter.isRest,
+      })),
+      returnType: method.semanticSignature.returnType ?? {
+        kind: "voidType" as const,
+      },
+      typeParameters:
+        method.semanticSignature.typeParameters?.map((name) => ({ name })) ?? [],
+      parameterCount: method.parameterCount,
+      isStatic: method.isStatic,
+      isExtensionMethod: method.isExtensionMethod,
+      sourceInterface: method.sourceInterface,
+      normalizedSignature: normalizedSig,
+    };
+  }
+
   // Parse return type
   const returnMatch = normalizedSig.match(/\):([^|]+)\|/);
   const returnType =
@@ -774,7 +817,12 @@ export const convertRawType = (
       tsName: propTsName,
       clrName: prop.clrName,
       memberKind: "property" as MemberKind,
-      type: parsePropertyType(prop.normalizedSignature),
+      type:
+        prop.semanticType !== undefined
+          ? prop.semanticOptional === true
+            ? addUndefinedToSemanticType(prop.semanticType)
+            : prop.semanticType
+          : parsePropertyType(prop.normalizedSignature),
       isStatic: prop.isStatic,
       isReadonly: !prop.hasSetter,
       isAbstract: prop.isAbstract,
@@ -795,7 +843,12 @@ export const convertRawType = (
       tsName: fieldTsName,
       clrName: field.clrName,
       memberKind: "field" as MemberKind,
-      type: parseFieldType(field.normalizedSignature),
+      type:
+        field.semanticType !== undefined
+          ? field.semanticOptional === true
+            ? addUndefinedToSemanticType(field.semanticType)
+            : field.semanticType
+          : parseFieldType(field.normalizedSignature),
       isStatic: field.isStatic,
       isReadonly: field.isReadOnly || field.isLiteral,
       isAbstract: false,
