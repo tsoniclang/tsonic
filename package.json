@@ -58,11 +58,11 @@
   "author": "Tsonic Project",
   "license": "MIT",
   "dependencies": {
-    "@tsonic/cli": "0.0.47",
-    "@tsonic/core": "10.0.16",
-    "@tsonic/dotnet": "10.0.16",
-    "@tsonic/globals": "10.0.16",
-    "@tsonic/js": "10.0.16",
-    "@tsonic/nodejs": "10.0.16"
+    "@tsonic/cli": "0.0.74",
+    "@tsonic/core": "10.0.40",
+    "@tsonic/dotnet": "10.0.40",
+    "@tsonic/globals": "10.0.41",
+    "@tsonic/js": "10.0.48",
+    "@tsonic/nodejs": "10.0.48"
   }
 }

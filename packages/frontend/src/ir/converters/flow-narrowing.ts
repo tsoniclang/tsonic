@@ -42,6 +42,48 @@ const getStringLiteralText = (expr: ts.Expression): string | undefined => {
   return undefined;
 };
 
+const isArrayNamespaceExpression = (expr: ts.Expression): boolean => {
+  const unwrapped = unwrapExpr(expr);
+  if (ts.isIdentifier(unwrapped)) {
+    return unwrapped.text === "Array";
+  }
+
+  if (ts.isPropertyAccessExpression(unwrapped)) {
+    return (
+      ts.isIdentifier(unwrapped.expression) &&
+      unwrapped.expression.text === "globalThis" &&
+      unwrapped.name.text === "Array"
+    );
+  }
+
+  return false;
+};
+
+const extractArrayIsArrayDecl = (
+  expr: ts.Expression,
+  ctx: ProgramContext
+): BoundDecl | undefined => {
+  const unwrapped = unwrapExpr(expr);
+  if (!ts.isCallExpression(unwrapped) || unwrapped.arguments.length !== 1) {
+    return undefined;
+  }
+
+  const callee = unwrapExpr(unwrapped.expression);
+  if (
+    !ts.isPropertyAccessExpression(callee) ||
+    callee.name.text !== "isArray" ||
+    !isArrayNamespaceExpression(callee.expression)
+  ) {
+    return undefined;
+  }
+
+  const [rawValue] = unwrapped.arguments;
+  if (!rawValue) return undefined;
+  const value = unwrapExpr(rawValue);
+  if (!ts.isIdentifier(value)) return undefined;
+  return ctx.binding.resolveIdentifier(value);
+};
+
 const extractIdentifierPropertyAccess = (
   value: ts.Expression,
   ctx: ProgramContext
@@ -252,6 +294,35 @@ const tryResolveTruthyNarrowing = (
     return { kind: "unionType", types: kept };
   };
 
+  const isArrayLikeCandidate = (type: IrType): boolean =>
+    type.kind === "arrayType" || type.kind === "tupleType";
+
+  const narrowTypeByArrayShape = (
+    currentType: IrType,
+    wantArray: boolean
+  ): IrType | undefined => {
+    const expanded = ctx.typeSystem.collectNarrowingCandidates(currentType);
+    const candidates = expanded.length > 0 ? expanded : [currentType];
+    const kept = candidates.filter((member): member is IrType => {
+      if (!member) return false;
+      return wantArray
+        ? isArrayLikeCandidate(member)
+        : !isArrayLikeCandidate(member);
+    });
+
+    if (kept.length === 0) return undefined;
+    if (kept.length === 1) return kept[0];
+    return { kind: "unionType", types: kept };
+  };
+
+  const arrayDecl = extractArrayIsArrayDecl(unwrapped, ctx);
+  if (arrayDecl) {
+    const targetType = narrowTypeByArrayShape(getCurrentType(arrayDecl), true);
+    if (targetType) {
+      return { declId: arrayDecl.id, targetType };
+    }
+  }
+
   const propertyAccess = extractIdentifierPropertyAccess(unwrapped, ctx);
   if (propertyAccess) {
     const currentType = getCurrentType(propertyAccess.declId);
@@ -420,14 +491,6 @@ const tryResolveFalsyNarrowing = (
 ): TypeNarrowing | undefined => {
   const unwrapped = unwrapExpr(expr);
 
-  if (
-    ts.isPrefixUnaryExpression(unwrapped) &&
-    unwrapped.operator === ts.SyntaxKind.ExclamationToken
-  ) {
-    const truthy = collectTypeNarrowingsInTruthyExpr(unwrapped.operand, ctx);
-    return truthy[0];
-  }
-
   const getCurrentType = (declId: BoundDecl): IrType =>
     ctx.typeEnv?.get(declId.id) ?? ctx.typeSystem.typeOfDecl(declId);
 
@@ -515,6 +578,35 @@ const tryResolveFalsyNarrowing = (
     return { kind: "unionType", types: kept };
   };
 
+  const isArrayLikeCandidate = (type: IrType): boolean =>
+    type.kind === "arrayType" || type.kind === "tupleType";
+
+  const narrowTypeByArrayShape = (
+    currentType: IrType,
+    wantArray: boolean
+  ): IrType | undefined => {
+    const expanded = ctx.typeSystem.collectNarrowingCandidates(currentType);
+    const candidates = expanded.length > 0 ? expanded : [currentType];
+    const kept = candidates.filter((member): member is IrType => {
+      if (!member) return false;
+      return wantArray
+        ? isArrayLikeCandidate(member)
+        : !isArrayLikeCandidate(member);
+    });
+
+    if (kept.length === 0) return undefined;
+    if (kept.length === 1) return kept[0];
+    return { kind: "unionType", types: kept };
+  };
+
+  const arrayDecl = extractArrayIsArrayDecl(unwrapped, ctx);
+  if (arrayDecl) {
+    const targetType = narrowTypeByArrayShape(getCurrentType(arrayDecl), false);
+    if (targetType) {
+      return { declId: arrayDecl.id, targetType };
+    }
+  }
+
   const propertyAccess = extractIdentifierPropertyAccess(unwrapped, ctx);
   if (propertyAccess) {
     const currentType = getCurrentType(propertyAccess.declId);
@@ -557,6 +649,13 @@ export const collectTypeNarrowingsInFalsyExpr = (
   ctx: ProgramContext
 ): readonly TypeNarrowing[] => {
   const unwrapped = unwrapExpr(expr);
+
+  if (
+    ts.isPrefixUnaryExpression(unwrapped) &&
+    unwrapped.operator === ts.SyntaxKind.ExclamationToken
+  ) {
+    return collectTypeNarrowingsInTruthyExpr(unwrapped.operand, ctx);
+  }
 
   const direct = tryResolveFalsyNarrowing(unwrapped, ctx);
   if (direct) return [direct];

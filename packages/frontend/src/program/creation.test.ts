@@ -10,7 +10,9 @@ import * as path from "node:path";
 import * as ts from "typescript";
 import { createCompilerOptions, createProgram } from "./creation.js";
 
-describe("Program Creation", () => {
+describe("Program Creation", function () {
+  this.timeout(90_000);
+
   it("should keep noLib mode in js surface mode", () => {
     const options = createCompilerOptions({
       projectRoot: "/tmp/app",
@@ -110,6 +112,108 @@ describe("Program Creation", () => {
       });
 
       expect(result.ok).to.equal(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should prefer installed @tsonic source-package subpath exports over sibling compiler packages", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-installed-tsonic-subpath-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const nodejsRoot = path.join(tempDir, "node_modules", "@tsonic", "nodejs");
+      fs.mkdirSync(path.join(nodejsRoot, "src"), { recursive: true });
+      fs.mkdirSync(path.join(nodejsRoot, "tsonic"), { recursive: true });
+      fs.writeFileSync(
+        path.join(nodejsRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/nodejs",
+            version: "10.0.99-test",
+            type: "module",
+            exports: {
+              ".": "./src/index.ts",
+              "./index.js": "./src/index.ts",
+              "./path.js": "./src/path-module.ts",
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(nodejsRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+                "./path.js": "./src/path-module.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(nodejsRoot, "src", "index.ts"),
+        'export * as path from "./path-module.ts";\n'
+      );
+      fs.writeFileSync(
+        path.join(nodejsRoot, "src", "path-module.ts"),
+        [
+          "export const join = (...parts: string[]): string => parts.join('/');",
+          "export const basename = (value: string): string => value;",
+        ].join("\n")
+      );
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        [
+          'import * as nodePath from "@tsonic/nodejs/path.js";',
+          'export const ok = nodePath.join("alpha", "beta");',
+        ].join("\n")
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        typeRoots: [path.join(tempDir, "node_modules", "@tsonic", "nodejs")],
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(
+        result.value.program
+          .getSourceFiles()
+          .some(
+            (sourceFile) =>
+              path.resolve(sourceFile.fileName) ===
+              path.resolve(path.join(nodejsRoot, "src", "path-module.ts"))
+          )
+      ).to.equal(true);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

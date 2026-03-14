@@ -188,5 +188,109 @@ describe("Module Map", () => {
       const identity = result.value.get("src/runtime");
       expect(identity?.hasRuntimeContainer).to.equal(true);
     });
+
+    it("tracks named export aliases back to local module values", () => {
+      const module = {
+        ...makeModule("src/path.ts", [
+          {
+            kind: "variableDeclaration",
+            declarations: [
+              {
+                name: { kind: "identifierPattern", name: "pathObject" },
+                initializer: {
+                  kind: "object",
+                  properties: [],
+                  inferredType: { kind: "objectType", members: [] },
+                },
+              },
+            ],
+          },
+        ]),
+        exports: [
+          {
+            kind: "named" as const,
+            name: "path",
+            localName: "pathObject",
+          },
+        ],
+      } satisfies IrModule;
+
+      const result = buildModuleMap([module]);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.exportMap.get("src/path:path")).to.deep.equal({
+        sourceFile: "src/path",
+        sourceName: "pathObject",
+      });
+    });
+
+    it("tracks named exports of imported local values to the original source module", () => {
+      const source = {
+        ...makeModule("src/path.ts", [
+          {
+            kind: "functionDeclaration",
+            name: "basename",
+            parameters: [],
+            returnType: { kind: "primitiveType", name: "string" },
+            body: { kind: "blockStatement", statements: [] },
+            isAsync: false,
+            isGenerator: false,
+            isExported: true,
+          },
+        ]),
+        exports: [
+          {
+            kind: "declaration" as const,
+            declaration: {
+              kind: "functionDeclaration",
+              name: "basename",
+              parameters: [],
+              returnType: { kind: "primitiveType", name: "string" },
+              body: { kind: "blockStatement", statements: [] },
+              isAsync: false,
+              isGenerator: false,
+              isExported: true,
+            },
+          },
+        ],
+      } satisfies IrModule;
+
+      const barrel = {
+        ...makeModule("src/index.ts", []),
+        imports: [
+          {
+            kind: "import" as const,
+            source: "./path.js",
+            isLocal: true,
+            isClr: false,
+            resolvedPath: "src/path.ts",
+            specifiers: [
+              {
+                kind: "named" as const,
+                name: "basename",
+                localName: "basenameImpl",
+              },
+            ],
+          },
+        ],
+        exports: [
+          {
+            kind: "named" as const,
+            name: "basename",
+            localName: "basenameImpl",
+          },
+        ],
+      } satisfies IrModule;
+
+      const result = buildModuleMap([source, barrel]);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.exportMap.get("src/index:basename")).to.deep.equal({
+        sourceFile: "src/path",
+        sourceName: "basename",
+      });
+    });
   });
 });

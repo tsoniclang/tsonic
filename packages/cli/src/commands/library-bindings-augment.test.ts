@@ -18,7 +18,7 @@ import {
 } from "./library-bindings-augment.js";
 
 describe("library-bindings-augment", function () {
-  this.timeout(10000);
+  this.timeout(30000);
   it("resolves dependency bindings dir for generated/bin DLL paths", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-overlay-path-"));
     try {

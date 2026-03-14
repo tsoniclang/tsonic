@@ -22,6 +22,7 @@ import {
 import type { ProgramContext } from "../../../program-context.js";
 import {
   collectTypeNarrowingsInTruthyExpr,
+  collectTypeNarrowingsInFalsyExpr,
   withAppliedNarrowings,
 } from "../../flow-narrowing.js";
 import { withVariableTypeEnv } from "../../type-env.js";
@@ -44,25 +45,10 @@ export const convertIfStatement = (
 
   const elseCtx = (() => {
     if (!node.elseStatement) return ctx;
-
-    let unwrapped: ts.Expression = node.expression;
-    while (ts.isParenthesizedExpression(unwrapped)) {
-      unwrapped = unwrapped.expression;
-    }
-
-    // Else branch runs when the inner condition is truthy.
-    // This supports idiomatic `if (!(x instanceof T)) { ... } else { x.tMember }`.
-    if (
-      ts.isPrefixUnaryExpression(unwrapped) &&
-      unwrapped.operator === ts.SyntaxKind.ExclamationToken
-    ) {
-      return withAppliedNarrowings(
-        ctx,
-        collectTypeNarrowingsInTruthyExpr(unwrapped.operand, ctx)
-      );
-    }
-
-    return ctx;
+    return withAppliedNarrowings(
+      ctx,
+      collectTypeNarrowingsInFalsyExpr(node.expression, ctx)
+    );
   })();
 
   const thenStmt = convertStatementSingle(

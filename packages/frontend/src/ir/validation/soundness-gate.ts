@@ -853,6 +853,9 @@ const extractImportedTypeNames = (module: IrModule): ReadonlySet<string> => {
       // Named imports use localName (the name in this module's scope)
       if (spec.kind === "named" || spec.kind === "default") {
         addImportedNameVariants(spec.localName);
+        if (spec.kind === "named") {
+          addImportedNameVariants(spec.name);
+        }
       }
       // Namespace imports (import * as NS) - the namespace itself is available
       if (spec.kind === "namespace") {

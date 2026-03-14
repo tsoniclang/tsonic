@@ -26,6 +26,7 @@ import {
   createDiagnostic,
   createDiagnosticsCollector,
 } from "../types/diagnostic.js";
+import { resolveDependencyPackageRoot } from "./package-roots.js";
 
 const CORE_GLOBALS_DECLARATIONS = `
 declare global {
@@ -590,7 +591,9 @@ export const createProgram = (
     return undefined;
   };
 
-  const resolveTsonicPackageRoot = (pkgDirName: string): string | undefined => {
+  const resolveCompilerOwnedTsonicPackageRoot = (
+    pkgDirName: string
+  ): string | undefined => {
     const siblingRoot = resolveSiblingTsonicPackageRoot(pkgDirName);
     if (siblingRoot) return siblingRoot;
 
@@ -620,19 +623,28 @@ export const createProgram = (
       ? typeRoot
       : path.resolve(options.projectRoot, typeRoot);
 
-    // For @tsonic/* type roots, prefer compiler-owned package roots (sibling
-    // checkout or compiler installation) so the active compiler and language
-    // surfaces stay coherent during development and test runs.
+    // Prefer the project's installed package graph when the requested type root
+    // already exists there. This keeps source-package imports and type roots on
+    // one coherent package graph during selftests / local npm-packed validation.
     //
-    // If no compiler-owned package is available, fall back to the project's
-    // resolved node_modules path.
+    // Fall back to compiler-owned packages only when the project does not have
+    // the package installed at the requested path.
     const match = typeRoot.match(
       /(?:^|[/\\\\])node_modules[/\\\\]@tsonic[/\\\\]([^/\\\\]+)[/\\\\]?$/
     );
     if (match) {
       const pkgDirName = match[1];
       if (pkgDirName) {
-        const compilerOwned = resolveTsonicPackageRoot(pkgDirName);
+        if (fs.existsSync(absoluteRoot)) return absoluteRoot;
+
+        const projectOwned = resolveDependencyPackageRoot(
+          options.projectRoot,
+          `@tsonic/${pkgDirName}`,
+          "installed-first"
+        );
+        if (projectOwned) return projectOwned;
+
+        const compilerOwned = resolveCompilerOwnedTsonicPackageRoot(pkgDirName);
         if (compilerOwned) return compilerOwned;
       }
     }
@@ -858,11 +870,53 @@ export const createProgram = (
         }
 
         // 2) In local monorepo / compiler-install development, prefer the
-        // compiler-owned sibling package graph before consulting the project's
-        // installed copy. This keeps direct source imports coherent with surface
-        // declarations that already came from sibling roots.
+        // project's installed source-package graph before consulting compiler-
+        // owned fallback packages. This keeps direct imports coherent with the
+        // package graph the current project actually installed and packed.
+        const projectResolveFile = path.join(
+          options.projectRoot,
+          "__tsonic_resolver__.ts"
+        );
+        const projectSourcePackage = resolveSourcePackageImport(
+          moduleName,
+          projectResolveFile,
+          options.surface,
+          options.projectRoot
+        );
+        if (projectSourcePackage.ok && projectSourcePackage.value) {
+          return {
+            resolvedFileName: projectSourcePackage.value.resolvedPath,
+            extension: projectSourcePackage.value.resolvedPath.endsWith(".mts")
+              ? ts.Extension.Mts
+              : projectSourcePackage.value.resolvedPath.endsWith(".cts")
+                ? ts.Extension.Cts
+                : ts.Extension.Ts,
+            isExternalLibraryImport: false,
+          };
+        }
+
+        // 3) Prefer the project's installed dependency graph before consulting
+        // compiler-owned sibling packages. This keeps direct source imports
+        // coherent with surface declarations that already came from installed
+        // package roots.
         if (request) {
-          const compilerOwnedRoot = resolveTsonicPackageRoot(
+          const projectOwnedRoot = resolveDependencyPackageRoot(
+            options.projectRoot,
+            request.packageName,
+            "installed-first"
+          );
+          if (projectOwnedRoot) {
+            const resolved = resolveModuleFromPackageRoot(
+              projectOwnedRoot,
+              request.subpath
+            );
+            if (resolved) return resolved;
+          }
+        }
+
+        // 4) Fall back to compiler-owned sibling / compiler-install packages.
+        if (request) {
+          const compilerOwnedRoot = resolveCompilerOwnedTsonicPackageRoot(
             request.pkgDirName
           );
           if (compilerOwnedRoot) {
@@ -874,15 +928,10 @@ export const createProgram = (
           }
         }
 
-        // 3) Fall back to the project's installed dependency graph when no
-        // authoritative / compiler-owned root is available.
+        // 5) Final project-installed resolution through TypeScript itself.
         // Note: containingFile can be a declaration file coming from a sibling
         // checkout during development; resolving relative to that path would skip
         // the project's node_modules entirely.
-        const projectResolveFile = path.join(
-          options.projectRoot,
-          "__tsonic_resolver__.ts"
-        );
         const projectResult = ts.resolveModuleName(
           moduleName,
           projectResolveFile,
@@ -891,7 +940,7 @@ export const createProgram = (
         );
         if (projectResult.resolvedModule) return projectResult.resolvedModule;
 
-        // Final resolution fallback through the compiler's own module graph.
+        // 6) Final resolution fallback through the compiler's own module graph.
         const result = ts.resolveModuleName(
           moduleName,
           compilerContainingFile,
