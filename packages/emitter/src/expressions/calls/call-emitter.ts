@@ -125,9 +125,6 @@ const captureAssignableArrayTarget = (
   const [receiverAst, receiverContext] = emitExpressionAst(expr, context);
 
   if (receiverAst.kind === "identifierExpression") {
-    const indexArgument = receiverAst.arguments[0];
-    if (!indexArgument) return undefined;
-
     return {
       readExpression: receiverAst,
       writeExpression: receiverAst,
@@ -1032,12 +1029,13 @@ const emitFlattenedRestArguments = (
   const firstSegment = segments[0];
   if (!firstSegment) {
     return [
-      {
-        kind: "arrayCreationExpression",
-        type: elementTypeAst,
-        size: { kind: "numericLiteralExpression", value: "0" },
-        initializer: [],
-      },
+      [
+        {
+          kind: "arrayCreationExpression",
+          elementType: elementTypeAst,
+          initializer: [],
+        },
+      ],
       currentContext,
     ];
   }
