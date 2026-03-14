@@ -43,6 +43,114 @@ import {
 } from "./type-system-state.js";
 import { typesEqual } from "./type-system-relations.js";
 
+const POLYMORPHIC_THIS_MARKER = "__tsonic_polymorphic_this";
+
+const substitutePolymorphicThis = (
+  type: IrType | undefined,
+  receiverType: IrType | undefined
+): IrType | undefined => {
+  if (!type || !receiverType) return type;
+
+  switch (type.kind) {
+    case "typeParameterType":
+      return type.name === POLYMORPHIC_THIS_MARKER ? receiverType : type;
+    case "arrayType": {
+      const elementType = substitutePolymorphicThis(
+        type.elementType,
+        receiverType
+      );
+      if (!elementType) return type;
+      return {
+        ...type,
+        elementType,
+      };
+    }
+    case "tupleType":
+      return {
+        ...type,
+        elementTypes: type.elementTypes.map(
+          (element) =>
+            substitutePolymorphicThis(element, receiverType) ?? element
+        ),
+      };
+    case "dictionaryType":
+      return {
+        ...type,
+        keyType:
+          substitutePolymorphicThis(type.keyType, receiverType) ?? type.keyType,
+        valueType:
+          substitutePolymorphicThis(type.valueType, receiverType) ??
+          type.valueType,
+      };
+    case "referenceType":
+      return {
+        ...type,
+        ...(type.typeArguments
+          ? {
+              typeArguments: type.typeArguments.map(
+                (arg) => substitutePolymorphicThis(arg, receiverType) ?? arg
+              ),
+            }
+          : {}),
+        ...(type.structuralMembers
+          ? {
+              structuralMembers: type.structuralMembers.map((member) =>
+                member.kind === "propertySignature"
+                  ? {
+                      ...member,
+                      type:
+                        substitutePolymorphicThis(
+                          member.type,
+                          receiverType
+                        ) ?? member.type,
+                    }
+                  : {
+                      ...member,
+                      parameters: member.parameters.map((parameter) => ({
+                        ...parameter,
+                        type:
+                          substitutePolymorphicThis(
+                            parameter.type,
+                            receiverType
+                          ) ?? parameter.type,
+                      })),
+                      returnType: member.returnType
+                        ? substitutePolymorphicThis(
+                            member.returnType,
+                            receiverType
+                          ) ?? member.returnType
+                        : undefined,
+                    }
+              ),
+            }
+          : {}),
+      };
+    case "unionType":
+    case "intersectionType":
+      return {
+        ...type,
+        types: type.types.map(
+          (member) => substitutePolymorphicThis(member, receiverType) ?? member
+        ),
+      };
+    case "functionType":
+      return {
+        ...type,
+        parameters: type.parameters.map((parameter) => ({
+          ...parameter,
+          type:
+            substitutePolymorphicThis(parameter.type, receiverType) ??
+            parameter.type,
+        })),
+        returnType:
+          substitutePolymorphicThis(type.returnType, receiverType) ??
+          type.returnType,
+      };
+    default:
+      return type;
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 // getRawSignature — Extract raw signature from HandleRegistry
 // ─────────────────────────────────────────────────────────────────────────
@@ -222,13 +330,24 @@ export const attachInterfaceMemberTypeIds = (
 export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
   switch (type.kind) {
     case "referenceType": {
+      const sourceFqName =
+        !type.resolvedClrType && !type.name.includes(".")
+          ? state.typeRegistry.getFQName(type.name)
+          : undefined;
       const typeId =
         type.typeId ??
         resolveTypeIdByName(
           state,
           type.resolvedClrType ?? type.name,
           type.typeArguments?.length
-        );
+        ) ??
+        (sourceFqName
+          ? resolveTypeIdByName(
+              state,
+              sourceFqName,
+              type.typeArguments?.length
+            )
+          : undefined);
 
       return {
         ...type,
@@ -1661,6 +1780,40 @@ export const resolveCall = (
                 ),
               };
       }
+    }
+  }
+
+  if (effectiveReceiverType) {
+    workingParams = workingParams.map((p) =>
+      p ? substitutePolymorphicThis(p, effectiveReceiverType) ?? p : undefined
+    );
+    if (workingThisParam) {
+      workingThisParam =
+        substitutePolymorphicThis(workingThisParam, effectiveReceiverType) ??
+        workingThisParam;
+    }
+    workingReturn =
+      substitutePolymorphicThis(workingReturn, effectiveReceiverType) ??
+      workingReturn;
+    if (workingPredicate) {
+      workingPredicate =
+        workingPredicate.kind === "param"
+          ? {
+              ...workingPredicate,
+              targetType:
+                substitutePolymorphicThis(
+                  workingPredicate.targetType,
+                  effectiveReceiverType
+                ) ?? workingPredicate.targetType,
+            }
+          : {
+              ...workingPredicate,
+              targetType:
+                substitutePolymorphicThis(
+                  workingPredicate.targetType,
+                  effectiveReceiverType
+                ) ?? workingPredicate.targetType,
+            };
     }
   }
 

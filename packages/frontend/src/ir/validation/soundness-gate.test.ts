@@ -612,6 +612,68 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.true;
     });
 
+    it("should allow imported aliased types when IR normalizes to the exported name", () => {
+      const module = createModuleWithType(
+        { kind: "referenceType", name: "Event" },
+        {
+          imports: [
+            {
+              kind: "import",
+              source: "./entities.ts",
+              specifiers: [
+                {
+                  kind: "named",
+                  name: "Event",
+                  localName: "EventEntity",
+                  isType: true,
+                },
+              ],
+              isLocal: true,
+              isClr: false,
+              resolvedPath: "/src/entities.ts",
+              resolvedNamespace: "Test.entities",
+              targetContainerName: "entities",
+            },
+          ],
+        }
+      );
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+    });
+
+    it("should allow imported aliased instance companion types when IR normalizes to the exported name", () => {
+      const module = createModuleWithType(
+        { kind: "referenceType", name: "Event$instance" },
+        {
+          imports: [
+            {
+              kind: "import",
+              source: "./entities.ts",
+              specifiers: [
+                {
+                  kind: "named",
+                  name: "Event",
+                  localName: "EventEntity",
+                  isType: true,
+                },
+              ],
+              isLocal: true,
+              isClr: false,
+              resolvedPath: "/src/entities.ts",
+              resolvedNamespace: "Test.entities",
+              targetContainerName: "entities",
+            },
+          ],
+        }
+      );
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+    });
+
     it("should reject unresolved external type", () => {
       const module = createModuleWithType({
         kind: "referenceType",

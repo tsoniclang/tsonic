@@ -441,6 +441,7 @@ export type TypeSystemConfig = {
    * These accept `unknown` to keep the TypeSystem public surface TS-free.
    */
   readonly resolveIdentifier: (node: unknown) => DeclId | undefined;
+  readonly resolveShorthandAssignment: (node: unknown) => DeclId | undefined;
   readonly resolveCallSignature: (node: unknown) => SignatureId | undefined;
   readonly resolveConstructorSignature: (
     node: unknown
@@ -475,6 +476,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     unifiedCatalog,
     aliasTable,
     resolveIdentifier,
+    resolveShorthandAssignment,
     resolveCallSignature,
     resolveConstructorSignature,
     checker,
@@ -534,6 +536,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     unifiedCatalog,
     aliasTable,
     resolveIdentifier,
+    resolveShorthandAssignment,
     resolveCallSignature,
     resolveConstructorSignature,
     checker,

@@ -17,6 +17,7 @@ import type {
   IrFunctionType,
   IrParameter,
   IrReferenceType,
+  IrInterfaceMember,
 } from "../types/index.js";
 import * as ts from "typescript";
 import {
@@ -46,6 +47,7 @@ import {
 } from "./type-system-state.js";
 import { typesEqual, containsTypeParameter } from "./type-system-relations.js";
 import {
+  attachTypeIds,
   convertTypeNode,
   resolveCall,
   delegateToFunctionType,
@@ -152,6 +154,217 @@ export const inferExpressionType = (
   expr: ts.Expression,
   env: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
+  const inferObjectLiteralType = (
+    objectExpr: ts.ObjectLiteralExpression
+  ): IrType | undefined => {
+    const getPropertyName = (name: ts.PropertyName): string | undefined => {
+      if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
+        return name.text;
+      }
+      if (ts.isNumericLiteral(name)) {
+        return name.text;
+      }
+      if (
+        ts.isComputedPropertyName(name) &&
+        (ts.isStringLiteral(name.expression) ||
+          ts.isNoSubstitutionTemplateLiteral(name.expression))
+      ) {
+        return name.expression.text;
+      }
+      return undefined;
+    };
+
+    const inferFunctionLikeType = (
+      functionLike:
+        | ts.ArrowFunction
+        | ts.FunctionExpression
+        | ts.MethodDeclaration
+        | ts.GetAccessorDeclaration
+    ): IrFunctionType | undefined => {
+      const parameters = "parameters" in functionLike
+        ? functionLike.parameters.map((p, index) => {
+            const name = ts.isIdentifier(p.name) ? p.name.text : `arg${index}`;
+            const paramType = p.type ? convertTypeNode(state, p.type) : undefined;
+            return {
+              kind: "parameter" as const,
+              pattern: {
+                kind: "identifierPattern" as const,
+                name,
+              },
+              type: paramType,
+              initializer: undefined,
+              isOptional: !!p.questionToken,
+              isRest: !!p.dotDotDotToken,
+              passing: "value" as const,
+            };
+          })
+        : [];
+
+      const localEnv = new Map(env);
+      for (const parameter of parameters) {
+        if (
+          parameter.pattern.kind === "identifierPattern" &&
+          parameter.type !== undefined
+        ) {
+          localEnv.set(parameter.pattern.name, parameter.type);
+        }
+      }
+
+      const explicitReturnType =
+        "type" in functionLike && functionLike.type
+          ? convertTypeNode(state, functionLike.type)
+          : undefined;
+      const inferredReturnType =
+        explicitReturnType ??
+        (() => {
+          if (ts.isMethodDeclaration(functionLike) || ts.isGetAccessor(functionLike)) {
+            if (!functionLike.body) return undefined;
+            const returns = functionLike.body.statements.filter(ts.isReturnStatement);
+            if (returns.length === 0) return { kind: "voidType" as const };
+            const firstExpr = returns[0]?.expression;
+            if (!firstExpr) return { kind: "voidType" as const };
+            const first = inferExpressionType(state, firstExpr, localEnv);
+            if (!first) return undefined;
+            for (let i = 1; i < returns.length; i++) {
+              const expr = returns[i]?.expression;
+              if (!expr) continue;
+              const current = inferExpressionType(state, expr, localEnv);
+              if (!current || !typesEqual(current, first)) return undefined;
+            }
+            return first;
+          }
+
+          if (ts.isBlock(functionLike.body)) {
+            const returns = functionLike.body.statements.filter(ts.isReturnStatement);
+            if (returns.length === 0) return { kind: "voidType" as const };
+            const firstExpr = returns[0]?.expression;
+            if (!firstExpr) return { kind: "voidType" as const };
+            const first = inferExpressionType(state, firstExpr, localEnv);
+            if (!first) return undefined;
+            for (let i = 1; i < returns.length; i++) {
+              const expr = returns[i]?.expression;
+              if (!expr) continue;
+              const current = inferExpressionType(state, expr, localEnv);
+              if (!current || !typesEqual(current, first)) return undefined;
+            }
+            return first;
+          }
+
+          return inferExpressionType(state, functionLike.body, localEnv);
+        })();
+
+      if (!inferredReturnType) return undefined;
+      return {
+        kind: "functionType",
+        parameters,
+        returnType: inferredReturnType,
+      };
+    };
+
+    const accessors = new Map<
+      string,
+      { getter?: ts.GetAccessorDeclaration; setter?: ts.SetAccessorDeclaration }
+    >();
+    const members: IrInterfaceMember[] = [];
+
+    for (const property of objectExpr.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        return undefined;
+      }
+
+      if (ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property)) {
+        const name = getPropertyName(property.name);
+        if (!name) return undefined;
+        const bucket = accessors.get(name) ?? {};
+        if (ts.isGetAccessorDeclaration(property)) {
+          bucket.getter = property;
+        } else {
+          bucket.setter = property;
+        }
+        accessors.set(name, bucket);
+        continue;
+      }
+
+      if (ts.isPropertyAssignment(property)) {
+        const name = getPropertyName(property.name);
+        if (!name) return undefined;
+        const propertyType = inferExpressionType(state, property.initializer, env);
+        if (!propertyType) return undefined;
+        members.push({
+          kind: "propertySignature",
+          name,
+          type: propertyType,
+          isOptional: false,
+          isReadonly: false,
+        });
+        continue;
+      }
+
+      if (ts.isShorthandPropertyAssignment(property)) {
+        const declId = state.resolveShorthandAssignment(property);
+        const propertyType =
+          declId !== undefined
+            ? (() => {
+                const fromEnv = env.get(property.name.text);
+                if (fromEnv && fromEnv.kind !== "unknownType") {
+                  return fromEnv;
+                }
+                const fromDecl = typeOfDecl(state, declId);
+                return fromDecl.kind === "unknownType" ? undefined : fromDecl;
+              })()
+            : inferExpressionType(state, property.name, env);
+        if (!propertyType) return undefined;
+        members.push({
+          kind: "propertySignature",
+          name: property.name.text,
+          type: propertyType,
+          isOptional: false,
+          isReadonly: false,
+        });
+        continue;
+      }
+
+      if (ts.isMethodDeclaration(property)) {
+        const name = getPropertyName(property.name);
+        if (!name) return undefined;
+        const methodType = inferFunctionLikeType(property);
+        if (!methodType) return undefined;
+        members.push({
+          kind: "methodSignature",
+          name,
+          parameters: methodType.parameters,
+          returnType: methodType.returnType,
+        });
+        continue;
+      }
+
+      return undefined;
+    }
+
+    for (const [name, accessor] of accessors) {
+      const getterType = accessor.getter
+        ? ("type" in accessor.getter && accessor.getter.type
+            ? convertTypeNode(state, accessor.getter.type)
+            : inferFunctionLikeType(accessor.getter)?.returnType)
+        : undefined;
+      const setterParam = accessor.setter?.parameters[0];
+      const setterType = setterParam?.type
+        ? convertTypeNode(state, setterParam.type)
+        : undefined;
+      const propertyType = getterType ?? setterType;
+      if (!propertyType) return undefined;
+      members.push({
+        kind: "propertySignature",
+        name,
+        type: propertyType,
+        isOptional: false,
+        isReadonly: accessor.setter === undefined,
+      });
+    }
+
+    return { kind: "objectType", members };
+  };
+
   const unwrapped = unwrapParens(expr);
 
   if (ts.isAsExpression(unwrapped) || ts.isTypeAssertionExpression(unwrapped)) {
@@ -168,6 +381,14 @@ export const inferExpressionType = (
     const inner = inferExpressionType(state, unwrapped.expression, env);
     if (!inner || inner.kind === "unknownType") return undefined;
     return unwrapAwaitedForInference(inner);
+  }
+
+  if (unwrapped.kind === ts.SyntaxKind.UndefinedKeyword) {
+    return { kind: "primitiveType", name: "undefined" };
+  }
+
+  if (unwrapped.kind === ts.SyntaxKind.NullKeyword) {
+    return { kind: "primitiveType", name: "null" };
   }
 
   if (ts.isCallExpression(unwrapped)) {
@@ -275,6 +496,33 @@ export const inferExpressionType = (
     unwrapped.kind === ts.SyntaxKind.FalseKeyword
   ) {
     return { kind: "primitiveType", name: "boolean" };
+  }
+
+  if (ts.isArrayLiteralExpression(unwrapped)) {
+    const elementTypes: IrType[] = [];
+    for (const element of unwrapped.elements) {
+      if (ts.isOmittedExpression(element) || ts.isSpreadElement(element)) {
+        return undefined;
+      }
+      const elementType = inferExpressionType(state, element, env);
+      if (!elementType) return undefined;
+      elementTypes.push(elementType);
+    }
+
+    if (elementTypes.length === 0) {
+      return undefined;
+    }
+
+    const first = elementTypes[0];
+    if (first && elementTypes.every((type) => typesEqual(type, first))) {
+      return { kind: "arrayType", elementType: first };
+    }
+
+    return { kind: "tupleType", elementTypes };
+  }
+
+  if (ts.isObjectLiteralExpression(unwrapped)) {
+    return inferObjectLiteralType(unwrapped);
   }
 
   if (ts.isPrefixUnaryExpression(unwrapped)) {
@@ -736,6 +984,10 @@ export const tryInferTypeFromInitializer = (
     return tryInferReturnTypeFromCallExpression(state, init, new Map());
   }
 
+  if (isLambdaExpression(init)) {
+    return inferLambdaType(state, init, undefined);
+  }
+
   if (ts.isArrayLiteralExpression(init)) {
     // Deterministic array literal typing for variable declarations:
     // infer `T[]` only when all element types are deterministically known and equal.
@@ -763,6 +1015,11 @@ export const tryInferTypeFromInitializer = (
     }
 
     return undefined;
+  }
+
+  const fallback = inferExpressionType(state, init, new Map());
+  if (fallback && fallback.kind !== "unknownType") {
+    return fallback;
   }
 
   // Phase 15: NewExpression branch - use constructor signature with argTypes
@@ -889,22 +1146,72 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
     return result;
   }
 
+  const effectiveValueDecl =
+    (declInfo.valueDeclNode as ts.Declaration | undefined) ??
+    (declInfo.declNode as ts.Declaration | undefined);
+  const effectiveTypeDecl =
+    (declInfo.typeDeclNode as ts.Declaration | undefined) ?? effectiveValueDecl;
+  const effectiveDeclNode = effectiveValueDecl ?? effectiveTypeDecl;
+  const effectiveTypeNode =
+    ((): ts.TypeNode | undefined => {
+      if (declInfo.typeNode) return declInfo.typeNode as ts.TypeNode;
+      const source = effectiveDeclNode;
+      if (!source) return undefined;
+      if (
+        ts.isVariableDeclaration(source) ||
+        ts.isParameter(source) ||
+        ts.isPropertyDeclaration(source) ||
+        ts.isPropertySignature(source) ||
+        ts.isMethodDeclaration(source) ||
+        ts.isMethodSignature(source) ||
+        ts.isFunctionDeclaration(source) ||
+        ts.isTypeAliasDeclaration(source) ||
+        ts.isGetAccessorDeclaration(source)
+      ) {
+        return source.type;
+      }
+      return undefined;
+    })();
+  const effectiveKind: DeclKind = (() => {
+    const source = effectiveDeclNode;
+    if (!source) return declInfo.kind;
+    if (ts.isFunctionDeclaration(source)) return "function";
+    if (ts.isVariableDeclaration(source)) return "variable";
+    if (ts.isClassDeclaration(source)) return "class";
+    if (ts.isInterfaceDeclaration(source)) return "interface";
+    if (ts.isTypeAliasDeclaration(source)) return "typeAlias";
+    if (ts.isEnumDeclaration(source)) return "enum";
+    if (ts.isParameter(source)) return "parameter";
+    if (
+      ts.isPropertyDeclaration(source) ||
+      ts.isPropertySignature(source) ||
+      ts.isGetAccessorDeclaration(source) ||
+      ts.isSetAccessorDeclaration(source)
+    ) {
+      return "property";
+    }
+    if (ts.isMethodDeclaration(source) || ts.isMethodSignature(source)) {
+      return "method";
+    }
+    return declInfo.kind;
+  })();
+
   let result: IrType;
 
-  if (declInfo.typeNode) {
+  if (effectiveTypeNode) {
     // Explicit type annotation - convert to IR
-    result = convertTypeNode(state, declInfo.typeNode);
+    result = convertTypeNode(state, effectiveTypeNode);
   } else if (
-    declInfo.kind === "class" ||
-    declInfo.kind === "interface" ||
-    declInfo.kind === "enum"
+    effectiveKind === "class" ||
+    effectiveKind === "interface" ||
+    effectiveKind === "enum"
   ) {
     // Class/interface/enum - return reference type
     result = {
       kind: "referenceType",
       name: declInfo.fqName ?? "unknown",
     } as IrReferenceType;
-  } else if (declInfo.kind === "function") {
+  } else if (effectiveKind === "function") {
     // Function without type annotation - need to build function type from signature
     // For now, return unknownType as we need the signature ID
     emitDiagnostic(
@@ -913,9 +1220,9 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
       `Function '${declInfo.fqName ?? "unknown"}' requires explicit return type`
     );
     result = unknownType;
-  } else if (declInfo.kind === "variable" && declInfo.declNode) {
+  } else if (effectiveKind === "variable" && effectiveDeclNode) {
     // Variable without type annotation - infer from deterministic initializer
-    const inferred = tryInferTypeFromInitializer(state, declInfo.declNode);
+    const inferred = tryInferTypeFromInitializer(state, effectiveDeclNode);
     if (inferred) {
       result = inferred;
     } else {
@@ -1079,7 +1386,10 @@ const resolveMemberTypeNoDiag = (
     // Property/field member: return its declared type.
     const memberType = memberEntry?.type;
     if (memberType) {
-      const result = irSubstitute(memberType, lookupResult.substitution);
+      const result = attachTypeIds(
+        state,
+        irSubstitute(memberType, lookupResult.substitution)
+      );
       state.memberDeclaredTypeCache.set(cacheKey, result);
       return result;
     }
@@ -1108,7 +1418,10 @@ const resolveMemberTypeNoDiag = (
         returnType: firstSig.returnType,
       };
 
-      const result = irSubstitute(funcType, lookupResult.substitution);
+      const result = attachTypeIds(
+        state,
+        irSubstitute(funcType, lookupResult.substitution)
+      );
       state.memberDeclaredTypeCache.set(cacheKey, result);
       return result;
     }

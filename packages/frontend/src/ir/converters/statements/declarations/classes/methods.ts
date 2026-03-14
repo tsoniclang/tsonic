@@ -159,6 +159,93 @@ const specializeExpression = (
   expr: IrExpression,
   paramTypesByDeclId: ReadonlyMap<number, IrType>
 ): IrExpression => {
+  const tryResolveParamType = (expression: IrExpression): IrType | undefined => {
+    if (expression.kind !== "identifier" || !expression.declId) {
+      return undefined;
+    }
+    return paramTypesByDeclId.get(expression.declId.id);
+  };
+
+  const evaluateArrayIsArrayPredicate = (
+    candidate: IrType | undefined
+  ): boolean | undefined => {
+    if (!candidate) return undefined;
+
+    switch (candidate.kind) {
+      case "arrayType":
+      case "tupleType":
+        return true;
+
+      case "unionType": {
+        const memberResults = candidate.types.map((member) =>
+          evaluateArrayIsArrayPredicate(member)
+        );
+        if (memberResults.every((value) => value === true)) return true;
+        if (memberResults.every((value) => value === false)) return false;
+        return undefined;
+      }
+
+      case "intersectionType": {
+        const memberResults = candidate.types.map((member) =>
+          evaluateArrayIsArrayPredicate(member)
+        );
+        if (memberResults.some((value) => value === true)) return true;
+        if (memberResults.every((value) => value === false)) return false;
+        return undefined;
+      }
+
+      default:
+        return false;
+    }
+  };
+
+  const tryEvaluateCompileTimePredicate = (
+    callee: IrExpression,
+    args: readonly IrExpression[],
+    sourceSpan: IrExpression["sourceSpan"]
+  ): IrExpression | undefined => {
+    if (
+      callee.kind === "identifier" &&
+      callee.name === "istype" &&
+      expr.kind === "call" &&
+      expr.typeArguments &&
+      expr.typeArguments.length === 1 &&
+      args.length === 1
+    ) {
+      const actual = tryResolveParamType(args[0] as IrExpression);
+      if (!actual) return undefined;
+
+      return {
+        kind: "literal",
+        value: typesEqualForIsType(actual, expr.typeArguments[0]),
+        inferredType: { kind: "primitiveType", name: "boolean" },
+        sourceSpan,
+      };
+    }
+
+    if (
+      callee.kind === "memberAccess" &&
+      !callee.isComputed &&
+      callee.object.kind === "identifier" &&
+      callee.object.name === "Array" &&
+      callee.property === "isArray" &&
+      args.length === 1
+    ) {
+      const actual = tryResolveParamType(args[0] as IrExpression);
+      const value = evaluateArrayIsArrayPredicate(actual);
+      if (value === undefined) return undefined;
+
+      return {
+        kind: "literal",
+        value,
+        inferredType: { kind: "primitiveType", name: "boolean" },
+        sourceSpan,
+      };
+    }
+
+    return undefined;
+  };
+
   switch (expr.kind) {
     case "literal":
     case "identifier":
@@ -179,25 +266,13 @@ const specializeExpression = (
           : specializeExpression(a, paramTypesByDeclId)
       );
 
-      // Compile-time-only istype<T>(param)
-      if (
-        callee.kind === "identifier" &&
-        callee.name === "istype" &&
-        expr.typeArguments &&
-        expr.typeArguments.length === 1 &&
-        args.length === 1 &&
-        args[0]?.kind === "identifier" &&
-        args[0].declId
-      ) {
-        const target = expr.typeArguments[0];
-        const actual = paramTypesByDeclId.get(args[0].declId.id);
-        const value = typesEqualForIsType(actual, target);
-        return {
-          kind: "literal",
-          value,
-          inferredType: { kind: "primitiveType", name: "boolean" },
-          sourceSpan: expr.sourceSpan,
-        };
+      const specializedPredicate = tryEvaluateCompileTimePredicate(
+        callee,
+        args,
+        expr.sourceSpan
+      );
+      if (specializedPredicate) {
+        return specializedPredicate;
       }
 
       return { ...expr, callee, arguments: args };
@@ -896,6 +971,122 @@ const assertNoMissingParamRefs = (
   return visitStmt(stmt);
 };
 
+const OVERLOAD_IMPL_PREFIX = "__tsonic_overload_impl_";
+
+const getOverloadImplementationName = (memberName: string): string =>
+  `${OVERLOAD_IMPL_PREFIX}${memberName}`;
+
+const getIdentifierPatternName = (parameter: IrParameter): string => {
+  if (parameter.pattern.kind !== "identifierPattern") {
+    throw new Error(
+      `ICE: overload wrappers currently require identifier parameters (got '${parameter.pattern.kind}')`
+    );
+  }
+
+  return parameter.pattern.name;
+};
+
+const substitutePolymorphicReturn = (
+  expression: IrExpression,
+  implReturnType: IrType | undefined,
+  wrapperReturnType: IrType | undefined
+): IrExpression => {
+  if (!wrapperReturnType) {
+    return expression;
+  }
+
+  if (
+    implReturnType &&
+    typesEqualForIsType(implReturnType, wrapperReturnType)
+  ) {
+    return {
+      ...expression,
+      inferredType: wrapperReturnType,
+    };
+  }
+
+  return {
+    kind: "typeAssertion",
+    expression,
+    targetType: wrapperReturnType,
+    inferredType: wrapperReturnType,
+    sourceSpan: expression.sourceSpan,
+  };
+};
+
+const createWrapperBody = (
+  helperName: string,
+  parameters: readonly IrParameter[],
+  isStatic: boolean,
+  implReturnType: IrType | undefined,
+  wrapperReturnType: IrType | undefined,
+  typeParameterNames: readonly string[]
+): IrBlockStatement => {
+  const forwardedArgs = parameters.map((parameter) => ({
+    kind: "identifier" as const,
+    name: getIdentifierPatternName(parameter),
+    inferredType: parameter.type,
+  }));
+
+  const callee: IrExpression = isStatic
+    ? {
+        kind: "identifier",
+        name: helperName,
+      }
+    : {
+        kind: "memberAccess",
+        object: {
+          kind: "this",
+        },
+        property: helperName,
+        isComputed: false,
+        isOptional: false,
+      };
+
+  const callExpr: IrExpression = {
+    kind: "call",
+    callee,
+    arguments: forwardedArgs,
+    isOptional: false,
+    inferredType: implReturnType ?? wrapperReturnType,
+    ...(typeParameterNames.length > 0
+      ? {
+          typeArguments: typeParameterNames.map(
+            (name) =>
+              ({
+                kind: "typeParameterType",
+                name,
+              }) satisfies IrType
+          ),
+        }
+      : {}),
+  };
+
+  const hasReturnValue =
+    wrapperReturnType !== undefined && wrapperReturnType.kind !== "voidType";
+
+  return {
+    kind: "blockStatement",
+    statements: hasReturnValue
+      ? [
+          {
+            kind: "returnStatement",
+            expression: substitutePolymorphicReturn(
+              callExpr,
+              implReturnType,
+              wrapperReturnType
+            ),
+          },
+        ]
+      : [
+          {
+            kind: "expressionStatement",
+            expression: callExpr,
+          },
+        ],
+  };
+};
+
 /**
  * Convert a TypeScript overload group (`sig; sig; impl {}`) into one C# method per signature.
  *
@@ -952,6 +1143,114 @@ export const convertMethodOverloadGroup = (
     (m) => m.kind === ts.SyntaxKind.AsyncKeyword
   );
   const isGenerator = !!impl.asteriskToken;
+
+  const implMethod = convertMethod(impl, ctx, superClass) as IrMethodDeclaration;
+
+  const requiresWrapperLowering = sigs.some((sig) => {
+    const sigParams = convertParameters(sig.parameters, ctx);
+    if (sigParams.length > implParams.length) {
+      throw new Error(
+        `ICE: overload signature parameter count exceeds implementation for '${memberName}' (sig=${sigParams.length}, impl=${implParams.length})`
+      );
+    }
+
+    const paramTypesByDeclId = new Map<number, IrType>();
+    for (let i = 0; i < implParamDeclIds.length; i++) {
+      const declId = implParamDeclIds[i] as number;
+      const t =
+        i < sigParams.length
+          ? sigParams[i]?.type
+          : ({ kind: "primitiveType", name: "undefined" } as IrType);
+      if (t) paramTypesByDeclId.set(declId, t);
+    }
+
+    const specialized = specializeStatement(implBody, paramTypesByDeclId);
+    if (!assertNoIsTypeCalls(specialized)) {
+      return false;
+    }
+
+    if (sigParams.length >= implParams.length) {
+      return false;
+    }
+
+    const missing = new Set<number>();
+    for (let i = sigParams.length; i < implParamDeclIds.length; i++) {
+      missing.add(implParamDeclIds[i] as number);
+    }
+    return missing.size > 0 && !assertNoMissingParamRefs(specialized, missing);
+  });
+
+  if (requiresWrapperLowering) {
+    if (!assertNoIsTypeCalls(implBody)) {
+      throw new Error(
+        `ICE: overload '${memberName}' requires wrapper lowering but still depends on compile-time-only istype<T>(...).`
+      );
+    }
+
+    const helperName = getOverloadImplementationName(memberName);
+    const helperMethod: IrMethodDeclaration = {
+      ...implMethod,
+      name: helperName,
+      accessibility: "private",
+      isOverride: undefined,
+      isShadow: undefined,
+      isVirtual: undefined,
+    };
+
+    const wrappers: IrMethodDeclaration[] = [];
+    for (const sig of sigs) {
+      const sigParams = convertParameters(sig.parameters, ctx);
+      const returnType = sig.type
+        ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(sig.type))
+        : undefined;
+
+      const parameters: IrParameter[] = sigParams.map((p, i) => ({
+        ...p,
+        pattern: (implParams[i] as IrParameter).pattern,
+      }));
+
+      const overrideInfo = detectOverride(
+        memberName,
+        "method",
+        superClass,
+        ctx,
+        parameters
+      );
+
+      if (overrideInfo.isShadow) {
+        continue;
+      }
+
+      const accessibility =
+        overrideInfo.isOverride && overrideInfo.requiredAccessibility
+          ? overrideInfo.requiredAccessibility
+          : declaredAccessibility;
+
+      wrappers.push({
+        kind: "methodDeclaration",
+        name: memberName,
+        typeParameters: convertTypeParameters(sig.typeParameters, ctx),
+        parameters,
+        returnType,
+        body: createWrapperBody(
+          helperName,
+          parameters,
+          isStatic,
+          implMethod.returnType,
+          returnType,
+          (sig.typeParameters ?? []).map((tp) => tp.name.text)
+        ),
+        isStatic,
+        isAsync: false,
+        isGenerator: false,
+        accessibility,
+        isOverride: overrideInfo.isOverride ? true : undefined,
+        isShadow: overrideInfo.isShadow ? true : undefined,
+      });
+    }
+
+    return [helperMethod, ...wrappers];
+  }
 
   // Convert each signature into a concrete method emission.
   const out: IrMethodDeclaration[] = [];

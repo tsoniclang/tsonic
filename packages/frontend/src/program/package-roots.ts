@@ -97,14 +97,36 @@ const tryResolveSiblingWorkspacePackage = (
   return undefined;
 };
 
+export type DependencyPackageRootPreference =
+  | "sibling-first"
+  | "installed-first";
+
 export const resolveDependencyPackageRoot = (
   packageRoot: string,
-  packageName: string
+  packageName: string,
+  preference: DependencyPackageRootPreference = "sibling-first"
 ): string | undefined => {
-  const sibling = tryResolveSiblingWorkspacePackage(packageRoot, packageName);
-  if (sibling) {
-    return sibling;
+  const trySiblingFirst = (): string | undefined => {
+    const sibling = tryResolveSiblingWorkspacePackage(packageRoot, packageName);
+    if (sibling) {
+      return sibling;
+    }
+
+    return tryResolveInstalledPackage(packageRoot, packageName);
+  };
+
+  const tryInstalledFirst = (): string | undefined => {
+    const installed = tryResolveInstalledPackage(packageRoot, packageName);
+    if (installed) {
+      return installed;
+    }
+
+    return tryResolveSiblingWorkspacePackage(packageRoot, packageName);
+  };
+
+  if (preference === "installed-first") {
+    return tryInstalledFirst();
   }
 
-  return tryResolveInstalledPackage(packageRoot, packageName);
+  return trySiblingFirst();
 };

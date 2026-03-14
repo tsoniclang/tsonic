@@ -410,7 +410,16 @@ const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
     return ts.isTypeLiteralNode(decl.type);
   }
 
-  // Don't extract for classes, enums, etc.
+  // Class instance members can participate in deterministic contextual typing
+  // even when the consuming module never imports the class directly (for example
+  // callback parameter types inferred from an imported query surface). Preserve
+  // the public instance shape so the soundness gate and member typing can see
+  // the real class members without weakening to `any`.
+  if (ts.isClassDeclaration(decl)) {
+    return true;
+  }
+
+  // Don't extract for enums, etc.
   return false;
 };
 
@@ -421,11 +430,14 @@ const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
  * Uses AST nodes directly instead of ts.Type computation.
  * Gets TypeNodes from declarations, not from getTypeOfSymbolAtLocation.
  *
- * Used to populate structuralMembers on referenceType for interfaces and type aliases.
- * This enables TSN5110 validation for object literal properties against expected types.
+ * Used to populate structuralMembers on referenceType for interfaces, object type aliases,
+ * and public instance class surfaces.
+ * This enables TSN5110 validation for object literal properties against expected types,
+ * and preserves deterministic member typing for nominal classes used structurally across
+ * callback/contextual-typing boundaries.
  *
  * Safety guards:
- * - Only extracts for interfaces/type-aliases (not classes, enums, lib types)
+ * - Only extracts for interfaces/type-aliases/public instance classes (not enums/lib types)
  * - Uses cache to prevent infinite recursion on recursive types
  * - Skips unsupported keys instead of bailing entirely
  * - Returns undefined for index signatures (can't fully represent)
@@ -484,11 +496,51 @@ const extractStructuralMembersFromDeclarations = (
       }
     >();
 
-    // Get the type element source (interface members or type literal members)
+    const getModifiers = (
+      node: ts.Node
+    ): readonly ts.ModifierLike[] | undefined =>
+      ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+
+    const hasModifier = (
+      modifiers: readonly ts.ModifierLike[] | undefined,
+      kind: ts.SyntaxKind
+    ): boolean => modifiers?.some((m) => m.kind === kind) ?? false;
+
+    const isPublicInstanceClassMember = (member: ts.ClassElement): boolean => {
+      if (ts.isConstructorDeclaration(member)) return false;
+      const modifiers = getModifiers(member);
+      if (hasModifier(modifiers, ts.SyntaxKind.StaticKeyword)) {
+        return false;
+      }
+      if (
+        hasModifier(modifiers, ts.SyntaxKind.PrivateKeyword) ||
+        hasModifier(modifiers, ts.SyntaxKind.ProtectedKeyword)
+      ) {
+        return false;
+      }
+      if ("name" in member && member.name && ts.isPrivateIdentifier(member.name)) {
+        return false;
+      }
+      return true;
+    };
+
+    const getMemberName = (
+      name: ts.PropertyName | ts.PrivateIdentifier | undefined
+    ): string | undefined => {
+      if (!name) return undefined;
+      if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
+        return name.text;
+      }
+      return undefined;
+    };
+
+    // Get the member source (interface members, type literal members, or class members)
     const typeElements = ts.isInterfaceDeclaration(decl)
       ? decl.members
       : ts.isTypeAliasDeclaration(decl) && ts.isTypeLiteralNode(decl.type)
         ? decl.type.members
+        : ts.isClassDeclaration(decl)
+          ? decl.members
         : undefined;
 
     if (!typeElements) {
@@ -510,11 +562,11 @@ const extractStructuralMembersFromDeclarations = (
         ts.isGetAccessorDeclaration(member) ||
         ts.isSetAccessorDeclaration(member)
       ) {
-        const accessorName = ts.isIdentifier(member.name)
-          ? member.name.text
-          : ts.isStringLiteral(member.name)
-            ? member.name.text
-            : undefined;
+        if (ts.isClassDeclaration(decl) && !isPublicInstanceClassMember(member)) {
+          continue;
+        }
+
+        const accessorName = getMemberName(member.name);
 
         if (
           !accessorName ||
@@ -534,13 +586,13 @@ const extractStructuralMembersFromDeclarations = (
         continue;
       }
 
-      // Property signature
-      if (ts.isPropertySignature(member)) {
-        const propName = ts.isIdentifier(member.name)
-          ? member.name.text
-          : ts.isStringLiteral(member.name)
-            ? member.name.text
-            : undefined;
+      // Property signature / declaration
+      if (ts.isPropertySignature(member) || ts.isPropertyDeclaration(member)) {
+        if (ts.isPropertyDeclaration(member) && !isPublicInstanceClassMember(member)) {
+          continue;
+        }
+
+        const propName = getMemberName(member.name);
 
         if (
           !propName ||
@@ -551,10 +603,10 @@ const extractStructuralMembersFromDeclarations = (
         }
 
         const isOptional = !!member.questionToken;
-        const isReadonly =
-          member.modifiers?.some(
-            (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-          ) ?? false;
+        const isReadonly = hasModifier(
+          getModifiers(member),
+          ts.SyntaxKind.ReadonlyKeyword
+        );
 
         // DETERMINISTIC: Get type from TypeNode in declaration
         const declTypeNode = member.type;
@@ -601,11 +653,13 @@ const extractStructuralMembersFromDeclarations = (
         });
       }
 
-      // Method signature
-      if (ts.isMethodSignature(member)) {
-        const methodName = ts.isIdentifier(member.name)
-          ? member.name.text
-          : undefined;
+      // Method signature / declaration
+      if (ts.isMethodSignature(member) || ts.isMethodDeclaration(member)) {
+        if (ts.isMethodDeclaration(member) && !isPublicInstanceClassMember(member)) {
+          continue;
+        }
+
+        const methodName = getMemberName(member.name);
 
         if (!methodName) {
           continue; // Skip computed keys

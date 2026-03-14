@@ -679,6 +679,8 @@ const convertTemplateLiteralType = (
 /**
  * Convert TypeScript type node to IR type
  */
+const POLYMORPHIC_THIS_MARKER = "__tsonic_polymorphic_this";
+
 export const convertType = (
   typeNode: ts.TypeNode,
   binding: Binding
@@ -721,6 +723,13 @@ export const convertType = (
   // Type references (including primitive type names)
   if (ts.isTypeReferenceNode(typeNode)) {
     return convertTypeReference(typeNode, binding, convertType);
+  }
+
+  if (ts.isThisTypeNode(typeNode)) {
+    return {
+      kind: "typeParameterType",
+      name: POLYMORPHIC_THIS_MARKER,
+    };
   }
 
   // Primitive keywords

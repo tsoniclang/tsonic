@@ -546,6 +546,12 @@ export const createProgramContext = (
       ts.isIdentifier(node as ts.Node)
         ? program.binding.resolveIdentifier(node as ts.Identifier)
         : undefined,
+    resolveShorthandAssignment: (node: unknown) =>
+      ts.isShorthandPropertyAssignment(node as ts.Node)
+        ? program.binding.resolveShorthandAssignment(
+            node as ts.ShorthandPropertyAssignment
+          )
+        : undefined,
     resolveCallSignature: (node: unknown) =>
       ts.isCallExpression(node as ts.Node)
         ? program.binding.resolveCallSignature(node as ts.CallExpression)

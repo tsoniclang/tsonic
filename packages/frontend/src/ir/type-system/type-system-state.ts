@@ -280,6 +280,12 @@ export type DeclInfo = {
   /** Declaration AST node (ts.Declaration, cast to unknown) */
   readonly declNode?: unknown;
 
+  /** Type declaration AST node when a symbol merges type and value declarations. */
+  readonly typeDeclNode?: unknown;
+
+  /** Value declaration AST node when a symbol merges type and value declarations. */
+  readonly valueDeclNode?: unknown;
+
   /** Captured class member names (for class declarations only) */
   readonly classMemberNames?: ClassMemberNames;
 };
@@ -545,6 +551,7 @@ export type TypeSystemState = {
   readonly unifiedCatalog: UnifiedTypeCatalog;
   readonly aliasTable: AliasTable;
   readonly resolveIdentifier: (node: unknown) => DeclId | undefined;
+  readonly resolveShorthandAssignment: (node: unknown) => DeclId | undefined;
   readonly resolveCallSignature: (node: unknown) => SignatureId | undefined;
   readonly resolveConstructorSignature: (
     node: unknown

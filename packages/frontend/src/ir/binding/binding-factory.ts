@@ -260,17 +260,49 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
   // BINDING IMPLEMENTATION
   // ─────────────────────────────────────────────────────────────────────────
 
+  const resolveTransparentAliases = (input: ts.Symbol): ts.Symbol => {
+    const seen = new Set<ts.Symbol>();
+    let current = input;
+
+    while (!seen.has(current)) {
+      seen.add(current);
+
+      const aliased =
+        current.flags & ts.SymbolFlags.Alias
+          ? checker.getAliasedSymbol(current)
+          : current;
+      if (aliased !== current) {
+        current = aliased;
+        continue;
+      }
+
+      const decls = current.getDeclarations() ?? [];
+      const exportSpecifier =
+        decls.length === 1 && decls[0] && ts.isExportSpecifier(decls[0])
+          ? decls[0]
+          : undefined;
+      if (!exportSpecifier || exportSpecifier.isTypeOnly) {
+        break;
+      }
+
+      const targetSymbol = checker.getExportSpecifierLocalTargetSymbol(
+        exportSpecifier
+      );
+      if (!targetSymbol || targetSymbol === current) {
+        break;
+      }
+
+      current = targetSymbol;
+    }
+
+    return current;
+  };
+
   const resolveIdentifier = (node: ts.Identifier): DeclId | undefined => {
     const symbol = checker.getSymbolAtLocation(node);
     if (!symbol) return undefined;
 
-    // Follow aliases for imports
-    const resolvedSymbol =
-      symbol.flags & ts.SymbolFlags.Alias
-        ? checker.getAliasedSymbol(symbol)
-        : symbol;
-
-    return getOrCreateDeclId(resolvedSymbol);
+    return getOrCreateDeclId(resolveTransparentAliases(symbol));
   };
 
   const resolveTypeReference = (
@@ -284,9 +316,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         : checker.getSymbolAtLocation(typeName.right);
       if (!symbol) return undefined;
 
-      return symbol.flags & ts.SymbolFlags.Alias
-        ? checker.getAliasedSymbol(symbol)
-        : symbol;
+      return resolveTransparentAliases(symbol);
     };
 
     let symbol = resolveEntityNameSymbol(node.typeName);
@@ -1032,8 +1062,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     const symbol = checker.getSymbolAtLocation(node.name);
     if (!symbol) return undefined;
 
-    const aliased = checker.getAliasedSymbol(symbol);
-    return getOrCreateDeclId(aliased);
+    return getOrCreateDeclId(resolveTransparentAliases(symbol));
   };
 
   const resolveShorthandAssignment = (
