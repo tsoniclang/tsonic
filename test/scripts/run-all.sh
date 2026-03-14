@@ -39,8 +39,11 @@ E2E_DOTNET_PASSED=0
 E2E_DOTNET_FAILED=0
 E2E_NEGATIVE_PASSED=0
 E2E_NEGATIVE_FAILED=0
+FRESH_BUILD_PASSED=0
+FRESH_BUILD_FAILED=0
 
 # Step status (some failures don't produce mocha "failing" lines)
+FRESH_BUILD_STATUS="unknown"
 UNIT_STATUS="unknown"
 TSC_STATUS="unknown"
 RUNTIME_SYNC_STATUS="unknown"
@@ -355,6 +358,28 @@ fi
 if [ "$SKIP_UNIT" = true ]; then
     echo -e "${YELLOW}NOTE: UNIT TESTS SKIPPED (--no-unit). Do not use this as the final verification.${NC}" | tee -a "$LOG_FILE"
 fi
+echo "" | tee -a "$LOG_FILE"
+
+# ============================================================
+# 0.5 Fresh workspace build
+# ============================================================
+echo -e "${BLUE}--- Running Fresh Workspace Build ---${NC}" | tee -a "$LOG_FILE"
+cd "$ROOT_DIR"
+
+if [ "$SKIP_UNIT" = true ]; then
+    echo -e "${YELLOW}SKIP: fresh workspace build (--no-unit)${NC}" | tee -a "$LOG_FILE"
+    FRESH_BUILD_STATUS="skipped"
+else
+    if bash "$ROOT_DIR/scripts/build/clean.sh" 2>&1 | tee -a "$LOG_FILE" && \
+       bash "$ROOT_DIR/scripts/build/all.sh" --no-format 2>&1 | tee -a "$LOG_FILE"; then
+        FRESH_BUILD_STATUS="passed"
+        FRESH_BUILD_PASSED=1
+    else
+        FRESH_BUILD_STATUS="failed"
+        FRESH_BUILD_FAILED=1
+    fi
+fi
+
 echo "" | tee -a "$LOG_FILE"
 
 # ============================================================
@@ -827,8 +852,21 @@ echo "           TEST SUMMARY REPORT          " | tee -a "$LOG_FILE"
 echo "========================================" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 
-TOTAL_PASSED=$((UNIT_PASSED + TSC_PASSED + E2E_DOTNET_PASSED + E2E_NEGATIVE_PASSED))
-TOTAL_FAILED=$((UNIT_FAILED + TSC_FAILED + E2E_DOTNET_FAILED + E2E_NEGATIVE_FAILED))
+TOTAL_PASSED=$((FRESH_BUILD_PASSED + UNIT_PASSED + TSC_PASSED + E2E_DOTNET_PASSED + E2E_NEGATIVE_PASSED))
+TOTAL_FAILED=$((FRESH_BUILD_FAILED + UNIT_FAILED + TSC_FAILED + E2E_DOTNET_FAILED + E2E_NEGATIVE_FAILED))
+
+echo "Fresh Workspace Build:" | tee -a "$LOG_FILE"
+if [ "$FRESH_BUILD_STATUS" = "skipped" ]; then
+    echo -e "  ${YELLOW}Skipped (--no-unit)${NC}" | tee -a "$LOG_FILE"
+else
+    echo -e "  ${GREEN}Passed: $FRESH_BUILD_PASSED${NC}" | tee -a "$LOG_FILE"
+    if [ $FRESH_BUILD_FAILED -gt 0 ]; then
+        echo -e "  ${RED}Failed: $FRESH_BUILD_FAILED${NC}" | tee -a "$LOG_FILE"
+    else
+        echo "  Failed: 0" | tee -a "$LOG_FILE"
+    fi
+fi
+echo "" | tee -a "$LOG_FILE"
 
 echo "Unit & Golden Tests:" | tee -a "$LOG_FILE"
 if [ "$UNIT_STATUS" = "skipped" ]; then

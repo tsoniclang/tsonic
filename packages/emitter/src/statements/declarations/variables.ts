@@ -916,16 +916,18 @@ const resolveLocalTypeAst = (
       functionInitializer.body.kind !== "blockStatement"
         ? functionInitializer.body.inferredType
         : undefined;
+    const resolvedReturnType =
+      functionInitializer.returnType ?? inferredReturnType;
     const functionType =
       functionInitializer.inferredType?.kind === "functionType"
         ? functionInitializer.inferredType
         : functionInitializer.parameters &&
             functionInitializer.parameters.every((param) => !!param.type) &&
-            (functionInitializer.returnType ?? inferredReturnType)
+            resolvedReturnType
           ? {
               kind: "functionType" as const,
               parameters: functionInitializer.parameters,
-              returnType: functionInitializer.returnType ?? inferredReturnType,
+              returnType: resolvedReturnType,
             }
           : undefined;
 
