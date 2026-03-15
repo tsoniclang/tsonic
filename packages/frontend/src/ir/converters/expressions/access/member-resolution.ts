@@ -10,7 +10,7 @@ import * as ts from "typescript";
 import { IrType, ComputedAccessKind } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 
-const receiverHasDeclaredUnknownMember = (
+  const receiverHasDeclaredUnknownMember = (
   receiverIrType: IrType | undefined,
   propertyName: string,
   ctx: ProgramContext
@@ -340,6 +340,12 @@ export const extractTypeName = (
   // Treat TS arrays as Array for binding lookup so surface packages can
   // bind Array<T> members declaratively (no compiler hardcoding).
   if (inferredType.kind === "arrayType") {
+    return "Array";
+  }
+
+  // Treat tuples as Array for binding lookup as well. They lower to runtime
+  // JS arrays for member resolution and must preserve the same Array surface.
+  if (inferredType.kind === "tupleType") {
     return "Array";
   }
 

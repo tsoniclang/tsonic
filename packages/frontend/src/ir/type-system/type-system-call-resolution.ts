@@ -41,7 +41,7 @@ import {
   stripTsonicExtensionWrappers,
   poisonedCall,
 } from "./type-system-state.js";
-import { typesEqual } from "./type-system-relations.js";
+import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 
 const POLYMORPHIC_THIS_MARKER = "__tsonic_polymorphic_this";
 
@@ -1129,6 +1129,74 @@ const expandParameterTypesForInference = (
   return expanded;
 };
 
+const getExpandedRestArgumentType = (
+  restType: IrType,
+  relativeArgumentIndex: number
+): IrType => {
+  if (restType.kind === "arrayType") {
+    return restType.elementType;
+  }
+
+  if (restType.kind === "tupleType") {
+    const direct = restType.elementTypes[relativeArgumentIndex];
+    if (direct) {
+      return direct;
+    }
+    const fallback = restType.elementTypes[restType.elementTypes.length - 1];
+    return fallback ?? restType;
+  }
+
+  if (
+    restType.kind === "referenceType" &&
+    (restType.name === "Array" ||
+      restType.name === "ReadonlyArray" ||
+      restType.name === "JSArray" ||
+      restType.name === "JSArray_1")
+  ) {
+    const onlyTypeArgument = restType.typeArguments?.[0];
+    if (onlyTypeArgument) {
+      return onlyTypeArgument;
+    }
+  }
+
+  return restType;
+};
+
+export const expandParameterTypesForArguments = (
+  parameters: readonly { readonly isRest: boolean }[],
+  parameterTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): readonly (IrType | undefined)[] => {
+  if (parameterTypes.length === 0) {
+    return parameterTypes;
+  }
+
+  const restIndex = parameters.findIndex((parameter) => parameter.isRest);
+  if (restIndex < 0) {
+    return parameterTypes;
+  }
+
+  const expanded: (IrType | undefined)[] = [];
+  for (let argumentIndex = 0; argumentIndex < argumentCount; argumentIndex += 1) {
+    if (argumentIndex < restIndex) {
+      expanded.push(parameterTypes[argumentIndex]);
+      continue;
+    }
+
+    const restType = parameterTypes[restIndex];
+    if (!restType) {
+      expanded.push(undefined);
+      continue;
+    }
+
+    expanded.push(
+      getExpandedRestArgumentType(restType, argumentIndex - restIndex)
+    );
+  }
+
+  return expanded;
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 // mapEntriesEqual — Pure helper for map comparison
 // ─────────────────────────────────────────────────────────────────────────
@@ -1403,6 +1471,80 @@ export const scoreSignatureMatch = (
   return score;
 };
 
+const refineParameterTypeForConcreteArgument = (
+  state: TypeSystemState,
+  parameterType: IrType | undefined,
+  argumentType: IrType | undefined
+): IrType | undefined => {
+  if (!parameterType || !argumentType) {
+    return parameterType;
+  }
+
+  if (parameterType.kind !== "unionType") {
+    return parameterType;
+  }
+
+  const matchingMembers = parameterType.types.filter((candidate) =>
+    isAssignableTo(state, argumentType, candidate)
+  );
+
+  if (matchingMembers.length === 1) {
+    return matchingMembers[0];
+  }
+
+  const distinctMatches = matchingMembers.filter((candidate, index) => {
+    for (let i = 0; i < index; i += 1) {
+      const previous = matchingMembers[i];
+      if (previous && typesEqual(previous, candidate)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (distinctMatches.length === 1) {
+    return distinctMatches[0];
+  }
+
+  return parameterType;
+};
+
+const refineResolvedParameterTypesForArguments = (
+  state: TypeSystemState,
+  parameters: readonly { readonly isRest: boolean }[],
+  parameterTypes: readonly (IrType | undefined)[],
+  argTypes: readonly (IrType | undefined)[] | undefined,
+  argumentCount: number
+): readonly (IrType | undefined)[] => {
+  const expandedParameterTypes = expandParameterTypesForArguments(
+    parameters,
+    parameterTypes,
+    argumentCount
+  );
+  if (!argTypes || argTypes.length === 0) {
+    return expandedParameterTypes;
+  }
+
+  let changed = false;
+  const refined = expandedParameterTypes.map((parameterType, index) => {
+    if (index >= argumentCount) {
+      return parameterType;
+    }
+
+    const next = refineParameterTypeForConcreteArgument(
+      state,
+      parameterType,
+      argTypes[index]
+    );
+    if (next !== parameterType) {
+      changed = true;
+    }
+    return next;
+  });
+
+  return changed ? refined : expandedParameterTypes;
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 // tryResolveCallFromUnifiedCatalog — Assembly-origin overload resolution
 // ─────────────────────────────────────────────────────────────────────────
@@ -1438,6 +1580,7 @@ export const tryResolveCallFromUnifiedCatalog = (
   type Candidate = {
     readonly resolved: ResolvedCall;
     readonly score: number;
+    readonly hasRestParameter: boolean;
     readonly typeParamCount: number;
     readonly parameterCount: number;
     readonly stableId: string;
@@ -1553,6 +1696,14 @@ export const tryResolveCallFromUnifiedCatalog = (
       returnType: workingReturn,
       hasDeclaredReturnType: true,
       typePredicate: undefined,
+      selectionMeta: {
+        hasRestParameter: signature.parameters.some(
+          (parameter) => parameter.isRest
+        ),
+        typeParamCount: signature.typeParameters.length,
+        parameterCount: signature.parameters.length,
+        stableId: signature.stableId,
+      },
       diagnostics: [],
     };
   };
@@ -1572,6 +1723,7 @@ export const tryResolveCallFromUnifiedCatalog = (
         argTypes,
         argumentCount
       ),
+      hasRestParameter: sig.parameters.some((parameter) => parameter.isRest),
       typeParamCount: sig.typeParameters.length,
       parameterCount: sig.parameters.length,
       stableId: sig.stableId,
@@ -1585,11 +1737,17 @@ export const tryResolveCallFromUnifiedCatalog = (
     const better =
       candidate.score > best.score ||
       (candidate.score === best.score &&
+        candidate.hasRestParameter !== best.hasRestParameter &&
+        !candidate.hasRestParameter) ||
+      (candidate.score === best.score &&
+        candidate.hasRestParameter === best.hasRestParameter &&
         candidate.typeParamCount < best.typeParamCount) ||
       (candidate.score === best.score &&
+        candidate.hasRestParameter === best.hasRestParameter &&
         candidate.typeParamCount === best.typeParamCount &&
         candidate.parameterCount < best.parameterCount) ||
       (candidate.score === best.score &&
+        candidate.hasRestParameter === best.hasRestParameter &&
         candidate.typeParamCount === best.typeParamCount &&
         candidate.parameterCount === best.parameterCount &&
         candidate.stableId < best.stableId);
@@ -2059,11 +2217,23 @@ export const resolveCall = (
   }
 
   const resolved: ResolvedCall = {
-    parameterTypes: workingParams,
+    parameterTypes: refineResolvedParameterTypesForArguments(
+      state,
+      rawSig.parameterFlags,
+      workingParams,
+      argTypes,
+      argumentCount
+    ),
     parameterModes: rawSig.parameterModes,
     returnType: workingReturn,
     hasDeclaredReturnType: rawSig.hasDeclaredReturnType,
     typePredicate: workingPredicate,
+    selectionMeta: {
+      hasRestParameter: rawSig.parameterFlags.some((parameter) => parameter.isRest),
+      typeParamCount: rawSig.typeParameters.length,
+      parameterCount: rawSig.parameterTypes.length,
+      stableId: String(sigId.id),
+    },
     diagnostics: [],
   };
 
@@ -2112,7 +2282,26 @@ export const resolveCall = (
           argumentCount
         );
 
-        if (catalogScore > currentScore) {
+        const currentMeta = resolved.selectionMeta;
+        const catalogMeta = catalogResolved.selectionMeta;
+        const catalogWinsTie =
+          currentMeta !== undefined &&
+          catalogMeta !== undefined &&
+          (
+            (catalogMeta.hasRestParameter !== currentMeta.hasRestParameter &&
+              !catalogMeta.hasRestParameter) ||
+            (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
+              catalogMeta.typeParamCount < currentMeta.typeParamCount) ||
+            (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
+              catalogMeta.typeParamCount === currentMeta.typeParamCount &&
+              catalogMeta.parameterCount < currentMeta.parameterCount) ||
+            (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
+              catalogMeta.typeParamCount === currentMeta.typeParamCount &&
+              catalogMeta.parameterCount === currentMeta.parameterCount &&
+              catalogMeta.stableId < currentMeta.stableId)
+          );
+
+        if (catalogScore > currentScore || (catalogScore === currentScore && catalogWinsTie)) {
           return catalogResolved;
         }
       }

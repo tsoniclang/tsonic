@@ -20,6 +20,10 @@ import {
   convertParameters,
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
+import {
+  getClassMemberName,
+  isPrivateClassMemberName,
+} from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
 
 /**
@@ -30,7 +34,8 @@ export const convertMethod = (
   ctx: ProgramContext,
   superClass: ts.ExpressionWithTypeArguments | undefined
 ): IrClassMember => {
-  const memberName = ts.isIdentifier(node.name) ? node.name.text : "[computed]";
+  const memberName = getClassMemberName(node.name);
+  const isEcmaPrivate = isPrivateClassMemberName(node.name);
 
   const parameters = convertParameters(node.parameters, ctx);
 
@@ -45,7 +50,7 @@ export const convertMethod = (
   const declaredAccessibility = getAccessibility(node);
   const accessibility = (() => {
     if (!overrideInfo.isOverride || !overrideInfo.requiredAccessibility) {
-      return declaredAccessibility;
+      return isEcmaPrivate ? "private" : declaredAccessibility;
     }
 
     // Airplane-grade: always emit CLR-required accessibility for overrides.
@@ -986,6 +991,12 @@ const getIdentifierPatternName = (parameter: IrParameter): string => {
   return parameter.pattern.name;
 };
 
+const isSuperMemberCall = (expression: IrExpression): boolean =>
+  expression.kind === "call" &&
+  expression.callee.kind === "memberAccess" &&
+  expression.callee.object.kind === "identifier" &&
+  expression.callee.object.name === "super";
+
 const substitutePolymorphicReturn = (
   expression: IrExpression,
   implReturnType: IrType | undefined,
@@ -993,6 +1004,16 @@ const substitutePolymorphicReturn = (
 ): IrExpression => {
   if (!wrapperReturnType) {
     return expression;
+  }
+
+  if (isSuperMemberCall(expression)) {
+    return {
+      kind: "typeAssertion",
+      expression,
+      targetType: wrapperReturnType,
+      inferredType: wrapperReturnType,
+      sourceSpan: expression.sourceSpan,
+    };
   }
 
   if (
@@ -1012,6 +1033,101 @@ const substitutePolymorphicReturn = (
     inferredType: wrapperReturnType,
     sourceSpan: expression.sourceSpan,
   };
+};
+
+const adaptReturnStatements = (
+  stmt: IrStatement,
+  targetReturnType: IrType | undefined
+): IrStatement => {
+  if (!targetReturnType || targetReturnType.kind === "voidType") {
+    return stmt;
+  }
+
+  switch (stmt.kind) {
+    case "blockStatement":
+      return {
+        ...stmt,
+        statements: stmt.statements.map((inner) =>
+          adaptReturnStatements(inner, targetReturnType)
+        ),
+      };
+
+    case "ifStatement":
+      return {
+        ...stmt,
+        thenStatement: adaptReturnStatements(stmt.thenStatement, targetReturnType),
+        elseStatement: stmt.elseStatement
+          ? adaptReturnStatements(stmt.elseStatement, targetReturnType)
+          : undefined,
+      };
+
+    case "whileStatement":
+      return {
+        ...stmt,
+        body: adaptReturnStatements(stmt.body, targetReturnType),
+      };
+
+    case "forStatement":
+      return {
+        ...stmt,
+        body: adaptReturnStatements(stmt.body, targetReturnType),
+      };
+
+    case "forOfStatement":
+    case "forInStatement":
+      return {
+        ...stmt,
+        body: adaptReturnStatements(stmt.body, targetReturnType),
+      };
+
+    case "switchStatement":
+      return {
+        ...stmt,
+        cases: stmt.cases.map((switchCase) => ({
+          ...switchCase,
+          statements: switchCase.statements.map((inner) =>
+            adaptReturnStatements(inner, targetReturnType)
+          ),
+        })),
+      };
+
+    case "tryStatement":
+      return {
+        ...stmt,
+        tryBlock: adaptReturnStatements(stmt.tryBlock, targetReturnType) as IrBlockStatement,
+        catchClause: stmt.catchClause
+          ? {
+              ...stmt.catchClause,
+              body: adaptReturnStatements(stmt.catchClause.body, targetReturnType) as IrBlockStatement,
+            }
+          : undefined,
+        finallyBlock: stmt.finallyBlock
+          ? (adaptReturnStatements(stmt.finallyBlock, targetReturnType) as IrBlockStatement)
+          : undefined,
+      };
+
+    case "returnStatement":
+      return stmt.expression
+        ? {
+            ...stmt,
+            expression: substitutePolymorphicReturn(
+              stmt.expression,
+              stmt.expression.inferredType,
+              targetReturnType
+            ),
+          }
+        : stmt;
+
+    case "functionDeclaration":
+    case "classDeclaration":
+    case "interfaceDeclaration":
+    case "enumDeclaration":
+    case "typeAliasDeclaration":
+      return stmt;
+
+    default:
+      return stmt;
+  }
 };
 
 const createWrapperBody = (
@@ -1106,7 +1222,7 @@ export const convertMethodOverloadGroup = (
   }
 
   const impl = impls[0] as ts.MethodDeclaration;
-  const memberName = ts.isIdentifier(impl.name) ? impl.name.text : "[computed]";
+  const memberName = getClassMemberName(impl.name);
 
   const sigs = nodes.filter((n) => !n.body);
   if (sigs.length === 0) {
@@ -1318,13 +1434,18 @@ export const convertMethodOverloadGroup = (
       }
     }
 
+    const adapted = adaptReturnStatements(
+      specialized as IrBlockStatement,
+      returnType
+    ) as IrBlockStatement;
+
     out.push({
       kind: "methodDeclaration",
       name: memberName,
       typeParameters: convertTypeParameters(sig.typeParameters, ctx),
       parameters,
       returnType,
-      body: specialized as IrBlockStatement,
+      body: adapted,
       isStatic,
       isAsync,
       isGenerator,

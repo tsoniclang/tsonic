@@ -2,10 +2,9 @@
  * Miscellaneous expression emitters (template literals, spread, await)
  */
 
-import { getAwaitedIrType, IrExpression, IrType } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
-import { emitTypeAst } from "../types/emitter.js";
 import {
   identifierExpression,
   stringLiteral,
@@ -13,8 +12,8 @@ import {
 import type {
   CSharpExpressionAst,
   CSharpInterpolatedStringPart,
-  CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
+import { emitNormalizedAwaitTaskAst } from "./await-normalization.js";
 
 const typeMayBeNullish = (type: IrType | undefined): boolean => {
   if (!type) return false;
@@ -71,48 +70,6 @@ const buildNullishSafeExpr = (
   },
   right: stringLiteral("undefined"),
 });
-
-const classifyAwaitability = (
-  type: IrType | undefined
-): "awaitable" | "nonAwaitable" | "mixed" => {
-  if (!type) return "awaitable";
-  if (getAwaitedIrType(type)) return "awaitable";
-  if (type.kind !== "unionType") return "nonAwaitable";
-
-  const memberKinds = new Set(
-    type.types.map((member) => classifyAwaitability(member))
-  );
-  if (memberKinds.size === 1) {
-    const [onlyKind] = [...memberKinds];
-    return onlyKind ?? "nonAwaitable";
-  }
-  return "mixed";
-};
-
-const buildTaskFromResultExpression = (
-  exprAst: CSharpExpressionAst,
-  resultTypeAst?: CSharpTypeAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      ...identifierExpression("global::System.Threading.Tasks.Task"),
-    },
-    memberName: "FromResult",
-  },
-  typeArguments: resultTypeAst ? [resultTypeAst] : undefined,
-  arguments: [exprAst],
-});
-
-const requiresExplicitTaskFromResultType = (
-  exprAst: CSharpExpressionAst
-): boolean => {
-  return (
-    exprAst.kind === "nullLiteralExpression" ||
-    exprAst.kind === "defaultExpression"
-  );
-};
 
 /**
  * Emit a template literal as CSharpExpressionAst (interpolatedStringExpression)
@@ -186,34 +143,19 @@ export const emitAwait = (
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
   const [exprAst, newContext] = emitExpressionAst(expr.expression, context);
-  const awaitability = classifyAwaitability(expr.expression.inferredType);
-
-  if (awaitability === "awaitable") {
-    return [{ kind: "awaitExpression", expression: exprAst }, newContext];
-  }
-
-  if (awaitability === "mixed") {
-    throw new Error(
-      "ICE: Mixed awaitable/non-awaitable union types in `await` are not yet supported deterministically."
-    );
-  }
-
   const resultType = expr.inferredType ?? expr.expression.inferredType;
-  if (!resultType || resultType.kind === "voidType") {
-    throw new Error(
-      "ICE: Non-awaitable `await` requires a value result type for deterministic lowering."
-    );
-  }
+  const [taskAst, taskContext] = emitNormalizedAwaitTaskAst(
+    exprAst,
+    expr.expression.inferredType,
+    resultType,
+    newContext
+  );
 
-  const needsExplicitResultType = requiresExplicitTaskFromResultType(exprAst);
-  const [resultTypeAst, resultTypeContext] = needsExplicitResultType
-    ? emitTypeAst(resultType, newContext)
-    : [undefined, newContext];
   return [
     {
       kind: "awaitExpression",
-      expression: buildTaskFromResultExpression(exprAst, resultTypeAst),
+      expression: taskAst,
     },
-    resultTypeContext,
+    taskContext,
   ];
 };

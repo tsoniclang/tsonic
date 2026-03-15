@@ -1,6 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import type { CSharpExpressionAst } from "./types.js";
+import type { CSharpExpressionAst, CSharpTypeAst } from "./types.js";
 import {
   decimalIntegerLiteral,
   identifierType,
@@ -9,12 +9,25 @@ import {
 import {
   printCompilationUnit,
   printExpression,
+  printTypeDeclaration,
   printPattern,
   printStatement,
   printType,
 } from "./printer.js";
 
 describe("backend-ast printer", () => {
+  it("prints nested nullable types as a single nullable suffix", () => {
+    const nestedNullable: CSharpTypeAst = {
+      kind: "nullableType",
+      underlyingType: {
+        kind: "nullableType",
+        underlyingType: identifierType("global::System.String"),
+      },
+    };
+
+    expect(printType(nestedNullable)).to.equal("global::System.String?");
+  });
+
   it("prints the full typed literal set without raw text escape hatches", () => {
     const cases: readonly [CSharpExpressionAst, string][] = [
       [{ kind: "nullLiteralExpression" }, "null"],
@@ -133,6 +146,103 @@ describe("backend-ast printer", () => {
         arguments: [{ kind: "stringLiteralExpression", value: "count" }],
       })
     ).to.equal('["count"]');
+  });
+
+  it("prints explicit interface members structurally", () => {
+    const printed = printTypeDeclaration(
+      {
+        kind: "classDeclaration",
+        attributes: [],
+        modifiers: ["public"],
+        name: "MemoryResponse",
+        interfaces: [identifierType("global::Demo.TransportResponse")],
+        members: [
+          {
+            kind: "propertyDeclaration",
+            attributes: [],
+            modifiers: [],
+            type: { kind: "predefinedType", keyword: "int" },
+            name: "statusCode",
+            explicitInterface: identifierType("global::Demo.TransportResponse"),
+            hasGetter: true,
+            hasSetter: true,
+            isAutoProperty: false,
+            getterBody: {
+              kind: "blockStatement",
+              statements: [
+                {
+                  kind: "returnStatement",
+                  expression: {
+                    kind: "memberAccessExpression",
+                    expression: { kind: "identifierExpression", identifier: "this" },
+                    memberName: "statusCode",
+                  },
+                },
+              ],
+            },
+            setterBody: {
+              kind: "blockStatement",
+              statements: [
+                {
+                  kind: "expressionStatement",
+                  expression: {
+                    kind: "assignmentExpression",
+                    operatorToken: "=",
+                    left: {
+                      kind: "memberAccessExpression",
+                      expression: { kind: "identifierExpression", identifier: "this" },
+                      memberName: "statusCode",
+                    },
+                    right: { kind: "identifierExpression", identifier: "value" },
+                  },
+                },
+              ],
+            },
+          },
+          {
+            kind: "methodDeclaration",
+            attributes: [],
+            modifiers: [],
+            returnType: identifierType("global::System.Threading.Tasks.Task"),
+            name: "sendText",
+            explicitInterface: identifierType("global::Demo.TransportResponse"),
+            parameters: [
+              {
+                name: "text",
+                type: { kind: "predefinedType", keyword: "string" },
+              },
+            ],
+            body: {
+              kind: "blockStatement",
+              statements: [
+                {
+                  kind: "returnStatement",
+                  expression: {
+                    kind: "memberAccessExpression",
+                    expression: {
+                      kind: "qualifiedIdentifierExpression",
+                      name: {
+                        aliasQualifier: "global",
+                        segments: ["System", "Threading", "Tasks", "Task"],
+                      },
+                    },
+                    memberName: "CompletedTask",
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      ""
+    );
+
+    expect(printed).to.include(
+      "int global::Demo.TransportResponse.statusCode"
+    );
+    expect(printed).to.include(
+      "global::System.Threading.Tasks.Task global::Demo.TransportResponse.sendText(string text)"
+    );
   });
 
   it("prints type reference expressions structurally", () => {

@@ -16,6 +16,7 @@ import {
   IrParameter,
 } from "../../../types.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
+import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
 import type { Binding } from "../../../binding/index.js";
 
 /**
@@ -68,12 +69,13 @@ export const convertObjectType = (
 
   node.members.forEach((member) => {
     if (ts.isPropertySignature(member) && member.type) {
+      const memberName = tryResolveDeterministicPropertyName(member.name);
+      if (!memberName) {
+        return;
+      }
       const propSig: IrPropertySignature = {
         kind: "propertySignature",
-        name:
-          member.name && ts.isIdentifier(member.name)
-            ? member.name.text
-            : "[computed]",
+        name: memberName,
         type: convertType(member.type, binding),
         isOptional: !!member.questionToken,
         isReadonly: !!member.modifiers?.some(
@@ -82,12 +84,13 @@ export const convertObjectType = (
       };
       members.push(propSig);
     } else if (ts.isMethodSignature(member)) {
+      const memberName = tryResolveDeterministicPropertyName(member.name);
+      if (!memberName) {
+        return;
+      }
       const methSig: IrMethodSignature = {
         kind: "methodSignature",
-        name:
-          member.name && ts.isIdentifier(member.name)
-            ? member.name.text
-            : "[computed]",
+        name: memberName,
         parameters: convertTypeParameters(
           member.parameters,
           binding,

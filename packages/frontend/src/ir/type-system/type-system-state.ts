@@ -118,6 +118,14 @@ export type ResolvedCall = {
    */
   readonly typePredicate?: TypePredicateResult;
 
+  /** Internal deterministic selection metadata for overload correction/tie-breaking. */
+  readonly selectionMeta?: {
+    readonly hasRestParameter: boolean;
+    readonly typeParamCount: number;
+    readonly parameterCount: number;
+    readonly stableId: string;
+  };
+
   /** Diagnostics emitted during resolution */
   readonly diagnostics: readonly Diagnostic[];
 };
@@ -262,6 +270,20 @@ export type TypeSyntaxInfo = {
 export type ClassMemberNames = {
   readonly methods: ReadonlySet<string>;
   readonly properties: ReadonlySet<string>;
+  readonly methodSignatures: ReadonlyMap<
+    string,
+    readonly CapturedClassMethodSignature[]
+  >;
+  readonly propertyTypeNodes: ReadonlyMap<string, unknown | undefined>;
+};
+
+export type CapturedClassMethodSignature = {
+  readonly parameters: readonly CapturedClassMethodParameter[];
+};
+
+export type CapturedClassMethodParameter = {
+  readonly typeNode?: unknown;
+  readonly isRest: boolean;
 };
 
 /**

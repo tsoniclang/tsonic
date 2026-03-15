@@ -79,13 +79,18 @@ export const extractCalleeNameFromAst = (ast: CSharpExpressionAst): string => {
       return `${extractCalleeNameFromAst(ast.expression)}.${ast.memberName}`;
     case "parenthesizedExpression":
       return extractCalleeNameFromAst(ast.expression);
+    case "castExpression":
+    case "asExpression":
+    case "suppressNullableWarningExpression":
+    case "awaitExpression":
+      return extractCalleeNameFromAst(ast.expression);
     default:
       return `<${ast.kind}>`;
   }
 };
 
 export const stripNullableTypeAst = (type: CSharpTypeAst): CSharpTypeAst =>
-  type.kind === "nullableType" ? type.underlyingType : type;
+  type.kind === "nullableType" ? stripNullableTypeAst(type.underlyingType) : type;
 
 export const globallyQualifyTypeAst = (type: CSharpTypeAst): CSharpTypeAst => {
   switch (type.kind) {
@@ -113,10 +118,12 @@ export const globallyQualifyTypeAst = (type: CSharpTypeAst): CSharpTypeAst => {
             typeArguments: type.typeArguments?.map(globallyQualifyTypeAst),
           };
     case "nullableType":
-      return {
-        kind: "nullableType",
-        underlyingType: globallyQualifyTypeAst(type.underlyingType),
-      };
+      return type.underlyingType.kind === "nullableType"
+        ? globallyQualifyTypeAst(type.underlyingType)
+        : {
+            kind: "nullableType",
+            underlyingType: globallyQualifyTypeAst(type.underlyingType),
+          };
     case "arrayType":
       return {
         kind: "arrayType",
@@ -227,7 +234,9 @@ export const stableTypeKeyFromAst = (type: CSharpTypeAst): string => {
       return `qualifiedIdentifier:${qualifiedNameToString(type.name)}${args}`;
     }
     case "nullableType":
-      return `nullable:${stableTypeKeyFromAst(type.underlyingType)}`;
+      return `nullable:${stableTypeKeyFromAst(
+        stripNullableTypeAst(type.underlyingType)
+      )}`;
     case "arrayType":
       return `array:${type.rank}:${stableTypeKeyFromAst(type.elementType)}`;
     case "pointerType":

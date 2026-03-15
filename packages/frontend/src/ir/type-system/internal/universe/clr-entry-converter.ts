@@ -15,6 +15,7 @@ import * as fs from "fs";
 import * as ts from "typescript";
 import type { IrType } from "../../../types/index.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
+import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
 import type {
   TypeId,
   NominalEntry,
@@ -122,12 +123,8 @@ export const extractHeritageFromTsBindgenDts = (
     }
   };
 
-  const getPropertyNameText = (name: ts.PropertyName): string | undefined => {
-    if (ts.isIdentifier(name)) return name.text;
-    if (ts.isStringLiteral(name)) return name.text;
-    if (ts.isNumericLiteral(name)) return name.text;
-    return undefined;
-  };
+  const getPropertyNameText = (name: ts.PropertyName): string | undefined =>
+    tryResolveDeterministicPropertyName(name);
 
   const extractMethodSignatureOptionalsFromMembers = (
     baseTsName: string,

@@ -10,12 +10,14 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
   hasDeterministicPropertyMembership,
   isDefinitelyValueType,
 } from "../../core/semantic/type-resolution.js";
+import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
 import {
   isCharTyped,
   isStringTyped,
@@ -234,15 +236,33 @@ export const emitBinary = (
   // Handle instanceof operator specially
   if (expr.operator === "instanceof") {
     const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
-    const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
-    // For `is`, convert expression to type name (extract from identifierExpression)
-    const rightText = extractCalleeNameFromAst(rightAst);
+    const normalizedTargetType = normalizeInstanceofTargetType(
+      expr.right.inferredType
+    );
+    let rightContext = leftContext;
+    let rightText: string | undefined;
+
+    if (normalizedTargetType) {
+      const [rightTypeAst, nextContext] = emitTypeAst(
+        normalizedTargetType,
+        leftContext
+      );
+      rightText = extractCalleeNameFromAst({
+        kind: "typeReferenceExpression",
+        type: rightTypeAst,
+      });
+      rightContext = nextContext;
+    } else {
+      const [rightAst, nextContext] = emitExpressionAst(expr.right, leftContext);
+      rightText = extractCalleeNameFromAst(rightAst);
+      rightContext = nextContext;
+    }
     const isExpr: CSharpExpressionAst = {
       kind: "isExpression",
       expression: leftAst,
       pattern: {
         kind: "typePattern",
-        type: identifierType(rightText),
+        type: identifierType(rightText ?? "object"),
       },
     };
     return [isExpr, rightContext];

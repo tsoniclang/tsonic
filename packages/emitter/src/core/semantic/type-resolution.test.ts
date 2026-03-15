@@ -9,6 +9,7 @@ import {
   containsTypeParameter,
   substituteTypeArgs,
   getPropertyType,
+  getArrayLikeElementType,
   selectUnionMemberForObjectLiteral,
   stripNullish,
   isDefinitelyValueType,
@@ -76,6 +77,66 @@ describe("type-resolution", () => {
       const type: IrType = { kind: "primitiveType", name: "number" };
       expect(containsTypeParameter(type)).to.be.false;
     });
+
+    it("does not recurse infinitely through recursive structural unions", () => {
+      const routerType = {
+        kind: "referenceType",
+        name: "Router",
+        resolvedClrType: "global::System.Object",
+        structuralMembers: [],
+      } as unknown as Extract<IrType, { kind: "referenceType" }> & {
+        structuralMembers: unknown[];
+      };
+
+      const middlewareLike = {
+        kind: "unionType",
+        types: [],
+      } as unknown as Extract<IrType, { kind: "unionType" }> & {
+        types: IrType[];
+      };
+
+      middlewareLike.types.push(routerType, {
+        kind: "arrayType",
+        elementType: middlewareLike,
+      });
+
+      routerType.structuralMembers = [
+        {
+          kind: "methodSignature",
+          name: "use",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "handlers" },
+              type: middlewareLike,
+              initializer: undefined,
+              isOptional: false,
+              isRest: true,
+              passing: "value",
+            },
+          ],
+          returnType: routerType,
+        },
+      ];
+
+      expect(containsTypeParameter(middlewareLike)).to.equal(false);
+    });
+
+    it("finds type parameters through recursive structural unions", () => {
+      const recursive = {
+        kind: "unionType",
+        types: [],
+      } as unknown as Extract<IrType, { kind: "unionType" }> & {
+        types: IrType[];
+      };
+
+      recursive.types.push({ kind: "typeParameterType", name: "T" }, {
+        kind: "arrayType",
+        elementType: recursive,
+      });
+
+      expect(containsTypeParameter(recursive)).to.equal(true);
+    });
   });
 
   describe("substituteTypeArgs", () => {
@@ -141,6 +202,39 @@ describe("type-resolution", () => {
       const result = substituteTypeArgs(type, typeParamNames, typeArgs);
 
       expect(result).to.deep.equal({ kind: "referenceType", name: "SomeType" });
+    });
+
+    it("preserves recursive structural graphs while substituting nested type parameters", () => {
+      const recursive = {
+        kind: "unionType",
+        types: [],
+      } as unknown as Extract<IrType, { kind: "unionType" }> & {
+        types: IrType[];
+      };
+
+      recursive.types.push({ kind: "typeParameterType", name: "T" }, {
+        kind: "arrayType",
+        elementType: recursive,
+      });
+
+      const substituted = substituteTypeArgs(recursive, ["T"], [
+        { kind: "primitiveType", name: "string" },
+      ]);
+
+      expect(substituted.kind).to.equal("unionType");
+      if (substituted.kind !== "unionType") {
+        return;
+      }
+      expect(substituted.types[0]).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+      const recursiveArray = substituted.types[1];
+      expect(recursiveArray?.kind).to.equal("arrayType");
+      if (!recursiveArray || recursiveArray.kind !== "arrayType") {
+        return;
+      }
+      expect(recursiveArray.elementType).to.equal(substituted);
     });
   });
 
@@ -424,6 +518,70 @@ describe("type-resolution", () => {
       expect(result).to.deep.equal({
         kind: "arrayType",
         elementType: { kind: "primitiveType", name: "string" },
+      });
+    });
+  });
+
+  describe("getArrayLikeElementType", () => {
+    const defaultOptions: EmitterOptions = {
+      rootNamespace: "Test",
+      indent: 4,
+    };
+
+    const createContext = (
+      localTypes: ReadonlyMap<string, LocalTypeInfo>
+    ): EmitterContext => ({
+      indentLevel: 0,
+      options: defaultOptions,
+      isStatic: false,
+      isAsync: false,
+      localTypes,
+      usings: new Set<string>(),
+    });
+
+    it("resolves array element types through local aliases", () => {
+      const context = createContext(
+        new Map([
+          [
+            "MiddlewareArgs",
+            {
+              kind: "typeAlias",
+              typeParameters: [],
+              type: {
+                kind: "arrayType",
+                elementType: { kind: "referenceType", name: "MiddlewareLike" },
+              },
+            },
+          ],
+        ])
+      );
+
+      const result = getArrayLikeElementType(
+        { kind: "referenceType", name: "MiddlewareArgs" },
+        context
+      );
+
+      expect(result).to.deep.equal({
+        kind: "referenceType",
+        name: "MiddlewareLike",
+      });
+    });
+
+    it("resolves ReadonlyArray element types through generic references", () => {
+      const context = createContext(new Map());
+
+      const result = getArrayLikeElementType(
+        {
+          kind: "referenceType",
+          name: "ReadonlyArray",
+          typeArguments: [{ kind: "primitiveType", name: "string" }],
+        },
+        context
+      );
+
+      expect(result).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
       });
     });
   });

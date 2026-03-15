@@ -80,7 +80,8 @@ export const detectOverride = (
     return ctx.typeSystem.checkTsClassMemberOverride(
       declId,
       memberName,
-      memberKind
+      memberKind,
+      parameters
     );
   }
 

@@ -13,6 +13,7 @@ import type {
   TypeParameterNode,
   SignatureTypePredicate,
   ClassMemberNames,
+  CapturedClassMethodSignature,
 } from "../type-system/internal/handle-types.js";
 import type { ParameterMode } from "../type-system/types.js";
 
@@ -418,6 +419,8 @@ export const extractClassMemberNames = (
 ): ClassMemberNames => {
   const methods = new Set<string>();
   const properties = new Set<string>();
+  const methodSignatures = new Map<string, CapturedClassMethodSignature[]>();
+  const propertyTypeNodes = new Map<string, ts.TypeNode | undefined>();
 
   for (const member of classDecl.members) {
     // Get member name if it has an identifier
@@ -440,16 +443,33 @@ export const extractClassMemberNames = (
 
     if (ts.isMethodDeclaration(member)) {
       methods.add(name);
+      const signatures = methodSignatures.get(name) ?? [];
+      signatures.push({
+        parameters: member.parameters.map((parameter) => ({
+          typeNode: parameter.type,
+          isRest: !!parameter.dotDotDotToken,
+        })),
+      });
+      methodSignatures.set(name, signatures);
     } else if (ts.isPropertyDeclaration(member)) {
       properties.add(name);
+      propertyTypeNodes.set(name, member.type);
     } else if (
       ts.isGetAccessorDeclaration(member) ||
       ts.isSetAccessorDeclaration(member)
     ) {
       // Accessors are treated as properties for override detection
       properties.add(name);
+      if (!propertyTypeNodes.has(name)) {
+        propertyTypeNodes.set(
+          name,
+          ts.isGetAccessorDeclaration(member)
+            ? member.type
+            : member.parameters[0]?.type
+        );
+      }
     }
   }
 
-  return { methods, properties };
+  return { methods, properties, methodSignatures, propertyTypeNodes };
 };

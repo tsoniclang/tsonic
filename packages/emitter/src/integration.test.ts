@@ -224,6 +224,46 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).not.to.match(/global::System\.Func\s*<\s*void\s*>/);
     });
+
+    it("synthesizes ignored trailing required delegate parameters for contextual zero-arg lambdas", () => {
+      const source = `
+        type Next = (value: string) => void;
+
+        function consume(next: Next): void {
+          next("ok");
+        }
+
+        export function main(): void {
+          consume(() => undefined);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /consume\(\(string __unused_value\)\s*=>\s*\{?\s*return/
+      );
+    });
+
+    it("synthesizes ignored trailing optional delegate parameters while preserving declared lambda parameters", () => {
+      const source = `
+        type Mapper = (value: string, index?: number) => string;
+
+        function apply(mapper: Mapper): void {
+          mapper("ok", 1);
+        }
+
+        export function main(): void {
+          apply((value) => value);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /apply\(\(string value,\s*double\? __unused_index\)\s*=>/
+      );
+    });
   });
 
   describe("Generic Functions", () => {
@@ -990,8 +1030,66 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("await flush();");
+      expect(csharp).to.include("await flush().AsTask();");
       expect(csharp).not.to.include("Task.FromResult");
+    });
+
+    it("normalizes mixed Promise-or-value unions before await", () => {
+      const source = `
+        declare function maybeLoad(flag: boolean): string | Promise<string>;
+
+        export async function run(flag: boolean): Promise<string> {
+          return await maybeLoad(flag);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("await maybeLoad(flag).Match(");
+      expect(csharp).to.include("Task.FromResult(__tsonic_await_value_0)");
+    });
+
+    it("normalizes mixed Task-or-void unions before await", () => {
+      const source = `
+        import type { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
+        declare function maybeFlush(flag: boolean): void | Task;
+
+        export async function run(flag: boolean): Promise<void> {
+          await maybeFlush(flag);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include(
+        "await (maybeFlush(flag) ?? global::System.Threading.Tasks.Task.CompletedTask);"
+      );
+      expect(csharp).not.to.include("Match((void");
+    });
+
+    it("normalizes async function values assigned to mixed value-or-promise handler contracts", () => {
+      const source = `
+        type NextControl = "route" | string | undefined;
+        type NextFunction = (value?: NextControl) => void | Promise<void>;
+        type RequestHandler = (next: NextFunction) => unknown | Promise<unknown>;
+
+        export function build(): RequestHandler {
+          const handler: RequestHandler = async (next) => {
+            await next("route");
+          };
+          return handler;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include(
+        "global::Tsonic.Runtime.Union<object?, global::System.Threading.Tasks.Task<object?>>.From2(global::System.Threading.Tasks.Task.Run<object?>"
+      );
+      expect(csharp).to.include(
+        'await (next("route") ?? global::System.Threading.Tasks.Task.CompletedTask);'
+      );
     });
   });
 
@@ -1457,6 +1555,48 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "new global::System.Collections.Generic.Dictionary"
       );
+    });
+
+    it("erases inline structural type assertions without anonymous-type cast emission", () => {
+      const source = `
+        export function getArity(handler: unknown): number {
+          if (typeof handler !== "function") {
+            return 0;
+          }
+
+          const maybeFunction = handler as unknown as { readonly length?: number };
+          return typeof maybeFunction.length === "number" ? maybeFunction.length : 0;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).not.to.include(
+        "ICE: Anonymous object type reached emitter"
+      );
+      expect(csharp).to.include("var maybeFunction = handler;");
+      expect(csharp).to.include("maybeFunction.length");
+    });
+
+    it("erases named structural type assertions without CLR runtime casts", () => {
+      const source = `
+        interface HandlerShape {
+          readonly length?: number;
+        }
+
+        export function getArity(handler: unknown): number {
+          if (typeof handler !== "function") {
+            return 0;
+          }
+
+          const maybeFunction = handler as unknown as HandlerShape;
+          return typeof maybeFunction.length === "number" ? maybeFunction.length : 0;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).not.to.match(/\(\(.*HandlerShape.*\)handler\)/);
+      expect(csharp).to.include("var maybeFunction = handler;");
+      expect(csharp).to.include("maybeFunction.length");
     });
   });
 

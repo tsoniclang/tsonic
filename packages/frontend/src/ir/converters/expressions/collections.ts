@@ -254,10 +254,7 @@ export const convertArrayLiteral = (
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): IrArrayExpression => {
-  const contextualArrayType =
-    expectedType?.kind === "arrayType" && !containsTypeParameter(expectedType)
-      ? expectedType
-      : undefined;
+  const contextualArrayType = normalizeExpectedArrayType(expectedType, ctx);
 
   // Determine element expected type from array expected type
   const expectedElementType = contextualArrayType?.elementType;
@@ -499,23 +496,37 @@ const normalizeExpectedFunctionType = (
   ctx: ProgramContext
 ): IrFunctionType | undefined => {
   if (!expectedType) return undefined;
-  if (expectedType.kind === "functionType") return expectedType;
-
-  const delegated = ctx.typeSystem.delegateToFunctionType(expectedType);
-  if (delegated) return delegated;
-
-  if (expectedType.kind !== "unionType") return undefined;
-
-  const candidates = expectedType.types
+  const candidates = ctx.typeSystem
+    .collectExpectedReturnCandidates(expectedType)
     .filter(
       (member): member is IrType => !!member && !isNullishPrimitive(member)
     )
-    .map((member) =>
-      member.kind === "functionType"
-        ? member
-        : ctx.typeSystem.delegateToFunctionType(member)
-    )
+    .map((member) => {
+      if (member.kind === "functionType") return member;
+      return ctx.typeSystem.delegateToFunctionType(member);
+    })
     .filter((member): member is IrFunctionType => member !== undefined);
+
+  return candidates.length === 1 ? candidates[0] : undefined;
+};
+
+const normalizeExpectedArrayType = (
+  expectedType: IrType | undefined,
+  ctx: ProgramContext
+): Extract<IrType, { kind: "arrayType" }> | undefined => {
+  if (!expectedType) return undefined;
+
+  const candidates = ctx.typeSystem
+    .collectExpectedReturnCandidates(expectedType)
+    .filter(
+      (member): member is IrType => !!member && !isNullishPrimitive(member)
+    )
+    .filter(
+      (
+        member
+      ): member is Extract<IrType, { kind: "arrayType" }> =>
+        member.kind === "arrayType" && !containsTypeParameter(member)
+    );
 
   return candidates.length === 1 ? candidates[0] : undefined;
 };

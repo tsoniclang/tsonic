@@ -7,6 +7,7 @@ import {
   IrInterfaceDeclaration,
   IrInterfaceMember,
   IrTypeAliasDeclaration,
+  IrFunctionType,
   IrType,
 } from "../../../types.js";
 import {
@@ -16,6 +17,7 @@ import {
   convertParameters,
 } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
+import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
 
 /**
  * Convert interface member
@@ -25,10 +27,11 @@ export const convertInterfaceMember = (
   ctx: ProgramContext
 ): IrInterfaceMember | null => {
   if (ts.isPropertySignature(node) && node.type) {
+    const memberName = tryResolveDeterministicPropertyName(node.name);
+    if (!memberName) return null;
     return {
       kind: "propertySignature",
-      name:
-        node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
+      name: memberName,
       type: ctx.typeSystem.typeFromSyntax(
         ctx.binding.captureTypeSyntax(node.type)
       ),
@@ -38,10 +41,11 @@ export const convertInterfaceMember = (
   }
 
   if (ts.isMethodSignature(node)) {
+    const memberName = tryResolveDeterministicPropertyName(node.name);
+    if (!memberName) return null;
     return {
       kind: "methodSignature",
-      name:
-        node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
+      name: memberName,
       typeParameters: convertTypeParameters(node.typeParameters, ctx),
       parameters: convertParameters(node.parameters, ctx),
       returnType: node.type
@@ -147,6 +151,66 @@ const extractIndexSignatureOnlyInterface = (
   return { keyType, valueType };
 };
 
+const convertCallSignatureType = (
+  node: ts.CallSignatureDeclaration,
+  ctx: ProgramContext
+): IrFunctionType | undefined => {
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    return undefined;
+  }
+
+  return {
+    kind: "functionType",
+    parameters: convertParameters(node.parameters, ctx),
+    returnType: node.type
+      ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
+      : { kind: "voidType" },
+  };
+};
+
+const extractCallableInterfaceOnlyType = (
+  node: ts.InterfaceDeclaration,
+  ctx: ProgramContext
+): IrType | undefined => {
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    return undefined;
+  }
+  if (node.heritageClauses && node.heritageClauses.length > 0) {
+    return undefined;
+  }
+  if (node.members.length === 0) {
+    return undefined;
+  }
+  if (!node.members.every((member) => ts.isCallSignatureDeclaration(member))) {
+    return undefined;
+  }
+
+  const signatures: IrFunctionType[] = [];
+  for (const member of node.members) {
+    if (!ts.isCallSignatureDeclaration(member)) {
+      return undefined;
+    }
+    const signature = convertCallSignatureType(member, ctx);
+    if (!signature) {
+      return undefined;
+    }
+    signatures.push(signature);
+  }
+
+  if (signatures.length === 0) {
+    return undefined;
+  }
+
+  if (signatures.length === 1) {
+    return signatures[0];
+  }
+
+  return {
+    kind: "intersectionType",
+    types: signatures,
+  };
+};
+
 /**
  * Check if an interface declaration IS the struct marker itself (should be filtered out)
  */
@@ -198,6 +262,18 @@ export const convertInterfaceDeclaration = (
         keyType: dictInfo.keyType,
         valueType: dictInfo.valueType,
       },
+      isExported: hasExportModifier(node),
+      isStruct: false,
+    };
+  }
+
+  const callableType = extractCallableInterfaceOnlyType(node, ctx);
+  if (callableType) {
+    return {
+      kind: "typeAliasDeclaration",
+      name: node.name.text,
+      typeParameters: [],
+      type: callableType,
       isExported: hasExportModifier(node),
       isStruct: false,
     };

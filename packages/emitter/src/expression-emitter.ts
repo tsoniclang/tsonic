@@ -16,6 +16,7 @@ import {
   IrDefaultOfExpression,
   IrNameOfExpression,
   IrSizeOfExpression,
+  stableIrTypeKey,
 } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
@@ -26,6 +27,7 @@ import {
   getPropertyType,
   getAllPropertySignatures,
   resolveLocalTypeInfo,
+  isTypeOnlyStructuralTarget,
 } from "./core/semantic/type-resolution.js";
 import type {
   CSharpExpressionAst,
@@ -67,6 +69,7 @@ import {
   emitAwait,
 } from "./expressions/other.js";
 import type { LocalTypeInfo } from "./emitter-types/core.js";
+import { getMemberAccessNarrowKey } from "./core/semantic/narrowing-keys.js";
 
 type StructuralPropertyInfo = {
   readonly name: string;
@@ -643,13 +646,21 @@ const tryAdaptStructuralExpressionAst = (
   }
 
   const strippedExpectedType = stripNullish(expectedType);
+  const resolvedExpectedType = resolveTypeAlias(strippedExpectedType, context);
+  if (
+    resolvedExpectedType.kind === "referenceType" &&
+    resolvedExpectedType.name === "object"
+  ) {
+    return [emittedAst, context];
+  }
+
   const anonymousStructuralTarget = resolveAnonymousStructuralReferenceType(
     expectedType,
     context
   );
   const targetStructuralType =
     anonymousStructuralTarget ??
-    resolveTypeAlias(strippedExpectedType, context);
+    resolvedExpectedType;
   const targetEmissionType =
     anonymousStructuralTarget ??
     (strippedExpectedType.kind === "referenceType"
@@ -1239,21 +1250,6 @@ const maybeUnwrapNullableValueTypeAst = (
     return [ast, context];
   }
 
-  const getMemberAccessNarrowKey = (
-    m: Extract<IrExpression, { kind: "memberAccess" }>
-  ): string | undefined => {
-    if (m.isComputed) return undefined;
-    if (typeof m.property !== "string") return undefined;
-
-    const obj = m.object;
-    if (obj.kind === "identifier") return `${obj.name}.${m.property}`;
-    if (obj.kind === "memberAccess") {
-      const prefix = getMemberAccessNarrowKey(obj);
-      return prefix ? `${prefix}.${m.property}` : undefined;
-    }
-    return undefined;
-  };
-
   if (
     context.narrowedBindings &&
     ((expr.kind === "identifier" && context.narrowedBindings.has(expr.name)) ||
@@ -1293,8 +1289,19 @@ const normalizeComparableType = (
 const areIrTypesEquivalent = (
   left: IrType,
   right: IrType,
-  context: EmitterContext
+  context: EmitterContext,
+  visited: WeakMap<object, WeakSet<object>> = new WeakMap()
 ): boolean => {
+  const seenRight = visited.get(left);
+  if (seenRight?.has(right)) {
+    return true;
+  }
+  if (seenRight) {
+    seenRight.add(right);
+  } else {
+    visited.set(left, new WeakSet([right]));
+  }
+
   const a = normalizeComparableType(left, context);
   const b = normalizeComparableType(right, context);
 
@@ -1322,12 +1329,23 @@ const areIrTypesEquivalent = (
       return areIrTypesEquivalent(
         a.elementType,
         (b as typeof a).elementType,
-        context
+        context,
+        visited
       );
     case "dictionaryType":
       return (
-        areIrTypesEquivalent(a.keyType, (b as typeof a).keyType, context) &&
-        areIrTypesEquivalent(a.valueType, (b as typeof a).valueType, context)
+        areIrTypesEquivalent(
+          a.keyType,
+          (b as typeof a).keyType,
+          context,
+          visited
+        ) &&
+        areIrTypesEquivalent(
+          a.valueType,
+          (b as typeof a).valueType,
+          context,
+          visited
+        )
       );
     case "tupleType": {
       const rb = b as typeof a;
@@ -1335,7 +1353,8 @@ const areIrTypesEquivalent = (
       for (let i = 0; i < a.elementTypes.length; i++) {
         const ae = a.elementTypes[i];
         const be = rb.elementTypes[i];
-        if (!ae || !be || !areIrTypesEquivalent(ae, be, context)) return false;
+        if (!ae || !be || !areIrTypesEquivalent(ae, be, context, visited))
+          return false;
       }
       return true;
     }
@@ -1348,9 +1367,15 @@ const areIrTypesEquivalent = (
         if (!ap || !bp) return false;
         if (!ap.type && !bp.type) continue;
         if (!ap.type || !bp.type) return false;
-        if (!areIrTypesEquivalent(ap.type, bp.type, context)) return false;
+        if (!areIrTypesEquivalent(ap.type, bp.type, context, visited))
+          return false;
       }
-      return areIrTypesEquivalent(a.returnType, rb.returnType, context);
+      return areIrTypesEquivalent(
+        a.returnType,
+        rb.returnType,
+        context,
+        visited
+      );
     }
     case "unionType":
     case "intersectionType": {
@@ -1364,7 +1389,7 @@ const areIrTypesEquivalent = (
           if (used.has(i)) continue;
           const bt = rb.types[i];
           if (!bt) continue;
-          if (areIrTypesEquivalent(at, bt, context)) {
+          if (areIrTypesEquivalent(at, bt, context, visited)) {
             used.add(i);
             matched = true;
             break;
@@ -1393,7 +1418,8 @@ const areIrTypesEquivalent = (
           bm.kind === "propertySignature"
         ) {
           if (am.name !== bm.name) return false;
-          if (!areIrTypesEquivalent(am.type, bm.type, context)) return false;
+          if (!areIrTypesEquivalent(am.type, bm.type, context, visited))
+            return false;
           continue;
         }
         if (am.kind === "methodSignature" && bm.kind === "methodSignature") {
@@ -1404,10 +1430,18 @@ const areIrTypesEquivalent = (
             const bp = bm.parameters[j];
             if (!ap || !bp) return false;
             if (!ap.type || !bp.type) return false;
-            if (!areIrTypesEquivalent(ap.type, bp.type, context)) return false;
+            if (!areIrTypesEquivalent(ap.type, bp.type, context, visited))
+              return false;
           }
           if (!am.returnType || !bm.returnType) return false;
-          if (!areIrTypesEquivalent(am.returnType, bm.returnType, context))
+          if (
+            !areIrTypesEquivalent(
+              am.returnType,
+              bm.returnType,
+              context,
+              visited
+            )
+          )
             return false;
           continue;
         }
@@ -1504,6 +1538,92 @@ const maybeUpcastDictionaryUnionValueAst = (
   };
 
   return [converted, ctx1];
+};
+
+const buildUnionFactoryCallAst = (
+  unionTypeAst: CSharpTypeAst,
+  memberIndex: number,
+  valueAst: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: {
+    kind: "memberAccessExpression",
+    expression: {
+      kind: "typeReferenceExpression",
+      type: unionTypeAst,
+    },
+    memberName: `From${memberIndex}`,
+  },
+  arguments: [valueAst],
+});
+
+const maybeUpcastExpressionToExpectedTypeAst = (
+  ast: CSharpExpressionAst,
+  actualType: IrType | undefined,
+  context: EmitterContext,
+  expectedType: IrType | undefined,
+  visited: ReadonlySet<string> = new Set<string>()
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!actualType || !expectedType) return undefined;
+
+  if (areIrTypesEquivalent(actualType, expectedType, context)) {
+    return [ast, context];
+  }
+
+  const normalizedExpected = normalizeComparableType(expectedType, context);
+  const visitKey = `${stableIrTypeKey(actualType)}=>${stableIrTypeKey(normalizedExpected)}`;
+  if (visited.has(visitKey)) {
+    return undefined;
+  }
+  const nextVisited = new Set(visited);
+  nextVisited.add(visitKey);
+
+  const adapted = tryAdaptStructuralExpressionAst(
+    ast,
+    actualType,
+    context,
+    expectedType
+  );
+  if (adapted) {
+    return adapted;
+  }
+
+  if (normalizedExpected.kind !== "unionType") {
+    return undefined;
+  }
+
+  for (let index = 0; index < normalizedExpected.types.length; index += 1) {
+    const member = normalizedExpected.types[index];
+    if (!member) continue;
+
+    const nested = maybeUpcastExpressionToExpectedTypeAst(
+      ast,
+      actualType,
+      context,
+      member,
+      nextVisited
+    );
+    if (!nested) continue;
+
+    const [unionTypeAst, unionTypeContext] = emitTypeAst(expectedType, nested[1]);
+    const concreteUnionTypeAst =
+      unionTypeAst.kind === "nullableType"
+        ? unionTypeAst.underlyingType
+        : unionTypeAst;
+    if (
+      concreteUnionTypeAst.kind !== "identifierType" &&
+      concreteUnionTypeAst.kind !== "qualifiedIdentifierType"
+    ) {
+      continue;
+    }
+
+    return [
+      buildUnionFactoryCallAst(concreteUnionTypeAst, index + 1, nested[0]),
+      unionTypeContext,
+    ];
+  }
+
+  return undefined;
 };
 
 const isCharIrType = (
@@ -1633,6 +1753,10 @@ const emitTypeAssertion = (
 
   const shouldEraseTypeAssertion = (target: IrType): boolean => {
     const resolved = resolveLocalTypeAliases(target);
+
+    if (isTypeOnlyStructuralTarget(resolved, ctx1)) {
+      return true;
+    }
 
     if (resolved.kind === "unknownType") {
       return true;
@@ -1853,7 +1977,7 @@ export const emitExpressionAst = (
         return emitMemberAccess(expr, context, "value", expectedType);
 
       case "call":
-        return emitCall(expr, context);
+        return emitCall(expr, context, expectedType);
 
       case "new":
         return emitNew(expr, context);
@@ -1877,10 +2001,10 @@ export const emitExpressionAst = (
         return emitConditional(expr, context, expectedType);
 
       case "functionExpression":
-        return emitFunctionExpression(expr, context);
+        return emitFunctionExpression(expr, context, expectedType);
 
       case "arrowFunction":
-        return emitArrowFunction(expr, context);
+        return emitArrowFunction(expr, context, expectedType);
 
       case "templateLiteral":
         return emitTemplateLiteral(expr, context);
@@ -1943,13 +2067,20 @@ export const emitExpressionAst = (
     castedContext,
     expectedType
   );
-  const [materializedAst, materializedContext] =
-    tryAdaptStructuralExpressionAst(
+  const [unionAdjustedAst, unionAdjustedContext] =
+    maybeUpcastExpressionToExpectedTypeAst(
       dictUpcastAst,
       expr.inferredType,
       dictUpcastContext,
       expectedType
     ) ?? [dictUpcastAst, dictUpcastContext];
+  const [materializedAst, materializedContext] =
+    tryAdaptStructuralExpressionAst(
+      unionAdjustedAst,
+      expr.inferredType,
+      unionAdjustedContext,
+      expectedType
+    ) ?? [unionAdjustedAst, unionAdjustedContext];
   const [stringAdjustedAst, stringAdjustedContext] =
     maybeConvertCharToStringAst(
       expr,

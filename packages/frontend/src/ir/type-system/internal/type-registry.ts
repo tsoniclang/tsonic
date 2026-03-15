@@ -18,8 +18,10 @@ import type {
   IrMethodSignature,
   IrInterfaceMember,
 } from "../../types/index.js";
+import { stableIrTypeKey } from "../../types/type-ops.js";
 import { getNamespaceFromPath } from "../../../resolver/namespace.js";
 import { normalizeToClrName } from "./universe/alias-table.js";
+import { tryResolveDeterministicPropertyName } from "../../syntax/property-names.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CANONICAL CLR NAME HELPERS
@@ -300,7 +302,7 @@ const resolveHeritageTypeName = (
   return ns ? `${ns}.${simpleName}` : simpleName;
 };
 
-const stableTypeKey = (type: IrType): string => JSON.stringify(type);
+const stableTypeKey = (type: IrType): string => stableIrTypeKey(type);
 
 const inferExpressionTypeSyntax = (
   expr: ts.Expression,
@@ -406,20 +408,6 @@ const inferExpressionTypeSyntax = (
   }
 
   if (ts.isObjectLiteralExpression(current)) {
-    const getPropertyName = (name: ts.PropertyName): string | undefined => {
-      if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
-        return name.text;
-      }
-      if (
-        ts.isComputedPropertyName(name) &&
-        (ts.isStringLiteral(name.expression) ||
-          ts.isNoSubstitutionTemplateLiteral(name.expression))
-      ) {
-        return name.expression.text;
-      }
-      return undefined;
-    };
-
     const members: IrInterfaceMember[] = [];
     for (const property of current.properties) {
       if (ts.isSpreadAssignment(property) || ts.isShorthandPropertyAssignment(property)) {
@@ -427,7 +415,7 @@ const inferExpressionTypeSyntax = (
       }
 
       if (ts.isPropertyAssignment(property)) {
-        const name = getPropertyName(property.name);
+        const name = tryResolveDeterministicPropertyName(property.name);
         if (!name) return undefined;
         const propertyType = inferExpressionTypeSyntax(
           property.initializer,
@@ -445,7 +433,7 @@ const inferExpressionTypeSyntax = (
       }
 
       if (ts.isMethodDeclaration(property)) {
-        const name = getPropertyName(property.name);
+        const name = tryResolveDeterministicPropertyName(property.name);
         if (!name) return undefined;
         const parameters = property.parameters.map((parameter, index) => ({
           kind: "parameter" as const,
@@ -574,7 +562,8 @@ const extractMembers = (
 
     // Property declarations (class)
     if (ts.isPropertyDeclaration(member)) {
-      const name = member.name.getText();
+      const name = tryResolveDeterministicPropertyName(member.name);
+      if (!name) continue;
       // Class-property optionality must track `?` only.
       // A field initializer does not make the property optional.
       const isOptional = member.questionToken !== undefined;
@@ -592,7 +581,8 @@ const extractMembers = (
 
     // Property signatures (interface)
     if (ts.isPropertySignature(member)) {
-      const name = member.name.getText();
+      const name = tryResolveDeterministicPropertyName(member.name);
+      if (!name) continue;
       result.set(name, {
         kind: "property",
         name,
@@ -609,7 +599,8 @@ const extractMembers = (
       ts.isGetAccessorDeclaration(member) ||
       ts.isSetAccessorDeclaration(member)
     ) {
-      const name = member.name.getText();
+      const name = tryResolveDeterministicPropertyName(member.name);
+      if (!name) continue;
       const existing = result.get(name);
       result.set(name, {
         kind: "property",
@@ -624,7 +615,8 @@ const extractMembers = (
 
     // Method declarations (class)
     if (ts.isMethodDeclaration(member)) {
-      const name = member.name.getText();
+      const name = tryResolveDeterministicPropertyName(member.name);
+      if (!name) continue;
       const existing = result.get(name);
       const newSig = convertMethodToSignature(member, convertType);
       const signatures = existing?.methodSignatures
@@ -642,7 +634,8 @@ const extractMembers = (
 
     // Method signatures (interface)
     if (ts.isMethodSignature(member)) {
-      const name = member.name.getText();
+      const name = tryResolveDeterministicPropertyName(member.name);
+      if (!name) continue;
       const existing = result.get(name);
       const newSig = convertMethodSignatureToIr(member, convertType);
       const signatures = existing?.methodSignatures
@@ -731,6 +724,61 @@ const extractMembersFromAliasedObjectType = (
   return result;
 };
 
+const convertCallableInterfaceOnlyType = (
+  node: ts.InterfaceDeclaration,
+  convertType: ConvertTypeFn
+): IrType | undefined => {
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    return undefined;
+  }
+  if (node.heritageClauses && node.heritageClauses.length > 0) {
+    return undefined;
+  }
+  if (node.members.length === 0) {
+    return undefined;
+  }
+  if (!node.members.every((member) => ts.isCallSignatureDeclaration(member))) {
+    return undefined;
+  }
+
+  const signatures: IrType[] = [];
+  for (const member of node.members) {
+    if (!ts.isCallSignatureDeclaration(member)) {
+      return undefined;
+    }
+    if (member.typeParameters && member.typeParameters.length > 0) {
+      return undefined;
+    }
+    signatures.push({
+      kind: "functionType",
+      parameters: member.parameters.map((param) => ({
+        kind: "parameter",
+        pattern: {
+          kind: "identifierPattern",
+          name: ts.isIdentifier(param.name) ? param.name.text : "[computed]",
+        },
+        type: param.type ? convertType(param.type) : undefined,
+        initializer: undefined,
+        isOptional: !!param.questionToken,
+        isRest: !!param.dotDotDotToken,
+        passing: "value",
+      })),
+      returnType: member.type ? convertType(member.type) : { kind: "voidType" },
+    });
+  }
+
+  if (signatures.length === 0) {
+    return undefined;
+  }
+  if (signatures.length === 1) {
+    return signatures[0];
+  }
+  return {
+    kind: "intersectionType",
+    types: signatures,
+  };
+};
+
 /**
  * Convert method declaration to IrMethodSignature
  */
@@ -739,7 +787,7 @@ const convertMethodToSignature = (
   convertType: ConvertTypeFn
 ): IrMethodSignature => ({
   kind: "methodSignature",
-  name: method.name.getText(),
+  name: tryResolveDeterministicPropertyName(method.name) ?? "[computed]",
   parameters: method.parameters.map((p) => ({
     kind: "parameter" as const,
     pattern: {
@@ -768,7 +816,7 @@ const convertMethodSignatureToIr = (
   convertType: ConvertTypeFn
 ): IrMethodSignature => ({
   kind: "methodSignature",
-  name: method.name.getText(),
+  name: tryResolveDeterministicPropertyName(method.name) ?? "[computed]",
   parameters: method.parameters.map((p) => ({
     kind: "parameter" as const,
     pattern: {
@@ -920,26 +968,59 @@ export const buildTypeRegistry = (
     if (ts.isInterfaceDeclaration(node)) {
       const simpleName = node.name.text;
       const fqName = makeFQName(simpleName);
+      const callableAlias = convertCallableInterfaceOnlyType(node, convert);
 
-      // Merge with existing interface (for module augmentation)
-      const existing = entries.get(fqName);
-
-      if (existing && existing.kind === "interface") {
-        // Merge members
-        const mergedMembers = new Map(existing.members);
-        for (const [memberName, memberInfo] of extractMembers(
-          node.members,
-          convert
-        )) {
-          mergedMembers.set(memberName, memberInfo);
-        }
+      if (callableAlias) {
+        const aliasedMembers = extractMembersFromAliasedObjectType(callableAlias);
         entries.set(fqName, {
-          ...existing,
-          isDeclarationFile: existing.isDeclarationFile,
-          members: mergedMembers,
-          heritage: [
-            ...existing.heritage,
-            ...extractHeritage(
+          kind: "typeAlias",
+          name: simpleName,
+          fullyQualifiedName: fqName,
+          isDeclarationFile: sf.isDeclarationFile,
+          typeParameters: [],
+          members: aliasedMembers,
+          heritage: [],
+          aliasedType: callableAlias,
+        });
+        simpleNameToFQ.set(simpleName, fqName);
+      } else {
+        // Merge with existing interface (for module augmentation)
+        const existing = entries.get(fqName);
+
+        if (existing && existing.kind === "interface") {
+          // Merge members
+          const mergedMembers = new Map(existing.members);
+          for (const [memberName, memberInfo] of extractMembers(
+            node.members,
+            convert
+          )) {
+            mergedMembers.set(memberName, memberInfo);
+          }
+          entries.set(fqName, {
+            ...existing,
+            isDeclarationFile: existing.isDeclarationFile,
+            members: mergedMembers,
+            heritage: [
+              ...existing.heritage,
+              ...extractHeritage(
+                node.heritageClauses,
+                checker,
+                sourceRoot,
+                rootNamespace,
+                convert,
+                canonicalize
+              ),
+            ],
+          });
+        } else {
+          entries.set(fqName, {
+            kind: "interface",
+            name: simpleName,
+            fullyQualifiedName: fqName,
+            isDeclarationFile: sf.isDeclarationFile,
+            typeParameters: extractTypeParameters(node.typeParameters, convert),
+            members: extractMembers(node.members, convert),
+            heritage: extractHeritage(
               node.heritageClauses,
               checker,
               sourceRoot,
@@ -947,26 +1028,9 @@ export const buildTypeRegistry = (
               convert,
               canonicalize
             ),
-          ],
-        });
-      } else {
-        entries.set(fqName, {
-          kind: "interface",
-          name: simpleName,
-          fullyQualifiedName: fqName,
-          isDeclarationFile: sf.isDeclarationFile,
-          typeParameters: extractTypeParameters(node.typeParameters, convert),
-          members: extractMembers(node.members, convert),
-          heritage: extractHeritage(
-            node.heritageClauses,
-            checker,
-            sourceRoot,
-            rootNamespace,
-            convert,
-            canonicalize
-          ),
-        });
-        simpleNameToFQ.set(simpleName, fqName);
+          });
+          simpleNameToFQ.set(simpleName, fqName);
+        }
       }
     }
 

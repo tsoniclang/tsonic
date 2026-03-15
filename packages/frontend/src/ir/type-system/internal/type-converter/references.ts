@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import * as ts from "typescript";
 import { IrType, IrDictionaryType, IrInterfaceMember } from "../../../types.js";
 import { substituteIrType } from "../../../types/ir-substitution.js";
+import { normalizedUnionType } from "../../../types/type-ops.js";
 import type { DeclId } from "../../../type-system/types.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import {
@@ -25,6 +26,7 @@ import {
   expandRecordType,
 } from "./utility-types.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
+import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
 
 /**
  * tsbindgen emits qualified names for core System primitives inside internal
@@ -118,6 +120,9 @@ const normalizeNamespaceAliasQualifiedName = (typeName: string): string => {
 
   return typeName.slice(lastDot + 1);
 };
+
+const normalizeExpandedAliasType = (type: IrType): IrType =>
+  type.kind === "unionType" ? normalizedUnionType(type.types) : type;
 
 const isSymbolTypeReferenceNode = (node: ts.TypeNode): boolean =>
   ts.isTypeReferenceNode(node) &&
@@ -248,6 +253,44 @@ const bindingAliasClrIdentityCache = new Map<
   ReadonlyMap<string, string>
 >();
 
+const tsonicSourcePackageFileCache = new Map<string, boolean>();
+
+const isInstalledTsonicSourcePackageFile = (fileName: string): boolean => {
+  const normalized = fileName.replace(/\\/g, "/");
+  const cached = tsonicSourcePackageFileCache.get(normalized);
+  if (cached !== undefined) return cached;
+
+  if (!normalized.includes("/node_modules/")) {
+    tsonicSourcePackageFileCache.set(normalized, false);
+    return false;
+  }
+
+  let currentDir = dirname(fileName);
+  while (true) {
+    const manifestPath = join(currentDir, "tsonic", "package-manifest.json");
+    if (existsSync(manifestPath)) {
+      try {
+        const parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+          readonly kind?: unknown;
+        };
+        const isSourcePackage = parsed.kind === "tsonic-source-package";
+        tsonicSourcePackageFileCache.set(normalized, isSourcePackage);
+        return isSourcePackage;
+      } catch {
+        tsonicSourcePackageFileCache.set(normalized, false);
+        return false;
+      }
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      tsonicSourcePackageFileCache.set(normalized, false);
+      return false;
+    }
+    currentDir = parentDir;
+  }
+};
+
 const findOwningBindingsJson = (fileName: string): string | undefined => {
   let currentDir = dirname(fileName);
   while (true) {
@@ -364,11 +407,18 @@ const isSafeToEraseUserTypeAliasTarget = (node: ts.TypeNode): boolean => {
     node = node.type;
   }
 
-  if (ts.isTypeLiteralNode(node)) return false;
-  if (ts.isUnionTypeNode(node)) return false;
-  if (ts.isTupleTypeNode(node)) return false;
-
-  return true;
+  // User/source-package aliases are TS-only and have no CLR identity.
+  // Erase them broadly so contextual typing and structural recovery preserve
+  // the real underlying shape across:
+  // - unions
+  // - tuples
+  // - object/type-literal aliases
+  // - callable aliases
+  // - recursive first-party/source-package helper aliases
+  //
+  // Keep conditional aliases nominal here. They encode arity families and other
+  // non-local selection logic that needs dedicated handling below.
+  return !ts.isConditionalTypeNode(node);
 };
 
 /**
@@ -389,11 +439,26 @@ const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
   const fileName = sourceFile.fileName;
   const isSourceBindingsDecl =
     sourceFile.isDeclarationFile && isTsonicBindingsDeclarationFile(fileName);
+  const isInstalledSourcePackageFile =
+    !sourceFile.isDeclarationFile &&
+    isInstalledTsonicSourcePackageFile(fileName);
 
-  // Skip library types (node_modules, lib.*.d.ts, or declaration files)
+  // Skip external library types, but keep first-party/source-package bindings
+  // extractable even when they are installed under node_modules.
+  //
+  // This is required for the full installed-package class:
+  // - source-package callback/contextual typing
+  // - imported structural/container value recovery
+  // - sibling type closure across package boundaries
+  //
+  // Tsonic-generated bindings under node_modules are not "external libraries"
+  // in the tsbindgen sense; they are the authoritative first-party semantic
+  // surface and must preserve structural shape.
   if (
-    fileName.includes("node_modules") ||
-    fileName.includes("lib.") ||
+    ((!isSourceBindingsDecl &&
+      !isInstalledSourcePackageFile &&
+      fileName.includes("node_modules")) ||
+      fileName.includes("lib.")) ||
     (sourceFile.isDeclarationFile && !isSourceBindingsDecl)
   ) {
     return false;
@@ -526,13 +591,7 @@ const extractStructuralMembersFromDeclarations = (
 
     const getMemberName = (
       name: ts.PropertyName | ts.PrivateIdentifier | undefined
-    ): string | undefined => {
-      if (!name) return undefined;
-      if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
-        return name.text;
-      }
-      return undefined;
-    };
+    ): string | undefined => tryResolveDeterministicPropertyName(name);
 
     // Get the member source (interface members, type literal members, or class members)
     const typeElements = ts.isInterfaceDeclaration(decl)
@@ -968,11 +1027,47 @@ export const convertTypeReference = (
         return pureIndexSigDict;
       }
 
-      // Check for type alias to function type
-      // DETERMINISTIC: Expand function type aliases so lambda contextual typing works
-      // e.g., `type NumberToNumber = (x: number) => number` should be converted
-      // to a functionType, not a referenceType
-      if (declNode && ts.isTypeAliasDeclaration(declNode)) {
+        // Check for type alias to function type
+        // DETERMINISTIC: Expand function type aliases so lambda contextual typing works
+        // e.g., `type NumberToNumber = (x: number) => number` should be converted
+        // to a functionType, not a referenceType
+        if (declNode && ts.isTypeAliasDeclaration(declNode)) {
+        const convertFunctionAliasBody = (
+          functionTypeNode: ts.FunctionTypeNode
+        ): IrType => {
+          const fnType = convertFunctionType(
+            functionTypeNode,
+            binding,
+            convertType
+          );
+
+          const aliasTypeParams = (declNode.typeParameters ?? []).map(
+            (tp) => tp.name.text
+          );
+          const refTypeArgs = (node.typeArguments ?? []).map((t) =>
+            convertType(t, binding)
+          );
+
+          if (aliasTypeParams.length > 0 && refTypeArgs.length > 0) {
+            const subst = new Map<string, IrType>();
+            for (
+              let i = 0;
+              i < Math.min(aliasTypeParams.length, refTypeArgs.length);
+              i++
+            ) {
+              const name = aliasTypeParams[i];
+              const arg = refTypeArgs[i];
+              if (name && arg) subst.set(name, arg);
+            }
+
+            return normalizeExpandedAliasType(
+              subst.size > 0 ? substituteIrType(fnType, subst) : fnType
+            );
+          }
+
+          return normalizeExpandedAliasType(fnType);
+        };
+
         // tsbindgen extension method wrapper types are type-only helpers.
         //
         // Example: ExtensionMethods_System_Linq<TShape> = TShape & (__Ext_* ...)
@@ -1005,6 +1100,12 @@ export const convertTypeReference = (
           //
           // Keep declaration-file function aliases as NOMINAL reference types.
           //
+          // Exception: first-party/source-package generated bindings are also declaration
+          // files, but their exported function aliases are TS-only surface aliases with
+          // no CLR identity. Those must erase to their function shapes so imported
+          // callback/value aliases carry their full local alias closure across
+          // source-package boundaries.
+          //
           // IMPORTANT: Don't early-return here. We still want the shared
           // reference-type path at the end of this function so we pick up:
           // - Binding-followed fqName (stabilizes identity for facades/aliases)
@@ -1013,40 +1114,15 @@ export const convertTypeReference = (
           // delegateToFunctionType() can still recover the Invoke signature for
           // deterministic lambda typing at call sites.
           if (declNode.getSourceFile().isDeclarationFile) {
+            if (
+              isTsonicBindingsDeclarationFile(declNode.getSourceFile().fileName) &&
+              !declInfo.valueDeclNode
+            ) {
+              return convertFunctionAliasBody(declNode.type);
+            }
             // Fall through to the referenceType emission at the end of this function.
           } else {
-            const fnType = convertFunctionType(
-              declNode.type,
-              binding,
-              convertType
-            );
-
-            // If the type alias is generic (e.g. `type Func_2<T, TResult> = (arg: T) => TResult`),
-            // apply the reference site's type arguments so lambdas get a fully-instantiated
-            // expected type (critical for deterministic inference).
-            const aliasTypeParams = (declNode.typeParameters ?? []).map(
-              (tp) => tp.name.text
-            );
-            const refTypeArgs = (node.typeArguments ?? []).map((t) =>
-              convertType(t, binding)
-            );
-
-            if (aliasTypeParams.length > 0 && refTypeArgs.length > 0) {
-              const subst = new Map<string, IrType>();
-              for (
-                let i = 0;
-                i < Math.min(aliasTypeParams.length, refTypeArgs.length);
-                i++
-              ) {
-                const name = aliasTypeParams[i];
-                const arg = refTypeArgs[i];
-                if (name && arg) subst.set(name, arg);
-              }
-
-              return subst.size > 0 ? substituteIrType(fnType, subst) : fnType;
-            }
-
-            return fnType;
+            return convertFunctionAliasBody(declNode.type);
           }
         }
 
@@ -1121,10 +1197,12 @@ export const convertTypeReference = (
                 const arg = refTypeArgs[i];
                 if (name && arg) subst.set(name, arg);
               }
-              return subst.size > 0 ? substituteIrType(base, subst) : base;
+              return normalizeExpandedAliasType(
+                subst.size > 0 ? substituteIrType(base, subst) : base
+              );
             }
 
-            return base;
+            return normalizeExpandedAliasType(base);
           }
         }
 
@@ -1178,10 +1256,12 @@ export const convertTypeReference = (
                 const arg = refTypeArgs[i];
                 if (name && arg) subst.set(name, arg);
               }
-              return subst.size > 0 ? substituteIrType(base, subst) : base;
+              return normalizeExpandedAliasType(
+                subst.size > 0 ? substituteIrType(base, subst) : base
+              );
             }
 
-            return base;
+            return normalizeExpandedAliasType(base);
           }
         }
 

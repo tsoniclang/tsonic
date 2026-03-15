@@ -59,6 +59,10 @@ type LoweringContext = {
   readonly existingTypeNames: ReadonlySet<string>;
   /** Current function's lowered return type (for propagating to return statements) */
   readonly currentFunctionReturnType?: IrType;
+  /** Cycle-safe cache for lowering recursive type graphs by identity. */
+  readonly loweredTypeByIdentity: WeakMap<object, IrType>;
+  /** Cycle-safe cache for lowering reference types across cloned nodes. */
+  readonly loweredReferenceByStableKey: Map<string, IrReferenceType>;
 };
 
 /**
@@ -67,7 +71,24 @@ type LoweringContext = {
  * These are used to make synthesized anonymous types generic when their
  * member types contain typeParameterType nodes (e.g., `{ value: T }`).
  */
-const collectTypeParameterNames = (type: IrType, out: Set<string>): void => {
+type CollectTypeParameterState = {
+  readonly seen: WeakSet<object>;
+};
+
+const collectTypeParameterNames = (
+  type: IrType,
+  out: Set<string>,
+  state?: CollectTypeParameterState
+): void => {
+  const currentState = state ?? { seen: new WeakSet<object>() };
+
+  if (typeof type === "object" && type !== null) {
+    if (currentState.seen.has(type)) {
+      return;
+    }
+    currentState.seen.add(type);
+  }
+
   switch (type.kind) {
     case "typeParameterType":
       out.add(type.name);
@@ -75,48 +96,50 @@ const collectTypeParameterNames = (type: IrType, out: Set<string>): void => {
 
     case "referenceType":
       for (const ta of type.typeArguments ?? []) {
-        if (ta) collectTypeParameterNames(ta, out);
+        if (ta) collectTypeParameterNames(ta, out, currentState);
       }
       return;
 
     case "arrayType":
-      collectTypeParameterNames(type.elementType, out);
+      collectTypeParameterNames(type.elementType, out, currentState);
       return;
 
     case "tupleType":
       for (const el of type.elementTypes) {
-        if (el) collectTypeParameterNames(el, out);
+        if (el) collectTypeParameterNames(el, out, currentState);
       }
       return;
 
     case "functionType":
       for (const p of type.parameters) {
-        if (p.type) collectTypeParameterNames(p.type, out);
+        if (p.type) collectTypeParameterNames(p.type, out, currentState);
       }
-      collectTypeParameterNames(type.returnType, out);
+      collectTypeParameterNames(type.returnType, out, currentState);
       return;
 
     case "unionType":
     case "intersectionType":
       for (const t of type.types) {
-        if (t) collectTypeParameterNames(t, out);
+        if (t) collectTypeParameterNames(t, out, currentState);
       }
       return;
 
     case "dictionaryType":
-      collectTypeParameterNames(type.keyType, out);
-      collectTypeParameterNames(type.valueType, out);
+      collectTypeParameterNames(type.keyType, out, currentState);
+      collectTypeParameterNames(type.valueType, out, currentState);
       return;
 
     case "objectType":
       for (const m of type.members) {
         if (m.kind === "propertySignature") {
-          collectTypeParameterNames(m.type, out);
+          collectTypeParameterNames(m.type, out, currentState);
         } else if (m.kind === "methodSignature") {
           for (const p of m.parameters) {
-            if (p.type) collectTypeParameterNames(p.type, out);
+            if (p.type) collectTypeParameterNames(p.type, out, currentState);
           }
-          if (m.returnType) collectTypeParameterNames(m.returnType, out);
+          if (m.returnType) {
+            collectTypeParameterNames(m.returnType, out, currentState);
+          }
         }
       }
       return;
@@ -131,10 +154,36 @@ const collectTypeParameterNames = (type: IrType, out: Set<string>): void => {
   }
 };
 
+type SerializeState = {
+  readonly seen: WeakMap<object, number>;
+  nextId: number;
+};
+
+const beginSerializeNode = (
+  state: SerializeState,
+  node: object
+): { readonly id: number; readonly seenBefore: boolean } => {
+  const existing = state.seen.get(node);
+  if (existing !== undefined) {
+    return { id: existing, seenBefore: true };
+  }
+
+  const id = state.nextId;
+  state.nextId += 1;
+  state.seen.set(node, id);
+  return { id, seenBefore: false };
+};
+
 /**
- * Serialize an IrType to a stable string for shape signature
+ * Serialize an IrType to a stable string for shape signature.
+ *
+ * This must be cycle-safe because source ports can legitimately contain
+ * recursive alias/object graphs (for example handler arrays that reference
+ * themselves transitively).
  */
-const serializeType = (type: IrType): string => {
+const serializeType = (type: IrType, state?: SerializeState): string => {
+  const currentState = state ?? { seen: new WeakMap<object, number>(), nextId: 0 };
+
   switch (type.kind) {
     case "primitiveType":
       return type.name;
@@ -142,21 +191,53 @@ const serializeType = (type: IrType): string => {
       return `lit:${typeof type.value}:${String(type.value)}`;
     case "referenceType":
       if (type.typeArguments && type.typeArguments.length > 0) {
-        return `ref:${type.name}<${type.typeArguments.map(serializeType).join(",")}>`;
+        const visit = beginSerializeNode(currentState, type);
+        if (visit.seenBefore) {
+          return `refcycle:${visit.id}`;
+        }
+        return `ref:${type.name}#${visit.id}<${type.typeArguments
+          .map((arg) => serializeType(arg, currentState))
+          .join(",")}>`;
       }
       return `ref:${type.name}`;
-    case "arrayType":
-      return `arr:${serializeType(type.elementType)}`;
-    case "tupleType":
-      return `tup:[${type.elementTypes.map(serializeType).join(",")}]`;
-    case "functionType": {
-      const params = type.parameters
-        .map((p) => (p.type ? serializeType(p.type) : "any"))
-        .join(",");
-      return `fn:(${params})=>${serializeType(type.returnType)}`;
+    case "arrayType": {
+      const visit = beginSerializeNode(currentState, type);
+      if (visit.seenBefore) {
+        return `arrcycle:${visit.id}`;
+      }
+      return `arr#${visit.id}:${serializeType(type.elementType, currentState)}`;
     }
-    case "unionType":
-      return `union:[${type.types.map(serializeType).join("|")}]`;
+    case "tupleType": {
+      const visit = beginSerializeNode(currentState, type);
+      if (visit.seenBefore) {
+        return `tupcycle:${visit.id}`;
+      }
+      return `tup#${visit.id}:[${type.elementTypes
+        .map((elementType) => serializeType(elementType, currentState))
+        .join(",")}]`;
+    }
+    case "functionType": {
+      const visit = beginSerializeNode(currentState, type);
+      if (visit.seenBefore) {
+        return `fncycle:${visit.id}`;
+      }
+      const params = type.parameters
+        .map((p) => (p.type ? serializeType(p.type, currentState) : "any"))
+        .join(",");
+      return `fn#${visit.id}:(${params})=>${serializeType(
+        type.returnType,
+        currentState
+      )}`;
+    }
+    case "unionType": {
+      const visit = beginSerializeNode(currentState, type);
+      if (visit.seenBefore) {
+        return `unioncycle:${visit.id}`;
+      }
+      return `union#${visit.id}:[${type.types
+        .map((member) => serializeType(member, currentState))
+        .join("|")}]`;
+    }
     case "typeParameterType":
       return `tp:${type.name}`;
     case "voidType":
@@ -168,6 +249,11 @@ const serializeType = (type: IrType): string => {
     case "neverType":
       return "never";
     case "objectType": {
+      const visit = beginSerializeNode(currentState, type);
+      if (visit.seenBefore) {
+        return `objcycle:${visit.id}`;
+      }
+
       // Serialize property signatures
       const propMembers = type.members
         .filter(
@@ -176,7 +262,10 @@ const serializeType = (type: IrType): string => {
         )
         .map(
           (m) =>
-            `prop:${m.isReadonly ? "ro:" : ""}${m.name}${m.isOptional ? "?" : ""}:${serializeType(m.type)}`
+            `prop:${m.isReadonly ? "ro:" : ""}${m.name}${m.isOptional ? "?" : ""}:${serializeType(
+              m.type,
+              currentState
+            )}`
         );
 
       // Serialize method signatures
@@ -187,19 +276,36 @@ const serializeType = (type: IrType): string => {
         )
         .map((m) => {
           const params = m.parameters
-            .map((p) => (p.type ? serializeType(p.type) : "any"))
+            .map((p) => (p.type ? serializeType(p.type, currentState) : "any"))
             .join(",");
-          const ret = m.returnType ? serializeType(m.returnType) : "void";
+          const ret = m.returnType
+            ? serializeType(m.returnType, currentState)
+            : "void";
           return `method:${m.name}(${params})=>${ret}`;
         });
 
       const allMembers = [...propMembers, ...methodMembers].sort().join(";");
-      return `obj:{${allMembers}}`;
+      return `obj#${visit.id}:{${allMembers}}`;
     }
-    case "dictionaryType":
-      return `dict:[${serializeType(type.keyType)}]:${serializeType(type.valueType)}`;
-    case "intersectionType":
-      return `intersection:[${type.types.map(serializeType).join("&")}]`;
+    case "dictionaryType": {
+      const visit = beginSerializeNode(currentState, type);
+      if (visit.seenBefore) {
+        return `dictcycle:${visit.id}`;
+      }
+      return `dict#${visit.id}:[${serializeType(
+        type.keyType,
+        currentState
+      )}]:${serializeType(type.valueType, currentState)}`;
+    }
+    case "intersectionType": {
+      const visit = beginSerializeNode(currentState, type);
+      if (visit.seenBefore) {
+        return `intersectioncycle:${visit.id}`;
+      }
+      return `intersection#${visit.id}:[${type.types
+        .map((member) => serializeType(member, currentState))
+        .join("&")}]`;
+    }
     default:
       return "unknown";
   }
@@ -253,6 +359,24 @@ const interfaceMembersToClassMembers = (
  */
 const generateModuleHash = (filePath: string): string => {
   return createHash("md5").update(filePath).digest("hex").slice(0, 4);
+};
+
+const getReferenceLoweringStableKey = (
+  type: IrReferenceType
+): string | undefined => {
+  const baseKey =
+    type.typeId?.stableId ??
+    type.typeId?.clrName ??
+    type.resolvedClrType ??
+    undefined;
+  if (!baseKey) return undefined;
+
+  const typeArgsKey =
+    type.typeArguments && type.typeArguments.length > 0
+      ? `<${type.typeArguments.map((arg) => serializeType(arg)).join(",")}>`
+      : "";
+
+  return `${baseKey}${typeArgsKey}`;
 };
 
 /**
@@ -508,44 +632,101 @@ const lowerType = (
     }
 
     case "arrayType":
-      return {
-        ...type,
-        elementType: lowerType(type.elementType, ctx),
-      };
+      return (() => {
+        const cached = ctx.loweredTypeByIdentity.get(type);
+        if (cached) return cached;
+        const loweredArray = {
+          ...type,
+        } as IrType & { elementType: IrType };
+        ctx.loweredTypeByIdentity.set(type, loweredArray);
+        loweredArray.elementType = lowerType(type.elementType, ctx);
+        return loweredArray;
+      })();
 
     case "tupleType":
-      return {
-        ...type,
-        elementTypes: type.elementTypes.map((et) => lowerType(et, ctx)),
-      };
+      return (() => {
+        const cached = ctx.loweredTypeByIdentity.get(type);
+        if (cached) return cached;
+        const loweredTuple = {
+          ...type,
+        } as IrType & { elementTypes: IrType[] };
+        ctx.loweredTypeByIdentity.set(type, loweredTuple);
+        loweredTuple.elementTypes = type.elementTypes.map((et) =>
+          lowerType(et, ctx)
+        );
+        return loweredTuple;
+      })();
 
     case "functionType":
-      return {
-        ...type,
-        parameters: type.parameters.map((p) => lowerParameter(p, ctx)),
-        returnType: lowerType(type.returnType, ctx),
-      };
+      return (() => {
+        const cached = ctx.loweredTypeByIdentity.get(type);
+        if (cached) return cached;
+        const loweredFunction = {
+          ...type,
+        } as IrType & {
+          parameters: IrParameter[];
+          returnType: IrType;
+        };
+        ctx.loweredTypeByIdentity.set(type, loweredFunction);
+        loweredFunction.parameters = type.parameters.map((p) =>
+          lowerParameter(p, ctx)
+        );
+        loweredFunction.returnType = lowerType(type.returnType, ctx);
+        return loweredFunction;
+      })();
 
     case "unionType":
-      return {
-        ...type,
-        types: type.types.map((t) => lowerType(t, ctx)),
-      };
+      return (() => {
+        const cached = ctx.loweredTypeByIdentity.get(type);
+        if (cached) return cached;
+        const loweredUnion = {
+          ...type,
+        } as IrType & { types: IrType[] };
+        ctx.loweredTypeByIdentity.set(type, loweredUnion);
+        loweredUnion.types = type.types.map((t) => lowerType(t, ctx));
+        return loweredUnion;
+      })();
 
     case "intersectionType":
-      return {
-        ...type,
-        types: type.types.map((t) => lowerType(t, ctx)),
-      };
+      return (() => {
+        const cached = ctx.loweredTypeByIdentity.get(type);
+        if (cached) return cached;
+        const loweredIntersection = {
+          ...type,
+        } as IrType & { types: IrType[] };
+        ctx.loweredTypeByIdentity.set(type, loweredIntersection);
+        loweredIntersection.types = type.types.map((t) => lowerType(t, ctx));
+        return loweredIntersection;
+      })();
 
     case "dictionaryType":
-      return {
-        ...type,
-        keyType: lowerType(type.keyType, ctx),
-        valueType: lowerType(type.valueType, ctx),
-      };
+      return (() => {
+        const cached = ctx.loweredTypeByIdentity.get(type);
+        if (cached) return cached;
+        const loweredDictionary = {
+          ...type,
+        } as IrType & { keyType: IrType; valueType: IrType };
+        ctx.loweredTypeByIdentity.set(type, loweredDictionary);
+        loweredDictionary.keyType = lowerType(type.keyType, ctx);
+        loweredDictionary.valueType = lowerType(type.valueType, ctx);
+        return loweredDictionary;
+      })();
 
     case "referenceType": {
+      const cachedByIdentity = ctx.loweredTypeByIdentity.get(type);
+      if (cachedByIdentity) {
+        return cachedByIdentity;
+      }
+
+      const stableKey = getReferenceLoweringStableKey(type);
+      if (stableKey) {
+        const cachedByStableKey = ctx.loweredReferenceByStableKey.get(stableKey);
+        if (cachedByStableKey) {
+          ctx.loweredTypeByIdentity.set(type, cachedByStableKey);
+          return cachedByStableKey;
+        }
+      }
+
       // Lower both typeArguments and structuralMembers
       const typeArgs = type.typeArguments;
       const structuralMembers = type.structuralMembers;
@@ -557,15 +738,29 @@ const lowerType = (
         return type;
       }
 
-      return {
+      const loweredReference: IrReferenceType = {
         ...type,
         typeArguments: hasTypeArgs
           ? typeArgs.map((ta) => lowerType(ta, ctx))
           : undefined,
-        structuralMembers: hasStructuralMembers
-          ? structuralMembers.map((m) => lowerInterfaceMember(m, ctx))
-          : undefined,
       };
+
+      ctx.loweredTypeByIdentity.set(type, loweredReference);
+      if (stableKey) {
+        ctx.loweredReferenceByStableKey.set(stableKey, loweredReference);
+      }
+
+      if (hasStructuralMembers) {
+        (
+          loweredReference as IrReferenceType & {
+            structuralMembers?: readonly IrInterfaceMember[];
+          }
+        ).structuralMembers = structuralMembers.map((m) =>
+          lowerInterfaceMember(m, ctx)
+        );
+      }
+
+      return loweredReference;
     }
 
     // These types don't contain nested types
@@ -1460,6 +1655,8 @@ const lowerModule = (
     readonly generatedDeclarations: IrClassDeclaration[];
     readonly shapeToName: Map<string, string>;
     readonly existingTypeNames: ReadonlySet<string>;
+    readonly loweredTypeByIdentity: WeakMap<object, IrType>;
+    readonly loweredReferenceByStableKey: Map<string, IrReferenceType>;
   }
 ): IrModule => {
   const ctx: LoweringContext = {
@@ -1467,6 +1664,8 @@ const lowerModule = (
     shapeToName: shared.shapeToName,
     moduleFilePath: module.filePath,
     existingTypeNames: shared.existingTypeNames,
+    loweredTypeByIdentity: shared.loweredTypeByIdentity,
+    loweredReferenceByStableKey: shared.loweredReferenceByStableKey,
   };
 
   // Lower all statements in the module body
@@ -1538,6 +1737,8 @@ export const runAnonymousTypeLoweringPass = (
     generatedDeclarations: [] as IrClassDeclaration[],
     shapeToName: new Map<string, string>(),
     existingTypeNames,
+    loweredTypeByIdentity: new WeakMap<object, IrType>(),
+    loweredReferenceByStableKey: new Map<string, IrReferenceType>(),
   };
 
   const loweredModules = modules.map((m) => lowerModule(m, shared));

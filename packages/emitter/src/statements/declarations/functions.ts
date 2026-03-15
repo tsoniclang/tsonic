@@ -22,7 +22,10 @@ import {
 import { emitAttributes } from "../../core/format/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
-import { identifierType } from "../../core/format/backend-ast/builders.js";
+import {
+  identifierType,
+  nullableType,
+} from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
   CSharpParameterAst,
@@ -477,7 +480,7 @@ const buildParameterAsts = (
 
     // Optional: make nullable
     if (param.isOptional) {
-      typeAst = { kind: "nullableType", underlyingType: typeAst };
+      typeAst = nullableType(typeAst);
     }
 
     // Name
@@ -503,6 +506,7 @@ const buildParameterAsts = (
     // Modifiers
     const modifiers: string[] = [];
     if (param.isExtensionReceiver) modifiers.push("this");
+    if (param.isRest) modifiers.push("params");
     if (param.passing !== "value") modifiers.push(param.passing);
 
     // Default value

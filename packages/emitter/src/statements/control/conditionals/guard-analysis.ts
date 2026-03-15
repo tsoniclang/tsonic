@@ -15,18 +15,10 @@ import {
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { emitTypeAst } from "../../../type-emitter.js";
-import { extractCalleeNameFromAst } from "../../../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../../../core/format/backend-ast/types.js";
-
-/**
- * Extract the identifier string from an expression AST that is known to be
- * an identifierExpression. Falls back to extractCalleeNameFromAst for other shapes.
- */
-const extractIdentifierText = (ast: CSharpExpressionAst): string =>
-  extractCalleeNameFromAst(ast);
 import {
   hasDeterministicPropertyMembership,
   resolveTypeAlias,
@@ -37,6 +29,11 @@ import {
 } from "../../../core/semantic/type-resolution.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
+import {
+  getMemberAccessNarrowKey,
+  makeNarrowedLocalName,
+} from "../../../core/semantic/narrowing-keys.js";
+import { normalizeInstanceofTargetType } from "../../../core/semantic/instanceof-targets.js";
 
 /**
  * Information extracted from a type predicate guard call.
@@ -44,6 +41,7 @@ import { emitRemappedLocalName } from "../../../core/format/local-names.js";
  */
 export type GuardInfo = {
   readonly originalName: string;
+  readonly receiverAst: CSharpExpressionAst;
   readonly targetType: IrType;
   readonly memberN: number;
   readonly unionArity: number; // Number of currently reachable members
@@ -52,7 +50,6 @@ export type GuardInfo = {
   readonly candidateMembers: readonly IrType[];
   readonly ctxWithId: EmitterContext;
   readonly narrowedName: string;
-  readonly escapedOrig: string;
   readonly escapedNarrow: string;
   readonly narrowedMap: Map<string, NarrowedBinding>;
 };
@@ -64,6 +61,7 @@ export type GuardInfo = {
  */
 export type InstanceofGuardInfo = {
   readonly originalName: string;
+  readonly receiverAst: CSharpExpressionAst;
   readonly rhsTypeAst: CSharpTypeAst;
   readonly ctxWithId: EmitterContext;
   readonly ctxAfterRhs: EmitterContext;
@@ -72,6 +70,10 @@ export type InstanceofGuardInfo = {
   readonly escapedNarrow: string;
   readonly narrowedMap: Map<string, NarrowedBinding>;
   readonly targetType?: IrType;
+  readonly memberN?: number;
+  readonly runtimeUnionArity?: number;
+  readonly candidateMemberNs?: readonly number[];
+  readonly candidateMembers?: readonly IrType[];
 };
 
 /**
@@ -348,7 +350,7 @@ const extractUnionMembers = (
   return undefined;
 };
 
-const resolveRuntimeUnionFrame = (
+export const resolveRuntimeUnionFrame = (
   originalName: string,
   unionSourceType: IrType,
   context: EmitterContext
@@ -568,7 +570,7 @@ export const tryResolveDiscriminantEqualityGuard = (
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
-  const narrowedName = `${originalName}__${memberN}_${nextId}`;
+  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
   const escapedOrig = emitRemappedLocalName(originalName, context);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const memberType = members[matchingIndex];
@@ -725,7 +727,7 @@ export const tryResolvePropertyTruthinessGuard = (
 
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
-  const narrowedName = `${originalName}__${memberN}_${nextId}`;
+  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
   const escapedOrig = emitRemappedLocalName(originalName, context);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const memberType = members[matchingIndex];
@@ -812,9 +814,8 @@ export const tryResolveInGuard = (
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
-  const narrowedName = `${originalName}__${memberN}_${nextId}`;
-  const [rhsAst] = emitIdentifier(condition.right, context);
-  const escapedOrig = extractIdentifierText(rhsAst);
+  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
+  const escapedOrig = emitRemappedLocalName(originalName, context);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const memberType = members[matchingIndex];
   if (!memberType) return undefined;
@@ -877,12 +878,14 @@ export const tryResolvePredicateGuard = (
   if (
     !arg ||
     ("kind" in arg && arg.kind === "spread") ||
-    arg.kind !== "identifier"
+    (arg.kind !== "identifier" && arg.kind !== "memberAccess")
   ) {
     return undefined;
   }
 
-  const originalName = arg.name;
+  const originalName =
+    arg.kind === "identifier" ? arg.name : getMemberAccessNarrowKey(arg);
+  if (!originalName) return undefined;
   const unionSourceType = arg.inferredType;
   if (!unionSourceType) return undefined;
 
@@ -906,9 +909,11 @@ export const tryResolvePredicateGuard = (
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
-  const narrowedName = `${originalName}__${memberN}_${nextId}`;
-  const [argAst] = emitIdentifier(arg, context);
-  const escapedOrig = extractIdentifierText(argAst);
+  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
+  const [argAst] = emitExpressionAst(arg, {
+    ...context,
+    narrowedBindings: undefined,
+  });
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const narrowedMap = buildRenameNarrowedMap(
     originalName,
@@ -919,6 +924,7 @@ export const tryResolvePredicateGuard = (
 
   return {
     originalName,
+    receiverAst: argAst,
     targetType: narrowing.targetType,
     memberN,
     unionArity,
@@ -927,7 +933,6 @@ export const tryResolvePredicateGuard = (
     candidateMembers: frame.members,
     ctxWithId,
     narrowedName,
-    escapedOrig,
     escapedNarrow,
     narrowedMap,
   };
@@ -951,7 +956,7 @@ export const tryResolveInstanceofGuard = (
 
   const originalName = condition.left.name;
   const [lhsAst, ctxAfterLhs] = emitIdentifier(condition.left, context);
-  const escapedOrig = extractIdentifierText(lhsAst);
+  const escapedOrig = emitRemappedLocalName(originalName, context);
 
   const nextId = (ctxAfterLhs.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...ctxAfterLhs, tempVarId: nextId };
@@ -961,7 +966,9 @@ export const tryResolveInstanceofGuard = (
     ctxWithId
   );
 
-  const inferredRhsType = condition.right.inferredType;
+  const inferredRhsType = normalizeInstanceofTargetType(
+    condition.right.inferredType
+  );
   let rhsTypeAst: CSharpTypeAst | undefined;
   let ctxAfterRhs = rhsCtxAfterExpr;
 
@@ -981,18 +988,41 @@ export const tryResolveInstanceofGuard = (
   }
 
   // Pattern variable name for the narrowed value.
-  const narrowedName = `${originalName}__is_${nextId}`;
+  const narrowedName = makeNarrowedLocalName(originalName, "is", nextId);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
 
   const narrowedMap = new Map(ctxAfterRhs.narrowedBindings ?? []);
   narrowedMap.set(originalName, {
     kind: "rename",
     name: narrowedName,
-    type: condition.right.inferredType ?? undefined,
+    type: inferredRhsType ?? undefined,
   });
+
+  const unionSourceType = condition.left.inferredType;
+  const runtimeUnionFrame =
+    unionSourceType && inferredRhsType
+      ? resolveRuntimeUnionFrame(originalName, unionSourceType, context)
+      : undefined;
+  const runtimeResolved =
+    runtimeUnionFrame && inferredRhsType
+      ? ({
+          kind: "unionType",
+          types: [...runtimeUnionFrame.members],
+        } as Extract<IrType, { kind: "unionType" }>)
+      : undefined;
+  const runtimeMatchIndex =
+    runtimeResolved && inferredRhsType
+      ? findUnionMemberIndex(runtimeResolved, inferredRhsType, context)
+      : undefined;
+  const memberN =
+    runtimeUnionFrame && runtimeMatchIndex !== undefined
+      ? (runtimeUnionFrame.candidateMemberNs[runtimeMatchIndex] ??
+        runtimeMatchIndex + 1)
+      : undefined;
 
   return {
     originalName,
+    receiverAst: lhsAst,
     rhsTypeAst,
     ctxWithId,
     ctxAfterRhs,
@@ -1000,7 +1030,11 @@ export const tryResolveInstanceofGuard = (
     escapedOrig,
     escapedNarrow,
     narrowedMap,
-    targetType: condition.right.inferredType ?? undefined,
+    targetType: inferredRhsType ?? undefined,
+    memberN,
+    runtimeUnionArity: runtimeUnionFrame?.runtimeUnionArity,
+    candidateMemberNs: runtimeUnionFrame?.candidateMemberNs,
+    candidateMembers: runtimeUnionFrame?.members,
   };
 };
 
@@ -1025,29 +1059,6 @@ export const isNullOrUndefined = (expr: IrExpression): boolean => {
   }
 
   return false;
-};
-
-export const getMemberAccessNarrowKey = (
-  expr: Extract<IrExpression, { kind: "memberAccess" }>
-): string | undefined => {
-  if (expr.isComputed) return undefined;
-  if (typeof expr.property !== "string") return undefined;
-
-  const obj = expr.object;
-  if (obj.kind === "identifier") {
-    return `${obj.name}.${expr.property}`;
-  }
-
-  if (obj.kind === "memberAccess") {
-    const prefix = getMemberAccessNarrowKey(obj);
-    return prefix ? `${prefix}.${expr.property}` : undefined;
-  }
-
-  if (obj.kind === "this") {
-    return `this.${expr.property}`;
-  }
-
-  return undefined;
 };
 
 /**

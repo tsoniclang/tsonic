@@ -109,6 +109,11 @@ export const withTypeArguments = (
   }
 };
 
+export const nullableType = (underlyingType: CSharpTypeAst): CSharpTypeAst =>
+  underlyingType.kind === "nullableType"
+    ? underlyingType
+    : { kind: "nullableType", underlyingType };
+
 export const decimalIntegerLiteral = (
   value: number | bigint,
   suffix?: Extract<CSharpNumericLiteralSuffix, "L" | "U" | "UL">

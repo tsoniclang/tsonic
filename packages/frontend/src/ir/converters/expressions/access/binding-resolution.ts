@@ -8,7 +8,7 @@
 import * as ts from "typescript";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { IrMemberExpression } from "../../../types.js";
+import { IrExpression, IrMemberExpression } from "../../../types.js";
 import { getSourceSpan } from "../helpers.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
@@ -41,7 +41,10 @@ export const resolveHierarchicalBinding = (
       }
     };
 
-    if (inferredType.kind === "arrayType") {
+    if (
+      inferredType.kind === "arrayType" ||
+      inferredType.kind === "tupleType"
+    ) {
       pushCandidate("Array");
       return candidates;
     }
@@ -216,6 +219,30 @@ const findNearestBindingsJson = (filePath: string): string | undefined => {
   }
 };
 
+const isNodeModulesPackagePath = (
+  filePath: string,
+  packageName: string
+): boolean => {
+  const normalized = filePath.replace(/\\/g, "/");
+  return normalized.includes(`/node_modules/${packageName}/`);
+};
+
+const jsSurfaceArrayFallbackAliases = new Set(["Array", "ReadonlyArray"]);
+
+const canUseJsSurfaceArrayFallback = (
+  typeAlias: string,
+  declSourceFilePath: string | undefined,
+  ctx: ProgramContext
+): boolean => {
+  if (!declSourceFilePath) return false;
+  if (!jsSurfaceArrayFallbackAliases.has(typeAlias)) return false;
+
+  return (
+    isNodeModulesPackagePath(declSourceFilePath, ctx.surface) ||
+    isNodeModulesPackagePath(declSourceFilePath, "@tsonic/js")
+  );
+};
+
 const disambiguateOverloadsByDeclaringType = (
   overloads: readonly MemberBinding[],
   memberId: MemberId,
@@ -361,6 +388,13 @@ export const resolveHierarchicalBindingFromMemberId = (
       overloadsAll = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
     }
 
+    if (
+      (!overloadsAll || overloadsAll.length === 0) &&
+      canUseJsSurfaceArrayFallback(typeAlias, declSourceFilePath, ctx)
+    ) {
+      return undefined;
+    }
+
     // Airplane-grade rule: If this member resolves to a tsbindgen declaration,
     // we MUST have a CLR binding; we must never guess member names via naming policy.
     //
@@ -487,6 +521,7 @@ export const resolveHierarchicalBindingFromMemberId = (
 export const resolveExtensionMethodsBinding = (
   node: ts.PropertyAccessExpression,
   propertyName: string,
+  object: IrExpression,
   ctx: ProgramContext
 ): IrMemberExpression["memberBinding"] => {
   const memberId = ctx.binding.resolvePropertyAccess(node);
@@ -570,6 +605,14 @@ export const resolveExtensionMethodsBinding = (
       const receiverTypeName = extractReceiverTypeName(thisTypeNode);
       receiverTypeNameForError = receiverTypeName;
       if (!receiverTypeName) return undefined;
+
+      const actualReceiverTypeName = extractTypeName(object.inferredType);
+      if (
+        actualReceiverTypeName &&
+        !ctx.bindings.isTypeOrSubtype(actualReceiverTypeName, receiverTypeName)
+      ) {
+        return undefined;
+      }
 
       return ctx.bindings.resolveExtensionMethodByKey(
         namespaceKey,

@@ -95,15 +95,20 @@ const KNOWN_BUILTINS = new Set([
  */
 type ValidationContext = {
   readonly filePath: string;
+  readonly namespace: string;
   readonly diagnostics: Diagnostic[];
   /** Local type names defined in this module (class, interface, type alias, enum) */
   readonly localTypeNames: ReadonlySet<string>;
+  /** Local type names defined in sibling modules in the same namespace */
+  readonly namespaceLocalTypeNames: ReadonlySet<string>;
   /** Type names imported in this module */
   readonly importedTypeNames: ReadonlySet<string>;
   /** CLR/library type names known to be resolvable by the emitter */
   readonly knownReferenceTypes: ReadonlySet<string>;
   /** Type parameter names in current scope */
   readonly typeParameterNames: ReadonlySet<string>;
+  /** Active type-validation stack for recursive structural graphs. */
+  readonly activeTypeValidation: WeakSet<object>;
 };
 
 /**
@@ -143,136 +148,65 @@ const validateType = (
   typeContext: string
 ): void => {
   if (!type) return;
-
-  switch (type.kind) {
-    case "anyType": {
-      // TSN7414: Type cannot be represented in compiler subset
-      ctx.diagnostics.push(
-        createDiagnostic(
-          "TSN7414",
-          "error",
-          `Type cannot be represented in compiler subset: ${typeContext}. The type resolved to 'any' which is not supported.`,
-          moduleLocation(ctx),
-          "Ensure the type can be explicitly annotated or is a recognized type alias."
-        )
-      );
-      break;
+  if (typeof type === "object" && type !== null) {
+    if (ctx.activeTypeValidation.has(type)) {
+      return;
     }
+    ctx.activeTypeValidation.add(type);
+  }
 
-    case "arrayType":
-      validateType(type.elementType, ctx, `${typeContext}[]`);
-      break;
-
-    case "tupleType":
-      type.elementTypes.forEach((et, i) =>
-        validateType(et, ctx, `${typeContext}[${i}]`)
-      );
-      break;
-
-    case "functionType":
-      type.parameters.forEach((p) => validateParameter(p, ctx));
-      validateType(type.returnType, ctx, `${typeContext} return type`);
-      break;
-
-    case "objectType":
-      // TSN7421: objectType should have been lowered to a generated named type
-      // If it reaches here, the anonymous type lowering pass missed it
-      ctx.diagnostics.push(
-        createDiagnostic(
-          "TSN7421",
-          "error",
-          `Anonymous object type in ${typeContext} was not lowered to a named type. This is an internal compiler error.`,
-          moduleLocation(ctx),
-          "Please report this issue with a minimal reproduction."
-        )
-      );
-      // Still validate members to catch any nested issues
-      type.members.forEach((m) => validateInterfaceMember(m, ctx));
-      break;
-
-    case "dictionaryType":
-      if (
-        type.keyType.kind === "neverType" ||
-        type.valueType.kind === "neverType"
-      ) {
-        ctx.diagnostics.push(
-          createDiagnostic(
-            "TSN7419",
-            "error",
-            "'never' cannot be used as a generic type argument.",
-            moduleLocation(ctx),
-            "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
-          )
-        );
-      }
-      validateType(type.keyType, ctx, `${typeContext} key type`);
-      validateType(type.valueType, ctx, `${typeContext} value type`);
-      break;
-
-    case "unionType":
-      type.types.forEach((t, i) =>
-        validateType(t, ctx, `${typeContext} union member ${i}`)
-      );
-      break;
-
-    case "intersectionType":
-      type.types.forEach((t, i) =>
-        validateType(t, ctx, `${typeContext} intersection member ${i}`)
-      );
-      break;
-
-    case "referenceType": {
-      const { name, resolvedClrType, typeId } = type;
-      const candidateNames = getReferenceResolutionCandidates(name);
-
-      // Note: ref<T>, out<T>, inref<T> are valid parameter passing modifiers.
-      // They are handled by:
-      // 1. Frontend: unwraps in function parameters (helpers.ts convertParameters)
-      // 2. Emitter: detects `as out<T>` casts at call sites and emits `out` prefix
-      // No validation error needed - these are legitimate types from @tsonic/core.
-
-      // Check if this reference type is resolvable
-      const isResolvable =
-        // Has canonical identity (authoritative)
-        typeId !== undefined ||
-        // Has pre-resolved CLR type from IR
-        resolvedClrType !== undefined ||
-        // Structural members captured from bindings provide a complete local shape
-        (type.structuralMembers !== undefined &&
-          type.structuralMembers.length > 0) ||
-        // Is a known builtin handled by emitter
-        candidateNames.some((candidate) => KNOWN_BUILTINS.has(candidate)) ||
-        // Is a local type defined in this module
-        candidateNames.some((candidate) => ctx.localTypeNames.has(candidate)) ||
-        // Is an imported type
-        candidateNames.some((candidate) =>
-          ctx.importedTypeNames.has(candidate)
-        ) ||
-        // Is a known library type (e.g. from CLR bindings)
-        candidateNames.some((candidate) =>
-          ctx.knownReferenceTypes.has(candidate)
-        ) ||
-        // Is a type parameter in current scope
-        candidateNames.some((candidate) =>
-          ctx.typeParameterNames.has(candidate)
-        );
-
-      if (!isResolvable) {
-        // TSN7414: Unresolved reference type
+  try {
+    switch (type.kind) {
+      case "anyType": {
+        // TSN7414: Type cannot be represented in compiler subset
         ctx.diagnostics.push(
           createDiagnostic(
             "TSN7414",
             "error",
-            `Unresolved reference type '${name}' in ${typeContext}. The type is not local, not imported, and has no CLR binding.`,
+            `Type cannot be represented in compiler subset: ${typeContext}. The type resolved to 'any' which is not supported.`,
             moduleLocation(ctx),
-            "Ensure the type is imported or defined locally, or that CLR bindings are available."
+            "Ensure the type can be explicitly annotated or is a recognized type alias."
           )
         );
+        break;
       }
 
-      // Validate type arguments recursively
-      type.typeArguments?.forEach((ta, i) => {
-        if (ta.kind === "neverType") {
+      case "arrayType":
+        validateType(type.elementType, ctx, `${typeContext}[]`);
+        break;
+
+      case "tupleType":
+        type.elementTypes.forEach((et, i) =>
+          validateType(et, ctx, `${typeContext}[${i}]`)
+        );
+        break;
+
+      case "functionType":
+        type.parameters.forEach((p) => validateParameter(p, ctx));
+        validateType(type.returnType, ctx, `${typeContext} return type`);
+        break;
+
+      case "objectType":
+        // TSN7421: objectType should have been lowered to a generated named type
+        // If it reaches here, the anonymous type lowering pass missed it
+        ctx.diagnostics.push(
+          createDiagnostic(
+            "TSN7421",
+            "error",
+            `Anonymous object type in ${typeContext} was not lowered to a named type. This is an internal compiler error.`,
+            moduleLocation(ctx),
+            "Please report this issue with a minimal reproduction."
+          )
+        );
+        // Still validate members to catch any nested issues
+        type.members.forEach((m) => validateInterfaceMember(m, ctx));
+        break;
+
+      case "dictionaryType":
+        if (
+          type.keyType.kind === "neverType" ||
+          type.valueType.kind === "neverType"
+        ) {
           ctx.diagnostics.push(
             createDiagnostic(
               "TSN7419",
@@ -283,24 +217,111 @@ const validateType = (
             )
           );
         }
-        validateType(ta, ctx, `${typeContext}<arg ${i}>`);
-      });
-      break;
+        validateType(type.keyType, ctx, `${typeContext} key type`);
+        validateType(type.valueType, ctx, `${typeContext} value type`);
+        break;
+
+      case "unionType":
+        type.types.forEach((t, i) =>
+          validateType(t, ctx, `${typeContext} union member ${i}`)
+        );
+        break;
+
+      case "intersectionType":
+        type.types.forEach((t, i) =>
+          validateType(t, ctx, `${typeContext} intersection member ${i}`)
+        );
+        break;
+
+      case "referenceType": {
+        const { name, resolvedClrType, typeId } = type;
+        const candidateNames = getReferenceResolutionCandidates(name);
+
+        // Note: ref<T>, out<T>, inref<T> are valid parameter passing modifiers.
+        // They are handled by:
+        // 1. Frontend: unwraps in function parameters (helpers.ts convertParameters)
+        // 2. Emitter: detects `as out<T>` casts at call sites and emits `out` prefix
+        // No validation error needed - these are legitimate types from @tsonic/core.
+
+        // Check if this reference type is resolvable
+        const isResolvable =
+          // Has canonical identity (authoritative)
+          typeId !== undefined ||
+          // Has pre-resolved CLR type from IR
+          resolvedClrType !== undefined ||
+          // Structural members captured from bindings provide a complete local shape
+          (type.structuralMembers !== undefined &&
+            type.structuralMembers.length > 0) ||
+          // Is a known builtin handled by emitter
+          candidateNames.some((candidate) => KNOWN_BUILTINS.has(candidate)) ||
+          // Is a local type defined in this module
+          candidateNames.some((candidate) => ctx.localTypeNames.has(candidate)) ||
+          // Is a sibling type defined in the same namespace across modules
+          candidateNames.some((candidate) =>
+            ctx.namespaceLocalTypeNames.has(candidate)
+          ) ||
+          // Is an imported type
+          candidateNames.some((candidate) =>
+            ctx.importedTypeNames.has(candidate)
+          ) ||
+          // Is a known library type (e.g. from CLR bindings)
+          candidateNames.some((candidate) =>
+            ctx.knownReferenceTypes.has(candidate)
+          ) ||
+          // Is a type parameter in current scope
+          candidateNames.some((candidate) =>
+            ctx.typeParameterNames.has(candidate)
+          );
+
+        if (!isResolvable) {
+          // TSN7414: Unresolved reference type
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN7414",
+              "error",
+              `Unresolved reference type '${name}' in ${typeContext}. The type is not local, not imported, and has no CLR binding.`,
+              moduleLocation(ctx),
+              "Ensure the type is imported or defined locally, or that CLR bindings are available."
+            )
+          );
+        }
+
+        // Validate type arguments recursively
+        type.typeArguments?.forEach((ta, i) => {
+          if (ta.kind === "neverType") {
+            ctx.diagnostics.push(
+              createDiagnostic(
+                "TSN7419",
+                "error",
+                "'never' cannot be used as a generic type argument.",
+                moduleLocation(ctx),
+                "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
+              )
+            );
+          }
+          validateType(ta, ctx, `${typeContext}<arg ${i}>`);
+        });
+        break;
+      }
+
+      // These types are valid and don't contain nested types
+      case "primitiveType":
+      case "typeParameterType":
+      case "literalType":
+      case "voidType":
+      case "neverType":
+        break;
+
+      case "unknownType":
+        // unknownType is a poison type indicating failed type recovery.
+        // It's valid here because the specific diagnostic (TSN5201/TSN5203)
+        // is emitted in validateExpression when checking inferredType.
+        break;
     }
-
-    // These types are valid and don't contain nested types
-    case "primitiveType":
-    case "typeParameterType":
-    case "literalType":
-    case "voidType":
-    case "neverType":
-      break;
-
-    case "unknownType":
-      // unknownType is a poison type indicating failed type recovery.
-      // It's valid here because the specific diagnostic (TSN5201/TSN5203)
-      // is emitted in validateExpression when checking inferredType.
-      break;
+  } finally {
+    if (typeof type === "object" && type !== null) {
+      ctx.activeTypeValidation.delete(type);
+    }
   }
 };
 
@@ -872,7 +893,8 @@ const extractImportedTypeNames = (module: IrModule): ReadonlySet<string> => {
  */
 const validateModule = (
   module: IrModule,
-  knownReferenceTypes: ReadonlySet<string>
+  knownReferenceTypes: ReadonlySet<string>,
+  namespaceLocalTypeNames: ReadonlySet<string>
 ): readonly Diagnostic[] => {
   // Extract local and imported type names for reference type validation
   const localTypeNames = extractLocalTypeNames(module.body);
@@ -880,11 +902,14 @@ const validateModule = (
 
   const ctx: ValidationContext = {
     filePath: module.filePath,
+    namespace: module.namespace,
     diagnostics: [],
     localTypeNames,
+    namespaceLocalTypeNames,
     importedTypeNames,
     knownReferenceTypes,
     typeParameterNames: new Set(), // Will be populated per-scope during validation
+    activeTypeValidation: new WeakSet<object>(),
   };
 
   // Validate all statements in the module body
@@ -914,9 +939,22 @@ export const validateIrSoundness = (
 ): SoundnessValidationResult => {
   const allDiagnostics: Diagnostic[] = [];
   const knownReferenceTypes = options.knownReferenceTypes ?? new Set<string>();
+  const namespaceTypeNames = new Map<string, Set<string>>();
 
   for (const module of modules) {
-    const moduleDiagnostics = validateModule(module, knownReferenceTypes);
+    const current = namespaceTypeNames.get(module.namespace) ?? new Set<string>();
+    for (const name of extractLocalTypeNames(module.body)) {
+      current.add(name);
+    }
+    namespaceTypeNames.set(module.namespace, current);
+  }
+
+  for (const module of modules) {
+    const moduleDiagnostics = validateModule(
+      module,
+      knownReferenceTypes,
+      namespaceTypeNames.get(module.namespace) ?? new Set<string>()
+    );
     allDiagnostics.push(...moduleDiagnostics);
   }
 

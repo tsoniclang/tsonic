@@ -263,4 +263,62 @@ describe("Type Emission", () => {
     );
     expect(result).to.include("store[key] = value;");
   });
+
+  it("erases arrays of recursive union elements to object[]", () => {
+    const recursiveUnion = {
+      kind: "unionType",
+      types: [],
+    } as unknown as Extract<
+      import("@tsonic/frontend").IrType,
+      { kind: "unionType" }
+    > & {
+      types: import("@tsonic/frontend").IrType[];
+    };
+
+    recursiveUnion.types.push(
+      { kind: "primitiveType", name: "string" },
+      {
+        kind: "arrayType",
+        elementType: recursiveUnion,
+      }
+    );
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "Test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "accept",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: recursiveUnion,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include(
+      "global::Tsonic.Runtime.Union<object[], string> value"
+    );
+    expect(result).to.not.include("global::Tsonic.Runtime.Union<object[], global::Tsonic.Runtime.Union");
+  });
 });

@@ -200,7 +200,7 @@ export const convertExpression = (
     const fromDecl =
       declId && !fromEnv
         ? (() => {
-            const t = ctx.typeSystem.typeOfDecl(declId);
+            const t = ctx.typeSystem.typeOfValueRead(declId);
             return t.kind === "unknownType" ? undefined : t;
           })()
         : undefined;

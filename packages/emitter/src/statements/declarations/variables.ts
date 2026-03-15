@@ -29,6 +29,7 @@ import {
 } from "../../core/format/local-names.js";
 import {
   isDefinitelyValueType,
+  isTypeOnlyStructuralTarget,
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
@@ -232,6 +233,13 @@ const resolveStaticFieldType = (
 
   // typeAssertion
   if (init?.kind === "typeAssertion" && init.targetType) {
+    if (isTypeOnlyStructuralTarget(init.targetType, context)) {
+      const inferredType = decl.type ?? init.inferredType;
+      if (inferredType && canEmitTypeExplicitly(inferredType)) {
+        return emitTypeAst(inferredType, context);
+      }
+      return [{ kind: "varType" }, context];
+    }
     return emitTypeAst(init.targetType, context);
   }
 

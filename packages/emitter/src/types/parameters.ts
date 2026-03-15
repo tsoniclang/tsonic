@@ -6,6 +6,7 @@ import { IrType, IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { nullableType } from "../core/format/backend-ast/builders.js";
 import type {
   CSharpTypeAst,
   CSharpTypeParameterConstraintNodeAst,
@@ -280,7 +281,7 @@ export const emitParameterType = (
   // This includes both value types (double?, int?) and reference types (string?)
   // per spec/04-type-mappings.md:21-78
   if (isOptional) {
-    return [{ kind: "nullableType", underlyingType: baseTypeAst }, newContext];
+    return [nullableType(baseTypeAst), newContext];
   }
 
   return [baseTypeAst, newContext];

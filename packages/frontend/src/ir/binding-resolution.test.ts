@@ -98,6 +98,36 @@ describe("Binding Resolution in IR", () => {
 
       expect(unionName).to.equal(undefined);
     });
+
+    it("returns Array for tuple types", () => {
+      const typeName = extractTypeName({
+        kind: "tupleType",
+        elementTypes: [
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "string" },
+        ],
+      });
+
+      expect(typeName).to.equal("Array");
+    });
+
+    it("returns Array for unions of arrays and tuples", () => {
+      const typeName = extractTypeName({
+        kind: "unionType",
+        types: [
+          {
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "string" },
+          },
+          {
+            kind: "tupleType",
+            elementTypes: [{ kind: "primitiveType", name: "string" }],
+          },
+        ],
+      });
+
+      expect(typeName).to.equal("Array");
+    });
   });
 
   describe("Global Identifier Resolution", () => {
@@ -399,6 +429,165 @@ describe("Binding Resolution in IR", () => {
         "recursive",
         "mode",
       ]);
+    });
+  });
+
+  describe("JS Array member binding resolution", () => {
+    const createJsArrayBindings = (): BindingRegistry => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/js-root.json", {
+        bindings: {
+          Array: {
+            kind: "global",
+            assembly: "Acme.Runtime",
+            type: "Acme.Runtime.JSArray`1",
+            staticType: "Acme.Runtime.JSArrayStatics",
+            typeSemantics: {
+              contributesTypeIdentity: true,
+            },
+          },
+        },
+      });
+
+      bindings.addBindings("/test/acme-array/bindings.json", {
+        namespace: "Acme.Runtime",
+        types: [
+          {
+            clrName: "Acme.Runtime.JSArray`1",
+            assemblyName: "Acme.Runtime",
+            methods: [
+              {
+                clrName: "push",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+              {
+                clrName: "join",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+              {
+                clrName: "map",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "Acme.Runtime.JSArrayStatics",
+            assemblyName: "Acme.Runtime",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      return bindings;
+    };
+
+    it("resolves array literal instance methods through the Array runtime surface", () => {
+      const source = `
+        export function test() {
+          const segments = ["a", "b"];
+          segments.push("c");
+          return segments.join(",");
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(
+        source,
+        createJsArrayBindings()
+      );
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body[0];
+      if (fn?.kind !== "functionDeclaration") return;
+      const pushStmt = fn.body.statements[1];
+      if (
+        pushStmt?.kind !== "expressionStatement" ||
+        pushStmt.expression.kind !== "call" ||
+        pushStmt.expression.callee.kind !== "memberAccess"
+      ) {
+        throw new Error("Expected push call expression");
+      }
+
+      expect(pushStmt.expression.callee.memberBinding?.member).to.equal("push");
+      expect(pushStmt.expression.callee.memberBinding?.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
+
+      const retStmt = fn.body.statements[2];
+      if (
+        retStmt?.kind !== "returnStatement" ||
+        !retStmt.expression ||
+        retStmt.expression.kind !== "call" ||
+        retStmt.expression.callee.kind !== "memberAccess"
+      ) {
+        throw new Error("Expected join return call expression");
+      }
+
+      expect(retStmt.expression.callee.memberBinding?.member).to.equal("join");
+      expect(retStmt.expression.callee.memberBinding?.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
+    });
+
+    it("resolves nullish-coalesced array instance methods when the fallback is an empty array literal", () => {
+      const source = `
+        export function test(xs?: string[]) {
+          const values = xs ?? [];
+          values.push("a");
+          return values.map((value) => value.toUpperCase());
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(
+        source,
+        createJsArrayBindings()
+      );
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body[0];
+      if (fn?.kind !== "functionDeclaration") return;
+      const pushStmt = fn.body.statements[1];
+      if (
+        pushStmt?.kind !== "expressionStatement" ||
+        pushStmt.expression.kind !== "call" ||
+        pushStmt.expression.callee.kind !== "memberAccess"
+      ) {
+        throw new Error("Expected push call expression");
+      }
+      expect(pushStmt.expression.callee.memberBinding?.member).to.equal("push");
+      expect(pushStmt.expression.callee.memberBinding?.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
+
+      const retStmt = fn.body.statements[2];
+      if (
+        retStmt?.kind !== "returnStatement" ||
+        !retStmt.expression ||
+        retStmt.expression.kind !== "call" ||
+        retStmt.expression.callee.kind !== "memberAccess"
+      ) {
+        throw new Error("Expected map return call expression");
+      }
+      expect(retStmt.expression.callee.memberBinding?.member).to.equal("map");
+      expect(retStmt.expression.callee.memberBinding?.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
     });
   });
 
@@ -1136,6 +1325,115 @@ describe("Binding Resolution in IR", () => {
       expect(memberExpr.memberBinding?.member).to.equal("toString");
       expect(memberExpr.memberBinding?.emitSemantics?.callStyle).to.equal(
         "receiver"
+      );
+    });
+
+    it("resolves lower-cased TS member access to a unique CLR PascalCase member", () => {
+      const source = `
+        declare class Architecture {}
+        declare const current: Architecture;
+
+        export function test(): string {
+          return current.toString();
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/runtime.json", {
+        namespace: "System.Runtime.InteropServices",
+        types: [
+          {
+            clrName: "System.Runtime.InteropServices.Architecture",
+            assemblyName: "System.Runtime.InteropServices.RuntimeInformation",
+            baseType: {
+              clrName: "System.Enum",
+            },
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "System.Enum",
+            assemblyName: "System.Private.CoreLib",
+            methods: [
+              {
+                clrName: "ToString",
+                normalizedSignature:
+                  "ToString|():System.String|static=false",
+                parameterCount: 0,
+                declaringClrType: "System.Enum",
+                declaringAssemblyName: "System.Private.CoreLib",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[0];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) {
+        return;
+      }
+      if (returnStmt.expression.kind !== "call") return;
+      if (returnStmt.expression.callee.kind !== "memberAccess") return;
+
+      expect(returnStmt.expression.callee.memberBinding).to.not.equal(
+        undefined
+      );
+      expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
+        "ToString"
+      );
+      expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
+        "System.Enum"
+      );
+    });
+
+    it("does not case-fold member bindings when multiple CLR spellings would match", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/runtime.json", {
+        namespace: "Acme.Runtime",
+        types: [
+          {
+            clrName: "Acme.Runtime.Ambiguous",
+            assemblyName: "Acme.Runtime",
+            methods: [
+              {
+                clrName: "ToString",
+                normalizedSignature:
+                  "ToString|():System.String|static=false",
+                parameterCount: 0,
+                declaringClrType: "Acme.Runtime.Ambiguous",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+              {
+                clrName: "toString",
+                normalizedSignature:
+                  "toString|():System.String|static=false",
+                parameterCount: 0,
+                declaringClrType: "Acme.Runtime.Ambiguous",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      expect(bindings.getMemberOverloads("Ambiguous", "tostring")).to.equal(
+        undefined
       );
     });
 

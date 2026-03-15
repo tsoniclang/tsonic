@@ -121,6 +121,15 @@ export type ProgramContext = {
   readonly typeEnv?: ReadonlyMap<number, IrType>;
 
   /**
+   * Lexical flow environment for property / access-path narrowings.
+   *
+   * Keyed by a stable serialized access path (e.g. `decl:42.foo` or `this.bar`)
+   * so negative-branch narrowing can survive for property reads like
+   * `typeof this.value === "string"` or `Array.isArray(obj.items)`.
+   */
+  readonly accessEnv?: ReadonlyMap<string, IrType>;
+
+  /**
    * IR conversion diagnostics emitted by converters (non-TypeSystem).
    *
    * Converters should record deterministic, airplane-grade failures here

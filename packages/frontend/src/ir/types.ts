@@ -130,6 +130,9 @@ export {
   getBinaryResultKind,
   literalFitsInKind,
   isWideningConversion,
+  stableIrTypeKey,
+  irTypesEqual,
+  normalizedUnionType,
   // Numeric helpers (literal type inference)
   isValidIntegerLexeme,
   parseBigIntFromRaw,

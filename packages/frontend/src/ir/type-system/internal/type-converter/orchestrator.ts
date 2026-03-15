@@ -11,6 +11,10 @@ import {
   IrTupleType,
   IrInterfaceMember,
 } from "../../../types.js";
+import {
+  normalizedUnionType,
+  stableIrTypeKey,
+} from "../../../types/type-ops.js";
 import { convertPrimitiveKeyword } from "./primitives.js";
 import { convertTypeReference } from "./references.js";
 import { convertArrayType } from "./arrays.js";
@@ -27,7 +31,7 @@ const dedupeUnionMembers = (types: readonly IrType[]): readonly IrType[] => {
   const seen = new Set<string>();
   const result: IrType[] = [];
   for (const type of types) {
-    const key = JSON.stringify(type);
+    const key = stableIrTypeKey(type);
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(type);
@@ -38,11 +42,7 @@ const dedupeUnionMembers = (types: readonly IrType[]): readonly IrType[] => {
 const toUnionOrSingle = (types: readonly IrType[]): IrType => {
   const deduped = dedupeUnionMembers(types);
   if (deduped.length === 0) return { kind: "unknownType" };
-  if (deduped.length === 1) {
-    const first = deduped[0];
-    return first ?? { kind: "unknownType" };
-  }
-  return { kind: "unionType", types: deduped };
+  return normalizedUnionType(deduped);
 };
 
 const getTypeParameterConstraintNode = (
@@ -94,7 +94,7 @@ const memberValueType = (member: IrInterfaceMember): IrType =>
       } as IrFunctionType);
 
 const typesSyntacticallyEqual = (left: IrType, right: IrType): boolean =>
-  JSON.stringify(left) === JSON.stringify(right);
+  stableIrTypeKey(left) === stableIrTypeKey(right);
 
 function buildFunctionTypeFromSignatureDeclaration(
   declaration: ts.SignatureDeclarationBase,

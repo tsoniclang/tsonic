@@ -16,6 +16,10 @@ import {
   deriveElementType,
 } from "./member-resolution.js";
 import {
+  getCurrentTypeForAccessExpression,
+  hasAccessPathNarrowing,
+} from "../../access-paths.js";
+import {
   resolveHierarchicalBinding,
   resolveHierarchicalBindingFromMemberId,
   resolveExtensionMethodsBinding,
@@ -25,6 +29,7 @@ import {
   SUPPORTED_IMPORT_META_FIELDS,
   tryConvertImportMetaProperty,
 } from "../import-meta.js";
+import { tryResolveDeterministicPropertyNameFromExpression } from "../../../syntax/property-names.js";
 import {
   tryGetObjectLiteralMethodArgumentCapture,
   tryGetObjectLiteralMethodArgumentsLength,
@@ -80,12 +85,24 @@ export const convertMemberExpression = (
 
     const object = convertExpression(node.expression, ctx, undefined);
     const propertyName = node.name.text;
+    const narrowedReceiverType = hasAccessPathNarrowing(node.expression, ctx)
+      ? getCurrentTypeForAccessExpression(node.expression, ctx)
+      : undefined;
+    const bindingResolutionObject =
+      narrowedReceiverType !== undefined
+        ? { ...object, inferredType: narrowedReceiverType }
+        : object;
 
     // Try to resolve hierarchical binding
     const memberBinding =
-      resolveExtensionMethodsBinding(node, propertyName, ctx) ??
-      resolveHierarchicalBindingFromMemberId(node, propertyName, ctx) ??
-      resolveHierarchicalBinding(object, propertyName, ctx);
+      resolveExtensionMethodsBinding(
+        node,
+        propertyName,
+        bindingResolutionObject,
+        ctx
+      ) ??
+      resolveHierarchicalBinding(bindingResolutionObject, propertyName, ctx) ??
+      resolveHierarchicalBindingFromMemberId(node, propertyName, ctx);
 
     // DETERMINISTIC TYPING: Property type comes from NominalEnv + TypeRegistry for
     // user-defined types (including inherited members), with fallback to Binding layer
@@ -100,11 +117,12 @@ export const convertMemberExpression = (
     //
     // EXCEPTION: If memberBinding exists AND declaredType is undefined, return undefined.
     // This handles pure CLR-bound methods like Console.WriteLine that have no TS declaration.
-    const declaredType = getDeclaredPropertyType(
-      node,
-      object.inferredType,
-      ctx
-    );
+    const narrowedAccessType = hasAccessPathNarrowing(node, ctx)
+      ? getCurrentTypeForAccessExpression(node, ctx)
+      : undefined;
+    const declaredType =
+      narrowedAccessType ??
+      getDeclaredPropertyType(node, object.inferredType, ctx);
 
     // Hierarchical bindings: namespace.type is a static type reference, not a runtime
     // value. When this pattern is present in the binding manifest, avoid poisoning the
@@ -172,36 +190,33 @@ export const convertMemberExpression = (
     // Element access (computed): obj[expr]
     const object = convertExpression(node.expression, ctx, undefined);
 
-    const stringLiteralProperty = (() => {
+    const deterministicPropertyName = (() => {
       const arg = node.argumentExpression;
       if (!arg) return undefined;
-      if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
-        return /^[$A-Z_a-z][$\w]*$/u.test(arg.text) ? arg.text : undefined;
-      }
-      return undefined;
+      return tryResolveDeterministicPropertyNameFromExpression(arg);
     })();
 
     const computedAccessKind = classifyComputedAccess(object.inferredType, ctx);
 
     if (
-      stringLiteralProperty !== undefined &&
+      deterministicPropertyName !== undefined &&
       object.inferredType !== undefined &&
       computedAccessKind !== "dictionary"
     ) {
       const declaredType = ctx.typeSystem.typeOfMember(object.inferredType, {
         kind: "byName",
-        name: stringLiteralProperty,
+        name: deterministicPropertyName,
       });
       if (declaredType.kind !== "unknownType") {
         const memberBinding = resolveHierarchicalBinding(
           object,
-          stringLiteralProperty,
+          deterministicPropertyName,
           ctx
         );
         return {
           kind: "memberAccess",
           object,
-          property: stringLiteralProperty,
+          property: deterministicPropertyName,
           isComputed: false,
           isOptional,
           inferredType: declaredType,

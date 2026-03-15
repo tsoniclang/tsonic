@@ -6,7 +6,11 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../emitter.js";
+import { emitExpressionAst } from "../expression-emitter.js";
+import { emitMemberAccess } from "./access.js";
 import { IrExpression, IrModule, IrType } from "@tsonic/frontend";
+import type { EmitterContext } from "../types.js";
+import { printExpression } from "../core/format/backend-ast/printer.js";
 
 describe("Expression Emission", () => {
   it("should emit literals correctly", () => {
@@ -44,7 +48,7 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module);
+    const result = emitModule(module, { surface: "@tsonic/js" });
 
     expect(result).to.include('"hello"');
     expect(result).to.include("42"); // C# handles implicit conversion
@@ -83,7 +87,7 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module);
+    const result = emitModule(module, { surface: "@tsonic/js" });
 
     // Native array syntax with explicit type
     expect(result).to.include("new int[] { 1, 2, 3 }");
@@ -1728,6 +1732,156 @@ describe("Expression Emission", () => {
     );
   });
 
+  it("normalizes JS array wrapper call results back to native arrays for all array-like inferred return types", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "items",
+                inferredType: {
+                  kind: "arrayType",
+                  elementType: { kind: "primitiveType", name: "string" },
+                },
+              },
+              property: "filter",
+              isComputed: false,
+              isOptional: false,
+              memberBinding: {
+                kind: "method",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.JSArray`1",
+                member: "filter",
+              },
+            },
+            arguments: [{ kind: "identifier", name: "predicate" }],
+            isOptional: false,
+            inferredType: {
+              kind: "referenceType",
+              name: "Array",
+              typeArguments: [{ kind: "primitiveType", name: "string" }],
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "@tsonic/js" });
+    expect(result).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<string>(items).filter(predicate).toArray()"
+    );
+  });
+
+  it("normalizes unbound JS array wrapper member calls back to native arrays when the receiver is a native array", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "items",
+                inferredType: {
+                  kind: "arrayType",
+                  elementType: { kind: "primitiveType", name: "string" },
+                },
+              },
+              property: "filter",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [{ kind: "identifier", name: "predicate" }],
+            isOptional: false,
+            inferredType: {
+              kind: "arrayType",
+              elementType: { kind: "primitiveType", name: "string" },
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "@tsonic/js" });
+    expect(result).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<string>(items).filter(predicate).toArray()"
+    );
+  });
+
+  it("normalizes fluent JS extension calls back to native arrays when the logical return type is array-like", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "path",
+                inferredType: { kind: "primitiveType", name: "string" },
+              },
+              property: "split",
+              isComputed: false,
+              isOptional: false,
+              memberBinding: {
+                kind: "method",
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.String",
+                member: "split",
+                isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
+              },
+            },
+            arguments: [{ kind: "literal", value: "/" }],
+            isOptional: false,
+            inferredType: {
+              kind: "referenceType",
+              name: "ReadonlyArray",
+              typeArguments: [{ kind: "primitiveType", name: "string" }],
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      'global::System.Linq.Enumerable.ToArray(path.split("/"))'
+    );
+  });
+
   it("should emit array wrapper property access for non-System.Array member bindings", () => {
     const module: IrModule = {
       kind: "module",
@@ -1935,7 +2089,8 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("value.length");
+    expect(result).to.include("global::Tsonic.JSRuntime.String.length(value)");
+    expect(result).not.to.include("value.length");
   });
 
   it("should emit CLR Length for structural array length without member binding", () => {
@@ -1975,6 +2130,420 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
     expect(result).to.include("channels.Length");
     expect(result).to.not.include("channels.length");
+  });
+
+  it("should recover JS string length fallback under JS surface when narrowing lost the original binding", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "value",
+              inferredType: { kind: "primitiveType", name: "string" },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "@tsonic/js" });
+    expect(result).to.include("global::Tsonic.JSRuntime.String.length(value)");
+    expect(result).not.to.include("value.length");
+  });
+
+  it("should recover JS string length fallback for narrowed union receivers", () => {
+    const expr = {
+      kind: "memberAccess" as const,
+      object: {
+        kind: "identifier" as const,
+        name: "value",
+        inferredType: {
+          kind: "unionType" as const,
+          types: [
+            { kind: "primitiveType" as const, name: "string" as const },
+            {
+              kind: "referenceType" as const,
+              name: "Uint8Array",
+              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+            },
+          ],
+        },
+      },
+      property: "length",
+      isComputed: false,
+      isOptional: false,
+    };
+
+    const context: EmitterContext = {
+      indentLevel: 0,
+      options: { rootNamespace: "MyApp", surface: "@tsonic/js", indent: 4 },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+      narrowedBindings: new Map([
+        [
+          "value",
+          {
+            kind: "expr" as const,
+            exprAst: {
+              kind: "parenthesizedExpression" as const,
+              expression: {
+                kind: "invocationExpression" as const,
+                expression: {
+                  kind: "memberAccessExpression" as const,
+                  expression: {
+                    kind: "identifierExpression" as const,
+                    identifier: "value",
+                  },
+                  memberName: "As1",
+                },
+                arguments: [],
+              },
+            },
+            type: { kind: "primitiveType" as const, name: "string" as const },
+          },
+        ],
+      ]),
+    };
+
+    const [result] = emitMemberAccess(expr, context);
+    const printed = printExpression(result);
+    expect(printed).to.equal(
+      "global::Tsonic.JSRuntime.String.length((value.As1()))"
+    );
+  });
+
+  it("should recover JS string length fallback when narrowed receivers use string reference types", () => {
+    const expr = {
+      kind: "memberAccess" as const,
+      object: {
+        kind: "identifier" as const,
+        name: "value",
+        inferredType: {
+          kind: "unionType" as const,
+          types: [
+            { kind: "referenceType" as const, name: "string" as const },
+            {
+              kind: "referenceType" as const,
+              name: "Uint8Array",
+              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+            },
+          ],
+        },
+      },
+      property: "length",
+      isComputed: false,
+      isOptional: false,
+    };
+
+    const context: EmitterContext = {
+      indentLevel: 0,
+      options: { rootNamespace: "MyApp", surface: "@tsonic/js", indent: 4 },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+      narrowedBindings: new Map([
+        [
+          "value",
+          {
+            kind: "expr" as const,
+            exprAst: {
+              kind: "parenthesizedExpression" as const,
+              expression: {
+                kind: "invocationExpression" as const,
+                expression: {
+                  kind: "memberAccessExpression" as const,
+                  expression: {
+                    kind: "identifierExpression" as const,
+                    identifier: "value",
+                  },
+                  memberName: "As1",
+                },
+                arguments: [],
+              },
+            },
+            type: { kind: "referenceType" as const, name: "string" as const },
+          },
+        ],
+      ]),
+    };
+
+    const [result] = emitMemberAccess(expr, context);
+    expect(printExpression(result)).to.equal(
+      "global::Tsonic.JSRuntime.String.length((value.As1()))"
+    );
+  });
+
+  it("should recover JS string length fallback when narrowed receivers use CLR-backed string references", () => {
+    const expr = {
+      kind: "memberAccess" as const,
+      object: {
+        kind: "identifier" as const,
+        name: "value",
+        inferredType: {
+          kind: "unionType" as const,
+          types: [
+            {
+              kind: "referenceType" as const,
+              name: "String" as const,
+              resolvedClrType: "System.String",
+            },
+            {
+              kind: "referenceType" as const,
+              name: "Uint8Array",
+              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+            },
+          ],
+        },
+      },
+      property: "length",
+      isComputed: false,
+      isOptional: false,
+    };
+
+    const context: EmitterContext = {
+      indentLevel: 0,
+      options: { rootNamespace: "MyApp", surface: "@tsonic/js", indent: 4 },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+      narrowedBindings: new Map([
+        [
+          "value",
+          {
+            kind: "expr" as const,
+            exprAst: {
+              kind: "parenthesizedExpression" as const,
+              expression: {
+                kind: "invocationExpression" as const,
+                expression: {
+                  kind: "memberAccessExpression" as const,
+                  expression: {
+                    kind: "identifierExpression" as const,
+                    identifier: "value",
+                  },
+                  memberName: "As1",
+                },
+                arguments: [],
+              },
+            },
+            type: {
+              kind: "referenceType" as const,
+              name: "String" as const,
+              resolvedClrType: "System.String",
+            },
+          },
+        ],
+      ]),
+    };
+
+    const [result] = emitMemberAccess(expr, context);
+    expect(printExpression(result)).to.equal(
+      "global::Tsonic.JSRuntime.String.length((value.As1()))"
+    );
+  });
+
+  it("should recover JS string length fallback when narrowed runtime-union bindings omit the narrowed type", () => {
+    const expr = {
+      kind: "memberAccess" as const,
+      object: {
+        kind: "identifier" as const,
+        name: "value",
+        inferredType: {
+          kind: "unionType" as const,
+          types: [
+            { kind: "primitiveType" as const, name: "string" as const },
+            {
+              kind: "referenceType" as const,
+              name: "Uint8Array",
+              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+            },
+          ],
+        },
+      },
+      property: "length",
+      isComputed: false,
+      isOptional: false,
+    };
+
+    const context: EmitterContext = {
+      indentLevel: 0,
+      options: { rootNamespace: "MyApp", surface: "@tsonic/js", indent: 4 },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+      narrowedBindings: new Map([
+        [
+          "value",
+          {
+            kind: "expr" as const,
+            exprAst: {
+              kind: "parenthesizedExpression" as const,
+              expression: {
+                kind: "invocationExpression" as const,
+                expression: {
+                  kind: "memberAccessExpression" as const,
+                  expression: {
+                    kind: "identifierExpression" as const,
+                    identifier: "value",
+                  },
+                  memberName: "As1",
+                },
+                arguments: [],
+              },
+            },
+          },
+        ],
+      ]),
+    };
+
+    const [result] = emitMemberAccess(expr, context);
+    expect(printExpression(result)).to.equal(
+      "global::Tsonic.JSRuntime.String.length((value.As1()))"
+    );
+  });
+
+  it("should recover JS string length fallback before CLR member-binding access on narrowed strings", () => {
+    const expr = {
+      kind: "memberAccess" as const,
+      object: {
+        kind: "identifier" as const,
+        name: "value",
+        inferredType: {
+          kind: "unionType" as const,
+          types: [
+            { kind: "primitiveType" as const, name: "string" as const },
+            {
+              kind: "referenceType" as const,
+              name: "Uint8Array",
+              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+            },
+          ],
+        },
+      },
+      property: "length",
+      isComputed: false,
+      isOptional: false,
+      memberBinding: {
+        kind: "property" as const,
+        assembly: "System.Runtime",
+        type: "System.String",
+        member: "Length",
+      },
+    };
+
+    const context: EmitterContext = {
+      indentLevel: 0,
+      options: { rootNamespace: "MyApp", surface: "@tsonic/js", indent: 4 },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+      narrowedBindings: new Map([
+        [
+          "value",
+          {
+            kind: "expr" as const,
+            exprAst: {
+              kind: "parenthesizedExpression" as const,
+              expression: {
+                kind: "invocationExpression" as const,
+                expression: {
+                  kind: "memberAccessExpression" as const,
+                  expression: {
+                    kind: "identifierExpression" as const,
+                    identifier: "value",
+                  },
+                  memberName: "As1",
+                },
+                arguments: [],
+              },
+            },
+            type: { kind: "primitiveType" as const, name: "string" as const },
+          },
+        ],
+      ]),
+    };
+
+    const [result] = emitMemberAccess(expr, context);
+    expect(printExpression(result)).to.equal(
+      "global::Tsonic.JSRuntime.String.length((value.As1()))"
+    );
+  });
+
+  it("should recover JS array method fallback under JS surface when member binding is missing", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "items",
+                inferredType: {
+                  kind: "arrayType",
+                  elementType: { kind: "primitiveType", name: "string" },
+                },
+              },
+              property: "includes",
+              isComputed: false,
+              isOptional: false,
+              inferredType: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "value" },
+                    type: { kind: "primitiveType", name: "string" },
+                    isOptional: false,
+                    isRest: false,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "primitiveType", name: "boolean" },
+              },
+            },
+            arguments: [{ kind: "literal", value: "x" }],
+            isOptional: false,
+            parameterTypes: [{ kind: "primitiveType", name: "string" }],
+            inferredType: { kind: "primitiveType", name: "boolean" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 1,
+              column: 1,
+              length: 17,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "@tsonic/js" });
+    expect(result).to.include(
+      'new global::Tsonic.JSRuntime.JSArray<string>(items).includes("x")'
+    );
   });
 
   it("should emit CLR Count for structural dictionary count without member binding", () => {
@@ -2960,6 +3529,425 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
     expect(result).to.include("next(5)");
     expect(result).to.not.include("new object[] { 5 }");
+  });
+
+  it("should lower union-rest function value calls with contextual array members", () => {
+    const middlewareLike: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+          origin: "explicit",
+        },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "next",
+              inferredType: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "handlers" },
+                    type: middlewareLike,
+                    isOptional: false,
+                    isRest: true,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "unknownType" },
+              },
+            },
+            arguments: [
+              {
+                kind: "array",
+                elements: [{ kind: "literal", value: "ok" }],
+                inferredType: {
+                  kind: "arrayType",
+                  elementType: { kind: "primitiveType", name: "string" },
+                  origin: "explicit",
+                },
+              },
+            ],
+            isOptional: false,
+            parameterTypes: [middlewareLike],
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 1,
+              column: 1,
+              length: 7,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      "new global::Tsonic.Runtime.Union<string, string[]>[]"
+    );
+    expect(result).to.include('new string[] { "ok" }');
+    expect(result).to.not.include("new object[] { new object[]");
+  });
+
+  it("should wrap nested union handler values through explicit outer and inner union factories", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "next" },
+          type: { kind: "primitiveType", name: "string" },
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "unknownType" },
+    };
+
+    const middlewareParam: IrType = {
+      kind: "unionType",
+      types: [
+        handlerType,
+        {
+          kind: "arrayType",
+          elementType: { kind: "referenceType", name: "object" },
+          origin: "explicit",
+        },
+      ],
+    };
+    const middlewareLike: IrType = {
+      kind: "unionType",
+      types: [
+        middlewareParam,
+        { kind: "referenceType", name: "Router", resolvedClrType: "Test.Router" },
+        {
+          kind: "arrayType",
+          elementType: { kind: "referenceType", name: "object" },
+          origin: "explicit",
+        },
+      ],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "identifier",
+        name: "handler",
+        inferredType: handlerType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "MyApp",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+      },
+      middlewareLike
+    );
+
+    expect(printExpression(result)).to.equal(
+      "global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<global::System.Func<string, object?>, object[]>, global::Test.Router, object[]>.From1(global::Tsonic.Runtime.Union<global::System.Func<string, object?>, object[]>.From1(handler))"
+    );
+  });
+
+  it("should wrap recursive array-like union arguments through explicit array-arm factories", () => {
+    const middlewareLike: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "unionType",
+          types: [
+            {
+              kind: "functionType",
+              parameters: [],
+              returnType: { kind: "unknownType" },
+            },
+            {
+              kind: "arrayType",
+              elementType: { kind: "referenceType", name: "object" },
+              origin: "explicit",
+            },
+          ],
+        },
+        { kind: "referenceType", name: "Router", resolvedClrType: "Test.Router" },
+        {
+          kind: "arrayType",
+          elementType: { kind: "referenceType", name: "object" },
+          origin: "explicit",
+        },
+      ],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "array",
+        elements: [
+          {
+            kind: "identifier",
+            name: "handler",
+            inferredType: {
+              kind: "functionType",
+              parameters: [],
+              returnType: { kind: "unknownType" },
+            },
+          },
+        ],
+        inferredType: {
+          kind: "arrayType",
+          elementType: {
+            kind: "functionType",
+            parameters: [],
+            returnType: { kind: "unknownType" },
+          },
+          origin: "explicit",
+        },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "MyApp",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+      },
+      middlewareLike
+    );
+
+    expect(printExpression(result)).to.equal(
+      "global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<global::System.Func<object?>, object[]>, global::Test.Router, object[]>.From1(global::Tsonic.Runtime.Union<global::System.Func<object?>, object[]>.From2(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(new object[] { handler }, __item => __item))))"
+    );
+  });
+
+  it("reifies erased recursive union array elements back into runtime unions", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "value" },
+          type: { kind: "primitiveType", name: "string" },
+          initializer: undefined,
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "voidType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const middlewareLike = {
+      kind: "unionType",
+      types: [],
+    } as unknown as Extract<IrType, { kind: "unionType" }> & {
+      types: IrType[];
+    };
+
+    middlewareLike.types.push(
+      handlerType,
+      routerType,
+      {
+        kind: "arrayType",
+        elementType: middlewareLike,
+        origin: "explicit",
+      }
+    );
+
+    const expr: IrExpression = {
+      kind: "memberAccess",
+      object: {
+        kind: "identifier",
+        name: "handler",
+        inferredType: middlewareLike,
+      },
+      property: {
+        kind: "identifier",
+        name: "index",
+        inferredType: { kind: "primitiveType", name: "int" },
+      },
+      isComputed: true,
+      isOptional: false,
+      inferredType: middlewareLike,
+      accessKind: "clrIndexer",
+    };
+
+    const [result] = emitExpressionAst(expr, {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+      narrowedBindings: new Map([
+        [
+          "handler",
+          {
+            kind: "expr",
+            exprAst: {
+              kind: "invocationExpression",
+              expression: {
+                kind: "memberAccessExpression",
+                expression: {
+                  kind: "identifierExpression",
+                  identifier: "handler",
+                },
+                memberName: "As3",
+              },
+              arguments: [],
+            },
+            type: {
+              kind: "arrayType",
+              elementType: middlewareLike,
+              origin: "explicit",
+            },
+          },
+        ],
+      ]),
+    });
+
+    const text = printExpression(result);
+    expect(text).to.include("global::Tsonic.Runtime.Union<global::System.Action<string>, global::Test.Router, object[]>.From1");
+    expect(text).to.include("global::Tsonic.Runtime.Union<global::System.Action<string>, global::Test.Router, object[]>.From2");
+    expect(text).to.include("global::Tsonic.Runtime.Union<global::System.Action<string>, global::Test.Router, object[]>.From3");
+    expect(text).to.include("global::Tsonic.JSRuntime.JSArrayStatics.isArray");
+    expect(text).to.not.equal("(handler.As3())[index]");
+  });
+
+  it("reifies erased recursive nested-union array elements through outer union arms", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+
+    const middlewareParam = {
+      kind: "unionType",
+      types: [],
+    } as unknown as Extract<IrType, { kind: "unionType" }> & {
+      types: IrType[];
+    };
+
+    middlewareParam.types.push(handlerType, {
+      kind: "arrayType",
+      elementType: middlewareParam,
+      origin: "explicit",
+    });
+
+    const middlewareLike = {
+      kind: "unionType",
+      types: [],
+    } as unknown as Extract<IrType, { kind: "unionType" }> & {
+      types: IrType[];
+    };
+
+    middlewareLike.types.push(
+      middlewareParam,
+      {
+        kind: "referenceType",
+        name: "Router",
+        resolvedClrType: "Test.Router",
+      },
+      {
+        kind: "arrayType",
+        elementType: middlewareLike,
+        origin: "explicit",
+      }
+    );
+
+    const expr: IrExpression = {
+      kind: "memberAccess",
+      object: {
+        kind: "identifier",
+        name: "handler",
+        inferredType: middlewareLike,
+      },
+      property: {
+        kind: "identifier",
+        name: "index",
+        inferredType: { kind: "primitiveType", name: "int" },
+      },
+      isComputed: true,
+      isOptional: false,
+      inferredType: middlewareLike,
+      accessKind: "clrIndexer",
+    };
+
+    const [result] = emitExpressionAst(expr, {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+      narrowedBindings: new Map([
+        [
+          "handler",
+          {
+            kind: "expr",
+            exprAst: {
+              kind: "invocationExpression",
+              expression: {
+                kind: "memberAccessExpression",
+                expression: {
+                  kind: "identifierExpression",
+                  identifier: "handler",
+                },
+                memberName: "As3",
+              },
+              arguments: [],
+            },
+            type: {
+              kind: "arrayType",
+              elementType: middlewareLike,
+              origin: "explicit",
+            },
+          },
+        ],
+      ]),
+    });
+
+    const text = printExpression(result);
+    expect(text).to.include("global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<global::System.Action, object[]>, global::Test.Router, object[]>.From1");
+    expect(text).to.include("global::Tsonic.Runtime.Union<global::System.Action, object[]>.From1");
+    expect(text).to.include("global::Tsonic.Runtime.Union<global::System.Action, object[]>.From2");
+    expect(text).to.include("global::Tsonic.JSRuntime.JSArrayStatics.isArray");
   });
 
   it("should lower zero-arg tuple-rest function value calls without synthetic arrays", () => {

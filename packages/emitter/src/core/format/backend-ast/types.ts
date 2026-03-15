@@ -636,6 +636,7 @@ export type CSharpPropertyDeclarationAst = {
   readonly modifiers: readonly string[];
   readonly type: CSharpTypeAst;
   readonly name: string;
+  readonly explicitInterface?: CSharpTypeAst;
   readonly hasGetter: boolean;
   readonly hasSetter: boolean;
   readonly setterAccessibility?: "private" | "protected" | "internal";
@@ -655,6 +656,7 @@ export type CSharpMethodDeclarationAst = {
   readonly modifiers: readonly string[];
   readonly returnType: CSharpTypeAst;
   readonly name: string;
+  readonly explicitInterface?: CSharpTypeAst;
   readonly typeParameters?: readonly CSharpTypeParameterAst[];
   readonly parameters: readonly CSharpParameterAst[];
   readonly body?: CSharpBlockStatementAst;

@@ -46,6 +46,7 @@ import {
   isReadonlyMember,
   convertTypeParameterDeclarations,
 } from "./binding-helpers.js";
+import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BINDING IMPLEMENTATION
@@ -81,10 +82,8 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     name.startsWith("__tsonic_type_") ||
     name.startsWith("__tsonic_binding_alias_");
 
-  const getStaticPropertyName = (name: ts.PropertyName): string | undefined => {
-    if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
-    return undefined;
-  };
+  const getStaticPropertyName = (name: ts.PropertyName): string | undefined =>
+    tryResolveDeterministicPropertyName(name);
 
   const getBindingAliasFromDeclaration = (
     decl:
@@ -562,27 +561,14 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
 
     const getStaticPropertyName = (
       name: ts.PropertyName | ts.BindingName
-    ): string | undefined => {
-      if (ts.isIdentifier(name)) return name.text;
-      if (
-        ts.isStringLiteral(name) ||
-        ts.isNumericLiteral(name) ||
-        ts.isNoSubstitutionTemplateLiteral(name)
-      ) {
-        return name.text;
-      }
-      if (ts.isComputedPropertyName(name)) {
-        const expr = stripParens(name.expression);
-        if (
-          ts.isStringLiteral(expr) ||
-          ts.isNumericLiteral(expr) ||
-          ts.isNoSubstitutionTemplateLiteral(expr)
-        ) {
-          return expr.text;
-        }
-      }
-      return undefined;
-    };
+    ): string | undefined =>
+      ts.isIdentifier(name) ||
+      ts.isObjectBindingPattern(name) ||
+      ts.isArrayBindingPattern(name)
+        ? ts.isIdentifier(name)
+          ? name.text
+          : undefined
+        : tryResolveDeterministicPropertyName(name);
 
     const getObjectLiteralKeys = (
       arg: ts.Expression

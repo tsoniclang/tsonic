@@ -10,6 +10,7 @@ import {
   getPropertyType,
   stripNullish,
   resolveTypeAlias,
+  getArrayLikeElementType,
   selectUnionMemberForObjectLiteral,
 } from "../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../core/format/local-names.js";
@@ -52,6 +53,30 @@ const bucketFromMemberKind = (
 
 const stripGlobalPrefix = (name: string): string =>
   name.startsWith("global::") ? name.slice("global::".length) : name;
+
+const resolveArrayLiteralContextType = (
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!expectedType) return undefined;
+
+  const strippedExpected = stripNullish(expectedType);
+  const resolvedExpected = resolveTypeAlias(strippedExpected, context);
+  if (resolvedExpected.kind !== "unionType") {
+    return strippedExpected;
+  }
+
+  const arrayLikeMembers = resolvedExpected.types.filter((member): member is IrType =>
+    getArrayLikeElementType(member, context) !== undefined ||
+    resolveTypeAlias(stripNullish(member), context).kind === "tupleType"
+  );
+
+  if (arrayLikeMembers.length === 1) {
+    return arrayLikeMembers[0];
+  }
+
+  return strippedExpected;
+};
 
 const lookupMemberKindFromLocalTypes = (
   receiverTypeName: string,
@@ -224,9 +249,13 @@ export const emitArray = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const effectiveExpectedType = resolveArrayLiteralContextType(
+    expectedType,
+    context
+  );
   // Resolve type alias to check for tuple types
-  const resolvedExpectedType = expectedType
-    ? resolveTypeAlias(expectedType, context)
+  const resolvedExpectedType = effectiveExpectedType
+    ? resolveTypeAlias(effectiveExpectedType, context)
     : undefined;
 
   // Check if expected type is a tuple - emit as ValueTuple
@@ -251,9 +280,9 @@ export const emitArray = (
   let expectedElementType: IrType | undefined = undefined;
 
   // Priority 1: Use explicit type annotation
-  if (expectedType) {
+  if (effectiveExpectedType) {
     const resolvedExpected = resolveTypeAlias(
-      stripNullish(expectedType),
+      stripNullish(effectiveExpectedType),
       context
     );
 
@@ -269,6 +298,20 @@ export const emitArray = (
     } else if (
       resolvedExpected.kind === "referenceType" &&
       resolvedExpected.name === "Array" &&
+      resolvedExpected.typeArguments &&
+      resolvedExpected.typeArguments.length > 0
+    ) {
+      const firstArg = resolvedExpected.typeArguments[0];
+      if (firstArg) {
+        expectedElementType = firstArg;
+        const [typeAst, newContext] = emitTypeAst(firstArg, currentContext);
+        elementTypeAst = typeAst;
+        elementTypeResolved = true;
+        currentContext = newContext;
+      }
+    } else if (
+      resolvedExpected.kind === "referenceType" &&
+      resolvedExpected.name === "ReadonlyArray" &&
       resolvedExpected.typeArguments &&
       resolvedExpected.typeArguments.length > 0
     ) {

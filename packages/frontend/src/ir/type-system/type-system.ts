@@ -15,7 +15,7 @@
  * returns TypeAuthority with functions bound to shared state.
  */
 
-import type { IrType, IrFunctionType } from "../types/index.js";
+import type { IrType, IrFunctionType, IrParameter } from "../types/index.js";
 import type { Diagnostic } from "../../types/diagnostic.js";
 import type * as ts from "typescript";
 import type {
@@ -69,6 +69,7 @@ import {
 
 import {
   typeOfDecl as infTypeOfDecl,
+  typeOfValueRead as infTypeOfValueRead,
   typeOfMember as infTypeOfMember,
   getIndexerInfo as infGetIndexerInfo,
   typeOfMemberId as infTypeOfMemberId,
@@ -123,6 +124,17 @@ export type TypeAuthority = {
    * Returns unknownType + TSN5201/TSN5203 diagnostic if type cannot be determined.
    */
   typeOfDecl(declId: DeclId): IrType;
+
+  /**
+   * Get the readable value type of a declaration by its handle.
+   *
+   * This differs from `typeOfDecl` for optional value declarations such as:
+   * - `param?: T` parameters
+   * - `prop?: T` properties
+   *
+   * In those cases, reads observe `T | undefined`.
+   */
+  typeOfValueRead(declId: DeclId): IrType;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Member Types
@@ -354,7 +366,8 @@ export type TypeAuthority = {
   checkTsClassMemberOverride(
     declId: DeclId,
     memberName: string,
-    memberKind: "method" | "property"
+    memberKind: "method" | "property",
+    parameters?: readonly IrParameter[]
   ): { isOverride: boolean; isShadow: boolean };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -559,6 +572,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
 
     // Declaration types (inference module)
     typeOfDecl: (declId) => infTypeOfDecl(state, declId),
+    typeOfValueRead: (declId) => infTypeOfValueRead(state, declId),
 
     // Member types (inference module)
     typeOfMember: (receiver, member, site) =>
@@ -603,8 +617,14 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     signatureHasVariadicTypeParams: (sigId) =>
       infSignatureHasVariadicTypeParams(state, sigId),
     declHasTypeAnnotation: (declId) => infDeclHasTypeAnnotation(state, declId),
-    checkTsClassMemberOverride: (declId, memberName, memberKind) =>
-      infCheckTsClassMemberOverride(state, declId, memberName, memberKind),
+    checkTsClassMemberOverride: (declId, memberName, memberKind, parameters) =>
+      infCheckTsClassMemberOverride(
+        state,
+        declId,
+        memberName,
+        memberKind,
+        parameters
+      ),
 
     // Diagnostics
     getDiagnostics: () => diagnostics.slice(),

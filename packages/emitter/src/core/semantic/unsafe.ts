@@ -15,42 +15,52 @@ import type {
   IrModule,
 } from "@tsonic/frontend";
 
-export const typeUsesPointer = (type: IrType | undefined): boolean => {
+const typeUsesPointerInternal = (
+  type: IrType | undefined,
+  seen: WeakSet<object>
+): boolean => {
   if (!type) return false;
+  if (typeof type === "object" && type !== null) {
+    if (seen.has(type)) return false;
+    seen.add(type);
+  }
 
   switch (type.kind) {
     case "referenceType": {
       if (type.name === "ptr") return true;
       if (type.typeArguments && type.typeArguments.length > 0) {
-        return type.typeArguments.some((t) => typeUsesPointer(t));
+        return type.typeArguments.some((t) => typeUsesPointerInternal(t, seen));
       }
       if (type.structuralMembers && type.structuralMembers.length > 0) {
-        return interfaceMembersUsePointer(type.structuralMembers);
+        return interfaceMembersUsePointer(type.structuralMembers, seen);
       }
       return false;
     }
 
     case "arrayType":
-      return typeUsesPointer(type.elementType);
+      return typeUsesPointerInternal(type.elementType, seen);
 
     case "dictionaryType":
-      return typeUsesPointer(type.keyType) || typeUsesPointer(type.valueType);
+      return (
+        typeUsesPointerInternal(type.keyType, seen) ||
+        typeUsesPointerInternal(type.valueType, seen)
+      );
 
     case "tupleType":
-      return type.elementTypes.some((t) => typeUsesPointer(t));
+      return type.elementTypes.some((t) => typeUsesPointerInternal(t, seen));
 
     case "functionType":
       return (
-        type.parameters.some((p) => typeUsesPointer(p.type)) ||
-        typeUsesPointer(type.returnType)
+        type.parameters.some((p) => typeUsesPointerInternal(p.type, seen)) ||
+        typeUsesPointerInternal(type.returnType, seen)
       );
 
     case "objectType":
-      return interfaceMembersUsePointer(type.members);
+      return interfaceMembersUsePointer(type.members, seen);
 
     case "unionType":
     case "intersectionType":
-      return type.types.some((t) => typeUsesPointer(t));
+      return type.types.some((t) => typeUsesPointerInternal(t, seen));
 
     case "typeParameterType":
     case "primitiveType":
@@ -63,18 +73,26 @@ export const typeUsesPointer = (type: IrType | undefined): boolean => {
   }
 };
 
+export const typeUsesPointer = (type: IrType | undefined): boolean =>
+  typeUsesPointerInternal(type, new WeakSet<object>());
+
 const interfaceMembersUsePointer = (
-  members: readonly IrInterfaceMember[]
+  members: readonly IrInterfaceMember[],
+  seen: WeakSet<object>
 ): boolean => {
   for (const member of members) {
     if (member.kind === "propertySignature") {
-      if (typeUsesPointer(member.type)) return true;
+      if (typeUsesPointerInternal(member.type, seen)) return true;
       continue;
     }
 
     if (member.kind === "methodSignature") {
-      if (member.parameters.some((p) => typeUsesPointer(p.type))) return true;
-      if (typeUsesPointer(member.returnType)) return true;
+      if (
+        member.parameters.some((p) => typeUsesPointerInternal(p.type, seen))
+      ) {
+        return true;
+      }
+      if (typeUsesPointerInternal(member.returnType, seen)) return true;
       continue;
     }
   }
@@ -289,7 +307,7 @@ export const statementUsesPointer = (stmt: IrStatement): boolean => {
     case "interfaceDeclaration":
       return (
         (stmt.extends?.some((t) => typeUsesPointer(t)) ?? false) ||
-        interfaceMembersUsePointer(stmt.members)
+        interfaceMembersUsePointer(stmt.members, new WeakSet<object>())
       );
 
     case "typeAliasDeclaration":

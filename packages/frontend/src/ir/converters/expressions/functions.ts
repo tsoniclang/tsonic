@@ -16,6 +16,36 @@ import { convertBlockStatement } from "../statements/control.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
 import type { ProgramContext } from "../../program-context.js";
 
+const makeOptionalReadType = (type: IrType): IrType => {
+  if (type.kind === "unionType") {
+    const hasUndefined = type.types.some(
+      (member) =>
+        member.kind === "primitiveType" && member.name === "undefined"
+    );
+    if (hasUndefined) return type;
+    return {
+      kind: "unionType",
+      types: [...type.types, { kind: "primitiveType", name: "undefined" }],
+    };
+  }
+
+  if (type.kind === "primitiveType" && type.name === "undefined") {
+    return type;
+  }
+
+  return {
+    kind: "unionType",
+    types: [type, { kind: "primitiveType", name: "undefined" }],
+  };
+};
+
+const getParameterReadType = (parameter: IrParameter): IrType | undefined => {
+  if (!parameter.type) return undefined;
+  return parameter.isOptional
+    ? makeOptionalReadType(parameter.type)
+    : parameter.type;
+};
+
 const isNullishPrimitive = (type: IrType): boolean =>
   type.kind === "primitiveType" &&
   (type.name === "null" || type.name === "undefined");
@@ -25,22 +55,15 @@ const normalizeExpectedFunctionType = (
   ctx: ProgramContext
 ): IrFunctionType | undefined => {
   if (!expectedType) return undefined;
-  if (expectedType.kind === "functionType") return expectedType;
-
-  const delegated = ctx.typeSystem.delegateToFunctionType(expectedType);
-  if (delegated) return delegated;
-
-  if (expectedType.kind !== "unionType") return undefined;
-
-  const candidates = expectedType.types
+  const candidates = ctx.typeSystem
+    .collectExpectedReturnCandidates(expectedType)
     .filter(
       (member): member is IrType => !!member && !isNullishPrimitive(member)
     )
-    .map((member) =>
-      member.kind === "functionType"
-        ? member
-        : ctx.typeSystem.delegateToFunctionType(member)
-    )
+    .map((member) => {
+      if (member.kind === "functionType") return member;
+      return ctx.typeSystem.delegateToFunctionType(member);
+    })
     .filter((member): member is IrFunctionType => member !== undefined);
 
   if (candidates.length !== 1) return undefined;
@@ -176,12 +199,13 @@ export const convertFunctionExpression = (
       const p = parameters[i];
       const paramDecl = node.parameters[i];
       if (!p || !paramDecl) continue;
-      if (p.pattern.kind !== "identifierPattern" || !p.type) continue;
+      const readType = getParameterReadType(p);
+      if (p.pattern.kind !== "identifierPattern" || !readType) continue;
       if (!ts.isIdentifier(paramDecl.name)) continue;
 
       const declId = ctx.binding.resolveIdentifier(paramDecl.name);
       if (!declId) continue;
-      env.set(declId.id, p.type);
+      env.set(declId.id, readType);
     }
     return { ...ctx, typeEnv: env };
   })();
@@ -258,12 +282,13 @@ export const convertArrowFunction = (
       const p = parameters[i];
       const paramDecl = node.parameters[i];
       if (!p || !paramDecl) continue;
-      if (p.pattern.kind !== "identifierPattern" || !p.type) continue;
+      const readType = getParameterReadType(p);
+      if (p.pattern.kind !== "identifierPattern" || !readType) continue;
       if (!ts.isIdentifier(paramDecl.name)) continue;
 
       const declId = ctx.binding.resolveIdentifier(paramDecl.name);
       if (!declId) continue;
-      env.set(declId.id, p.type);
+      env.set(declId.id, readType);
     }
     return { ...ctx, typeEnv: env };
   })();
