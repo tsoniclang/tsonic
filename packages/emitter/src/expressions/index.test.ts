@@ -2061,7 +2061,7 @@ describe("Expression Emission", () => {
     );
   });
 
-  it("should preserve source member name when no CLR member binding exists", () => {
+  it("should preserve the source member access when no CLR member binding exists", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -2089,8 +2089,10 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("global::Tsonic.JSRuntime.String.length(value)");
-    expect(result).not.to.include("value.length");
+    expect(result).to.include("value.length");
+    expect(result).not.to.include(
+      "global::Tsonic.JSRuntime.String.length(value)"
+    );
   });
 
   it("should emit CLR Length for structural array length without member binding", () => {
@@ -2724,8 +2726,8 @@ describe("Expression Emission", () => {
     expect(result).to.include(
       "result.Match(__m1 => __m1.success, __m2 => __m2.success)"
     );
-    expect(result).to.include("result.As2().error");
-    expect(result).to.include("result.As1().data");
+    expect(result).to.include("result.As1().error");
+    expect(result).to.include("result.As2().data");
   });
 
   it("should escape special characters in dictionary keys", () => {
@@ -3602,7 +3604,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include(
-      "new global::Tsonic.Runtime.Union<string, string[]>[]"
+      "new global::Tsonic.Runtime.Union<string[], string>[]"
     );
     expect(result).to.include('new string[] { "ok" }');
     expect(result).to.not.include("new object[] { new object[]");
@@ -3639,7 +3641,11 @@ describe("Expression Emission", () => {
       kind: "unionType",
       types: [
         middlewareParam,
-        { kind: "referenceType", name: "Router", resolvedClrType: "Test.Router" },
+        {
+          kind: "referenceType",
+          name: "Router",
+          resolvedClrType: "Test.Router",
+        },
         {
           kind: "arrayType",
           elementType: { kind: "referenceType", name: "object" },
@@ -3669,7 +3675,7 @@ describe("Expression Emission", () => {
     );
 
     expect(printExpression(result)).to.equal(
-      "global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<global::System.Func<string, object?>, object[]>, global::Test.Router, object[]>.From1(global::Tsonic.Runtime.Union<global::System.Func<string, object?>, object[]>.From1(handler))"
+      "global::Tsonic.Runtime.Union<object[], global::System.Func<string, object?>, global::Test.Router>.From2(handler)"
     );
   });
 
@@ -3692,7 +3698,11 @@ describe("Expression Emission", () => {
             },
           ],
         },
-        { kind: "referenceType", name: "Router", resolvedClrType: "Test.Router" },
+        {
+          kind: "referenceType",
+          name: "Router",
+          resolvedClrType: "Test.Router",
+        },
         {
           kind: "arrayType",
           elementType: { kind: "referenceType", name: "object" },
@@ -3740,7 +3750,7 @@ describe("Expression Emission", () => {
     );
 
     expect(printExpression(result)).to.equal(
-      "global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<global::System.Func<object?>, object[]>, global::Test.Router, object[]>.From1(global::Tsonic.Runtime.Union<global::System.Func<object?>, object[]>.From2(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(new object[] { handler }, __item => __item))))"
+      "global::Tsonic.Runtime.Union<object[], global::System.Func<object?>, global::Test.Router>.From1(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(new object[] { (object)handler }, __item => __item)))"
     );
   });
 
@@ -3774,15 +3784,11 @@ describe("Expression Emission", () => {
       types: IrType[];
     };
 
-    middlewareLike.types.push(
-      handlerType,
-      routerType,
-      {
-        kind: "arrayType",
-        elementType: middlewareLike,
-        origin: "explicit",
-      }
-    );
+    middlewareLike.types.push(handlerType, routerType, {
+      kind: "arrayType",
+      elementType: middlewareLike,
+      origin: "explicit",
+    });
 
     const expr: IrExpression = {
       kind: "memberAccess",
@@ -3825,7 +3831,7 @@ describe("Expression Emission", () => {
                   kind: "identifierExpression",
                   identifier: "handler",
                 },
-                memberName: "As3",
+                memberName: "As1",
               },
               arguments: [],
             },
@@ -3840,11 +3846,20 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include("global::Tsonic.Runtime.Union<global::System.Action<string>, global::Test.Router, object[]>.From1");
-    expect(text).to.include("global::Tsonic.Runtime.Union<global::System.Action<string>, global::Test.Router, object[]>.From2");
-    expect(text).to.include("global::Tsonic.Runtime.Union<global::System.Action<string>, global::Test.Router, object[]>.From3");
+    expect(text).to.include(
+      "handler.As1()[index] is global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>"
+    );
+    expect(text).to.include(
+      "global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From1"
+    );
+    expect(text).to.include(
+      "global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From2"
+    );
+    expect(text).to.include(
+      "global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From3"
+    );
     expect(text).to.include("global::Tsonic.JSRuntime.JSArrayStatics.isArray");
-    expect(text).to.not.equal("(handler.As3())[index]");
+    expect(text).to.not.equal("(handler.As1())[index]");
   });
 
   it("reifies explicit runtime union narrowing casts through Match instead of raw CLR casts", () => {
@@ -3923,8 +3938,8 @@ describe("Expression Emission", () => {
     const rendered = printExpression(result);
     expect(rendered).to.include("first.Match(");
     expect(rendered).to.include("From1(__tsonic_union_member_1)");
-    expect(rendered).to.include("From2(__tsonic_union_member_2)");
-    expect(rendered).to.match(/From3\(__tsonic_union_member_\d+\)/);
+    expect(rendered).to.include("From2(__tsonic_union_member_3)");
+    expect(rendered).to.include("From3(__tsonic_union_member_4)");
     expect(rendered).to.include("new global::System.InvalidCastException(");
     expect(rendered).to.not.include(
       "(global::Tsonic.Runtime.Union<object?[], string, global::Tsonic.JSRuntime.RegExp>)first"
@@ -4013,7 +4028,7 @@ describe("Expression Emission", () => {
                   kind: "identifierExpression",
                   identifier: "handler",
                 },
-                memberName: "As3",
+                memberName: "As1",
               },
               arguments: [],
             },
@@ -4028,9 +4043,18 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include("global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<global::System.Action, object[]>, global::Test.Router, object[]>.From1");
-    expect(text).to.include("global::Tsonic.Runtime.Union<global::System.Action, object[]>.From1");
-    expect(text).to.include("global::Tsonic.Runtime.Union<global::System.Action, object[]>.From2");
+    expect(text).to.include(
+      "handler.As1()[index] is global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>"
+    );
+    expect(text).to.include(
+      "global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>.From1"
+    );
+    expect(text).to.include(
+      "global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>.From2"
+    );
+    expect(text).to.include(
+      "global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>.From3"
+    );
     expect(text).to.include("global::Tsonic.JSRuntime.JSArrayStatics.isArray");
   });
 

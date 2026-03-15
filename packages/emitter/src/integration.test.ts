@@ -525,7 +525,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("TaskCompletionSource<bool>");
       expect(csharp).to.match(
-        /\(\(global::System\.Action<global::System\.Action>\)\(resolve\s*=>/
+        /\(\(global::System\.Action<global::System\.Action,\s*global::System\.Action<object\?>>\)\(\(resolve,\s*__unused_reject\)\s*=>/
       );
       expect(csharp).not.to.include("new Promise(");
     });
@@ -1049,6 +1049,43 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("Task.FromResult(__tsonic_await_value_0)");
     });
 
+    it("wraps pure sync unions directly when awaiting", () => {
+      const source = `
+        declare function render(flag: boolean):
+          | { success: true; rendered: string }
+          | { success: false; error: string };
+
+        export async function run(flag: boolean): Promise<string> {
+          const result = await render(flag);
+          if ("error" in result) {
+            return result.error;
+          }
+          return result.rendered;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("await global::System.Threading.Tasks.Task.FromResult(render(flag));");
+      expect(csharp).not.to.include("render(flag).Match(");
+    });
+
+    it("wraps pure sync nullish unions directly when awaiting", () => {
+      const source = `
+        declare function maybeText(flag: boolean): string | undefined;
+
+        export async function run(flag: boolean): Promise<string | undefined> {
+          return await maybeText(flag);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("await global::System.Threading.Tasks.Task.FromResult(maybeText(flag));");
+      expect(csharp).not.to.include("?? global::System.Threading.Tasks.Task.CompletedTask");
+      expect(csharp).not.to.include("maybeText(flag).Match(");
+    });
+
     it("normalizes mixed Task-or-void unions before await", () => {
       const source = `
         import type { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
@@ -1085,7 +1122,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       expect(csharp).to.include(
-        "global::Tsonic.Runtime.Union<object?, global::System.Threading.Tasks.Task<object?>>.From2(global::System.Threading.Tasks.Task.Run<object?>"
+        "global::Tsonic.Runtime.Union<global::System.Threading.Tasks.Task<object?>, object?>.From1(global::System.Threading.Tasks.Task.Run<object?>"
       );
       expect(csharp).to.include(
         'await (next("route") ?? global::System.Threading.Tasks.Task.CompletedTask);'
@@ -1383,7 +1420,10 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include(
-        "subscribe(new CreateParams { isPrivate = createParams.isPrivate });"
+        "subscribe(((global::System.Func<CreateParams>)(() =>"
+      );
+      expect(csharp).to.include(
+        "new CreateParams { isPrivate = createParams.isPrivate }"
       );
       expect(csharp).not.to.include("subscribe(createParams);");
     });
@@ -1417,9 +1457,13 @@ describe("End-to-End Integration", () => {
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.match(
-        /createBotDomain\(new .* \{ fullName = input\.fullName, shortName = input\.shortName, botType = input\.botType \}\);/
+      expect(csharp).to.include(
+        "createBotDomain(((global::System.Func<global::Test.__Anon_"
       );
+      expect(csharp).to.include("new global::Test.__Anon_");
+      expect(csharp).to.include("fullName = input.fullName");
+      expect(csharp).to.include("shortName = input.shortName");
+      expect(csharp).to.include("botType = input.botType");
       expect(csharp).not.to.include("createBotDomain(input);");
     });
 

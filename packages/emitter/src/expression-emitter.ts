@@ -29,7 +29,10 @@ import {
   resolveLocalTypeInfo,
   isTypeOnlyStructuralTarget,
 } from "./core/semantic/type-resolution.js";
-import { buildRuntimeUnionLayout, findRuntimeUnionMemberIndex } from "./core/semantic/runtime-unions.js";
+import {
+  buildRuntimeUnionLayout,
+  findRuntimeUnionMemberIndex,
+} from "./core/semantic/runtime-unions.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -628,6 +631,23 @@ const getArrayElementType = (
   return undefined;
 };
 
+const unwrapNullableTypeAst = (type: CSharpTypeAst): CSharpTypeAst =>
+  type.kind === "nullableType" ? type.underlyingType : type;
+
+const isObjectLikeTypeAst = (type: CSharpTypeAst | undefined): boolean => {
+  if (!type) return false;
+  const concrete = unwrapNullableTypeAst(type);
+  if (concrete.kind === "predefinedType") {
+    return concrete.keyword === "object";
+  }
+  const name = getIdentifierTypeName(concrete);
+  return (
+    name === "object" ||
+    name === "System.Object" ||
+    name === "global::System.Object"
+  );
+};
+
 const getDictionaryValueType = (
   type: IrType | undefined,
   context: EmitterContext
@@ -663,8 +683,7 @@ const tryAdaptStructuralExpressionAst = (
     context
   );
   const targetStructuralType =
-    anonymousStructuralTarget ??
-    resolvedExpectedType;
+    anonymousStructuralTarget ?? resolvedExpectedType;
   const targetEmissionType =
     anonymousStructuralTarget ??
     (strippedExpectedType.kind === "referenceType"
@@ -1591,9 +1610,6 @@ const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
   );
 };
 
-const unwrapNullableTypeAst = (type: CSharpTypeAst): CSharpTypeAst =>
-  type.kind === "nullableType" ? type.underlyingType : type;
-
 const maybeWidenRuntimeUnionExpressionAst = (
   ast: CSharpExpressionAst,
   actualType: IrType,
@@ -1601,17 +1617,8 @@ const maybeWidenRuntimeUnionExpressionAst = (
   expectedType: IrType,
   visited: ReadonlySet<string>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  const normalizedActual = normalizeComparableType(actualType, context);
-  const normalizedExpected = normalizeComparableType(expectedType, context);
-  if (
-    normalizedActual.kind !== "unionType" ||
-    normalizedExpected.kind !== "unionType"
-  ) {
-    return undefined;
-  }
-
   const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
-    normalizedActual,
+    actualType,
     context,
     emitTypeAst
   );
@@ -1620,7 +1627,7 @@ const maybeWidenRuntimeUnionExpressionAst = (
   }
 
   const [expectedLayout, expectedLayoutContext] = buildRuntimeUnionLayout(
-    normalizedExpected,
+    expectedType,
     actualLayoutContext,
     emitTypeAst
   );
@@ -1649,7 +1656,11 @@ const maybeWidenRuntimeUnionExpressionAst = (
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = expectedTypeContext;
   const expectedMemberIndexByAstKey = new Map<string, number>();
-  for (let index = 0; index < expectedLayout.memberTypeAsts.length; index += 1) {
+  for (
+    let index = 0;
+    index < expectedLayout.memberTypeAsts.length;
+    index += 1
+  ) {
     const memberTypeAst = expectedLayout.memberTypeAsts[index];
     if (!memberTypeAst) continue;
     expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
@@ -1662,7 +1673,9 @@ const maybeWidenRuntimeUnionExpressionAst = (
     const actualMemberTypeAst = actualLayout.memberTypeAsts[index];
     const expectedMemberIndex =
       (actualMemberTypeAst
-        ? expectedMemberIndexByAstKey.get(stableTypeKeyFromAst(actualMemberTypeAst))
+        ? expectedMemberIndexByAstKey.get(
+            stableTypeKeyFromAst(actualMemberTypeAst)
+          )
         : undefined) ??
       findRuntimeUnionMemberIndex(
         expectedLayout.members,
@@ -1679,14 +1692,13 @@ const maybeWidenRuntimeUnionExpressionAst = (
       identifier: parameterName,
     };
 
-    const nested =
-      maybeUpcastExpressionToExpectedTypeAst(
-        parameterExpr,
-        actualMember,
-        currentContext,
-        expectedLayout.members[expectedMemberIndex],
-        visited
-      ) ?? [parameterExpr, currentContext];
+    const nested = maybeUpcastExpressionToExpectedTypeAst(
+      parameterExpr,
+      actualMember,
+      currentContext,
+      expectedLayout.members[expectedMemberIndex],
+      visited
+    ) ?? [parameterExpr, currentContext];
 
     lambdaArgs.push({
       kind: "lambdaExpression",
@@ -1722,17 +1734,8 @@ const maybeNarrowRuntimeUnionExpressionAst = (
   expectedType: IrType,
   visited: ReadonlySet<string>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  const normalizedActual = normalizeComparableType(actualType, context);
-  const normalizedExpected = normalizeComparableType(expectedType, context);
-  if (
-    normalizedActual.kind !== "unionType" ||
-    normalizedExpected.kind !== "unionType"
-  ) {
-    return undefined;
-  }
-
   const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
-    normalizedActual,
+    actualType,
     context,
     emitTypeAst
   );
@@ -1741,7 +1744,7 @@ const maybeNarrowRuntimeUnionExpressionAst = (
   }
 
   const [expectedLayout, expectedLayoutContext] = buildRuntimeUnionLayout(
-    normalizedExpected,
+    expectedType,
     actualLayoutContext,
     emitTypeAst
   );
@@ -1768,7 +1771,11 @@ const maybeNarrowRuntimeUnionExpressionAst = (
   }
 
   const expectedMemberIndexByAstKey = new Map<string, number>();
-  for (let index = 0; index < expectedLayout.memberTypeAsts.length; index += 1) {
+  for (
+    let index = 0;
+    index < expectedLayout.memberTypeAsts.length;
+    index += 1
+  ) {
     const memberTypeAst = expectedLayout.memberTypeAsts[index];
     if (!memberTypeAst) continue;
     expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
@@ -1784,7 +1791,9 @@ const maybeNarrowRuntimeUnionExpressionAst = (
     const actualMemberTypeAst = actualLayout.memberTypeAsts[index];
     const expectedMemberIndex =
       (actualMemberTypeAst
-        ? expectedMemberIndexByAstKey.get(stableTypeKeyFromAst(actualMemberTypeAst))
+        ? expectedMemberIndexByAstKey.get(
+            stableTypeKeyFromAst(actualMemberTypeAst)
+          )
         : undefined) ??
       findRuntimeUnionMemberIndex(
         expectedLayout.members,
@@ -1811,14 +1820,13 @@ const maybeNarrowRuntimeUnionExpressionAst = (
       continue;
     }
 
-    const nested =
-      maybeUpcastExpressionToExpectedTypeAst(
-        parameterExpr,
-        actualMember,
-        currentContext,
-        expectedLayout.members[expectedMemberIndex],
-        visited
-      ) ?? [parameterExpr, currentContext];
+    const nested = maybeUpcastExpressionToExpectedTypeAst(
+      parameterExpr,
+      actualMember,
+      currentContext,
+      expectedLayout.members[expectedMemberIndex],
+      visited
+    ) ?? [parameterExpr, currentContext];
 
     lambdaArgs.push({
       kind: "lambdaExpression",
@@ -1831,6 +1839,99 @@ const maybeNarrowRuntimeUnionExpressionAst = (
       ),
     });
     currentContext = nested[1];
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: ast,
+        memberName: "Match",
+      },
+      arguments: lambdaArgs,
+    },
+    currentContext,
+  ];
+};
+
+const maybeProjectRuntimeUnionMemberExpressionAst = (
+  ast: CSharpExpressionAst,
+  actualType: IrType,
+  context: EmitterContext,
+  expectedType: IrType,
+  visited: ReadonlySet<string>
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const normalizedExpected = normalizeComparableType(expectedType, context);
+  if (normalizedExpected.kind === "unionType") {
+    return undefined;
+  }
+
+  const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
+    actualType,
+    context,
+    emitTypeAst
+  );
+  if (!actualLayout) {
+    return undefined;
+  }
+
+  const [actualTypeAst, actualTypeContext] = emitTypeAst(
+    actualType,
+    actualLayoutContext
+  );
+  const concreteActualTypeAst = unwrapNullableTypeAst(actualTypeAst);
+  if (!isRuntimeUnionTypeAst(concreteActualTypeAst)) {
+    return undefined;
+  }
+
+  const lambdaArgs: CSharpExpressionAst[] = [];
+  let currentContext = actualTypeContext;
+  let sawMatch = false;
+
+  for (let index = 0; index < actualLayout.members.length; index += 1) {
+    const actualMember = actualLayout.members[index];
+    if (!actualMember) continue;
+
+    const parameterName = `__tsonic_union_member_${index + 1}`;
+    const parameterExpr: CSharpExpressionAst = {
+      kind: "identifierExpression",
+      identifier: parameterName,
+    };
+
+    let body: CSharpExpressionAst = buildInvalidRuntimeUnionCastExpression(
+      actualMember,
+      expectedType
+    );
+
+    if (areIrTypesEquivalent(actualMember, expectedType, currentContext)) {
+      body = parameterExpr;
+      sawMatch = true;
+    } else {
+      const nested = maybeUpcastExpressionToExpectedTypeAst(
+        parameterExpr,
+        actualMember,
+        currentContext,
+        expectedType,
+        visited
+      );
+      if (nested) {
+        body = nested[0];
+        currentContext = nested[1];
+        sawMatch = true;
+      }
+    }
+
+    lambdaArgs.push({
+      kind: "lambdaExpression",
+      isAsync: false,
+      parameters: [{ name: parameterName }],
+      body,
+    });
+  }
+
+  if (!sawMatch) {
+    return undefined;
   }
 
   return [
@@ -1878,6 +1979,17 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     return adapted;
   }
 
+  const projectedUnion = maybeProjectRuntimeUnionMemberExpressionAst(
+    ast,
+    actualType,
+    context,
+    expectedType,
+    nextVisited
+  );
+  if (projectedUnion) {
+    return projectedUnion;
+  }
+
   if (normalizedExpected.kind !== "unionType") {
     return undefined;
   }
@@ -1893,6 +2005,15 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     return widenedUnion;
   }
 
+  const [actualRuntimeLayout] = buildRuntimeUnionLayout(
+    actualType,
+    context,
+    emitTypeAst
+  );
+  if (actualRuntimeLayout) {
+    return undefined;
+  }
+
   const [runtimeLayout, layoutContext] = buildRuntimeUnionLayout(
     normalizedExpected,
     context,
@@ -1902,7 +2023,55 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     return undefined;
   }
 
-  for (let index = 0; index < runtimeLayout.members.length; index += 1) {
+  const [actualTypeAst, actualTypeContext] = emitTypeAst(
+    actualType,
+    layoutContext
+  );
+  const actualTypeKey = stableTypeKeyFromAst(actualTypeAst);
+  const normalizedActual = normalizeComparableType(
+    actualType,
+    actualTypeContext
+  );
+  const actualSemanticKey = stableIrTypeKey(normalizedActual);
+
+  const preferredIndices = new Set<number>();
+  for (let index = 0; index < runtimeLayout.memberTypeAsts.length; index += 1) {
+    const memberTypeAst = runtimeLayout.memberTypeAsts[index];
+    if (!memberTypeAst) continue;
+    if (stableTypeKeyFromAst(memberTypeAst) === actualTypeKey) {
+      preferredIndices.add(index);
+    }
+    const member = runtimeLayout.members[index];
+    if (
+      member &&
+      stableIrTypeKey(normalizeComparableType(member, actualTypeContext)) ===
+        actualSemanticKey
+    ) {
+      preferredIndices.add(index);
+    }
+  }
+
+  const candidateIndices = [
+    ...preferredIndices,
+    ...runtimeLayout.members
+      .map((_, index) => index)
+      .filter((index) => !preferredIndices.has(index))
+      .sort((left, right) => {
+        const leftScore = isObjectLikeTypeAst(
+          runtimeLayout.memberTypeAsts[left]
+        )
+          ? 1
+          : 0;
+        const rightScore = isObjectLikeTypeAst(
+          runtimeLayout.memberTypeAsts[right]
+        )
+          ? 1
+          : 0;
+        return leftScore - rightScore;
+      }),
+  ];
+
+  for (const index of candidateIndices) {
     const member = runtimeLayout.members[index];
     if (!member) continue;
 
@@ -1915,7 +2084,10 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     );
     if (!nested) continue;
 
-    const [unionTypeAst, unionTypeContext] = emitTypeAst(expectedType, nested[1]);
+    const [unionTypeAst, unionTypeContext] = emitTypeAst(
+      expectedType,
+      nested[1]
+    );
     const concreteUnionTypeAst =
       unionTypeAst.kind === "nullableType"
         ? unionTypeAst.underlyingType
@@ -2155,9 +2327,7 @@ const emitTypeAssertion = (
       runtimeTarget
     );
   if (adaptedUnionAst) {
-    if (adaptedUnionAst[0] !== innerAst) {
-      return adaptedUnionAst;
-    }
+    return adaptedUnionAst;
   }
 
   if (expr.expression.inferredType) {

@@ -1,4 +1,4 @@
-import { IrType } from "@tsonic/frontend";
+import { IrType, IrInterfaceMember, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpTypeAst } from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
@@ -23,10 +23,158 @@ export type RuntimeUnionLayout = {
 
 const UNKNOWN_TYPE: IrType = { kind: "unknownType" };
 
-const isClrUnionName = (name: string): boolean =>
-  name === "Union" ||
-  name === "Tsonic.Runtime.Union" ||
-  name === "global::Tsonic.Runtime.Union";
+const toRuntimeOrderingComparableType = (type: IrType): IrType => {
+  if (type.kind === "literalType") {
+    if (typeof type.value === "string") {
+      return { kind: "primitiveType", name: "string" };
+    }
+    if (typeof type.value === "number") {
+      return { kind: "primitiveType", name: "number" };
+    }
+    if (typeof type.value === "boolean") {
+      return { kind: "primitiveType", name: "boolean" };
+    }
+  }
+
+  if (type.kind === "unionType") {
+    return {
+      ...type,
+      types: type.types.map((member) => toRuntimeOrderingComparableType(member)),
+    };
+  }
+
+  return type;
+};
+
+const toRuntimeOrderingTypeKey = (type: IrType): string =>
+  stableIrTypeKey(toRuntimeOrderingComparableType(type));
+
+const buildRuntimeOrderingMemberKey = (
+  member: IrInterfaceMember
+): string => {
+  if (member.kind === "propertySignature") {
+    return `prop:${member.name}:${member.isOptional ? "opt" : "req"}:${member.isReadonly ? "ro" : "rw"}:${toRuntimeOrderingTypeKey(member.type)}`;
+  }
+
+  const parameters = member.parameters.map((parameter: typeof member.parameters[number]) =>
+    toRuntimeOrderingTypeKey(parameter.type ?? UNKNOWN_TYPE)
+  );
+  return `method:${member.name}:${parameters.join(",")}:${member.parameters.length}:${toRuntimeOrderingTypeKey(member.returnType ?? UNKNOWN_TYPE)}`;
+};
+
+const buildRuntimeOrderingStructuralKey = (
+  type: IrType,
+  context: EmitterContext
+): string | undefined => {
+  const resolved = resolveTypeAlias(type, context);
+
+  if (resolved.kind === "objectType") {
+    return resolved.members
+      .map((member) => buildRuntimeOrderingMemberKey(member))
+      .sort()
+      .join("|");
+  }
+
+  if (resolved.kind !== "referenceType") {
+    return undefined;
+  }
+
+  if (resolved.structuralMembers && resolved.structuralMembers.length > 0) {
+    return resolved.structuralMembers
+      .map((member) => buildRuntimeOrderingMemberKey(member))
+      .sort()
+      .join("|");
+  }
+
+  const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
+  if (!localInfo) {
+    return undefined;
+  }
+
+  if (localInfo.kind === "typeAlias" && localInfo.type.kind === "objectType") {
+    return localInfo.type.members
+      .map((member) => buildRuntimeOrderingMemberKey(member))
+      .sort()
+      .join("|");
+  }
+
+  if (localInfo.kind !== "class" && localInfo.kind !== "interface") {
+    return undefined;
+  }
+
+  const members = localInfo.members
+    .flatMap<
+      Extract<IrType, { kind: "objectType" }>["members"][number]
+    >((member) => {
+      if (member.kind === "propertyDeclaration" && member.type) {
+        return [
+          {
+            kind: "propertySignature" as const,
+            name: member.name,
+            type: member.type,
+            isOptional: false,
+            isReadonly: member.isReadonly ?? false,
+          },
+        ];
+      }
+      if (member.kind === "propertySignature") {
+        return [member];
+      }
+      if (member.kind === "methodDeclaration") {
+        return [
+          {
+            kind: "methodSignature" as const,
+            name: member.name,
+            parameters: member.parameters,
+            returnType: member.returnType ?? UNKNOWN_TYPE,
+          },
+        ];
+      }
+      if (member.kind === "methodSignature") {
+        return [member];
+      }
+      return [];
+    })
+    .map((member) => buildRuntimeOrderingMemberKey(member))
+    .sort();
+
+  return members.length > 0 ? members.join("|") : undefined;
+};
+
+const getRuntimeUnionMemberSortKey = (
+  type: IrType,
+  context: EmitterContext
+): string =>
+  buildRuntimeOrderingStructuralKey(type, context) ??
+  toRuntimeOrderingTypeKey(resolveTypeAlias(type, context));
+
+export const isRuntimeUnionTypeName = (name: string): boolean => {
+  const normalized = name.startsWith("global::")
+    ? name.slice("global::".length)
+    : name;
+  const leaf = normalized.split(".").pop() ?? normalized;
+  return (
+    leaf === "Union" || /^Union_[2-8]$/.test(leaf) || /^Union`\d+$/.test(leaf)
+  );
+};
+
+export const getRuntimeUnionReferenceMembers = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): readonly IrType[] | undefined => {
+  if (
+    (isRuntimeUnionTypeName(type.name) ||
+      (type.resolvedClrType
+        ? isRuntimeUnionTypeName(type.resolvedClrType)
+        : false)) &&
+    type.typeArguments &&
+    type.typeArguments.length >= 2 &&
+    type.typeArguments.length <= 8
+  ) {
+    return type.typeArguments;
+  }
+
+  return undefined;
+};
 
 const toRecursiveFallbackType = (type: IrType): IrType => {
   if (type.kind === "arrayType") {
@@ -72,15 +220,37 @@ const expandRuntimeUnionMembers = (
     );
   }
 
+  if (type.kind === "intersectionType") {
+    const runtimeCarrier = type.types.find(
+      (
+        member
+      ): member is
+        | Extract<IrType, { kind: "unionType" }>
+        | Extract<IrType, { kind: "referenceType" }> =>
+        member.kind === "unionType" ||
+        (member.kind === "referenceType" &&
+          getRuntimeUnionReferenceMembers(member) !== undefined)
+    );
+    if (runtimeCarrier) {
+      return expandRuntimeUnionMembers(
+        runtimeCarrier,
+        context,
+        activeAliases,
+        nextActiveTypes
+      );
+    }
+  }
+
   if (type.kind === "referenceType") {
-    if (
-      isClrUnionName(type.name) &&
-      type.typeArguments &&
-      type.typeArguments.length >= 2 &&
-      type.typeArguments.length <= 8
-    ) {
-      return type.typeArguments.flatMap((member) =>
-        expandRuntimeUnionMembers(member, context, activeAliases, nextActiveTypes)
+    const runtimeMembers = getRuntimeUnionReferenceMembers(type);
+    if (runtimeMembers) {
+      return runtimeMembers.flatMap((member) =>
+        expandRuntimeUnionMembers(
+          member,
+          context,
+          activeAliases,
+          nextActiveTypes
+        )
       );
     }
 
@@ -169,12 +339,15 @@ export const buildRuntimeUnionLayout = (
   context: EmitterContext,
   emitTypeAst: EmitTypeAstLike
 ): [RuntimeUnionLayout | undefined, EmitterContext] => {
-  const semanticMembers = expandRuntimeUnionMembers(type, context);
-  if (semanticMembers.length < 2 || semanticMembers.length > 8) {
+  const semanticMembers = getCanonicalRuntimeUnionMembers(type, context);
+  if (!semanticMembers) {
     return [undefined, context];
   }
 
-  const byAstKey = new Map<string, { member: IrType; typeAst: CSharpTypeAst }>();
+  const byAstKey = new Map<
+    string,
+    { member: IrType; typeAst: CSharpTypeAst }
+  >();
   let currentContext = context;
 
   for (const member of semanticMembers) {
@@ -187,7 +360,19 @@ export const buildRuntimeUnionLayout = (
   }
 
   const ordered = Array.from(byAstKey.entries())
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([, left], [, right]) => {
+      const leftKey = getRuntimeUnionMemberSortKey(left.member, currentContext);
+      const rightKey = getRuntimeUnionMemberSortKey(
+        right.member,
+        currentContext
+      );
+      if (leftKey !== rightKey) {
+        return leftKey.localeCompare(rightKey);
+      }
+      return stableTypeKeyFromAst(left.typeAst).localeCompare(
+        stableTypeKeyFromAst(right.typeAst)
+      );
+    })
     .map(([, entry]) => entry);
 
   return [
@@ -198,6 +383,32 @@ export const buildRuntimeUnionLayout = (
     },
     currentContext,
   ];
+};
+
+export const getCanonicalRuntimeUnionMembers = (
+  type: IrType,
+  context: EmitterContext
+): readonly IrType[] | undefined => {
+  const semanticMembers = expandRuntimeUnionMembers(type, context);
+  if (semanticMembers.length < 2 || semanticMembers.length > 8) {
+    return undefined;
+  }
+
+  const deduped = new Map<string, IrType>();
+  for (const member of semanticMembers) {
+    deduped.set(stableIrTypeKey(member), member);
+  }
+
+  return Array.from(deduped.entries())
+    .map(([, member]) => member)
+    .sort((left, right) => {
+      const leftKey = getRuntimeUnionMemberSortKey(left, context);
+      const rightKey = getRuntimeUnionMemberSortKey(right, context);
+      if (leftKey !== rightKey) {
+        return leftKey.localeCompare(rightKey);
+      }
+      return stableIrTypeKey(left).localeCompare(stableIrTypeKey(right));
+    });
 };
 
 export const findRuntimeUnionMemberIndex = (
