@@ -18,6 +18,7 @@ import type {
   IrParameter,
   IrReferenceType,
   IrInterfaceMember,
+  IrSpreadTupleShape,
 } from "../types/index.js";
 import * as ts from "typescript";
 import {
@@ -29,6 +30,7 @@ import {
   getBinaryResultKind,
   TSONIC_TO_NUMERIC_KIND,
 } from "../types/numeric-kind.js";
+import { getSpreadTupleShape } from "../types/index.js";
 import type { NumericKind } from "../types/numeric-kind.js";
 import type { DeclId, SignatureId, MemberId, TypeSyntaxId } from "./types.js";
 import { unknownType, voidType } from "./types.js";
@@ -38,6 +40,27 @@ import type {
   MemberRef,
   DeclKind,
 } from "./type-system-state.js";
+
+const collectResolutionArgTypes = (
+  types: readonly (IrType | undefined)[]
+): {
+  readonly argumentCount: number;
+  readonly argTypes: readonly (IrType | undefined)[];
+} => {
+  const argTypes: IrType[] = [];
+  for (const type of types) {
+    if (!type) continue;
+    const spreadShape: IrSpreadTupleShape | undefined = getSpreadTupleShape(type);
+    if (!spreadShape) {
+      argTypes.push(type);
+      continue;
+    }
+    for (const elementType of spreadShape.prefixElementTypes) {
+      argTypes.push(elementType);
+    }
+  }
+  return { argumentCount: argTypes.length, argTypes };
+};
 import {
   emitDiagnostic,
   normalizeToNominal,
@@ -918,7 +941,13 @@ export const tryInferReturnTypeFromCallExpression = (
   for (let index = 0; index < call.arguments.length; index++) {
     const arg = call.arguments[index];
     if (!arg) continue;
-    if (ts.isSpreadElement(arg)) continue;
+    if (ts.isSpreadElement(arg)) {
+      const spreadType = inferExpressionType(state, arg.expression, env);
+      if (spreadType && spreadType.kind !== "unknownType") {
+        argTypesWorking[index] = spreadType;
+      }
+      continue;
+    }
     if (isLambdaExpression(arg)) continue;
 
     if (ts.isNumericLiteral(arg)) {
@@ -991,12 +1020,20 @@ export const tryInferReturnTypeFromCallExpression = (
     }
   }
 
+  const lambdaResolutionArgs = collectResolutionArgTypes(argTypesWorking);
+
   const lambdaContextResolved = resolveCall(state, {
     sigId,
-    argumentCount,
+    argumentCount:
+      lambdaResolutionArgs.argumentCount > 0
+        ? lambdaResolutionArgs.argumentCount
+        : argumentCount,
     receiverType,
     explicitTypeArgs,
-    argTypes: argTypesWorking,
+    argTypes:
+      lambdaResolutionArgs.argumentCount > 0
+        ? lambdaResolutionArgs.argTypes
+        : argTypesWorking,
   });
 
   const parameterTypesForLambdaContext =
@@ -1015,12 +1052,20 @@ export const tryInferReturnTypeFromCallExpression = (
     }
   }
 
+  const finalResolutionArgs = collectResolutionArgTypes(argTypesWorking);
+
   const finalResolved = resolveCall(state, {
     sigId,
-    argumentCount,
+    argumentCount:
+      finalResolutionArgs.argumentCount > 0
+        ? finalResolutionArgs.argumentCount
+        : argumentCount,
     receiverType,
     explicitTypeArgs,
-    argTypes: argTypesWorking,
+    argTypes:
+      finalResolutionArgs.argumentCount > 0
+        ? finalResolutionArgs.argTypes
+        : argTypesWorking,
   });
 
   return finalResolved.returnType.kind === "unknownType"

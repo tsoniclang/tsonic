@@ -18,6 +18,8 @@ import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { lowerPatternAst } from "../patterns.js";
 import { resolveTypeAlias, stripNullish } from "../core/semantic/type-resolution.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
+import { getIdentifierTypeName } from "../core/format/backend-ast/utils.js";
+import { allocateLocalName } from "../core/format/local-names.js";
 import type {
   CSharpBlockStatementAst,
   CSharpExpressionAst,
@@ -169,6 +171,15 @@ const wrapInUnionReturnMemberAst = (
   arguments: [valueAst],
 });
 
+const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
+  const name = getIdentifierTypeName(type);
+  return (
+    name === "global::Tsonic.Runtime.Union" ||
+    name === "Tsonic.Runtime.Union" ||
+    name === "Union"
+  );
+};
+
 const emitAsyncUnionReturningLambdaBodyAst = (
   parameters: readonly EmittedLambdaParameter[],
   body: Extract<
@@ -201,6 +212,8 @@ const emitAsyncUnionReturningLambdaBodyAst = (
 
   let currentContext = awaitedReturnTypeContext;
   let taskBody: CSharpBlockStatementAst;
+  const isVoidAwaitedReturn =
+    unionPlan.awaitedReturnType.kind === "voidType";
 
   if (body.kind === "blockStatement") {
     const [blockAst] = emitBlockStatementAst(body, {
@@ -216,16 +229,18 @@ const emitAsyncUnionReturningLambdaBodyAst = (
     taskBody = {
       kind: "blockStatement",
       statements: needsImplicitUndefinedReturn
-        ? [
-            ...blockAst.statements,
-            {
-              kind: "returnStatement",
-              expression: {
-                kind: "defaultExpression",
-                type: awaitedReturnTypeAst,
+        ? isVoidAwaitedReturn
+          ? blockAst.statements
+          : [
+              ...blockAst.statements,
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "defaultExpression",
+                  type: awaitedReturnTypeAst,
+                },
               },
-            },
-          ]
+            ]
         : blockAst.statements,
     };
   } else {
@@ -234,14 +249,40 @@ const emitAsyncUnionReturningLambdaBodyAst = (
       currentContext,
       unionPlan.awaitedReturnType
     );
+    const isNoopVoidExpression =
+      isVoidAwaitedReturn &&
+      ((body.kind === "literal" &&
+        (body.value === undefined || body.value === null)) ||
+        (body.kind === "identifier" &&
+          (body.name === "undefined" || body.name === "null")));
+    const discardLocal = isVoidAwaitedReturn
+      ? allocateLocalName("__tsonic_discard", currentContext)
+      : undefined;
+    currentContext = discardLocal?.context ?? currentContext;
     taskBody = {
       kind: "blockStatement",
-      statements: [
-        {
-          kind: "returnStatement",
-          expression: exprAst,
-        },
-      ],
+      statements: isVoidAwaitedReturn
+        ? isNoopVoidExpression
+          ? []
+          : [
+              {
+                kind: "localDeclarationStatement",
+                modifiers: [],
+                type: identifierType("var"),
+                declarators: [
+                  {
+                    name: discardLocal!.emittedName,
+                    initializer: exprAst,
+                  },
+                ],
+              },
+            ]
+        : [
+            {
+              kind: "returnStatement",
+              expression: exprAst,
+            },
+          ],
     };
   }
 
@@ -261,10 +302,7 @@ const emitAsyncUnionReturningLambdaBodyAst = (
       ? unionTypeAst.underlyingType
       : unionTypeAst;
 
-  if (
-    concreteUnionTypeAst.kind !== "identifierType" &&
-    concreteUnionTypeAst.kind !== "qualifiedIdentifierType"
-  ) {
+  if (!isRuntimeUnionTypeAst(concreteUnionTypeAst)) {
     return [taskInvocationAst, unionTypeContext];
   }
 

@@ -169,9 +169,11 @@ export {
 } from "./ir-substitution.js";
 
 export {
+  type IrSpreadTupleShape,
   referenceTypeIdentity,
   isAwaitableIrType,
   getAwaitedIrType,
+  getSpreadTupleShape,
   unwrapAsyncWrapperType,
   stableIrTypeKey,
   irTypesEqual,

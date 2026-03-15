@@ -10,6 +10,77 @@ import { IrModule, type IrType } from "@tsonic/frontend";
 import type { TypeMemberKind } from "../types.js";
 
 describe("Statement Emission", () => {
+  it("should preserve explicit local array assertions as CLR casts with explicit local types", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "isItems",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: { kind: "referenceType", name: "object" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "boolean" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "variableDeclaration",
+                declarationKind: "const",
+                isExported: false,
+                declarations: [
+                  {
+                    kind: "variableDeclarator",
+                    name: { kind: "identifierPattern", name: "items" },
+                    initializer: {
+                      kind: "typeAssertion",
+                      expression: {
+                        kind: "identifier",
+                        name: "value",
+                        inferredType: { kind: "referenceType", name: "object" },
+                      },
+                      targetType: {
+                        kind: "arrayType",
+                        elementType: { kind: "unknownType" },
+                      },
+                      inferredType: {
+                        kind: "arrayType",
+                        elementType: { kind: "unknownType" },
+                      },
+                    },
+                  },
+                ],
+              },
+              {
+                kind: "returnStatement",
+                expression: { kind: "literal", value: true },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("object?[] items = (object?[])value;");
+  });
+
   it("should drop method-group-only void statements without emitting discard assignments", () => {
     const module: IrModule = {
       kind: "module",
@@ -134,7 +205,7 @@ describe("Statement Emission", () => {
     expect(result).not.to.include("createServer;");
   });
 
-  it("should preserve property reads in void statements via discard assignment", () => {
+  it("should preserve property reads in void statements via discard locals", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -184,10 +255,12 @@ describe("Statement Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("_ = global::nodejs.process.platform;");
+    expect(result).to.match(
+      /var __tsonic_discard(?:__\d+)? = global::nodejs\.process\.platform;/
+    );
   });
 
-  it("should preserve identifier reads in void statements via discard assignment", () => {
+  it("should preserve identifier reads in void statements via discard locals", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -240,7 +313,7 @@ describe("Statement Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("_ = x;");
+    expect(result).to.match(/var __tsonic_discard(?:__\d+)? = x;/);
   });
 
   it("should auto-await async wrapper calls in async return statements", () => {

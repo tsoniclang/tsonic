@@ -9,6 +9,7 @@ import {
   IrExpression,
   IrMethodDeclaration,
   IrParameter,
+  IrSpreadExpression,
   IrStatement,
   IrType,
 } from "../../../../types.js";
@@ -1035,6 +1036,252 @@ const substitutePolymorphicReturn = (
   };
 };
 
+const undefinedExpression = (): IrExpression => ({
+  kind: "literal",
+  value: undefined,
+  inferredType: { kind: "primitiveType", name: "undefined" },
+});
+
+const numericIndexLiteral = (index: number): IrExpression => ({
+  kind: "literal",
+  value: index,
+  inferredType: { kind: "primitiveType", name: "int" },
+});
+
+const buildWrapperRestIdentifier = (parameter: IrParameter): IrExpression => ({
+  kind: "identifier",
+  name: getIdentifierPatternName(parameter),
+  inferredType: parameter.type,
+});
+
+const buildWrapperRestLengthExpression = (
+  parameter: IrParameter
+): IrExpression => ({
+  kind: "memberAccess",
+  object: buildWrapperRestIdentifier(parameter),
+  property: "length",
+  isComputed: false,
+  isOptional: false,
+  inferredType: { kind: "primitiveType", name: "int" },
+});
+
+const buildWrapperRestElementExpression = (
+  parameter: IrParameter,
+  elementIndex: number
+): IrExpression => {
+  const arrayLikeType = parameter.type;
+  const elementType =
+    arrayLikeType?.kind === "arrayType"
+      ? arrayLikeType.elementType
+      : arrayLikeType?.kind === "tupleType"
+        ? arrayLikeType.elementTypes[elementIndex] ??
+          arrayLikeType.elementTypes[arrayLikeType.elementTypes.length - 1]
+        : undefined;
+
+  return {
+    kind: "memberAccess",
+    object: buildWrapperRestIdentifier(parameter),
+    property: numericIndexLiteral(elementIndex),
+    isComputed: true,
+    isOptional: false,
+    inferredType: elementType,
+    accessKind: "clrIndexer",
+  };
+};
+
+const buildWrapperRestElementOrUndefinedExpression = (
+  parameter: IrParameter,
+  elementIndex: number,
+  targetType: IrType | undefined
+): IrExpression => {
+  const elementExpression = buildWrapperRestElementExpression(parameter, elementIndex);
+  const fallbackExpression = undefinedExpression();
+  const whenTrueExpression =
+    targetType &&
+    elementExpression.inferredType &&
+    !typesEqualForIsType(elementExpression.inferredType, targetType)
+      ? ({
+          kind: "typeAssertion",
+          expression: elementExpression,
+          targetType,
+          inferredType: targetType,
+        } satisfies IrExpression)
+      : elementExpression;
+  const inferredType =
+    targetType ??
+    (whenTrueExpression.inferredType
+      ? ({
+          kind: "unionType",
+          types: [whenTrueExpression.inferredType, fallbackExpression.inferredType!],
+        } satisfies IrType)
+      : whenTrueExpression.inferredType);
+
+  const conditionalExpr: IrExpression = {
+    kind: "conditional",
+    condition: {
+      kind: "binary",
+      operator: ">",
+      left: buildWrapperRestLengthExpression(parameter),
+      right: numericIndexLiteral(elementIndex),
+      inferredType: { kind: "primitiveType", name: "boolean" },
+    },
+    whenTrue: whenTrueExpression,
+    whenFalse: fallbackExpression,
+    inferredType,
+  };
+
+  if (
+    targetType &&
+    conditionalExpr.inferredType &&
+    !typesEqualForIsType(conditionalExpr.inferredType, targetType)
+  ) {
+    return {
+      kind: "typeAssertion",
+      expression: conditionalExpr,
+      targetType,
+      inferredType: targetType,
+    };
+  }
+
+  return conditionalExpr;
+};
+
+const buildWrapperRestSliceSpread = (
+  parameter: IrParameter,
+  startIndex: number,
+  targetType: IrType | undefined
+): IrSpreadExpression => ({
+  kind: "spread",
+  expression:
+    targetType && parameter.type && !typesEqualForIsType(parameter.type, targetType)
+      ? {
+          kind: "typeAssertion",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: buildWrapperRestIdentifier(parameter),
+              property: "slice",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [numericIndexLiteral(startIndex)],
+            isOptional: false,
+            inferredType: parameter.type,
+          },
+          targetType,
+          inferredType: targetType,
+        }
+      : {
+        kind: "call",
+        callee: {
+          kind: "memberAccess",
+      object: buildWrapperRestIdentifier(parameter),
+      property: "slice",
+      isComputed: false,
+      isOptional: false,
+        },
+        arguments: [numericIndexLiteral(startIndex)],
+        isOptional: false,
+        inferredType: parameter.type,
+      },
+});
+
+const coerceForwardedArgumentToTargetType = (
+  expression: IrExpression,
+  targetType: IrType | undefined
+): IrExpression => {
+  if (
+    !targetType ||
+    !expression.inferredType ||
+    typesEqualForIsType(expression.inferredType, targetType)
+  ) {
+    return expression;
+  }
+
+  return {
+    kind: "typeAssertion",
+    expression,
+    targetType,
+    inferredType: targetType,
+  };
+};
+
+const buildForwardedCallArguments = (
+  wrapperParameters: readonly IrParameter[],
+  helperParameters: readonly IrParameter[]
+): readonly (IrExpression | IrSpreadExpression)[] => {
+  const wrapperRestIndex = wrapperParameters.findIndex(
+    (parameter) => parameter.isRest
+  );
+  const wrapperRestParameter =
+    wrapperRestIndex >= 0 ? wrapperParameters[wrapperRestIndex] : undefined;
+  const forwardedArgs: (IrExpression | IrSpreadExpression)[] = [];
+
+  for (let helperIndex = 0; helperIndex < helperParameters.length; helperIndex += 1) {
+    const helperParameter = helperParameters[helperIndex];
+    if (!helperParameter) continue;
+
+    if (helperParameter.isRest) {
+      if (wrapperRestParameter) {
+        const restStartIndex =
+          helperIndex >= wrapperRestIndex ? helperIndex - wrapperRestIndex : 0;
+        forwardedArgs.push(
+          buildWrapperRestSliceSpread(
+            wrapperRestParameter,
+            restStartIndex,
+            helperParameter.type
+          )
+        );
+      } else if (helperIndex < wrapperParameters.length) {
+        const wrapperParameter = wrapperParameters[helperIndex];
+        if (!wrapperParameter) continue;
+        const directArgument: IrExpression = {
+          kind: "identifier",
+          name: getIdentifierPatternName(wrapperParameter),
+          inferredType: wrapperParameter.type,
+        };
+        forwardedArgs.push(
+          coerceForwardedArgumentToTargetType(directArgument, helperParameter.type)
+        );
+      }
+      break;
+    }
+
+    if (helperIndex < wrapperParameters.length) {
+      const wrapperParameter = wrapperParameters[helperIndex];
+      if (wrapperParameter && !wrapperParameter.isRest) {
+        const directArgument: IrExpression = {
+          kind: "identifier",
+          name: getIdentifierPatternName(wrapperParameter),
+          inferredType: wrapperParameter.type,
+        };
+        forwardedArgs.push(
+          coerceForwardedArgumentToTargetType(directArgument, helperParameter.type)
+        );
+        continue;
+      }
+    }
+
+    if (wrapperRestParameter && helperIndex >= wrapperRestIndex) {
+      forwardedArgs.push(
+        buildWrapperRestElementOrUndefinedExpression(
+          wrapperRestParameter,
+          helperIndex - wrapperRestIndex,
+          helperParameter.type
+        )
+      );
+      continue;
+    }
+
+    forwardedArgs.push(
+      undefinedExpression()
+    );
+  }
+
+  return forwardedArgs;
+};
+
 const adaptReturnStatements = (
   stmt: IrStatement,
   targetReturnType: IrType | undefined
@@ -1133,16 +1380,13 @@ const adaptReturnStatements = (
 const createWrapperBody = (
   helperName: string,
   parameters: readonly IrParameter[],
+  helperParameters: readonly IrParameter[],
   isStatic: boolean,
   implReturnType: IrType | undefined,
   wrapperReturnType: IrType | undefined,
   typeParameterNames: readonly string[]
 ): IrBlockStatement => {
-  const forwardedArgs = parameters.map((parameter) => ({
-    kind: "identifier" as const,
-    name: getIdentifierPatternName(parameter),
-    inferredType: parameter.type,
-  }));
+  const forwardedArgs = buildForwardedCallArguments(parameters, helperParameters);
 
   const callee: IrExpression = isStatic
     ? {
@@ -1176,6 +1420,8 @@ const createWrapperBody = (
           ),
         }
       : {}),
+    parameterTypes: helperParameters.map((parameter) => parameter.type),
+    argumentPassing: helperParameters.map((parameter) => parameter.passing),
   };
 
   const hasReturnValue =
@@ -1307,6 +1553,12 @@ export const convertMethodOverloadGroup = (
     const helperMethod: IrMethodDeclaration = {
       ...implMethod,
       name: helperName,
+      body: implMethod.body
+        ? (adaptReturnStatements(
+            implMethod.body,
+            implMethod.returnType
+          ) as IrBlockStatement)
+        : undefined,
       accessibility: "private",
       isOverride: undefined,
       isShadow: undefined,
@@ -1351,6 +1603,7 @@ export const convertMethodOverloadGroup = (
         body: createWrapperBody(
           helperName,
           parameters,
+          implMethod.parameters,
           isStatic,
           implMethod.returnType,
           returnType,

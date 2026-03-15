@@ -17,13 +17,16 @@ import {
   IrClassDeclaration,
   IrInterfaceDeclaration,
   IrMethodDeclaration,
+  IrExpressionStatement,
   IrPropertyDeclaration,
+  IrType,
   IrTypeAliasDeclaration,
 } from "./types.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
+import { stableIrTypeKey } from "./types/type-ops.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);
@@ -4793,6 +4796,65 @@ describe("IR Builder", function () {
       }
     });
 
+    it("narrows unknown values to unknown[] after Array.isArray fallthrough guards", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "export function isItems(value: unknown): boolean {",
+            "  if (!Array.isArray(value)) {",
+            "    return false;",
+            "  }",
+            "  const items = value;",
+            "  return items.length > 0 && items[0] !== undefined;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const isItemsFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "isItems"
+        );
+        expect(isItemsFn).to.not.equal(undefined);
+        if (!isItemsFn) return;
+
+        const itemsDecl = isItemsFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "items"
+            )
+        );
+        expect(itemsDecl).to.not.equal(undefined);
+        if (!itemsDecl) return;
+
+        const itemsInit = itemsDecl.declarations[0]?.initializer;
+        expect(itemsInit?.kind).to.equal("typeAssertion");
+        if (!itemsInit || itemsInit.kind !== "typeAssertion") return;
+
+        const itemsType = itemsInit.targetType;
+        expect(itemsType?.kind).to.equal("arrayType");
+        if (!itemsType || itemsType.kind !== "arrayType") return;
+        expect(itemsType.elementType.kind).to.equal("unknownType");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("preserves typeof fallthrough narrowing for class properties after early-return string branches", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -4857,6 +4919,65 @@ describe("IR Builder", function () {
           kind: "primitiveType",
           name: "string",
         });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves compound typeof fallthrough narrowing after early-return disjunction branches", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare function takesString(value: string): void;",
+            "",
+            "function combine(left: string | RegExp, right: string | RegExp): string | RegExp {",
+            '  if (typeof left !== "string" || typeof right !== "string") {',
+            "    return right;",
+            "  }",
+            "  takesString(left);",
+            "  takesString(right);",
+            "  return left + right;",
+            "}",
+            "",
+            "export const main = (): string | RegExp => combine('a', 'b');",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const combineFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "combine"
+        );
+        expect(combineFn).to.not.equal(undefined);
+        if (!combineFn) return;
+
+        const callStatements = combineFn.body.statements.filter(
+          (stmt): stmt is IrExpressionStatement =>
+            stmt.kind === "expressionStatement"
+        );
+        expect(callStatements).to.have.length(2);
+
+        for (const stmt of callStatements) {
+          expect(stmt.expression.kind).to.equal("call");
+          if (stmt.expression.kind !== "call") continue;
+          const narrowedArg = stmt.expression.arguments[0];
+          expect(narrowedArg?.inferredType).to.deep.equal({
+            kind: "primitiveType",
+            name: "string",
+          });
+        }
       } finally {
         fixture.cleanup();
       }
@@ -6346,6 +6467,187 @@ describe("IR Builder", function () {
         }
 
         expect(recursiveArg.inferredType.name).to.equal("MiddlewareLike");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("applies predicate-based branch narrowing inside conditional expressions", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type RequestHandler = (value: string) => void;",
+            "type PathSpec = string | RegExp | readonly PathSpec[] | null | undefined;",
+            "type MiddlewareLike = RequestHandler | Router | readonly MiddlewareLike[];",
+            "class Router {}",
+            "function isPathSpec(value: PathSpec | MiddlewareLike): value is PathSpec {",
+            '  return value == null || typeof value === "string" || value instanceof RegExp || Array.isArray(value);',
+            "}",
+            "export function collect(first: PathSpec | MiddlewareLike, rest: readonly MiddlewareLike[]): readonly MiddlewareLike[] {",
+            "  const values = isPathSpec(first) ? rest : [first, ...rest];",
+            "  return values;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const collectFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "collect"
+        );
+        expect(collectFn).to.not.equal(undefined);
+        if (!collectFn) return;
+
+        const valuesDecl = collectFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "values"
+            )
+        );
+        expect(valuesDecl).to.not.equal(undefined);
+        if (!valuesDecl) return;
+
+        const valuesInit = valuesDecl.declarations[0]?.initializer;
+        expect(valuesInit?.kind).to.equal("conditional");
+        if (!valuesInit || valuesInit.kind !== "conditional") return;
+
+        expect(valuesInit.whenFalse.kind).to.equal("array");
+        if (valuesInit.whenFalse.kind !== "array") return;
+
+        const firstElement = valuesInit.whenFalse.elements[0];
+        expect(firstElement?.kind).to.equal("typeAssertion");
+        if (!firstElement || firstElement.kind !== "typeAssertion") return;
+
+        const narrowedType = firstElement.targetType;
+        expect(narrowedType?.kind).to.equal("referenceType");
+        if (!narrowedType) return;
+        expect(stableIrTypeKey(narrowedType)).to.include("MiddlewareLike");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves direct recursive alias identity in source parameters and returns", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type PathSpec = string | RegExp | readonly PathSpec[] | null | undefined;",
+            "export function combine(left: PathSpec, right: PathSpec): PathSpec {",
+            "  return left ?? right;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const combineFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "combine"
+        );
+        expect(combineFn).to.not.equal(undefined);
+        if (!combineFn) return;
+
+        const assertAliasReference = (
+          type: IrType | undefined,
+          expectedName: string
+        ): void => {
+          expect(type?.kind).to.equal("referenceType");
+          if (!type || type.kind !== "referenceType") return;
+          expect(type.name).to.equal(expectedName);
+          expect(type.typeId?.tsName).to.equal(expectedName);
+        };
+
+        assertAliasReference(combineFn.parameters[0]?.type, "PathSpec");
+        assertAliasReference(combineFn.parameters[1]?.type, "PathSpec");
+        assertAliasReference(combineFn.returnType, "PathSpec");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves mutually recursive alias identity in source parameters", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type RequestHandler = (value: string) => void;",
+            "class Router {}",
+            "type MiddlewareParam = RequestHandler | readonly MiddlewareParam[];",
+            "type MiddlewareLike = MiddlewareParam | Router | readonly MiddlewareLike[];",
+            "export function mount(first: MiddlewareLike, rest: readonly MiddlewareLike[]): readonly MiddlewareLike[] {",
+            "  return [first, ...rest];",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const mountFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "mount"
+        );
+        expect(mountFn).to.not.equal(undefined);
+        if (!mountFn) return;
+
+        expect(mountFn.parameters[0]?.type?.kind).to.equal("referenceType");
+        if (mountFn.parameters[0]?.type?.kind === "referenceType") {
+          expect(mountFn.parameters[0].type.name).to.equal("MiddlewareLike");
+          expect(mountFn.parameters[0].type.typeId?.tsName).to.equal(
+            "MiddlewareLike"
+          );
+        }
+
+        expect(mountFn.parameters[1]?.type?.kind).to.equal("arrayType");
+        if (mountFn.parameters[1]?.type?.kind === "arrayType") {
+          expect(mountFn.parameters[1].type.origin).to.equal("explicit");
+          expect(mountFn.parameters[1].type.elementType.kind).to.equal(
+            "referenceType"
+          );
+          if (mountFn.parameters[1].type.elementType.kind === "referenceType") {
+            expect(mountFn.parameters[1].type.elementType.name).to.equal(
+              "MiddlewareLike"
+            );
+            expect(
+              mountFn.parameters[1].type.elementType.typeId?.tsName
+            ).to.equal("MiddlewareLike");
+          }
+        }
       } finally {
         fixture.cleanup();
       }

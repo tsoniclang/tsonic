@@ -5,7 +5,7 @@
  */
 
 import { IrType } from "@tsonic/frontend";
-import { EmitterContext, type LocalTypeInfo } from "../types.js";
+import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitTypeAst } from "./emitter.js";
 import {
@@ -176,195 +176,6 @@ const keyForResolvedLocalType = (
   namespace: string
 ): string => `${namespace}::${name}`;
 
-const resolveLocalTypeAliasInfo = (
-  ref: Extract<IrType, { kind: "referenceType" }>,
-  context: EmitterContext
-):
-  | {
-      readonly key: string;
-      readonly name: string;
-      readonly namespace: string;
-      readonly info: Extract<LocalTypeInfo, { kind: "typeAlias" }>;
-    }
-  | undefined => {
-  const resolved = resolveLocalTypeInfo(ref, context);
-  if (!resolved || resolved.info.kind !== "typeAlias") {
-    return undefined;
-  }
-
-  const name = ref.name.includes(".")
-    ? (ref.name.split(".").pop() ?? ref.name)
-    : ref.name;
-
-  return {
-    key: keyForResolvedLocalType(name, resolved.namespace),
-    name,
-    namespace: resolved.namespace,
-    info: resolved.info,
-  };
-};
-
-const typeTreeContainsAliasCycle = (
-  type: IrType,
-  targetAliasKey: string,
-  context: EmitterContext,
-  visitingAliases: ReadonlySet<string>,
-  visitedTypes: WeakSet<object>
-): boolean => {
-  if (visitedTypes.has(type)) {
-    return false;
-  }
-  visitedTypes.add(type);
-
-  switch (type.kind) {
-    case "referenceType": {
-      const aliasInfo = resolveLocalTypeAliasInfo(type, context);
-      if (aliasInfo) {
-        if (aliasInfo.key === targetAliasKey) {
-          return true;
-        }
-
-        if (!visitingAliases.has(aliasInfo.key)) {
-          const nextVisiting = new Set(visitingAliases);
-          nextVisiting.add(aliasInfo.key);
-          if (
-            typeTreeContainsAliasCycle(
-              aliasInfo.info.type,
-              targetAliasKey,
-              context,
-              nextVisiting,
-              visitedTypes
-            )
-          ) {
-            return true;
-          }
-        }
-      }
-
-      return (
-        type.typeArguments?.some((arg) =>
-          typeTreeContainsAliasCycle(
-            arg,
-            targetAliasKey,
-            context,
-            visitingAliases,
-            visitedTypes
-          )
-        ) ?? false
-      );
-    }
-
-    case "arrayType":
-      return typeTreeContainsAliasCycle(
-        type.elementType,
-        targetAliasKey,
-        context,
-        visitingAliases,
-        visitedTypes
-      );
-
-    case "tupleType":
-      return type.elementTypes.some((member) =>
-        typeTreeContainsAliasCycle(
-          member,
-          targetAliasKey,
-          context,
-          visitingAliases,
-          visitedTypes
-        )
-      );
-
-    case "dictionaryType":
-      return (
-        typeTreeContainsAliasCycle(
-          type.keyType,
-          targetAliasKey,
-          context,
-          visitingAliases,
-          visitedTypes
-        ) ||
-        typeTreeContainsAliasCycle(
-          type.valueType,
-          targetAliasKey,
-          context,
-          visitingAliases,
-          visitedTypes
-        )
-      );
-
-    case "unionType":
-    case "intersectionType":
-      return type.types.some((member) =>
-        typeTreeContainsAliasCycle(
-          member,
-          targetAliasKey,
-          context,
-          visitingAliases,
-          visitedTypes
-        )
-      );
-
-    case "functionType":
-      return (
-        type.parameters.some(
-          (parameter) =>
-            !!parameter.type &&
-            typeTreeContainsAliasCycle(
-              parameter.type,
-              targetAliasKey,
-              context,
-              visitingAliases,
-              visitedTypes
-            )
-        ) ||
-        typeTreeContainsAliasCycle(
-          type.returnType,
-          targetAliasKey,
-          context,
-          visitingAliases,
-          visitedTypes
-        )
-      );
-
-    case "objectType":
-      return type.members.some((member) =>
-        member.kind === "propertySignature"
-          ? typeTreeContainsAliasCycle(
-              member.type,
-              targetAliasKey,
-              context,
-              visitingAliases,
-              visitedTypes
-            )
-          : !!member.returnType &&
-            typeTreeContainsAliasCycle(
-              member.returnType,
-              targetAliasKey,
-              context,
-              visitingAliases,
-              visitedTypes
-            )
-      );
-
-    default:
-      return false;
-  }
-};
-
-const isRecursiveLocalTypeAlias = (
-  name: string,
-  namespace: string,
-  info: Extract<LocalTypeInfo, { kind: "typeAlias" }>,
-  context: EmitterContext
-): boolean =>
-  typeTreeContainsAliasCycle(
-    info.type,
-    keyForResolvedLocalType(name, namespace),
-    context,
-    new Set<string>([keyForResolvedLocalType(name, namespace)]),
-    new WeakSet<object>()
-  );
-
 const emitRecursiveAliasFallbackType = (
   type: IrType,
   context: EmitterContext
@@ -465,22 +276,6 @@ export const emitReferenceType = (
     const shouldResolve = underlyingKind !== "objectType";
 
     if (shouldResolve) {
-      if (
-        isRecursiveLocalTypeAlias(
-          name,
-          context.moduleNamespace ?? context.options.rootNamespace,
-          typeInfo,
-          context
-        )
-      ) {
-        return emitRecursiveAliasFallbackType(typeInfo.type, context);
-      }
-
-      if (context.resolvingTypeAliases?.has(name)) {
-        return [{ kind: "predefinedType", keyword: "object" }, context];
-      }
-
-      // Substitute type arguments if present
       const underlyingType =
         typeArguments && typeArguments.length > 0
           ? substituteTypeArgs(
@@ -489,6 +284,9 @@ export const emitReferenceType = (
               typeArguments
             )
           : typeInfo.type;
+      if (context.resolvingTypeAliases?.has(name)) {
+        return emitRecursiveAliasFallbackType(underlyingType, context);
+      }
       const [resolvedAst, resolvedContext] = emitTypeAst(
         underlyingType,
         withResolvingTypeAlias(name, context)
@@ -736,15 +534,18 @@ export const emitReferenceType = (
     if (info.kind === "typeAlias") {
       const underlyingKind = info.type.kind;
       if (underlyingKind !== "objectType") {
-        if (isRecursiveLocalTypeAlias(name, namespace, info, context)) {
-          return emitRecursiveAliasFallbackType(info.type, context);
-        }
-
         const underlyingType =
           typeArguments && typeArguments.length > 0
             ? substituteTypeArgs(info.type, info.typeParameters, typeArguments)
             : info.type;
-        return emitTypeAst(underlyingType, context);
+        const aliasKey = keyForResolvedLocalType(name, namespace);
+        if (context.resolvingTypeAliases?.has(aliasKey)) {
+          return emitRecursiveAliasFallbackType(underlyingType, context);
+        }
+        return emitTypeAst(
+          underlyingType,
+          withResolvingTypeAlias(aliasKey, context)
+        );
       }
 
       return emitQualifiedLocalType(

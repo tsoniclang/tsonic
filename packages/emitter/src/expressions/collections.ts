@@ -2,7 +2,12 @@
  * Collection expression emitters (arrays and objects)
  */
 
-import { IrClassMember, IrExpression, IrType } from "@tsonic/frontend";
+import {
+  IrClassMember,
+  IrExpression,
+  IrType,
+  stableIrTypeKey,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { emitExpressionAst } from "../expression-emitter.js";
@@ -190,6 +195,22 @@ const emitObjectMemberName = (
   return emitCSharpName(memberName, bucketFromMemberKind(kind), context);
 };
 
+const shouldCoerceArrayLiteralElementToExpectedType = (
+  element: IrExpression,
+  expectedElementType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!expectedElementType || !element.inferredType) {
+    return false;
+  }
+
+  const actual = stableIrTypeKey(resolveTypeAlias(stripNullish(element.inferredType), context));
+  const expected = stableIrTypeKey(
+    resolveTypeAlias(stripNullish(expectedElementType), context)
+  );
+  return actual !== expected;
+};
+
 const getDeterministicObjectKeyName = (
   key: string | IrExpression
 ): string | undefined => {
@@ -215,6 +236,9 @@ const isObjectRootType = (type: IrType, context: EmitterContext): boolean => {
   const resolved = resolveTypeAlias(stripNullish(type), context);
   return resolved.kind === "referenceType" && resolved.name === "object";
 };
+
+const unwrapNullableTypeAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
+  typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
 
 const isDictionaryLikeSpreadType = (
   type: IrType,
@@ -286,12 +310,21 @@ export const emitArray = (
       context
     );
 
-    if (resolvedExpected.kind === "arrayType") {
-      expectedElementType = resolvedExpected.elementType;
-      const [typeAst, newContext] = emitTypeAst(
-        resolvedExpected.elementType,
+    const resolveExpectedArrayElementTypeAst = (): [CSharpTypeAst, EmitterContext] => {
+      const [expectedTypeAst, nextContext] = emitTypeAst(
+        effectiveExpectedType,
         currentContext
       );
+      const concreteExpectedTypeAst = unwrapNullableTypeAst(expectedTypeAst);
+      if (concreteExpectedTypeAst.kind === "arrayType") {
+        return [concreteExpectedTypeAst.elementType, nextContext];
+      }
+      return [identifierType("object"), nextContext];
+    };
+
+    if (resolvedExpected.kind === "arrayType") {
+      expectedElementType = resolvedExpected.elementType;
+      const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
       elementTypeAst = typeAst;
       elementTypeResolved = true;
       currentContext = newContext;
@@ -304,7 +337,7 @@ export const emitArray = (
       const firstArg = resolvedExpected.typeArguments[0];
       if (firstArg) {
         expectedElementType = firstArg;
-        const [typeAst, newContext] = emitTypeAst(firstArg, currentContext);
+        const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
         elementTypeAst = typeAst;
         elementTypeResolved = true;
         currentContext = newContext;
@@ -318,7 +351,7 @@ export const emitArray = (
       const firstArg = resolvedExpected.typeArguments[0];
       if (firstArg) {
         expectedElementType = firstArg;
-        const [typeAst, newContext] = emitTypeAst(firstArg, currentContext);
+        const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
         elementTypeAst = typeAst;
         elementTypeResolved = true;
         currentContext = newContext;
@@ -420,8 +453,21 @@ export const emitArray = (
         continue;
       }
 
+      const elementExpr =
+        shouldCoerceArrayLiteralElementToExpectedType(
+          element,
+          expectedElementType,
+          currentContext
+        )
+          ? ({
+              kind: "typeAssertion",
+              expression: element,
+              targetType: expectedElementType!,
+              inferredType: expectedElementType!,
+            } satisfies IrExpression)
+          : element;
       const [elemAst, newContext] = emitExpressionAst(
-        element,
+        elementExpr,
         currentContext,
         expectedElementType
       );
@@ -487,8 +533,21 @@ export const emitArray = (
       // Sparse array hole
       elementAsts.push({ kind: "defaultExpression" });
     } else {
+      const elementExpr =
+        shouldCoerceArrayLiteralElementToExpectedType(
+          element,
+          expectedElementType,
+          currentContext
+        )
+          ? ({
+              kind: "typeAssertion",
+              expression: element,
+              targetType: expectedElementType!,
+              inferredType: expectedElementType!,
+            } satisfies IrExpression)
+          : element;
       const [elemAst, newContext] = emitExpressionAst(
-        element,
+        elementExpr,
         currentContext,
         expectedElementType
       );

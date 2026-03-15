@@ -14,8 +14,10 @@
 
 import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
+import { emitTypeAst } from "../../type-emitter.js";
 import { allocateLocalName } from "../format/local-names.js";
 import { substituteTypeArgs } from "./type-resolution.js";
+import { buildRuntimeUnionLayout } from "./runtime-unions.js";
 import {
   booleanLiteral,
   charLiteral,
@@ -618,9 +620,17 @@ const emitUnionTruthinessConditionAst = (
   }
 
   // 2-8 unions use runtime Union<T1..Tn>. We must inspect the active variant.
-  if (unionType.types.length >= 2 && unionType.types.length <= 8) {
+  const [runtimeLayout, runtimeLayoutCtx] = buildRuntimeUnionLayout(
+    unionType,
+    context,
+    emitTypeAst
+  );
+  if (runtimeLayout) {
     const nextId = (context.tempVarId ?? 0) + 1;
-    const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+    const ctxWithId: EmitterContext = {
+      ...runtimeLayoutCtx,
+      tempVarId: nextId,
+    };
     const alloc = allocateLocalName(
       `__tsonic_truthy_union_${nextId}`,
       ctxWithId
@@ -631,9 +641,9 @@ const emitUnionTruthinessConditionAst = (
     let chainCtx = alloc.context;
     const branchAsts: CSharpExpressionAst[] = [];
 
-    for (let i = 0; i < unionType.types.length; i++) {
+    for (let i = 0; i < runtimeLayout.members.length; i++) {
       const memberN = i + 1;
-      const memberType = unionType.types[i];
+      const memberType = runtimeLayout.members[i];
       if (!memberType || isNullishType(memberType)) {
         branchAsts.push(booleanLiteral(false));
         continue;

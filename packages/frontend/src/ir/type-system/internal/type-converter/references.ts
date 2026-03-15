@@ -201,6 +201,7 @@ type StructuralMembersCache = Map<
 >;
 
 type TypeAliasBodyCache = Map<number, IrType | "in-progress">;
+type TypeAliasRecursionCache = Map<number, boolean | "in-progress">;
 
 const structuralMembersCacheByBinding = new WeakMap<
   Binding,
@@ -208,6 +209,10 @@ const structuralMembersCacheByBinding = new WeakMap<
 >();
 
 const typeAliasBodyCacheByBinding = new WeakMap<Binding, TypeAliasBodyCache>();
+const typeAliasRecursionCacheByBinding = new WeakMap<
+  Binding,
+  TypeAliasRecursionCache
+>();
 
 const getStructuralMembersCache = (
   binding: Binding
@@ -228,6 +233,17 @@ const getTypeAliasBodyCache = (binding: Binding): TypeAliasBodyCache => {
   if (!cache) {
     cache = new Map<number, IrType | "in-progress">();
     typeAliasBodyCacheByBinding.set(binding, cache);
+  }
+  return cache;
+};
+
+const getTypeAliasRecursionCache = (
+  binding: Binding
+): TypeAliasRecursionCache => {
+  let cache = typeAliasRecursionCacheByBinding.get(binding);
+  if (!cache) {
+    cache = new Map<number, boolean | "in-progress">();
+    typeAliasRecursionCacheByBinding.set(binding, cache);
   }
   return cache;
 };
@@ -289,6 +305,16 @@ const isInstalledTsonicSourcePackageFile = (fileName: string): boolean => {
     }
     currentDir = parentDir;
   }
+};
+
+const shouldPreserveUserTypeAliasIdentity = (
+  decl: ts.TypeAliasDeclaration
+): boolean => {
+  const sourceFile = decl.getSourceFile();
+  return (
+    !sourceFile.isDeclarationFile ||
+    isInstalledTsonicSourcePackageFile(sourceFile.fileName)
+  );
 };
 
 const findOwningBindingsJson = (fileName: string): string | undefined => {
@@ -419,6 +445,63 @@ const isSafeToEraseUserTypeAliasTarget = (node: ts.TypeNode): boolean => {
   // Keep conditional aliases nominal here. They encode arity families and other
   // non-local selection logic that needs dedicated handling below.
   return !ts.isConditionalTypeNode(node);
+};
+
+const isRecursiveUserTypeAliasDeclaration = (
+  declId: number,
+  declNode: ts.TypeAliasDeclaration,
+  binding: Binding
+): boolean => {
+  const recursionCache = getTypeAliasRecursionCache(binding);
+  const cached = recursionCache.get(declId);
+  if (cached === "in-progress") {
+    return true;
+  }
+  if (typeof cached === "boolean") {
+    return cached;
+  }
+
+  recursionCache.set(declId, "in-progress");
+  const registry = (binding as BindingInternal)._getHandleRegistry();
+  let isRecursive = false;
+
+  const visit = (node: ts.Node): void => {
+    if (isRecursive) return;
+
+    if (ts.isTypeReferenceNode(node)) {
+      const referencedDecl = binding.resolveTypeReference(node);
+      if (referencedDecl) {
+        if (referencedDecl.id === declId) {
+          isRecursive = true;
+          return;
+        }
+
+        const referencedDeclInfo = registry.getDecl(referencedDecl);
+        const referencedNode = referencedDeclInfo?.declNode as
+          | ts.Declaration
+          | undefined;
+        if (
+          referencedNode &&
+          ts.isTypeAliasDeclaration(referencedNode) &&
+          shouldPreserveUserTypeAliasIdentity(referencedNode) &&
+          isRecursiveUserTypeAliasDeclaration(
+            referencedDecl.id,
+            referencedNode,
+            binding
+          )
+        ) {
+          isRecursive = true;
+          return;
+        }
+      }
+    }
+
+    node.forEachChild(visit);
+  };
+
+  visit(declNode.type);
+  recursionCache.set(declId, isRecursive);
+  return isRecursive;
 };
 
 /**
@@ -1220,7 +1303,8 @@ export const convertTypeReference = (
         // which prevents interface/heritage-based inference through NominalEnv.
         if (
           !declNode.getSourceFile().isDeclarationFile &&
-          isSafeToEraseUserTypeAliasTarget(declNode.type)
+          isSafeToEraseUserTypeAliasTarget(declNode.type) &&
+          !isRecursiveUserTypeAliasDeclaration(declId.id, declNode, binding)
         ) {
           const key = declId.id;
           const typeAliasBodyCache = getTypeAliasBodyCache(binding);

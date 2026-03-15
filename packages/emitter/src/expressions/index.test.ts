@@ -3847,6 +3847,90 @@ describe("Expression Emission", () => {
     expect(text).to.not.equal("(handler.As3())[index]");
   });
 
+  it("reifies explicit runtime union narrowing casts through Match instead of raw CLR casts", () => {
+    const requestHandlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "req" },
+          type: {
+            kind: "referenceType",
+            name: "Request",
+            resolvedClrType: "Test.Request",
+          },
+          initializer: undefined,
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "unknownType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const pathSpecType: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "arrayType",
+          elementType: { kind: "unknownType" },
+          origin: "explicit",
+        },
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "referenceType",
+          name: "RegExp",
+          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+        },
+      ],
+    };
+
+    const broadType: IrType = {
+      kind: "unionType",
+      types: [...pathSpecType.types, routerType, requestHandlerType],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "first",
+          inferredType: broadType,
+        },
+        targetType: pathSpecType,
+        inferredType: pathSpecType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+      }
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.include("first.Match(");
+    expect(rendered).to.include("From1(__tsonic_union_member_1)");
+    expect(rendered).to.include("From2(__tsonic_union_member_2)");
+    expect(rendered).to.match(/From3\(__tsonic_union_member_\d+\)/);
+    expect(rendered).to.include("new global::System.InvalidCastException(");
+    expect(rendered).to.not.include(
+      "(global::Tsonic.Runtime.Union<object?[], string, global::Tsonic.JSRuntime.RegExp>)first"
+    );
+  });
+
   it("reifies erased recursive nested-union array elements through outer union arms", () => {
     const handlerType: IrType = {
       kind: "functionType",

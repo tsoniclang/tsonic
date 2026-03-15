@@ -56,6 +56,14 @@ const getStringLiteralText = (expr: ts.Expression): string | undefined => {
   return undefined;
 };
 
+const isEqualityOperator = (kind: ts.SyntaxKind): boolean =>
+  kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+  kind === ts.SyntaxKind.EqualsEqualsToken;
+
+const isInequalityOperator = (kind: ts.SyntaxKind): boolean =>
+  kind === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+  kind === ts.SyntaxKind.ExclamationEqualsToken;
+
 const isArrayNamespaceExpression = (expr: ts.Expression): boolean => {
   const unwrapped = unwrapExpr(expr);
   if (ts.isIdentifier(unwrapped)) {
@@ -102,6 +110,63 @@ const extractArrayIsArrayTarget = (
   const [rawValue] = unwrapped.arguments;
   if (!rawValue) return undefined;
   return getAccessPathTarget(rawValue, ctx);
+};
+
+const tryResolveCallPredicateNarrowing = (
+  expr: ts.Expression,
+  ctx: ProgramContext,
+  whenTruthy: boolean
+): TypeNarrowing | undefined => {
+  const unwrapped = unwrapExpr(expr);
+  if (!ts.isCallExpression(unwrapped)) {
+    return undefined;
+  }
+
+  const sigId = ctx.binding.resolveCallSignature(unwrapped);
+  if (!sigId) {
+    return undefined;
+  }
+
+  const predicate = ctx.binding.getTypePredicateOfSignature(sigId);
+  if (!predicate || predicate.kind !== "typePredicate") {
+    return undefined;
+  }
+
+  const rawArg = unwrapped.arguments[predicate.parameterIndex];
+  if (!rawArg) {
+    return undefined;
+  }
+
+  const narrowedTarget = getAccessPathTarget(rawArg, ctx);
+  if (!narrowedTarget) {
+    return undefined;
+  }
+
+  const targetType = predicate.typeNode
+    ? ctx.typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(predicate.typeNode)
+      )
+    : undefined;
+  if (!targetType) {
+    return undefined;
+  }
+
+  if (whenTruthy) {
+    return makeTypeNarrowing(narrowedTarget, targetType);
+  }
+
+  const currentType = getCurrentTypeForAccessPath(narrowedTarget, ctx);
+  const narrowedType = narrowTypeByAssignableTarget(
+    ctx.typeSystem,
+    currentType,
+    targetType,
+    false
+  );
+  if (!narrowedType) {
+    return undefined;
+  }
+
+  return makeTypeNarrowing(narrowedTarget, narrowedType);
 };
 
 const extractIdentifierPropertyAccess = (
@@ -217,6 +282,53 @@ const narrowTypeByNotTypeofTag = (
   }
 
   return matchesTypeofTag(currentType, tag) ? undefined : currentType;
+};
+
+const tryResolveTypeofNarrowing = (
+  expr: ts.Expression,
+  ctx: ProgramContext,
+  whenTruthy: boolean
+): TypeNarrowing | undefined => {
+  const unwrapped = unwrapExpr(expr);
+  if (!ts.isBinaryExpression(unwrapped)) return undefined;
+
+  const operator = unwrapped.operatorToken.kind;
+  const isEquality = isEqualityOperator(operator);
+  const isInequality = isInequalityOperator(operator);
+  if (!isEquality && !isInequality) return undefined;
+
+  const left = unwrapExpr(unwrapped.left);
+  const right = unwrapExpr(unwrapped.right);
+  const leftLiteral = getStringLiteralText(left);
+  const rightLiteral = getStringLiteralText(right);
+
+  const extractTypeofTarget = (
+    candidate: ts.Expression
+  ): AccessPathTarget | undefined => {
+    if (!ts.isTypeOfExpression(candidate)) return undefined;
+    return getAccessPathTarget(candidate.expression, ctx);
+  };
+
+  const leftTypeofTarget = extractTypeofTarget(left);
+  const rightTypeofTarget = extractTypeofTarget(right);
+
+  const tag =
+    leftTypeofTarget && rightLiteral
+      ? rightLiteral
+      : rightTypeofTarget && leftLiteral
+        ? leftLiteral
+        : undefined;
+  const narrowedTarget = leftTypeofTarget ?? rightTypeofTarget;
+  if (!tag || !narrowedTarget) return undefined;
+
+  const wantTypeofTag = whenTruthy ? isEquality : isInequality;
+  const currentType = getCurrentTypeForAccessPath(narrowedTarget, ctx);
+  const targetType = wantTypeofTag
+    ? narrowTypeByTypeofTag(currentType, tag)
+    : narrowTypeByNotTypeofTag(currentType, tag);
+  if (!targetType) return undefined;
+
+  return makeTypeNarrowing(narrowedTarget, targetType);
 };
 
 const resolveInstanceofTargetType = (
@@ -524,6 +636,16 @@ export const collectTypeNarrowingsInTruthyExpr = (
   const direct = tryResolveTruthyNarrowing(unwrapped, ctx);
   if (direct) return [direct];
 
+  const predicateNarrowing = tryResolveCallPredicateNarrowing(
+    unwrapped,
+    ctx,
+    true
+  );
+  if (predicateNarrowing) return [predicateNarrowing];
+
+  const typeofNarrowing = tryResolveTypeofNarrowing(unwrapped, ctx, true);
+  if (typeofNarrowing) return [typeofNarrowing];
+
   if (ts.isBinaryExpression(unwrapped)) {
     if (
       unwrapped.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
@@ -720,44 +842,26 @@ export const collectTypeNarrowingsInFalsyExpr = (
 
   if (
     ts.isBinaryExpression(unwrapped) &&
-    (unwrapped.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
-      unwrapped.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken)
+    unwrapped.operatorToken.kind === ts.SyntaxKind.BarBarToken
   ) {
-    const left = unwrapExpr(unwrapped.left);
-    const right = unwrapExpr(unwrapped.right);
-    const leftLiteral = getStringLiteralText(left);
-    const rightLiteral = getStringLiteralText(right);
-
-    const extractTypeofTarget = (
-      expr: ts.Expression
-    ): AccessPathTarget | undefined => {
-      if (!ts.isTypeOfExpression(expr)) return undefined;
-      return getAccessPathTarget(expr.expression, ctx);
-    };
-
-    const leftTypeofTarget = extractTypeofTarget(left);
-    const rightTypeofTarget = extractTypeofTarget(right);
-
-    const tag =
-      leftTypeofTarget && rightLiteral
-        ? rightLiteral
-        : rightTypeofTarget && leftLiteral
-          ? leftLiteral
-          : undefined;
-    const narrowedTarget = leftTypeofTarget ?? rightTypeofTarget;
-    if (tag && narrowedTarget) {
-      const targetType = narrowTypeByNotTypeofTag(
-        getCurrentTypeForAccessPath(narrowedTarget, ctx),
-        tag
-      );
-      if (targetType) {
-        return [makeTypeNarrowing(narrowedTarget, targetType)];
-      }
-    }
+    return [
+      ...collectTypeNarrowingsInFalsyExpr(unwrapped.left, ctx),
+      ...collectTypeNarrowingsInFalsyExpr(unwrapped.right, ctx),
+    ];
   }
 
   const direct = tryResolveFalsyNarrowing(unwrapped, ctx);
   if (direct) return [direct];
+
+  const predicateNarrowing = tryResolveCallPredicateNarrowing(
+    unwrapped,
+    ctx,
+    false
+  );
+  if (predicateNarrowing) return [predicateNarrowing];
+
+  const typeofNarrowing = tryResolveTypeofNarrowing(unwrapped, ctx, false);
+  if (typeofNarrowing) return [typeofNarrowing];
 
   return [];
 };

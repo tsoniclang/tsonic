@@ -8,12 +8,27 @@ type NarrowingCandidateCollector = {
 const isArrayLikeCandidate = (type: IrType): boolean =>
   type.kind === "arrayType" || type.kind === "tupleType";
 
+const UNKNOWN_ARRAY_TYPE: IrType = {
+  kind: "arrayType",
+  elementType: { kind: "unknownType" },
+};
+
 export const narrowTypeByArrayShape = (
   collector: NarrowingCandidateCollector,
   currentType: IrType | undefined,
   wantArray: boolean
 ): IrType | undefined => {
   if (!currentType) return undefined;
+
+  if (wantArray) {
+    if (currentType.kind === "unknownType" || currentType.kind === "anyType") {
+      return UNKNOWN_ARRAY_TYPE;
+    }
+
+    if (currentType.kind === "referenceType" && currentType.name === "object") {
+      return UNKNOWN_ARRAY_TYPE;
+    }
+  }
 
   const expanded = collector.collectNarrowingCandidates(currentType);
   const candidates = expanded.length > 0 ? expanded : [currentType];

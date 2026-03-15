@@ -14,6 +14,7 @@ import {
   IrDefaultOfExpression,
   IrNameOfExpression,
   IrSizeOfExpression,
+  getSpreadTupleShape,
 } from "../../../types.js";
 import {
   getSourceSpan,
@@ -85,6 +86,38 @@ const canAcceptArgumentCount = (
   }
 
   return true;
+};
+
+const collectResolutionArguments = (
+  args: readonly IrCallExpression["arguments"][number][]
+): {
+  readonly argumentCount: number;
+  readonly argTypes: readonly (IrType | undefined)[];
+} => {
+  const argTypes: (IrType | undefined)[] = [];
+
+  for (const arg of args) {
+    if (arg.kind !== "spread") {
+      argTypes.push(arg.inferredType);
+      continue;
+    }
+
+    const spreadShape = arg.inferredType
+      ? getSpreadTupleShape(arg.inferredType)
+      : undefined;
+    if (!spreadShape) {
+      continue;
+    }
+
+    for (const elementType of spreadShape.prefixElementTypes) {
+      argTypes.push(elementType);
+    }
+  }
+
+  return {
+    argumentCount: argTypes.length,
+    argTypes,
+  };
 };
 
 const scoreCallableCandidate = (
@@ -936,13 +969,19 @@ export const convertCallExpression = (
     a.kind === "spread" ? undefined : a.inferredType
   );
 
+  const resolutionArgs = collectResolutionArguments(convertedArgs);
+
   const finalResolved = sigId
     ? typeSystem.resolveCall({
         sigId,
-        argumentCount,
+        argumentCount:
+          resolutionArgs.argumentCount > 0
+            ? resolutionArgs.argumentCount
+            : argumentCount,
         receiverType: receiverIrType,
         explicitTypeArgs,
-        argTypes,
+        argTypes:
+          resolutionArgs.argumentCount > 0 ? resolutionArgs.argTypes : argTypes,
         expectedReturnType: expectedType,
       })
     : lambdaContextResolved;

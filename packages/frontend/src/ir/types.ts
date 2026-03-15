@@ -124,6 +124,7 @@ export {
   NUMERIC_KIND_TO_CSHARP,
   NUMERIC_RANGES,
   getAwaitedIrType,
+  getSpreadTupleShape,
   isIntegerKind,
   isAwaitableIrType,
   isSignedKind,

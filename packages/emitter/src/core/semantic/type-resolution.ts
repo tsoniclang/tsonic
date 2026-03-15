@@ -1427,3 +1427,16 @@ export const findUnionMemberIndex = (
   }
   return undefined;
 };
+
+export const unionMemberMatchesTarget = (
+  member: IrType,
+  candidate: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolvedCandidate = resolveTypeAlias(stripNullish(candidate), context);
+  const wrapper = {
+    kind: "unionType",
+    types: [member],
+  } as const satisfies Extract<IrType, { kind: "unionType" }>;
+  return findUnionMemberIndex(wrapper, resolvedCandidate, context) === 0;
+};

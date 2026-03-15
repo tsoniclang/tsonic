@@ -4,6 +4,7 @@
 
 import {
   getAwaitedIrType,
+  getSpreadTupleShape,
   isAwaitableIrType,
   IrBlockStatement,
   IrExpression,
@@ -37,6 +38,7 @@ import {
 import type { ModuleIdentity } from "../../emitter-types/core.js";
 import {
   extractCalleeNameFromAst,
+  getIdentifierTypeName,
   getIdentifierTypeLeafName,
 } from "../../core/format/backend-ast/utils.js";
 import type {
@@ -51,6 +53,7 @@ import {
   containsTypeParameter,
   getArrayLikeElementType,
 } from "../../core/semantic/type-resolution.js";
+import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
 import {
   identifierExpression,
@@ -58,6 +61,129 @@ import {
   nullLiteral,
   stringLiteral,
 } from "../../core/format/backend-ast/builders.js";
+
+const unwrapNullableTypeAst = (type: CSharpTypeAst): CSharpTypeAst =>
+  type.kind === "nullableType" ? type.underlyingType : type;
+
+const emitArrayWrapperElementTypeAst = (
+  receiverType: IrType,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
+  const [receiverTypeAst, receiverTypeContext] = emitTypeAst(
+    receiverType,
+    context
+  );
+  const concreteReceiverTypeAst = unwrapNullableTypeAst(receiverTypeAst);
+  if (concreteReceiverTypeAst.kind === "arrayType") {
+    return [concreteReceiverTypeAst.elementType, receiverTypeContext];
+  }
+  if (receiverType.kind === "arrayType") {
+    return emitTypeAst(receiverType.elementType, receiverTypeContext);
+  }
+  return [identifierType("object"), receiverTypeContext];
+};
+
+const buildTupleSpreadElementAccess = (
+  spreadExpr: IrExpression,
+  index: number,
+  inferredType: IrType
+): IrExpression => ({
+  kind: "memberAccess",
+  object: spreadExpr,
+  property: {
+    kind: "literal",
+    value: index,
+    inferredType: { kind: "primitiveType", name: "int" },
+  },
+  isComputed: true,
+  isOptional: false,
+  inferredType,
+  accessKind: "clrIndexer",
+});
+
+const buildTupleSpreadSlice = (
+  spreadExpr: IrExpression,
+  startIndex: number,
+  inferredType: IrType
+): IrExpression => ({
+  kind: "call",
+  callee: {
+    kind: "memberAccess",
+    object: spreadExpr,
+    property: "slice",
+    isComputed: false,
+    isOptional: false,
+  },
+  arguments: [
+    {
+      kind: "literal",
+      value: startIndex,
+      inferredType: { kind: "primitiveType", name: "int" },
+    },
+  ],
+  isOptional: false,
+  inferredType,
+});
+
+const expandTupleLikeSpreadArguments = (
+  args: readonly IrExpression[]
+): readonly IrExpression[] => {
+  const expanded: IrExpression[] = [];
+
+  for (const arg of args) {
+    if (arg.kind !== "spread") {
+      expanded.push(arg);
+      continue;
+    }
+
+    const spreadShape = arg.inferredType
+      ? getSpreadTupleShape(arg.inferredType)
+      : undefined;
+    if (!spreadShape) {
+      expanded.push(arg);
+      continue;
+    }
+
+    for (let index = 0; index < spreadShape.prefixElementTypes.length; index += 1) {
+      const elementType = spreadShape.prefixElementTypes[index];
+      if (!elementType) continue;
+      expanded.push(
+        buildTupleSpreadElementAccess(arg.expression, index, elementType)
+      );
+    }
+
+    if (spreadShape.restElementType) {
+      expanded.push({
+        kind: "spread",
+        expression: buildTupleSpreadSlice(
+          arg.expression,
+          spreadShape.prefixElementTypes.length,
+          {
+            kind: "arrayType",
+            elementType: spreadShape.restElementType,
+            origin: "explicit",
+          }
+        ),
+        inferredType: {
+          kind: "arrayType",
+          elementType: spreadShape.restElementType,
+          origin: "explicit",
+        },
+      });
+      continue;
+    }
+
+    if (spreadShape.prefixElementTypes.length === 0) {
+      expanded.push(arg);
+    }
+  }
+
+  if (expanded.length === args.length) {
+    return args;
+  }
+
+  return expanded;
+};
 
 /**
  * Wrap an expression AST with an optional argument modifier (ref/out/in).
@@ -250,8 +376,8 @@ const emitArrayMutationInteropCall = (
 
   let currentContext = captured.context;
 
-  const [elementTypeAst, elementTypeContext] = emitTypeAst(
-    receiverType.elementType,
+  const [elementTypeAst, elementTypeContext] = emitArrayWrapperElementTypeAst(
+    receiverType,
     currentContext
   );
   currentContext = elementTypeContext;
@@ -417,8 +543,8 @@ const emitArrayWrapperInteropCall = (
 
   let typeArguments: readonly CSharpTypeAst[] | undefined;
   if (genericArity === 1) {
-    const [elementTypeAst, elementTypeContext] = emitTypeAst(
-      receiverType.elementType,
+    const [elementTypeAst, elementTypeContext] = emitArrayWrapperElementTypeAst(
+      receiverType,
       currentContext
     );
     currentContext = elementTypeContext;
@@ -1403,6 +1529,15 @@ const isValueTaskLikeIrType = (type: IrType | undefined): boolean => {
   );
 };
 
+const isRuntimeUnionTypeAst = (typeAst: CSharpTypeAst): boolean => {
+  const name = getIdentifierTypeName(typeAst);
+  return (
+    name === "global::Tsonic.Runtime.Union" ||
+    name === "Tsonic.Runtime.Union" ||
+    name === "Union"
+  );
+};
+
 const emitPromiseNormalizedTaskAst = (
   valueAst: CSharpExpressionAst,
   valueType: IrType | undefined,
@@ -1430,16 +1565,41 @@ const emitPromiseNormalizedTaskAst = (
   }
 
   if (valueType?.kind === "unionType") {
+    const [emittedUnionTypeAst, emittedUnionTypeContext] = emitTypeAst(
+      valueType,
+      currentContext
+    );
+    currentContext = emittedUnionTypeContext;
+    const concreteUnionTypeAst =
+      emittedUnionTypeAst.kind === "nullableType"
+        ? emittedUnionTypeAst.underlyingType
+        : emittedUnionTypeAst;
+    const [runtimeLayout, runtimeLayoutContext] = isRuntimeUnionTypeAst(
+      concreteUnionTypeAst
+    )
+      ? buildRuntimeUnionLayout(valueType, currentContext, emitTypeAst)
+      : [undefined, currentContext];
+    currentContext = runtimeLayoutContext;
+
+    const members = runtimeLayout?.members ?? valueType.types;
+    const memberTypeAsts: CSharpTypeAst[] = runtimeLayout
+      ? [...runtimeLayout.memberTypeAsts]
+      : [];
     const arms: CSharpExpressionAst[] = [];
-    for (let index = 0; index < valueType.types.length; index++) {
-      const memberType = valueType.types[index];
+    for (let index = 0; index < members.length; index++) {
+      const memberType = members[index];
       if (!memberType) continue;
 
-      const [memberTypeAst, memberTypeContext] = emitTypeAst(
-        memberType,
-        currentContext
-      );
-      currentContext = memberTypeContext;
+      let memberTypeAst = memberTypeAsts[index];
+      if (!memberTypeAst) {
+        const [emittedMemberTypeAst, memberTypeContext] = emitTypeAst(
+          memberType,
+          currentContext
+        );
+        currentContext = memberTypeContext;
+        memberTypeAst = emittedMemberTypeAst;
+        memberTypeAsts[index] = emittedMemberTypeAst;
+      }
 
       const memberName = `__tsonic_promise_value_${index}`;
       const [normalizedArm, normalizedContext] = emitPromiseNormalizedTaskAst(
@@ -1456,7 +1616,17 @@ const emitPromiseNormalizedTaskAst = (
       arms.push({
         kind: "lambdaExpression",
         isAsync: false,
-        parameters: [{ name: memberName, type: memberTypeAst }],
+        parameters: [
+          {
+            name: memberName,
+            type:
+              memberTypeAst ??
+              ({
+                kind: "predefinedType",
+                keyword: "object",
+              } satisfies CSharpTypeAst),
+          },
+        ],
         body: normalizedArm,
       });
     }
@@ -1525,10 +1695,22 @@ const emitPromiseStaticCall = (
       argument.inferredType
     );
     currentContext = valueContext;
+    const normalizedResultIrType = normalizePromiseChainResultIrType(
+      argument.inferredType
+    );
+    let preferredResultTypeAst = outputResultType;
+    if (normalizedResultIrType) {
+      const [normalizedResultTypeAst, normalizedResultTypeContext] = emitTypeAst(
+        normalizedResultIrType,
+        currentContext
+      );
+      preferredResultTypeAst = normalizedResultTypeAst;
+      currentContext = normalizedResultTypeContext;
+    }
     return emitPromiseNormalizedTaskAst(
       valueAst,
       argument.inferredType,
-      outputResultType,
+      preferredResultTypeAst,
       currentContext
     );
   }
@@ -2365,23 +2547,24 @@ const emitCallArguments = (
   }
 
   const parameterTypes = expr.parameterTypes ?? [];
-  const restInfo = detectRestParameterInfo(args, parameterTypes, context);
+  const normalizedArgs = expandTupleLikeSpreadArguments(args);
+  const restInfo = detectRestParameterInfo(normalizedArgs, parameterTypes, context);
   let currentContext = context;
   const argAsts: CSharpExpressionAst[] = [];
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
+  for (let i = 0; i < normalizedArgs.length; i++) {
+    const arg = normalizedArgs[i];
     if (!arg) continue;
 
     if (
       restInfo &&
       i === restInfo.index &&
-      args
+      normalizedArgs
         .slice(restInfo.index)
         .some((candidate) => candidate?.kind === "spread")
     ) {
       const [flattenedRestArgs, flattenedContext] = emitFlattenedRestArguments(
-        args.slice(restInfo.index),
+        normalizedArgs.slice(restInfo.index),
         restInfo.elementType,
         currentContext
       );
@@ -2931,9 +3114,32 @@ export const emitCall = (
         }
       : invocation;
 
+  const shouldCastSuperCallResult =
+    expr.callee.kind === "memberAccess" &&
+    expr.callee.object.kind === "identifier" &&
+    expr.callee.object.name === "super" &&
+    !!expectedType &&
+    expectedType.kind !== "voidType" &&
+    expectedType.kind !== "anyType" &&
+    expectedType.kind !== "unknownType";
+
+  let finalInvocation: CSharpExpressionAst = normalizedInvocation;
+  if (shouldCastSuperCallResult && expectedType) {
+    const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+      expectedType,
+      currentContext
+    );
+    finalInvocation = {
+      kind: "castExpression",
+      type: expectedTypeAst,
+      expression: normalizedInvocation,
+    };
+    currentContext = expectedTypeContext;
+  }
+
   const calleeText = extractCalleeNameFromAst(calleeAst);
   return [
-    wrapIntCast(needsIntCast(expr, calleeText), normalizedInvocation),
+    wrapIntCast(needsIntCast(expr, calleeText), finalInvocation),
     currentContext,
   ];
 };

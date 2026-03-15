@@ -26,6 +26,9 @@ import {
 import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
 import { getIdentifierTypeName } from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
+import {
+  buildRuntimeUnionLayout,
+} from "../core/semantic/runtime-unions.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -64,6 +67,15 @@ type RuntimeMatchPlan = {
   readonly condition: CSharpExpressionAst;
   readonly value: CSharpExpressionAst;
   readonly context: EmitterContext;
+};
+
+const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
+  const name = getIdentifierTypeName(type);
+  return (
+    name === "global::Tsonic.Runtime.Union" ||
+    name === "Tsonic.Runtime.Union" ||
+    name === "Union"
+  );
 };
 
 const bucketFromMemberKind = (kind: string): MemberAccessBucket => {
@@ -141,6 +153,22 @@ const buildInvalidReificationExpression = (
   },
 });
 
+const emitArrayWrapperElementTypeAst = (
+  receiverType: IrType | undefined,
+  fallbackElementType: IrType,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
+  const [receiverTypeAst, receiverTypeContext] = emitTypeAst(
+    receiverType ?? { kind: "arrayType", elementType: fallbackElementType },
+    context
+  );
+  const concreteReceiverTypeAst = unwrapNullableTypeAst(receiverTypeAst);
+  if (concreteReceiverTypeAst.kind === "arrayType") {
+    return [concreteReceiverTypeAst.elementType, receiverTypeContext];
+  }
+  return emitTypeAst(fallbackElementType, receiverTypeContext);
+};
+
 const buildRuntimeMatchPlan = (
   valueAst: CSharpExpressionAst,
   expectedType: IrType,
@@ -176,12 +204,16 @@ const buildRuntimeMatchPlan = (
   if (resolvedExpected.kind === "unionType") {
     const [unionTypeAst, unionTypeContext] = emitTypeAst(expectedType, context);
     const concreteUnionTypeAst = unwrapNullableTypeAst(unionTypeAst);
-    if (
-      concreteUnionTypeAst.kind !== "identifierType" &&
-      concreteUnionTypeAst.kind !== "qualifiedIdentifierType"
-    ) {
+    if (!isRuntimeUnionTypeAst(concreteUnionTypeAst)) {
       return undefined;
     }
+
+    const [runtimeLayout, layoutContext] = buildRuntimeUnionLayout(
+      expectedType,
+      unionTypeContext,
+      emitTypeAst
+    );
+    const members = runtimeLayout?.members ?? resolvedExpected.types;
 
     const cases: RuntimeMatchPlan[] = [
       {
@@ -202,9 +234,9 @@ const buildRuntimeMatchPlan = (
       },
     ];
 
-    let currentContext = unionTypeContext;
-    for (let index = 0; index < resolvedExpected.types.length; index += 1) {
-      const member = resolvedExpected.types[index];
+    let currentContext = runtimeLayout ? layoutContext : unionTypeContext;
+    for (let index = 0; index < members.length; index += 1) {
+      const member = members[index];
       if (!member) continue;
       const memberPlan = buildRuntimeMatchPlan(valueAst, member, currentContext);
       if (!memberPlan) continue;
@@ -825,9 +857,18 @@ export const emitMemberAccess = (
             ? resolved.typeArguments
             : [];
 
-      const arity = members.length;
+      const runtimeLayout = (() => {
+        if (members.length < 2 || members.length > 8) {
+          return undefined;
+        }
+
+        const [layout] = buildRuntimeUnionLayout(objectType, context, emitTypeAst);
+        return layout;
+      })();
+      const runtimeMembers = runtimeLayout?.members ?? members;
+      const arity = runtimeMembers.length;
       if (arity >= 2 && arity <= 8) {
-        const memberHasProperty = members.map((m) => {
+        const memberHasProperty = runtimeMembers.map((m) => {
           if (m.kind !== "referenceType") return false;
           const props = getAllPropertySignatures(m, context);
           if (props) return props.some((p) => p.name === prop);
@@ -855,7 +896,7 @@ export const emitMemberAccess = (
 
           if (count === arity) {
             // All members have the property: use Match lambda
-            const lambdaArgs = members.map(
+            const lambdaArgs = runtimeMembers.map(
               (_, i): CSharpExpressionAst => ({
                 kind: "lambdaExpression",
                 isAsync: false,
@@ -1301,7 +1342,8 @@ export const emitMemberAccess = (
   ) {
     const arrayLikeReceiver = resolveArrayLikeReceiver(objectType, context);
     if (arrayLikeReceiver) {
-      const [elementTypeAst, typeCtx] = emitTypeAst(
+      const [elementTypeAst, typeCtx] = emitArrayWrapperElementTypeAst(
+        objectType,
         arrayLikeReceiver.elementType,
         newContext
       );

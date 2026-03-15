@@ -1,6 +1,11 @@
 import type { IrInterfaceMember, IrParameter } from "./helpers.js";
 import type { IrType } from "./ir-types.js";
 
+export type IrSpreadTupleShape = {
+  readonly prefixElementTypes: readonly IrType[];
+  readonly restElementType?: IrType;
+};
+
 type StableTypeKeyState = {
   readonly seen: Map<object, number>;
   readonly parent?: StableTypeKeyState;
@@ -193,6 +198,29 @@ export const unwrapAsyncWrapperType = (type: IrType): IrType | undefined => {
   return awaited?.kind === "voidType" ? undefined : awaited;
 };
 
+export const getSpreadTupleShape = (
+  type: IrType
+): IrSpreadTupleShape | undefined => {
+  if (type.kind === "tupleType") {
+    return {
+      prefixElementTypes: type.elementTypes,
+    };
+  }
+
+  if (
+    type.kind === "arrayType" &&
+    ((type.tuplePrefixElementTypes?.length ?? 0) > 0 ||
+      type.tupleRestElementType !== undefined)
+  ) {
+    return {
+      prefixElementTypes: type.tuplePrefixElementTypes ?? [],
+      restElementType: type.tupleRestElementType,
+    };
+  }
+
+  return undefined;
+};
+
 const stableIrTypeKeyImpl = (type: IrType, state: StableTypeKeyState): string => {
   const visit = beginStableTypeNode(state, type);
   if (visit.seenBefore) {
@@ -210,7 +238,9 @@ const stableIrTypeKeyImpl = (type: IrType, state: StableTypeKeyState): string =>
       return primitiveKey(type);
 
     case "arrayType":
-      return `arr#${visit.id}:${stableIrTypeKeyImpl(type.elementType, state)}`;
+      return `arr#${visit.id}:${stableIrTypeKeyImpl(type.elementType, state)}:tuple:${(type.tuplePrefixElementTypes ?? [])
+        .map((elementType) => stableIrTypeKeyImpl(elementType, state))
+        .join(",")}:rest:${type.tupleRestElementType ? stableIrTypeKeyImpl(type.tupleRestElementType, state) : "none"}`;
 
     case "tupleType":
       return `tuple#${visit.id}:${type.elementTypes

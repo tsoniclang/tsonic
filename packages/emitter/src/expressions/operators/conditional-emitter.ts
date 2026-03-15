@@ -5,15 +5,18 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, LocalTypeInfo, NarrowedBinding } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
 import {
   resolveTypeAlias,
-  stripNullish,
-  findUnionMemberIndex,
   getPropertyType,
 } from "../../core/semantic/type-resolution.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
 import { emitRemappedLocalName } from "../../core/format/local-names.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+import {
+  buildRuntimeUnionLayout,
+  findRuntimeUnionMemberIndex,
+} from "../../core/semantic/runtime-unions.js";
 
 /**
  * Try to extract ternary guard info from a condition expression.
@@ -116,10 +119,18 @@ const tryResolveTernaryGuard = (
     const unionSourceType = arg.inferredType;
     if (!unionSourceType) return undefined;
 
-    const resolved = resolveTypeAlias(stripNullish(unionSourceType), context);
-    if (resolved.kind !== "unionType") return undefined;
+    const [runtimeLayout] = buildRuntimeUnionLayout(
+      unionSourceType,
+      context,
+      emitTypeAst
+    );
+    if (!runtimeLayout) return undefined;
 
-    const idx = findUnionMemberIndex(resolved, narrowing.targetType, context);
+    const idx = findRuntimeUnionMemberIndex(
+      runtimeLayout.members,
+      narrowing.targetType,
+      context
+    );
     if (idx === undefined) return undefined;
 
     return {
@@ -202,16 +213,20 @@ const tryResolveTernaryGuard = (
     const unionSourceType = receiver.inferredType;
     if (!unionSourceType) return undefined;
 
-    const resolved = resolveTypeAlias(stripNullish(unionSourceType), context);
-    if (resolved.kind !== "unionType") return undefined;
+    const [runtimeLayout] = buildRuntimeUnionLayout(
+      unionSourceType,
+      context,
+      emitTypeAst
+    );
+    if (!runtimeLayout) return undefined;
 
-    const unionArity = resolved.types.length;
+    const unionArity = runtimeLayout.members.length;
     if (unionArity < 2 || unionArity > 8) return undefined;
 
     const matchingMembers: number[] = [];
 
-    for (let i = 0; i < resolved.types.length; i++) {
-      const member = resolved.types[i];
+    for (let i = 0; i < runtimeLayout.members.length; i++) {
+      const member = runtimeLayout.members[i];
       if (!member) continue;
 
       let propType: IrType | undefined;

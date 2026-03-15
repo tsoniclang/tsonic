@@ -453,105 +453,222 @@ const buildIsPatternCondition = (
   },
 });
 
-const tryExtractTypeofEqualityGuard = (
-  condition: Extract<IrStatement, { kind: "ifStatement" }>["condition"]
+type TypeofGuardRefinement = {
+  readonly bindingKey: string;
+  readonly targetExpr: Extract<
+    import("@tsonic/frontend").IrExpression,
+    { kind: "identifier" | "memberAccess" }
+  >;
+  readonly tag: string;
+  readonly matchTag: boolean;
+};
+
+const tryExtractDirectTypeofGuard = (
+  expr: Extract<IrStatement, { kind: "ifStatement" }>["condition"]
 ):
   | {
-      readonly originalName: string;
+      readonly bindingKey: string;
       readonly targetExpr: Extract<
         import("@tsonic/frontend").IrExpression,
         { kind: "identifier" | "memberAccess" }
       >;
       readonly tag: string;
-      readonly narrowsInThen: boolean;
-      readonly compound: boolean;
+      readonly matchesInTruthyBranch: boolean;
     }
   | undefined => {
-  const extractDirectGuard = (
-    expr: typeof condition
+  if (expr.kind !== "binary") return undefined;
+  if (
+    expr.operator !== "===" &&
+    expr.operator !== "==" &&
+    expr.operator !== "!==" &&
+    expr.operator !== "!="
+  ) {
+    return undefined;
+  }
+
+  const extract = (
+    left: typeof expr.left,
+    right: typeof expr.right
   ):
     | {
-        readonly originalName: string;
+        readonly bindingKey: string;
         readonly targetExpr: Extract<
           import("@tsonic/frontend").IrExpression,
           { kind: "identifier" | "memberAccess" }
         >;
         readonly tag: string;
-        readonly narrowsInThen: boolean;
       }
     | undefined => {
-    if (expr.kind !== "binary") return undefined;
+    if (left.kind !== "unary" || left.operator !== "typeof") return undefined;
     if (
-      expr.operator !== "===" &&
-      expr.operator !== "==" &&
-      expr.operator !== "!==" &&
-      expr.operator !== "!="
+      left.expression.kind !== "identifier" &&
+      left.expression.kind !== "memberAccess"
     ) {
       return undefined;
     }
-
-    const extract = (
-      left: typeof expr.left,
-      right: typeof expr.right
-    ):
-      | {
-        readonly originalName: string;
-        readonly targetExpr: Extract<
-          import("@tsonic/frontend").IrExpression,
-          { kind: "identifier" | "memberAccess" }
-        >;
-        readonly tag: string;
-      }
-    | undefined => {
-      if (left.kind !== "unary" || left.operator !== "typeof") return undefined;
-      if (
-        left.expression.kind !== "identifier" &&
-        left.expression.kind !== "memberAccess"
-      ) {
-        return undefined;
-      }
-      if (right.kind !== "literal" || typeof right.value !== "string") {
-        return undefined;
-      }
-      const originalName =
-        left.expression.kind === "identifier"
-          ? left.expression.name
-          : getMemberAccessNarrowKey(left.expression);
-      if (!originalName) return undefined;
-      return {
-        originalName,
-        targetExpr: left.expression,
-        tag: right.value,
-      };
-    };
-
-    const directGuard =
-      extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
-    if (!directGuard) return undefined;
-
+    if (right.kind !== "literal" || typeof right.value !== "string") {
+      return undefined;
+    }
+    const bindingKey =
+      left.expression.kind === "identifier"
+        ? left.expression.name
+        : getMemberAccessNarrowKey(left.expression);
+    if (!bindingKey) return undefined;
     return {
-      ...directGuard,
-      narrowsInThen: expr.operator === "===" || expr.operator === "==",
+      bindingKey,
+      targetExpr: left.expression,
+      tag: right.value,
     };
   };
 
-  const direct = extractDirectGuard(condition);
+  const directGuard = extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
+  if (!directGuard) return undefined;
+
+  return {
+    ...directGuard,
+    matchesInTruthyBranch: expr.operator === "===" || expr.operator === "==",
+  };
+};
+
+const collectTypeofGuardRefinements = (
+  condition: Extract<IrStatement, { kind: "ifStatement" }>["condition"],
+  branch: "truthy" | "falsy"
+): readonly TypeofGuardRefinement[] => {
+  const direct = tryExtractDirectTypeofGuard(condition);
   if (direct) {
-    return { ...direct, compound: false };
+    return [
+      {
+        bindingKey: direct.bindingKey,
+        targetExpr: direct.targetExpr,
+        tag: direct.tag,
+        matchTag:
+          branch === "truthy"
+            ? direct.matchesInTruthyBranch
+            : !direct.matchesInTruthyBranch,
+      },
+    ];
   }
 
-  if (condition.kind === "logical" && condition.operator === "&&") {
-    const left = tryExtractTypeofEqualityGuard(condition.left);
-    if (left?.narrowsInThen) {
-      return { ...left, compound: true };
-    }
-    const right = tryExtractTypeofEqualityGuard(condition.right);
-    if (right?.narrowsInThen) {
-      return { ...right, compound: true };
-    }
+  if (condition.kind !== "logical") {
+    return [];
   }
 
-  return undefined;
+  if (branch === "truthy" && condition.operator === "&&") {
+    return [
+      ...collectTypeofGuardRefinements(condition.left, branch),
+      ...collectTypeofGuardRefinements(condition.right, branch),
+    ];
+  }
+
+  if (branch === "falsy" && condition.operator === "||") {
+    return [
+      ...collectTypeofGuardRefinements(condition.left, branch),
+      ...collectTypeofGuardRefinements(condition.right, branch),
+    ];
+  }
+
+  return [];
+};
+
+const applyTypeofGuardRefinements = (
+  baseContext: EmitterContext,
+  refinements: readonly TypeofGuardRefinement[]
+): EmitterContext => {
+  let currentContext = baseContext;
+
+  for (const refinement of refinements) {
+    const currentType =
+      currentContext.narrowedBindings?.get(refinement.bindingKey)?.type ??
+      refinement.targetExpr.inferredType;
+    const narrowedType = refinement.matchTag
+      ? narrowTypeByTypeofTag(currentType, refinement.tag, currentContext)
+      : narrowTypeByNotTypeofTag(currentType, refinement.tag, currentContext);
+    if (!narrowedType) {
+      continue;
+    }
+
+    const [rawTargetAst, rawTargetContext] = emitExpressionAst(
+      refinement.targetExpr,
+      { ...currentContext, narrowedBindings: undefined }
+    );
+
+    const runtimeUnionFrame =
+      currentType &&
+      resolveRuntimeUnionFrame(
+        refinement.bindingKey,
+        currentType,
+        rawTargetContext
+      );
+    const matchingRuntimeMemberIndex =
+      runtimeUnionFrame?.members.findIndex((member) =>
+        matchesTypeofTag(member, refinement.tag, rawTargetContext)
+      ) ?? -1;
+
+    const nextBindings = new Map(rawTargetContext.narrowedBindings ?? []);
+
+    if (
+      runtimeUnionFrame &&
+      matchingRuntimeMemberIndex >= 0 &&
+      runtimeUnionFrame.members.filter((member) =>
+        matchesTypeofTag(member, refinement.tag, rawTargetContext)
+      ).length === 1
+    ) {
+      const memberN =
+        runtimeUnionFrame.candidateMemberNs[matchingRuntimeMemberIndex] ??
+        matchingRuntimeMemberIndex + 1;
+      const memberType =
+        runtimeUnionFrame.members[matchingRuntimeMemberIndex] ?? narrowedType;
+
+      if (refinement.matchTag) {
+        nextBindings.set(refinement.bindingKey, {
+          kind: "expr",
+          exprAst: buildUnionNarrowAst(rawTargetAst, memberN),
+          type: memberType,
+        });
+        currentContext = {
+          ...rawTargetContext,
+          narrowedBindings: nextBindings,
+        };
+        continue;
+      }
+
+      const complementBinding = buildComplementNarrowedBinding(
+        rawTargetAst,
+        runtimeUnionFrame.runtimeUnionArity,
+        runtimeUnionFrame.candidateMemberNs,
+        runtimeUnionFrame.members,
+        memberN
+      );
+      if (complementBinding) {
+        nextBindings.set(refinement.bindingKey, complementBinding);
+        currentContext = {
+          ...rawTargetContext,
+          narrowedBindings: nextBindings,
+        };
+        continue;
+      }
+    }
+
+    const [narrowedTypeAst, nextContext] = emitTypeAst(
+      narrowedType,
+      rawTargetContext
+    );
+    nextBindings.set(refinement.bindingKey, {
+      kind: "expr",
+      exprAst: {
+        kind: "castExpression",
+        type: narrowedTypeAst,
+        expression: rawTargetAst,
+      },
+      type: narrowedType,
+    });
+    currentContext = {
+      ...nextContext,
+      narrowedBindings: nextBindings,
+    };
+  }
+
+  return currentContext;
 };
 
 /**
@@ -1886,189 +2003,89 @@ export const emitIfStatementAst = (
     }
   }
 
-  // Case E: typeof narrowing on plain locals/parameters
-  // if (typeof value === "number") { ... } / else { ... }
-  const typeofGuard = tryExtractTypeofEqualityGuard(stmt.condition);
-  if (typeofGuard) {
-    const narrowedType = narrowTypeByTypeofTag(
-      typeofGuard.targetExpr.inferredType,
-      typeofGuard.tag,
+  // Case E: typeof narrowing on plain locals/parameters, including
+  // compound `&&` truthy branches and `||` fallthrough/else branches.
+  const truthyTypeofRefinements = collectTypeofGuardRefinements(
+    stmt.condition,
+    "truthy"
+  );
+  const falsyTypeofRefinements = collectTypeofGuardRefinements(
+    stmt.condition,
+    "falsy"
+  );
+  if (
+    truthyTypeofRefinements.length > 0 ||
+    falsyTypeofRefinements.length > 0
+  ) {
+    const [condAst, condCtxAfterCond] = emitBooleanConditionAst(
+      stmt.condition,
+      emitExprAstCb,
       context
     );
 
-    if (narrowedType) {
-      const [condAst, condCtxAfterCond] = emitBooleanConditionAst(
-        stmt.condition,
-        emitExprAstCb,
-        context
-      );
+    const thenCtx =
+      truthyTypeofRefinements.length > 0
+        ? applyTypeofGuardRefinements(condCtxAfterCond, truthyTypeofRefinements)
+        : condCtxAfterCond;
+    const [thenStmts, thenCtxAfter] = emitStatementAst(
+      stmt.thenStatement,
+      thenCtx
+    );
 
-      const [rawIdAst] = emitExpressionAst(
-        typeofGuard.targetExpr,
-        { ...condCtxAfterCond, narrowedBindings: undefined }
-      );
-      const runtimeUnionFrame =
-        typeofGuard.targetExpr.inferredType &&
-        resolveRuntimeUnionFrame(
-          typeofGuard.originalName,
-          typeofGuard.targetExpr.inferredType,
-          condCtxAfterCond
-        );
+    let finalContext: EmitterContext = {
+      ...thenCtxAfter,
+      narrowedBindings: condCtxAfterCond.narrowedBindings,
+    };
 
-      const matchingRuntimeMemberIndex =
-        runtimeUnionFrame?.members.findIndex((member) =>
-          matchesTypeofTag(member, typeofGuard.tag, condCtxAfterCond)
-        ) ?? -1;
-
-      const narrowedMap = new Map(condCtxAfterCond.narrowedBindings ?? []);
-      let narrowedTypeCtx = condCtxAfterCond;
-      let runtimeGuard:
-        | {
-            readonly memberN: number;
-            readonly runtimeUnionArity: number;
-            readonly candidateMemberNs: readonly number[];
-            readonly candidateMembers: readonly import("@tsonic/frontend").IrType[];
-          }
-        | undefined;
-
-      if (
-        runtimeUnionFrame &&
-        matchingRuntimeMemberIndex >= 0 &&
-        runtimeUnionFrame.members.filter((member) =>
-          matchesTypeofTag(member, typeofGuard.tag, condCtxAfterCond)
-        ).length === 1
-      ) {
-        const memberN =
-          runtimeUnionFrame.candidateMemberNs[matchingRuntimeMemberIndex] ??
-          matchingRuntimeMemberIndex + 1;
-        const memberType =
-          runtimeUnionFrame.members[matchingRuntimeMemberIndex] ?? narrowedType;
-        narrowedMap.set(typeofGuard.originalName, {
-          kind: "expr",
-          exprAst: buildUnionNarrowAst(rawIdAst, memberN),
-          type: memberType,
-        });
-        runtimeGuard = {
-          memberN,
-          runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
-          candidateMemberNs: runtimeUnionFrame.candidateMemberNs,
-          candidateMembers: runtimeUnionFrame.members,
-        };
-      } else {
-        const [narrowedTypeAst, nextCtx] = emitTypeAst(
-          narrowedType,
-          condCtxAfterCond
-        );
-        narrowedTypeCtx = nextCtx;
-        narrowedMap.set(typeofGuard.originalName, {
-          kind: "expr",
-          exprAst: {
-            kind: "castExpression",
-            type: narrowedTypeAst,
-            expression: rawIdAst,
-          },
-          type: narrowedType,
-        });
-      }
-
-      const thenCtx: EmitterContext = {
-        ...narrowedTypeCtx,
-        narrowedBindings: typeofGuard.narrowsInThen
-          ? narrowedMap
-          : condCtxAfterCond.narrowedBindings,
-      };
-      const [thenStmts, thenCtxAfter] = emitStatementAst(
-        stmt.thenStatement,
-        thenCtx
-      );
-
-      let finalContext: EmitterContext = {
-        ...thenCtxAfter,
+    let elseStmt: CSharpStatementAst | undefined;
+    if (stmt.elseStatement) {
+      const elseBaseContext: EmitterContext = {
+        ...finalContext,
         narrowedBindings: condCtxAfterCond.narrowedBindings,
       };
-
-      let elseStmt: CSharpStatementAst | undefined;
-      if (stmt.elseStatement) {
-        const elseCtx: EmitterContext = {
-          ...finalContext,
-          narrowedBindings: typeofGuard.compound
-            ? condCtxAfterCond.narrowedBindings
-            : typeofGuard.narrowsInThen
-              ? condCtxAfterCond.narrowedBindings
-              : narrowedMap,
-        };
-        const [elseStmts, elseCtxAfter] = emitStatementAst(
-          stmt.elseStatement,
-          elseCtx
-        );
-        elseStmt = wrapInBlock(elseStmts);
-        finalContext = {
-          ...elseCtxAfter,
-          narrowedBindings: condCtxAfterCond.narrowedBindings,
-        };
-      }
-
-      if (!stmt.elseStatement && isDefinitelyTerminating(stmt.thenStatement)) {
-        if (typeofGuard.narrowsInThen) {
-          if (runtimeGuard && !typeofGuard.compound) {
-            finalContext = withComplementNarrowing(
-              typeofGuard.originalName,
-              rawIdAst,
-              runtimeGuard.runtimeUnionArity,
-              runtimeGuard.candidateMemberNs,
-              runtimeGuard.candidateMembers,
-              runtimeGuard.memberN,
-              finalContext
-            );
-          } else if (!typeofGuard.compound) {
-            const complementType = narrowTypeByNotTypeofTag(
-              typeofGuard.targetExpr.inferredType,
-              typeofGuard.tag,
-              condCtxAfterCond
-            );
-            if (complementType) {
-              const [complementTypeAst, complementCtx] = emitTypeAst(
-                complementType,
-                finalContext
-              );
-              const fallthroughBindings = new Map(
-                condCtxAfterCond.narrowedBindings ?? []
-              );
-              fallthroughBindings.set(typeofGuard.originalName, {
-                kind: "expr",
-                exprAst: {
-                  kind: "castExpression",
-                  type: complementTypeAst,
-                  expression: rawIdAst,
-                },
-                type: complementType,
-              });
-              finalContext = {
-                ...complementCtx,
-                narrowedBindings: fallthroughBindings,
-              };
-            }
-          }
-        } else {
-          finalContext = {
-            ...finalContext,
-            narrowedBindings: narrowedMap,
-          };
-        }
-      }
-
-      return [
-        [
-          {
-            kind: "ifStatement",
-            condition: condAst,
-            thenStatement: wrapInBlock(thenStmts),
-            elseStatement: elseStmt,
-          },
-        ],
-        finalContext,
-      ];
+      const elseCtx =
+        falsyTypeofRefinements.length > 0
+          ? applyTypeofGuardRefinements(
+              elseBaseContext,
+              falsyTypeofRefinements
+            )
+          : elseBaseContext;
+      const [elseStmts, elseCtxAfter] = emitStatementAst(
+        stmt.elseStatement,
+        elseCtx
+      );
+      elseStmt = wrapInBlock(elseStmts);
+      finalContext = {
+        ...elseCtxAfter,
+        narrowedBindings: condCtxAfterCond.narrowedBindings,
+      };
     }
+
+    if (
+      !stmt.elseStatement &&
+      isDefinitelyTerminating(stmt.thenStatement) &&
+      falsyTypeofRefinements.length > 0
+    ) {
+      finalContext = applyTypeofGuardRefinements(
+        {
+          ...finalContext,
+          narrowedBindings: condCtxAfterCond.narrowedBindings,
+        },
+        falsyTypeofRefinements
+      );
+    }
+
+    return [
+      [
+        {
+          kind: "ifStatement",
+          condition: condAst,
+          thenStatement: wrapInBlock(thenStmts),
+          elseStatement: elseStmt,
+        },
+      ],
+      finalContext,
+    ];
   }
 
   // Standard if-statement emission (no narrowing)

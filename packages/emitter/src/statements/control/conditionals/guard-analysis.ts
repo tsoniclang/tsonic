@@ -23,10 +23,13 @@ import {
   hasDeterministicPropertyMembership,
   resolveTypeAlias,
   stripNullish,
-  findUnionMemberIndex,
   getPropertyType,
   isDefinitelyValueType,
 } from "../../../core/semantic/type-resolution.js";
+import {
+  buildRuntimeUnionLayout,
+  findRuntimeUnionMemberIndex,
+} from "../../../core/semantic/runtime-unions.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
 import {
@@ -314,56 +317,25 @@ const tryGetLiteralSet = (
   return undefined;
 };
 
-const isClrUnionName = (name: string): boolean =>
-  /^Union_[2-8]$/.test(name) || name === "Union" || name.endsWith(".Union");
-
-const stripGlobalPrefix = (name: string): string =>
-  name.startsWith("global::") ? name.slice("global::".length) : name;
-
-const extractUnionMembers = (
-  type: IrType,
-  context: EmitterContext
-): readonly IrType[] | undefined => {
-  const resolvedBase = resolveTypeAlias(stripNullish(type), context);
-  const resolved =
-    resolvedBase.kind === "intersectionType"
-      ? (resolvedBase.types.find(
-          (member): member is Extract<IrType, { kind: "referenceType" }> =>
-            member.kind === "referenceType" && isClrUnionName(member.name)
-        ) ?? resolvedBase)
-      : resolvedBase;
-
-  if (resolved.kind === "unionType") {
-    return resolved.types;
-  }
-
-  if (
-    resolved.kind === "referenceType" &&
-    isClrUnionName(resolved.name) &&
-    resolved.typeArguments &&
-    resolved.typeArguments.length >= 2 &&
-    resolved.typeArguments.length <= 8
-  ) {
-    return resolved.typeArguments;
-  }
-
-  return undefined;
-};
-
 export const resolveRuntimeUnionFrame = (
   originalName: string,
   unionSourceType: IrType,
   context: EmitterContext
 ): RuntimeUnionFrame | undefined => {
-  const members = extractUnionMembers(unionSourceType, context);
-  if (!members) return undefined;
+  const [layout] = buildRuntimeUnionLayout(
+    unionSourceType,
+    context,
+    emitTypeAst
+  );
+  if (!layout) return undefined;
+  const members = layout.members;
 
   const narrowed = context.narrowedBindings?.get(originalName);
   if (!narrowed) {
     return {
       members,
       candidateMemberNs: members.map((_, index) => index + 1),
-      runtimeUnionArity: members.length,
+      runtimeUnionArity: layout.runtimeUnionArity,
     };
   }
 
@@ -378,9 +350,12 @@ export const resolveRuntimeUnionFrame = (
   return {
     members,
     candidateMemberNs: [...narrowed.runtimeMemberNs],
-    runtimeUnionArity: narrowed.runtimeUnionArity,
+    runtimeUnionArity: layout.runtimeUnionArity,
   };
 };
+
+const stripGlobalPrefix = (name: string): string =>
+  name.startsWith("global::") ? name.slice("global::".length) : name;
 
 const buildRenameNarrowedMap = (
   originalName: string,
@@ -896,11 +871,11 @@ export const tryResolvePredicateGuard = (
   );
   if (!frame) return undefined;
 
-  const resolved: IrType = {
-    kind: "unionType",
-    types: [...frame.members],
-  };
-  const idx = findUnionMemberIndex(resolved, narrowing.targetType, context);
+  const idx = findRuntimeUnionMemberIndex(
+    frame.members,
+    narrowing.targetType,
+    context
+  );
   if (idx === undefined) return undefined;
 
   const memberN = frame.candidateMemberNs[idx] ?? idx + 1;
@@ -1003,16 +978,13 @@ export const tryResolveInstanceofGuard = (
     unionSourceType && inferredRhsType
       ? resolveRuntimeUnionFrame(originalName, unionSourceType, context)
       : undefined;
-  const runtimeResolved =
-    runtimeUnionFrame && inferredRhsType
-      ? ({
-          kind: "unionType",
-          types: [...runtimeUnionFrame.members],
-        } as Extract<IrType, { kind: "unionType" }>)
-      : undefined;
   const runtimeMatchIndex =
-    runtimeResolved && inferredRhsType
-      ? findUnionMemberIndex(runtimeResolved, inferredRhsType, context)
+    runtimeUnionFrame && inferredRhsType
+      ? findRuntimeUnionMemberIndex(
+          runtimeUnionFrame.members,
+          inferredRhsType,
+          context
+        )
       : undefined;
   const memberN =
     runtimeUnionFrame && runtimeMatchIndex !== undefined

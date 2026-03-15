@@ -830,6 +830,76 @@ export const convertType = (
         kind: "arrayType",
         elementType: toUnionOrSingle(elementTypes),
         origin: "explicit",
+        tuplePrefixElementTypes: typeNode.elements
+          .flatMap((element): IrType[] => {
+            if (ts.isNamedTupleMember(element)) {
+              if (
+                element.dotDotDotToken !== undefined ||
+                ts.isRestTypeNode(element.type)
+              ) {
+                return [];
+              }
+              return [convertType(element.type, binding)];
+            }
+
+            if (ts.isRestTypeNode(element)) {
+              return [];
+            }
+
+            return [convertType(element, binding)];
+          }),
+        tupleRestElementType: (() => {
+          for (const element of typeNode.elements) {
+            if (ts.isNamedTupleMember(element)) {
+              if (
+                element.dotDotDotToken === undefined &&
+                !ts.isRestTypeNode(element.type)
+              ) {
+                continue;
+              }
+
+              const restType = ts.isRestTypeNode(element.type)
+                ? element.type.type
+                : element.type;
+              if (ts.isArrayTypeNode(restType)) {
+                return convertType(restType.elementType, binding);
+              }
+              if (ts.isTupleTypeNode(restType)) {
+                const nestedRest = restType.elements.find((nestedElement) =>
+                  ts.isRestTypeNode(nestedElement)
+                );
+                if (
+                  nestedRest &&
+                  ts.isArrayTypeNode(nestedRest.type)
+                ) {
+                  return convertType(nestedRest.type.elementType, binding);
+                }
+              }
+              return undefined;
+            }
+
+            if (ts.isRestTypeNode(element)) {
+              const restType = element.type;
+              if (ts.isArrayTypeNode(restType)) {
+                return convertType(restType.elementType, binding);
+              }
+              if (ts.isTupleTypeNode(restType)) {
+                const nestedRest = restType.elements.find((nestedElement) =>
+                  ts.isRestTypeNode(nestedElement)
+                );
+                if (
+                  nestedRest &&
+                  ts.isArrayTypeNode(nestedRest.type)
+                ) {
+                  return convertType(nestedRest.type.elementType, binding);
+                }
+              }
+              return undefined;
+            }
+          }
+
+          return undefined;
+        })(),
       };
     }
 

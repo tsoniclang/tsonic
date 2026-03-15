@@ -12,6 +12,7 @@ import { emitExpressionAst } from "../expression-emitter.js";
 import { emitStatementAst } from "../statement-emitter.js";
 import { lowerPatternAst } from "../patterns.js";
 import { allocateLocalName } from "../core/format/local-names.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
   CSharpBlockStatementAst,
@@ -144,18 +145,23 @@ export const emitReturnStatementAst = (
       }
 
       // Use discard assignment for expressions that aren't valid C# statement-expressions
-      const discardAssign: CSharpExpressionAst = {
-        kind: "assignmentExpression",
-        operatorToken: "=",
-        left: { kind: "identifierExpression", identifier: "_" },
-        right: exprAst,
-      };
+      const discardLocal = allocateLocalName("__tsonic_discard", newContext);
       return [
         [
-          { kind: "expressionStatement", expression: discardAssign },
+          {
+            kind: "localDeclarationStatement",
+            modifiers: [],
+            type: identifierType("var"),
+            declarators: [
+              {
+                name: discardLocal.emittedName,
+                initializer: exprAst,
+              },
+            ],
+          },
           returnStmt,
         ],
-        newContext,
+        discardLocal.context,
       ];
     }
 
@@ -482,15 +488,22 @@ export const emitExpressionStatementAst = (
       ];
     }
 
-    const discardAssign: CSharpExpressionAst = {
-      kind: "assignmentExpression",
-      operatorToken: "=",
-      left: { kind: "identifierExpression", identifier: "_" },
-      right: exprAst,
-    };
+    const discardLocal = allocateLocalName("__tsonic_discard", newContext);
     return [
-      [{ kind: "expressionStatement", expression: discardAssign }],
-      newContext,
+      [
+        {
+          kind: "localDeclarationStatement",
+          modifiers: [],
+          type: identifierType("var"),
+          declarators: [
+            {
+              name: discardLocal.emittedName,
+              initializer: exprAst,
+            },
+          ],
+        },
+      ],
+      discardLocal.context,
     ];
   };
 

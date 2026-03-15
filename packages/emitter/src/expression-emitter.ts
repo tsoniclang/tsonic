@@ -29,18 +29,22 @@ import {
   resolveLocalTypeInfo,
   isTypeOnlyStructuralTarget,
 } from "./core/semantic/type-resolution.js";
+import { buildRuntimeUnionLayout, findRuntimeUnionMemberIndex } from "./core/semantic/runtime-unions.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
   CSharpTypeAst,
 } from "./core/format/backend-ast/types.js";
 import {
+  getIdentifierTypeName,
+  stableTypeKeyFromAst,
+} from "./core/format/backend-ast/utils.js";
+import {
   identifierExpression,
   identifierType,
   nullLiteral,
   stringLiteral,
 } from "./core/format/backend-ast/builders.js";
-import { getIdentifierTypeName } from "./core/format/backend-ast/utils.js";
 import { allocateLocalName } from "./core/format/local-names.js";
 import { emitCSharpName } from "./naming-policy.js";
 
@@ -1478,18 +1482,21 @@ const maybeUpcastDictionaryUnionValueAst = (
     return [ast, context];
   }
 
-  let matchingMemberIndex = -1;
-  for (let i = 0; i < expectedValue.types.length; i++) {
-    const member = expectedValue.types[i];
-    if (!member) continue;
-    if (areIrTypesEquivalent(member, actualValue, context)) {
-      matchingMemberIndex = i + 1;
-      break;
-    }
-  }
-  if (matchingMemberIndex === -1) return [ast, context];
+  const [runtimeLayout, layoutCtx] = buildRuntimeUnionLayout(
+    expectedValue,
+    context,
+    emitTypeAst
+  );
+  if (!runtimeLayout) return [ast, context];
 
-  const [unionValueTypeAst, ctx1] = emitTypeAst(expected.valueType, context);
+  const runtimeMemberIndex = findRuntimeUnionMemberIndex(
+    runtimeLayout.members,
+    actualValue,
+    layoutCtx
+  );
+  if (runtimeMemberIndex === undefined) return [ast, context];
+
+  const [unionValueTypeAst, ctx1] = emitTypeAst(expected.valueType, layoutCtx);
   const kvpId = "kvp";
   const keySelector: CSharpExpressionAst = {
     kind: "lambdaExpression",
@@ -1513,7 +1520,7 @@ const maybeUpcastDictionaryUnionValueAst = (
           kind: "typeReferenceExpression",
           type: unionValueTypeAst,
         },
-        memberName: `From${matchingMemberIndex}`,
+        memberName: `From${runtimeMemberIndex + 1}`,
       },
       arguments: [
         {
@@ -1557,6 +1564,289 @@ const buildUnionFactoryCallAst = (
   arguments: [valueAst],
 });
 
+const buildInvalidRuntimeUnionCastExpression = (
+  actualType: IrType,
+  expectedType: IrType
+): CSharpExpressionAst => ({
+  kind: "throwExpression",
+  expression: {
+    kind: "objectCreationExpression",
+    type: identifierType("global::System.InvalidCastException"),
+    arguments: [
+      stringLiteral(
+        `Cannot cast runtime union ${stableIrTypeKey(
+          actualType
+        )} to ${stableIrTypeKey(expectedType)}`
+      ),
+    ],
+  },
+});
+
+const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
+  const name = getIdentifierTypeName(type);
+  return (
+    name === "global::Tsonic.Runtime.Union" ||
+    name === "Tsonic.Runtime.Union" ||
+    name === "Union"
+  );
+};
+
+const unwrapNullableTypeAst = (type: CSharpTypeAst): CSharpTypeAst =>
+  type.kind === "nullableType" ? type.underlyingType : type;
+
+const maybeWidenRuntimeUnionExpressionAst = (
+  ast: CSharpExpressionAst,
+  actualType: IrType,
+  context: EmitterContext,
+  expectedType: IrType,
+  visited: ReadonlySet<string>
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const normalizedActual = normalizeComparableType(actualType, context);
+  const normalizedExpected = normalizeComparableType(expectedType, context);
+  if (
+    normalizedActual.kind !== "unionType" ||
+    normalizedExpected.kind !== "unionType"
+  ) {
+    return undefined;
+  }
+
+  const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
+    normalizedActual,
+    context,
+    emitTypeAst
+  );
+  if (!actualLayout) {
+    return undefined;
+  }
+
+  const [expectedLayout, expectedLayoutContext] = buildRuntimeUnionLayout(
+    normalizedExpected,
+    actualLayoutContext,
+    emitTypeAst
+  );
+  if (!expectedLayout) {
+    return undefined;
+  }
+
+  const [actualTypeAst, actualTypeContext] = emitTypeAst(
+    actualType,
+    expectedLayoutContext
+  );
+  const concreteActualTypeAst = unwrapNullableTypeAst(actualTypeAst);
+  if (!isRuntimeUnionTypeAst(concreteActualTypeAst)) {
+    return undefined;
+  }
+
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    expectedType,
+    actualTypeContext
+  );
+  const concreteExpectedTypeAst = unwrapNullableTypeAst(expectedTypeAst);
+  if (!isRuntimeUnionTypeAst(concreteExpectedTypeAst)) {
+    return undefined;
+  }
+
+  const lambdaArgs: CSharpExpressionAst[] = [];
+  let currentContext = expectedTypeContext;
+  const expectedMemberIndexByAstKey = new Map<string, number>();
+  for (let index = 0; index < expectedLayout.memberTypeAsts.length; index += 1) {
+    const memberTypeAst = expectedLayout.memberTypeAsts[index];
+    if (!memberTypeAst) continue;
+    expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
+  }
+
+  for (let index = 0; index < actualLayout.members.length; index += 1) {
+    const actualMember = actualLayout.members[index];
+    if (!actualMember) continue;
+
+    const actualMemberTypeAst = actualLayout.memberTypeAsts[index];
+    const expectedMemberIndex =
+      (actualMemberTypeAst
+        ? expectedMemberIndexByAstKey.get(stableTypeKeyFromAst(actualMemberTypeAst))
+        : undefined) ??
+      findRuntimeUnionMemberIndex(
+        expectedLayout.members,
+        actualMember,
+        currentContext
+      );
+    if (expectedMemberIndex === undefined) {
+      return undefined;
+    }
+
+    const parameterName = `__tsonic_union_member_${index + 1}`;
+    const parameterExpr: CSharpExpressionAst = {
+      kind: "identifierExpression",
+      identifier: parameterName,
+    };
+
+    const nested =
+      maybeUpcastExpressionToExpectedTypeAst(
+        parameterExpr,
+        actualMember,
+        currentContext,
+        expectedLayout.members[expectedMemberIndex],
+        visited
+      ) ?? [parameterExpr, currentContext];
+
+    lambdaArgs.push({
+      kind: "lambdaExpression",
+      isAsync: false,
+      parameters: [{ name: parameterName }],
+      body: buildUnionFactoryCallAst(
+        concreteExpectedTypeAst,
+        expectedMemberIndex + 1,
+        nested[0]
+      ),
+    });
+    currentContext = nested[1];
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: ast,
+        memberName: "Match",
+      },
+      arguments: lambdaArgs,
+    },
+    currentContext,
+  ];
+};
+
+const maybeNarrowRuntimeUnionExpressionAst = (
+  ast: CSharpExpressionAst,
+  actualType: IrType,
+  context: EmitterContext,
+  expectedType: IrType,
+  visited: ReadonlySet<string>
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const normalizedActual = normalizeComparableType(actualType, context);
+  const normalizedExpected = normalizeComparableType(expectedType, context);
+  if (
+    normalizedActual.kind !== "unionType" ||
+    normalizedExpected.kind !== "unionType"
+  ) {
+    return undefined;
+  }
+
+  const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
+    normalizedActual,
+    context,
+    emitTypeAst
+  );
+  if (!actualLayout) {
+    return undefined;
+  }
+
+  const [expectedLayout, expectedLayoutContext] = buildRuntimeUnionLayout(
+    normalizedExpected,
+    actualLayoutContext,
+    emitTypeAst
+  );
+  if (!expectedLayout) {
+    return undefined;
+  }
+
+  const [actualTypeAst, actualTypeContext] = emitTypeAst(
+    actualType,
+    expectedLayoutContext
+  );
+  const concreteActualTypeAst = unwrapNullableTypeAst(actualTypeAst);
+  if (!isRuntimeUnionTypeAst(concreteActualTypeAst)) {
+    return undefined;
+  }
+
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    expectedType,
+    actualTypeContext
+  );
+  const concreteExpectedTypeAst = unwrapNullableTypeAst(expectedTypeAst);
+  if (!isRuntimeUnionTypeAst(concreteExpectedTypeAst)) {
+    return undefined;
+  }
+
+  const expectedMemberIndexByAstKey = new Map<string, number>();
+  for (let index = 0; index < expectedLayout.memberTypeAsts.length; index += 1) {
+    const memberTypeAst = expectedLayout.memberTypeAsts[index];
+    if (!memberTypeAst) continue;
+    expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
+  }
+
+  const lambdaArgs: CSharpExpressionAst[] = [];
+  let currentContext = expectedTypeContext;
+
+  for (let index = 0; index < actualLayout.members.length; index += 1) {
+    const actualMember = actualLayout.members[index];
+    if (!actualMember) continue;
+
+    const actualMemberTypeAst = actualLayout.memberTypeAsts[index];
+    const expectedMemberIndex =
+      (actualMemberTypeAst
+        ? expectedMemberIndexByAstKey.get(stableTypeKeyFromAst(actualMemberTypeAst))
+        : undefined) ??
+      findRuntimeUnionMemberIndex(
+        expectedLayout.members,
+        actualMember,
+        currentContext
+      );
+
+    const parameterName = `__tsonic_union_member_${index + 1}`;
+    const parameterExpr: CSharpExpressionAst = {
+      kind: "identifierExpression",
+      identifier: parameterName,
+    };
+
+    if (expectedMemberIndex === undefined) {
+      lambdaArgs.push({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: parameterName }],
+        body: buildInvalidRuntimeUnionCastExpression(
+          actualMember,
+          expectedType
+        ),
+      });
+      continue;
+    }
+
+    const nested =
+      maybeUpcastExpressionToExpectedTypeAst(
+        parameterExpr,
+        actualMember,
+        currentContext,
+        expectedLayout.members[expectedMemberIndex],
+        visited
+      ) ?? [parameterExpr, currentContext];
+
+    lambdaArgs.push({
+      kind: "lambdaExpression",
+      isAsync: false,
+      parameters: [{ name: parameterName }],
+      body: buildUnionFactoryCallAst(
+        concreteExpectedTypeAst,
+        expectedMemberIndex + 1,
+        nested[0]
+      ),
+    });
+    currentContext = nested[1];
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: ast,
+        memberName: "Match",
+      },
+      arguments: lambdaArgs,
+    },
+    currentContext,
+  ];
+};
+
 const maybeUpcastExpressionToExpectedTypeAst = (
   ast: CSharpExpressionAst,
   actualType: IrType | undefined,
@@ -1592,14 +1882,34 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     return undefined;
   }
 
-  for (let index = 0; index < normalizedExpected.types.length; index += 1) {
-    const member = normalizedExpected.types[index];
+  const widenedUnion = maybeWidenRuntimeUnionExpressionAst(
+    ast,
+    actualType,
+    context,
+    expectedType,
+    nextVisited
+  );
+  if (widenedUnion) {
+    return widenedUnion;
+  }
+
+  const [runtimeLayout, layoutContext] = buildRuntimeUnionLayout(
+    normalizedExpected,
+    context,
+    emitTypeAst
+  );
+  if (!runtimeLayout) {
+    return undefined;
+  }
+
+  for (let index = 0; index < runtimeLayout.members.length; index += 1) {
+    const member = runtimeLayout.members[index];
     if (!member) continue;
 
     const nested = maybeUpcastExpressionToExpectedTypeAst(
       ast,
       actualType,
-      context,
+      layoutContext,
       member,
       nextVisited
     );
@@ -1610,11 +1920,8 @@ const maybeUpcastExpressionToExpectedTypeAst = (
       unionTypeAst.kind === "nullableType"
         ? unionTypeAst.underlyingType
         : unionTypeAst;
-    if (
-      concreteUnionTypeAst.kind !== "identifierType" &&
-      concreteUnionTypeAst.kind !== "qualifiedIdentifierType"
-    ) {
-      continue;
+    if (!isRuntimeUnionTypeAst(concreteUnionTypeAst)) {
+      return [nested[0], unionTypeContext];
     }
 
     return [
@@ -1727,11 +2034,7 @@ const emitTypeAssertion = (
   expr: IrTypeAssertionExpression,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  const [innerAst, ctx1] = emitExpressionAst(
-    expr.expression,
-    context,
-    expr.targetType
-  );
+  const [innerAst, ctx1] = emitExpressionAst(expr.expression, context);
 
   const resolveLocalTypeAliases = (target: IrType): IrType => {
     if (target.kind === "referenceType" && ctx1.localTypes) {
@@ -1838,6 +2141,38 @@ const emitTypeAssertion = (
   };
 
   const runtimeTarget = resolveRuntimeCastTarget(expr.targetType, ctx1);
+  const adaptedUnionAst =
+    maybeUpcastExpressionToExpectedTypeAst(
+      innerAst,
+      expr.expression.inferredType,
+      ctx1,
+      runtimeTarget
+    ) ??
+    tryAdaptStructuralExpressionAst(
+      innerAst,
+      expr.expression.inferredType,
+      ctx1,
+      runtimeTarget
+    );
+  if (adaptedUnionAst) {
+    if (adaptedUnionAst[0] !== innerAst) {
+      return adaptedUnionAst;
+    }
+  }
+
+  if (expr.expression.inferredType) {
+    const narrowedUnionAst = maybeNarrowRuntimeUnionExpressionAst(
+      innerAst,
+      expr.expression.inferredType,
+      ctx1,
+      runtimeTarget,
+      new Set<string>()
+    );
+    if (narrowedUnionAst) {
+      return narrowedUnionAst;
+    }
+  }
+
   const [typeAst, ctx2] = emitTypeAst(runtimeTarget, ctx1);
   return [
     {

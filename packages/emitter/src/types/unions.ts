@@ -2,7 +2,7 @@
  * Union type emission
  */
 
-import { IrType, stableIrTypeKey } from "@tsonic/frontend";
+import { IrType, isAwaitableIrType, stableIrTypeKey } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
@@ -15,6 +15,7 @@ import {
   stableTypeKeyFromAst,
 } from "../core/format/backend-ast/utils.js";
 import { splitRuntimeNullishUnionMembers } from "../core/semantic/type-resolution.js";
+import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
 
 const getBareTypeParameterName = (type: IrType): string | undefined => {
   if (type.kind === "typeParameterType") return type.name;
@@ -169,10 +170,14 @@ export const emitUnionType = (
     uniqueNonNullTypeAsts.push(typeAst);
   }
   const dedupedNonNullTypeAsts = dedupeTypeAsts(uniqueNonNullTypeAsts);
+  const hasAwaitableMember = nonNullTypes.some((member) =>
+    isAwaitableIrType(member)
+  );
 
   if (
     dedupedNonNullTypeAsts.length > 1 &&
-    dedupedNonNullTypeAsts.some(isObjectLikeTypeAst)
+    dedupedNonNullTypeAsts.some(isObjectLikeTypeAst) &&
+    !hasAwaitableMember
   ) {
     const objectAst: CSharpTypeAst = { kind: "predefinedType", keyword: "object" };
     return [
@@ -221,32 +226,33 @@ export const emitUnionType = (
   }
 
   // Multi-type unions (2-8 types) → Union<T1, T2, ...> (nullable if runtime-nullish)
-  const uniqueTypeAsts: CSharpTypeAst[] = [];
-  currentContext = context;
+  const [runtimeLayout, runtimeLayoutContext] = buildRuntimeUnionLayout(
+    type,
+    context,
+    emitTypeAst
+  );
+  const dedupedTypeAsts = runtimeLayout?.memberTypeAsts;
 
-  for (const t of nonNullTypes) {
-    const [typeAst, nextContext] = emitTypeAst(t, currentContext);
-    currentContext = nextContext;
-    uniqueTypeAsts.push(typeAst);
-  }
-  const dedupedTypeAsts = dedupeTypeAsts(uniqueTypeAsts);
-
-  if (dedupedTypeAsts.some(isObjectLikeTypeAst)) {
+  if (
+    dedupedTypeAsts &&
+    dedupedTypeAsts.some(isObjectLikeTypeAst) &&
+    !hasAwaitableMember
+  ) {
     const objectAst: CSharpTypeAst = { kind: "predefinedType", keyword: "object" };
     return [
       hasNullish ? nullableType(objectAst) : objectAst,
-      currentContext,
+      runtimeLayoutContext,
     ];
   }
 
-  if (dedupedTypeAsts.length >= 2 && dedupedTypeAsts.length <= 8) {
+  if (dedupedTypeAsts && dedupedTypeAsts.length >= 2 && dedupedTypeAsts.length <= 8) {
     const unionAst = identifierType(
       "global::Tsonic.Runtime.Union",
       dedupedTypeAsts
     );
     return [
       hasNullish ? nullableType(unionAst) : unionAst,
-      currentContext,
+      runtimeLayoutContext,
     ];
   }
 

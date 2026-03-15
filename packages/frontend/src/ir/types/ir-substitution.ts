@@ -13,6 +13,58 @@
 
 import type { IrType } from "./ir-types.js";
 
+const compareTupleMetadataForUnify = (
+  formal: Extract<IrType, { kind: "arrayType" }>,
+  actual: Extract<IrType, { kind: "arrayType" }>
+): boolean => {
+  const formalPrefix = formal.tuplePrefixElementTypes ?? [];
+  const actualPrefix = actual.tuplePrefixElementTypes ?? [];
+  if (formalPrefix.length !== actualPrefix.length) return false;
+  for (let i = 0; i < formalPrefix.length; i += 1) {
+    const formalElement = formalPrefix[i];
+    const actualElement = actualPrefix[i];
+    if (!formalElement || !actualElement || !typesEqual(formalElement, actualElement)) {
+      return false;
+    }
+  }
+
+  if (!formal.tupleRestElementType && !actual.tupleRestElementType) {
+    return true;
+  }
+
+  return !!(
+    formal.tupleRestElementType &&
+    actual.tupleRestElementType &&
+    typesEqual(formal.tupleRestElementType, actual.tupleRestElementType)
+  );
+};
+
+const compareTupleMetadataForEquality = (
+  left: Extract<IrType, { kind: "arrayType" }>,
+  right: Extract<IrType, { kind: "arrayType" }>
+): boolean => {
+  const leftPrefix = left.tuplePrefixElementTypes ?? [];
+  const rightPrefix = right.tuplePrefixElementTypes ?? [];
+  if (leftPrefix.length !== rightPrefix.length) return false;
+  for (let i = 0; i < leftPrefix.length; i += 1) {
+    const leftElement = leftPrefix[i];
+    const rightElement = rightPrefix[i];
+    if (!leftElement || !rightElement || !typesEqual(leftElement, rightElement)) {
+      return false;
+    }
+  }
+
+  if (!left.tupleRestElementType && !right.tupleRestElementType) {
+    return true;
+  }
+
+  return !!(
+    left.tupleRestElementType &&
+    right.tupleRestElementType &&
+    typesEqual(left.tupleRestElementType, right.tupleRestElementType)
+  );
+};
+
 /**
  * Check if an IrType contains any type parameters (typeParameterType).
  *
@@ -34,7 +86,16 @@ export const containsTypeParameter = (type: IrType): boolean => {
       );
 
     case "arrayType":
-      return containsTypeParameter(type.elementType);
+      return (
+        containsTypeParameter(type.elementType) ||
+        (type.tuplePrefixElementTypes?.some((elementType) =>
+          containsTypeParameter(elementType)
+        ) ??
+          false) ||
+        (type.tupleRestElementType
+          ? containsTypeParameter(type.tupleRestElementType)
+          : false)
+      );
 
     case "tupleType":
       return type.elementTypes.some((el) => containsTypeParameter(el));
@@ -163,7 +224,9 @@ export const unify = (
 
       case "arrayType":
         return (
-          a.kind === "arrayType" && unifyRecursive(f.elementType, a.elementType)
+          a.kind === "arrayType" &&
+          unifyRecursive(f.elementType, a.elementType) &&
+          compareTupleMetadataForUnify(f, a)
         );
 
       case "tupleType": {
@@ -268,7 +331,11 @@ export const typesEqual = (a: IrType, b: IrType): boolean => {
     }
 
     case "arrayType":
-      return b.kind === "arrayType" && typesEqual(a.elementType, b.elementType);
+      return (
+        b.kind === "arrayType" &&
+        typesEqual(a.elementType, b.elementType) &&
+        compareTupleMetadataForEquality(a, b)
+      );
 
     case "tupleType": {
       if (b.kind !== "tupleType") return false;
@@ -378,10 +445,31 @@ export const substituteIrType = (
 
     case "arrayType": {
       const newElementType = substituteIrType(type.elementType, substitutions);
-      if (newElementType === type.elementType) return type;
+      const newTuplePrefixElementTypes = type.tuplePrefixElementTypes?.map(
+        (elementType) => substituteIrType(elementType, substitutions)
+      );
+      const newTupleRestElementType = type.tupleRestElementType
+        ? substituteIrType(type.tupleRestElementType, substitutions)
+        : undefined;
+      const tuplePrefixChanged =
+        newTuplePrefixElementTypes?.some(
+          (elementType, index) =>
+            elementType !== type.tuplePrefixElementTypes?.[index]
+        ) ?? false;
+      const tupleRestChanged =
+        newTupleRestElementType !== type.tupleRestElementType;
+      if (
+        newElementType === type.elementType &&
+        !tuplePrefixChanged &&
+        !tupleRestChanged
+      ) {
+        return type;
+      }
       return {
         ...type,
         elementType: newElementType,
+        tuplePrefixElementTypes: newTuplePrefixElementTypes,
+        tupleRestElementType: newTupleRestElementType,
       };
     }
 

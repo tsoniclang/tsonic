@@ -16,6 +16,26 @@ export const narrowTypeByAssignableTarget = (
     return wantAssignable ? targetType : undefined;
   }
 
+  if (currentType.kind === "unionType") {
+    const directMembers = currentType.types.filter(
+      (member): member is IrType => !!member
+    );
+    const directKept = directMembers.filter((member) => {
+      const isMatch = collector.isAssignableTo(member, targetType);
+      return wantAssignable ? isMatch : !isMatch;
+    });
+
+    if (directKept.length !== directMembers.length) {
+      if (directKept.length === 0) {
+        return undefined;
+      }
+      if (directKept.length === 1) {
+        return directKept[0];
+      }
+      return normalizedUnionType(directKept);
+    }
+  }
+
   const expanded = collector.collectNarrowingCandidates(currentType);
   const candidates = expanded.length > 0 ? expanded : [currentType];
   const kept = candidates.filter((member): member is IrType => {

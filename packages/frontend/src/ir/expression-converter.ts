@@ -198,7 +198,7 @@ export const convertExpression = (
     // DETERMINISTIC: Prefer lexical flow type (narrowing / lambda params), then decl type.
     const fromEnv = declId ? ctx.typeEnv?.get(declId.id) : undefined;
     const fromDecl =
-      declId && !fromEnv
+      declId
         ? (() => {
             const t = ctx.typeSystem.typeOfValueRead(declId);
             return t.kind === "unknownType" ? undefined : t;
@@ -221,10 +221,10 @@ export const convertExpression = (
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
     const clrBinding = ctx.bindings.getBinding(node.text);
     if (clrBinding && clrBinding.kind === "global") {
-      return {
+      const baseIdentifier: IrExpression = {
         kind: "identifier",
         name: node.text,
-        inferredType: identifierType,
+        inferredType: fromDecl ?? identifierType,
         sourceSpan: getSourceSpan(node),
         resolvedClrType: clrBinding.type,
         resolvedAssembly: clrBinding.assembly,
@@ -232,15 +232,35 @@ export const convertExpression = (
         originalName,
         declId,
       };
+      return fromEnv &&
+        (!fromDecl || !ctx.typeSystem.typesEqual(fromEnv, fromDecl))
+        ? {
+            kind: "typeAssertion",
+            expression: baseIdentifier,
+            targetType: fromEnv,
+            inferredType: fromEnv,
+            sourceSpan: getSourceSpan(node),
+          }
+        : baseIdentifier;
     }
-    return {
+    const baseIdentifier: IrExpression = {
       kind: "identifier",
       name: node.text,
-      inferredType: identifierType,
+      inferredType: fromDecl ?? identifierType,
       sourceSpan: getSourceSpan(node),
       originalName,
       declId,
     };
+    return fromEnv &&
+      (!fromDecl || !ctx.typeSystem.typesEqual(fromEnv, fromDecl))
+      ? {
+          kind: "typeAssertion",
+          expression: baseIdentifier,
+          targetType: fromEnv,
+          inferredType: fromEnv,
+          sourceSpan: getSourceSpan(node),
+        }
+      : baseIdentifier;
   }
   if (isImportMetaMetaProperty(node)) {
     return convertImportMetaObject(node, ctx);

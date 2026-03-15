@@ -864,6 +864,37 @@ const resolveLocalTypeAst = (
   },
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
+  const numericInit =
+    decl.initializer as
+      | ({ readonly targetKind?: NumericKind; readonly inferredType?: IrType } & {
+          readonly kind: string;
+        })
+      | undefined;
+
+  if (
+    !decl.type &&
+    decl.initializer?.kind === "numericNarrowing" &&
+    numericInit?.targetKind
+  ) {
+    const csharpType =
+      NUMERIC_KIND_TO_CSHARP.get(numericInit.targetKind) ?? "double";
+    return [identifierType(csharpType), context];
+  }
+
+  if (!decl.type && decl.initializer?.kind === "typeAssertion") {
+    const assertedTarget = decl.initializer.targetType;
+    if (assertedTarget) {
+      if (isTypeOnlyStructuralTarget(assertedTarget, context)) {
+        const inferredType = decl.initializer.inferredType;
+        if (inferredType && canEmitTypeExplicitly(inferredType)) {
+          return emitTypeAst(inferredType, context);
+        }
+        return [{ kind: "varType" }, context];
+      }
+      return emitTypeAst(assertedTarget, context);
+    }
+  }
+
   // asinterface<T>(x) - preserve target type in LHS
   if (!decl.type && decl.initializer?.kind === "asinterface") {
     const targetType = resolveAsInterfaceTargetType(
@@ -1082,10 +1113,26 @@ export const emitVariableDeclarationAst = (
       // Emit initializer (after allocation, before registration - C# scoping)
       let initAst = undefined;
       if (decl.initializer) {
+        const numericInitializer =
+          decl.initializer as
+            | ({ readonly inferredType?: IrType } & { readonly kind: string })
+            | undefined;
+        const expectedInitializerType =
+          decl.type ??
+          (decl.initializer.kind === "typeAssertion"
+            ? decl.initializer.targetType
+            : decl.initializer.kind === "asinterface"
+              ? resolveAsInterfaceTargetType(
+                  decl.initializer.targetType,
+                  currentContext
+                )
+              : decl.initializer.kind === "numericNarrowing"
+                ? numericInitializer?.inferredType
+                : undefined);
         const [exprAst, newContext] = emitExpressionAst(
           decl.initializer,
           currentContext,
-          decl.type
+          expectedInitializerType
         );
         currentContext = newContext;
         initAst = exprAst;
