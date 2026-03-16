@@ -21,6 +21,10 @@ import {
   makeOptionalType,
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
+import {
+  getClassMemberName,
+  isPrivateClassMemberName,
+} from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
 import { createDiagnostic } from "../../../../../types/diagnostic.js";
 import { getSourceLocation } from "../../../../../program/diagnostics.js";
@@ -84,14 +88,15 @@ export const convertProperty = (
   ctx: ProgramContext,
   superClass: ts.ExpressionWithTypeArguments | undefined
 ): IrClassMember => {
-  const memberName = ts.isIdentifier(node.name) ? node.name.text : "[computed]";
+  const memberName = getClassMemberName(node.name);
+  const isEcmaPrivate = isPrivateClassMemberName(node.name);
 
   const overrideInfo = detectOverride(memberName, "property", superClass, ctx);
 
   const declaredAccessibility = getAccessibility(node);
   const accessibility = (() => {
     if (!overrideInfo.isOverride || !overrideInfo.requiredAccessibility) {
-      return declaredAccessibility;
+      return isEcmaPrivate ? "private" : declaredAccessibility;
     }
     // Airplane-grade: always emit CLR-required accessibility for overrides.
     // TS may not represent CLR access cleanly, but C# compilation enforces the truth.
@@ -128,6 +133,10 @@ export const convertProperty = (
     }
 
     break;
+  }
+
+  if (isEcmaPrivate) {
+    emitAsField = true;
   }
 
   if (emitAsField && overrideInfo.isOverride) {
@@ -234,9 +243,13 @@ export const convertAccessorProperty = (
       ? getAccessibility(setter)
       : "public";
 
+  const isEcmaPrivate =
+    isPrivateClassMemberName(getter?.name) ||
+    isPrivateClassMemberName(setter?.name);
+
   const finalAccessibility = (() => {
     if (!overrideInfo.isOverride || !overrideInfo.requiredAccessibility) {
-      return accessibility;
+      return isEcmaPrivate ? "private" : accessibility;
     }
 
     return overrideInfo.requiredAccessibility;

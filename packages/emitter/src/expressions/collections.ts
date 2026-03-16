@@ -2,14 +2,21 @@
  * Collection expression emitters (arrays and objects)
  */
 
-import { IrClassMember, IrExpression, IrType } from "@tsonic/frontend";
+import {
+  IrClassMember,
+  IrExpression,
+  IrType,
+  stableIrTypeKey,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import {
   getPropertyType,
+  resolveStructuralReferenceType,
   stripNullish,
   resolveTypeAlias,
+  getArrayLikeElementType,
   selectUnionMemberForObjectLiteral,
 } from "../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../core/format/local-names.js";
@@ -52,6 +59,31 @@ const bucketFromMemberKind = (
 
 const stripGlobalPrefix = (name: string): string =>
   name.startsWith("global::") ? name.slice("global::".length) : name;
+
+const resolveArrayLiteralContextType = (
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!expectedType) return undefined;
+
+  const strippedExpected = stripNullish(expectedType);
+  const resolvedExpected = resolveTypeAlias(strippedExpected, context);
+  if (resolvedExpected.kind !== "unionType") {
+    return strippedExpected;
+  }
+
+  const arrayLikeMembers = resolvedExpected.types.filter(
+    (member): member is IrType =>
+      getArrayLikeElementType(member, context) !== undefined ||
+      resolveTypeAlias(stripNullish(member), context).kind === "tupleType"
+  );
+
+  if (arrayLikeMembers.length === 1) {
+    return arrayLikeMembers[0];
+  }
+
+  return strippedExpected;
+};
 
 const lookupMemberKindFromLocalTypes = (
   receiverTypeName: string,
@@ -165,6 +197,28 @@ const emitObjectMemberName = (
   return emitCSharpName(memberName, bucketFromMemberKind(kind), context);
 };
 
+const shouldCoerceArrayLiteralElementToExpectedType = (
+  element: IrExpression,
+  expectedElementType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (element.kind === "literal") {
+    return false;
+  }
+
+  if (!expectedElementType || !element.inferredType) {
+    return false;
+  }
+
+  const actual = stableIrTypeKey(
+    resolveTypeAlias(stripNullish(element.inferredType), context)
+  );
+  const expected = stableIrTypeKey(
+    resolveTypeAlias(stripNullish(expectedElementType), context)
+  );
+  return actual !== expected;
+};
+
 const getDeterministicObjectKeyName = (
   key: string | IrExpression
 ): string | undefined => {
@@ -190,6 +244,9 @@ const isObjectRootType = (type: IrType, context: EmitterContext): boolean => {
   const resolved = resolveTypeAlias(stripNullish(type), context);
   return resolved.kind === "referenceType" && resolved.name === "object";
 };
+
+const unwrapNullableTypeAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
+  typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
 
 const isDictionaryLikeSpreadType = (
   type: IrType,
@@ -224,9 +281,13 @@ export const emitArray = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const effectiveExpectedType = resolveArrayLiteralContextType(
+    expectedType,
+    context
+  );
   // Resolve type alias to check for tuple types
-  const resolvedExpectedType = expectedType
-    ? resolveTypeAlias(expectedType, context)
+  const resolvedExpectedType = effectiveExpectedType
+    ? resolveTypeAlias(effectiveExpectedType, context)
     : undefined;
 
   // Check if expected type is a tuple - emit as ValueTuple
@@ -251,18 +312,30 @@ export const emitArray = (
   let expectedElementType: IrType | undefined = undefined;
 
   // Priority 1: Use explicit type annotation
-  if (expectedType) {
+  if (effectiveExpectedType) {
     const resolvedExpected = resolveTypeAlias(
-      stripNullish(expectedType),
+      stripNullish(effectiveExpectedType),
       context
     );
 
-    if (resolvedExpected.kind === "arrayType") {
-      expectedElementType = resolvedExpected.elementType;
-      const [typeAst, newContext] = emitTypeAst(
-        resolvedExpected.elementType,
+    const resolveExpectedArrayElementTypeAst = (): [
+      CSharpTypeAst,
+      EmitterContext,
+    ] => {
+      const [expectedTypeAst, nextContext] = emitTypeAst(
+        effectiveExpectedType,
         currentContext
       );
+      const concreteExpectedTypeAst = unwrapNullableTypeAst(expectedTypeAst);
+      if (concreteExpectedTypeAst.kind === "arrayType") {
+        return [concreteExpectedTypeAst.elementType, nextContext];
+      }
+      return [identifierType("object"), nextContext];
+    };
+
+    if (resolvedExpected.kind === "arrayType") {
+      expectedElementType = resolvedExpected.elementType;
+      const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
       elementTypeAst = typeAst;
       elementTypeResolved = true;
       currentContext = newContext;
@@ -275,7 +348,21 @@ export const emitArray = (
       const firstArg = resolvedExpected.typeArguments[0];
       if (firstArg) {
         expectedElementType = firstArg;
-        const [typeAst, newContext] = emitTypeAst(firstArg, currentContext);
+        const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
+        elementTypeAst = typeAst;
+        elementTypeResolved = true;
+        currentContext = newContext;
+      }
+    } else if (
+      resolvedExpected.kind === "referenceType" &&
+      resolvedExpected.name === "ReadonlyArray" &&
+      resolvedExpected.typeArguments &&
+      resolvedExpected.typeArguments.length > 0
+    ) {
+      const firstArg = resolvedExpected.typeArguments[0];
+      if (firstArg) {
+        expectedElementType = firstArg;
+        const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
         elementTypeAst = typeAst;
         elementTypeResolved = true;
         currentContext = newContext;
@@ -377,8 +464,20 @@ export const emitArray = (
         continue;
       }
 
-      const [elemAst, newContext] = emitExpressionAst(
+      const elementExpr = shouldCoerceArrayLiteralElementToExpectedType(
         element,
+        expectedElementType,
+        currentContext
+      )
+        ? ({
+            kind: "typeAssertion",
+            expression: element,
+            targetType: expectedElementType!,
+            inferredType: expectedElementType!,
+          } satisfies IrExpression)
+        : element;
+      const [elemAst, newContext] = emitExpressionAst(
+        elementExpr,
         currentContext,
         expectedElementType
       );
@@ -444,8 +543,20 @@ export const emitArray = (
       // Sparse array hole
       elementAsts.push({ kind: "defaultExpression" });
     } else {
-      const [elemAst, newContext] = emitExpressionAst(
+      const elementExpr = shouldCoerceArrayLiteralElementToExpectedType(
         element,
+        expectedElementType,
+        currentContext
+      )
+        ? ({
+            kind: "typeAssertion",
+            expression: element,
+            targetType: expectedElementType!,
+            inferredType: expectedElementType!,
+          } satisfies IrExpression)
+        : element;
+      const [elemAst, newContext] = emitExpressionAst(
+        elementExpr,
         currentContext,
         expectedElementType
       );
@@ -1322,18 +1433,18 @@ const resolveContextualTypeAst = (
     return [undefined, context];
   }
 
-  if (contextualType.kind === "referenceType") {
-    const typeName = contextualType.name;
+  const emissionType =
+    resolveStructuralReferenceType(contextualType, context) ?? contextualType;
+
+  if (emissionType.kind === "referenceType") {
+    const typeName = emissionType.name;
     const importBinding = context.importBindings?.get(typeName);
 
     if (importBinding && importBinding.kind === "type") {
-      if (
-        contextualType.typeArguments &&
-        contextualType.typeArguments.length > 0
-      ) {
+      if (emissionType.typeArguments && emissionType.typeArguments.length > 0) {
         let currentContext = context;
         const typeArgAsts: CSharpTypeAst[] = [];
-        for (const typeArg of contextualType.typeArguments) {
+        for (const typeArg of emissionType.typeArguments) {
           const [typeArgAst, newContext] = emitTypeAst(typeArg, currentContext);
           typeArgAsts.push(typeArgAst);
           currentContext = newContext;
@@ -1347,7 +1458,7 @@ const resolveContextualTypeAst = (
     }
   }
 
-  return emitTypeAst(contextualType, context);
+  return emitTypeAst(emissionType, context);
 };
 
 /**

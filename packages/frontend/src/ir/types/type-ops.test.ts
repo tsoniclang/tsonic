@@ -14,6 +14,166 @@ const stringType: IrType = { kind: "primitiveType", name: "string" };
 const numberType: IrType = { kind: "primitiveType", name: "number" };
 const booleanType: IrType = { kind: "primitiveType", name: "boolean" };
 
+const createRecursiveMiddlewareGraph = (): IrType => {
+  const routerType = {
+    kind: "referenceType",
+    name: "Router",
+    structuralMembers: [],
+  } as unknown as Extract<IrType, { kind: "referenceType" }> & {
+    structuralMembers: unknown[];
+  };
+
+  const middlewareLike = {
+    kind: "unionType",
+    types: [] as IrType[],
+  } as unknown as Extract<IrType, { kind: "unionType" }> & {
+    types: IrType[];
+  };
+
+  const middlewareArray: IrType = {
+    kind: "arrayType",
+    elementType: middlewareLike,
+  };
+
+  routerType.structuralMembers = [
+    {
+      kind: "methodSignature",
+      name: "use",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "handlers" },
+          type: middlewareLike,
+          initializer: undefined,
+          isOptional: false,
+          isRest: true,
+          passing: "value",
+        },
+      ],
+      returnType: routerType,
+    },
+  ];
+
+  middlewareLike.types.push(routerType, middlewareArray);
+  return middlewareLike;
+};
+
+const createWideRecursiveMiddlewareGraph = (): IrType => {
+  const routerType = {
+    kind: "referenceType",
+    name: "Router",
+    structuralMembers: [],
+  } as unknown as Extract<IrType, { kind: "referenceType" }> & {
+    structuralMembers: unknown[];
+  };
+
+  const applicationType = {
+    kind: "referenceType",
+    name: "Application",
+    structuralMembers: [],
+  } as unknown as Extract<IrType, { kind: "referenceType" }> & {
+    structuralMembers: unknown[];
+  };
+
+  const middlewareLike = {
+    kind: "unionType",
+    types: [] as IrType[],
+  } as unknown as Extract<IrType, { kind: "unionType" }> & {
+    types: IrType[];
+  };
+
+  const middlewareArray: IrType = {
+    kind: "arrayType",
+    elementType: middlewareLike,
+  };
+  const middlewareTuple: IrType = {
+    kind: "tupleType",
+    elementTypes: [middlewareLike, middlewareArray],
+  };
+  const middlewareMap: IrType = {
+    kind: "dictionaryType",
+    keyType: stringType,
+    valueType: middlewareLike,
+  };
+
+  routerType.structuralMembers = [
+    {
+      kind: "methodSignature",
+      name: "use",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "handlers" },
+          type: middlewareLike,
+          initializer: undefined,
+          isOptional: false,
+          isRest: true,
+          passing: "value",
+        },
+      ],
+      returnType: applicationType,
+    },
+    {
+      kind: "methodSignature",
+      name: "mount",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "path" },
+          type: stringType,
+          initializer: undefined,
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "handlers" },
+          type: middlewareLike,
+          initializer: undefined,
+          isOptional: false,
+          isRest: true,
+          passing: "value",
+        },
+      ],
+      returnType: applicationType,
+    },
+    {
+      kind: "propertySignature",
+      name: "table",
+      isReadonly: true,
+      isOptional: false,
+      type: middlewareMap,
+    },
+  ];
+
+  applicationType.structuralMembers = [
+    ...routerType.structuralMembers,
+    {
+      kind: "propertySignature",
+      name: "stack",
+      isReadonly: false,
+      isOptional: false,
+      type: middlewareArray,
+    },
+    {
+      kind: "propertySignature",
+      name: "pair",
+      isReadonly: false,
+      isOptional: false,
+      type: middlewareTuple,
+    },
+  ];
+
+  middlewareLike.types.push(
+    routerType,
+    applicationType,
+    middlewareArray,
+    middlewareTuple
+  );
+  return middlewareLike;
+};
+
 describe("type-ops", () => {
   it("treats union member order as equal", () => {
     const left: IrType = {
@@ -130,5 +290,29 @@ describe("type-ops", () => {
     expect(getAwaitedIrType(valueTaskType)).to.deep.equal(payload);
     expect(unwrapAsyncWrapperType(taskType)).to.deep.equal(payload);
     expect(unwrapAsyncWrapperType(valueTaskType)).to.deep.equal(payload);
+  });
+
+  it("builds stable keys for recursive structural graphs without overflowing", () => {
+    const recursive = createRecursiveMiddlewareGraph();
+
+    expect(() => stableIrTypeKey(recursive)).not.to.throw();
+    expect(stableIrTypeKey(recursive)).to.contain("cycle:");
+  });
+
+  it("treats structurally equivalent recursive graphs as equal", () => {
+    const left = createRecursiveMiddlewareGraph();
+    const right = createRecursiveMiddlewareGraph();
+
+    expect(stableIrTypeKey(left)).to.equal(stableIrTypeKey(right));
+    expect(irTypesEqual(left, right)).to.equal(true);
+  });
+
+  it("builds stable keys for wide recursive graphs deterministically", () => {
+    const left = createWideRecursiveMiddlewareGraph();
+    const right = createWideRecursiveMiddlewareGraph();
+
+    expect(() => stableIrTypeKey(left)).not.to.throw();
+    expect(stableIrTypeKey(left)).to.equal(stableIrTypeKey(right));
+    expect(irTypesEqual(left, right)).to.equal(true);
   });
 });

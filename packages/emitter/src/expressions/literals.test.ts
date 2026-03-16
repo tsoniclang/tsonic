@@ -175,6 +175,63 @@ describe("emitLiteral", () => {
 
       expect(printExpression(fragment)).to.equal("default");
     });
+
+    it("emits typed default(string) for undefined in string | undefined context", () => {
+      const expr: Extract<IrExpression, { kind: "literal" }> = {
+        kind: "literal",
+        value: undefined,
+      };
+      const expectedType: IrType = {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      };
+      const context = createContext();
+
+      const [fragment] = emitLiteral(expr, context, expectedType);
+
+      expect(printExpression(fragment)).to.equal("default(string)");
+    });
+
+    it("emits typed default(double?) for undefined in number | null context", () => {
+      const expr: Extract<IrExpression, { kind: "literal" }> = {
+        kind: "literal",
+        value: undefined,
+      };
+      const expectedType: IrType = {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "number" },
+          { kind: "primitiveType", name: "null" },
+        ],
+      };
+      const context = createContext();
+
+      const [fragment] = emitLiteral(expr, context, expectedType);
+
+      expect(printExpression(fragment)).to.equal("default(double?)");
+    });
+
+    it("emits typed default(bool?) for undefined in boolean | undefined context", () => {
+      const expr: Extract<IrExpression, { kind: "literal" }> = {
+        kind: "literal",
+        value: undefined,
+      };
+      const expectedType: IrType = {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "boolean" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      };
+      const context = createContext();
+
+      const [fragment] = emitLiteral(expr, context, expectedType);
+
+      expect(printExpression(fragment)).to.equal("default(bool?)");
+    });
   });
 
   describe("number literal", () => {

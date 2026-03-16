@@ -5,6 +5,8 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import { buildIrModule } from "./builder.js";
 import { createProgramContext } from "./program-context.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
@@ -13,6 +15,7 @@ import { IrIdentifierExpression } from "./types.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
 import { extractTypeName } from "./converters/expressions/access/member-resolution.js";
+import { resolveHierarchicalBinding } from "./converters/expressions/access/binding-resolution.js";
 
 describe("Binding Resolution in IR", () => {
   const createTestProgram = (
@@ -97,6 +100,36 @@ describe("Binding Resolution in IR", () => {
       });
 
       expect(unionName).to.equal(undefined);
+    });
+
+    it("returns Array for tuple types", () => {
+      const typeName = extractTypeName({
+        kind: "tupleType",
+        elementTypes: [
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "string" },
+        ],
+      });
+
+      expect(typeName).to.equal("Array");
+    });
+
+    it("returns Array for unions of arrays and tuples", () => {
+      const typeName = extractTypeName({
+        kind: "unionType",
+        types: [
+          {
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "string" },
+          },
+          {
+            kind: "tupleType",
+            elementTypes: [{ kind: "primitiveType", name: "string" }],
+          },
+        ],
+      });
+
+      expect(typeName).to.equal("Array");
     });
   });
 
@@ -239,6 +272,269 @@ describe("Binding Resolution in IR", () => {
       expect(mathExpr.name).to.equal("Math");
       expect(mathExpr.resolvedClrType).to.equal("Tsonic.Runtime.Math");
       expect(mathExpr.resolvedAssembly).to.equal("Tsonic.Runtime");
+    });
+
+    it("prefers resolved global member owners over polluted ambient identifier types", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings(
+        "/test/js.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(
+              process.cwd(),
+              "../../../js/versions/10/index/bindings.json"
+            ),
+            "utf-8"
+          )
+        )
+      );
+      bindings.addBindings(
+        "/test/system.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(
+              process.cwd(),
+              "../../../dotnet/versions/10/System/bindings.json"
+            ),
+            "utf-8"
+          )
+        )
+      );
+
+      const { ctx } = createTestProgram(
+        "export function test(): void {}",
+        bindings
+      );
+      const binding = resolveHierarchicalBinding(
+        {
+          kind: "identifier",
+          name: "console",
+          inferredType: { kind: "referenceType", name: "Console" },
+          resolvedClrType: "Tsonic.JSRuntime.console",
+          resolvedAssembly: "Tsonic.JSRuntime",
+        } as any,
+        "error",
+        ctx
+      );
+
+      expect(binding).to.deep.include({
+        kind: "method",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.console",
+        member: "error",
+      });
+    });
+
+    it("prefers simple-binding static owners over resolved runtime generic owners for static members", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings(
+        "/test/js-simple.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(process.cwd(), "../../../js/versions/10/bindings.json"),
+            "utf-8"
+          )
+        )
+      );
+      bindings.addBindings(
+        "/test/js-index.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(
+              process.cwd(),
+              "../../../js/versions/10/index/bindings.json"
+            ),
+            "utf-8"
+          )
+        )
+      );
+
+      const { ctx } = createTestProgram(
+        "export function test(): void {}",
+        bindings
+      );
+      const binding = resolveHierarchicalBinding(
+        {
+          kind: "identifier",
+          name: "Array",
+          inferredType: { kind: "referenceType", name: "Array" },
+          resolvedClrType: "Tsonic.JSRuntime.JSArray`1",
+          resolvedAssembly: "Tsonic.JSRuntime",
+        } as any,
+        "isArray",
+        ctx
+      );
+
+      expect(binding).to.deep.include({
+        kind: "method",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.JSArrayStatics",
+        member: "isArray",
+      });
+    });
+
+    it("still prefers simple-binding static owners for ambient globals with declarations", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings(
+        "/test/js-simple.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(process.cwd(), "../../../js/versions/10/bindings.json"),
+            "utf-8"
+          )
+        )
+      );
+      bindings.addBindings(
+        "/test/js-index.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(
+              process.cwd(),
+              "../../../js/versions/10/index/bindings.json"
+            ),
+            "utf-8"
+          )
+        )
+      );
+
+      const { ctx } = createTestProgram(
+        "export function test(): void {}",
+        bindings
+      );
+      const binding = resolveHierarchicalBinding(
+        {
+          kind: "identifier",
+          name: "Array",
+          declId: "ambient:Array" as any,
+          inferredType: { kind: "referenceType", name: "Array" },
+          resolvedClrType: "Tsonic.JSRuntime.JSArray`1",
+          resolvedAssembly: "Tsonic.JSRuntime",
+        } as any,
+        "from",
+        ctx
+      );
+
+      expect(binding).to.deep.include({
+        kind: "method",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.JSArrayStatics",
+        member: "from",
+      });
+    });
+
+    it("prefers simple-binding runtime owners for ambient globals without resolved CLR owners", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings(
+        "/test/js-simple.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(process.cwd(), "../../../js/versions/10/bindings.json"),
+            "utf-8"
+          )
+        )
+      );
+      bindings.addBindings(
+        "/test/js-index.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(
+              process.cwd(),
+              "../../../js/versions/10/index/bindings.json"
+            ),
+            "utf-8"
+          )
+        )
+      );
+      bindings.addBindings(
+        "/test/system.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(
+              process.cwd(),
+              "../../../dotnet/versions/10/System/bindings.json"
+            ),
+            "utf-8"
+          )
+        )
+      );
+
+      const { ctx } = createTestProgram(
+        "export function test(): void {}",
+        bindings
+      );
+      const binding = resolveHierarchicalBinding(
+        {
+          kind: "identifier",
+          name: "console",
+          declId: "ambient:console" as any,
+          inferredType: { kind: "referenceType", name: "Console" },
+        } as any,
+        "error",
+        ctx
+      );
+
+      expect(binding).to.deep.include({
+        kind: "method",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.console",
+        member: "error",
+      });
+    });
+
+    it("does not misbind lowercase local CLR variables to unrelated global member owners", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings(
+        "/test/nodejs.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(
+              process.cwd(),
+              "../../../nodejs/versions/10/index/bindings.json"
+            ),
+            "utf-8"
+          )
+        )
+      );
+      bindings.addBindings(
+        "/test/system-diagnostics.json",
+        JSON.parse(
+          readFileSync(
+            resolvePath(
+              process.cwd(),
+              "../../../dotnet/versions/10/System.Diagnostics/bindings.json"
+            ),
+            "utf-8"
+          )
+        )
+      );
+
+      const { ctx } = createTestProgram(
+        "export function test(): void {}",
+        bindings
+      );
+      const binding = resolveHierarchicalBinding(
+        {
+          kind: "identifier",
+          name: "process",
+          declId: "local:process" as any,
+          inferredType: {
+            kind: "unionType",
+            types: [
+              { kind: "primitiveType", name: "undefined" },
+              { kind: "referenceType", name: "Process" },
+            ],
+          },
+        } as any,
+        "ExitCode",
+        ctx
+      );
+
+      expect(binding).to.deep.include({
+        kind: "property",
+        assembly: "System.Diagnostics.Process",
+        type: "System.Diagnostics.Process",
+        member: "ExitCode",
+      });
     });
 
     it("should resolve global function bindings with csharpName on identifier callees", () => {
@@ -399,6 +695,233 @@ describe("Binding Resolution in IR", () => {
         "recursive",
         "mode",
       ]);
+    });
+  });
+
+  describe("JS Array member binding resolution", () => {
+    const createJsArrayBindings = (): BindingRegistry => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/js-root.json", {
+        bindings: {
+          Array: {
+            kind: "global",
+            assembly: "Acme.Runtime",
+            type: "Acme.Runtime.JSArray`1",
+            staticType: "Acme.Runtime.JSArrayStatics",
+            typeSemantics: {
+              contributesTypeIdentity: true,
+            },
+          },
+        },
+      });
+
+      bindings.addBindings("/test/acme-array/bindings.json", {
+        namespace: "Acme.Runtime",
+        types: [
+          {
+            clrName: "Acme.Runtime.JSArray`1",
+            assemblyName: "Acme.Runtime",
+            methods: [
+              {
+                clrName: "push",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+              {
+                clrName: "join",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+              {
+                clrName: "map",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+              {
+                clrName: "find",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+              {
+                clrName: "findIndex",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "Acme.Runtime.JSArrayStatics",
+            assemblyName: "Acme.Runtime",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      return bindings;
+    };
+
+    it("resolves array literal instance methods through the Array runtime surface", () => {
+      const source = `
+        export function test() {
+          const segments = ["a", "b"];
+          segments.push("c");
+          return segments.join(",");
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(
+        source,
+        createJsArrayBindings()
+      );
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body[0];
+      if (fn?.kind !== "functionDeclaration") return;
+      const pushStmt = fn.body.statements[1];
+      if (
+        pushStmt?.kind !== "expressionStatement" ||
+        pushStmt.expression.kind !== "call" ||
+        pushStmt.expression.callee.kind !== "memberAccess"
+      ) {
+        throw new Error("Expected push call expression");
+      }
+
+      expect(pushStmt.expression.callee.memberBinding?.member).to.equal("push");
+      expect(pushStmt.expression.callee.memberBinding?.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
+
+      const retStmt = fn.body.statements[2];
+      if (
+        retStmt?.kind !== "returnStatement" ||
+        !retStmt.expression ||
+        retStmt.expression.kind !== "call" ||
+        retStmt.expression.callee.kind !== "memberAccess"
+      ) {
+        throw new Error("Expected join return call expression");
+      }
+
+      expect(retStmt.expression.callee.memberBinding?.member).to.equal("join");
+      expect(retStmt.expression.callee.memberBinding?.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
+    });
+
+    it("resolves array callback methods through the JSArray runtime surface", () => {
+      const source = `
+        type Todo = { id: number; title: string };
+
+        export function test() {
+          const todos: Todo[] = [];
+          const todo = todos.find((t) => t.id === 1);
+          const index = todos.findIndex((t) => t.id === 1);
+          return [todo, index];
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(
+        source,
+        createJsArrayBindings()
+      );
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body[1];
+      if (fn?.kind !== "functionDeclaration") return;
+      const todoDecl = fn.body.statements[1];
+      if (
+        todoDecl?.kind !== "variableDeclaration" ||
+        todoDecl.declarations[0]?.initializer?.kind !== "call" ||
+        todoDecl.declarations[0]?.initializer.callee.kind !== "memberAccess"
+      ) {
+        throw new Error("Expected find() variable declaration");
+      }
+
+      expect(
+        todoDecl.declarations[0].initializer.callee.memberBinding?.member
+      ).to.equal("find");
+      expect(
+        todoDecl.declarations[0].initializer.callee.memberBinding?.type
+      ).to.equal("Acme.Runtime.JSArray`1");
+
+      const indexDecl = fn.body.statements[2];
+      if (
+        indexDecl?.kind !== "variableDeclaration" ||
+        indexDecl.declarations[0]?.initializer?.kind !== "call" ||
+        indexDecl.declarations[0]?.initializer.callee.kind !== "memberAccess"
+      ) {
+        throw new Error("Expected findIndex() variable declaration");
+      }
+
+      expect(
+        indexDecl.declarations[0].initializer.callee.memberBinding?.member
+      ).to.equal("findIndex");
+      expect(
+        indexDecl.declarations[0].initializer.callee.memberBinding?.type
+      ).to.equal("Acme.Runtime.JSArray`1");
+    });
+
+    it("resolves nullish-coalesced array instance methods when the fallback is an empty array literal", () => {
+      const source = `
+        export function test(xs?: string[]) {
+          const values = xs ?? [];
+          values.push("a");
+          return values.map((value) => value.toUpperCase());
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(
+        source,
+        createJsArrayBindings()
+      );
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body[0];
+      if (fn?.kind !== "functionDeclaration") return;
+      const pushStmt = fn.body.statements[1];
+      if (
+        pushStmt?.kind !== "expressionStatement" ||
+        pushStmt.expression.kind !== "call" ||
+        pushStmt.expression.callee.kind !== "memberAccess"
+      ) {
+        throw new Error("Expected push call expression");
+      }
+      expect(pushStmt.expression.callee.memberBinding?.member).to.equal("push");
+      expect(pushStmt.expression.callee.memberBinding?.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
+
+      const retStmt = fn.body.statements[2];
+      if (
+        retStmt?.kind !== "returnStatement" ||
+        !retStmt.expression ||
+        retStmt.expression.kind !== "call" ||
+        retStmt.expression.callee.kind !== "memberAccess"
+      ) {
+        throw new Error("Expected map return call expression");
+      }
+      expect(retStmt.expression.callee.memberBinding?.member).to.equal("map");
+      expect(retStmt.expression.callee.memberBinding?.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
     });
   });
 
@@ -1137,6 +1660,300 @@ describe("Binding Resolution in IR", () => {
       expect(memberExpr.memberBinding?.emitSemantics?.callStyle).to.equal(
         "receiver"
       );
+    });
+
+    it("resolves lower-cased TS member access to a unique CLR PascalCase member", () => {
+      const source = `
+        declare class Architecture {}
+        declare const current: Architecture;
+
+        export function test(): string {
+          return current.toString();
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/runtime.json", {
+        namespace: "System.Runtime.InteropServices",
+        types: [
+          {
+            clrName: "System.Runtime.InteropServices.Architecture",
+            assemblyName: "System.Runtime.InteropServices.RuntimeInformation",
+            baseType: {
+              clrName: "System.Enum",
+            },
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "System.Enum",
+            assemblyName: "System.Private.CoreLib",
+            methods: [
+              {
+                clrName: "ToString",
+                normalizedSignature: "ToString|():System.String|static=false",
+                parameterCount: 0,
+                declaringClrType: "System.Enum",
+                declaringAssemblyName: "System.Private.CoreLib",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[0];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) {
+        return;
+      }
+      if (returnStmt.expression.kind !== "call") return;
+      if (returnStmt.expression.callee.kind !== "memberAccess") return;
+
+      expect(returnStmt.expression.callee.memberBinding).to.not.equal(
+        undefined
+      );
+      expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
+        "ToString"
+      );
+      expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
+        "System.Enum"
+      );
+    });
+
+    it("does not case-fold member bindings when multiple CLR spellings would match", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/runtime.json", {
+        namespace: "Acme.Runtime",
+        types: [
+          {
+            clrName: "Acme.Runtime.Ambiguous",
+            assemblyName: "Acme.Runtime",
+            methods: [
+              {
+                clrName: "ToString",
+                normalizedSignature: "ToString|():System.String|static=false",
+                parameterCount: 0,
+                declaringClrType: "Acme.Runtime.Ambiguous",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+              {
+                clrName: "toString",
+                normalizedSignature: "toString|():System.String|static=false",
+                parameterCount: 0,
+                declaringClrType: "Acme.Runtime.Ambiguous",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      expect(bindings.getMemberOverloads("Ambiguous", "tostring")).to.equal(
+        undefined
+      );
+    });
+
+    it("does not let differently-cased globals pollute authored identifiers", () => {
+      const source = `
+        declare const Console: {
+          Error: {
+            WriteLine(message: string): void;
+          };
+        };
+
+        export function test(): void {
+          Console.Error.WriteLine("boom");
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/globals.json", {
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.console",
+          },
+        },
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements[0];
+      if (exprStmt?.kind !== "expressionStatement") return;
+      if (exprStmt.expression.kind !== "call") return;
+      if (exprStmt.expression.callee.kind !== "memberAccess") return;
+
+      const writeLineAccess = exprStmt.expression.callee;
+      expect(writeLineAccess.object.kind).to.equal("memberAccess");
+      if (writeLineAccess.object.kind !== "memberAccess") return;
+      expect(writeLineAccess.object.object.kind).to.equal("identifier");
+      if (writeLineAccess.object.object.kind !== "identifier") return;
+
+      expect(writeLineAccess.object.object.name).to.equal("Console");
+      expect(writeLineAccess.object.object.resolvedClrType).to.equal(undefined);
+      expect(writeLineAccess.object.memberBinding).to.equal(undefined);
+    });
+
+    it("prefers the explicitly requested CLR owner when mixed bindings share a TS alias", () => {
+      const source = `
+        declare class Console {
+          log(...data: unknown[]): void;
+          error(...data: unknown[]): void;
+        }
+
+        declare const console: Console;
+
+        export function test(): void {
+          console.error("boom");
+          console.log("ok");
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/globals.json", {
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.console",
+          },
+        },
+      });
+      bindings.addBindings("/test/js-runtime/bindings.json", {
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.console",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "error",
+                normalizedSignature:
+                  "error|(System.Object[]):System.Void|static=true",
+                parameterCount: 1,
+                declaringClrType: "Tsonic.JSRuntime.console",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+              },
+              {
+                clrName: "log",
+                normalizedSignature:
+                  "log|(System.Object[]):System.Void|static=true",
+                parameterCount: 1,
+                declaringClrType: "Tsonic.JSRuntime.console",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+      bindings.addBindings("/test/nodejs/bindings.json", {
+        namespace: "nodejs",
+        types: [
+          {
+            clrName: "nodejs.console",
+            assemblyName: "nodejs",
+            methods: [
+              {
+                clrName: "error",
+                normalizedSignature:
+                  "error|(System.Object,System.Object[]):System.Void|static=true",
+                parameterCount: 2,
+                declaringClrType: "nodejs.console",
+                declaringAssemblyName: "nodejs",
+              },
+              {
+                clrName: "log",
+                normalizedSignature:
+                  "log|(System.Object,System.Object[]):System.Void|static=true",
+                parameterCount: 2,
+                declaringClrType: "nodejs.console",
+                declaringAssemblyName: "nodejs",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+      bindings.addBindings("/test/system-console/bindings.json", {
+        namespace: "System",
+        types: [
+          {
+            clrName: "System.Console",
+            assemblyName: "System.Console",
+            methods: [],
+            properties: [
+              {
+                clrName: "Error",
+                normalizedSignature:
+                  "Error|:System.IO.TextWriter|static=true|accessor=get",
+                declaringClrType: "System.Console",
+                declaringAssemblyName: "System.Console",
+              },
+            ],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const errorStmt = funcDecl.body.statements[0];
+      const logStmt = funcDecl.body.statements[1];
+      if (errorStmt?.kind !== "expressionStatement") return;
+      if (logStmt?.kind !== "expressionStatement") return;
+      if (errorStmt.expression.kind !== "call") return;
+      if (logStmt.expression.kind !== "call") return;
+      if (errorStmt.expression.callee.kind !== "memberAccess") return;
+      if (logStmt.expression.callee.kind !== "memberAccess") return;
+
+      expect(errorStmt.expression.callee.memberBinding?.type).to.equal(
+        "Tsonic.JSRuntime.console"
+      );
+      expect(errorStmt.expression.callee.memberBinding?.member).to.equal(
+        "error"
+      );
+      expect(logStmt.expression.callee.memberBinding?.type).to.equal(
+        "Tsonic.JSRuntime.console"
+      );
+      expect(logStmt.expression.callee.memberBinding?.member).to.equal("log");
     });
 
     it("should resolve the same extension methods regardless of selected surface", () => {

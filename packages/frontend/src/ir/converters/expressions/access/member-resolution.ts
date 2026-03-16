@@ -343,6 +343,12 @@ export const extractTypeName = (
     return "Array";
   }
 
+  // Treat tuples as Array for binding lookup as well. They lower to runtime
+  // JS arrays for member resolution and must preserve the same Array surface.
+  if (inferredType.kind === "tupleType") {
+    return "Array";
+  }
+
   // Handle intersection types: TypeName$instance & __TypeName$views
   // This happens when TypeScript expands a type alias to its underlying intersection
   // during property access (e.g., listener.prefixes returns HttpListenerPrefixCollection

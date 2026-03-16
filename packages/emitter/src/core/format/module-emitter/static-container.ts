@@ -7,6 +7,7 @@
 
 import {
   IrModule,
+  IrType,
   IrPattern,
   IrStatement,
   isExecutableStatement,
@@ -46,6 +47,14 @@ export const collectStaticContainerValueSymbols = (
 ): ReadonlyMap<string, ValueSymbolInfo> => {
   const valueSymbols = new Map<string, ValueSymbolInfo>();
 
+  const toFunctionType = (
+    member: Extract<IrStatement, { kind: "functionDeclaration" }>
+  ): Extract<IrType, { kind: "functionType" }> => ({
+    kind: "functionType",
+    parameters: member.parameters,
+    returnType: member.returnType ?? { kind: "voidType" },
+  });
+
   const collectPatternIdentifiers = (pattern: IrPattern): readonly string[] => {
     switch (pattern.kind) {
       case "identifierPattern":
@@ -79,6 +88,7 @@ export const collectStaticContainerValueSymbols = (
       valueSymbols.set(member.name, {
         kind: "function",
         csharpName: getCSharpName(member.name, "methods", context),
+        type: toFunctionType(member),
       });
       continue;
     }

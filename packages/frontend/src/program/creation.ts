@@ -220,6 +220,53 @@ declare global {
 export {};
 `.trim();
 
+const JS_SURFACE_GLOBAL_AUGMENTATIONS = `
+declare global {
+  interface ArrayConstructor {
+    readonly prototype: unknown[];
+    new(arrayLength?: number): unknown[];
+  }
+
+  interface StringConstructor {
+    readonly prototype: String;
+  }
+
+  interface NumberConstructor {
+    readonly prototype: Number;
+  }
+
+  interface BooleanConstructor {
+    readonly prototype: Boolean;
+  }
+
+  interface DateConstructor {
+    readonly prototype: Date;
+  }
+
+  interface Uint8ArrayConstructor {
+    readonly prototype: Uint8Array;
+  }
+
+  interface RegExpConstructor {
+    readonly prototype: RegExp;
+  }
+
+  interface MapConstructor {
+    readonly prototype: Map<unknown, unknown>;
+  }
+
+  interface SetConstructor {
+    readonly prototype: Set<unknown>;
+  }
+
+  interface ObjectConstructor {
+    readonly prototype: object;
+  }
+}
+
+export {};
+`.trim();
+
 /**
  * Recursively scan a directory for .d.ts files
  */
@@ -713,8 +760,23 @@ export const createProgram = (
     ".tsonic",
     "__core_globals__.d.ts"
   );
+  const jsSurfaceAugmentationsVirtualPath = path.join(
+    options.projectRoot,
+    ".tsonic",
+    "__js_surface_globals__.d.ts"
+  );
+  const isJsSurfaceCompilation =
+    surfaceCapabilities.resolvedModes.includes("@tsonic/js");
   const virtualDeclarationSources = new Map<string, string>([
     [path.resolve(coreGlobalsVirtualPath), CORE_GLOBALS_DECLARATIONS],
+    ...(isJsSurfaceCompilation
+      ? [
+          [
+            path.resolve(jsSurfaceAugmentationsVirtualPath),
+            JS_SURFACE_GLOBAL_AUGMENTATIONS,
+          ] as const,
+        ]
+      : []),
   ]);
   const virtualDeclarationFiles = Array.from(virtualDeclarationSources.keys());
 

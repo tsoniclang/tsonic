@@ -2,22 +2,166 @@
  * Class declaration emission — returns CSharpTypeDeclarationAst[]
  */
 
-import { IrStatement, type IrClassMember, type IrType } from "@tsonic/frontend";
-import { EmitterContext, indent, withClassName } from "../../types.js";
+import {
+  IrStatement,
+  stableIrTypeKey,
+  type IrClassMember,
+  type IrType,
+} from "@tsonic/frontend";
+import {
+  EmitterContext,
+  indent,
+  withClassName,
+  type LocalTypeInfo,
+} from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { emitAttributes } from "../../core/format/attributes.js";
-import { identifierType } from "../../core/format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  identifierType,
+} from "../../core/format/backend-ast/builders.js";
 import { substituteType } from "../../specialization/substitution.js";
 import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
+import { resolveCompatibleImplementedInterfaces } from "../../core/semantic/implicit-interfaces.js";
+import { resolveLocalTypeInfo } from "../../core/semantic/type-resolution.js";
+import { generateExplicitInterfaceBridgeMembers } from "./interface-bridges.js";
 import type {
   CSharpAttributeAst,
   CSharpTypeDeclarationAst,
   CSharpMemberAst,
+  CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+
+const emitsAsCSharpInterface = (
+  localInfo: LocalTypeInfo | undefined
+): boolean =>
+  !!localInfo &&
+  localInfo.kind === "interface" &&
+  localInfo.members.some((member) => member.kind === "methodSignature");
+
+const isInterfaceReference = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): boolean => {
+  const localInfo = resolveLocalTypeInfo(ref, context)?.info;
+  if (emitsAsCSharpInterface(localInfo)) {
+    return true;
+  }
+
+  const candidates = new Set<string>();
+  const add = (value: string | undefined): void => {
+    if (value) {
+      candidates.add(value);
+    }
+  };
+
+  add(ref.name);
+  add(ref.resolvedClrType);
+  add(ref.typeId?.tsName);
+  add(ref.typeId?.clrName);
+  for (const value of [...candidates]) {
+    if (!value.includes(".")) continue;
+    add(value.split(".").pop());
+  }
+
+  for (const candidate of candidates) {
+    const binding = context.bindingsRegistry?.get(candidate);
+    if (binding?.kind === "interface") {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const irNodeUsesInstanceContext = (
+  value: unknown,
+  visited: WeakSet<object> = new WeakSet<object>()
+): boolean => {
+  if (value == null) return false;
+
+  if (Array.isArray(value)) {
+    return value.some((item) => irNodeUsesInstanceContext(item, visited));
+  }
+
+  if (typeof value !== "object") {
+    return false;
+  }
+
+  if (visited.has(value)) {
+    return false;
+  }
+  visited.add(value);
+
+  const candidate = value as { kind?: unknown; name?: unknown };
+  if (candidate.kind === "this") {
+    return true;
+  }
+  if (candidate.kind === "identifier" && candidate.name === "super") {
+    return true;
+  }
+
+  for (const child of Object.values(value as Record<string, unknown>)) {
+    if (irNodeUsesInstanceContext(child, visited)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const shouldHoistInstanceInitializer = (
+  member: IrClassMember
+): member is Extract<IrClassMember, { kind: "propertyDeclaration" }> =>
+  member.kind === "propertyDeclaration" &&
+  !member.isStatic &&
+  member.initializer !== undefined &&
+  irNodeUsesInstanceContext(member.initializer);
+
+const stripMemberInitializer = (
+  memberAst: CSharpMemberAst
+): CSharpMemberAst => {
+  if (
+    memberAst.kind !== "fieldDeclaration" &&
+    memberAst.kind !== "propertyDeclaration"
+  ) {
+    return memberAst;
+  }
+
+  return {
+    ...memberAst,
+    initializer: undefined,
+  };
+};
+
+const buildHoistedInitializerStatement = (
+  memberAst: Extract<
+    CSharpMemberAst,
+    { kind: "fieldDeclaration" | "propertyDeclaration" }
+  >
+): CSharpStatementAst | undefined => {
+  if (!memberAst.initializer) {
+    return undefined;
+  }
+
+  return {
+    kind: "expressionStatement",
+    expression: {
+      kind: "assignmentExpression",
+      operatorToken: "=",
+      left: {
+        kind: "memberAccessExpression",
+        expression: identifierExpression("this"),
+        memberName: memberAst.name,
+      },
+      right: memberAst.initializer,
+    },
+  };
+};
 
 /**
  * Emit a class declaration as CSharpTypeDeclarationAst[].
@@ -35,6 +179,7 @@ export const emitClassDeclaration = (
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
     localNameMap: context.localNameMap,
+    localValueTypes: context.localValueTypes,
   };
 
   const needsUnsafe = statementUsesPointer(stmt);
@@ -215,34 +360,22 @@ export const emitClassDeclaration = (
 
   // Interfaces (implements clause)
   const implementedInterfaces: CSharpTypeAst[] = [];
+  const compatibleInterfaces = resolveCompatibleImplementedInterfaces(
+    stmt.name,
+    stmt.implements,
+    currentContext
+  );
+  const emittedInterfaceKeys = new Set<string>();
   for (const impl of stmt.implements) {
     if (impl.kind !== "referenceType") continue;
-
-    const localInfo = context.localTypes?.get(impl.name);
-    const isLocalCSharpInterface =
-      localInfo?.kind === "interface" &&
-      localInfo.members.some((m) => m.kind === "methodSignature");
-
-    const bindingKeyCandidates: string[] = [impl.name];
-    if (impl.typeId?.tsName) bindingKeyCandidates.push(impl.typeId.tsName);
-    if (impl.name.endsWith("$instance")) {
-      bindingKeyCandidates.push(impl.name.slice(0, -"$instance".length));
-    }
-    if (impl.name.startsWith("__") && impl.name.endsWith("$views")) {
-      bindingKeyCandidates.push(impl.name.slice("__".length, -"$views".length));
-    }
-
-    const regBinding = bindingKeyCandidates
-      .map((k) => context.bindingsRegistry?.get(k))
-      .find((b): b is NonNullable<typeof b> => b !== undefined);
-
-    const isClrInterface = regBinding?.kind === "interface";
-
-    if (!isLocalCSharpInterface && !isClrInterface) continue;
+    const implKey = stableIrTypeKey(impl);
+    if (emittedInterfaceKeys.has(implKey)) continue;
+    if (!isInterfaceReference(impl, currentContext)) continue;
 
     const [implTypeAst, newContext] = emitTypeAst(impl, currentContext);
     currentContext = newContext;
     implementedInterfaces.push(implTypeAst);
+    emittedInterfaceKeys.add(implKey);
   }
 
   // Class body
@@ -256,13 +389,83 @@ export const emitClassDeclaration = (
   };
 
   const memberAsts: CSharpMemberAst[] = [];
+  const hoistedInitializerStatements: CSharpStatementAst[] = [];
   for (const member of membersToEmit) {
     const [memberAst, newContext] = emitClassMember(member, bodyContext);
-    memberAsts.push(memberAst);
+    if (
+      shouldHoistInstanceInitializer(member) &&
+      (memberAst.kind === "fieldDeclaration" ||
+        memberAst.kind === "propertyDeclaration") &&
+      memberAst.initializer
+    ) {
+      const hoistedStatement = buildHoistedInitializerStatement(memberAst);
+      if (hoistedStatement) {
+        hoistedInitializerStatements.push(hoistedStatement);
+      }
+      memberAsts.push(stripMemberInitializer(memberAst));
+    } else {
+      memberAsts.push(memberAst);
+    }
     currentContext = newContext;
   }
 
-  const hasRequiredProperties = memberAsts.some(
+  const [interfaceBridgeMembers, bridgeContext] =
+    generateExplicitInterfaceBridgeMembers(
+      compatibleInterfaces.filter(
+        (match) =>
+          match.isExplicit && isInterfaceReference(match.ref, bodyContext)
+      ),
+      bodyContext
+    );
+  currentContext = bridgeContext;
+  memberAsts.push(...interfaceBridgeMembers);
+
+  const memberAstsWithHoistedInitializers = (() => {
+    if (hoistedInitializerStatements.length === 0) {
+      return memberAsts;
+    }
+
+    const updatedMembers = memberAsts.map((memberAst) => {
+      if (memberAst.kind !== "constructorDeclaration") {
+        return memberAst;
+      }
+
+      return {
+        ...memberAst,
+        body: {
+          ...memberAst.body,
+          statements: [
+            ...hoistedInitializerStatements,
+            ...memberAst.body.statements,
+          ],
+        },
+      };
+    });
+
+    const hasAnyConstructor = updatedMembers.some(
+      (memberAst) => memberAst.kind === "constructorDeclaration"
+    );
+    if (hasAnyConstructor) {
+      return updatedMembers;
+    }
+
+    return [
+      {
+        kind: "constructorDeclaration",
+        attributes: [],
+        modifiers: ["public"],
+        name: escapedClassName,
+        parameters: [],
+        body: {
+          kind: "blockStatement",
+          statements: hoistedInitializerStatements,
+        },
+      } satisfies CSharpMemberAst,
+      ...updatedMembers,
+    ];
+  })();
+
+  const hasRequiredProperties = memberAstsWithHoistedInitializers.some(
     (m) => m.kind === "propertyDeclaration" && m.modifiers.includes("required")
   );
   const setsRequiredAttribute: CSharpAttributeAst = {
@@ -271,8 +474,10 @@ export const emitClassDeclaration = (
     ),
   };
   const memberAstsWithRequiredCtor = (() => {
-    if (stmt.isStruct || !hasRequiredProperties) return memberAsts;
-    const updatedMembers = memberAsts.map((m) => {
+    if (stmt.isStruct || !hasRequiredProperties) {
+      return memberAstsWithHoistedInitializers;
+    }
+    const updatedMembers = memberAstsWithHoistedInitializers.map((m) => {
       if (m.kind !== "constructorDeclaration") return m;
       const hasSetsRequired = m.attributes.some((a) => {
         if (a.type.kind !== "identifierType") return false;

@@ -1013,6 +1013,10 @@ describe("build command (library bindings)", function () {
         "bindings"
       );
       const facade = readFileSync(join(bindingsRoot, "Test.Lib.d.ts"), "utf-8");
+      const configFacade = readFileSync(
+        join(bindingsRoot, "Test.Lib.config.d.ts"),
+        "utf-8"
+      );
       const internal = readFileSync(
         join(bindingsRoot, "Test.Lib", "internal", "index.d.ts"),
         "utf-8"
@@ -1027,14 +1031,17 @@ describe("build command (library bindings)", function () {
       };
 
       expect(facade).to.include("export type { LoadedConfig }");
-      expect(facade).to.match(
-        /export declare function loadSiteConfig\(\):\s*LoadedConfig/
-      );
       expect(facade).to.include(
         "import type { LoadedConfig } from './Test.Lib.config.js';"
       );
       expect(facade).to.include(
         "export type { LoadedConfig } from './Test.Lib.config.js';"
+      );
+      expect(facade).to.include(
+        "export { loadSiteConfig } from './Test.Lib.config.js';"
+      );
+      expect(configFacade).to.match(
+        /export declare function loadSiteConfig\(\):\s*LoadedConfig/
       );
       expect(internal).to.not.match(/interface\s+LoadedConfig\$instance/);
       expect(rootBindings.exports?.loadSiteConfig?.kind).to.equal("method");

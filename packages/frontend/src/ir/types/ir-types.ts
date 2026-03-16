@@ -89,6 +89,18 @@ export type IrArrayType = {
    * Users must explicitly use List<T> to get a List.
    */
   readonly origin?: "explicit";
+  /**
+   * Optional tuple-like shape metadata for variadic tuples lowered to array runtime shape.
+   *
+   * Example:
+   * - `[PathSpec, ...RequestHandler[]]` → arrayType(elementType = PathSpec | RequestHandler,
+   *   tuplePrefixElementTypes = [PathSpec], tupleRestElementType = RequestHandler)
+   *
+   * This preserves spread-call semantics for overload resolution while still emitting
+   * as a CLR array at runtime.
+   */
+  readonly tuplePrefixElementTypes?: readonly IrType[];
+  readonly tupleRestElementType?: IrType;
 };
 
 /**

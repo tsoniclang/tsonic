@@ -4,13 +4,19 @@
  * All types are emitted with global:: prefix for unambiguous resolution.
  */
 
-import { IrType } from "@tsonic/frontend";
+import {
+  IrType,
+  stableIrTypeKey,
+  type TypeBinding as FrontendTypeBinding,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import type { LocalTypeInfo } from "../emitter-types/core.js";
 import { emitTypeAst } from "./emitter.js";
 import {
   resolveLocalTypeInfo,
   substituteTypeArgs,
+  splitRuntimeNullishUnionMembers,
 } from "../core/semantic/type-resolution.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 import {
@@ -43,6 +49,270 @@ const resolveImportedTypeAst = (
   }
 
   return undefined;
+};
+
+type StructuralReferenceMember = Extract<
+  NonNullable<
+    Extract<IrType, { kind: "referenceType" }>["structuralMembers"]
+  >[number],
+  { kind: "propertySignature" | "methodSignature" }
+>;
+
+type BindingStructuralPropertyMember = {
+  readonly kind: "property";
+  readonly alias: string;
+  readonly semanticType: IrType;
+  readonly semanticOptional?: boolean;
+};
+
+type BindingStructuralMethodMember = {
+  readonly kind: "method";
+  readonly alias: string;
+  readonly semanticSignature: NonNullable<
+    FrontendTypeBinding["members"][number]["semanticSignature"]
+  >;
+};
+
+type StructuralSignatureMember =
+  | StructuralReferenceMember
+  | BindingStructuralPropertyMember
+  | BindingStructuralMethodMember;
+
+type LocalStructuralPropertyMember = {
+  readonly kind: "property";
+  readonly alias: string;
+  readonly semanticType: IrType;
+  readonly semanticOptional?: boolean;
+};
+
+type LocalStructuralMethodMember = {
+  readonly kind: "method";
+  readonly alias: string;
+  readonly parameters: readonly IrType[];
+  readonly returnType: IrType;
+};
+
+const stableStructuralIrTypeKey = (type: IrType): string => {
+  if (type.kind === "literalType") {
+    if (typeof type.value === "string") {
+      return stableIrTypeKey({ kind: "primitiveType", name: "string" });
+    }
+    if (typeof type.value === "number") {
+      return stableIrTypeKey({ kind: "primitiveType", name: "number" });
+    }
+    if (typeof type.value === "boolean") {
+      return stableIrTypeKey({ kind: "primitiveType", name: "boolean" });
+    }
+  }
+
+  if (type.kind === "unionType") {
+    return stableIrTypeKey({
+      ...type,
+      types: type.types.map((member) => stableStructuralComparableType(member)),
+    });
+  }
+
+  return stableIrTypeKey(type);
+};
+
+const stableStructuralComparableType = (type: IrType): IrType => {
+  if (type.kind === "literalType") {
+    if (typeof type.value === "string") {
+      return { kind: "primitiveType", name: "string" };
+    }
+    if (typeof type.value === "number") {
+      return { kind: "primitiveType", name: "number" };
+    }
+    if (typeof type.value === "boolean") {
+      return { kind: "primitiveType", name: "boolean" };
+    }
+  }
+  if (type.kind === "unionType") {
+    return {
+      ...type,
+      types: type.types.map((member) => stableStructuralComparableType(member)),
+    };
+  }
+  return type;
+};
+
+const getStructuralMemberSignatureKey = (
+  member: StructuralSignatureMember
+): string => {
+  if (member.kind === "propertySignature") {
+    return `prop:${member.name}:${member.isOptional ? "opt" : "req"}:${member.isReadonly ? "ro" : "rw"}:${stableStructuralIrTypeKey(member.type)}`;
+  }
+  if (member.kind === "methodSignature") {
+    const parameters = member.parameters.map((parameter) =>
+      stableStructuralIrTypeKey(parameter.type ?? { kind: "unknownType" })
+    );
+    return `method:${member.name}:${parameters.join(",")}:${member.parameters.length}:${stableStructuralIrTypeKey(member.returnType ?? { kind: "unknownType" })}`;
+  }
+  if (member.kind === "property") {
+    return `prop:${member.alias}:${member.semanticOptional === true ? "opt" : "req"}:rw:${stableStructuralIrTypeKey(member.semanticType)}`;
+  }
+  const parameters = member.semanticSignature.parameters.map((parameter) =>
+    stableStructuralIrTypeKey(parameter.type ?? { kind: "unknownType" })
+  );
+  return `method:${member.alias}:${parameters.join(",")}:${member.semanticSignature.parameters.length}:${stableStructuralIrTypeKey(member.semanticSignature.returnType ?? { kind: "unknownType" })}`;
+};
+
+const buildLocalTypeStructuralSignature = (
+  localInfo: LocalTypeInfo | undefined
+): string | undefined => {
+  if (
+    !localInfo ||
+    (localInfo.kind !== "class" && localInfo.kind !== "interface")
+  ) {
+    return undefined;
+  }
+
+  const members = localInfo.members
+    .flatMap<LocalStructuralPropertyMember | LocalStructuralMethodMember>(
+      (member) => {
+        if (member.kind === "propertyDeclaration" && member.type) {
+          return {
+            kind: "property",
+            alias: member.name,
+            semanticType: member.type,
+            semanticOptional: false,
+          };
+        }
+        if (member.kind === "propertySignature" && member.type) {
+          return {
+            kind: "property",
+            alias: member.name,
+            semanticType: member.type,
+            semanticOptional: member.isOptional,
+          };
+        }
+        if (member.kind === "methodDeclaration") {
+          return {
+            kind: "method",
+            alias: member.name,
+            parameters: member.parameters.map(
+              (parameter) => parameter.type ?? { kind: "unknownType" }
+            ),
+            returnType: member.returnType ?? { kind: "unknownType" },
+          };
+        }
+        if (member.kind === "methodSignature") {
+          return {
+            kind: "method",
+            alias: member.name,
+            parameters: member.parameters.map(
+              (parameter) => parameter.type ?? { kind: "unknownType" }
+            ),
+            returnType: member.returnType ?? { kind: "unknownType" },
+          };
+        }
+        return [];
+      }
+    )
+    .map((member) => {
+      if (member.kind === "property") {
+        return `prop:${member.alias}:${member.semanticOptional === true ? "opt" : "req"}:rw:${stableStructuralIrTypeKey(member.semanticType)}`;
+      }
+      return `method:${member.alias}:${member.parameters
+        .map((parameter) => stableStructuralIrTypeKey(parameter))
+        .join(
+          ","
+        )}:${member.parameters.length}:${stableStructuralIrTypeKey(member.returnType)}`;
+    })
+    .sort();
+
+  if (members.length === 0) {
+    return undefined;
+  }
+
+  return members.join("|");
+};
+
+const buildReferenceStructuralSignature = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): string | undefined => {
+  const members = (type.structuralMembers ?? [])
+    ?.filter(
+      (member): member is StructuralReferenceMember =>
+        member.kind === "propertySignature" || member.kind === "methodSignature"
+    )
+    .map(getStructuralMemberSignatureKey)
+    .sort();
+
+  if (!members || members.length === 0) {
+    return undefined;
+  }
+
+  return members.join("|");
+};
+
+const buildBindingStructuralSignature = (
+  binding: FrontendTypeBinding
+): string | undefined => {
+  const members = binding.members
+    .flatMap<StructuralSignatureMember>((member) => {
+      if (member.kind === "property" && member.semanticType) {
+        return {
+          kind: "property",
+          alias: member.alias,
+          semanticType: member.semanticType,
+          semanticOptional: member.semanticOptional,
+        };
+      }
+      if (member.kind === "method" && member.semanticSignature) {
+        return {
+          kind: "method",
+          alias: member.alias,
+          semanticSignature: member.semanticSignature,
+        };
+      }
+      return [];
+    })
+    .map(getStructuralMemberSignatureKey)
+    .sort();
+
+  if (members.length === 0) {
+    return undefined;
+  }
+
+  return members.join("|");
+};
+
+const resolveBindingBackedStructuralTypeAst = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): CSharpTypeAst | undefined => {
+  if (!type.structuralMembers || type.structuralMembers.length === 0) {
+    return undefined;
+  }
+  if (!type.name.startsWith("__Anon_")) {
+    return undefined;
+  }
+
+  const signature =
+    buildReferenceStructuralSignature(type) ??
+    buildLocalTypeStructuralSignature(
+      resolveLocalTypeInfo(type, context)?.info
+    );
+  if (!signature) {
+    return undefined;
+  }
+
+  const matches = new Map<string, FrontendTypeBinding>();
+  for (const binding of context.bindingsRegistry?.values() ?? []) {
+    const bindingSignature = buildBindingStructuralSignature(binding);
+    if (!bindingSignature || bindingSignature !== signature) {
+      continue;
+    }
+    matches.set(binding.name, binding);
+  }
+
+  if (matches.size !== 1) {
+    return undefined;
+  }
+
+  const match = [...matches.values()][0];
+  return match ? clrTypeNameToTypeAst(toGlobalClr(match.name)) : undefined;
 };
 
 const getReferenceLookupCandidates = (typeName: string): readonly string[] => {
@@ -142,6 +412,86 @@ const identifierTypeWithArgs = (
   typeArgAsts: CSharpTypeAst[] | undefined
 ): CSharpTypeAst => identifierType(name, typeArgAsts);
 
+const withResolvingTypeAlias = (
+  typeName: string,
+  context: EmitterContext
+): EmitterContext => {
+  const resolving = new Set(context.resolvingTypeAliases ?? []);
+  resolving.add(typeName);
+  return { ...context, resolvingTypeAliases: resolving };
+};
+
+const restoreResolvingTypeAliases = (
+  context: EmitterContext,
+  parentContext: EmitterContext
+): EmitterContext => {
+  if (context.resolvingTypeAliases === parentContext.resolvingTypeAliases) {
+    return context;
+  }
+
+  return {
+    ...context,
+    resolvingTypeAliases: parentContext.resolvingTypeAliases,
+  };
+};
+
+const OBJECT_TYPE_AST: CSharpTypeAst = {
+  kind: "predefinedType",
+  keyword: "object",
+};
+
+const keyForResolvedLocalType = (name: string, namespace: string): string =>
+  `${namespace}::${name}`;
+
+const emitRecursiveAliasFallbackType = (
+  type: IrType,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
+  if (type.kind === "arrayType") {
+    return [
+      {
+        kind: "arrayType",
+        elementType: OBJECT_TYPE_AST,
+        rank: 1,
+      },
+      context,
+    ];
+  }
+
+  if (type.kind === "unionType") {
+    const split = splitRuntimeNullishUnionMembers(type);
+    const nonNullish = split?.nonNullishMembers ?? type.types;
+    const hasNullish = split?.hasRuntimeNullish ?? false;
+
+    if (
+      nonNullish.length === 1 &&
+      nonNullish[0] &&
+      nonNullish[0].kind === "arrayType"
+    ) {
+      const arrayAst: CSharpTypeAst = {
+        kind: "arrayType",
+        elementType: OBJECT_TYPE_AST,
+        rank: 1,
+      };
+      return [
+        hasNullish
+          ? { kind: "nullableType", underlyingType: arrayAst }
+          : arrayAst,
+        context,
+      ];
+    }
+
+    return [
+      hasNullish
+        ? { kind: "nullableType", underlyingType: OBJECT_TYPE_AST }
+        : OBJECT_TYPE_AST,
+      context,
+    ];
+  }
+
+  return [OBJECT_TYPE_AST, context];
+};
+
 const attachTypeArgumentsIfSupported = (
   typeAst: CSharpTypeAst,
   typeArguments: readonly CSharpTypeAst[]
@@ -161,6 +511,8 @@ const EXACT_BCL_VALUE_TYPE_MAP = new Map<string, string>([
   ["uint128", "global::System.UInt128"],
 ]);
 
+const POLYMORPHIC_THIS_MARKER = "__tsonic_polymorphic_this";
+
 /**
  * Emit reference types as CSharpTypeAst
  */
@@ -169,6 +521,18 @@ export const emitReferenceType = (
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
   const { name, typeArguments, resolvedClrType, typeId } = type;
+
+  if (name === POLYMORPHIC_THIS_MARKER && context.declaringTypeName) {
+    return emitReferenceType(
+      {
+        ...type,
+        name: context.declaringTypeName,
+        resolvedClrType: undefined,
+        typeId: undefined,
+      },
+      context
+    );
+  }
 
   // Check if this is a local type alias.
   //
@@ -189,7 +553,6 @@ export const emitReferenceType = (
     const shouldResolve = underlyingKind !== "objectType";
 
     if (shouldResolve) {
-      // Substitute type arguments if present
       const underlyingType =
         typeArguments && typeArguments.length > 0
           ? substituteTypeArgs(
@@ -198,7 +561,17 @@ export const emitReferenceType = (
               typeArguments
             )
           : typeInfo.type;
-      return emitTypeAst(underlyingType, context);
+      if (context.resolvingTypeAliases?.has(name)) {
+        return emitRecursiveAliasFallbackType(underlyingType, context);
+      }
+      const [resolvedAst, resolvedContext] = emitTypeAst(
+        underlyingType,
+        withResolvingTypeAlias(name, context)
+      );
+      return [
+        resolvedAst,
+        restoreResolvingTypeAliases(resolvedContext, context),
+      ];
     }
     // For `objectType` aliases - fall through and emit the alias name; it will be
     // rewritten to `__Alias` in the local-type handling below.
@@ -236,6 +609,27 @@ export const emitReferenceType = (
       return [importedTypeAst, newContext];
     }
     return [importedTypeAst, context];
+  }
+
+  const bindingBackedStructuralTypeAst = resolveBindingBackedStructuralTypeAst(
+    type,
+    context
+  );
+  if (bindingBackedStructuralTypeAst) {
+    if (typeArguments && typeArguments.length > 0) {
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      if (
+        bindingBackedStructuralTypeAst.kind === "identifierType" ||
+        bindingBackedStructuralTypeAst.kind === "qualifiedIdentifierType"
+      ) {
+        return [
+          withTypeArguments(bindingBackedStructuralTypeAst, typeArgAsts),
+          newContext,
+        ];
+      }
+      return [bindingBackedStructuralTypeAst, newContext];
+    }
+    return [bindingBackedStructuralTypeAst, context];
   }
 
   // Check for unsupported support types
@@ -432,12 +826,7 @@ export const emitReferenceType = (
   }
 
   const crossModuleLocalType = resolveLocalTypeInfo(type, context);
-  const currentNamespace =
-    context.moduleNamespace ?? context.options.rootNamespace;
-  if (
-    crossModuleLocalType &&
-    !(crossModuleLocalType.namespace === currentNamespace)
-  ) {
+  if (crossModuleLocalType) {
     const { info, namespace } = crossModuleLocalType;
 
     if (info.kind === "typeAlias") {
@@ -447,7 +836,14 @@ export const emitReferenceType = (
           typeArguments && typeArguments.length > 0
             ? substituteTypeArgs(info.type, info.typeParameters, typeArguments)
             : info.type;
-        return emitTypeAst(underlyingType, context);
+        const aliasKey = keyForResolvedLocalType(name, namespace);
+        if (context.resolvingTypeAliases?.has(aliasKey)) {
+          return emitRecursiveAliasFallbackType(underlyingType, context);
+        }
+        return emitTypeAst(
+          underlyingType,
+          withResolvingTypeAlias(aliasKey, context)
+        );
       }
 
       return emitQualifiedLocalType(

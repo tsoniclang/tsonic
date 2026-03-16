@@ -226,6 +226,7 @@ export type LocalTypeInfo =
       readonly kind: "class";
       readonly typeParameters: readonly string[];
       readonly members: readonly IrClassMember[];
+      readonly superClass?: IrType;
       readonly implements: readonly IrType[];
     }
   | {
@@ -244,17 +245,26 @@ export type LocalTypeInfo =
  * - "expr": Used in ternary expressions where we inline the AsN() call (e.g., account -> (account.As1()))
  */
 export type NarrowedBinding =
-  | { readonly kind: "rename"; readonly name: string; readonly type?: IrType }
+  | {
+      readonly kind: "rename";
+      readonly name: string;
+      readonly type?: IrType;
+      readonly sourceType?: IrType;
+    }
   | {
       readonly kind: "expr";
       readonly exprAst: CSharpExpressionAst;
       readonly type?: IrType;
+      readonly sourceType?: IrType;
     }
   | {
       readonly kind: "runtimeSubset";
       readonly runtimeMemberNs: readonly number[];
       readonly runtimeUnionArity: number;
+      readonly sourceMembers?: readonly IrType[];
+      readonly sourceCandidateMemberNs?: readonly number[];
       readonly type?: IrType;
+      readonly sourceType?: IrType;
     };
 
 export type ValueSymbolKind = "function" | "variable";
@@ -262,6 +272,7 @@ export type ValueSymbolKind = "function" | "variable";
 export type ValueSymbolInfo = {
   readonly kind: ValueSymbolKind;
   readonly csharpName: string;
+  readonly type?: Extract<IrType, { kind: "functionType" }>;
 };
 
 /**
@@ -327,10 +338,23 @@ export type EmitterContext = {
   readonly qualifyLocalTypes?: boolean;
   /** Map of module static members (functions/fields) by original TS name */
   readonly valueSymbols?: ReadonlyMap<string, ValueSymbolInfo>;
+  /** Type aliases currently being expanded to prevent recursive alias blowups. */
+  readonly resolvingTypeAliases?: ReadonlySet<string>;
+  /**
+   * Active IR type emission stack keyed by stable type identity.
+   *
+   * Recursive structural graphs are legal after frontend lowering, but C#
+   * type syntax cannot always represent them directly. The emitter uses this
+   * stack to detect re-entry and fall back to `object` at the recursive edge
+   * instead of recursing forever.
+   */
+  readonly activeTypeEmissionKeys?: ReadonlySet<string>;
   /** Scoped identifier remaps for union narrowing */
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
   readonly localNameMap?: ReadonlyMap<string, string>;
+  /** Scoped runtime storage types for locals/parameters when they differ from frontend IR narrowing. */
+  readonly localValueTypes?: ReadonlyMap<string, IrType>;
   /** Module-level bindings that require mutable storage because JS array writes reassign them. */
   readonly mutableModuleBindings?: ReadonlySet<string>;
   /** Local class/interface property slots that require mutable storage because JS array writes reassign them. */

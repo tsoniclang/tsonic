@@ -2,13 +2,37 @@
  * Function expression emitters (function expressions and arrow functions)
  */
 
-import { IrExpression, IrParameter, IrType } from "@tsonic/frontend";
+import {
+  IrExpression,
+  IrParameter,
+  IrStatement,
+  IrType,
+  getAwaitedIrType,
+  isAwaitableIrType,
+} from "@tsonic/frontend";
 import { EmitterContext, withStatic } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitBlockStatementAst } from "../statement-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { lowerPatternAst } from "../patterns.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../core/semantic/type-resolution.js";
+import {
+  buildRuntimeUnionLayout,
+  findRuntimeUnionMemberIndex,
+} from "../core/semantic/runtime-unions.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
+import {
+  getIdentifierTypeName,
+  stableTypeKeyFromAst,
+} from "../core/format/backend-ast/utils.js";
+import {
+  allocateLocalName,
+  registerLocalValueType,
+} from "../core/format/local-names.js";
 import type {
   CSharpBlockStatementAst,
   CSharpExpressionAst,
@@ -18,7 +42,7 @@ import type {
 } from "../core/format/backend-ast/types.js";
 
 type EmittedLambdaParameter = {
-  readonly parameter: IrParameter;
+  readonly parameter?: IrParameter;
   readonly ast: CSharpLambdaParameterAst;
   readonly emittedName: string;
   readonly bindsDirectly: boolean;
@@ -29,14 +53,337 @@ const seedLocalNameMapFromParameters = (
   context: EmitterContext
 ): EmitterContext => {
   const map = new Map(context.localNameMap ?? []);
+  let currentContext = context;
   const used = new Set(context.usedLocalNames ?? []);
   for (const p of params) {
     if (!p.bindsDirectly) continue;
-    if (p.parameter.pattern.kind !== "identifierPattern") continue;
+    if (!p.parameter || p.parameter.pattern.kind !== "identifierPattern")
+      continue;
     map.set(p.parameter.pattern.name, p.emittedName);
     used.add(p.emittedName);
+    currentContext = registerLocalValueType(
+      p.parameter.pattern.name,
+      p.parameter.type,
+      currentContext
+    );
   }
-  return { ...context, localNameMap: map, usedLocalNames: used };
+  return {
+    ...currentContext,
+    localNameMap: map,
+    usedLocalNames: used,
+  };
+};
+
+type ContextualFunctionType = Extract<IrType, { kind: "functionType" }>;
+
+type AsyncUnionReturnPlan = {
+  readonly unionReturnType: IrType;
+  readonly awaitedReturnType: IrType;
+  readonly awaitableMemberType: IrType;
+};
+
+const resolveContextualFunctionType = (
+  expr: Extract<IrExpression, { kind: "functionExpression" | "arrowFunction" }>,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): ContextualFunctionType | undefined => {
+  if (expectedType) {
+    const resolvedExpected = resolveTypeAlias(
+      stripNullish(expectedType),
+      context
+    );
+    if (resolvedExpected.kind === "functionType") {
+      return resolvedExpected;
+    }
+  }
+
+  if (expr.inferredType?.kind === "functionType") {
+    return expr.inferredType;
+  }
+
+  return undefined;
+};
+
+const isDefinitelyTerminatingStatement = (stmt: IrStatement): boolean => {
+  if (stmt.kind === "returnStatement" || stmt.kind === "throwStatement") {
+    return true;
+  }
+  if (stmt.kind === "blockStatement") {
+    const last = stmt.statements.at(-1);
+    return last ? isDefinitelyTerminatingStatement(last) : false;
+  }
+  return false;
+};
+
+const getAsyncUnionReturnPlan = (
+  returnType: IrType | undefined,
+  context: EmitterContext
+): AsyncUnionReturnPlan | undefined => {
+  if (!returnType) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(returnType), context);
+  if (resolved.kind !== "unionType") {
+    return undefined;
+  }
+
+  let awaitableIndex = -1;
+  let awaitedReturnType: IrType | undefined;
+  let awaitableMemberType: IrType | undefined;
+
+  for (let index = 0; index < resolved.types.length; index += 1) {
+    const member = resolved.types[index];
+    if (!member || !isAwaitableIrType(member)) {
+      continue;
+    }
+
+    if (awaitableIndex !== -1) {
+      return undefined;
+    }
+
+    awaitableIndex = index;
+    awaitedReturnType = getAwaitedIrType(member) ?? { kind: "voidType" };
+    awaitableMemberType = member;
+  }
+
+  if (awaitableIndex === -1 || !awaitedReturnType || !awaitableMemberType) {
+    return undefined;
+  }
+
+  return {
+    unionReturnType: returnType,
+    awaitedReturnType,
+    awaitableMemberType,
+  };
+};
+
+const buildTaskRunInvocationAst = (
+  body: CSharpBlockStatementAst,
+  resultTypeAst: CSharpTypeAst | undefined
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: {
+    kind: "memberAccessExpression",
+    expression: {
+      kind: "typeReferenceExpression",
+      type: identifierType("global::System.Threading.Tasks.Task"),
+    },
+    memberName: "Run",
+  },
+  typeArguments: resultTypeAst ? [resultTypeAst] : undefined,
+  arguments: [
+    {
+      kind: "lambdaExpression",
+      isAsync: true,
+      parameters: [],
+      body,
+    },
+  ],
+});
+
+const wrapInUnionReturnMemberAst = (
+  unionTypeAst: CSharpTypeAst,
+  memberIndex: number,
+  valueAst: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: {
+    kind: "memberAccessExpression",
+    expression: {
+      kind: "typeReferenceExpression",
+      type: unionTypeAst,
+    },
+    memberName: `From${memberIndex}`,
+  },
+  arguments: [valueAst],
+});
+
+const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
+  const name = getIdentifierTypeName(type);
+  return (
+    name === "global::Tsonic.Runtime.Union" ||
+    name === "Tsonic.Runtime.Union" ||
+    name === "Union"
+  );
+};
+
+const emitAsyncUnionReturningLambdaBodyAst = (
+  parameters: readonly EmittedLambdaParameter[],
+  body: Extract<
+    IrExpression,
+    { kind: "functionExpression" | "arrowFunction" }
+  >["body"],
+  context: EmitterContext,
+  unionPlan: AsyncUnionReturnPlan,
+  capturesObjectLiteralThis: boolean | undefined
+): [CSharpExpressionAst | CSharpBlockStatementAst, EmitterContext] => {
+  const blockContext = withStatic(
+    {
+      ...context,
+      objectLiteralThisIdentifier: capturesObjectLiteralThis
+        ? context.objectLiteralThisIdentifier
+        : undefined,
+    },
+    false
+  );
+
+  const [preludeStatements, preludeContext] = lowerLambdaParameterPreludeAst(
+    parameters,
+    blockContext
+  );
+
+  const [awaitedReturnTypeAst, awaitedReturnTypeContext] = emitTypeAst(
+    unionPlan.awaitedReturnType,
+    preludeContext
+  );
+
+  let currentContext = awaitedReturnTypeContext;
+  let taskBody: CSharpBlockStatementAst;
+  const isVoidAwaitedReturn = unionPlan.awaitedReturnType.kind === "voidType";
+
+  if (body.kind === "blockStatement") {
+    const [blockAst] = emitBlockStatementAst(body, {
+      ...currentContext,
+      returnType: unionPlan.awaitedReturnType,
+    });
+    const needsImplicitUndefinedReturn = !(
+      unionPlan.awaitedReturnType.kind === "voidType" ||
+      isDefinitelyTerminatingStatement(body)
+    );
+
+    taskBody = {
+      kind: "blockStatement",
+      statements: needsImplicitUndefinedReturn
+        ? isVoidAwaitedReturn
+          ? blockAst.statements
+          : [
+              ...blockAst.statements,
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "defaultExpression",
+                  type: awaitedReturnTypeAst,
+                },
+              },
+            ]
+        : blockAst.statements,
+    };
+  } else {
+    const [exprAst] = emitExpressionAst(
+      body,
+      currentContext,
+      unionPlan.awaitedReturnType
+    );
+    const isNoopVoidExpression =
+      isVoidAwaitedReturn &&
+      ((body.kind === "literal" &&
+        (body.value === undefined || body.value === null)) ||
+        (body.kind === "identifier" &&
+          (body.name === "undefined" || body.name === "null")));
+    const discardLocal = isVoidAwaitedReturn
+      ? allocateLocalName("__tsonic_discard", currentContext)
+      : undefined;
+    currentContext = discardLocal?.context ?? currentContext;
+    taskBody = {
+      kind: "blockStatement",
+      statements: isVoidAwaitedReturn
+        ? isNoopVoidExpression
+          ? []
+          : [
+              {
+                kind: "localDeclarationStatement",
+                modifiers: [],
+                type: identifierType("var"),
+                declarators: [
+                  {
+                    name: discardLocal!.emittedName,
+                    initializer: exprAst,
+                  },
+                ],
+              },
+            ]
+        : [
+            {
+              kind: "returnStatement",
+              expression: exprAst,
+            },
+          ],
+    };
+  }
+
+  const resultTypeAst =
+    awaitedReturnTypeAst.kind === "predefinedType" &&
+    awaitedReturnTypeAst.keyword === "void"
+      ? undefined
+      : awaitedReturnTypeAst;
+
+  const taskInvocationAst = buildTaskRunInvocationAst(taskBody, resultTypeAst);
+  const [unionTypeAst, unionTypeContext] = emitTypeAst(
+    unionPlan.unionReturnType,
+    currentContext
+  );
+  const concreteUnionTypeAst =
+    unionTypeAst.kind === "nullableType"
+      ? unionTypeAst.underlyingType
+      : unionTypeAst;
+
+  if (!isRuntimeUnionTypeAst(concreteUnionTypeAst)) {
+    return [taskInvocationAst, unionTypeContext];
+  }
+
+  const [runtimeLayout, runtimeLayoutContext] = buildRuntimeUnionLayout(
+    unionPlan.unionReturnType,
+    unionTypeContext,
+    emitTypeAst
+  );
+  const [awaitableMemberTypeAst, awaitableMemberTypeContext] = emitTypeAst(
+    unionPlan.awaitableMemberType,
+    runtimeLayoutContext
+  );
+  const awaitableMemberTypeKey = stableTypeKeyFromAst(awaitableMemberTypeAst);
+  const awaitableMemberIndex =
+    runtimeLayout?.memberTypeAsts.findIndex(
+      (memberTypeAst) =>
+        stableTypeKeyFromAst(memberTypeAst) === awaitableMemberTypeKey
+    ) ?? -1;
+
+  const resolvedAwaitableMemberIndex =
+    awaitableMemberIndex >= 0
+      ? awaitableMemberIndex
+      : runtimeLayout
+        ? findRuntimeUnionMemberIndex(
+            runtimeLayout.members,
+            unionPlan.awaitableMemberType,
+            awaitableMemberTypeContext
+          )
+        : undefined;
+
+  if (resolvedAwaitableMemberIndex === undefined) {
+    return [taskInvocationAst, awaitableMemberTypeContext];
+  }
+
+  const wrappedTaskAst = wrapInUnionReturnMemberAst(
+    concreteUnionTypeAst,
+    resolvedAwaitableMemberIndex + 1,
+    taskInvocationAst
+  );
+
+  if (preludeStatements.length === 0) {
+    return [wrappedTaskAst, awaitableMemberTypeContext];
+  }
+
+  return [
+    {
+      kind: "blockStatement",
+      statements: [
+        ...preludeStatements,
+        {
+          kind: "returnStatement",
+          expression: wrappedTaskAst,
+        },
+      ],
+    },
+    awaitableMemberTypeContext,
+  ];
 };
 
 /**
@@ -83,21 +430,44 @@ const isConcreteLambdaParamType = (
   return !isTypeParameterLike(type, context);
 };
 
+const wrapOptionalLambdaParameterTypeAst = (
+  typeAst: CSharpTypeAst,
+  isOptional: boolean
+): CSharpTypeAst =>
+  isOptional && typeAst.kind !== "nullableType"
+    ? { kind: "nullableType", underlyingType: typeAst }
+    : typeAst;
+
 /**
  * Emit lambda parameters as typed AST nodes.
  */
 const emitLambdaParametersAst = (
   parameters: readonly IrParameter[],
-  context: EmitterContext
+  context: EmitterContext,
+  contextualFunctionType?: ContextualFunctionType
 ): [readonly EmittedLambdaParameter[], EmitterContext] => {
   let currentContext = context;
+  const contextualParameters = contextualFunctionType?.parameters ?? [];
+  const synthesizedContextualParameters =
+    contextualParameters.length > parameters.length
+      ? contextualParameters
+          .slice(parameters.length)
+          .filter((parameter) => !parameter.isRest)
+      : [];
 
-  const allHaveConcreteTypes = parameters.every((p) => {
-    if (!p.type) return false;
-    const unwrapped = unwrapParameterModifierType(p.type);
-    const actualType = unwrapped ?? p.type;
-    return isConcreteLambdaParamType(actualType, currentContext);
-  });
+  const allHaveConcreteTypes =
+    parameters.every((p) => {
+      if (!p.type) return false;
+      const unwrapped = unwrapParameterModifierType(p.type);
+      const actualType = unwrapped ?? p.type;
+      return isConcreteLambdaParamType(actualType, currentContext);
+    }) &&
+    synthesizedContextualParameters.every((p) => {
+      if (!p.type) return false;
+      const unwrapped = unwrapParameterModifierType(p.type);
+      const actualType = unwrapped ?? p.type;
+      return isConcreteLambdaParamType(actualType, currentContext);
+    });
 
   const paramAsts: EmittedLambdaParameter[] = [];
 
@@ -119,13 +489,10 @@ const emitLambdaParametersAst = (
 
       const [typeAst, newContext] = emitTypeAst(actualType, currentContext);
       currentContext = newContext;
-
-      // Wrap in nullable if optional and not already nullable
-      const finalTypeAst: CSharpTypeAst =
-        (param.isOptional || param.initializer !== undefined) &&
-        typeAst.kind !== "nullableType"
-          ? { kind: "nullableType", underlyingType: typeAst }
-          : typeAst;
+      const finalTypeAst = wrapOptionalLambdaParameterTypeAst(
+        typeAst,
+        param.isOptional || param.initializer !== undefined
+      );
 
       paramAsts.push({
         parameter: param,
@@ -145,6 +512,44 @@ const emitLambdaParametersAst = (
     }
   }
 
+  for (
+    let index = 0;
+    index < synthesizedContextualParameters.length;
+    index += 1
+  ) {
+    const contextualParam = synthesizedContextualParameters[index];
+    if (!contextualParam) continue;
+    const contextualIndex = parameters.length + index;
+
+    const name =
+      contextualParam.pattern.kind === "identifierPattern"
+        ? `__unused_${escapeCSharpIdentifier(contextualParam.pattern.name)}`
+        : `__unused${contextualIndex}`;
+
+    if (allHaveConcreteTypes && contextualParam.type) {
+      const unwrapped = unwrapParameterModifierType(contextualParam.type);
+      const actualType = unwrapped ?? contextualParam.type;
+      const [typeAst, newContext] = emitTypeAst(actualType, currentContext);
+      currentContext = newContext;
+      const finalTypeAst = wrapOptionalLambdaParameterTypeAst(
+        typeAst,
+        contextualParam.isOptional || contextualParam.initializer !== undefined
+      );
+      paramAsts.push({
+        emittedName: name,
+        bindsDirectly: false,
+        ast: { name, type: finalTypeAst },
+      });
+      continue;
+    }
+
+    paramAsts.push({
+      emittedName: name,
+      bindsDirectly: false,
+      ast: { name },
+    });
+  }
+
   return [paramAsts, currentContext];
 };
 
@@ -156,7 +561,7 @@ const lowerLambdaParameterPreludeAst = (
   const statements: CSharpStatementAst[] = [];
 
   for (const parameter of parameters) {
-    if (parameter.bindsDirectly) continue;
+    if (parameter.bindsDirectly || !parameter.parameter) continue;
 
     let inputExpr: CSharpExpressionAst = {
       kind: "identifierExpression",
@@ -251,32 +656,47 @@ const emitLambdaBodyAst = (
  */
 export const emitFunctionExpression = (
   expr: Extract<IrExpression, { kind: "functionExpression" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const contextualFunctionType = resolveContextualFunctionType(
+    expr,
+    expectedType,
+    context
+  );
   const [paramInfos, paramContext] = emitLambdaParametersAst(
     expr.parameters,
-    context
+    context,
+    contextualFunctionType
   );
   const bodyContextSeeded = seedLocalNameMapFromParameters(
     paramInfos,
     paramContext
   );
-
-  const returnType =
-    expr.inferredType?.kind === "functionType"
-      ? expr.inferredType.returnType
+  const returnType = contextualFunctionType?.returnType;
+  const asyncUnionReturnPlan =
+    expr.isAsync && returnType
+      ? getAsyncUnionReturnPlan(returnType, bodyContextSeeded)
       : undefined;
-  const [bodyAst] = emitLambdaBodyAst(
-    paramInfos,
-    expr.body,
-    bodyContextSeeded,
-    returnType,
-    expr.capturesObjectLiteralThis
-  );
+  const [bodyAst] = asyncUnionReturnPlan
+    ? emitAsyncUnionReturningLambdaBodyAst(
+        paramInfos,
+        expr.body,
+        bodyContextSeeded,
+        asyncUnionReturnPlan,
+        expr.capturesObjectLiteralThis
+      )
+    : emitLambdaBodyAst(
+        paramInfos,
+        expr.body,
+        bodyContextSeeded,
+        returnType,
+        expr.capturesObjectLiteralThis
+      );
 
   const result: CSharpExpressionAst = {
     kind: "lambdaExpression",
-    isAsync: expr.isAsync ?? false,
+    isAsync: asyncUnionReturnPlan ? false : (expr.isAsync ?? false),
     parameters: paramInfos.map((p) => p.ast),
     body: bodyAst,
   };
@@ -288,23 +708,47 @@ export const emitFunctionExpression = (
  */
 export const emitArrowFunction = (
   expr: Extract<IrExpression, { kind: "arrowFunction" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const contextualFunctionType = resolveContextualFunctionType(
+    expr,
+    expectedType,
+    context
+  );
   const [paramInfos, paramContext] = emitLambdaParametersAst(
     expr.parameters,
-    context
+    context,
+    contextualFunctionType
   );
   const bodyContextSeeded = seedLocalNameMapFromParameters(
     paramInfos,
     paramContext
   );
-
-  const returnType =
-    expr.inferredType?.kind === "functionType"
-      ? expr.inferredType.returnType
+  const returnType = contextualFunctionType?.returnType;
+  const asyncUnionReturnPlan =
+    expr.isAsync && returnType
+      ? getAsyncUnionReturnPlan(returnType, bodyContextSeeded)
       : undefined;
 
   const requiresLoweredBody = paramInfos.some((p) => !p.bindsDirectly);
+
+  if (asyncUnionReturnPlan) {
+    const [bodyAst] = emitAsyncUnionReturningLambdaBodyAst(
+      paramInfos,
+      expr.body,
+      bodyContextSeeded,
+      asyncUnionReturnPlan,
+      undefined
+    );
+    const result: CSharpExpressionAst = {
+      kind: "lambdaExpression",
+      isAsync: false,
+      parameters: paramInfos.map((p) => p.ast),
+      body: bodyAst,
+    };
+    return [result, paramContext];
+  }
 
   if (expr.body.kind === "blockStatement" || requiresLoweredBody) {
     const [bodyAst] = emitLambdaBodyAst(

@@ -11,6 +11,10 @@ import {
   IrTupleType,
   IrInterfaceMember,
 } from "../../../types.js";
+import {
+  normalizedUnionType,
+  stableIrTypeKey,
+} from "../../../types/type-ops.js";
 import { convertPrimitiveKeyword } from "./primitives.js";
 import { convertTypeReference } from "./references.js";
 import { convertArrayType } from "./arrays.js";
@@ -27,7 +31,7 @@ const dedupeUnionMembers = (types: readonly IrType[]): readonly IrType[] => {
   const seen = new Set<string>();
   const result: IrType[] = [];
   for (const type of types) {
-    const key = JSON.stringify(type);
+    const key = stableIrTypeKey(type);
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(type);
@@ -38,11 +42,7 @@ const dedupeUnionMembers = (types: readonly IrType[]): readonly IrType[] => {
 const toUnionOrSingle = (types: readonly IrType[]): IrType => {
   const deduped = dedupeUnionMembers(types);
   if (deduped.length === 0) return { kind: "unknownType" };
-  if (deduped.length === 1) {
-    const first = deduped[0];
-    return first ?? { kind: "unknownType" };
-  }
-  return { kind: "unionType", types: deduped };
+  return normalizedUnionType(deduped);
 };
 
 const getTypeParameterConstraintNode = (
@@ -94,7 +94,7 @@ const memberValueType = (member: IrInterfaceMember): IrType =>
       } as IrFunctionType);
 
 const typesSyntacticallyEqual = (left: IrType, right: IrType): boolean =>
-  JSON.stringify(left) === JSON.stringify(right);
+  stableIrTypeKey(left) === stableIrTypeKey(right);
 
 function buildFunctionTypeFromSignatureDeclaration(
   declaration: ts.SignatureDeclarationBase,
@@ -754,6 +754,12 @@ export const convertType = (
     );
 
     if (hasRest) {
+      const restIndex = typeNode.elements.findIndex(
+        (el) =>
+          ts.isRestTypeNode(el) ||
+          (ts.isNamedTupleMember(el) &&
+            (el.dotDotDotToken !== undefined || ts.isRestTypeNode(el.type)))
+      );
       const elementTypes: IrType[] = [];
 
       for (const element of typeNode.elements) {
@@ -826,10 +832,78 @@ export const convertType = (
         elementTypes.push(convertType(element, binding));
       }
 
+      const hasRepresentableSpreadMetadata =
+        restIndex >= 0 &&
+        typeNode.elements
+          .slice(restIndex + 1)
+          .every(
+            (element) =>
+              ts.isRestTypeNode(element) ||
+              (ts.isNamedTupleMember(element) &&
+                (element.dotDotDotToken !== undefined ||
+                  ts.isRestTypeNode(element.type)))
+          );
+      const tuplePrefixElementTypes = hasRepresentableSpreadMetadata
+        ? typeNode.elements.slice(0, restIndex).flatMap((element): IrType[] => {
+            if (ts.isNamedTupleMember(element)) {
+              return [convertType(element.type, binding)];
+            }
+            if (ts.isRestTypeNode(element)) {
+              return [];
+            }
+            return [convertType(element, binding)];
+          })
+        : undefined;
+      const tupleRestElementType = hasRepresentableSpreadMetadata
+        ? (() => {
+            const restElement = typeNode.elements[restIndex];
+            if (!restElement) return undefined;
+
+            if (ts.isNamedTupleMember(restElement)) {
+              const restType = ts.isRestTypeNode(restElement.type)
+                ? restElement.type.type
+                : restElement.type;
+              if (ts.isArrayTypeNode(restType)) {
+                return convertType(restType.elementType, binding);
+              }
+              if (ts.isTupleTypeNode(restType)) {
+                const nestedRest = restType.elements.find((nestedElement) =>
+                  ts.isRestTypeNode(nestedElement)
+                );
+                if (nestedRest && ts.isArrayTypeNode(nestedRest.type)) {
+                  return convertType(nestedRest.type.elementType, binding);
+                }
+              }
+              return undefined;
+            }
+
+            if (ts.isRestTypeNode(restElement)) {
+              const restType = restElement.type;
+              if (ts.isArrayTypeNode(restType)) {
+                return convertType(restType.elementType, binding);
+              }
+              if (ts.isTupleTypeNode(restType)) {
+                const nestedRest = restType.elements.find((nestedElement) =>
+                  ts.isRestTypeNode(nestedElement)
+                );
+                if (nestedRest && ts.isArrayTypeNode(nestedRest.type)) {
+                  return convertType(nestedRest.type.elementType, binding);
+                }
+              }
+            }
+
+            return undefined;
+          })()
+        : undefined;
+
       return {
         kind: "arrayType",
         elementType: toUnionOrSingle(elementTypes),
         origin: "explicit",
+        ...((tuplePrefixElementTypes?.length ?? 0) > 0
+          ? { tuplePrefixElementTypes }
+          : {}),
+        ...(tupleRestElementType ? { tupleRestElementType } : {}),
       };
     }
 

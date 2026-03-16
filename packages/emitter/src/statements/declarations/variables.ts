@@ -11,6 +11,7 @@ import {
   IrType,
   NumericKind,
   NUMERIC_KIND_TO_CSHARP,
+  stableIrTypeKey,
 } from "@tsonic/frontend";
 import { EmitterContext, indent, withAsync, withStatic } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
@@ -26,12 +27,16 @@ import { getIdentifierTypeName } from "../../core/format/backend-ast/utils.js";
 import {
   allocateLocalName,
   registerLocalName,
+  registerLocalValueType,
 } from "../../core/format/local-names.js";
 import {
   isDefinitelyValueType,
+  isTypeOnlyStructuralTarget,
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import {
@@ -102,6 +107,50 @@ const canEmitTypeExplicitly = (type: IrType): boolean => {
   }
 
   return false;
+};
+
+const isStructuralTypeAssertionInitializer = (
+  initializer:
+    | ({
+        readonly kind: string;
+        readonly targetType?: IrType;
+        readonly inferredType?: IrType;
+      } & Record<string, unknown>)
+    | undefined,
+  context: EmitterContext
+): boolean =>
+  initializer?.kind === "typeAssertion" &&
+  !!initializer.targetType &&
+  isTypeOnlyStructuralTarget(initializer.targetType, context);
+
+const shouldTreatStructuralAssertionAsErased = (
+  decl: {
+    readonly type?: IrType;
+    readonly initializer?: {
+      readonly kind: string;
+      readonly targetType?: IrType;
+      readonly inferredType?: IrType;
+    };
+  },
+  context: EmitterContext
+): boolean => {
+  const initializer = decl.initializer;
+  const targetType = initializer?.targetType;
+  if (
+    !isStructuralTypeAssertionInitializer(initializer, context) ||
+    !targetType
+  ) {
+    return false;
+  }
+
+  if (!decl.type) {
+    return true;
+  }
+
+  return (
+    stableIrTypeKey(stripNullish(decl.type)) ===
+    stableIrTypeKey(stripNullish(targetType))
+  );
 };
 
 /**
@@ -232,6 +281,13 @@ const resolveStaticFieldType = (
 
   // typeAssertion
   if (init?.kind === "typeAssertion" && init.targetType) {
+    if (isTypeOnlyStructuralTarget(init.targetType, context)) {
+      const inferredType = decl.type ?? init.inferredType;
+      if (inferredType && canEmitTypeExplicitly(inferredType)) {
+        return emitTypeAst(inferredType, context);
+      }
+      return [{ kind: "varType" }, context];
+    }
     return emitTypeAst(init.targetType, context);
   }
 
@@ -323,6 +379,49 @@ const shouldEmitReadonlyStaticField = (
   if (decl.name.kind !== "identifierPattern") return true;
   return !(
     decl.name.name && context.mutableModuleBindings?.has(decl.name.name)
+  );
+};
+
+const isExplicitCastLikeAst = (ast: CSharpExpressionAst): boolean =>
+  ast.kind === "castExpression" ||
+  ast.kind === "asExpression" ||
+  ast.kind === "parenthesizedExpression";
+
+const shouldForceDeclaredInitializerCast = (
+  initializer: IrExpression | undefined,
+  declaredType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!initializer || !declaredType) {
+    return false;
+  }
+
+  if (
+    initializer.kind !== "identifier" &&
+    initializer.kind !== "memberAccess" &&
+    initializer.kind !== "typeAssertion"
+  ) {
+    return false;
+  }
+
+  const originalType =
+    initializer.kind === "typeAssertion"
+      ? initializer.expression.inferredType
+      : initializer.inferredType;
+  const effectiveType =
+    initializer.kind === "typeAssertion"
+      ? resolveEffectiveExpressionType(initializer.expression, context)
+      : resolveEffectiveExpressionType(initializer, context);
+
+  if (!originalType || !effectiveType) {
+    return false;
+  }
+
+  return (
+    stableIrTypeKey(stripNullish(originalType)) !==
+      stableIrTypeKey(stripNullish(declaredType)) &&
+    stableIrTypeKey(stripNullish(effectiveType)) ===
+      stableIrTypeKey(stripNullish(declaredType))
   );
 };
 
@@ -710,7 +809,12 @@ export const emitVariableDeclaration = (
         decl.type
       );
       currentContext = newContext;
-      const patternType = decl.type ?? decl.initializer.inferredType;
+      const patternType =
+        decl.type ??
+        resolveEffectiveVariableInitializerType(
+          decl.initializer,
+          currentContext
+        );
       const result = lowerPatternToStaticMembersAst(
         decl.name,
         initAst,
@@ -856,13 +960,40 @@ const resolveLocalTypeAst = (
   },
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
+  const numericInit = decl.initializer as
+    | ({ readonly targetKind?: NumericKind; readonly inferredType?: IrType } & {
+        readonly kind: string;
+      })
+    | undefined;
+
+  if (
+    !decl.type &&
+    decl.initializer?.kind === "numericNarrowing" &&
+    numericInit?.targetKind
+  ) {
+    return [{ kind: "varType" }, context];
+  }
+
+  if (
+    decl.initializer?.kind === "typeAssertion" &&
+    (!decl.type || shouldTreatStructuralAssertionAsErased(decl, context))
+  ) {
+    const assertedTarget = decl.initializer.targetType;
+    if (assertedTarget) {
+      const resolvedAssertedTarget = resolveTypeAlias(
+        stripNullish(assertedTarget),
+        context
+      );
+      if (resolvedAssertedTarget.kind === "arrayType") {
+        return emitTypeAst(assertedTarget, context);
+      }
+      return [{ kind: "varType" }, context];
+    }
+  }
+
   // asinterface<T>(x) - preserve target type in LHS
   if (!decl.type && decl.initializer?.kind === "asinterface") {
-    const targetType = resolveAsInterfaceTargetType(
-      (decl.initializer as { targetType: IrType }).targetType,
-      context
-    );
-    return emitTypeAst(targetType, context);
+    return [{ kind: "varType" }, context];
   }
 
   // Explicit TypeScript annotation that is C#-emittable
@@ -881,7 +1012,10 @@ const resolveLocalTypeAst = (
     decl.initializer &&
     isNullishInitializer(decl.initializer)
   ) {
-    const fallbackType = decl.initializer.inferredType;
+    const fallbackType = resolveEffectiveVariableInitializerType(
+      decl.initializer,
+      context
+    );
     if (fallbackType && canEmitTypeExplicitly(fallbackType)) {
       return emitTypeAst(fallbackType, context);
     }
@@ -897,9 +1031,14 @@ const resolveLocalTypeAst = (
   if (
     !decl.type &&
     decl.initializer &&
-    isNullableValueUnion(decl.initializer.inferredType)
+    isNullableValueUnion(
+      resolveEffectiveVariableInitializerType(decl.initializer, context)
+    )
   ) {
-    const inferredType = decl.initializer.inferredType;
+    const inferredType = resolveEffectiveVariableInitializerType(
+      decl.initializer,
+      context
+    );
     if (inferredType) {
       return emitTypeAst(inferredType, context);
     }
@@ -947,7 +1086,9 @@ const resolveLocalTypeAst = (
 
   // stackalloc - must be target-typed to produce Span<T>
   if (decl.initializer?.kind === "stackalloc") {
-    const targetType = decl.type ?? decl.initializer.inferredType;
+    const targetType =
+      decl.type ??
+      resolveEffectiveVariableInitializerType(decl.initializer, context);
     if (!targetType) {
       throw new Error(
         "ICE: stackalloc initializer missing target type (no decl.type and no inferredType)"
@@ -958,6 +1099,53 @@ const resolveLocalTypeAst = (
 
   // Default: var
   return [{ kind: "varType" }, context];
+};
+
+const resolveLocalStorageType = (
+  decl: {
+    readonly type?: IrType;
+    readonly initializer?: Extract<
+      IrStatement,
+      { kind: "variableDeclaration" }
+    >["declarations"][number]["initializer"];
+  },
+  context: EmitterContext
+): IrType | undefined => {
+  const sourceType =
+    decl.type ??
+    resolveEffectiveVariableInitializerType(decl.initializer, context);
+
+  return normalizeRuntimeStorageType(sourceType, context);
+};
+
+const resolveEffectiveVariableInitializerType = (
+  initializer:
+    | {
+        readonly kind: string;
+        readonly inferredType?: IrType;
+        readonly targetType?: IrType;
+      }
+    | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!initializer) {
+    return undefined;
+  }
+
+  const expression = initializer as IrExpression;
+
+  if (expression.kind === "typeAssertion") {
+    return expression.targetType;
+  }
+
+  if (expression.kind === "asinterface") {
+    return resolveAsInterfaceTargetType(expression.targetType, context);
+  }
+
+  return (
+    resolveEffectiveExpressionType(expression, context) ??
+    expression.inferredType
+  );
 };
 
 /**
@@ -992,7 +1180,12 @@ export const emitVariableDeclarationAst = (
       );
       currentContext = newContext;
 
-      const patternType = decl.type ?? decl.initializer.inferredType;
+      const patternType =
+        decl.type ??
+        resolveEffectiveVariableInitializerType(
+          decl.initializer,
+          currentContext
+        );
       const result = lowerPatternAst(
         decl.name,
         initAst,
@@ -1042,6 +1235,11 @@ export const emitVariableDeclarationAst = (
           localName,
           currentContext
         );
+        currentContext = registerLocalValueType(
+          originalName,
+          resolveLocalStorageType(decl, currentContext),
+          currentContext
+        );
 
         const expectedInitializerType =
           decl.type ??
@@ -1074,13 +1272,47 @@ export const emitVariableDeclarationAst = (
       // Emit initializer (after allocation, before registration - C# scoping)
       let initAst = undefined;
       if (decl.initializer) {
+        const numericInitializer = decl.initializer as
+          | ({ readonly inferredType?: IrType } & { readonly kind: string })
+          | undefined;
+        const expectedInitializerType = shouldTreatStructuralAssertionAsErased(
+          decl,
+          currentContext
+        )
+          ? undefined
+          : (decl.type ??
+            (decl.initializer.kind === "numericNarrowing"
+              ? numericInitializer?.inferredType
+              : resolveEffectiveVariableInitializerType(
+                  decl.initializer,
+                  currentContext
+                )));
         const [exprAst, newContext] = emitExpressionAst(
           decl.initializer,
           currentContext,
-          decl.type
+          expectedInitializerType
         );
         currentContext = newContext;
-        initAst = exprAst;
+        initAst =
+          typeAst.kind !== "varType" &&
+          !isExplicitCastLikeAst(exprAst) &&
+          shouldForceDeclaredInitializerCast(
+            decl.initializer,
+            decl.type ??
+              (decl.initializer.kind === "typeAssertion"
+                ? decl.initializer.targetType
+                : resolveEffectiveVariableInitializerType(
+                    decl.initializer,
+                    currentContext
+                  )),
+            currentContext
+          )
+            ? {
+                kind: "castExpression" as const,
+                type: typeAst,
+                expression: exprAst,
+              }
+            : exprAst;
       } else if (typeAst.kind !== "varType") {
         initAst = {
           kind: "defaultExpression" as const,
@@ -1092,6 +1324,11 @@ export const emitVariableDeclarationAst = (
       currentContext = registerLocalName(
         originalName,
         localName,
+        currentContext
+      );
+      currentContext = registerLocalValueType(
+        originalName,
+        resolveLocalStorageType(decl, currentContext),
         currentContext
       );
 

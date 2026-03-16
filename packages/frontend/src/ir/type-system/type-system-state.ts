@@ -99,6 +99,13 @@ export type ResolvedCall = {
   /** Fully instantiated parameter types (undefined = missing annotation) */
   readonly parameterTypes: readonly (IrType | undefined)[];
 
+  /** Explicit rest-parameter metadata from the selected signature. */
+  readonly restParameter?: {
+    readonly index: number;
+    readonly arrayType: IrType | undefined;
+    readonly elementType: IrType | undefined;
+  };
+
   /** Parameter passing modes (value, ref, out, in) */
   readonly parameterModes: readonly ParameterMode[];
 
@@ -117,6 +124,14 @@ export type ResolvedCall = {
    * Only present if the function has a type predicate return type.
    */
   readonly typePredicate?: TypePredicateResult;
+
+  /** Internal deterministic selection metadata for overload correction/tie-breaking. */
+  readonly selectionMeta?: {
+    readonly hasRestParameter: boolean;
+    readonly typeParamCount: number;
+    readonly parameterCount: number;
+    readonly stableId: string;
+  };
 
   /** Diagnostics emitted during resolution */
   readonly diagnostics: readonly Diagnostic[];
@@ -260,8 +275,23 @@ export type TypeSyntaxInfo = {
  * Pure data — no TS nodes.
  */
 export type ClassMemberNames = {
+  readonly typeParameters: readonly string[];
   readonly methods: ReadonlySet<string>;
   readonly properties: ReadonlySet<string>;
+  readonly methodSignatures: ReadonlyMap<
+    string,
+    readonly CapturedClassMethodSignature[]
+  >;
+  readonly propertyTypeNodes: ReadonlyMap<string, unknown | undefined>;
+};
+
+export type CapturedClassMethodSignature = {
+  readonly parameters: readonly CapturedClassMethodParameter[];
+};
+
+export type CapturedClassMethodParameter = {
+  readonly typeNode?: unknown;
+  readonly isRest: boolean;
 };
 
 /**

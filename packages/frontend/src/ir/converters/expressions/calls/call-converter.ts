@@ -14,6 +14,7 @@ import {
   IrDefaultOfExpression,
   IrNameOfExpression,
   IrSizeOfExpression,
+  getSpreadTupleShape,
 } from "../../../types.js";
 import {
   getSourceSpan,
@@ -24,6 +25,7 @@ import { convertExpression } from "../../../expression-converter.js";
 import { IrType } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
+import { expandParameterTypesForArguments } from "../../../type-system/type-system-call-resolution.js";
 import {
   type CallSiteArgModifier,
   deriveSubstitutionsFromExpectedReturn,
@@ -38,10 +40,138 @@ import {
   getDynamicImportPromiseType,
 } from "../dynamic-import.js";
 import { isIdentifierFromCore } from "../../../../core-intrinsics/provenance.js";
+import { narrowTypeByArrayShape } from "../../array-type-guards.js";
 
 // DELETED: getReturnTypeFromFunctionType - Was part of fallback path
 // DELETED: getCalleesDeclaredType - Was part of fallback path
 // Alice's spec: TypeSystem.resolveCall() is the single source of truth.
+
+const flattenCallableCandidates = (
+  type: IrType | undefined,
+  ctx: ProgramContext
+): readonly Extract<IrType, { kind: "functionType" }>[] => {
+  if (!type) return [];
+
+  if (type.kind === "functionType") {
+    return [type];
+  }
+
+  if (type.kind === "intersectionType") {
+    return type.types.flatMap((member) =>
+      flattenCallableCandidates(member, ctx)
+    );
+  }
+
+  const delegated = ctx.typeSystem.delegateToFunctionType(type);
+  return delegated ? [delegated] : [];
+};
+
+const countRequiredParameters = (
+  type: Extract<IrType, { kind: "functionType" }>
+): number =>
+  type.parameters.filter(
+    (parameter) => !parameter.isOptional && !parameter.isRest
+  ).length;
+
+const canAcceptArgumentCount = (
+  type: Extract<IrType, { kind: "functionType" }>,
+  argumentCount: number
+): boolean => {
+  const required = countRequiredParameters(type);
+  if (argumentCount < required) return false;
+
+  const hasRest = type.parameters.some((parameter) => parameter.isRest);
+  if (!hasRest && argumentCount > type.parameters.length) {
+    return false;
+  }
+
+  return true;
+};
+
+const collectResolutionArguments = (
+  args: readonly IrCallExpression["arguments"][number][]
+): {
+  readonly argumentCount: number;
+  readonly argTypes: readonly (IrType | undefined)[];
+} => {
+  const argTypes: (IrType | undefined)[] = [];
+
+  for (const arg of args) {
+    if (arg.kind !== "spread") {
+      argTypes.push(arg.inferredType);
+      continue;
+    }
+
+    const spreadShape = arg.inferredType
+      ? getSpreadTupleShape(arg.inferredType)
+      : undefined;
+    if (!spreadShape) {
+      continue;
+    }
+
+    for (const elementType of spreadShape.prefixElementTypes) {
+      argTypes.push(elementType);
+    }
+  }
+
+  return {
+    argumentCount: argTypes.length,
+    argTypes,
+  };
+};
+
+const scoreCallableCandidate = (
+  type: Extract<IrType, { kind: "functionType" }>,
+  argumentCount: number
+): readonly [number, number, number, number] => {
+  const hasRest = type.parameters.some((parameter) => parameter.isRest);
+  const required = countRequiredParameters(type);
+  return [
+    hasRest ? 0 : 1,
+    Math.max(0, required - argumentCount) === 0 ? 1 : 0,
+    type.parameters.length === argumentCount ? 1 : 0,
+    -type.parameters.length,
+  ];
+};
+
+const compareCallableScores = (
+  left: readonly [number, number, number, number],
+  right: readonly [number, number, number, number]
+): number => {
+  for (let index = 0; index < left.length; index += 1) {
+    const delta = left[index]! - right[index]!;
+    if (delta !== 0) return delta;
+  }
+  return 0;
+};
+
+const chooseCallableCandidate = (
+  type: IrType | undefined,
+  argumentCount: number,
+  ctx: ProgramContext
+): Extract<IrType, { kind: "functionType" }> | undefined => {
+  const candidates = flattenCallableCandidates(type, ctx).filter((candidate) =>
+    canAcceptArgumentCount(candidate, argumentCount)
+  );
+  if (candidates.length === 0) return undefined;
+
+  let best = candidates[0];
+  let bestScore = best
+    ? scoreCallableCandidate(best, argumentCount)
+    : ([0, 0, 0, 0] as const);
+
+  for (let index = 1; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    if (!candidate) continue;
+    const score = scoreCallableCandidate(candidate, argumentCount);
+    if (compareCallableScores(score, bestScore) > 0) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return best;
+};
 
 /**
  * Walk a property access chain and build a qualified name.
@@ -69,6 +199,40 @@ const buildQualifiedName = (expr: ts.Expression): string | undefined => {
   }
 
   return undefined;
+};
+
+const unwrapExpr = (expr: ts.Expression): ts.Expression => {
+  let current = expr;
+  while (ts.isParenthesizedExpression(current)) {
+    current = current.expression;
+  }
+  return current;
+};
+
+const isArrayNamespaceExpression = (expr: ts.Expression): boolean => {
+  const unwrapped = unwrapExpr(expr);
+  if (ts.isIdentifier(unwrapped)) {
+    return unwrapped.text === "Array";
+  }
+
+  if (ts.isPropertyAccessExpression(unwrapped)) {
+    return (
+      ts.isIdentifier(unwrapped.expression) &&
+      unwrapped.expression.text === "globalThis" &&
+      unwrapped.name.text === "Array"
+    );
+  }
+
+  return false;
+};
+
+const isArrayIsArrayCall = (expr: ts.Expression): boolean => {
+  const unwrapped = unwrapExpr(expr);
+  return (
+    ts.isPropertyAccessExpression(unwrapped) &&
+    unwrapped.name.text === "isArray" &&
+    isArrayNamespaceExpression(unwrapped.expression)
+  );
 };
 
 // DELETED: getDeclaredReturnTypeFallback - Alice's spec: no fallbacks allowed
@@ -573,24 +737,35 @@ export const convertCallExpression = (
       )
     : undefined;
 
+  const specializedMemberFunctionType = (() => {
+    if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+    if (!receiverIrType) return undefined;
+
+    const memberId = ctx.binding.resolvePropertyAccess(node.expression);
+    if (!memberId) return undefined;
+
+    const memberType = typeSystem.typeOfMemberId(memberId, receiverIrType);
+    return chooseCallableCandidate(memberType, argumentCount, ctx);
+  })();
+
   // If we can't resolve a signature handle (common for calls through function-typed
   // variables), fall back to the callee's inferred function type.
   const calleeFunctionType = (() => {
+    if (specializedMemberFunctionType) {
+      return specializedMemberFunctionType;
+    }
+
     const t = callee.inferredType;
-    if (!t) return undefined;
-    if (t.kind === "functionType") return t;
-    return typeSystem.delegateToFunctionType(t) ?? undefined;
+    return chooseCallableCandidate(t, argumentCount, ctx);
   })();
 
   if (!sigId && calleeFunctionType) {
     const params = calleeFunctionType.parameters;
-    const paramTypesForArgs: (IrType | undefined)[] = [];
-    const hasRest = params.some((p) => p.isRest);
-
-    for (let i = 0; i < node.arguments.length; i++) {
-      const p = params[i] ?? (hasRest ? params[params.length - 1] : undefined);
-      paramTypesForArgs[i] = p?.type;
-    }
+    const paramTypesForArgs = expandParameterTypesForArguments(
+      params,
+      params.map((parameter) => parameter.type),
+      node.arguments.length
+    );
 
     const args: IrCallExpression["arguments"][number][] = [];
     for (let i = 0; i < node.arguments.length; i++) {
@@ -635,6 +810,15 @@ export const convertCallExpression = (
       requiresSpecialization,
       argumentPassing,
       parameterTypes: paramTypesForArgs,
+      restParameter: (() => {
+        const restIndex = params.findIndex((parameter) => parameter.isRest);
+        if (restIndex < 0) return undefined;
+        return {
+          index: restIndex,
+          arrayType: params[restIndex]?.type,
+          elementType: paramTypesForArgs[restIndex],
+        };
+      })(),
     };
   }
 
@@ -794,13 +978,19 @@ export const convertCallExpression = (
     a.kind === "spread" ? undefined : a.inferredType
   );
 
+  const resolutionArgs = collectResolutionArguments(convertedArgs);
+
   const finalResolved = sigId
     ? typeSystem.resolveCall({
         sigId,
-        argumentCount,
+        argumentCount:
+          resolutionArgs.argumentCount > 0
+            ? resolutionArgs.argumentCount
+            : argumentCount,
         receiverType: receiverIrType,
         explicitTypeArgs,
-        argTypes,
+        argTypes:
+          resolutionArgs.argumentCount > 0 ? resolutionArgs.argTypes : argTypes,
         expectedReturnType: expectedType,
       })
     : lambdaContextResolved;
@@ -855,14 +1045,32 @@ export const convertCallExpression = (
   );
 
   const narrowing: IrCallExpression["narrowing"] = (() => {
+    if (ts.isCallExpression(node) && isArrayIsArrayCall(node.expression)) {
+      const currentType = argTypes[0];
+      const targetType = narrowTypeByArrayShape(
+        ctx.typeSystem,
+        currentType,
+        true
+      );
+      if (targetType) {
+        return {
+          kind: "typePredicate",
+          argIndex: 0,
+          targetType,
+        };
+      }
+    }
+
     const pred = finalResolved?.typePredicate;
-    if (!pred) return undefined;
-    if (pred.kind !== "param") return undefined;
-    return {
-      kind: "typePredicate",
-      argIndex: pred.parameterIndex,
-      targetType: pred.targetType,
-    };
+    if (pred?.kind === "param") {
+      return {
+        kind: "typePredicate",
+        argIndex: pred.parameterIndex,
+        targetType: pred.targetType,
+      };
+    }
+
+    return undefined;
   })();
 
   return {
@@ -879,6 +1087,7 @@ export const convertCallExpression = (
     requiresSpecialization,
     argumentPassing: argumentPassingWithOverrides,
     parameterTypes,
+    restParameter: finalResolved?.restParameter,
     narrowing,
   };
 };

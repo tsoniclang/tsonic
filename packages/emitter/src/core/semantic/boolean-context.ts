@@ -15,7 +15,13 @@
 import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { allocateLocalName } from "../format/local-names.js";
-import { substituteTypeArgs } from "./type-resolution.js";
+import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
+import {
+  isRuntimeNullishType,
+  splitRuntimeNullishUnionMembers,
+  substituteTypeArgs,
+} from "./type-resolution.js";
+import { buildRuntimeUnionFrame } from "./runtime-unions.js";
 import {
   booleanLiteral,
   charLiteral,
@@ -83,21 +89,6 @@ const coerceClrPrimitiveToPrimitiveType = (
 /**
  * Check if an expression's inferred type is boolean.
  */
-const isBooleanCondition = (expr: IrExpression): boolean => {
-  const type = expr.inferredType;
-  if (!type) return false;
-  if (type.kind === "primitiveType") {
-    return type.name === "boolean";
-  }
-
-  // Some CLR APIs (via bindings) surface as referenceType with a resolved CLR primitive
-  // (e.g. System.Boolean). Treat those as booleans for C# conditions.
-  const coerced = coerceClrPrimitiveToPrimitiveType(type);
-  return (
-    !!coerced && coerced.kind === "primitiveType" && coerced.name === "boolean"
-  );
-};
-
 /**
  * Expressions that are always boolean in JS/TS, even if the IR is missing inferredType.
  *
@@ -442,10 +433,6 @@ const resolveLocalTypeAlias = (
   return current;
 };
 
-const isNullishType = (type: IrType): boolean =>
-  type.kind === "primitiveType" &&
-  (type.name === "null" || type.name === "undefined");
-
 const getLiteralUnionBasePrimitive = (
   types: readonly IrType[]
 ): "string" | "number" | "boolean" | undefined => {
@@ -483,8 +470,10 @@ const emitUnionTruthinessConditionAst = (
   // - literal unions behave like their primitive base at runtime
   // - 2-8 unions emit as global::Tsonic.Runtime.Union<T1..Tn>, which requires per-variant truthiness
 
-  const nonNullTypes = unionType.types.filter((t) => !isNullishType(t));
-  const hasNullish = nonNullTypes.length !== unionType.types.length;
+  const runtimeNullishSplit = splitRuntimeNullishUnionMembers(unionType);
+  const nonNullTypes =
+    runtimeNullishSplit?.nonNullishMembers ?? unionType.types;
+  const hasNullish = runtimeNullishSplit?.hasRuntimeNullish ?? false;
 
   const literalBase = getLiteralUnionBasePrimitive(nonNullTypes);
   if (literalBase) {
@@ -556,11 +545,7 @@ const emitUnionTruthinessConditionAst = (
     // emit truthiness directly against the operand with non-null inferred type.
     // This avoids nested nullable pattern variables while preserving exact semantics.
     if (nonNull.kind !== "primitiveType") {
-      return toBooleanConditionAst(
-        { ...expr, inferredType: nonNull },
-        emittedAst,
-        context
-      );
+      return emitRuntimeTruthinessConditionAst(emittedAst, context);
     }
 
     const nextId = (context.tempVarId ?? 0) + 1;
@@ -618,9 +603,13 @@ const emitUnionTruthinessConditionAst = (
   }
 
   // 2-8 unions use runtime Union<T1..Tn>. We must inspect the active variant.
-  if (unionType.types.length >= 2 && unionType.types.length <= 8) {
+  const runtimeFrame = buildRuntimeUnionFrame(unionType, context);
+  if (runtimeFrame) {
     const nextId = (context.tempVarId ?? 0) + 1;
-    const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+    const ctxWithId: EmitterContext = {
+      ...context,
+      tempVarId: nextId,
+    };
     const alloc = allocateLocalName(
       `__tsonic_truthy_union_${nextId}`,
       ctxWithId
@@ -631,10 +620,10 @@ const emitUnionTruthinessConditionAst = (
     let chainCtx = alloc.context;
     const branchAsts: CSharpExpressionAst[] = [];
 
-    for (let i = 0; i < unionType.types.length; i++) {
+    for (let i = 0; i < runtimeFrame.members.length; i++) {
       const memberN = i + 1;
-      const memberType = unionType.types[i];
-      if (!memberType || isNullishType(memberType)) {
+      const memberType = runtimeFrame.members[i];
+      if (!memberType || isRuntimeNullishType(memberType)) {
         branchAsts.push(booleanLiteral(false));
         continue;
       }
@@ -755,7 +744,7 @@ export const toBooleanConditionAst = (
   emittedAst: CSharpExpressionAst,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  const inferredType = expr.inferredType;
+  const inferredType = resolveEffectiveExpressionType(expr, context);
   const resolved = inferredType
     ? resolveLocalTypeAlias(
         coerceClrPrimitiveToPrimitiveType(inferredType) ?? inferredType,
@@ -781,7 +770,7 @@ export const toBooleanConditionAst = (
   }
 
   // If already boolean, use as-is
-  if (isBooleanCondition(expr)) {
+  if (isBooleanType(type)) {
     return [emittedAst, context];
   }
 
@@ -976,5 +965,13 @@ export const emitBooleanConditionAst = (
  * Used by callers that need a fast check (e.g., logical operator selection).
  */
 export const isBooleanType = (type: IrType | undefined): boolean => {
-  return !!type && type.kind === "primitiveType" && type.name === "boolean";
+  if (!type) return false;
+  if (type.kind === "primitiveType") {
+    return type.name === "boolean";
+  }
+
+  const coerced = coerceClrPrimitiveToPrimitiveType(type);
+  return (
+    !!coerced && coerced.kind === "primitiveType" && coerced.name === "boolean"
+  );
 };

@@ -341,6 +341,22 @@ const inferNumericKind = (
   expr: IrExpression,
   ctx: ProofContext
 ): NumericKind | undefined => {
+  const unwrapTransparentNumericExpr = (
+    expression: IrExpression
+  ): IrExpression => {
+    let current = expression;
+    while (current.kind === "typeAssertion" || current.kind === "asinterface") {
+      current = current.expression;
+    }
+    return current;
+  };
+
+  const unwrappedExpr = unwrapTransparentNumericExpr(expr);
+
+  if (unwrappedExpr !== expr) {
+    return inferNumericKind(unwrappedExpr, ctx);
+  }
+
   switch (expr.kind) {
     case "literal": {
       if (typeof expr.value === "number") {
@@ -581,7 +597,17 @@ const proveNarrowing = (
   expr: IrNumericNarrowingExpression,
   ctx: ProofContext
 ): NumericProof | undefined => {
-  const innerExpr = expr.expression;
+  const unwrapTransparentNumericExpr = (
+    expression: IrExpression
+  ): IrExpression => {
+    let current = expression;
+    while (current.kind === "typeAssertion" || current.kind === "asinterface") {
+      current = current.expression;
+    }
+    return current;
+  };
+
+  const innerExpr = unwrapTransparentNumericExpr(expr.expression);
   const targetKind = expr.targetKind;
   // Use expression's sourceSpan if available, otherwise fall back to module location
   const location =

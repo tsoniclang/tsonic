@@ -84,12 +84,15 @@ type ScopedFields = Pick<
   | "typeParameterNameMap"
   | "returnType"
   | "localNameMap"
+  | "localValueTypes"
+  | "narrowedBindings"
 >;
 
 /**
  * Execute an emission function with scoped context fields.
  *
- * This helper ensures that scoped fields (typeParameters, returnType) are
+ * This helper ensures that scoped fields (typeParameters, returnType,
+ * local lexical maps, and flow narrowings) are
  * restored after emission, preventing scope leaks when context is threaded
  * upward via [result, newContext] tuples.
  *
@@ -120,6 +123,8 @@ export const withScoped = <T>(
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
     localNameMap: context.localNameMap,
+    localValueTypes: context.localValueTypes,
+    narrowedBindings: context.narrowedBindings,
   };
 
   // Create child context with scoped patch applied

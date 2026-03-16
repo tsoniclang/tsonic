@@ -50,6 +50,7 @@ type MemberOverride = {
 type SourceTypeAliasDef = {
   readonly typeParameters: readonly string[];
   readonly type: ts.TypeNode;
+  readonly typeText: string;
 };
 
 type SourceMemberTypeDef = {
@@ -111,6 +112,10 @@ const printTypeNodeText = (
   node: ts.TypeNode,
   sourceFile: ts.SourceFile
 ): string => {
+  const raw = node.getText(sourceFile).trim();
+  if (raw.length > 0) {
+    return raw;
+  }
   return typePrinter
     .printNode(ts.EmitHint.Unspecified, node, sourceFile)
     .trim();
@@ -1128,7 +1133,11 @@ const buildModuleSourceIndex = (
       const typeParameters = (stmt.typeParameters ?? []).map(
         (tp) => tp.name.text
       );
-      typeAliasesByName.set(aliasName, { typeParameters, type: stmt.type });
+      typeAliasesByName.set(aliasName, {
+        typeParameters,
+        type: stmt.type,
+        typeText: printTypeNodeText(stmt.type, sourceFile),
+      });
       continue;
     }
 
@@ -1534,7 +1543,7 @@ const printIrType = (type: IrType, ctx: TypePrinterContext): string => {
 const renderExportedTypeAlias = (
   stmt: Extract<IrStatement, { kind: "typeAliasDeclaration" }>,
   internalIndexDts: string,
-  _sourceAlias: SourceTypeAliasDef | undefined
+  sourceAlias: SourceTypeAliasDef | undefined
 ): Result<
   {
     readonly line: string;
@@ -1573,7 +1582,8 @@ const renderExportedTypeAlias = (
     };
   }
 
-  const rhs = printIrType(stmt.type, { parentPrecedence: 0 });
+  const rhs =
+    sourceAlias?.typeText ?? printIrType(stmt.type, { parentPrecedence: 0 });
   return {
     ok: true,
     value: { line: `export type ${stmt.name}${typeParams} = ${rhs};` },

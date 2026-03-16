@@ -50,8 +50,23 @@ export type TypeSyntaxInfo = {
  * Pure data — no TS nodes.
  */
 export type ClassMemberNames = {
+  readonly typeParameters: readonly string[];
   readonly methods: ReadonlySet<string>;
   readonly properties: ReadonlySet<string>;
+  readonly methodSignatures: ReadonlyMap<
+    string,
+    readonly CapturedClassMethodSignature[]
+  >;
+  readonly propertyTypeNodes: ReadonlyMap<string, unknown | undefined>;
+};
+
+export type CapturedClassMethodSignature = {
+  readonly parameters: readonly CapturedClassMethodParameter[];
+};
+
+export type CapturedClassMethodParameter = {
+  readonly typeNode?: unknown;
+  readonly isRest: boolean;
 };
 
 /**

@@ -120,6 +120,29 @@ describe("backend-ast utils", () => {
     expect(stripNullableTypeAst(underlying)).to.equal(underlying);
   });
 
+  it("collapses nested nullable wrappers structurally", () => {
+    const underlying: CSharpTypeAst = identifierType("global::System.String");
+    expect(
+      stripNullableTypeAst({
+        kind: "nullableType",
+        underlyingType: {
+          kind: "nullableType",
+          underlyingType: underlying,
+        },
+      })
+    ).to.equal(underlying);
+
+    expect(
+      stableTypeKeyFromAst({
+        kind: "nullableType",
+        underlyingType: {
+          kind: "nullableType",
+          underlyingType: underlying,
+        },
+      })
+    ).to.equal("nullable:qualifiedIdentifier:global::System.String");
+  });
+
   it("extracts identifier type names structurally for simple, qualified, and nullable nodes", () => {
     expect(getIdentifierTypeName(identifierType("Widget"))).to.equal("Widget");
     expect(getIdentifierTypeLeafName(identifierType("Widget"))).to.equal(
@@ -174,6 +197,43 @@ describe("backend-ast utils", () => {
         },
       })
     ).to.equal("global::System.DateTime?");
+  });
+
+  it("unwraps cast-like expression wrappers when extracting callee names", () => {
+    const base = {
+      kind: "identifierExpression" as const,
+      identifier: "handler",
+    };
+
+    expect(
+      extractCalleeNameFromAst({
+        kind: "castExpression",
+        type: identifierType("global::System.Object"),
+        expression: base,
+      })
+    ).to.equal("handler");
+
+    expect(
+      extractCalleeNameFromAst({
+        kind: "asExpression",
+        type: identifierType("global::System.Object"),
+        expression: base,
+      })
+    ).to.equal("handler");
+
+    expect(
+      extractCalleeNameFromAst({
+        kind: "awaitExpression",
+        expression: base,
+      })
+    ).to.equal("handler");
+
+    expect(
+      extractCalleeNameFromAst({
+        kind: "suppressNullableWarningExpression",
+        expression: base,
+      })
+    ).to.equal("handler");
   });
 
   it("builds stable structural type keys for arrays, tuples, pointers, and generics", () => {

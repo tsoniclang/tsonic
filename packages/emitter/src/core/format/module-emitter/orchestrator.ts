@@ -3,7 +3,11 @@
  */
 
 import { IrModule, IrStatement, IrType } from "@tsonic/frontend";
-import { EmitterOptions, createContext } from "../../../types.js";
+import {
+  EmitterOptions,
+  LocalTypeInfo,
+  createContext,
+} from "../../../types.js";
 import { generateStructuralAdapters } from "../../../adapter-generator.js";
 import {
   collectSpecializations,
@@ -51,26 +55,35 @@ const typeSuppressionKey = (
 
 const walkTypeRefs = (
   type: IrType | undefined,
-  onReference: (name: string) => void
+  onReference: (name: string) => void,
+  seen: WeakSet<object> = new WeakSet<object>()
 ): void => {
   if (!type) return;
+  if (typeof type === "object" && type !== null) {
+    if (seen.has(type)) {
+      return;
+    }
+    seen.add(type);
+  }
 
   switch (type.kind) {
     case "referenceType":
       onReference(type.name);
       if (type.typeArguments) {
-        for (const arg of type.typeArguments) walkTypeRefs(arg, onReference);
+        for (const arg of type.typeArguments) {
+          walkTypeRefs(arg, onReference, seen);
+        }
       }
       if (type.structuralMembers) {
         for (const member of type.structuralMembers) {
           if (member.kind === "propertySignature") {
-            walkTypeRefs(member.type, onReference);
+            walkTypeRefs(member.type, onReference, seen);
             continue;
           }
           for (const param of member.parameters) {
-            walkTypeRefs(param.type, onReference);
+            walkTypeRefs(param.type, onReference, seen);
           }
-          walkTypeRefs(member.returnType, onReference);
+          walkTypeRefs(member.returnType, onReference, seen);
         }
       }
       return;
@@ -83,48 +96,54 @@ const walkTypeRefs = (
     case "neverType":
       return;
     case "arrayType":
-      walkTypeRefs(type.elementType, onReference);
+      walkTypeRefs(type.elementType, onReference, seen);
       return;
     case "tupleType":
       for (const element of type.elementTypes)
-        walkTypeRefs(element, onReference);
+        walkTypeRefs(element, onReference, seen);
       return;
     case "functionType":
       for (const param of type.parameters)
-        walkTypeRefs(param.type, onReference);
-      walkTypeRefs(type.returnType, onReference);
+        walkTypeRefs(param.type, onReference, seen);
+      walkTypeRefs(type.returnType, onReference, seen);
       return;
     case "objectType":
       for (const member of type.members) {
         if (member.kind === "propertySignature") {
-          walkTypeRefs(member.type, onReference);
+          walkTypeRefs(member.type, onReference, seen);
           continue;
         }
         for (const param of member.parameters) {
-          walkTypeRefs(param.type, onReference);
+          walkTypeRefs(param.type, onReference, seen);
         }
-        walkTypeRefs(member.returnType, onReference);
+        walkTypeRefs(member.returnType, onReference, seen);
       }
       return;
     case "dictionaryType":
-      walkTypeRefs(type.keyType, onReference);
-      walkTypeRefs(type.valueType, onReference);
+      walkTypeRefs(type.keyType, onReference, seen);
+      walkTypeRefs(type.valueType, onReference, seen);
       return;
     case "unionType":
     case "intersectionType":
-      for (const nested of type.types) walkTypeRefs(nested, onReference);
+      for (const nested of type.types) walkTypeRefs(nested, onReference, seen);
       return;
   }
 };
 
 const collectPublicLocalTypes = (
   module: IrModule,
-  localTypes: ReadonlyMap<string, unknown>
+  localTypes: ReadonlyMap<string, LocalTypeInfo>
 ): ReadonlySet<string> => {
   const result = new Set<string>();
+  const queue: string[] = [];
+  const enqueueLocalType = (name: string): void => {
+    if (!localTypes.has(name) || result.has(name)) return;
+    result.add(name);
+    queue.push(name);
+  };
   const addType = (type: IrType | undefined): void => {
     walkTypeRefs(type, (name) => {
-      if (localTypes.has(name)) result.add(name);
+      if (localTypes.has(name)) enqueueLocalType(name);
     });
   };
 
@@ -192,6 +211,51 @@ const collectPublicLocalTypes = (
     if (stmt.kind === "typeAliasDeclaration") {
       if (!stmt.isExported) continue;
       addType(stmt.type);
+    }
+  }
+
+  while (queue.length > 0) {
+    const nextName = queue.shift();
+    if (!nextName) continue;
+    const info = localTypes.get(nextName);
+    if (!info) continue;
+
+    switch (info.kind) {
+      case "class":
+        addType(info.superClass);
+        for (const impl of info.implements) addType(impl);
+        for (const member of info.members) {
+          if (member.kind === "propertyDeclaration") {
+            if (member.accessibility === "private") continue;
+            addType(member.type);
+            continue;
+          }
+          if (member.kind === "methodDeclaration") {
+            if (member.accessibility === "private") continue;
+            addType(member.returnType);
+            for (const param of member.parameters) addType(param.type);
+            continue;
+          }
+          if (member.accessibility === "private") continue;
+          for (const param of member.parameters) addType(param.type);
+        }
+        break;
+      case "interface":
+        for (const ext of info.extends) addType(ext);
+        for (const member of info.members) {
+          if (member.kind === "propertySignature") {
+            addType(member.type);
+            continue;
+          }
+          addType(member.returnType);
+          for (const param of member.parameters) addType(param.type);
+        }
+        break;
+      case "typeAlias":
+        addType(info.type);
+        break;
+      case "enum":
+        break;
     }
   }
 

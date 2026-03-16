@@ -1,6 +1,76 @@
 import type { IrInterfaceMember, IrParameter } from "./helpers.js";
 import type { IrType } from "./ir-types.js";
 
+export type IrSpreadTupleShape = {
+  readonly prefixElementTypes: readonly IrType[];
+  readonly restElementType?: IrType;
+};
+
+type StableTypeKeyState = {
+  readonly seen: Map<object, number>;
+  readonly parent?: StableTypeKeyState;
+  nextId: number;
+};
+
+const createStableTypeKeyState = (): StableTypeKeyState => ({
+  seen: new Map<object, number>(),
+  nextId: 0,
+});
+
+const cloneStableTypeKeyState = (
+  state: StableTypeKeyState
+): StableTypeKeyState => ({
+  seen: new Map<object, number>(),
+  parent: state,
+  nextId: state.nextId,
+});
+
+const findStableTypeNodeId = (
+  state: StableTypeKeyState,
+  node: object
+): number | undefined => {
+  const local = state.seen.get(node);
+  if (local !== undefined) {
+    return local;
+  }
+
+  return state.parent ? findStableTypeNodeId(state.parent, node) : undefined;
+};
+
+const beginStableTypeNode = (
+  state: StableTypeKeyState,
+  node: object
+): { readonly id: number; readonly seenBefore: boolean } => {
+  const existing = findStableTypeNodeId(state, node);
+  if (existing !== undefined) {
+    return { id: existing, seenBefore: true };
+  }
+
+  const id = state.nextId;
+  state.nextId += 1;
+  state.seen.set(node, id);
+  return { id, seenBefore: false };
+};
+
+const sortByStableKey = <T>(
+  values: readonly T[],
+  getKey: (value: T, state: StableTypeKeyState) => string,
+  state: StableTypeKeyState
+): readonly T[] => {
+  const keyed = values.map((value, index) => ({
+    value,
+    index,
+    key: getKey(value, cloneStableTypeKeyState(state)),
+  }));
+
+  keyed.sort((left, right) => {
+    const byKey = left.key.localeCompare(right.key);
+    return byKey !== 0 ? byKey : left.index - right.index;
+  });
+
+  return keyed.map((entry) => entry.value);
+};
+
 const primitiveKey = (
   type: Extract<
     IrType,
@@ -31,30 +101,37 @@ const primitiveKey = (
   }
 };
 
-const parameterKey = (param: IrParameter): string => {
+const parameterKey = (
+  param: IrParameter,
+  state: StableTypeKeyState
+): string => {
   const mode = param.passing ?? "value";
-  const type = param.type ? stableIrTypeKey(param.type) : "unknown";
+  const type = param.type ? stableIrTypeKeyImpl(param.type, state) : "unknown";
   return `p:${param.isRest ? 1 : 0}:${param.isOptional ? 1 : 0}:${mode}:${type}`;
 };
 
-const interfaceMemberKey = (member: IrInterfaceMember): string => {
+const interfaceMemberKey = (
+  member: IrInterfaceMember,
+  state: StableTypeKeyState
+): string => {
   if (member.kind === "propertySignature") {
-    return `prop:${member.name}:${member.isReadonly ? 1 : 0}:${member.isOptional ? 1 : 0}:${stableIrTypeKey(member.type)}`;
+    return `prop:${member.name}:${member.isReadonly ? 1 : 0}:${member.isOptional ? 1 : 0}:${stableIrTypeKeyImpl(member.type, state)}`;
   }
 
   const typeParamCount = member.typeParameters?.length ?? 0;
-  const parameters = member.parameters.map(parameterKey).join("|");
+  const parameters = member.parameters
+    .map((parameter) => parameterKey(parameter, state))
+    .join("|");
   const returnType = member.returnType
-    ? stableIrTypeKey(member.returnType)
+    ? stableIrTypeKeyImpl(member.returnType, state)
     : "void";
   return `method:${member.name}:${typeParamCount}:${parameters}:${returnType}`;
 };
 
-const normalizeTypeList = (types: readonly IrType[]): readonly IrType[] => {
-  return [...types].sort((a, b) =>
-    stableIrTypeKey(a).localeCompare(stableIrTypeKey(b))
-  );
-};
+const normalizeTypeList = (
+  types: readonly IrType[],
+  state: StableTypeKeyState
+): readonly IrType[] => sortByStableKey(types, stableIrTypeKeyImpl, state);
 
 export const referenceTypeIdentity = (
   type: Extract<IrType, { kind: "referenceType" }>
@@ -121,7 +198,38 @@ export const unwrapAsyncWrapperType = (type: IrType): IrType | undefined => {
   return awaited?.kind === "voidType" ? undefined : awaited;
 };
 
-export const stableIrTypeKey = (type: IrType): string => {
+export const getSpreadTupleShape = (
+  type: IrType
+): IrSpreadTupleShape | undefined => {
+  if (type.kind === "tupleType") {
+    return {
+      prefixElementTypes: type.elementTypes,
+    };
+  }
+
+  if (
+    type.kind === "arrayType" &&
+    ((type.tuplePrefixElementTypes?.length ?? 0) > 0 ||
+      type.tupleRestElementType !== undefined)
+  ) {
+    return {
+      prefixElementTypes: type.tuplePrefixElementTypes ?? [],
+      restElementType: type.tupleRestElementType,
+    };
+  }
+
+  return undefined;
+};
+
+const stableIrTypeKeyImpl = (
+  type: IrType,
+  state: StableTypeKeyState
+): string => {
+  const visit = beginStableTypeNode(state, type);
+  if (visit.seenBefore) {
+    return `cycle:${visit.id}`;
+  }
+
   switch (type.kind) {
     case "primitiveType":
     case "literalType":
@@ -133,52 +241,66 @@ export const stableIrTypeKey = (type: IrType): string => {
       return primitiveKey(type);
 
     case "arrayType":
-      return `arr:${stableIrTypeKey(type.elementType)}`;
+      return `arr#${visit.id}:${stableIrTypeKeyImpl(type.elementType, state)}:tuple:${(
+        type.tuplePrefixElementTypes ?? []
+      )
+        .map((elementType) => stableIrTypeKeyImpl(elementType, state))
+        .join(
+          ","
+        )}:rest:${type.tupleRestElementType ? stableIrTypeKeyImpl(type.tupleRestElementType, state) : "none"}`;
 
     case "tupleType":
-      return `tuple:${type.elementTypes.map(stableIrTypeKey).join(",")}`;
+      return `tuple#${visit.id}:${type.elementTypes
+        .map((elementType) => stableIrTypeKeyImpl(elementType, state))
+        .join(",")}`;
 
     case "dictionaryType":
-      return `dict:${stableIrTypeKey(type.keyType)}=>${stableIrTypeKey(type.valueType)}`;
+      return `dict#${visit.id}:${stableIrTypeKeyImpl(type.keyType, state)}=>${stableIrTypeKeyImpl(
+        type.valueType,
+        state
+      )}`;
 
     case "referenceType": {
       const args = (type.typeArguments ?? []).map((t) =>
-        t ? stableIrTypeKey(t) : "unknown"
+        t ? stableIrTypeKeyImpl(t, state) : "unknown"
       );
       const members = type.structuralMembers
-        ? [...type.structuralMembers]
-            .sort((a, b) =>
-              interfaceMemberKey(a).localeCompare(interfaceMemberKey(b))
-            )
-            .map(interfaceMemberKey)
+        ? sortByStableKey(type.structuralMembers, interfaceMemberKey, state)
+            .map((member) => interfaceMemberKey(member, state))
             .join("|")
         : "";
-      return `ref:${referenceTypeIdentity(type)}:${args.join(",")}:${members}`;
+      return `ref#${visit.id}:${referenceTypeIdentity(type)}:${args.join(",")}:${members}`;
     }
 
     case "functionType": {
-      const params = type.parameters.map(parameterKey).join("|");
-      const returnType = stableIrTypeKey(type.returnType);
-      return `fn:${params}->${returnType}`;
+      const params = type.parameters
+        .map((parameter) => parameterKey(parameter, state))
+        .join("|");
+      const returnType = stableIrTypeKeyImpl(type.returnType, state);
+      return `fn#${visit.id}:${params}->${returnType}`;
     }
 
     case "objectType": {
-      const members = [...type.members]
-        .sort((a, b) =>
-          interfaceMemberKey(a).localeCompare(interfaceMemberKey(b))
-        )
-        .map(interfaceMemberKey)
+      const members = sortByStableKey(type.members, interfaceMemberKey, state)
+        .map((member) => interfaceMemberKey(member, state))
         .join("|");
-      return `obj:${members}`;
+      return `obj#${visit.id}:${members}`;
     }
 
     case "unionType":
-      return `union:${normalizeTypeList(type.types).map(stableIrTypeKey).join("|")}`;
+      return `union#${visit.id}:${normalizeTypeList(type.types, state)
+        .map((member) => stableIrTypeKeyImpl(member, state))
+        .join("|")}`;
 
     case "intersectionType":
-      return `inter:${normalizeTypeList(type.types).map(stableIrTypeKey).join("|")}`;
+      return `inter#${visit.id}:${normalizeTypeList(type.types, state)
+        .map((member) => stableIrTypeKeyImpl(member, state))
+        .join("|")}`;
   }
 };
+
+export const stableIrTypeKey = (type: IrType): string =>
+  stableIrTypeKeyImpl(type, createStableTypeKeyState());
 
 export const irTypesEqual = (left: IrType, right: IrType): boolean =>
   stableIrTypeKey(left) === stableIrTypeKey(right);
@@ -200,7 +322,10 @@ export const normalizedUnionType = (types: readonly IrType[]): IrType => {
   for (const t of flattened) {
     deduped.set(stableIrTypeKey(t), t);
   }
-  const normalized = normalizeTypeList(Array.from(deduped.values()));
+  const normalized = normalizeTypeList(
+    Array.from(deduped.values()),
+    createStableTypeKeyState()
+  );
   if (normalized.length === 1) {
     const single = normalized[0];
     if (single) return single;

@@ -15,28 +15,28 @@ import {
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { emitTypeAst } from "../../../type-emitter.js";
-import { extractCalleeNameFromAst } from "../../../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../../../core/format/backend-ast/types.js";
-
-/**
- * Extract the identifier string from an expression AST that is known to be
- * an identifierExpression. Falls back to extractCalleeNameFromAst for other shapes.
- */
-const extractIdentifierText = (ast: CSharpExpressionAst): string =>
-  extractCalleeNameFromAst(ast);
 import {
   hasDeterministicPropertyMembership,
   resolveTypeAlias,
   stripNullish,
-  findUnionMemberIndex,
   getPropertyType,
   isDefinitelyValueType,
 } from "../../../core/semantic/type-resolution.js";
+import {
+  buildRuntimeUnionFrame,
+  findRuntimeUnionMemberIndex,
+} from "../../../core/semantic/runtime-unions.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
+import {
+  getMemberAccessNarrowKey,
+  makeNarrowedLocalName,
+} from "../../../core/semantic/narrowing-keys.js";
+import { normalizeInstanceofTargetType } from "../../../core/semantic/instanceof-targets.js";
 
 /**
  * Information extracted from a type predicate guard call.
@@ -44,6 +44,7 @@ import { emitRemappedLocalName } from "../../../core/format/local-names.js";
  */
 export type GuardInfo = {
   readonly originalName: string;
+  readonly receiverAst: CSharpExpressionAst;
   readonly targetType: IrType;
   readonly memberN: number;
   readonly unionArity: number; // Number of currently reachable members
@@ -52,7 +53,6 @@ export type GuardInfo = {
   readonly candidateMembers: readonly IrType[];
   readonly ctxWithId: EmitterContext;
   readonly narrowedName: string;
-  readonly escapedOrig: string;
   readonly escapedNarrow: string;
   readonly narrowedMap: Map<string, NarrowedBinding>;
 };
@@ -64,6 +64,7 @@ export type GuardInfo = {
  */
 export type InstanceofGuardInfo = {
   readonly originalName: string;
+  readonly receiverAst: CSharpExpressionAst;
   readonly rhsTypeAst: CSharpTypeAst;
   readonly ctxWithId: EmitterContext;
   readonly ctxAfterRhs: EmitterContext;
@@ -72,6 +73,10 @@ export type InstanceofGuardInfo = {
   readonly escapedNarrow: string;
   readonly narrowedMap: Map<string, NarrowedBinding>;
   readonly targetType?: IrType;
+  readonly memberN?: number;
+  readonly runtimeUnionArity?: number;
+  readonly candidateMemberNs?: readonly number[];
+  readonly candidateMembers?: readonly IrType[];
 };
 
 /**
@@ -281,6 +286,61 @@ const resolveLocalTypesForReference = (
   return undefined;
 };
 
+const unwrapTransparentNarrowingTarget = (
+  expr: IrExpression
+):
+  | Extract<IrExpression, { kind: "identifier" | "memberAccess" }>
+  | undefined => {
+  let current: IrExpression = expr;
+  while (current.kind === "typeAssertion" || current.kind === "asinterface") {
+    current = current.expression;
+  }
+
+  return current.kind === "identifier" || current.kind === "memberAccess"
+    ? current
+    : undefined;
+};
+
+const extractTransparentIdentifierTarget = (
+  expr: IrExpression
+): Extract<IrExpression, { kind: "identifier" }> | undefined => {
+  const target = unwrapTransparentNarrowingTarget(expr);
+  return target?.kind === "identifier" ? target : undefined;
+};
+
+type PlainMemberAccessTarget = Extract<
+  IrExpression,
+  { kind: "memberAccess" }
+> & {
+  readonly property: string;
+  readonly isComputed: false;
+  readonly isOptional: false;
+};
+
+const extractTransparentMemberAccessTarget = (
+  expr: IrExpression
+):
+  | {
+      readonly access: PlainMemberAccessTarget;
+      readonly receiver: Extract<IrExpression, { kind: "identifier" }>;
+    }
+  | undefined => {
+  const access = unwrapTransparentNarrowingTarget(expr);
+  if (!access || access.kind !== "memberAccess") {
+    return undefined;
+  }
+  if (access.isOptional || access.isComputed) {
+    return undefined;
+  }
+
+  const receiver = extractTransparentIdentifierTarget(access.object);
+  if (!receiver) {
+    return undefined;
+  }
+
+  return { access: access as PlainMemberAccessTarget, receiver };
+};
+
 /**
  * Extract the set of allowed discriminant literal values from a type.
  *
@@ -312,56 +372,56 @@ const tryGetLiteralSet = (
   return undefined;
 };
 
-const isClrUnionName = (name: string): boolean =>
-  /^Union_[2-8]$/.test(name) || name === "Union" || name.endsWith(".Union");
-
-const stripGlobalPrefix = (name: string): string =>
-  name.startsWith("global::") ? name.slice("global::".length) : name;
-
-const extractUnionMembers = (
-  type: IrType,
-  context: EmitterContext
-): readonly IrType[] | undefined => {
-  const resolvedBase = resolveTypeAlias(stripNullish(type), context);
-  const resolved =
-    resolvedBase.kind === "intersectionType"
-      ? (resolvedBase.types.find(
-          (member): member is Extract<IrType, { kind: "referenceType" }> =>
-            member.kind === "referenceType" && isClrUnionName(member.name)
-        ) ?? resolvedBase)
-      : resolvedBase;
-
-  if (resolved.kind === "unionType") {
-    return resolved.types;
-  }
-
-  if (
-    resolved.kind === "referenceType" &&
-    isClrUnionName(resolved.name) &&
-    resolved.typeArguments &&
-    resolved.typeArguments.length >= 2 &&
-    resolved.typeArguments.length <= 8
-  ) {
-    return resolved.typeArguments;
-  }
-
-  return undefined;
-};
-
-const resolveRuntimeUnionFrame = (
+export const resolveRuntimeUnionFrame = (
   originalName: string,
   unionSourceType: IrType,
   context: EmitterContext
 ): RuntimeUnionFrame | undefined => {
-  const members = extractUnionMembers(unionSourceType, context);
-  if (!members) return undefined;
-
   const narrowed = context.narrowedBindings?.get(originalName);
+  if (
+    narrowed?.kind === "runtimeSubset" &&
+    narrowed.sourceMembers &&
+    narrowed.sourceCandidateMemberNs &&
+    narrowed.sourceMembers.length === narrowed.sourceCandidateMemberNs.length
+  ) {
+    const allowedMemberNs = new Set(narrowed.runtimeMemberNs);
+    const narrowedMembers = narrowed.sourceMembers.filter((_, index) =>
+      allowedMemberNs.has(
+        narrowed.sourceCandidateMemberNs?.[index] ?? index + 1
+      )
+    );
+    const narrowedCandidateMemberNs = narrowed.sourceCandidateMemberNs.filter(
+      (memberN) => allowedMemberNs.has(memberN)
+    );
+
+    if (
+      narrowedMembers.length === 0 ||
+      narrowedMembers.length !== narrowedCandidateMemberNs.length
+    ) {
+      return undefined;
+    }
+
+    return {
+      members: narrowedMembers,
+      candidateMemberNs: narrowedCandidateMemberNs,
+      runtimeUnionArity: narrowed.runtimeUnionArity,
+    };
+  }
+
+  const runtimeSourceType =
+    narrowed?.kind === "runtimeSubset"
+      ? (narrowed.sourceType ?? unionSourceType)
+      : unionSourceType;
+  const runtimeFrame = buildRuntimeUnionFrame(runtimeSourceType, context);
+  const members = runtimeFrame?.members;
+  if (!members) return undefined;
+  const candidateMemberNs = members.map((_, index) => index + 1);
+
   if (!narrowed) {
     return {
       members,
-      candidateMemberNs: members.map((_, index) => index + 1),
-      runtimeUnionArity: members.length,
+      candidateMemberNs,
+      runtimeUnionArity: runtimeFrame.runtimeUnionArity,
     };
   }
 
@@ -369,16 +429,30 @@ const resolveRuntimeUnionFrame = (
     return undefined;
   }
 
-  if (narrowed.runtimeMemberNs.length !== members.length) {
+  const allowedMemberNs = new Set(narrowed.runtimeMemberNs);
+  const narrowedMembers = members.filter((_, index) =>
+    allowedMemberNs.has(index + 1)
+  );
+  const narrowedCandidateMemberNs = candidateMemberNs.filter((memberN) =>
+    allowedMemberNs.has(memberN)
+  );
+
+  if (
+    narrowedMembers.length === 0 ||
+    narrowedMembers.length !== narrowedCandidateMemberNs.length
+  ) {
     return undefined;
   }
 
   return {
-    members,
-    candidateMemberNs: [...narrowed.runtimeMemberNs],
-    runtimeUnionArity: narrowed.runtimeUnionArity,
+    members: narrowedMembers,
+    candidateMemberNs: narrowedCandidateMemberNs,
+    runtimeUnionArity: runtimeFrame.runtimeUnionArity,
   };
 };
+
+const stripGlobalPrefix = (name: string): string =>
+  name.startsWith("global::") ? name.slice("global::".length) : name;
 
 const buildRenameNarrowedMap = (
   originalName: string,
@@ -494,11 +568,8 @@ export const tryResolveDiscriminantEqualityGuard = (
         readonly literal: string | number | boolean;
       }
     | undefined => {
-    if (left.kind !== "memberAccess") return undefined;
-    if (left.isOptional) return undefined;
-    if (left.isComputed) return undefined;
-    if (left.object.kind !== "identifier") return undefined;
-    if (typeof left.property !== "string") return undefined;
+    const target = extractTransparentMemberAccessTarget(left);
+    if (!target) return undefined;
     if (right.kind !== "literal") return undefined;
     if (
       typeof right.value !== "string" &&
@@ -509,8 +580,8 @@ export const tryResolveDiscriminantEqualityGuard = (
     }
 
     return {
-      receiver: left.object,
-      propertyName: left.property,
+      receiver: target.receiver,
+      propertyName: target.access.property,
       literal: right.value,
     };
   };
@@ -568,7 +639,7 @@ export const tryResolveDiscriminantEqualityGuard = (
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
-  const narrowedName = `${originalName}__${memberN}_${nextId}`;
+  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
   const escapedOrig = emitRemappedLocalName(originalName, context);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const memberType = members[matchingIndex];
@@ -622,22 +693,20 @@ export const tryResolvePropertyTruthinessGuard = (
       return inner ? { ...inner, wantTruthy: !inner.wantTruthy } : undefined;
     }
 
-    if (expr.kind !== "memberAccess") return undefined;
-    if (expr.isOptional || expr.isComputed) return undefined;
-    if (expr.object.kind !== "identifier") return undefined;
-    if (typeof expr.property !== "string") return undefined;
+    const target = extractTransparentMemberAccessTarget(expr);
+    if (!target) return undefined;
 
     return {
-      receiver: expr.object,
-      propertyName: expr.property,
+      receiver: target.receiver,
+      propertyName: target.access.property,
       wantTruthy: true,
-      bindingType: expr.memberBinding?.type,
+      bindingType: target.access.memberBinding?.type,
       bindingValueTruthiness:
-        expr.inferredType?.kind === "literalType"
-          ? isDefinitelyTruthyLiteral(expr.inferredType.value)
-          : expr.inferredType?.kind === "primitiveType" &&
-              (expr.inferredType.name === "undefined" ||
-                expr.inferredType.name === "null")
+        target.access.inferredType?.kind === "literalType"
+          ? isDefinitelyTruthyLiteral(target.access.inferredType.value)
+          : target.access.inferredType?.kind === "primitiveType" &&
+              (target.access.inferredType.name === "undefined" ||
+                target.access.inferredType.name === "null")
             ? false
             : undefined,
     };
@@ -725,7 +794,7 @@ export const tryResolvePropertyTruthinessGuard = (
 
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
-  const narrowedName = `${originalName}__${memberN}_${nextId}`;
+  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
   const escapedOrig = emitRemappedLocalName(originalName, context);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const memberType = members[matchingIndex];
@@ -767,13 +836,15 @@ export const tryResolveInGuard = (
   if (condition.left.kind !== "literal") return undefined;
   if (typeof condition.left.value !== "string") return undefined;
 
-  // RHS must be an identifier (the name we can narrow)
-  if (condition.right.kind !== "identifier") return undefined;
+  // RHS must be a bindable identifier, even if transparent assertion wrappers
+  // were introduced around it during earlier contextual typing/narrowing passes.
+  const target = extractTransparentIdentifierTarget(condition.right);
+  if (!target) return undefined;
 
   const propertyName = condition.left.value;
-  const originalName = condition.right.name;
+  const originalName = target.name;
 
-  const unionSourceType = condition.right.inferredType;
+  const unionSourceType = target.inferredType ?? condition.right.inferredType;
   if (!unionSourceType) return undefined;
 
   const frame = resolveRuntimeUnionFrame(
@@ -812,9 +883,8 @@ export const tryResolveInGuard = (
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
-  const narrowedName = `${originalName}__${memberN}_${nextId}`;
-  const [rhsAst] = emitIdentifier(condition.right, context);
-  const escapedOrig = extractIdentifierText(rhsAst);
+  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
+  const escapedOrig = emitRemappedLocalName(originalName, context);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const memberType = members[matchingIndex];
   if (!memberType) return undefined;
@@ -874,16 +944,19 @@ export const tryResolvePredicateGuard = (
   if (!narrowing || narrowing.kind !== "typePredicate") return undefined;
 
   const arg = call.arguments[narrowing.argIndex];
-  if (
-    !arg ||
-    ("kind" in arg && arg.kind === "spread") ||
-    arg.kind !== "identifier"
-  ) {
+  if (!arg || ("kind" in arg && arg.kind === "spread")) {
     return undefined;
   }
 
-  const originalName = arg.name;
-  const unionSourceType = arg.inferredType;
+  const target = unwrapTransparentNarrowingTarget(arg);
+  if (!target) return undefined;
+
+  const originalName =
+    target.kind === "identifier"
+      ? target.name
+      : getMemberAccessNarrowKey(target);
+  if (!originalName) return undefined;
+  const unionSourceType = target.inferredType ?? arg.inferredType;
   if (!unionSourceType) return undefined;
 
   const frame = resolveRuntimeUnionFrame(
@@ -893,11 +966,11 @@ export const tryResolvePredicateGuard = (
   );
   if (!frame) return undefined;
 
-  const resolved: IrType = {
-    kind: "unionType",
-    types: [...frame.members],
-  };
-  const idx = findUnionMemberIndex(resolved, narrowing.targetType, context);
+  const idx = findRuntimeUnionMemberIndex(
+    frame.members,
+    narrowing.targetType,
+    context
+  );
   if (idx === undefined) return undefined;
 
   const memberN = frame.candidateMemberNs[idx] ?? idx + 1;
@@ -906,9 +979,11 @@ export const tryResolvePredicateGuard = (
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
-  const narrowedName = `${originalName}__${memberN}_${nextId}`;
-  const [argAst] = emitIdentifier(arg, context);
-  const escapedOrig = extractIdentifierText(argAst);
+  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
+  const [argAst] = emitExpressionAst(arg, {
+    ...context,
+    narrowedBindings: undefined,
+  });
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const narrowedMap = buildRenameNarrowedMap(
     originalName,
@@ -919,6 +994,7 @@ export const tryResolvePredicateGuard = (
 
   return {
     originalName,
+    receiverAst: argAst,
     targetType: narrowing.targetType,
     memberN,
     unionArity,
@@ -927,7 +1003,6 @@ export const tryResolvePredicateGuard = (
     candidateMembers: frame.members,
     ctxWithId,
     narrowedName,
-    escapedOrig,
     escapedNarrow,
     narrowedMap,
   };
@@ -947,11 +1022,24 @@ export const tryResolveInstanceofGuard = (
 ): InstanceofGuardInfo | undefined => {
   if (condition.kind !== "binary") return undefined;
   if (condition.operator !== "instanceof") return undefined;
-  if (condition.left.kind !== "identifier") return undefined;
 
-  const originalName = condition.left.name;
-  const [lhsAst, ctxAfterLhs] = emitIdentifier(condition.left, context);
-  const escapedOrig = extractIdentifierText(lhsAst);
+  const target = unwrapTransparentNarrowingTarget(condition.left);
+  if (!target) return undefined;
+
+  const originalName =
+    target.kind === "identifier"
+      ? target.name
+      : getMemberAccessNarrowKey(target);
+  if (!originalName) return undefined;
+
+  const [lhsAst, ctxAfterLhs] =
+    target.kind === "identifier"
+      ? emitIdentifier(target, context)
+      : emitExpressionAst(target, context);
+  const escapedOrig =
+    target.kind === "identifier"
+      ? emitRemappedLocalName(originalName, context)
+      : originalName;
 
   const nextId = (ctxAfterLhs.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...ctxAfterLhs, tempVarId: nextId };
@@ -961,7 +1049,9 @@ export const tryResolveInstanceofGuard = (
     ctxWithId
   );
 
-  const inferredRhsType = condition.right.inferredType;
+  const inferredRhsType = normalizeInstanceofTargetType(
+    condition.right.inferredType
+  );
   let rhsTypeAst: CSharpTypeAst | undefined;
   let ctxAfterRhs = rhsCtxAfterExpr;
 
@@ -981,18 +1071,45 @@ export const tryResolveInstanceofGuard = (
   }
 
   // Pattern variable name for the narrowed value.
-  const narrowedName = `${originalName}__is_${nextId}`;
+  const narrowedName = makeNarrowedLocalName(originalName, "is", nextId);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
 
   const narrowedMap = new Map(ctxAfterRhs.narrowedBindings ?? []);
   narrowedMap.set(originalName, {
     kind: "rename",
     name: narrowedName,
-    type: condition.right.inferredType ?? undefined,
+    type: inferredRhsType ?? undefined,
   });
+
+  const unionSourceType = target.inferredType ?? condition.left.inferredType;
+  const runtimeUnionFrame =
+    unionSourceType && inferredRhsType
+      ? resolveRuntimeUnionFrame(originalName, unionSourceType, context)
+      : undefined;
+  const runtimeMatchIndex =
+    runtimeUnionFrame && inferredRhsType
+      ? findRuntimeUnionMemberIndex(
+          runtimeUnionFrame.members,
+          inferredRhsType,
+          context
+        )
+      : undefined;
+  const memberN =
+    runtimeUnionFrame && runtimeMatchIndex !== undefined
+      ? (runtimeUnionFrame.candidateMemberNs[runtimeMatchIndex] ??
+        runtimeMatchIndex + 1)
+      : undefined;
+  const receiverAst =
+    runtimeUnionFrame && target.kind === "identifier"
+      ? {
+          kind: "identifierExpression" as const,
+          identifier: escapedOrig,
+        }
+      : lhsAst;
 
   return {
     originalName,
+    receiverAst,
     rhsTypeAst,
     ctxWithId,
     ctxAfterRhs,
@@ -1000,7 +1117,11 @@ export const tryResolveInstanceofGuard = (
     escapedOrig,
     escapedNarrow,
     narrowedMap,
-    targetType: condition.right.inferredType ?? undefined,
+    targetType: inferredRhsType ?? undefined,
+    memberN,
+    runtimeUnionArity: runtimeUnionFrame?.runtimeUnionArity,
+    candidateMemberNs: runtimeUnionFrame?.candidateMemberNs,
+    candidateMembers: runtimeUnionFrame?.members,
   };
 };
 
@@ -1025,29 +1146,6 @@ export const isNullOrUndefined = (expr: IrExpression): boolean => {
   }
 
   return false;
-};
-
-export const getMemberAccessNarrowKey = (
-  expr: Extract<IrExpression, { kind: "memberAccess" }>
-): string | undefined => {
-  if (expr.isComputed) return undefined;
-  if (typeof expr.property !== "string") return undefined;
-
-  const obj = expr.object;
-  if (obj.kind === "identifier") {
-    return `${obj.name}.${expr.property}`;
-  }
-
-  if (obj.kind === "memberAccess") {
-    const prefix = getMemberAccessNarrowKey(obj);
-    return prefix ? `${prefix}.${expr.property}` : undefined;
-  }
-
-  if (obj.kind === "this") {
-    return `this.${expr.property}`;
-  }
-
-  return undefined;
 };
 
 /**

@@ -10,6 +10,7 @@ import { emitBlockStatementAst } from "../blocks.js";
 import {
   allocateLocalName,
   registerLocalName,
+  registerLocalValueType,
 } from "../../core/format/local-names.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
@@ -17,6 +18,12 @@ import type {
   CSharpBlockStatementAst,
   CSharpCatchClauseAst,
 } from "../../core/format/backend-ast/types.js";
+
+const SYSTEM_EXCEPTION_IR_TYPE = {
+  kind: "referenceType" as const,
+  name: "System.Exception",
+  resolvedClrType: "global::System.Exception",
+};
 
 /**
  * Emit a try statement as AST
@@ -46,6 +53,11 @@ export const emitTryStatementAst = (
       param,
       alloc.emittedName,
       alloc.context
+    );
+    catchScopeContext = registerLocalValueType(
+      param,
+      SYSTEM_EXCEPTION_IR_TYPE,
+      catchScopeContext
     );
 
     const [catchBody, catchContext] = emitBlockStatementAst(
@@ -88,6 +100,10 @@ export const emitThrowStatementAst = (
   stmt: Extract<IrStatement, { kind: "throwStatement" }>,
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
-  const [exprAst, newContext] = emitExpressionAst(stmt.expression, context);
+  const [exprAst, newContext] = emitExpressionAst(
+    stmt.expression,
+    context,
+    SYSTEM_EXCEPTION_IR_TYPE
+  );
   return [[{ kind: "throwStatement", expression: exprAst }], newContext];
 };

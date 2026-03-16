@@ -86,6 +86,9 @@ export const emitParametersWithDestructuring = (
     if (param.isExtensionReceiver) {
       modifiers.push("this");
     }
+    if (param.isRest) {
+      modifiers.push("params");
+    }
     // Use the passing mode from IR (frontend already unwrapped ref<T>/out<T>/in<T>)
     if (param.passing !== "value") {
       modifiers.push(param.passing);

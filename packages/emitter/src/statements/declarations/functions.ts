@@ -21,8 +21,15 @@ import {
 } from "../../generator-wrapper.js";
 import { emitAttributes } from "../../core/format/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
-import { allocateLocalName } from "../../core/format/local-names.js";
-import { identifierType } from "../../core/format/backend-ast/builders.js";
+import {
+  allocateLocalName,
+  registerLocalValueType,
+} from "../../core/format/local-names.js";
+import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
+import {
+  identifierType,
+  nullableType,
+} from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
   CSharpParameterAst,
@@ -44,15 +51,25 @@ const seedLocalNameMapFromParameters = (
   context: EmitterContext
 ): EmitterContext => {
   const map = new Map(context.localNameMap ?? []);
+  let currentContext = context;
   const used = new Set<string>();
   for (const p of params) {
     if (p.pattern.kind === "identifierPattern") {
       const emitted = escapeCSharpIdentifier(p.pattern.name);
       map.set(p.pattern.name, emitted);
       used.add(emitted);
+      currentContext = registerLocalValueType(
+        p.pattern.name,
+        normalizeRuntimeStorageType(p.type, currentContext),
+        currentContext
+      );
     }
   }
-  return { ...context, localNameMap: map, usedLocalNames: used };
+  return {
+    ...currentContext,
+    localNameMap: map,
+    usedLocalNames: used,
+  };
 };
 
 const restoreFunctionScopeContext = (
@@ -66,6 +83,7 @@ const restoreFunctionScopeContext = (
     readonly narrowedBindings: EmitterContext["narrowedBindings"];
     readonly voidResolveNames: EmitterContext["voidResolveNames"];
     readonly localNameMap: EmitterContext["localNameMap"];
+    readonly localValueTypes: EmitterContext["localValueTypes"];
     readonly usedLocalNames: EmitterContext["usedLocalNames"];
   }
 ): EmitterContext => ({
@@ -76,6 +94,7 @@ const restoreFunctionScopeContext = (
   isStatic: outerContext.isStatic,
   isAsync: outerContext.isAsync,
   className: outerContext.className,
+  localValueTypes: outerContext.localValueTypes,
 });
 
 /**
@@ -96,6 +115,7 @@ export const emitFunctionDeclaration = (
     narrowedBindings: context.narrowedBindings,
     voidResolveNames: context.voidResolveNames,
     localNameMap: context.localNameMap,
+    localValueTypes: context.localValueTypes,
     usedLocalNames: context.usedLocalNames,
   };
 
@@ -477,7 +497,7 @@ const buildParameterAsts = (
 
     // Optional: make nullable
     if (param.isOptional) {
-      typeAst = { kind: "nullableType", underlyingType: typeAst };
+      typeAst = nullableType(typeAst);
     }
 
     // Name
@@ -503,6 +523,7 @@ const buildParameterAsts = (
     // Modifiers
     const modifiers: string[] = [];
     if (param.isExtensionReceiver) modifiers.push("this");
+    if (param.isRest) modifiers.push("params");
     if (param.passing !== "value") modifiers.push(param.passing);
 
     // Default value
@@ -575,6 +596,7 @@ export const emitFunctionDeclarationAst = (
     narrowedBindings: context.narrowedBindings,
     voidResolveNames: context.voidResolveNames,
     localNameMap: context.localNameMap,
+    localValueTypes: context.localValueTypes,
     usedLocalNames: context.usedLocalNames,
   };
 

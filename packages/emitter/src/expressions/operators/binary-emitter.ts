@@ -10,12 +10,15 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
   hasDeterministicPropertyMembership,
   isDefinitelyValueType,
 } from "../../core/semantic/type-resolution.js";
+import { buildRuntimeUnionFrame } from "../../core/semantic/runtime-unions.js";
+import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
 import {
   isCharTyped,
   isStringTyped,
@@ -121,17 +124,19 @@ export const emitBinary = (
     }
 
     const [rhsAst, rhsCtx] = emitExpressionAst(expr.right, context);
-
     const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
 
+    const runtimeFrame = buildRuntimeUnionFrame(rhsType, rhsCtx);
+    const runtimeMembers = runtimeFrame?.members;
+
     // Union<T1..Tn>: `"error" in auth` → auth.IsN() (where member N has the prop)
-    if (resolvedRhs.kind === "unionType") {
+    if (runtimeMembers) {
       const propName = expr.left.value;
       const matchingMembers: number[] = [];
       const unresolvedMembers: string[] = [];
 
-      for (let i = 0; i < resolvedRhs.types.length; i++) {
-        const member = resolvedRhs.types[i];
+      for (let i = 0; i < runtimeMembers.length; i += 1) {
+        const member = runtimeMembers[i];
         if (!member) continue;
 
         const hasMember = hasDeterministicPropertyMembership(
@@ -234,15 +239,36 @@ export const emitBinary = (
   // Handle instanceof operator specially
   if (expr.operator === "instanceof") {
     const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
-    const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
-    // For `is`, convert expression to type name (extract from identifierExpression)
-    const rightText = extractCalleeNameFromAst(rightAst);
+    const normalizedTargetType = normalizeInstanceofTargetType(
+      expr.right.inferredType
+    );
+    let rightContext = leftContext;
+    let rightText: string | undefined;
+
+    if (normalizedTargetType) {
+      const [rightTypeAst, nextContext] = emitTypeAst(
+        normalizedTargetType,
+        leftContext
+      );
+      rightText = extractCalleeNameFromAst({
+        kind: "typeReferenceExpression",
+        type: rightTypeAst,
+      });
+      rightContext = nextContext;
+    } else {
+      const [rightAst, nextContext] = emitExpressionAst(
+        expr.right,
+        leftContext
+      );
+      rightText = extractCalleeNameFromAst(rightAst);
+      rightContext = nextContext;
+    }
     const isExpr: CSharpExpressionAst = {
       kind: "isExpression",
       expression: leftAst,
       pattern: {
         kind: "typePattern",
-        type: identifierType(rightText),
+        type: identifierType(rightText ?? "object"),
       },
     };
     return [isExpr, rightContext];

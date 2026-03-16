@@ -85,6 +85,7 @@ describe("Type Converter - Tuple Rest Lowering", () => {
       kind: "arrayType",
       elementType: { kind: "primitiveType", name: "number" },
       origin: "explicit",
+      tupleRestElementType: { kind: "primitiveType", name: "number" },
     });
   });
 
@@ -95,11 +96,13 @@ describe("Type Converter - Tuple Rest Lowering", () => {
       elementType: {
         kind: "unionType",
         types: [
-          { kind: "primitiveType", name: "string" },
           { kind: "primitiveType", name: "number" },
+          { kind: "primitiveType", name: "string" },
         ],
       },
       origin: "explicit",
+      tuplePrefixElementTypes: [{ kind: "primitiveType", name: "string" }],
+      tupleRestElementType: { kind: "primitiveType", name: "number" },
     });
   });
 
@@ -113,9 +116,9 @@ describe("Type Converter - Tuple Rest Lowering", () => {
       elementType: {
         kind: "unionType",
         types: [
+          { kind: "primitiveType", name: "boolean" },
           { kind: "primitiveType", name: "number" },
           { kind: "primitiveType", name: "string" },
-          { kind: "primitiveType", name: "boolean" },
         ],
       },
       origin: "explicit",
@@ -132,11 +135,13 @@ describe("Type Converter - Tuple Rest Lowering", () => {
       elementType: {
         kind: "unionType",
         types: [
-          { kind: "primitiveType", name: "string" },
           { kind: "primitiveType", name: "number" },
+          { kind: "primitiveType", name: "string" },
         ],
       },
       origin: "explicit",
+      tuplePrefixElementTypes: [{ kind: "primitiveType", name: "string" }],
+      tupleRestElementType: { kind: "primitiveType", name: "number" },
     });
   });
 });

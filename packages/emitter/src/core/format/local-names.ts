@@ -1,3 +1,4 @@
+import type { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
@@ -58,6 +59,20 @@ export const registerLocalName = (
   const nextMap = new Map(context.localNameMap ?? []);
   nextMap.set(originalName, emittedName);
   return { ...context, localNameMap: nextMap };
+};
+
+export const registerLocalValueType = (
+  originalName: string,
+  type: IrType | undefined,
+  context: EmitterContext
+): EmitterContext => {
+  if (!type) {
+    return context;
+  }
+
+  const nextMap = new Map(context.localValueTypes ?? []);
+  nextMap.set(originalName, type);
+  return { ...context, localValueTypes: nextMap };
 };
 
 /**

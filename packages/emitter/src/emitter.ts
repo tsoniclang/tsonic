@@ -4,7 +4,7 @@
  */
 
 import * as path from "node:path";
-import { IrModule, Diagnostic } from "@tsonic/frontend";
+import { IrModule, Diagnostic, stableIrTypeKey } from "@tsonic/frontend";
 import { EmitterOptions, JsonAotRegistry } from "./types.js";
 import { emitModule } from "./core/format/module-emitter.js";
 import { buildModuleMap } from "./core/semantic/module-map.js";
@@ -82,13 +82,45 @@ const isCanonicalizableStructuralDeclaration = (
   return false;
 };
 
+const stableCircularStringify = (value: unknown): string => {
+  const seen = new WeakMap<object, number>();
+  let nextId = 0;
+
+  const normalize = (current: unknown): unknown => {
+    if (current === null) return null;
+    if (typeof current !== "object") return current;
+
+    const existing = seen.get(current);
+    if (existing !== undefined) {
+      return { $ref: existing };
+    }
+
+    const id = nextId;
+    nextId += 1;
+    seen.set(current, id);
+
+    if (Array.isArray(current)) {
+      return current.map((entry) => normalize(entry));
+    }
+
+    const normalized: Record<string, unknown> = { $id: id };
+    for (const key of Object.keys(current).sort()) {
+      if (key === "sourceSpan") continue;
+      normalized[key] = normalize((current as Record<string, unknown>)[key]);
+    }
+    return normalized;
+  };
+
+  return JSON.stringify(normalize(value));
+};
+
 const semanticSignature = (stmt: EmittedTypeDeclaration): string => {
   if (stmt.kind === "interfaceDeclaration") {
-    return JSON.stringify({
+    return stableCircularStringify({
       ...stmt,
       members: [...stmt.members].sort((a, b) => a.name.localeCompare(b.name)),
       extends: [...stmt.extends].sort((a, b) =>
-        JSON.stringify(a).localeCompare(JSON.stringify(b))
+        stableIrTypeKey(a).localeCompare(stableIrTypeKey(b))
       ),
     });
   }
@@ -97,17 +129,17 @@ const semanticSignature = (stmt: EmittedTypeDeclaration): string => {
     // Class member order is semantically significant: field initializers run in
     // declaration order. Only sort `implements` (order-independent) — preserve
     // member order to avoid false equivalence when initializer order differs.
-    return JSON.stringify({
+    return stableCircularStringify({
       ...stmt,
       implements: [...stmt.implements].sort((a, b) =>
-        JSON.stringify(a).localeCompare(JSON.stringify(b))
+        stableIrTypeKey(a).localeCompare(stableIrTypeKey(b))
       ),
     });
   }
 
   // Type aliases: sort objectType members if applicable
   if (stmt.kind === "typeAliasDeclaration" && stmt.type.kind === "objectType") {
-    return JSON.stringify({
+    return stableCircularStringify({
       ...stmt,
       type: {
         ...stmt.type,
@@ -120,17 +152,17 @@ const semanticSignature = (stmt: EmittedTypeDeclaration): string => {
 
   // Enums: do NOT sort — member order is semantically significant
   // (implicit values depend on order)
-  return JSON.stringify(stmt);
+  return stableCircularStringify(stmt);
 };
 
 const canonicalStructuralGroupKey = (
   stmt: CanonicalizableStructuralDeclaration
 ): string => {
   if (stmt.kind === "interfaceDeclaration") {
-    return `iface::${stmt.name}::${JSON.stringify({
+    return `iface::${stmt.name}::${stableCircularStringify({
       typeParameters: stmt.typeParameters ?? [],
       extends: [...stmt.extends].sort((a, b) =>
-        JSON.stringify(a).localeCompare(JSON.stringify(b))
+        stableIrTypeKey(a).localeCompare(stableIrTypeKey(b))
       ),
       members: [...stmt.members].sort((a, b) => a.name.localeCompare(b.name)),
     })}`;
@@ -138,7 +170,7 @@ const canonicalStructuralGroupKey = (
 
   // Type alias with objectType — sort members
   if (stmt.type.kind === "objectType") {
-    return `alias::${stmt.name}::${JSON.stringify({
+    return `alias::${stmt.name}::${stableCircularStringify({
       typeParameters: stmt.typeParameters ?? [],
       type: {
         ...stmt.type,
@@ -149,7 +181,7 @@ const canonicalStructuralGroupKey = (
     })}`;
   }
 
-  return `alias::${stmt.name}::${JSON.stringify({
+  return `alias::${stmt.name}::${stableCircularStringify({
     typeParameters: stmt.typeParameters ?? [],
     type: stmt.type,
   })}`;

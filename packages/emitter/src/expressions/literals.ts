@@ -15,7 +15,7 @@ import {
   stripNullish,
   resolveTypeAlias,
 } from "../core/semantic/type-resolution.js";
-import { emitTypeAst } from "../type-emitter.js";
+import { emitTypedDefaultAst } from "../core/semantic/defaults.js";
 import {
   booleanLiteral,
   charLiteral,
@@ -106,7 +106,7 @@ export const emitLiteral = (
     // When we have an expected type, emit a typed default to preserve optional/nullable intent.
     if (expectedType) {
       try {
-        const [typeAst, next] = emitTypeAst(expectedType, context);
+        const [typeAst, next] = emitTypedDefaultAst(expectedType, context);
         return [{ kind: "defaultExpression", type: typeAst }, next];
       } catch {
         // Fallback: keep emission valid even if the expected type is not directly nameable here.

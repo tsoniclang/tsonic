@@ -224,6 +224,123 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).not.to.match(/global::System\.Func\s*<\s*void\s*>/);
     });
+
+    it("synthesizes ignored trailing required delegate parameters for contextual zero-arg lambdas", () => {
+      const source = `
+        type Next = (value: string) => void;
+
+        function consume(next: Next): void {
+          next("ok");
+        }
+
+        export function main(): void {
+          consume(() => undefined);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /consume\(\(string __unused_value\)\s*=>\s*\{?\s*return/
+      );
+    });
+
+    it("synthesizes ignored trailing optional delegate parameters while preserving declared lambda parameters", () => {
+      const source = `
+        type Mapper = (value: string, index?: number) => string;
+
+        function apply(mapper: Mapper): void {
+          mapper("ok", 1);
+        }
+
+        export function main(): void {
+          apply((value) => value);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /apply\(\(string value,\s*double\? __unused_index\)\s*=>/
+      );
+    });
+
+    it("does not synthesize ignored parameters for rest-only contextual callbacks", () => {
+      const source = `
+        type Tick = (...args: unknown[]) => void;
+
+        function consume(tick: Tick): void {
+          tick("ok", 1);
+        }
+
+        export function main(): void {
+          consume(() => undefined);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("consume(() =>");
+      expect(csharp).not.to.match(/__unused_args/);
+    });
+
+    it("does not synthesize ignored rest parameters after required contextual callback parameters", () => {
+      const source = `
+        type Tick = (value: string, ...rest: unknown[]) => void;
+
+        function consume(tick: Tick): void {
+          tick("ok", 1);
+        }
+
+        export function main(): void {
+          consume(() => undefined);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("consume((string __unused_value) =>");
+      expect(csharp).not.to.match(/__unused_args/);
+    });
+  });
+
+  describe("Narrowed Member Truthiness", () => {
+    it("uses narrowed member property types in boolean contexts after instanceof", () => {
+      const source = `
+        class TemplateValue {}
+        class BoolValue extends TemplateValue {
+          constructor(readonly value: boolean) { super(); }
+        }
+        class StringValue extends TemplateValue {
+          constructor(readonly value: string) { super(); }
+        }
+
+        export function render(value: TemplateValue): string {
+          if (value instanceof BoolValue) {
+            return value.value ? "true" : "false";
+          }
+          if (value instanceof StringValue) {
+            return value.value ? value.value : "";
+          }
+          return "";
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include('return value__is_1.value ? "true" : "false";');
+      expect(csharp).to.not.include("__tsonic_truthy_");
+      expect(csharp).to.satisfy((code: string) => {
+        return (
+          code.includes(
+            'return (!string.IsNullOrEmpty(value__is_2.value)) ? value__is_2.value : "";'
+          ) ||
+          code.includes(
+            'return value__is_2.value != "" ? value__is_2.value : "";'
+          )
+        );
+      });
+    });
   });
 
   describe("Generic Functions", () => {
@@ -485,7 +602,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("TaskCompletionSource<bool>");
       expect(csharp).to.match(
-        /\(\(global::System\.Action<global::System\.Action>\)\(resolve\s*=>/
+        /\(\(global::System\.Action<global::System\.Action,\s*global::System\.Action<object\?>>\)\(\(resolve,\s*__unused_reject\)\s*=>/
       );
       expect(csharp).not.to.include("new Promise(");
     });
@@ -990,8 +1107,109 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("await flush();");
+      expect(csharp).to.include("await flush().AsTask();");
       expect(csharp).not.to.include("Task.FromResult");
+    });
+
+    it("normalizes mixed Promise-or-value unions before await", () => {
+      const source = `
+        declare function maybeLoad(flag: boolean): string | Promise<string>;
+
+        export async function run(flag: boolean): Promise<string> {
+          return await maybeLoad(flag);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("await maybeLoad(flag).Match(");
+      expect(csharp).to.include("Task.FromResult(__tsonic_await_value_0)");
+    });
+
+    it("wraps pure sync unions directly when awaiting", () => {
+      const source = `
+        declare function render(flag: boolean):
+          | { success: true; rendered: string }
+          | { success: false; error: string };
+
+        export async function run(flag: boolean): Promise<string> {
+          const result = await render(flag);
+          if ("error" in result) {
+            return result.error;
+          }
+          return result.rendered;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include(
+        "await global::System.Threading.Tasks.Task.FromResult(render(flag));"
+      );
+      expect(csharp).not.to.include("render(flag).Match(");
+    });
+
+    it("wraps pure sync nullish unions directly when awaiting", () => {
+      const source = `
+        declare function maybeText(flag: boolean): string | undefined;
+
+        export async function run(flag: boolean): Promise<string | undefined> {
+          return await maybeText(flag);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include(
+        "await global::System.Threading.Tasks.Task.FromResult(maybeText(flag));"
+      );
+      expect(csharp).not.to.include(
+        "?? global::System.Threading.Tasks.Task.CompletedTask"
+      );
+      expect(csharp).not.to.include("maybeText(flag).Match(");
+    });
+
+    it("normalizes mixed Task-or-void unions before await", () => {
+      const source = `
+        import type { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
+        declare function maybeFlush(flag: boolean): void | Task;
+
+        export async function run(flag: boolean): Promise<void> {
+          await maybeFlush(flag);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include(
+        "await (maybeFlush(flag) ?? global::System.Threading.Tasks.Task.CompletedTask);"
+      );
+      expect(csharp).not.to.include("Match((void");
+    });
+
+    it("normalizes async function values assigned to mixed value-or-promise handler contracts", () => {
+      const source = `
+        type NextControl = "route" | string | undefined;
+        type NextFunction = (value?: NextControl) => void | Promise<void>;
+        type RequestHandler = (next: NextFunction) => unknown | Promise<unknown>;
+
+        export function build(): RequestHandler {
+          const handler: RequestHandler = async (next) => {
+            await next("route");
+          };
+          return handler;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include(
+        "global::Tsonic.Runtime.Union<global::System.Threading.Tasks.Task<object?>, object?>.From1(global::System.Threading.Tasks.Task.Run<object?>"
+      );
+      expect(csharp).to.include(
+        'await (next("route") ?? global::System.Threading.Tasks.Task.CompletedTask);'
+      );
     });
   });
 
@@ -1205,6 +1423,35 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("var limit =");
     });
 
+    it("preserves optional exact-numeric arguments for function-valued calls", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        type Query = {
+          limit?: int;
+        };
+
+        declare function takeDeclared(value?: int): void;
+
+        export function run(query: Query): void {
+          const takeLocal = (value?: int): void => {};
+          const takeTyped: (value?: int) => void = (value?: int): void => {};
+
+          takeDeclared(query.limit);
+          takeLocal(query.limit);
+          takeTyped(query.limit);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("takeDeclared(query.limit);");
+      expect(csharp).to.include("takeLocal(query.limit);");
+      expect(csharp).to.include("takeTyped(query.limit);");
+      expect(csharp).not.to.include("takeDeclared(query.limit.Value)");
+      expect(csharp).not.to.include("takeLocal(query.limit.Value)");
+      expect(csharp).not.to.include("takeTyped(query.limit.Value)");
+    });
+
     it("lowers typed object spreads into object-root dictionary results", () => {
       const source = `
         type ApiKeyData = {
@@ -1261,7 +1508,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include('state["user_id"] = "u1";');
       expect(csharp).to.include('state["email"] = "u@example.com";');
       expect(csharp).to.include('var bot = state["user_id"];');
-      expect(csharp).to.include('state["is_bot"] = bot == "u1";');
+      expect(csharp).to.include(
+        'state["is_bot"] = global::System.Object.Equals(bot, "u1");'
+      );
       expect(csharp).not.to.include("state.user_id");
       expect(csharp).not.to.include("state.email");
       expect(csharp).not.to.include("state.is_bot");
@@ -1285,7 +1534,10 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include(
-        "subscribe(new CreateParams { isPrivate = createParams.isPrivate });"
+        "subscribe(((global::System.Func<CreateParams>)(() =>"
+      );
+      expect(csharp).to.include(
+        "new CreateParams { isPrivate = createParams.isPrivate }"
       );
       expect(csharp).not.to.include("subscribe(createParams);");
     });
@@ -1319,9 +1571,13 @@ describe("End-to-End Integration", () => {
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.match(
-        /createBotDomain\(new .* \{ fullName = input\.fullName, shortName = input\.shortName, botType = input\.botType \}\);/
+      expect(csharp).to.include(
+        "createBotDomain(((global::System.Func<global::Test.__Anon_"
       );
+      expect(csharp).to.include("new global::Test.__Anon_");
+      expect(csharp).to.include("fullName = input.fullName");
+      expect(csharp).to.include("shortName = input.shortName");
+      expect(csharp).to.include("botType = input.botType");
       expect(csharp).not.to.include("createBotDomain(input);");
     });
 
@@ -1438,6 +1694,34 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("createDraftsDomain(inputs.ToArray());");
     });
 
+    it("reifies structural alias array elements after generic List<T>.ToArray()", () => {
+      const source = `
+        declare class List<T> {
+          Add(item: T): void;
+          ToArray(): T[];
+        }
+
+        type TopRow = {
+          key: string;
+          pageviews: number;
+        };
+
+        export function run(): number {
+          const rows = new List<TopRow>();
+          rows.Add({ key: "home", pageviews: 1 });
+          const arr = rows.ToArray();
+          return arr[0]!.pageviews;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.not.include(
+        "ICE: Anonymous object type reached emitter"
+      );
+      expect(csharp).to.include("rows.ToArray()");
+      expect(csharp).to.match(/return .*pageviews;/);
+    });
+
     it("emits empty inline object-type locals with optional properties", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
@@ -1457,6 +1741,48 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "new global::System.Collections.Generic.Dictionary"
       );
+    });
+
+    it("erases inline structural type assertions without anonymous-type cast emission", () => {
+      const source = `
+        export function getArity(handler: unknown): number {
+          if (typeof handler !== "function") {
+            return 0;
+          }
+
+          const maybeFunction = handler as unknown as { readonly length?: number };
+          return typeof maybeFunction.length === "number" ? maybeFunction.length : 0;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).not.to.include(
+        "ICE: Anonymous object type reached emitter"
+      );
+      expect(csharp).to.include("var maybeFunction = handler;");
+      expect(csharp).to.include("maybeFunction.length");
+    });
+
+    it("erases named structural type assertions without CLR runtime casts", () => {
+      const source = `
+        interface HandlerShape {
+          readonly length?: number;
+        }
+
+        export function getArity(handler: unknown): number {
+          if (typeof handler !== "function") {
+            return 0;
+          }
+
+          const maybeFunction = handler as unknown as HandlerShape;
+          return typeof maybeFunction.length === "number" ? maybeFunction.length : 0;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).not.to.match(/\(\(.*HandlerShape.*\)handler\)/);
+      expect(csharp).to.include("var maybeFunction = handler;");
+      expect(csharp).to.include("maybeFunction.length");
     });
   });
 
@@ -1501,7 +1827,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("var __tsonic_object_method_argument_0 = x;");
       expect(csharp).to.include(
-        "return (double)__tsonic_object_method_argument_0 + y;"
+        "return __tsonic_object_method_argument_0 + y;"
       );
       expect(csharp).not.to.include("arguments");
     });

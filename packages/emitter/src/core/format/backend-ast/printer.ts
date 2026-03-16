@@ -650,7 +650,9 @@ export const printType = (type: CSharpTypeAst): string => {
     }
 
     case "nullableType":
-      return `${printType(type.underlyingType)}?`;
+      return type.underlyingType.kind === "nullableType"
+        ? printType(type.underlyingType)
+        : `${printType(type.underlyingType)}?`;
 
     case "arrayType": {
       const elem = printType(type.elementType);
@@ -1388,7 +1390,9 @@ export const printMember = (
       const mods =
         member.modifiers.length > 0 ? `${member.modifiers.join(" ")} ` : "";
       const typeName = printType(member.type);
-      const name = escapeIdentifier(member.name);
+      const name = member.explicitInterface
+        ? `${printType(member.explicitInterface)}.${escapeIdentifier(member.name)}`
+        : escapeIdentifier(member.name);
 
       if (member.isAutoProperty) {
         const getStr = member.hasGetter ? "get; " : "";
@@ -1427,18 +1431,21 @@ export const printMember = (
       const mods =
         member.modifiers.length > 0 ? `${member.modifiers.join(" ")} ` : "";
       const ret = printType(member.returnType);
+      const name = member.explicitInterface
+        ? `${printType(member.explicitInterface)}.${escapeIdentifier(member.name)}`
+        : escapeIdentifier(member.name);
       const typeParams = printTypeParameters(member.typeParameters);
       const params = member.parameters.map(printParameter).join(", ");
       const constraints = printConstraints(member.constraints, indent);
 
       if (member.expressionBody) {
-        return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints} => ${printExpression(member.expressionBody, indent)};`;
+        return `${attrs}${indent}${mods}${ret} ${name}${typeParams}(${params})${constraints} => ${printExpression(member.expressionBody, indent)};`;
       }
       if (member.body) {
-        return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints}\n${printBlockStatement(member.body, indent)}`;
+        return `${attrs}${indent}${mods}${ret} ${name}${typeParams}(${params})${constraints}\n${printBlockStatement(member.body, indent)}`;
       }
       // Abstract/interface method (no body)
-      return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints};`;
+      return `${attrs}${indent}${mods}${ret} ${name}${typeParams}(${params})${constraints};`;
     }
 
     case "constructorDeclaration": {

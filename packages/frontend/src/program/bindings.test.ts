@@ -76,6 +76,72 @@ describe("Binding System", () => {
       ]);
     });
 
+    it("should prefer the requested CLR owner when a TS alias maps to multiple CLR types", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/globals.json", {
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.console",
+          },
+        },
+      });
+      registry.addBindings("/test/js-runtime/bindings.json", {
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.console",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "error",
+                normalizedSignature:
+                  "error|(System.Object[]):System.Void|static=true",
+                parameterCount: 1,
+                declaringClrType: "Tsonic.JSRuntime.console",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+      registry.addBindings("/test/nodejs/bindings.json", {
+        namespace: "nodejs",
+        types: [
+          {
+            clrName: "nodejs.console",
+            assemblyName: "nodejs",
+            methods: [
+              {
+                clrName: "error",
+                normalizedSignature:
+                  "error|(System.Object,System.Object[]):System.Void|static=true",
+                parameterCount: 2,
+                declaringClrType: "nodejs.console",
+                declaringAssemblyName: "nodejs",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const overloads = registry.getMemberOverloads(
+        "Tsonic.JSRuntime.console",
+        "error",
+        false
+      );
+
+      expect(overloads?.map((binding) => binding.binding.type)).to.deep.equal([
+        "Tsonic.JSRuntime.console",
+      ]);
+    });
+
     it("should clear all bindings", () => {
       const registry = new BindingRegistry();
 
@@ -231,6 +297,73 @@ describe("Binding System", () => {
       const lengthOverloads = registry.getMemberOverloads("Array", "length");
       expect(lengthOverloads).to.not.equal(undefined);
       expect(lengthOverloads?.[0]?.binding.member).to.equal("length");
+    });
+
+    it("should resolve instance members through simple binding runtime types even when staticType differs", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/simple-array.json", {
+        bindings: {
+          Array: {
+            kind: "global",
+            assembly: "Acme.Runtime",
+            type: "Acme.Runtime.JSArray`1",
+            staticType: "Acme.Runtime.JSArrayStatics",
+            typeSemantics: {
+              contributesTypeIdentity: true,
+            },
+          },
+        },
+      });
+
+      registry.addBindings("/test/acme-array/bindings.json", {
+        namespace: "Acme.Runtime",
+        types: [
+          {
+            clrName: "Acme.Runtime.JSArray`1",
+            assemblyName: "Acme.Runtime",
+            methods: [
+              {
+                clrName: "push",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+              {
+                clrName: "join",
+                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "Acme.Runtime.JSArrayStatics",
+            assemblyName: "Acme.Runtime",
+            methods: [
+              {
+                clrName: "from",
+                declaringClrType: "Acme.Runtime.JSArrayStatics",
+                declaringAssemblyName: "Acme.Runtime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const pushOverloads = registry.getMemberOverloads("Array", "push");
+      expect(pushOverloads).to.not.equal(undefined);
+      expect(pushOverloads?.[0]?.binding.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
+
+      const joinOverloads = registry.getMemberOverloads("Array", "join");
+      expect(joinOverloads).to.not.equal(undefined);
+      expect(joinOverloads?.[0]?.binding.type).to.equal(
+        "Acme.Runtime.JSArray`1"
+      );
     });
 
     it("should resolve tsbindgen types by CLR name", () => {
@@ -1165,9 +1298,37 @@ describe("Binding System", () => {
 
       const emitterTypes = registry.getEmitterTypeMap();
       expect(emitterTypes.has("Date")).to.equal(true);
+      expect(emitterTypes.has("DateConstructor")).to.equal(true);
       expect(emitterTypes.has("JSON")).to.equal(false);
       expect(emitterTypes.has("Error")).to.equal(true);
+      expect(emitterTypes.has("ErrorConstructor")).to.equal(true);
       expect(emitterTypes.has("console")).to.equal(false);
+    });
+
+    it("should expose constructor aliases for simple bindings with type identity", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/simple.json", {
+        bindings: {
+          Uint8Array: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Uint8Array",
+            staticType: "Tsonic.JSRuntime.Uint8Array",
+            typeSemantics: {
+              contributesTypeIdentity: true,
+            },
+          },
+        },
+      });
+
+      const emitterTypes = registry.getEmitterTypeMap();
+      expect(emitterTypes.get("Uint8Array")?.name).to.equal(
+        "Tsonic.JSRuntime.Uint8Array"
+      );
+      expect(emitterTypes.get("Uint8ArrayConstructor")?.name).to.equal(
+        "Tsonic.JSRuntime.Uint8Array"
+      );
     });
 
     it("should not infer type identity from uppercase aliases when metadata is absent", () => {

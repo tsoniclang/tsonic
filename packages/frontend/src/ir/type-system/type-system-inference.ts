@@ -18,6 +18,7 @@ import type {
   IrParameter,
   IrReferenceType,
   IrInterfaceMember,
+  IrSpreadTupleShape,
 } from "../types/index.js";
 import * as ts from "typescript";
 import {
@@ -29,6 +30,7 @@ import {
   getBinaryResultKind,
   TSONIC_TO_NUMERIC_KIND,
 } from "../types/numeric-kind.js";
+import { getSpreadTupleShape } from "../types/index.js";
 import type { NumericKind } from "../types/numeric-kind.js";
 import type { DeclId, SignatureId, MemberId, TypeSyntaxId } from "./types.js";
 import { unknownType, voidType } from "./types.js";
@@ -38,6 +40,28 @@ import type {
   MemberRef,
   DeclKind,
 } from "./type-system-state.js";
+
+const collectResolutionArgTypes = (
+  types: readonly (IrType | undefined)[]
+): {
+  readonly argumentCount: number;
+  readonly argTypes: readonly (IrType | undefined)[];
+} => {
+  const argTypes: IrType[] = [];
+  for (const type of types) {
+    if (!type) continue;
+    const spreadShape: IrSpreadTupleShape | undefined =
+      getSpreadTupleShape(type);
+    if (!spreadShape) {
+      argTypes.push(type);
+      continue;
+    }
+    for (const elementType of spreadShape.prefixElementTypes) {
+      argTypes.push(elementType);
+    }
+  }
+  return { argumentCount: argTypes.length, argTypes };
+};
 import {
   emitDiagnostic,
   normalizeToNominal,
@@ -53,6 +77,7 @@ import {
   delegateToFunctionType,
 } from "./type-system-call-resolution.js";
 import { resolveDynamicImportNamespace } from "../../resolver/dynamic-import.js";
+import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // typeOfDecl — Get declared type of a declaration
@@ -77,12 +102,45 @@ export const deriveTypeFromNumericKind = (kind: NumericKind): IrType => {
   return { kind: "primitiveType", name: "number" };
 };
 
+const makeOptionalReadType = (type: IrType): IrType => {
+  if (type.kind === "unionType") {
+    const hasUndefined = type.types.some(
+      (member) => member.kind === "primitiveType" && member.name === "undefined"
+    );
+    if (hasUndefined) return type;
+    return {
+      kind: "unionType",
+      types: [...type.types, { kind: "primitiveType", name: "undefined" }],
+    };
+  }
+
+  if (type.kind === "primitiveType" && type.name === "undefined") {
+    return type;
+  }
+
+  return {
+    kind: "unionType",
+    types: [type, { kind: "primitiveType", name: "undefined" }],
+  };
+};
+
 export const unwrapParens = (expr: ts.Expression): ts.Expression => {
   let current: ts.Expression = expr;
   while (ts.isParenthesizedExpression(current)) {
     current = current.expression;
   }
   return current;
+};
+
+const hasStaticModifier = (node: ts.Node): boolean => {
+  const modifiers = (
+    node as ts.Node & {
+      readonly modifiers?: readonly ts.ModifierLike[];
+    }
+  ).modifiers;
+  return !!modifiers?.some(
+    (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
+  );
 };
 
 export const isLambdaExpression = (expr: ts.Expression): boolean => {
@@ -140,6 +198,76 @@ export const unwrapAwaitedForInference = (type: IrType): IrType => {
   return type;
 };
 
+const buildFunctionTypeFromSignatureShape = (
+  parameters: readonly {
+    readonly name: string;
+    readonly type: IrType;
+    readonly isOptional: boolean;
+    readonly isRest: boolean;
+    readonly mode?: IrParameter["passing"];
+  }[],
+  returnType: IrType
+): IrFunctionType => ({
+  kind: "functionType",
+  parameters: parameters.map(
+    (parameter): IrParameter => ({
+      kind: "parameter",
+      pattern: {
+        kind: "identifierPattern",
+        name: parameter.name,
+      },
+      type: parameter.type,
+      initializer: undefined,
+      isOptional: parameter.isOptional,
+      isRest: parameter.isRest,
+      passing: parameter.mode ?? "value",
+    })
+  ),
+  returnType,
+});
+
+const buildCallableOverloadFamilyType = (
+  overloads: readonly IrFunctionType[]
+): IrType => {
+  if (overloads.length === 0) {
+    return unknownType;
+  }
+
+  const [only] = overloads;
+  if (overloads.length === 1 && only) {
+    return only;
+  }
+
+  return {
+    kind: "intersectionType",
+    types: overloads,
+  };
+};
+
+const buildStructuralMethodFamilyType = (
+  members: readonly Extract<IrInterfaceMember, { kind: "methodSignature" }>[]
+): IrType | undefined => {
+  if (members.length === 0) return undefined;
+
+  return buildCallableOverloadFamilyType(
+    members.map((member) =>
+      buildFunctionTypeFromSignatureShape(
+        member.parameters.map((parameter) => ({
+          name:
+            parameter.pattern.kind === "identifierPattern"
+              ? parameter.pattern.name
+              : "param",
+          type: parameter.type ?? unknownType,
+          isOptional: parameter.isOptional,
+          isRest: parameter.isRest,
+          mode: parameter.passing,
+        })),
+        member.returnType ?? voidType
+      )
+    )
+  );
+};
+
 /**
  * Deterministically infer an expression's type using only:
  * - local lambda parameter environment
@@ -157,23 +285,6 @@ export const inferExpressionType = (
   const inferObjectLiteralType = (
     objectExpr: ts.ObjectLiteralExpression
   ): IrType | undefined => {
-    const getPropertyName = (name: ts.PropertyName): string | undefined => {
-      if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
-        return name.text;
-      }
-      if (ts.isNumericLiteral(name)) {
-        return name.text;
-      }
-      if (
-        ts.isComputedPropertyName(name) &&
-        (ts.isStringLiteral(name.expression) ||
-          ts.isNoSubstitutionTemplateLiteral(name.expression))
-      ) {
-        return name.expression.text;
-      }
-      return undefined;
-    };
-
     const inferFunctionLikeType = (
       functionLike:
         | ts.ArrowFunction
@@ -181,24 +292,29 @@ export const inferExpressionType = (
         | ts.MethodDeclaration
         | ts.GetAccessorDeclaration
     ): IrFunctionType | undefined => {
-      const parameters = "parameters" in functionLike
-        ? functionLike.parameters.map((p, index) => {
-            const name = ts.isIdentifier(p.name) ? p.name.text : `arg${index}`;
-            const paramType = p.type ? convertTypeNode(state, p.type) : undefined;
-            return {
-              kind: "parameter" as const,
-              pattern: {
-                kind: "identifierPattern" as const,
-                name,
-              },
-              type: paramType,
-              initializer: undefined,
-              isOptional: !!p.questionToken,
-              isRest: !!p.dotDotDotToken,
-              passing: "value" as const,
-            };
-          })
-        : [];
+      const parameters =
+        "parameters" in functionLike
+          ? functionLike.parameters.map((p, index) => {
+              const name = ts.isIdentifier(p.name)
+                ? p.name.text
+                : `arg${index}`;
+              const paramType = p.type
+                ? convertTypeNode(state, p.type)
+                : undefined;
+              return {
+                kind: "parameter" as const,
+                pattern: {
+                  kind: "identifierPattern" as const,
+                  name,
+                },
+                type: paramType,
+                initializer: undefined,
+                isOptional: !!p.questionToken,
+                isRest: !!p.dotDotDotToken,
+                passing: "value" as const,
+              };
+            })
+          : [];
 
       const localEnv = new Map(env);
       for (const parameter of parameters) {
@@ -217,9 +333,14 @@ export const inferExpressionType = (
       const inferredReturnType =
         explicitReturnType ??
         (() => {
-          if (ts.isMethodDeclaration(functionLike) || ts.isGetAccessor(functionLike)) {
+          if (
+            ts.isMethodDeclaration(functionLike) ||
+            ts.isGetAccessor(functionLike)
+          ) {
             if (!functionLike.body) return undefined;
-            const returns = functionLike.body.statements.filter(ts.isReturnStatement);
+            const returns = functionLike.body.statements.filter(
+              ts.isReturnStatement
+            );
             if (returns.length === 0) return { kind: "voidType" as const };
             const firstExpr = returns[0]?.expression;
             if (!firstExpr) return { kind: "voidType" as const };
@@ -235,7 +356,9 @@ export const inferExpressionType = (
           }
 
           if (ts.isBlock(functionLike.body)) {
-            const returns = functionLike.body.statements.filter(ts.isReturnStatement);
+            const returns = functionLike.body.statements.filter(
+              ts.isReturnStatement
+            );
             if (returns.length === 0) return { kind: "voidType" as const };
             const firstExpr = returns[0]?.expression;
             if (!firstExpr) return { kind: "voidType" as const };
@@ -272,8 +395,11 @@ export const inferExpressionType = (
         return undefined;
       }
 
-      if (ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property)) {
-        const name = getPropertyName(property.name);
+      if (
+        ts.isGetAccessorDeclaration(property) ||
+        ts.isSetAccessorDeclaration(property)
+      ) {
+        const name = tryResolveDeterministicPropertyName(property.name);
         if (!name) return undefined;
         const bucket = accessors.get(name) ?? {};
         if (ts.isGetAccessorDeclaration(property)) {
@@ -286,9 +412,13 @@ export const inferExpressionType = (
       }
 
       if (ts.isPropertyAssignment(property)) {
-        const name = getPropertyName(property.name);
+        const name = tryResolveDeterministicPropertyName(property.name);
         if (!name) return undefined;
-        const propertyType = inferExpressionType(state, property.initializer, env);
+        const propertyType = inferExpressionType(
+          state,
+          property.initializer,
+          env
+        );
         if (!propertyType) return undefined;
         members.push({
           kind: "propertySignature",
@@ -325,7 +455,7 @@ export const inferExpressionType = (
       }
 
       if (ts.isMethodDeclaration(property)) {
-        const name = getPropertyName(property.name);
+        const name = tryResolveDeterministicPropertyName(property.name);
         if (!name) return undefined;
         const methodType = inferFunctionLikeType(property);
         if (!methodType) return undefined;
@@ -343,9 +473,9 @@ export const inferExpressionType = (
 
     for (const [name, accessor] of accessors) {
       const getterType = accessor.getter
-        ? ("type" in accessor.getter && accessor.getter.type
-            ? convertTypeNode(state, accessor.getter.type)
-            : inferFunctionLikeType(accessor.getter)?.returnType)
+        ? "type" in accessor.getter && accessor.getter.type
+          ? convertTypeNode(state, accessor.getter.type)
+          : inferFunctionLikeType(accessor.getter)?.returnType
         : undefined;
       const setterParam = accessor.setter?.parameters[0];
       const setterType = setterParam?.type
@@ -832,7 +962,13 @@ export const tryInferReturnTypeFromCallExpression = (
   for (let index = 0; index < call.arguments.length; index++) {
     const arg = call.arguments[index];
     if (!arg) continue;
-    if (ts.isSpreadElement(arg)) continue;
+    if (ts.isSpreadElement(arg)) {
+      const spreadType = inferExpressionType(state, arg.expression, env);
+      if (spreadType && spreadType.kind !== "unknownType") {
+        argTypesWorking[index] = spreadType;
+      }
+      continue;
+    }
     if (isLambdaExpression(arg)) continue;
 
     if (ts.isNumericLiteral(arg)) {
@@ -905,12 +1041,20 @@ export const tryInferReturnTypeFromCallExpression = (
     }
   }
 
+  const lambdaResolutionArgs = collectResolutionArgTypes(argTypesWorking);
+
   const lambdaContextResolved = resolveCall(state, {
     sigId,
-    argumentCount,
+    argumentCount:
+      lambdaResolutionArgs.argumentCount > 0
+        ? lambdaResolutionArgs.argumentCount
+        : argumentCount,
     receiverType,
     explicitTypeArgs,
-    argTypes: argTypesWorking,
+    argTypes:
+      lambdaResolutionArgs.argumentCount > 0
+        ? lambdaResolutionArgs.argTypes
+        : argTypesWorking,
   });
 
   const parameterTypesForLambdaContext =
@@ -929,12 +1073,20 @@ export const tryInferReturnTypeFromCallExpression = (
     }
   }
 
+  const finalResolutionArgs = collectResolutionArgTypes(argTypesWorking);
+
   const finalResolved = resolveCall(state, {
     sigId,
-    argumentCount,
+    argumentCount:
+      finalResolutionArgs.argumentCount > 0
+        ? finalResolutionArgs.argumentCount
+        : argumentCount,
     receiverType,
     explicitTypeArgs,
-    argTypes: argTypesWorking,
+    argTypes:
+      finalResolutionArgs.argumentCount > 0
+        ? finalResolutionArgs.argTypes
+        : argTypesWorking,
   });
 
   return finalResolved.returnType.kind === "unknownType"
@@ -1152,26 +1304,25 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
   const effectiveTypeDecl =
     (declInfo.typeDeclNode as ts.Declaration | undefined) ?? effectiveValueDecl;
   const effectiveDeclNode = effectiveValueDecl ?? effectiveTypeDecl;
-  const effectiveTypeNode =
-    ((): ts.TypeNode | undefined => {
-      if (declInfo.typeNode) return declInfo.typeNode as ts.TypeNode;
-      const source = effectiveDeclNode;
-      if (!source) return undefined;
-      if (
-        ts.isVariableDeclaration(source) ||
-        ts.isParameter(source) ||
-        ts.isPropertyDeclaration(source) ||
-        ts.isPropertySignature(source) ||
-        ts.isMethodDeclaration(source) ||
-        ts.isMethodSignature(source) ||
-        ts.isFunctionDeclaration(source) ||
-        ts.isTypeAliasDeclaration(source) ||
-        ts.isGetAccessorDeclaration(source)
-      ) {
-        return source.type;
-      }
-      return undefined;
-    })();
+  const effectiveTypeNode = ((): ts.TypeNode | undefined => {
+    if (declInfo.typeNode) return declInfo.typeNode as ts.TypeNode;
+    const source = effectiveDeclNode;
+    if (!source) return undefined;
+    if (
+      ts.isVariableDeclaration(source) ||
+      ts.isParameter(source) ||
+      ts.isPropertyDeclaration(source) ||
+      ts.isPropertySignature(source) ||
+      ts.isMethodDeclaration(source) ||
+      ts.isMethodSignature(source) ||
+      ts.isFunctionDeclaration(source) ||
+      ts.isTypeAliasDeclaration(source) ||
+      ts.isGetAccessorDeclaration(source)
+    ) {
+      return source.type;
+    }
+    return undefined;
+  })();
   const effectiveKind: DeclKind = (() => {
     const source = effectiveDeclNode;
     if (!source) return declInfo.kind;
@@ -1248,6 +1399,34 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
   return result;
 };
 
+export const typeOfValueRead = (
+  state: TypeSystemState,
+  declId: DeclId
+): IrType => {
+  const declType = typeOfDecl(state, declId);
+  if (declType.kind === "unknownType") {
+    return declType;
+  }
+
+  const declInfo = state.handleRegistry.getDecl(declId);
+  const effectiveValueDecl =
+    (declInfo?.valueDeclNode as ts.Declaration | undefined) ??
+    (declInfo?.declNode as ts.Declaration | undefined);
+
+  if (
+    effectiveValueDecl &&
+    ((ts.isParameter(effectiveValueDecl) &&
+      effectiveValueDecl.questionToken !== undefined) ||
+      ((ts.isPropertyDeclaration(effectiveValueDecl) ||
+        ts.isPropertySignature(effectiveValueDecl)) &&
+        effectiveValueDecl.questionToken !== undefined))
+  ) {
+    return makeOptionalReadType(declType);
+  }
+
+  return declType;
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 // typeOfMember — Get declared type of a member (with inheritance substitution)
 // ─────────────────────────────────────────────────────────────────────────
@@ -1312,26 +1491,51 @@ const resolveMemberTypeNoDiag = (
     }
   }
 
+  // JavaScript strings expose `.length` as an exact integer at runtime.
+  // Preserve that exactness for numeric proof and source-port ergonomics.
+  if (receiver.kind === "primitiveType" && receiver.name === "string") {
+    if (
+      memberName === "Length" ||
+      memberName === "Count" ||
+      memberName === "length"
+    ) {
+      return { kind: "primitiveType", name: "int" };
+    }
+  }
+
   // 1. Normalize receiver to nominal form
   const normalized = normalizeToNominal(state, receiver);
   if (!normalized) {
     // Handle structural types (objectType)
     if (receiver.kind === "objectType") {
-      const member = receiver.members.find((m) => m.name === memberName);
-      if (!member) return undefined;
-      if (member.kind === "propertySignature") {
-        if (!member.isOptional) return member.type;
+      const members = receiver.members.filter((m) => m.name === memberName);
+      if (members.length === 0) return undefined;
+
+      const propertyMembers = members.filter(
+        (
+          member
+        ): member is Extract<
+          IrInterfaceMember,
+          { kind: "propertySignature" }
+        > => member.kind === "propertySignature"
+      );
+      if (propertyMembers.length > 0) {
+        const [property] = propertyMembers;
+        if (!property) return undefined;
+        if (!property.isOptional) return property.type;
         return {
           kind: "unionType",
-          types: [member.type, { kind: "primitiveType", name: "undefined" }],
+          types: [property.type, { kind: "primitiveType", name: "undefined" }],
         };
       }
 
-      return {
-        kind: "functionType",
-        parameters: member.parameters,
-        returnType: member.returnType ?? voidType,
-      };
+      const methodMembers = members.filter(
+        (
+          member
+        ): member is Extract<IrInterfaceMember, { kind: "methodSignature" }> =>
+          member.kind === "methodSignature"
+      );
+      return buildStructuralMethodFamilyType(methodMembers);
     }
 
     if (
@@ -1339,23 +1543,36 @@ const resolveMemberTypeNoDiag = (
       receiver.structuralMembers &&
       receiver.structuralMembers.length > 0
     ) {
-      const member = receiver.structuralMembers.find(
+      const members = receiver.structuralMembers.filter(
         (m) => m.name === memberName
       );
-      if (!member) return undefined;
-      if (member.kind === "propertySignature") {
-        if (!member.isOptional) return member.type;
+      if (members.length === 0) return undefined;
+
+      const propertyMembers = members.filter(
+        (
+          member
+        ): member is Extract<
+          IrInterfaceMember,
+          { kind: "propertySignature" }
+        > => member.kind === "propertySignature"
+      );
+      if (propertyMembers.length > 0) {
+        const [property] = propertyMembers;
+        if (!property) return undefined;
+        if (!property.isOptional) return property.type;
         return {
           kind: "unionType",
-          types: [member.type, { kind: "primitiveType", name: "undefined" }],
+          types: [property.type, { kind: "primitiveType", name: "undefined" }],
         };
       }
 
-      return {
-        kind: "functionType",
-        parameters: member.parameters,
-        returnType: member.returnType ?? voidType,
-      };
+      const methodMembers = members.filter(
+        (
+          member
+        ): member is Extract<IrInterfaceMember, { kind: "methodSignature" }> =>
+          member.kind === "methodSignature"
+      );
+      return buildStructuralMethodFamilyType(methodMembers);
     }
     return undefined;
   }
@@ -1397,30 +1614,26 @@ const resolveMemberTypeNoDiag = (
     // Method member: materialize a callable function type from the first signature.
     // Call resolution (resolveCall) uses SignatureId for overload selection; this
     // type is used only to keep member access expressions deterministic.
-    const firstSig = memberEntry?.signatures?.[0];
-    if (firstSig) {
-      const funcType: IrFunctionType = {
-        kind: "functionType",
-        parameters: firstSig.parameters.map(
-          (p): IrParameter => ({
-            kind: "parameter",
-            pattern: {
-              kind: "identifierPattern",
-              name: p.name,
-            },
-            type: p.type,
-            initializer: undefined,
-            isOptional: p.isOptional,
-            isRest: p.isRest,
-            passing: p.mode,
-          })
-        ),
-        returnType: firstSig.returnType,
-      };
+    const signatures = memberEntry?.signatures ?? [];
+    if (signatures.length > 0) {
+      const overloadFamily = buildCallableOverloadFamilyType(
+        signatures.map((signature) =>
+          buildFunctionTypeFromSignatureShape(
+            signature.parameters.map((parameter) => ({
+              name: parameter.name,
+              type: parameter.type,
+              isOptional: parameter.isOptional,
+              isRest: parameter.isRest,
+              mode: parameter.mode,
+            })),
+            signature.returnType
+          )
+        )
+      );
 
       const result = attachTypeIds(
         state,
-        irSubstitute(funcType, lookupResult.substitution)
+        irSubstitute(overloadFamily, lookupResult.substitution)
       );
       state.memberDeclaredTypeCache.set(cacheKey, result);
       return result;
@@ -1646,6 +1859,56 @@ export const typeOfMemberId = (
         .replace(/_\d+$/, "")
         .replace(/`\d+$/, "");
 
+    const getArrayLikeReceiverReference = (
+      type: IrType
+    ): IrReferenceType | undefined => {
+      if (type.kind === "arrayType") {
+        return {
+          kind: "referenceType",
+          name: "Array",
+          typeArguments: [type.elementType],
+        };
+      }
+
+      if (type.kind === "tupleType") {
+        const tupleMembers = type.elementTypes.filter(
+          (element): element is IrType => element !== undefined
+        );
+        const onlyTupleMember = tupleMembers[0];
+        const tupleElementType =
+          tupleMembers.length === 0
+            ? { kind: "unknownType" as const }
+            : tupleMembers.length === 1 && onlyTupleMember
+              ? onlyTupleMember
+              : { kind: "unionType" as const, types: tupleMembers };
+        return {
+          kind: "referenceType",
+          name: "Array",
+          typeArguments: [tupleElementType],
+        };
+      }
+
+      return undefined;
+    };
+
+    const declaringNamesCompatible = (
+      receiverName: string,
+      declaringName: string
+    ): boolean => {
+      const normalizedReceiver = normalizeDeclaringTypeName(receiverName);
+      const normalizedDeclaring = normalizeDeclaringTypeName(declaringName);
+      if (normalizedReceiver === normalizedDeclaring) {
+        return true;
+      }
+
+      return (
+        (normalizedReceiver === "Array" &&
+          normalizedDeclaring === "ReadonlyArray") ||
+        (normalizedReceiver === "ReadonlyArray" &&
+          normalizedDeclaring === "Array")
+      );
+    };
+
     const getDeclaringTypeSubstitution = ():
       | ReadonlyMap<string, IrType>
       | undefined => {
@@ -1673,6 +1936,10 @@ export const typeOfMemberId = (
             ? extractReceiverRef(onlyNonNullish)
             : undefined;
         }
+        const arrayLikeRef = getArrayLikeReceiverReference(type);
+        if (arrayLikeRef) {
+          return arrayLikeRef;
+        }
         return undefined;
       };
 
@@ -1696,8 +1963,7 @@ export const typeOfMemberId = (
       }
 
       if (
-        normalizeDeclaringTypeName(receiverRef.name) !==
-        normalizeDeclaringTypeName(declaringType.name.text)
+        !declaringNamesCompatible(receiverRef.name, declaringType.name.text)
       ) {
         return undefined;
       }
@@ -1730,30 +1996,90 @@ export const typeOfMemberId = (
         ? irSubstitute(type, substitution as IrSubstitutionMap)
         : type;
 
-    if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) {
-      if (!decl.type) return unknownType;
-      if (decl.parameters.some((p) => p.type === undefined)) return unknownType;
+    const getMethodFamily = ():
+      | readonly (
+          | ts.MethodDeclaration
+          | ts.MethodSignature
+          | ts.FunctionDeclaration
+        )[]
+      | undefined => {
+      const parent = decl.parent;
 
-      const parameters: readonly IrParameter[] = decl.parameters.map((p) => ({
-        kind: "parameter",
-        pattern: {
-          kind: "identifierPattern",
-          name: ts.isIdentifier(p.name) ? p.name.text : "param",
-        },
-        type: p.type
-          ? applySubstitution(convertTypeNode(state, p.type))
-          : undefined,
-        initializer: undefined,
-        isOptional: !!p.questionToken || !!p.initializer,
-        isRest: !!p.dotDotDotToken,
-        passing: "value",
-      }));
+      if (
+        ts.isSourceFile(parent) &&
+        ts.isFunctionDeclaration(decl) &&
+        decl.name
+      ) {
+        const family = parent.statements.filter(
+          (statement): statement is ts.FunctionDeclaration =>
+            ts.isFunctionDeclaration(statement) &&
+            statement.name?.text === decl.name?.text
+        );
+        if (family.length === 0) return undefined;
+        const overloadSurface = family.filter((member) => !member.body);
+        return overloadSurface.length > 0 ? overloadSurface : family;
+      }
 
-      return {
-        kind: "functionType",
-        parameters,
-        returnType: applySubstitution(convertTypeNode(state, decl.type)),
-      };
+      if (
+        (ts.isClassDeclaration(parent) ||
+          ts.isInterfaceDeclaration(parent) ||
+          ts.isTypeLiteralNode(parent)) &&
+        (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl))
+      ) {
+        const methodName = tryResolveDeterministicPropertyName(decl.name);
+        if (!methodName) return undefined;
+
+        const family = parent.members.filter(
+          (member): member is ts.MethodDeclaration | ts.MethodSignature =>
+            (ts.isMethodDeclaration(member) || ts.isMethodSignature(member)) &&
+            tryResolveDeterministicPropertyName(member.name) === methodName &&
+            (ts.isMethodDeclaration(member) && ts.isMethodDeclaration(decl)
+              ? hasStaticModifier(member) === hasStaticModifier(decl)
+              : true)
+        );
+        if (family.length === 0) return undefined;
+
+        const overloadSurface = family.filter(
+          (member) =>
+            ts.isMethodSignature(member) ||
+            (ts.isMethodDeclaration(member) && !member.body)
+        );
+        return overloadSurface.length > 0 ? overloadSurface : family;
+      }
+
+      return undefined;
+    };
+
+    const methodFamily = getMethodFamily();
+    if (methodFamily && methodFamily.length > 0) {
+      const overloads: IrFunctionType[] = [];
+      for (const method of methodFamily) {
+        if (!method.type) return unknownType;
+        if (
+          method.parameters.some((parameter) => parameter.type === undefined)
+        ) {
+          return unknownType;
+        }
+
+        overloads.push(
+          buildFunctionTypeFromSignatureShape(
+            method.parameters.map((parameter, index) => ({
+              name: ts.isIdentifier(parameter.name)
+                ? parameter.name.text
+                : `param${index}`,
+              type: parameter.type
+                ? applySubstitution(convertTypeNode(state, parameter.type))
+                : unknownType,
+              isOptional: !!parameter.questionToken || !!parameter.initializer,
+              isRest: !!parameter.dotDotDotToken,
+              mode: "value",
+            })),
+            applySubstitution(convertTypeNode(state, method.type))
+          )
+        );
+      }
+
+      return buildCallableOverloadFamilyType(overloads);
     }
 
     // If the member has a type node, convert it with any available declaring-type substitution.
@@ -1955,7 +2281,9 @@ export const checkTsClassMemberOverride = (
   state: TypeSystemState,
   declId: DeclId,
   memberName: string,
-  memberKind: "method" | "property"
+  memberKind: "method" | "property",
+  parameters?: readonly IrParameter[],
+  baseClassType?: IrType
 ): { isOverride: boolean; isShadow: boolean } => {
   const declInfo = state.handleRegistry.getDecl(declId);
   const members = declInfo?.classMemberNames;
@@ -1965,16 +2293,146 @@ export const checkTsClassMemberOverride = (
     return { isOverride: false, isShadow: false };
   }
 
-  // Check if base class has this member
-  const has =
-    memberKind === "method"
-      ? members.methods.has(memberName)
-      : members.properties.has(memberName);
+  if (memberKind === "method") {
+    if (!members.methods.has(memberName)) {
+      return { isOverride: false, isShadow: false };
+    }
 
-  // In TypeScript, all methods can be overridden (no `final` keyword)
-  return has
+    if (!parameters) {
+      return { isOverride: true, isShadow: false };
+    }
+
+    const signatures = members.methodSignatures.get(memberName) ?? [];
+    if (signatures.length === 0) {
+      return { isOverride: true, isShadow: false };
+    }
+
+    const baseSubstitution = buildCapturedBaseClassSubstitution(
+      members.typeParameters,
+      baseClassType
+    );
+
+    const hasCompatibleBaseSignature = signatures.some((signature) =>
+      isCapturedMethodOverrideCompatible(
+        state,
+        signature.parameters,
+        parameters,
+        baseSubstitution
+      )
+    );
+    return hasCompatibleBaseSignature
+      ? { isOverride: true, isShadow: false }
+      : { isOverride: false, isShadow: false };
+  }
+
+  // In TypeScript, properties/accessors override by name.
+  return members.properties.has(memberName)
     ? { isOverride: true, isShadow: false }
     : { isOverride: false, isShadow: false };
+};
+
+const capturedParameterTypeToIrType = (
+  state: TypeSystemState,
+  typeNode: unknown | undefined
+): IrType | undefined => {
+  if (!typeNode) return undefined;
+  return convertTypeNode(state, typeNode);
+};
+
+const areMethodParameterTypesOverrideCompatible = (
+  state: TypeSystemState,
+  baseType: IrType | undefined,
+  derivedType: IrType | undefined
+): boolean => {
+  if (!baseType || !derivedType) {
+    return true;
+  }
+
+  if (typesEqual(baseType, derivedType)) {
+    return true;
+  }
+
+  const baseNominal = normalizeToNominal(state, baseType);
+  const derivedNominal = normalizeToNominal(state, derivedType);
+  return (
+    !!baseNominal &&
+    !!derivedNominal &&
+    baseNominal.typeId.stableId === derivedNominal.typeId.stableId
+  );
+};
+
+const isCapturedMethodOverrideCompatible = (
+  state: TypeSystemState,
+  baseParameters: readonly {
+    readonly typeNode?: unknown;
+    readonly isRest: boolean;
+  }[],
+  derivedParameters: readonly IrParameter[],
+  baseSubstitution?: IrSubstitutionMap
+): boolean => {
+  if (baseParameters.length !== derivedParameters.length) {
+    return false;
+  }
+
+  for (let index = 0; index < baseParameters.length; index += 1) {
+    const baseParameter = baseParameters[index];
+    const derivedParameter = derivedParameters[index];
+    if (!baseParameter || !derivedParameter) {
+      return false;
+    }
+
+    if (baseParameter.isRest !== derivedParameter.isRest) {
+      return false;
+    }
+
+    const baseType = capturedParameterTypeToIrType(
+      state,
+      baseParameter.typeNode
+    );
+    const substitutedBaseType =
+      baseType && baseSubstitution && baseSubstitution.size > 0
+        ? irSubstitute(baseType, baseSubstitution)
+        : baseType;
+    if (
+      !areMethodParameterTypesOverrideCompatible(
+        state,
+        substitutedBaseType,
+        derivedParameter.type
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const buildCapturedBaseClassSubstitution = (
+  typeParameters: readonly string[],
+  baseClassType: IrType | undefined
+): IrSubstitutionMap | undefined => {
+  if (typeParameters.length === 0) {
+    return undefined;
+  }
+
+  if (
+    !baseClassType ||
+    baseClassType.kind !== "referenceType" ||
+    !baseClassType.typeArguments ||
+    baseClassType.typeArguments.length === 0
+  ) {
+    return undefined;
+  }
+
+  const substitution = new Map<string, IrType>();
+  for (let index = 0; index < typeParameters.length; index += 1) {
+    const paramName = typeParameters[index];
+    const argType = baseClassType.typeArguments[index];
+    if (!paramName || !argType) continue;
+    substitution.set(paramName, argType);
+  }
+
+  return substitution.size > 0 ? substitution : undefined;
 };
 
 // ─────────────────────────────────────────────────────────────────────────

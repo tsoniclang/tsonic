@@ -873,4 +873,100 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.true;
     });
   });
+
+  describe("Cross-module local reference resolution", () => {
+    it("allows sibling local types in the same namespace", () => {
+      const appModule: IrModule = {
+        kind: "module",
+        filePath: "/src/application.ts",
+        namespace: "TestApp",
+        className: "application",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "classDeclaration",
+            name: "Application",
+            members: [],
+            isExported: true,
+            isStruct: false,
+            implements: [],
+            superClass: undefined,
+          },
+        ],
+        exports: [],
+      };
+
+      const anonModule: IrModule = {
+        kind: "module",
+        filePath: "/src/__tsonic_anonymous_types.g.ts",
+        namespace: "TestApp",
+        className: "__tsonic_anonymous_types",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "classDeclaration",
+            name: "__Anon_1234",
+            members: [
+              {
+                kind: "propertyDeclaration",
+                name: "owner",
+                type: { kind: "referenceType", name: "Application" },
+                initializer: undefined,
+                emitAsAutoProperty: true,
+                isStatic: false,
+                isReadonly: false,
+                accessibility: "public",
+                isRequired: true,
+              },
+            ],
+            isExported: true,
+            isStruct: false,
+            implements: [],
+            superClass: undefined,
+          },
+        ],
+        exports: [],
+      };
+
+      const result = validateIrSoundness([appModule, anonModule]);
+      expect(result.ok).to.equal(true);
+      expect(result.diagnostics).to.have.length(0);
+    });
+
+    it("still rejects sibling local types from a different namespace", () => {
+      const appModule: IrModule = {
+        kind: "module",
+        filePath: "/src/application.ts",
+        namespace: "TestApp.Runtime",
+        className: "application",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "classDeclaration",
+            name: "Application",
+            members: [],
+            isExported: true,
+            isStruct: false,
+            implements: [],
+            superClass: undefined,
+          },
+        ],
+        exports: [],
+      };
+
+      const anonModule = createModuleWithType({
+        kind: "referenceType",
+        name: "Application",
+      });
+
+      const result = validateIrSoundness([appModule, anonModule]);
+      expect(result.ok).to.equal(false);
+      expect(result.diagnostics.some((d) => d.code === "TSN7414")).to.equal(
+        true
+      );
+    });
+  });
 });

@@ -13,6 +13,11 @@ import { irTypesEqual, normalizedUnionType } from "../../types/type-ops.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
+import {
+  collectTypeNarrowingsInFalsyExpr,
+  collectTypeNarrowingsInTruthyExpr,
+  withAppliedNarrowings,
+} from "../flow-narrowing.js";
 
 /**
  * Convert conditional (ternary) expression
@@ -27,8 +32,23 @@ export const convertConditionalExpression = (
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): IrConditionalExpression => {
-  const whenTrue = convertExpression(node.whenTrue, ctx, expectedType);
-  const whenFalse = convertExpression(node.whenFalse, ctx, expectedType);
+  const condition = convertExpression(node.condition, ctx, undefined);
+  const whenTrue = convertExpression(
+    node.whenTrue,
+    withAppliedNarrowings(
+      ctx,
+      collectTypeNarrowingsInTruthyExpr(node.condition, ctx)
+    ),
+    expectedType
+  );
+  const whenFalse = convertExpression(
+    node.whenFalse,
+    withAppliedNarrowings(
+      ctx,
+      collectTypeNarrowingsInFalsyExpr(node.condition, ctx)
+    ),
+    expectedType
+  );
 
   // DETERMINISTIC:
   // - If expectedType exists, it is the contextual contract for both branches.
@@ -48,7 +68,7 @@ export const convertConditionalExpression = (
 
   return {
     kind: "conditional",
-    condition: convertExpression(node.condition, ctx, undefined),
+    condition,
     whenTrue,
     whenFalse,
     inferredType,

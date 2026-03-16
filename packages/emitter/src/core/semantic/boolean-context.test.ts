@@ -256,6 +256,29 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
       expect(next.tempVarId).to.equal(1);
     });
 
+    it("handles nullable non-primitive unions even when identifier storage type remains broad", () => {
+      const broadType = union([
+        {
+          kind: "dictionaryType",
+          keyType: prim("string"),
+          valueType: prim("number"),
+        } as IrType,
+        prim("undefined"),
+      ]);
+
+      const ctx = createContext({
+        tempVarId: 0,
+        localValueTypes: new Map([["dict", broadType]]),
+      });
+      const expr = id("dict", broadType);
+
+      const [text, next] = toText(expr, idAst("dict"), ctx);
+      expect(text).to.match(/dict is object __tsonic_truthy_1/);
+      expect(text).to.include("switch {");
+      expect(text).to.not.include("__tsonic_truthy_nullable_");
+      expect(next.tempVarId).to.equal(1);
+    });
+
     it("handles 2-8 unions via IsN/AsN active-variant checks", () => {
       const ctx = createContext({ tempVarId: 0 });
       const expr = id("u", union([prim("int"), prim("string")]));

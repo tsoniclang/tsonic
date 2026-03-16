@@ -41,7 +41,7 @@ import {
   stripTsonicExtensionWrappers,
   poisonedCall,
 } from "./type-system-state.js";
-import { typesEqual } from "./type-system-relations.js";
+import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 
 const POLYMORPHIC_THIS_MARKER = "__tsonic_polymorphic_this";
 
@@ -99,10 +99,8 @@ const substitutePolymorphicThis = (
                   ? {
                       ...member,
                       type:
-                        substitutePolymorphicThis(
-                          member.type,
-                          receiverType
-                        ) ?? member.type,
+                        substitutePolymorphicThis(member.type, receiverType) ??
+                        member.type,
                     }
                   : {
                       ...member,
@@ -115,10 +113,10 @@ const substitutePolymorphicThis = (
                           ) ?? parameter.type,
                       })),
                       returnType: member.returnType
-                        ? substitutePolymorphicThis(
+                        ? (substitutePolymorphicThis(
                             member.returnType,
                             receiverType
-                          ) ?? member.returnType
+                          ) ?? member.returnType)
                         : undefined,
                     }
               ),
@@ -342,11 +340,7 @@ export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
           type.typeArguments?.length
         ) ??
         (sourceFqName
-          ? resolveTypeIdByName(
-              state,
-              sourceFqName,
-              type.typeArguments?.length
-            )
+          ? resolveTypeIdByName(state, sourceFqName, type.typeArguments?.length)
           : undefined);
 
       return {
@@ -1129,6 +1123,78 @@ const expandParameterTypesForInference = (
   return expanded;
 };
 
+const getExpandedRestArgumentType = (
+  restType: IrType,
+  relativeArgumentIndex: number
+): IrType => {
+  if (restType.kind === "arrayType") {
+    return restType.elementType;
+  }
+
+  if (restType.kind === "tupleType") {
+    const direct = restType.elementTypes[relativeArgumentIndex];
+    if (direct) {
+      return direct;
+    }
+    const fallback = restType.elementTypes[restType.elementTypes.length - 1];
+    return fallback ?? restType;
+  }
+
+  if (
+    restType.kind === "referenceType" &&
+    (restType.name === "Array" ||
+      restType.name === "ReadonlyArray" ||
+      restType.name === "JSArray" ||
+      restType.name === "JSArray_1")
+  ) {
+    const onlyTypeArgument = restType.typeArguments?.[0];
+    if (onlyTypeArgument) {
+      return onlyTypeArgument;
+    }
+  }
+
+  return restType;
+};
+
+export const expandParameterTypesForArguments = (
+  parameters: readonly { readonly isRest: boolean }[],
+  parameterTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): readonly (IrType | undefined)[] => {
+  if (parameterTypes.length === 0) {
+    return parameterTypes;
+  }
+
+  const restIndex = parameters.findIndex((parameter) => parameter.isRest);
+  if (restIndex < 0) {
+    return parameterTypes;
+  }
+
+  const expanded: (IrType | undefined)[] = [];
+  for (
+    let argumentIndex = 0;
+    argumentIndex < argumentCount;
+    argumentIndex += 1
+  ) {
+    if (argumentIndex < restIndex) {
+      expanded.push(parameterTypes[argumentIndex]);
+      continue;
+    }
+
+    const restType = parameterTypes[restIndex];
+    if (!restType) {
+      expanded.push(undefined);
+      continue;
+    }
+
+    expanded.push(
+      getExpandedRestArgumentType(restType, argumentIndex - restIndex)
+    );
+  }
+
+  return expanded;
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 // mapEntriesEqual — Pure helper for map comparison
 // ─────────────────────────────────────────────────────────────────────────
@@ -1371,25 +1437,20 @@ export const scoreSignatureMatch = (
   argTypes: readonly (IrType | undefined)[],
   argumentCount: number
 ): number => {
-  let score = 0;
-  const pairs = Math.min(argumentCount, parameterTypes.length, argTypes.length);
-  for (let i = 0; i < pairs; i++) {
-    const pt = parameterTypes[i];
-    const at = argTypes[i];
-    if (!pt || !at) continue;
-
-    if (typesEqual(pt, at)) {
-      score += 3;
-      continue;
+  const scoreTypeCompatibility = (
+    parameterType: IrType,
+    argumentType: IrType
+  ): number => {
+    if (typesEqual(parameterType, argumentType)) {
+      return 3;
     }
 
-    const pNom = normalizeToNominal(state, pt);
-    const aNom = normalizeToNominal(state, at);
-    if (!pNom || !aNom) continue;
+    const pNom = normalizeToNominal(state, parameterType);
+    const aNom = normalizeToNominal(state, argumentType);
+    if (!pNom || !aNom) return 0;
 
     if (pNom.typeId.stableId === aNom.typeId.stableId) {
-      score += 2;
-      continue;
+      return 2;
     }
 
     const inst = state.nominalEnv.getInstantiation(
@@ -1397,10 +1458,209 @@ export const scoreSignatureMatch = (
       aNom.typeArgs,
       pNom.typeId
     );
-    if (inst) score += 1;
+    return inst ? 1 : 0;
+  };
+
+  const scoreFunctionLikeCompatibility = (
+    parameterType: IrType,
+    argumentType: IrType
+  ): number => {
+    const parameterFn =
+      parameterType.kind === "functionType"
+        ? parameterType
+        : delegateToFunctionType(state, parameterType);
+    const argumentFn =
+      argumentType.kind === "functionType"
+        ? argumentType
+        : delegateToFunctionType(state, argumentType);
+
+    if (!parameterFn || !argumentFn) {
+      return 0;
+    }
+
+    let score = 0;
+    if (parameterFn.parameters.length === argumentFn.parameters.length) {
+      score += 8;
+    } else {
+      score -=
+        Math.abs(parameterFn.parameters.length - argumentFn.parameters.length) *
+        2;
+    }
+
+    const pairCount = Math.min(
+      parameterFn.parameters.length,
+      argumentFn.parameters.length
+    );
+    for (let index = 0; index < pairCount; index += 1) {
+      const parameter = parameterFn.parameters[index];
+      const argument = argumentFn.parameters[index];
+      if (!parameter?.type || !argument?.type) continue;
+      score += scoreTypeCompatibility(parameter.type, argument.type);
+    }
+
+    if (
+      argumentFn.returnType.kind !== "unknownType" &&
+      argumentFn.returnType.kind !== "anyType"
+    ) {
+      score += scoreTypeCompatibility(
+        parameterFn.returnType,
+        argumentFn.returnType
+      );
+    }
+
+    return score;
+  };
+
+  let score = 0;
+  const pairs = Math.min(argumentCount, parameterTypes.length, argTypes.length);
+  for (let i = 0; i < pairs; i++) {
+    const pt = parameterTypes[i];
+    const at = argTypes[i];
+    if (!pt || !at) continue;
+
+    const functionLikeScore = scoreFunctionLikeCompatibility(pt, at);
+    if (functionLikeScore !== 0) {
+      score += functionLikeScore;
+      continue;
+    }
+
+    score += scoreTypeCompatibility(pt, at);
   }
 
   return score;
+};
+
+const refineParameterTypeForConcreteArgument = (
+  state: TypeSystemState,
+  parameterType: IrType | undefined,
+  argumentType: IrType | undefined
+): IrType | undefined => {
+  if (!parameterType || !argumentType) {
+    return parameterType;
+  }
+
+  if (parameterType.kind !== "unionType") {
+    return parameterType;
+  }
+
+  const matchingMembers = parameterType.types.filter((candidate) =>
+    isAssignableTo(state, argumentType, candidate)
+  );
+
+  const nonNullishMembers = parameterType.types.filter(
+    (candidate) =>
+      !(
+        candidate.kind === "primitiveType" &&
+        (candidate.name === "null" || candidate.name === "undefined")
+      )
+  );
+  const shouldPreserveNullableParameterSurface = (
+    candidate: IrType | undefined
+  ): boolean =>
+    !!candidate &&
+    nonNullishMembers.length === 1 &&
+    candidate.kind === "primitiveType" &&
+    (candidate.name === "null" || candidate.name === "undefined");
+
+  if (matchingMembers.length === 1) {
+    const only = matchingMembers[0];
+    return shouldPreserveNullableParameterSurface(only) ? parameterType : only;
+  }
+
+  const distinctMatches = matchingMembers.filter((candidate, index) => {
+    for (let i = 0; i < index; i += 1) {
+      const previous = matchingMembers[i];
+      if (previous && typesEqual(previous, candidate)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (distinctMatches.length === 1) {
+    const only = distinctMatches[0];
+    return shouldPreserveNullableParameterSurface(only) ? parameterType : only;
+  }
+
+  return parameterType;
+};
+
+const refineResolvedParameterTypesForArguments = (
+  state: TypeSystemState,
+  parameters: readonly { readonly isRest: boolean }[],
+  parameterTypes: readonly (IrType | undefined)[],
+  argTypes: readonly (IrType | undefined)[] | undefined,
+  argumentCount: number
+): readonly (IrType | undefined)[] => {
+  const expandedParameterTypes = expandParameterTypesForArguments(
+    parameters,
+    parameterTypes,
+    argumentCount
+  );
+  if (!argTypes || argTypes.length === 0) {
+    return expandedParameterTypes;
+  }
+
+  let changed = false;
+  const refined = expandedParameterTypes.map((parameterType, index) => {
+    if (index >= argumentCount) {
+      return parameterType;
+    }
+
+    const next = refineParameterTypeForConcreteArgument(
+      state,
+      parameterType,
+      argTypes[index]
+    );
+    if (next !== parameterType) {
+      changed = true;
+    }
+    return next;
+  });
+
+  return changed ? refined : expandedParameterTypes;
+};
+
+const buildResolvedRestParameter = (
+  parameterFlags: readonly { readonly isRest: boolean }[],
+  parameterTypes: readonly (IrType | undefined)[]
+):
+  | {
+      readonly index: number;
+      readonly arrayType: IrType | undefined;
+      readonly elementType: IrType | undefined;
+    }
+  | undefined => {
+  const index = parameterFlags.findIndex((parameter) => parameter.isRest);
+  if (index < 0) {
+    return undefined;
+  }
+
+  const arrayType = parameterTypes[index];
+  if (!arrayType) {
+    return {
+      index,
+      arrayType: undefined,
+      elementType: undefined,
+    };
+  }
+
+  const elementType =
+    arrayType.kind === "arrayType"
+      ? arrayType.elementType
+      : arrayType.kind === "referenceType" &&
+          (arrayType.name === "Array" ||
+            arrayType.name === "ReadonlyArray" ||
+            arrayType.name === "JSArray") &&
+          arrayType.typeArguments?.length === 1
+        ? arrayType.typeArguments[0]
+        : undefined;
+
+  return {
+    index,
+    arrayType,
+    elementType,
+  };
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1438,6 +1698,7 @@ export const tryResolveCallFromUnifiedCatalog = (
   type Candidate = {
     readonly resolved: ResolvedCall;
     readonly score: number;
+    readonly hasRestParameter: boolean;
     readonly typeParamCount: number;
     readonly parameterCount: number;
     readonly stableId: string;
@@ -1447,6 +1708,12 @@ export const tryResolveCallFromUnifiedCatalog = (
     signature: MethodSignatureEntry
   ): ResolvedCall | undefined => {
     if (!isArityCompatible(signature, argumentCount)) return undefined;
+    if (
+      explicitTypeArgs &&
+      explicitTypeArgs.length > signature.typeParameters.length
+    ) {
+      return undefined;
+    }
 
     let workingParams = signature.parameters.map((p) => p.type);
     let workingReturn = signature.returnType;
@@ -1549,10 +1816,24 @@ export const tryResolveCallFromUnifiedCatalog = (
 
     return {
       parameterTypes: workingParams,
+      restParameter: buildResolvedRestParameter(
+        signature.parameters.map((parameter) => ({
+          isRest: parameter.isRest,
+        })),
+        workingParams
+      ),
       parameterModes: signature.parameters.map((p) => p.mode),
       returnType: workingReturn,
       hasDeclaredReturnType: true,
       typePredicate: undefined,
+      selectionMeta: {
+        hasRestParameter: signature.parameters.some(
+          (parameter) => parameter.isRest
+        ),
+        typeParamCount: signature.typeParameters.length,
+        parameterCount: signature.parameters.length,
+        stableId: signature.stableId,
+      },
       diagnostics: [],
     };
   };
@@ -1572,6 +1853,7 @@ export const tryResolveCallFromUnifiedCatalog = (
         argTypes,
         argumentCount
       ),
+      hasRestParameter: sig.parameters.some((parameter) => parameter.isRest),
       typeParamCount: sig.typeParameters.length,
       parameterCount: sig.parameters.length,
       stableId: sig.stableId,
@@ -1585,11 +1867,17 @@ export const tryResolveCallFromUnifiedCatalog = (
     const better =
       candidate.score > best.score ||
       (candidate.score === best.score &&
+        candidate.hasRestParameter !== best.hasRestParameter &&
+        !candidate.hasRestParameter) ||
+      (candidate.score === best.score &&
+        candidate.hasRestParameter === best.hasRestParameter &&
         candidate.typeParamCount < best.typeParamCount) ||
       (candidate.score === best.score &&
+        candidate.hasRestParameter === best.hasRestParameter &&
         candidate.typeParamCount === best.typeParamCount &&
         candidate.parameterCount < best.parameterCount) ||
       (candidate.score === best.score &&
+        candidate.hasRestParameter === best.hasRestParameter &&
         candidate.typeParamCount === best.typeParamCount &&
         candidate.parameterCount === best.parameterCount &&
         candidate.stableId < best.stableId);
@@ -1785,7 +2073,7 @@ export const resolveCall = (
 
   if (effectiveReceiverType) {
     workingParams = workingParams.map((p) =>
-      p ? substitutePolymorphicThis(p, effectiveReceiverType) ?? p : undefined
+      p ? (substitutePolymorphicThis(p, effectiveReceiverType) ?? p) : undefined
     );
     if (workingThisParam) {
       workingThisParam =
@@ -2059,11 +2347,29 @@ export const resolveCall = (
   }
 
   const resolved: ResolvedCall = {
-    parameterTypes: workingParams,
+    restParameter: buildResolvedRestParameter(
+      rawSig.parameterFlags,
+      workingParams
+    ),
+    parameterTypes: refineResolvedParameterTypesForArguments(
+      state,
+      rawSig.parameterFlags,
+      workingParams,
+      argTypes,
+      argumentCount
+    ),
     parameterModes: rawSig.parameterModes,
     returnType: workingReturn,
     hasDeclaredReturnType: rawSig.hasDeclaredReturnType,
     typePredicate: workingPredicate,
+    selectionMeta: {
+      hasRestParameter: rawSig.parameterFlags.some(
+        (parameter) => parameter.isRest
+      ),
+      typeParamCount: rawSig.typeParameters.length,
+      parameterCount: rawSig.parameterTypes.length,
+      stableId: String(sigId.id),
+    },
     diagnostics: [],
   };
 
@@ -2112,7 +2418,27 @@ export const resolveCall = (
           argumentCount
         );
 
-        if (catalogScore > currentScore) {
+        const currentMeta = resolved.selectionMeta;
+        const catalogMeta = catalogResolved.selectionMeta;
+        const catalogWinsTie =
+          currentMeta !== undefined &&
+          catalogMeta !== undefined &&
+          ((catalogMeta.hasRestParameter !== currentMeta.hasRestParameter &&
+            !catalogMeta.hasRestParameter) ||
+            (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
+              catalogMeta.typeParamCount < currentMeta.typeParamCount) ||
+            (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
+              catalogMeta.typeParamCount === currentMeta.typeParamCount &&
+              catalogMeta.parameterCount < currentMeta.parameterCount) ||
+            (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
+              catalogMeta.typeParamCount === currentMeta.typeParamCount &&
+              catalogMeta.parameterCount === currentMeta.parameterCount &&
+              catalogMeta.stableId < currentMeta.stableId));
+
+        if (
+          catalogScore > currentScore ||
+          (catalogScore === currentScore && catalogWinsTie)
+        ) {
           return catalogResolved;
         }
       }

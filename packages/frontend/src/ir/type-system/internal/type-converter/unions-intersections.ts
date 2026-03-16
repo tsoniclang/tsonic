@@ -4,6 +4,7 @@
 
 import * as ts from "typescript";
 import { IrType } from "../../../types.js";
+import { normalizedUnionType } from "../../../types/type-ops.js";
 import type { Binding } from "../../../binding/index.js";
 
 /**
@@ -14,10 +15,7 @@ export const convertUnionType = (
   binding: Binding,
   convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType => {
-  return {
-    kind: "unionType",
-    types: node.types.map((t) => convertType(t, binding)),
-  };
+  return normalizedUnionType(node.types.map((t) => convertType(t, binding)));
 };
 
 /**

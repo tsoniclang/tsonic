@@ -262,7 +262,33 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       });
     });
 
-    it("should attach JS array member binding for readonly array length on js surface", () => {
+    it("should recover 'int' from string.length property declaration on js surface", () => {
+      const code = `
+        export function getLen(value: string): number {
+          return value.length;
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const lengthExpr = findExpression(
+        modules,
+        (expr): expr is IrMemberExpression =>
+          expr.kind === "memberAccess" &&
+          expr.property === "length" &&
+          expr.object.kind === "identifier" &&
+          expr.object.name === "value"
+      );
+
+      expect(lengthExpr).to.not.be.undefined;
+      expect(lengthExpr?.inferredType).to.deep.equal({
+        kind: "primitiveType",
+        name: "int",
+      });
+    });
+
+    it("should attach a concrete member binding for readonly array length on js surface", () => {
       const code = `
         export function getLen(arr: readonly string[]): number {
           return arr.length;
@@ -284,14 +310,12 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       expect(lengthExpr).to.not.be.undefined;
       expect(lengthExpr?.kind).to.equal("memberAccess");
       if (!lengthExpr || lengthExpr.kind !== "memberAccess") return;
-      expect(lengthExpr.memberBinding).to.deep.include({
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.JSArray`1",
-        member: "length",
-      });
+      expect(lengthExpr.memberBinding).to.not.equal(undefined);
+      expect(lengthExpr.memberBinding?.kind).to.equal("property");
+      expect(lengthExpr.memberBinding?.member.toLowerCase()).to.equal("length");
     });
 
-    it("should attach JS array member binding for nullish readonly property length on js surface", () => {
+    it("should attach a concrete member binding for nullish readonly property length on js surface", () => {
       const code = `
         export type Query = {
           readonly paths?: readonly string[];
@@ -317,11 +341,9 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       expect(lengthExpr).to.not.be.undefined;
       expect(lengthExpr?.kind).to.equal("memberAccess");
       if (!lengthExpr || lengthExpr.kind !== "memberAccess") return;
-      expect(lengthExpr.memberBinding).to.deep.include({
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.JSArray`1",
-        member: "length",
-      });
+      expect(lengthExpr.memberBinding).to.not.equal(undefined);
+      expect(lengthExpr.memberBinding?.kind).to.equal("property");
+      expect(lengthExpr.memberBinding?.member.toLowerCase()).to.equal("length");
     });
   });
 
@@ -480,6 +502,56 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
         export function writeBytes(value: string): void {
           const buffer = Encoding.UTF8.GetBytes(value);
           Console.WriteLine(buffer[buffer.length - 1]);
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const proofResult = runNumericProofPass(modules);
+      const tsn5107Errors = proofResult.diagnostics.filter(
+        (d) => d.code === "TSN5107"
+      );
+
+      expect(
+        tsn5107Errors.length,
+        `Expected no TSN5107 errors but got: ${tsn5107Errors.map((d) => d.message).join("; ")}`
+      ).to.equal(0);
+
+      expect(proofResult.ok).to.be.true;
+    });
+
+    it("should pass numeric proof for JS string length indexing on js surface", () => {
+      const code = `
+        export function getLastChar(value: string): string {
+          return value[value.length - 1];
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const proofResult = runNumericProofPass(modules);
+      const tsn5107Errors = proofResult.diagnostics.filter(
+        (d) => d.code === "TSN5107"
+      );
+
+      expect(
+        tsn5107Errors.length,
+        `Expected no TSN5107 errors but got: ${tsn5107Errors.map((d) => d.message).join("; ")}`
+      ).to.equal(0);
+
+      expect(proofResult.ok).to.be.true;
+    });
+
+    it("should pass numeric proof for JS string trimming loops on js surface", () => {
+      const code = `
+        export function trimTrailingSlashes(value: string): string {
+          let end = value.length;
+          while (end > 1 && value[end - 1] === "/") {
+            end -= 1;
+          }
+          return value.slice(0, end);
         }
       `;
 

@@ -216,7 +216,7 @@ export const deriveIdentifierType = (
   if (!declId) return undefined;
 
   // ALICE'S SPEC: Use TypeSystem.typeOfDecl() exclusively
-  const declType = typeSystem.typeOfDecl(declId);
+  const declType = typeSystem.typeOfValueRead(declId);
 
   // TypeSystem returns unknownType if it can't resolve - treat as unresolvable
   if (declType.kind === "unknownType") {

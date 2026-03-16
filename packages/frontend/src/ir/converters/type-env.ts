@@ -17,6 +17,7 @@ import type {
   IrVariableDeclaration,
   IrVariableDeclarator,
 } from "../types.js";
+import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 
 /**
  * Derive the type from a converted IR expression using deterministic rules.
@@ -105,12 +106,8 @@ const getObjectPropertyType = (
   return undefined;
 };
 
-const getPropertyNameText = (name: ts.PropertyName): string | undefined => {
-  if (ts.isIdentifier(name)) return name.text;
-  if (ts.isStringLiteral(name)) return name.text;
-  if (ts.isNumericLiteral(name)) return name.text;
-  return undefined;
-};
+const getPropertyNameText = (name: ts.PropertyName): string | undefined =>
+  tryResolveDeterministicPropertyName(name);
 
 const extendEnvForBindingName = (
   ctx: ProgramContext,

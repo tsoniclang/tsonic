@@ -226,11 +226,9 @@ export const convertForOfStatement = (
     variable,
     expression,
     body: body ?? { kind: "emptyStatement" },
-    // TS parser marks `for await` loops with both `awaitModifier` and AwaitContext flags.
-    // Use both to be resilient across TS versions/host implementations.
-    isAwait:
-      node.awaitModifier !== undefined ||
-      (node.flags & ts.NodeFlags.AwaitContext) !== 0,
+    // Only syntactic `for await (... of ...)` should lower as async iteration.
+    // `AwaitContext` is also set for plain `for...of` inside async functions.
+    isAwait: node.awaitModifier !== undefined,
   };
 };
 

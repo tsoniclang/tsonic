@@ -6,6 +6,8 @@
  * - substituteTypeArgs: Substitute type arguments into a type
  * - getPropertyType: Look up property type from contextual type
  * - stripNullish: Remove null/undefined from union types
+ * - splitRuntimeNullishUnionMembers: Treat TS runtime-absence members
+ *   (null/undefined/void) as nullish for emission decisions
  * - isDefinitelyValueType: Check if type is a C# value type
  */
 
@@ -13,9 +15,11 @@ import type {
   IrType,
   IrInterfaceMember,
   IrClassMember,
+  IrPropertyDeclaration,
   IrPropertySignature, // NEW: needed for union-member matching
   TypeBinding as FrontendTypeBinding,
 } from "@tsonic/frontend";
+import { normalizedUnionType, stableIrTypeKey } from "@tsonic/frontend";
 import type { LocalTypeInfo, EmitterContext } from "../../types.js";
 
 /**
@@ -26,7 +30,15 @@ import type { LocalTypeInfo, EmitterContext } from "../../types.js";
  * @param type - The IR type to check
  * @returns true if the type contains a type parameter
  */
-export const containsTypeParameter = (type: IrType): boolean => {
+const containsTypeParameterImpl = (
+  type: IrType,
+  visited: WeakSet<object>
+): boolean => {
+  if (visited.has(type)) {
+    return false;
+  }
+  visited.add(type);
+
   switch (type.kind) {
     case "typeParameterType":
       // New IR kind - always a type parameter
@@ -35,45 +47,52 @@ export const containsTypeParameter = (type: IrType): boolean => {
     case "referenceType":
       // Recurse into type arguments
       if (type.typeArguments) {
-        return type.typeArguments.some((arg) => containsTypeParameter(arg));
+        return type.typeArguments.some((arg) =>
+          containsTypeParameterImpl(arg, visited)
+        );
       }
       return false;
 
     case "arrayType":
-      return containsTypeParameter(type.elementType);
+      return containsTypeParameterImpl(type.elementType, visited);
 
     case "dictionaryType":
       return (
-        containsTypeParameter(type.keyType) ||
-        containsTypeParameter(type.valueType)
+        containsTypeParameterImpl(type.keyType, visited) ||
+        containsTypeParameterImpl(type.valueType, visited)
       );
 
     case "unionType":
     case "intersectionType":
-      return type.types.some((t) => containsTypeParameter(t));
+      return type.types.some((t) => containsTypeParameterImpl(t, visited));
 
     case "tupleType":
-      return type.elementTypes.some((t) => containsTypeParameter(t));
+      return type.elementTypes.some((t) =>
+        containsTypeParameterImpl(t, visited)
+      );
 
     case "functionType":
-      if (containsTypeParameter(type.returnType)) {
+      if (containsTypeParameterImpl(type.returnType, visited)) {
         return true;
       }
       return type.parameters.some(
-        (p) => p.type && containsTypeParameter(p.type)
+        (p) => p.type && containsTypeParameterImpl(p.type, visited)
       );
 
     case "objectType":
       return type.members.some((m) => {
         if (m.kind === "propertySignature") {
-          return containsTypeParameter(m.type);
+          return containsTypeParameterImpl(m.type, visited);
         }
         if (m.kind === "methodSignature") {
-          if (m.returnType && containsTypeParameter(m.returnType)) {
+          if (
+            m.returnType &&
+            containsTypeParameterImpl(m.returnType, visited)
+          ) {
             return true;
           }
           return m.parameters.some(
-            (p) => p.type && containsTypeParameter(p.type)
+            (p) => p.type && containsTypeParameterImpl(p.type, visited)
           );
         }
         return false;
@@ -95,6 +114,9 @@ export const containsTypeParameter = (type: IrType): boolean => {
     }
   }
 };
+
+export const containsTypeParameter = (type: IrType): boolean =>
+  containsTypeParameterImpl(type, new WeakSet<object>());
 
 /**
  * Substitute type arguments into a type.
@@ -127,8 +149,14 @@ export const substituteTypeArgs = (
  */
 const substituteType = (
   type: IrType,
-  mapping: ReadonlyMap<string, IrType>
+  mapping: ReadonlyMap<string, IrType>,
+  visited: Map<object, IrType> = new Map<object, IrType>()
 ): IrType => {
+  const existing = visited.get(type);
+  if (existing) {
+    return existing;
+  }
+
   switch (type.kind) {
     case "typeParameterType": {
       const substitution = mapping.get(type.name);
@@ -138,77 +166,114 @@ const substituteType = (
     case "referenceType": {
       // Recurse into type arguments
       if (type.typeArguments) {
-        return {
+        const clone = {
           ...type,
-          typeArguments: type.typeArguments.map((arg) =>
-            substituteType(arg, mapping)
-          ),
-        };
+          typeArguments: [],
+        } as any;
+        visited.set(type, clone);
+        clone.typeArguments = type.typeArguments.map((arg) =>
+          substituteType(arg, mapping, visited)
+        );
+        return clone as IrType;
       }
       return type;
     }
 
-    case "arrayType":
-      return {
+    case "arrayType": {
+      const clone = {
         ...type,
-        elementType: substituteType(type.elementType, mapping),
-      };
+        elementType: type.elementType,
+      } as any;
+      visited.set(type, clone);
+      clone.elementType = substituteType(type.elementType, mapping, visited);
+      return clone as IrType;
+    }
 
-    case "dictionaryType":
-      return {
+    case "dictionaryType": {
+      const clone = {
         ...type,
-        keyType: substituteType(type.keyType, mapping),
-        valueType: substituteType(type.valueType, mapping),
-      };
+        keyType: type.keyType,
+        valueType: type.valueType,
+      } as any;
+      visited.set(type, clone);
+      clone.keyType = substituteType(type.keyType, mapping, visited);
+      clone.valueType = substituteType(type.valueType, mapping, visited);
+      return clone as IrType;
+    }
 
-    case "unionType":
-      return {
+    case "unionType": {
+      const clone = {
         ...type,
-        types: type.types.map((t) => substituteType(t, mapping)),
-      };
+        types: [],
+      } as any;
+      visited.set(type, clone);
+      clone.types = type.types.map((t) => substituteType(t, mapping, visited));
+      return clone as IrType;
+    }
 
-    case "tupleType":
-      return {
+    case "tupleType": {
+      const clone = {
         ...type,
-        elementTypes: type.elementTypes.map((t) => substituteType(t, mapping)),
-      };
+        elementTypes: [],
+      } as any;
+      visited.set(type, clone);
+      clone.elementTypes = type.elementTypes.map((t) =>
+        substituteType(t, mapping, visited)
+      );
+      return clone as IrType;
+    }
 
-    case "intersectionType":
-      return {
+    case "intersectionType": {
+      const clone = {
         ...type,
-        types: type.types.map((t) => substituteType(t, mapping)),
-      };
+        types: [],
+      } as any;
+      visited.set(type, clone);
+      clone.types = type.types.map((t) => substituteType(t, mapping, visited));
+      return clone as IrType;
+    }
 
-    case "functionType":
-      return {
+    case "functionType": {
+      const clone = {
         ...type,
-        returnType: substituteType(type.returnType, mapping),
-        parameters: type.parameters.map((p) =>
-          p.type ? { ...p, type: substituteType(p.type, mapping) } : p
-        ),
-      };
+        returnType: type.returnType,
+        parameters: [],
+      } as any;
+      visited.set(type, clone);
+      clone.returnType = substituteType(type.returnType, mapping, visited);
+      clone.parameters = type.parameters.map((p) =>
+        p.type ? { ...p, type: substituteType(p.type, mapping, visited) } : p
+      );
+      return clone as IrType;
+    }
 
-    case "objectType":
-      return {
+    case "objectType": {
+      const clone = {
         ...type,
-        members: type.members.map((m) => {
-          if (m.kind === "propertySignature") {
-            return { ...m, type: substituteType(m.type, mapping) };
-          }
-          if (m.kind === "methodSignature") {
-            return {
-              ...m,
-              returnType: m.returnType
-                ? substituteType(m.returnType, mapping)
-                : undefined,
-              parameters: m.parameters.map((p) =>
-                p.type ? { ...p, type: substituteType(p.type, mapping) } : p
-              ),
-            };
-          }
-          return m;
-        }),
-      };
+        members: [],
+      } as any;
+      visited.set(type, clone);
+      clone.members = type.members.map((m) => {
+        if (m.kind === "propertySignature") {
+          return { ...m, type: substituteType(m.type, mapping, visited) };
+        }
+        if (m.kind === "methodSignature") {
+          return {
+            ...m,
+            returnType: m.returnType
+              ? substituteType(m.returnType, mapping, visited)
+              : undefined,
+            parameters: m.parameters.map((p) =>
+              p.type
+                ? { ...p, type: substituteType(p.type, mapping, visited) }
+                : p
+            ),
+          };
+        }
+        return m;
+      });
+      return clone as IrType;
+    }
 
     case "primitiveType":
     case "literalType":
@@ -224,6 +289,101 @@ const substituteType = (
       return type;
     }
   }
+};
+
+export const matchesTypeofTag = (
+  type: IrType,
+  tag: string,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(type, context);
+
+  if (resolved.kind === "literalType") {
+    switch (tag) {
+      case "string":
+        return typeof resolved.value === "string";
+      case "number":
+        return typeof resolved.value === "number";
+      case "boolean":
+        return typeof resolved.value === "boolean";
+      default:
+        return false;
+    }
+  }
+
+  if (resolved.kind !== "primitiveType") {
+    return false;
+  }
+
+  switch (tag) {
+    case "string":
+      return resolved.name === "string";
+    case "number":
+      return resolved.name === "number" || resolved.name === "int";
+    case "boolean":
+      return resolved.name === "boolean";
+    case "undefined":
+      return resolved.name === "undefined";
+    default:
+      return false;
+  }
+};
+
+const genericTypeofTarget = (tag: string): IrType | undefined => {
+  switch (tag) {
+    case "string":
+      return { kind: "primitiveType", name: "string" };
+    case "number":
+      return { kind: "primitiveType", name: "number" };
+    case "boolean":
+      return { kind: "primitiveType", name: "boolean" };
+    case "undefined":
+      return { kind: "primitiveType", name: "undefined" };
+    default:
+      return undefined;
+  }
+};
+
+export const narrowTypeByNotTypeofTag = (
+  currentType: IrType | undefined,
+  tag: string,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!currentType) return undefined;
+
+  if (currentType.kind === "unionType") {
+    const kept = currentType.types.filter(
+      (member): member is IrType =>
+        !!member && !matchesTypeofTag(member, tag, context)
+    );
+    if (kept.length === 0) return undefined;
+    if (kept.length === 1) return kept[0];
+    return normalizedUnionType(kept);
+  }
+
+  return matchesTypeofTag(currentType, tag, context) ? undefined : currentType;
+};
+
+export const narrowTypeByTypeofTag = (
+  currentType: IrType | undefined,
+  tag: string,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!currentType) return genericTypeofTarget(tag);
+
+  if (currentType.kind === "unionType") {
+    const kept = currentType.types.filter(
+      (member): member is IrType =>
+        !!member && matchesTypeofTag(member, tag, context)
+    );
+    if (kept.length === 0) return genericTypeofTarget(tag);
+    if (kept.length === 1) return kept[0];
+    return normalizedUnionType(kept);
+  }
+
+  return matchesTypeofTag(currentType, tag, context)
+    ? currentType
+    : genericTypeofTarget(tag);
 };
 
 /**
@@ -709,6 +869,470 @@ export const getAllPropertySignatures = (
   return [...propMap.values()];
 };
 
+type StructuralShapeMember = {
+  readonly name: string;
+  readonly isOptional: boolean;
+  readonly typeKey: string;
+};
+
+const sortStructuralShape = (
+  members: readonly StructuralShapeMember[]
+): readonly StructuralShapeMember[] =>
+  [...members].sort((left, right) => left.name.localeCompare(right.name));
+
+const structuralShapesEqual = (
+  left: readonly StructuralShapeMember[],
+  right: readonly StructuralShapeMember[]
+): boolean =>
+  left.length === right.length &&
+  left.every(
+    (member, index) =>
+      member.name === right[index]?.name &&
+      member.isOptional === right[index]?.isOptional &&
+      member.typeKey === right[index]?.typeKey
+  );
+
+const getObjectTypeStructuralShape = (
+  type: Extract<IrType, { kind: "objectType" }>
+): readonly StructuralShapeMember[] | undefined => {
+  if (type.members.some((member) => member.kind === "methodSignature")) {
+    return undefined;
+  }
+
+  return sortStructuralShape(
+    type.members
+      .filter(
+        (
+          member
+        ): member is Extract<typeof member, { kind: "propertySignature" }> =>
+          member.kind === "propertySignature"
+      )
+      .map((member) => ({
+        name: member.name,
+        isOptional: member.isOptional,
+        typeKey: stableIrTypeKey(member.type),
+      }))
+  );
+};
+
+const getLocalTypeInfoStructuralShape = (
+  info: LocalTypeInfo,
+  context: EmitterContext
+): readonly StructuralShapeMember[] | undefined => {
+  switch (info.kind) {
+    case "typeAlias": {
+      const resolved = resolveTypeAlias(info.type, context);
+      if (resolved.kind !== "objectType") {
+        return undefined;
+      }
+      return getObjectTypeStructuralShape(resolved);
+    }
+
+    case "interface": {
+      if (info.members.some((member) => member.kind === "methodSignature")) {
+        return undefined;
+      }
+      return sortStructuralShape(
+        info.members
+          .filter(
+            (
+              member
+            ): member is Extract<
+              typeof member,
+              { kind: "propertySignature" }
+            > => member.kind === "propertySignature"
+          )
+          .map((member) => ({
+            name: member.name,
+            isOptional: member.isOptional,
+            typeKey: stableIrTypeKey(member.type),
+          }))
+      );
+    }
+
+    case "class": {
+      if (info.members.some((member) => member.kind === "methodDeclaration")) {
+        return undefined;
+      }
+
+      const propertyMembers = info.members.filter(
+        (member): member is IrPropertyDeclaration =>
+          member.kind === "propertyDeclaration" && member.type !== undefined
+      );
+
+      return sortStructuralShape(
+        propertyMembers.map((member) => ({
+          name: member.name,
+          isOptional: false,
+          typeKey: stableIrTypeKey(member.type!),
+        }))
+      );
+    }
+
+    case "enum":
+      return undefined;
+  }
+};
+
+type StructuralReferenceCandidate = {
+  readonly dedupeKey: string;
+  readonly isCurrentLocal: boolean;
+  readonly isCurrentNamespace: boolean;
+  readonly ref: Extract<IrType, { kind: "referenceType" }>;
+};
+
+const isStructurallyEmittedLocalTypeInfo = (
+  info: LocalTypeInfo | undefined
+): boolean => {
+  if (!info) {
+    return false;
+  }
+
+  switch (info.kind) {
+    case "typeAlias":
+      return info.type.kind === "objectType";
+    case "interface":
+      return true;
+    case "class":
+      return info.members.every(
+        (member) => member.kind !== "methodDeclaration"
+      );
+    case "enum":
+      return false;
+  }
+};
+
+/**
+ * Resolve an inline/object structural type to a canonical emitted nominal reference
+ * when the current compilation already declares an equivalent structural type.
+ *
+ * This is used in emitter-side contextual type paths that must emit a CLR type name
+ * (for example JSArray<T> wrapper element types or nominal object construction),
+ * but sometimes receive an objectType after alias resolution. When we can prove that
+ * object shape matches an existing structural alias/interface/class, we preserve the
+ * canonical emitted reference instead of letting raw objectType reach type emission.
+ */
+export const resolveStructuralReferenceType = (
+  type: IrType,
+  context: EmitterContext
+): IrType | undefined => {
+  const stripped = stripNullish(type);
+
+  if (stripped.kind === "referenceType") {
+    const directLocalType = resolveLocalTypeInfoWithoutBindings(
+      stripped,
+      context
+    )?.info;
+    if (isStructurallyEmittedLocalTypeInfo(directLocalType)) {
+      return stripped;
+    }
+
+    const rebound = resolveBindingBackedReferenceType(stripped, context);
+    const reboundLocalType = rebound
+      ? resolveLocalTypeInfoWithoutBindings(rebound, context)?.info
+      : undefined;
+    if (rebound && isStructurallyEmittedLocalTypeInfo(reboundLocalType)) {
+      return rebound;
+    }
+  }
+
+  const resolved = resolveTypeAlias(stripped, context);
+  if (resolved.kind !== "objectType") {
+    return undefined;
+  }
+
+  const targetShape = getObjectTypeStructuralShape(resolved);
+  if (!targetShape || targetShape.length === 0) {
+    return undefined;
+  }
+
+  const currentNamespace =
+    context.moduleNamespace ?? context.options.rootNamespace;
+  const candidates: StructuralReferenceCandidate[] = [];
+  const seenKeys = new Set<string>();
+
+  const pushCandidate = (
+    typeName: string,
+    namespace: string,
+    info: LocalTypeInfo,
+    isCurrentLocal: boolean
+  ): void => {
+    const shape = getLocalTypeInfoStructuralShape(info, context);
+    if (!shape || !structuralShapesEqual(shape, targetShape)) {
+      return;
+    }
+
+    const emittedName =
+      info.kind === "typeAlias" ? `${typeName}__Alias` : typeName;
+    const resolvedClrType =
+      isCurrentLocal && namespace === currentNamespace
+        ? undefined
+        : `${namespace}.${emittedName}`;
+    const dedupeKey = resolvedClrType ?? `${namespace}.${emittedName}`;
+    if (seenKeys.has(dedupeKey)) {
+      return;
+    }
+    seenKeys.add(dedupeKey);
+
+    candidates.push({
+      dedupeKey,
+      isCurrentLocal,
+      isCurrentNamespace: namespace === currentNamespace,
+      ref: resolvedClrType
+        ? {
+            kind: "referenceType",
+            name: typeName,
+            resolvedClrType,
+          }
+        : {
+            kind: "referenceType",
+            name: typeName,
+          },
+    });
+  };
+
+  if (context.localTypes) {
+    for (const [typeName, info] of context.localTypes.entries()) {
+      pushCandidate(typeName, currentNamespace, info, true);
+    }
+  }
+
+  if (context.options.moduleMap) {
+    for (const module of context.options.moduleMap.values()) {
+      if (!module.localTypes) continue;
+      for (const [typeName, info] of module.localTypes.entries()) {
+        pushCandidate(typeName, module.namespace, info, false);
+      }
+    }
+  }
+
+  const currentLocalMatches = candidates.filter(
+    (candidate) => candidate.isCurrentLocal
+  );
+  if (currentLocalMatches.length === 1) {
+    return currentLocalMatches[0]?.ref;
+  }
+  if (currentLocalMatches.length > 1) {
+    return undefined;
+  }
+
+  const currentNamespaceMatches = candidates.filter(
+    (candidate) => candidate.isCurrentNamespace
+  );
+  if (currentNamespaceMatches.length === 1) {
+    return currentNamespaceMatches[0]?.ref;
+  }
+  if (currentNamespaceMatches.length > 1) {
+    return undefined;
+  }
+
+  return candidates.length === 1 ? candidates[0]?.ref : undefined;
+};
+
+export const normalizeStructuralEmissionType = (
+  type: IrType,
+  context: EmitterContext
+): IrType => {
+  const cache = new Map<IrType, IrType>();
+  const active = new Set<IrType>();
+
+  const normalize = (current: IrType): IrType => {
+    const rebound = resolveStructuralReferenceType(current, context);
+    if (rebound) {
+      return rebound;
+    }
+
+    if (active.has(current)) {
+      return current;
+    }
+
+    const cached = cache.get(current);
+    if (cached) {
+      return cached;
+    }
+
+    active.add(current);
+
+    const normalized = (() => {
+      switch (current.kind) {
+        case "referenceType": {
+          const typeArguments = current.typeArguments?.map(normalize);
+          const hasChanged =
+            !!typeArguments &&
+            typeArguments.some(
+              (argument, index) => argument !== current.typeArguments?.[index]
+            );
+          return hasChanged
+            ? {
+                ...current,
+                typeArguments,
+              }
+            : current;
+        }
+        case "arrayType": {
+          const elementType = normalize(current.elementType);
+          const tuplePrefixElementTypes = current.tuplePrefixElementTypes?.map(
+            normalize
+          );
+          const tupleRestElementType = current.tupleRestElementType
+            ? normalize(current.tupleRestElementType)
+            : undefined;
+          const hasChanged =
+            elementType !== current.elementType ||
+            (!!tuplePrefixElementTypes &&
+              tuplePrefixElementTypes.some(
+                (element, index) =>
+                  element !== current.tuplePrefixElementTypes?.[index]
+              )) ||
+            tupleRestElementType !== current.tupleRestElementType;
+          return hasChanged
+            ? {
+                ...current,
+                elementType,
+                ...(tuplePrefixElementTypes
+                  ? { tuplePrefixElementTypes }
+                  : {}),
+                ...(tupleRestElementType
+                  ? { tupleRestElementType }
+                  : {}),
+              }
+            : current;
+        }
+        case "tupleType": {
+          const elementTypes = current.elementTypes.map(normalize);
+          return elementTypes.some(
+            (element, index) => element !== current.elementTypes[index]
+          )
+            ? { ...current, elementTypes }
+            : current;
+        }
+        case "functionType": {
+          const parameters = current.parameters.map((parameter) =>
+            parameter.type
+              ? {
+                  ...parameter,
+                  type: normalize(parameter.type),
+                }
+              : parameter
+          );
+          const returnType = normalize(current.returnType);
+          const hasChanged =
+            returnType !== current.returnType ||
+            parameters.some((parameter, index) => parameter !== current.parameters[index]);
+          return hasChanged
+            ? {
+                ...current,
+                parameters,
+                returnType,
+              }
+            : current;
+        }
+        case "objectType": {
+          const members = current.members.map((member) => {
+            switch (member.kind) {
+              case "propertySignature": {
+                const memberType = normalize(member.type);
+                return memberType !== member.type
+                  ? {
+                      ...member,
+                      type: memberType,
+                    }
+                  : member;
+              }
+              case "methodSignature": {
+                const parameters = member.parameters.map((parameter) =>
+                  parameter.type
+                    ? {
+                        ...parameter,
+                        type: normalize(parameter.type),
+                      }
+                    : parameter
+                );
+                const returnType = member.returnType
+                  ? normalize(member.returnType)
+                  : undefined;
+                const typeParameters = member.typeParameters?.map((typeParameter) =>
+                  typeParameter.constraint || typeParameter.default
+                    ? {
+                        ...typeParameter,
+                        ...(typeParameter.constraint
+                          ? {
+                              constraint: normalize(typeParameter.constraint),
+                            }
+                          : {}),
+                        ...(typeParameter.default
+                          ? {
+                              default: normalize(typeParameter.default),
+                            }
+                          : {}),
+                      }
+                    : typeParameter
+                );
+                const hasChanged =
+                  parameters.some(
+                    (parameter, index) => parameter !== member.parameters[index]
+                  ) ||
+                  returnType !== member.returnType ||
+                  (!!typeParameters &&
+                    typeParameters.some(
+                      (typeParameter, index) =>
+                        typeParameter !== member.typeParameters?.[index]
+                    ));
+                return hasChanged
+                  ? {
+                      ...member,
+                      parameters,
+                      ...(returnType ? { returnType } : {}),
+                      ...(typeParameters ? { typeParameters } : {}),
+                    }
+                  : member;
+              }
+            }
+          });
+          return members.some((member, index) => member !== current.members[index])
+            ? { ...current, members }
+            : current;
+        }
+        case "dictionaryType": {
+          const keyType = normalize(current.keyType);
+          const valueType = normalize(current.valueType);
+          return keyType !== current.keyType || valueType !== current.valueType
+            ? {
+                ...current,
+                keyType,
+                valueType,
+              }
+            : current;
+        }
+        case "unionType":
+        case "intersectionType": {
+          const types = current.types.map(normalize);
+          return types.some((member, index) => member !== current.types[index])
+            ? {
+                ...current,
+                types,
+              }
+            : current;
+        }
+        case "primitiveType":
+        case "typeParameterType":
+        case "literalType":
+        case "anyType":
+        case "unknownType":
+        case "voidType":
+        case "neverType":
+          return current;
+      }
+    })();
+
+    cache.set(current, normalized);
+    active.delete(current);
+    return normalized;
+  };
+
+  return normalize(type);
+};
+
 /**
  * Internal: collect interface props + props from extends (cycle-safe).
  *
@@ -918,6 +1542,125 @@ export const stripNullish = (type: IrType): IrType => {
 };
 
 /**
+ * Runtime-absence members in TypeScript unions.
+ *
+ * `void` is a type-level way of saying "the runtime value is undefined".
+ * For C# emission we must treat `void` exactly like `undefined` / `null`
+ * when deciding whether a union can be represented as a nullable type.
+ */
+export const isRuntimeNullishType = (type: IrType): boolean =>
+  type.kind === "voidType" ||
+  (type.kind === "primitiveType" &&
+    (type.name === "null" || type.name === "undefined"));
+
+/**
+ * Split a union into runtime-nullish members and non-nullish members.
+ *
+ * Returns `undefined` for non-union types.
+ */
+export const splitRuntimeNullishUnionMembers = (
+  type: IrType
+):
+  | {
+      readonly hasRuntimeNullish: boolean;
+      readonly nonNullishMembers: readonly IrType[];
+    }
+  | undefined => {
+  if (type.kind !== "unionType") {
+    return undefined;
+  }
+
+  const nonNullishMembers = type.types.filter((member) => {
+    return !isRuntimeNullishType(member);
+  });
+
+  const canonicalUnion =
+    nonNullishMembers.length <= 1
+      ? undefined
+      : normalizedUnionType(nonNullishMembers);
+  const canonicalMembers =
+    nonNullishMembers.length <= 1
+      ? nonNullishMembers
+      : canonicalUnion?.kind === "unionType"
+        ? canonicalUnion.types
+        : canonicalUnion
+          ? [canonicalUnion]
+          : nonNullishMembers;
+
+  return {
+    hasRuntimeNullish: nonNullishMembers.length !== type.types.length,
+    nonNullishMembers: canonicalMembers,
+  };
+};
+
+/**
+ * True when a type is purely structural/type-only at runtime.
+ *
+ * Type assertions to these targets must be erased rather than emitted as
+ * CLR casts, because there is no meaningful runtime conversion.
+ */
+export const isTypeOnlyStructuralTarget = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
+  if (resolved.kind === "dictionaryType") {
+    return true;
+  }
+
+  if (resolved.kind === "objectType") {
+    return true;
+  }
+
+  if (resolved.kind !== "referenceType") {
+    return false;
+  }
+
+  if (isCompilerGeneratedStructuralCarrierType(resolved)) {
+    return true;
+  }
+
+  if (resolved.resolvedClrType) {
+    return false;
+  }
+
+  const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
+  if (
+    localInfo?.kind === "class" &&
+    !isCompilerGeneratedStructuralCarrierType(resolved)
+  ) {
+    return false;
+  }
+
+  if (resolved.structuralMembers && resolved.structuralMembers.length > 0) {
+    return true;
+  }
+
+  if (localInfo?.kind === "interface") {
+    return true;
+  }
+
+  if (localInfo?.kind === "typeAlias") {
+    return isTypeOnlyStructuralTarget(localInfo.type, context);
+  }
+
+  const inheritedProps = getAllPropertySignatures(resolved, context);
+  return inheritedProps !== undefined && inheritedProps.length > 0;
+};
+
+const isCompilerGeneratedStructuralCarrierType = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): boolean => {
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  const clrSimpleName = type.resolvedClrType?.split(".").pop();
+  const isCarrierName = (name: string | undefined): boolean =>
+    !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
+
+  return isCarrierName(simpleName) || isCarrierName(clrSimpleName);
+};
+
+/**
  * Known CLR struct types that are value types.
  */
 const CLR_VALUE_TYPES = new Set([
@@ -966,6 +1709,42 @@ export const isDefinitelyValueType = (type: IrType): boolean => {
   }
 
   return false;
+};
+
+/**
+ * Resolve the element type of an array-like IR type after alias/nullish expansion.
+ *
+ * This is used by emission paths that need the element contract of rest parameters
+ * or contextual array expressions even when the surface type is spelled through
+ * local aliases or ReadonlyArray-style wrappers.
+ */
+export const getArrayLikeElementType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "arrayType") {
+    return resolved.elementType;
+  }
+  if (resolved.kind === "tupleType") {
+    if (resolved.elementTypes.length === 1) {
+      return resolved.elementTypes[0];
+    }
+    return undefined;
+  }
+  if (
+    resolved.kind === "referenceType" &&
+    (resolved.name === "Array" ||
+      resolved.name === "ReadonlyArray" ||
+      resolved.name === "JSArray") &&
+    resolved.typeArguments?.length === 1
+  ) {
+    return resolved.typeArguments[0];
+  }
+
+  return undefined;
 };
 
 /**
@@ -1057,17 +1836,122 @@ export const findUnionMemberIndex = (
   target: IrType,
   context: EmitterContext
 ): number | undefined => {
+  const canonicalUnion = normalizedUnionType(unionType.types);
+  const unionMembers =
+    canonicalUnion.kind === "unionType"
+      ? canonicalUnion.types
+      : [canonicalUnion];
   const resolvedTarget = resolveTypeAlias(stripNullish(target), context);
+  const matchesPredicateTarget = (
+    member: IrType,
+    candidate: IrType
+  ): boolean => {
+    const resolvedMember = resolveTypeAlias(stripNullish(member), context);
+    const resolvedCandidate = resolveTypeAlias(
+      stripNullish(candidate),
+      context
+    );
 
-  // MVP: only handle reference-type targets
-  if (resolvedTarget.kind !== "referenceType") return undefined;
+    if (
+      resolvedMember.kind === "anyType" ||
+      resolvedCandidate.kind === "anyType"
+    ) {
+      return true;
+    }
 
-  for (let i = 0; i < unionType.types.length; i++) {
-    const m = unionType.types[i];
-    if (m?.kind === "referenceType" && m.name === resolvedTarget.name) {
-      // MVP: match by name; can tighten later to include typeArguments equality
+    if (resolvedMember.kind === "literalType") {
+      if (resolvedCandidate.kind === "literalType") {
+        return resolvedMember.value === resolvedCandidate.value;
+      }
+      if (resolvedCandidate.kind === "primitiveType") {
+        return (
+          (typeof resolvedMember.value === "string" &&
+            resolvedCandidate.name === "string") ||
+          (typeof resolvedMember.value === "number" &&
+            (resolvedCandidate.name === "number" ||
+              resolvedCandidate.name === "int")) ||
+          (typeof resolvedMember.value === "boolean" &&
+            resolvedCandidate.name === "boolean")
+        );
+      }
+    }
+
+    if (resolvedMember.kind === "primitiveType") {
+      if (resolvedCandidate.kind === "primitiveType") {
+        return resolvedMember.name === resolvedCandidate.name;
+      }
+      if (resolvedCandidate.kind === "literalType") {
+        return matchesPredicateTarget(resolvedCandidate, resolvedMember);
+      }
+    }
+
+    if (
+      resolvedMember.kind === "arrayType" &&
+      resolvedCandidate.kind === "arrayType"
+    ) {
+      return matchesPredicateTarget(
+        resolvedMember.elementType,
+        resolvedCandidate.elementType
+      );
+    }
+
+    if (
+      resolvedMember.kind === "tupleType" &&
+      resolvedCandidate.kind === "tupleType"
+    ) {
+      if (
+        resolvedMember.elementTypes.length !==
+        resolvedCandidate.elementTypes.length
+      ) {
+        return false;
+      }
+      return resolvedMember.elementTypes.every((elementType, index) => {
+        const other = resolvedCandidate.elementTypes[index];
+        return other ? matchesPredicateTarget(elementType, other) : false;
+      });
+    }
+
+    if (
+      resolvedMember.kind === "referenceType" &&
+      resolvedCandidate.kind === "referenceType"
+    ) {
+      if (resolvedMember.name !== resolvedCandidate.name) {
+        return false;
+      }
+      const memberArgs = resolvedMember.typeArguments ?? [];
+      const candidateArgs = resolvedCandidate.typeArguments ?? [];
+      if (memberArgs.length !== candidateArgs.length) {
+        return memberArgs.length === 0 || candidateArgs.length === 0;
+      }
+      return memberArgs.every((memberArg, index) => {
+        const candidateArg = candidateArgs[index];
+        return candidateArg
+          ? matchesPredicateTarget(memberArg, candidateArg)
+          : false;
+      });
+    }
+
+    return false;
+  };
+
+  for (let i = 0; i < unionMembers.length; i++) {
+    const m = unionMembers[i];
+    if (m && matchesPredicateTarget(m, resolvedTarget)) {
       return i;
     }
   }
   return undefined;
+};
+
+export const unionMemberMatchesTarget = (
+  member: IrType,
+  candidate: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolvedCandidate = resolveTypeAlias(stripNullish(candidate), context);
+  const wrapper = {
+    kind: "unionType",
+    types: [member],
+  } as const satisfies Extract<IrType, { kind: "unionType" }>;
+  return findUnionMemberIndex(wrapper, resolvedCandidate, context) === 0;
 };

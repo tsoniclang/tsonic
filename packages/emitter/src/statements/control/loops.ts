@@ -3,7 +3,11 @@
  * Returns CSharpStatementAst nodes.
  */
 
-import { IrStatement, IrExpression } from "@tsonic/frontend";
+import {
+  IrStatement,
+  IrExpression,
+  normalizedUnionType,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitStatementAst } from "../../statement-emitter.js";
@@ -186,7 +190,7 @@ const deriveTupleIterationElementType = (
 
   if (concrete.length === 0) return undefined;
   if (concrete.length === 1) return concrete[0];
-  return { kind: "unionType", types: concrete };
+  return normalizedUnionType(concrete);
 };
 
 const deriveForOfElementType = (

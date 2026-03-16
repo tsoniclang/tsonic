@@ -29,6 +29,36 @@ export const simpleBindingContributesTypeIdentity = (
   return false;
 };
 
+const SIMPLE_BINDING_CONSTRUCTOR_SUFFIX = "Constructor";
+
+const getSimpleBindingConstructorAlias = (
+  alias: string,
+  descriptor: SimpleBindingDescriptor
+): string | undefined => {
+  if (!simpleBindingContributesTypeIdentity(descriptor)) {
+    return undefined;
+  }
+  if (!/^[A-Z]/.test(alias)) {
+    return undefined;
+  }
+  return `${alias}${SIMPLE_BINDING_CONSTRUCTOR_SUFFIX}`;
+};
+
+const getSimpleBindingConstructorBaseAlias = (
+  alias: string
+): string | undefined =>
+  alias.endsWith(SIMPLE_BINDING_CONSTRUCTOR_SUFFIX)
+    ? alias.slice(0, -SIMPLE_BINDING_CONSTRUCTOR_SUFFIX.length)
+    : undefined;
+
+const getSimpleBindingIdentityClrType = (
+  descriptor: SimpleBindingDescriptor
+): string => descriptor.staticType ?? descriptor.type;
+
+const getSimpleBindingMemberOwnerClrType = (
+  descriptor: SimpleBindingDescriptor
+): string => descriptor.type;
+
 /**
  * Registry of all loaded bindings
  * Supports simple (global/module) and hierarchical (namespace/type/member) formats
@@ -50,12 +80,244 @@ export class BindingRegistry {
   private readonly members = new Map<string, MemberBinding>(); // Flat lookup by "type.member"
   private readonly memberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by "type.member"
   private readonly clrMemberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by CLR target key
+  private readonly clrTypeNamesByAlias = new Map<string, Set<string>>();
   private readonly tsbindgenExports = new Map<
     string,
     Map<string, TsbindgenExport>
   >();
   private readonly tsSupertypes = new Map<string, Set<string>>();
+  private readonly tsBaseTypes = new Map<string, string>();
   private readonly clrTypeNames = new Set<string>();
+
+  private getMemberLookupOwnerAliases(typeAlias: string): readonly string[] {
+    const aliases: string[] = [];
+    const seen = new Set<string>();
+    const push = (alias: string | undefined): void => {
+      if (!alias || seen.has(alias)) return;
+      seen.add(alias);
+      aliases.push(alias);
+    };
+
+    push(typeAlias);
+
+    if (typeAlias.endsWith("$protected")) {
+      push(typeAlias.slice(0, -"$protected".length));
+    }
+
+    const mappedAlias = this.resolveSimpleBindingMemberOwnerAlias(typeAlias);
+    push(mappedAlias);
+    if (mappedAlias?.endsWith("$protected")) {
+      push(mappedAlias.slice(0, -"$protected".length));
+    }
+
+    return aliases;
+  }
+
+  private resolveUniqueCaseInsensitiveMemberAlias(
+    ownerAlias: string,
+    memberAlias: string
+  ): string | undefined {
+    const type = this.types.get(ownerAlias);
+    if (!type) return undefined;
+
+    const target = memberAlias.toLowerCase();
+    const matches = new Set<string>();
+    for (const member of type.members) {
+      if (member.alias.toLowerCase() === target) {
+        matches.add(member.alias);
+      }
+    }
+
+    if (matches.size !== 1) return undefined;
+    return Array.from(matches)[0];
+  }
+
+  private getExactOrUniqueCaseInsensitiveMember<T>(
+    ownerAlias: string,
+    memberAlias: string,
+    lookup: (key: string) => T | undefined,
+    allowCaseInsensitiveFallback = true
+  ): T | undefined {
+    const exact = lookup(`${ownerAlias}.${memberAlias}`);
+    if (exact !== undefined) return exact;
+
+    if (!allowCaseInsensitiveFallback) {
+      return undefined;
+    }
+
+    const resolvedAlias = this.resolveUniqueCaseInsensitiveMemberAlias(
+      ownerAlias,
+      memberAlias
+    );
+    if (!resolvedAlias || resolvedAlias === memberAlias) {
+      return undefined;
+    }
+
+    return lookup(`${ownerAlias}.${resolvedAlias}`);
+  }
+
+  private resolveMemberOverloadsForOwner(
+    ownerAlias: string,
+    memberAlias: string,
+    allowCaseInsensitiveFallback = true,
+    preferredClrOwner?: string
+  ): readonly MemberBinding[] | undefined {
+    const resolved = this.getExactOrUniqueCaseInsensitiveMember(
+      ownerAlias,
+      memberAlias,
+      (key) => {
+        const overloads = this.memberOverloads.get(key);
+        return overloads && overloads.length > 0 ? overloads : undefined;
+      },
+      allowCaseInsensitiveFallback
+    );
+    if (!resolved || resolved.length === 0) return resolved;
+
+    if (preferredClrOwner) {
+      const preferredOwnerMatches = resolved.filter(
+        (binding) => binding.binding.type === preferredClrOwner
+      );
+      if (preferredOwnerMatches.length > 0) {
+        return preferredOwnerMatches;
+      }
+    }
+
+    const ownerClrTypes = this.clrTypeNamesByAlias.get(ownerAlias);
+    if (!ownerClrTypes || ownerClrTypes.size !== 1) {
+      return resolved;
+    }
+
+    const [ownerClrType] = Array.from(ownerClrTypes);
+    if (!ownerClrType) return resolved;
+
+    const directOwnerMatches = resolved.filter((binding) =>
+      ownerClrTypes.has(binding.binding.type)
+    );
+    return directOwnerMatches.length > 0 ? directOwnerMatches : resolved;
+  }
+
+  private resolveMemberOverloadsByHierarchy(
+    ownerAlias: string,
+    memberAlias: string,
+    allowCaseInsensitiveFallback = true,
+    preferredClrOwner?: string
+  ): readonly MemberBinding[] | undefined {
+    const direct = this.resolveMemberOverloadsForOwner(
+      ownerAlias,
+      memberAlias,
+      allowCaseInsensitiveFallback,
+      preferredClrOwner
+    );
+    if (direct && direct.length > 0) {
+      return direct;
+    }
+
+    const getTargetKey = (binding: MemberBinding): string =>
+      `${binding.binding.assembly}:${binding.binding.type}::${binding.binding.member}`;
+
+    const getModifiersKey = (binding: MemberBinding): string => {
+      const modifiers = binding.parameterModifiers ?? [];
+      if (modifiers.length === 0) return "";
+      return [...modifiers]
+        .slice()
+        .sort((a, b) => a.index - b.index)
+        .map((mod) => `${mod.index}:${mod.modifier}`)
+        .join(",");
+    };
+
+    const visited = new Set<string>([ownerAlias]);
+
+    let currentBase = this.getDirectBaseType(ownerAlias);
+    while (currentBase) {
+      if (visited.has(currentBase)) break;
+      visited.add(currentBase);
+
+      const resolved = this.resolveMemberOverloadsForOwner(
+        currentBase,
+        memberAlias,
+        allowCaseInsensitiveFallback,
+        preferredClrOwner
+      );
+      if (resolved && resolved.length > 0) {
+        return resolved;
+      }
+
+      currentBase = this.getDirectBaseType(currentBase);
+    }
+
+    let frontier: string[] = [];
+    const interfaceOwners = [ownerAlias];
+    let baseForInterfaces = this.getDirectBaseType(ownerAlias);
+    while (baseForInterfaces) {
+      interfaceOwners.push(baseForInterfaces);
+      baseForInterfaces = this.getDirectBaseType(baseForInterfaces);
+    }
+
+    for (const candidateOwner of interfaceOwners) {
+      for (const iface of this.getDirectInterfaceSupertypes(candidateOwner)) {
+        if (visited.has(iface)) continue;
+        visited.add(iface);
+        frontier.push(iface);
+      }
+    }
+
+    while (frontier.length > 0) {
+      const nextFrontier: string[] = [];
+      const resolvedAtDepth: (readonly MemberBinding[])[] = [];
+
+      for (const candidateAlias of frontier) {
+        const resolved = this.resolveMemberOverloadsForOwner(
+          candidateAlias,
+          memberAlias,
+          allowCaseInsensitiveFallback,
+          preferredClrOwner
+        );
+        if (resolved && resolved.length > 0) {
+          resolvedAtDepth.push(resolved);
+        }
+
+        for (const superAlias of this.getDirectInterfaceSupertypes(
+          candidateAlias
+        )) {
+          if (visited.has(superAlias)) continue;
+          visited.add(superAlias);
+          nextFrontier.push(superAlias);
+        }
+      }
+
+      if (resolvedAtDepth.length > 0) {
+        const first = resolvedAtDepth[0]?.[0];
+        if (!first) return undefined;
+
+        const targetKey = getTargetKey(first);
+        const modifiersKey = getModifiersKey(first);
+        for (const overloads of resolvedAtDepth) {
+          const current = overloads[0];
+          if (!current) return undefined;
+          if (getTargetKey(current) !== targetKey) {
+            return undefined;
+          }
+          if (getModifiersKey(current) !== modifiersKey) {
+            return undefined;
+          }
+          for (const overload of overloads) {
+            if (getTargetKey(overload) !== targetKey) {
+              return undefined;
+            }
+            if (getModifiersKey(overload) !== modifiersKey) {
+              return undefined;
+            }
+          }
+        }
+
+        return resolvedAtDepth[0];
+      }
+
+      frontier = nextFrontier;
+    }
+
+    return undefined;
+  }
 
   /**
    * Extension method index for instance-style calls.
@@ -96,6 +358,24 @@ export class BindingRegistry {
     const set = this.tsSupertypes.get(typeAlias);
     if (!set || set.size === 0) return [];
     return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }
+
+  private setBaseType(typeAlias: string, baseAlias: string): void {
+    if (!typeAlias || !baseAlias) return;
+    if (typeAlias === baseAlias) return;
+    this.tsBaseTypes.set(typeAlias, baseAlias);
+  }
+
+  private getDirectBaseType(typeAlias: string): string | undefined {
+    return this.tsBaseTypes.get(typeAlias);
+  }
+
+  private getDirectInterfaceSupertypes(typeAlias: string): readonly string[] {
+    const direct = this.getDirectSupertypes(typeAlias);
+    const baseType = this.getDirectBaseType(typeAlias);
+    return baseType
+      ? direct.filter((candidate) => candidate !== baseType)
+      : direct;
   }
 
   /**
@@ -335,6 +615,12 @@ export class BindingRegistry {
       this.clrMemberOverloads.set(clrTargetKey, existing);
     };
 
+    const recordClrTypeAlias = (alias: string, clrName: string): void => {
+      const names = this.clrTypeNamesByAlias.get(alias) ?? new Set<string>();
+      names.add(clrName);
+      this.clrTypeNamesByAlias.set(alias, names);
+    };
+
     if (isFullBindingManifest(manifest)) {
       // Full format: hierarchical namespace/type/member structure
       // Index by alias (TS identifier) for quick lookup
@@ -468,7 +754,10 @@ export class BindingRegistry {
         const baseAlias = tsbType.baseType?.clrName
           ? tsbindgenClrTypeNameToTsTypeName(tsbType.baseType.clrName)
           : undefined;
-        if (baseAlias) this.addSupertype(tsAlias, baseAlias);
+        if (baseAlias) {
+          this.setBaseType(tsAlias, baseAlias);
+          this.addSupertype(tsAlias, baseAlias);
+        }
 
         for (const iface of tsbType.interfaces ?? []) {
           if (!iface?.clrName) continue;
@@ -509,10 +798,12 @@ export class BindingRegistry {
 
         // Index the type by its TS name.
         this.types.set(typeBinding.alias, typeBinding);
+        recordClrTypeAlias(typeBinding.alias, typeBinding.name);
 
         if (uniqueDerivedAlias && derivedAlias !== typeBinding.alias) {
           this.types.set(derivedAlias, typeBinding);
           this.typeLookupAliasMap.set(derivedAlias, typeBinding.alias);
+          recordClrTypeAlias(derivedAlias, typeBinding.name);
         }
 
         // Also index by simple name if ts alias has arity suffix (e.g., "List_1" -> also index as "List")
@@ -527,6 +818,9 @@ export class BindingRegistry {
           !this.types.has(simpleAlias)
         ) {
           this.types.set(simpleAlias, typeBinding);
+        }
+        if (simpleAlias && simpleAlias !== typeBinding.alias) {
+          recordClrTypeAlias(simpleAlias, typeBinding.name);
         }
 
         // Index members for direct lookup.
@@ -585,6 +879,18 @@ export class BindingRegistry {
   /**
    * Look up a simple global/module binding
    */
+  getExactBinding(name: string): SimpleBindingDescriptor | undefined {
+    return this.simpleBindings.get(name);
+  }
+
+  /**
+   * Look up a simple global/module binding.
+   *
+   * This API preserves the historical case-insensitive convenience behavior for
+   * registry queries. Compiler resolution of authored identifiers should prefer
+   * `getExactBinding()` so local/imported symbols are not polluted by
+   * differently-cased globals (for example `Console` vs `console`).
+   */
   getBinding(name: string): SimpleBindingDescriptor | undefined {
     return (
       this.simpleBindings.get(name) ??
@@ -617,32 +923,8 @@ export class BindingRegistry {
    * Look up a member binding by TS type alias and member alias
    */
   getMember(typeAlias: string, memberAlias: string): MemberBinding | undefined {
-    const normalizedTypeAlias = this.resolveLookupAlias(typeAlias);
-    const key = `${normalizedTypeAlias}.${memberAlias}`;
-    const direct = this.members.get(key);
-    if (direct) return direct;
-
-    // tsbindgen encodes protected CLR members on a synthetic `${TypeName}$protected` class.
-    // Those members are still declared on the real CLR type, so bindings must resolve
-    // through the owning type alias.
-    if (normalizedTypeAlias.endsWith("$protected")) {
-      const ownerAlias = normalizedTypeAlias.slice(0, -"$protected".length);
-      return this.members.get(`${ownerAlias}.${memberAlias}`);
-    }
-
-    const mappedAlias = this.resolveSimpleBindingAlias(normalizedTypeAlias);
-    if (mappedAlias) {
-      const mapped = this.members.get(`${mappedAlias}.${memberAlias}`);
-      if (mapped) return mapped;
-
-      if (mappedAlias.endsWith("$protected")) {
-        const ownerAlias = mappedAlias.slice(0, -"$protected".length);
-        const owner = this.members.get(`${ownerAlias}.${memberAlias}`);
-        if (owner) return owner;
-      }
-    }
-
-    return undefined;
+    const overloads = this.getMemberOverloads(typeAlias, memberAlias);
+    return overloads?.[0];
   }
 
   /**
@@ -654,33 +936,24 @@ export class BindingRegistry {
    */
   getMemberOverloads(
     typeAlias: string,
-    memberAlias: string
+    memberAlias: string,
+    allowCaseInsensitiveFallback = true,
+    preferredClrOwner?: string
   ): readonly MemberBinding[] | undefined {
+    const resolvedPreferredClrOwner =
+      preferredClrOwner ??
+      (this.clrTypeNames.has(typeAlias) ? typeAlias : undefined);
     const normalizedTypeAlias = this.resolveLookupAlias(typeAlias);
-    const key = `${normalizedTypeAlias}.${memberAlias}`;
-    const direct = this.memberOverloads.get(key);
-    if (direct && direct.length > 0) return direct;
-
-    // See getMember(): map `${TypeName}$protected` to `${TypeName}` for CLR binding lookup.
-    if (normalizedTypeAlias.endsWith("$protected")) {
-      const ownerAlias = normalizedTypeAlias.slice(0, -"$protected".length);
-      const ownerKey = `${ownerAlias}.${memberAlias}`;
-      const owner = this.memberOverloads.get(ownerKey);
-      if (owner && owner.length > 0) return owner;
-    }
-
-    const mappedAlias = this.resolveSimpleBindingAlias(normalizedTypeAlias);
-    if (mappedAlias) {
-      const mappedKey = `${mappedAlias}.${memberAlias}`;
-      const mapped = this.memberOverloads.get(mappedKey);
-      if (mapped && mapped.length > 0) return mapped;
-
-      if (mappedAlias.endsWith("$protected")) {
-        const ownerAlias = mappedAlias.slice(0, -"$protected".length);
-        const ownerKey = `${ownerAlias}.${memberAlias}`;
-        const owner = this.memberOverloads.get(ownerKey);
-        if (owner && owner.length > 0) return owner;
-      }
+    for (const ownerAlias of this.getMemberLookupOwnerAliases(
+      normalizedTypeAlias
+    )) {
+      const match = this.resolveMemberOverloadsByHierarchy(
+        ownerAlias,
+        memberAlias,
+        allowCaseInsensitiveFallback,
+        resolvedPreferredClrOwner
+      );
+      if (match && match.length > 0) return match;
     }
 
     return undefined;
@@ -718,6 +991,41 @@ export class BindingRegistry {
     return Array.from(this.simpleBindings.entries());
   }
 
+  isTypeOrSubtype(typeAlias: string, superAlias: string): boolean {
+    const normalizedTypeAlias = this.resolveLookupAlias(typeAlias);
+    const normalizedSuperAlias = this.resolveLookupAlias(superAlias);
+
+    if (normalizedTypeAlias === normalizedSuperAlias) {
+      return true;
+    }
+
+    const visited = new Set<string>([normalizedTypeAlias]);
+    let frontier = this.getDirectSupertypes(normalizedTypeAlias);
+    for (const candidate of frontier) {
+      if (candidate === normalizedSuperAlias) {
+        return true;
+      }
+      visited.add(candidate);
+    }
+
+    while (frontier.length > 0) {
+      const nextFrontier: string[] = [];
+      for (const candidate of frontier) {
+        for (const parent of this.getDirectSupertypes(candidate)) {
+          if (visited.has(parent)) continue;
+          if (parent === normalizedSuperAlias) {
+            return true;
+          }
+          visited.add(parent);
+          nextFrontier.push(parent);
+        }
+      }
+      frontier = nextFrontier;
+    }
+
+    return false;
+  }
+
   /**
    * Get all loaded namespaces
    */
@@ -751,14 +1059,29 @@ export class BindingRegistry {
       if (!simpleBindingContributesTypeIdentity(descriptor)) {
         continue;
       }
-      if (result.has(alias)) continue;
-
-      result.set(alias, {
+      const identityClrType = getSimpleBindingIdentityClrType(descriptor);
+      const constructorAlias = getSimpleBindingConstructorAlias(
         alias,
-        name: descriptor.type,
-        kind: "class",
-        members: [],
-      });
+        descriptor
+      );
+
+      if (!result.has(alias)) {
+        result.set(alias, {
+          alias,
+          name: identityClrType,
+          kind: "class",
+          members: [],
+        });
+      }
+
+      if (constructorAlias && !result.has(constructorAlias)) {
+        result.set(constructorAlias, {
+          alias: constructorAlias,
+          name: identityClrType,
+          kind: "class",
+          members: [],
+        });
+      }
     }
 
     return result;
@@ -777,9 +1100,11 @@ export class BindingRegistry {
     this.members.clear();
     this.memberOverloads.clear();
     this.clrMemberOverloads.clear();
+    this.clrTypeNamesByAlias.clear();
     this.extensionMethods.clear();
     this.tsbindgenExports.clear();
     this.tsSupertypes.clear();
+    this.tsBaseTypes.clear();
     this.clrTypeNames.clear();
   }
 
@@ -787,12 +1112,29 @@ export class BindingRegistry {
     return this.typeLookupAliasMap.get(typeAlias) ?? typeAlias;
   }
 
-  private resolveSimpleBindingAlias(typeAlias: string): string | undefined {
-    const descriptor =
+  private resolveSimpleBindingMemberOwnerAlias(
+    typeAlias: string
+  ): string | undefined {
+    const directDescriptor =
       this.simpleBindings.get(typeAlias) ??
       this.simpleBindingsLowercase.get(typeAlias.toLowerCase());
+    const descriptor =
+      directDescriptor ??
+      (() => {
+        const baseAlias = getSimpleBindingConstructorBaseAlias(typeAlias);
+        if (!baseAlias) return undefined;
+        const baseDescriptor =
+          this.simpleBindings.get(baseAlias) ??
+          this.simpleBindingsLowercase.get(baseAlias.toLowerCase());
+        if (!baseDescriptor) return undefined;
+        return simpleBindingContributesTypeIdentity(baseDescriptor)
+          ? baseDescriptor
+          : undefined;
+      })();
     if (!descriptor) return undefined;
-    const mapped = tsbindgenClrTypeNameToTsTypeName(descriptor.type);
+    const mapped = tsbindgenClrTypeNameToTsTypeName(
+      getSimpleBindingMemberOwnerClrType(descriptor)
+    );
     if (!mapped || mapped === typeAlias) return undefined;
     return mapped;
   }

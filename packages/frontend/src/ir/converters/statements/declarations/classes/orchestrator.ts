@@ -16,6 +16,10 @@ import {
   convertConstructor,
   extractParameterProperties,
 } from "./constructors.js";
+import {
+  getClassMemberName,
+  hasNonComputedClassMemberName,
+} from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
 
 /**
@@ -158,8 +162,8 @@ export const convertClassDeclaration = (
   const methodGroups = new Map<string, ts.MethodDeclaration[]>();
   for (const member of ownMembers) {
     if (!ts.isMethodDeclaration(member)) continue;
-    if (!ts.isIdentifier(member.name)) continue; // computed names: don't group
-    const key = `${hasStaticModifier(member) ? "static" : "instance"}:${member.name.text}`;
+    if (!hasNonComputedClassMemberName(member.name)) continue; // computed names: don't group
+    const key = `${hasStaticModifier(member) ? "static" : "instance"}:${getClassMemberName(member.name)}`;
     const list = methodGroups.get(key);
     if (list) list.push(member);
     else methodGroups.set(key, [member]);
@@ -174,9 +178,7 @@ export const convertClassDeclaration = (
       ts.isGetAccessorDeclaration(member) ||
       ts.isSetAccessorDeclaration(member)
     ) {
-      const name = ts.isIdentifier(member.name)
-        ? member.name.text
-        : "[computed]";
+      const name = getClassMemberName(member.name);
       const entry = accessorPairs.get(name) ?? {};
       if (ts.isGetAccessorDeclaration(member)) {
         entry.getter = member;
@@ -195,9 +197,7 @@ export const convertClassDeclaration = (
       ts.isGetAccessorDeclaration(member) ||
       ts.isSetAccessorDeclaration(member)
     ) {
-      const name = ts.isIdentifier(member.name)
-        ? member.name.text
-        : "[computed]";
+      const name = getClassMemberName(member.name);
       if (seenAccessors.has(name)) continue;
       seenAccessors.add(name);
       const pair = accessorPairs.get(name);
@@ -214,8 +214,8 @@ export const convertClassDeclaration = (
     }
 
     if (ts.isMethodDeclaration(member)) {
-      if (ts.isIdentifier(member.name)) {
-        const key = `${hasStaticModifier(member) ? "static" : "instance"}:${member.name.text}`;
+      if (hasNonComputedClassMemberName(member.name)) {
+        const key = `${hasStaticModifier(member) ? "static" : "instance"}:${getClassMemberName(member.name)}`;
         if (seenMethodGroups.has(key)) continue;
         seenMethodGroups.add(key);
         const group = methodGroups.get(key);

@@ -225,6 +225,12 @@ export type IrCallExpression = {
   readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[]; // Passing mode for each argument
   /** Parameter types from resolved signature (for expectedType threading to array literals etc.) */
   readonly parameterTypes?: readonly (IrType | undefined)[];
+  /** Explicit rest-parameter metadata from the resolved/public signature. */
+  readonly restParameter?: {
+    readonly index: number;
+    readonly arrayType: IrType | undefined;
+    readonly elementType: IrType | undefined;
+  };
   /** Type predicate narrowing metadata (for `x is T` predicates) */
   readonly narrowing?: {
     readonly kind: "typePredicate";

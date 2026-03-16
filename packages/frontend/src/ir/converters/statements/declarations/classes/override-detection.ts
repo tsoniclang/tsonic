@@ -76,11 +76,17 @@ export const detectOverride = (
       parameters
     );
   } else if (declId) {
+    const baseClassType = ctx.typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(superClass)
+    );
+
     // ALICE'S SPEC (Phase 5): Use semantic method instead of getDeclInfo
     return ctx.typeSystem.checkTsClassMemberOverride(
       declId,
       memberName,
-      memberKind
+      memberKind,
+      parameters,
+      baseClassType
     );
   }
 

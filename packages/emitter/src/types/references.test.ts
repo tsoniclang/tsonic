@@ -14,6 +14,7 @@ import { emitCSharpFiles, emitModule } from "../emitter.js";
 import { IrModule, IrType } from "@tsonic/frontend";
 import type { TypeBinding as FrontendTypeBinding } from "@tsonic/frontend";
 import { emitReferenceType } from "./references.js";
+import { emitTypeAst } from "./emitter.js";
 import type { EmitterContext } from "../types.js";
 import { clrTypeNameToTypeAst } from "../core/format/backend-ast/utils.js";
 import { printType } from "../core/format/backend-ast/printer.js";
@@ -153,6 +154,257 @@ describe("Reference Type Emission", () => {
       });
 
       expect(result).to.include("global::Tsonic.JSRuntime.Error x");
+    });
+  });
+
+  describe("Polymorphic This", () => {
+    it("emits polymorphic this markers as the declaring type", () => {
+      const [typeAst] = emitTypeAst(
+        {
+          kind: "typeParameterType",
+          name: "__tsonic_polymorphic_this",
+        },
+        {
+          ...baseContext,
+          declaringTypeName: "Router",
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("Router");
+    });
+  });
+
+  describe("Recursive Type Aliases", () => {
+    it("emits recursive union aliases without infinite expansion", () => {
+      const pathSpecRef: IrType = {
+        kind: "referenceType",
+        name: "PathSpec",
+      };
+
+      const [typeAst] = emitReferenceType(pathSpecRef, {
+        ...baseContext,
+        localTypes: new Map([
+          [
+            "PathSpec",
+            {
+              kind: "typeAlias",
+              typeParameters: [],
+              type: {
+                kind: "unionType",
+                types: [
+                  { kind: "primitiveType", name: "string" },
+                  {
+                    kind: "referenceType",
+                    name: "RegExp",
+                    resolvedClrType: "System.Text.RegularExpressions.Regex",
+                  },
+                  {
+                    kind: "arrayType",
+                    elementType: pathSpecRef,
+                    origin: "explicit",
+                  },
+                  { kind: "primitiveType", name: "null" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+            },
+          ],
+        ]),
+      });
+
+      const printed = printType(typeAst);
+      expect(printed).to.equal(
+        "global::Tsonic.Runtime.Union<object?[], string, global::System.Text.RegularExpressions.Regex>?"
+      );
+    });
+
+    it("emits recursive middleware aliases without stack overflow", () => {
+      const middlewareParamRef: IrType = {
+        kind: "referenceType",
+        name: "MiddlewareParam",
+      };
+
+      const [typeAst] = emitReferenceType(middlewareParamRef, {
+        ...baseContext,
+        localTypes: new Map([
+          [
+            "MiddlewareParam",
+            {
+              kind: "typeAlias",
+              typeParameters: [],
+              type: {
+                kind: "unionType",
+                types: [
+                  {
+                    kind: "referenceType",
+                    name: "MiddlewareHandler",
+                    resolvedClrType: "System.Delegate",
+                  },
+                  {
+                    kind: "arrayType",
+                    elementType: middlewareParamRef,
+                    origin: "explicit",
+                  },
+                ],
+              },
+            },
+          ],
+        ]),
+      });
+
+      const printed = printType(typeAst);
+      expect(printed).to.equal(
+        "global::Tsonic.Runtime.Union<object?[], global::System.Delegate>"
+      );
+    });
+
+    it("does not leak recursive alias resolution state into later emissions", () => {
+      const middlewareParamRef: IrType = {
+        kind: "referenceType",
+        name: "MiddlewareParam",
+      };
+      const middlewareLikeRef: IrType = {
+        kind: "referenceType",
+        name: "MiddlewareLike",
+      };
+
+      const recursiveContext: EmitterContext = {
+        ...baseContext,
+        localTypes: new Map([
+          [
+            "MiddlewareParam",
+            {
+              kind: "typeAlias",
+              typeParameters: [],
+              type: {
+                kind: "unionType",
+                types: [
+                  {
+                    kind: "referenceType",
+                    name: "MiddlewareHandler",
+                    resolvedClrType: "System.Delegate",
+                  },
+                  {
+                    kind: "arrayType",
+                    elementType: middlewareParamRef,
+                    origin: "explicit",
+                  },
+                ],
+              },
+            },
+          ],
+          [
+            "MiddlewareLike",
+            {
+              kind: "typeAlias",
+              typeParameters: [],
+              type: {
+                kind: "unionType",
+                types: [
+                  middlewareParamRef,
+                  {
+                    kind: "referenceType",
+                    name: "Router",
+                    resolvedClrType: "Test.Router",
+                  },
+                  {
+                    kind: "arrayType",
+                    elementType: middlewareLikeRef,
+                    origin: "explicit",
+                  },
+                ],
+              },
+            },
+          ],
+        ]),
+      };
+
+      const [firstTypeAst, nextContext] = emitTypeAst(
+        middlewareLikeRef,
+        recursiveContext
+      );
+      const [secondTypeAst] = emitTypeAst(middlewareLikeRef, nextContext);
+
+      expect(nextContext.resolvingTypeAliases).to.equal(
+        recursiveContext.resolvingTypeAliases
+      );
+      expect(printType(firstTypeAst)).to.equal(printType(secondTypeAst));
+      expect(printType(secondTypeAst)).to.equal(
+        "global::Tsonic.Runtime.Union<object?[], global::System.Delegate, global::Test.Router>"
+      );
+    });
+
+    it("preserves recursive array alias members when emitting outer array containers", () => {
+      const middlewareParamRef: IrType = {
+        kind: "referenceType",
+        name: "MiddlewareParam",
+      };
+      const middlewareLikeRef: IrType = {
+        kind: "referenceType",
+        name: "MiddlewareLike",
+      };
+
+      const recursiveContext: EmitterContext = {
+        ...baseContext,
+        localTypes: new Map([
+          [
+            "MiddlewareParam",
+            {
+              kind: "typeAlias",
+              typeParameters: [],
+              type: {
+                kind: "unionType",
+                types: [
+                  {
+                    kind: "referenceType",
+                    name: "MiddlewareHandler",
+                    resolvedClrType: "System.Delegate",
+                  },
+                  {
+                    kind: "arrayType",
+                    elementType: middlewareParamRef,
+                    origin: "explicit",
+                  },
+                ],
+              },
+            },
+          ],
+          [
+            "MiddlewareLike",
+            {
+              kind: "typeAlias",
+              typeParameters: [],
+              type: {
+                kind: "unionType",
+                types: [
+                  middlewareParamRef,
+                  {
+                    kind: "referenceType",
+                    name: "Router",
+                    resolvedClrType: "Test.Router",
+                  },
+                  {
+                    kind: "arrayType",
+                    elementType: middlewareLikeRef,
+                    origin: "explicit",
+                  },
+                ],
+              },
+            },
+          ],
+        ]),
+      };
+
+      const [typeAst] = emitTypeAst(
+        {
+          kind: "arrayType",
+          elementType: middlewareLikeRef,
+          origin: "explicit",
+        },
+        recursiveContext
+      );
+
+      expect(printType(typeAst)).to.equal("object[]");
     });
   });
 
@@ -479,6 +731,68 @@ describe("Reference Type Emission", () => {
       const result = emitModule(module, { clrBindings });
 
       expect(result).to.include("global::nodejs.MkdirOptions x");
+    });
+
+    it("should canonicalize anonymous structural references to a unique binding-backed type", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "__Anon_local",
+        structuralMembers: [
+          {
+            kind: "propertySignature",
+            name: "success",
+            type: { kind: "literalType", value: true },
+            isOptional: false,
+            isReadonly: false,
+          },
+          {
+            kind: "propertySignature",
+            name: "rendered",
+            type: { kind: "primitiveType", name: "string" },
+            isOptional: false,
+            isReadonly: false,
+          },
+        ],
+      });
+
+      const anonymousBinding: FrontendTypeBinding = {
+        name: "Acme.Messages.__Anon_8be6_614f176b",
+        alias: "__Anon_8be6_614f176b",
+        kind: "class",
+        members: [
+          {
+            kind: "property",
+            alias: "success",
+            name: "success",
+            semanticType: { kind: "literalType", value: true },
+            binding: {
+              assembly: "Acme.Messages",
+              type: "Acme.Messages.__Anon_8be6_614f176b",
+              member: "success",
+            },
+          },
+          {
+            kind: "property",
+            alias: "rendered",
+            name: "rendered",
+            semanticType: { kind: "primitiveType", name: "string" },
+            binding: {
+              assembly: "Acme.Messages",
+              type: "Acme.Messages.__Anon_8be6_614f176b",
+              member: "rendered",
+            },
+          },
+        ],
+      };
+
+      const clrBindings = new Map<string, FrontendTypeBinding>([
+        [anonymousBinding.alias, anonymousBinding],
+      ]);
+
+      const result = emitModule(module, { clrBindings });
+
+      expect(result).to.include("global::Acme.Messages.__Anon_8be6_614f176b x");
+      expect(result).to.not.include("__Anon_local x");
     });
   });
 

@@ -83,6 +83,7 @@ const buildClassInfo = (stmt: IrClassDeclaration): LocalTypeInfo => ({
   kind: "class",
   typeParameters: stmt.typeParameters?.map((tp) => tp.name) ?? [],
   members: stmt.members,
+  superClass: stmt.superClass,
   implements: stmt.implements,
 });
 
