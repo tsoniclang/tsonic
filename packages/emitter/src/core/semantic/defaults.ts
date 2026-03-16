@@ -8,6 +8,27 @@ import {
   stripNullish,
 } from "./type-resolution.js";
 
+export const getAcceptedParameterType = (
+  parameterType: IrType | undefined,
+  isOptional: boolean
+): IrType | undefined => {
+  if (!parameterType) {
+    return undefined;
+  }
+
+  if (!isOptional) {
+    return parameterType;
+  }
+
+  return {
+    kind: "unionType",
+    types: [
+      parameterType,
+      { kind: "primitiveType", name: "undefined" },
+    ],
+  };
+};
+
 const getSingleNonNullishMember = (type: IrType): IrType | undefined => {
   if (type.kind !== "unionType") {
     return undefined;

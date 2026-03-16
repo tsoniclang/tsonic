@@ -67,6 +67,7 @@ import {
   nullLiteral,
   stringLiteral,
 } from "../../core/format/backend-ast/builders.js";
+import { getAcceptedParameterType } from "../../core/semantic/defaults.js";
 
 const preserveReceiverTypeAssertionAst = (
   receiverExpr: IrExpression,
@@ -1011,23 +1012,6 @@ const emitFunctionValueCallArguments = (
   const argAsts: CSharpExpressionAst[] = [];
   const parameters = signature.parameters;
 
-  const getAcceptedParameterType = (
-    parameter: (typeof parameters)[number] | undefined
-  ): IrType | undefined => {
-    if (!parameter?.type) {
-      return undefined;
-    }
-
-    if (!parameter.isOptional) {
-      return parameter.type;
-    }
-
-    return normalizedUnionType([
-      parameter.type,
-      { kind: "primitiveType", name: "undefined" } as const,
-    ]);
-  };
-
   const extractTupleRestCandidates = (
     type: IrType | undefined
   ): readonly (readonly IrType[])[] | undefined => {
@@ -1164,7 +1148,7 @@ const emitFunctionValueCallArguments = (
       const [argAst, argCtx] = emitExpressionAst(
         arg,
         currentContext,
-        getAcceptedParameterType(parameter)
+        getAcceptedParameterType(parameter?.type, !!parameter?.isOptional)
       );
       const modifier =
         expr.argumentPassing?.[i] &&
