@@ -17,7 +17,7 @@ import {
   hasDeterministicPropertyMembership,
   isDefinitelyValueType,
 } from "../../core/semantic/type-resolution.js";
-import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionFrame } from "../../core/semantic/runtime-unions.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
 import {
   isCharTyped,
@@ -126,16 +126,17 @@ export const emitBinary = (
     const [rhsAst, rhsCtx] = emitExpressionAst(expr.right, context);
     const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
 
-    const [runtimeLayout] = buildRuntimeUnionLayout(rhsType, rhsCtx, emitTypeAst);
+    const runtimeFrame = buildRuntimeUnionFrame(rhsType, rhsCtx);
+    const runtimeMembers = runtimeFrame?.members;
 
     // Union<T1..Tn>: `"error" in auth` → auth.IsN() (where member N has the prop)
-    if (runtimeLayout) {
+    if (runtimeMembers) {
       const propName = expr.left.value;
       const matchingMembers: number[] = [];
       const unresolvedMembers: string[] = [];
 
-      for (let i = 0; i < runtimeLayout.members.length; i++) {
-        const member = runtimeLayout.members[i];
+      for (let i = 0; i < runtimeMembers.length; i += 1) {
+        const member = runtimeMembers[i];
         if (!member) continue;
 
         const hasMember = hasDeterministicPropertyMembership(
@@ -255,7 +256,10 @@ export const emitBinary = (
       });
       rightContext = nextContext;
     } else {
-      const [rightAst, nextContext] = emitExpressionAst(expr.right, leftContext);
+      const [rightAst, nextContext] = emitExpressionAst(
+        expr.right,
+        leftContext
+      );
       rightText = extractCalleeNameFromAst(rightAst);
       rightContext = nextContext;
     }

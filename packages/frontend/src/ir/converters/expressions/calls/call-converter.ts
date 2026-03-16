@@ -810,6 +810,15 @@ export const convertCallExpression = (
       requiresSpecialization,
       argumentPassing,
       parameterTypes: paramTypesForArgs,
+      restParameter: (() => {
+        const restIndex = params.findIndex((parameter) => parameter.isRest);
+        if (restIndex < 0) return undefined;
+        return {
+          index: restIndex,
+          arrayType: params[restIndex]?.type,
+          elementType: paramTypesForArgs[restIndex],
+        };
+      })(),
     };
   }
 
@@ -1078,6 +1087,7 @@ export const convertCallExpression = (
     requiresSpecialization,
     argumentPassing: argumentPassingWithOverrides,
     parameterTypes,
+    restParameter: finalResolved?.restParameter,
     narrowing,
   };
 };

@@ -12,6 +12,30 @@ export const narrowTypeByAssignableTarget = (
   targetType: IrType,
   wantAssignable: boolean
 ): IrType | undefined => {
+  const collectCandidateLeaves = (type: IrType): readonly IrType[] => {
+    const expanded = collector.collectNarrowingCandidates(type);
+    return expanded.length > 0 ? expanded : [type];
+  };
+
+  const tryTargetFallback = (): IrType | undefined => {
+    if (!wantAssignable || !currentType || currentType.kind === "unknownType") {
+      return undefined;
+    }
+
+    if (collector.isAssignableTo(targetType, currentType)) {
+      return targetType;
+    }
+
+    const kept = collectCandidateLeaves(targetType).filter(
+      (candidate): candidate is IrType =>
+        !!candidate && collector.isAssignableTo(candidate, currentType)
+    );
+
+    if (kept.length === 0) return undefined;
+    if (kept.length === 1) return kept[0];
+    return normalizedUnionType(kept);
+  };
+
   if (!currentType || currentType.kind === "unknownType") {
     return wantAssignable ? targetType : undefined;
   }
@@ -36,8 +60,7 @@ export const narrowTypeByAssignableTarget = (
     }
   }
 
-  const expanded = collector.collectNarrowingCandidates(currentType);
-  const candidates = expanded.length > 0 ? expanded : [currentType];
+  const candidates = collectCandidateLeaves(currentType);
   const kept = candidates.filter((member): member is IrType => {
     if (!member) return false;
     const isMatch = collector.isAssignableTo(member, targetType);
@@ -45,7 +68,7 @@ export const narrowTypeByAssignableTarget = (
   });
 
   if (kept.length === 0) {
-    return wantAssignable ? undefined : currentType;
+    return wantAssignable ? tryTargetFallback() : currentType;
   }
   if (kept.length === 1) return kept[0];
   return normalizedUnionType(kept);

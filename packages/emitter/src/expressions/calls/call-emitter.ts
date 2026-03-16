@@ -40,6 +40,7 @@ import {
   extractCalleeNameFromAst,
   getIdentifierTypeName,
   getIdentifierTypeLeafName,
+  stableTypeKeyFromAst,
 } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpBlockStatementAst,
@@ -49,9 +50,14 @@ import type {
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import { resolveImportPath } from "../../core/semantic/index.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import {
   containsTypeParameter,
   getArrayLikeElementType,
+  normalizeStructuralEmissionType,
+  resolveTypeAlias,
+  stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
@@ -62,25 +68,87 @@ import {
   stringLiteral,
 } from "../../core/format/backend-ast/builders.js";
 
-const unwrapNullableTypeAst = (type: CSharpTypeAst): CSharpTypeAst =>
-  type.kind === "nullableType" ? type.underlyingType : type;
+const preserveReceiverTypeAssertionAst = (
+  receiverExpr: IrExpression,
+  receiverAst: CSharpExpressionAst,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (receiverExpr.kind !== "typeAssertion") {
+    return [receiverAst, context];
+  }
+
+  const [targetTypeAst, nextContext] = emitTypeAst(
+    receiverExpr.targetType,
+    context
+  );
+
+  if (
+    receiverAst.kind === "castExpression" &&
+    stableTypeKeyFromAst(receiverAst.type) ===
+      stableTypeKeyFromAst(targetTypeAst)
+  ) {
+    return [receiverAst, nextContext];
+  }
+
+  return [
+    {
+      kind: "parenthesizedExpression",
+      expression: {
+        kind: "castExpression",
+        type: targetTypeAst,
+        expression: receiverAst,
+      },
+    },
+    nextContext,
+  ];
+};
 
 const emitArrayWrapperElementTypeAst = (
   receiverType: IrType,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  const [receiverTypeAst, receiverTypeContext] = emitTypeAst(
-    receiverType,
+  const storageReceiverType =
+    normalizeRuntimeStorageType(receiverType, context) ?? receiverType;
+  const resolvedReceiverType = resolveTypeAlias(
+    stripNullish(storageReceiverType),
     context
   );
-  const concreteReceiverTypeAst = unwrapNullableTypeAst(receiverTypeAst);
-  if (concreteReceiverTypeAst.kind === "arrayType") {
-    return [concreteReceiverTypeAst.elementType, receiverTypeContext];
+  if (resolvedReceiverType.kind === "arrayType") {
+    const elementType = normalizeStructuralEmissionType(
+      resolvedReceiverType.elementType,
+      context
+    );
+    return emitTypeAst(elementType, context);
   }
-  if (receiverType.kind === "arrayType") {
-    return emitTypeAst(receiverType.elementType, receiverTypeContext);
+
+  if (
+    resolvedReceiverType.kind === "referenceType" &&
+    (resolvedReceiverType.name === "Array" ||
+      resolvedReceiverType.name === "ReadonlyArray") &&
+    resolvedReceiverType.typeArguments?.length === 1
+  ) {
+    const elementType = resolvedReceiverType.typeArguments[0];
+    if (elementType) {
+      const emittedElementType = normalizeStructuralEmissionType(
+        elementType,
+        context
+      );
+      return emitTypeAst(emittedElementType, context);
+    }
   }
-  return [identifierType("object"), receiverTypeContext];
+
+  const nativeElementType = resolveNativeArrayLikeElementType(
+    storageReceiverType,
+    context
+  );
+  if (nativeElementType) {
+    const emittedElementType = normalizeStructuralEmissionType(
+      nativeElementType,
+      context
+    );
+    return emitTypeAst(emittedElementType, context);
+  }
+  return [identifierType("object"), context];
 };
 
 const buildTupleSpreadElementAccess = (
@@ -144,7 +212,11 @@ const expandTupleLikeSpreadArguments = (
       continue;
     }
 
-    for (let index = 0; index < spreadShape.prefixElementTypes.length; index += 1) {
+    for (
+      let index = 0;
+      index < spreadShape.prefixElementTypes.length;
+      index += 1
+    ) {
       const elementType = spreadShape.prefixElementTypes[index];
       if (!elementType) continue;
       expanded.push(
@@ -225,6 +297,57 @@ const nativeArrayMutationMembers = new Set([
   "fill",
   "copyWithin",
 ]);
+
+const isJsArrayWrapperBindingType = (bindingType: string): boolean =>
+  stripClrGenericArity(bindingType).split(".").pop() === "JSArray";
+
+const resolveNativeArrayLikeElementType = (
+  receiverType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!receiverType) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
+  if (resolved.kind === "arrayType") {
+    return resolved.elementType;
+  }
+
+  if (
+    resolved.kind === "referenceType" &&
+    (resolved.name === "Array" || resolved.name === "ReadonlyArray") &&
+    resolved.typeArguments?.length === 1
+  ) {
+    return resolved.typeArguments[0];
+  }
+
+  return undefined;
+};
+
+const shouldPreferNativeArrayWrapperInterop = (
+  binding:
+    | NonNullable<
+        Extract<IrExpression, { kind: "memberAccess" }>["memberBinding"]
+      >
+    | undefined,
+  receiverType: IrType | undefined,
+  context: EmitterContext
+): boolean =>
+  !!binding &&
+  isJsArrayWrapperBindingType(binding.type) &&
+  !!resolveNativeArrayLikeElementType(receiverType, context);
+
+const hasDirectNativeArrayLikeInteropShape = (
+  receiverType: IrType | undefined
+): boolean => {
+  if (!receiverType) return false;
+  return (
+    receiverType.kind === "arrayType" ||
+    (receiverType.kind === "referenceType" &&
+      (receiverType.name === "Array" ||
+        receiverType.name === "ReadonlyArray") &&
+      receiverType.typeArguments?.length === 1)
+  );
+};
 
 const returnsMutatedArrayMember = (memberName: string): boolean =>
   memberName === "sort" ||
@@ -366,10 +489,21 @@ const emitArrayMutationInteropCall = (
   if (!isLValue(expr.callee.object)) return undefined;
 
   const binding = expr.callee.memberBinding;
-  if (!binding || binding.isExtensionMethod) return undefined;
+  if (
+    !binding ||
+    (binding.isExtensionMethod && !isJsArrayWrapperBindingType(binding.type))
+  ) {
+    return undefined;
+  }
 
-  const receiverType = expr.callee.object.inferredType;
-  if (!receiverType || receiverType.kind !== "arrayType") return undefined;
+  const receiverType =
+    resolveEffectiveExpressionType(expr.callee.object, context) ??
+    expr.callee.object.inferredType;
+  const receiverElementType = resolveNativeArrayLikeElementType(
+    receiverType,
+    context
+  );
+  if (!receiverElementType) return undefined;
 
   const captured = captureAssignableArrayTarget(expr.callee.object, context);
   if (!captured) return undefined;
@@ -377,7 +511,11 @@ const emitArrayMutationInteropCall = (
   let currentContext = captured.context;
 
   const [elementTypeAst, elementTypeContext] = emitArrayWrapperElementTypeAst(
-    receiverType,
+    receiverType ?? {
+      kind: "arrayType",
+      elementType: receiverElementType,
+      origin: "explicit",
+    },
     currentContext
   );
   currentContext = elementTypeContext;
@@ -442,7 +580,11 @@ const emitArrayMutationInteropCall = (
     returnExpression = mutatedArrayAst;
   }
 
-  const returnType = expr.inferredType ?? receiverType;
+  const returnType = expr.inferredType ?? {
+    kind: "arrayType",
+    elementType: receiverElementType,
+    origin: "explicit" as const,
+  };
   const [returnTypeAst, returnTypeContext] = emitTypeAst(
     returnType,
     currentContext
@@ -515,10 +657,23 @@ const emitArrayWrapperInteropCall = (
   if (typeof expr.callee.property !== "string") return undefined;
 
   const binding = expr.callee.memberBinding;
-  if (!binding || binding.isExtensionMethod) return undefined;
+  if (
+    !binding ||
+    (binding.isExtensionMethod && !isJsArrayWrapperBindingType(binding.type))
+  ) {
+    return undefined;
+  }
 
-  const receiverType = expr.callee.object.inferredType;
-  if (!receiverType || receiverType.kind !== "arrayType") return undefined;
+  const receiverType =
+    resolveEffectiveExpressionType(expr.callee.object, context) ??
+    expr.callee.object.inferredType;
+  const receiverElementType = resolveNativeArrayLikeElementType(
+    receiverType,
+    context
+  );
+  if (!receiverElementType) {
+    return undefined;
+  }
 
   const bindingType = binding.type;
   if (
@@ -544,7 +699,11 @@ const emitArrayWrapperInteropCall = (
   let typeArguments: readonly CSharpTypeAst[] | undefined;
   if (genericArity === 1) {
     const [elementTypeAst, elementTypeContext] = emitArrayWrapperElementTypeAst(
-      receiverType,
+      receiverType ?? {
+        kind: "arrayType",
+        elementType: receiverElementType,
+        origin: "explicit",
+      },
       currentContext
     );
     currentContext = elementTypeContext;
@@ -578,7 +737,7 @@ const emitArrayWrapperInteropCall = (
   };
 
   const resultAst: CSharpExpressionAst =
-    shouldNormalizeNativeArrayWrapperResult(expr, expectedType)
+    shouldNormalizeNativeArrayWrapperResult(expr, expectedType, currentContext)
       ? {
           kind: "invocationExpression",
           expression: {
@@ -852,6 +1011,23 @@ const emitFunctionValueCallArguments = (
   const argAsts: CSharpExpressionAst[] = [];
   const parameters = signature.parameters;
 
+  const getAcceptedParameterType = (
+    parameter: (typeof parameters)[number] | undefined
+  ): IrType | undefined => {
+    if (!parameter?.type) {
+      return undefined;
+    }
+
+    if (!parameter.isOptional) {
+      return parameter.type;
+    }
+
+    return normalizedUnionType([
+      parameter.type,
+      { kind: "primitiveType", name: "undefined" } as const,
+    ]);
+  };
+
   const extractTupleRestCandidates = (
     type: IrType | undefined
   ): readonly (readonly IrType[])[] | undefined => {
@@ -988,7 +1164,7 @@ const emitFunctionValueCallArguments = (
       const [argAst, argCtx] = emitExpressionAst(
         arg,
         currentContext,
-        parameter.type
+        getAcceptedParameterType(parameter)
       );
       const modifier =
         expr.argumentPassing?.[i] &&
@@ -1058,7 +1234,8 @@ const shouldNormalizeArrayLikeInteropResult = (
 
 const shouldNormalizeNativeArrayWrapperResult = (
   expr: Extract<IrExpression, { kind: "call" }>,
-  expectedType: IrType | undefined
+  expectedType: IrType | undefined,
+  context: EmitterContext
 ): boolean => {
   if (shouldNormalizeArrayLikeInteropResult(expr.inferredType, expectedType)) {
     return true;
@@ -1074,8 +1251,10 @@ const shouldNormalizeNativeArrayWrapperResult = (
     return false;
   }
 
-  const receiverType = expr.callee.object.inferredType;
-  if (!receiverType || receiverType.kind !== "arrayType") {
+  const receiverType =
+    resolveEffectiveExpressionType(expr.callee.object, context) ??
+    expr.callee.object.inferredType;
+  if (!hasDirectNativeArrayLikeInteropShape(receiverType)) {
     return false;
   }
 
@@ -1096,7 +1275,8 @@ const isJsArrayObjectCreationAst = (
 const shouldNormalizeUnboundJsArrayWrapperResult = (
   expr: Extract<IrExpression, { kind: "call" }>,
   calleeAst: CSharpExpressionAst,
-  expectedType: IrType | undefined
+  expectedType: IrType | undefined,
+  context: EmitterContext
 ): boolean => {
   if (!shouldNormalizeArrayLikeInteropResult(expr.inferredType, expectedType)) {
     return false;
@@ -1114,8 +1294,10 @@ const shouldNormalizeUnboundJsArrayWrapperResult = (
     return false;
   }
 
-  const receiverType = expr.callee.object.inferredType;
-  if (!receiverType || receiverType.kind !== "arrayType") {
+  const receiverType =
+    resolveEffectiveExpressionType(expr.callee.object, context) ??
+    expr.callee.object.inferredType;
+  if (!hasDirectNativeArrayLikeInteropShape(receiverType)) {
     return false;
   }
 
@@ -1125,65 +1307,6 @@ const shouldNormalizeUnboundJsArrayWrapperResult = (
     (calleeAst.kind === "conditionalMemberAccessExpression" &&
       isJsArrayObjectCreationAst(calleeAst.expression))
   );
-};
-
-const detectRestParameterInfo = (
-  args: readonly IrExpression[],
-  parameterTypes: readonly (IrType | undefined)[],
-  context: EmitterContext
-):
-  | {
-      readonly index: number;
-      readonly arrayType: IrType;
-      readonly elementType: IrType;
-    }
-  | undefined => {
-  if (parameterTypes.length === 0) {
-    return undefined;
-  }
-
-  const index = parameterTypes.length - 1;
-  const lastParamType = parameterTypes[index];
-  const restElementType = getArrayLikeElementType(lastParamType, context);
-  if (!lastParamType || !restElementType) {
-    return undefined;
-  }
-
-  if (args.length > parameterTypes.length) {
-    return {
-      index,
-      arrayType: lastParamType,
-      elementType: restElementType,
-    };
-  }
-
-  const restArgs = args.slice(index);
-  if (restArgs.some((arg) => arg?.kind === "spread")) {
-    return {
-      index,
-      arrayType: lastParamType,
-      elementType: restElementType,
-    };
-  }
-
-  const lastArg = args[index];
-  if (!lastArg) {
-    return undefined;
-  }
-
-  const lastArgType =
-    lastArg.kind === "spread"
-      ? lastArg.expression.inferredType
-      : lastArg.inferredType;
-  if (!isArrayLikeIrType(lastArgType)) {
-    return {
-      index,
-      arrayType: lastParamType,
-      elementType: restElementType,
-    };
-  }
-
-  return undefined;
 };
 
 const emitFlattenedRestArguments = (
@@ -1700,10 +1823,8 @@ const emitPromiseStaticCall = (
     );
     let preferredResultTypeAst = outputResultType;
     if (normalizedResultIrType) {
-      const [normalizedResultTypeAst, normalizedResultTypeContext] = emitTypeAst(
-        normalizedResultIrType,
-        currentContext
-      );
+      const [normalizedResultTypeAst, normalizedResultTypeContext] =
+        emitTypeAst(normalizedResultIrType, currentContext);
       preferredResultTypeAst = normalizedResultTypeAst;
       currentContext = normalizedResultTypeContext;
     }
@@ -2526,9 +2647,14 @@ const emitPromiseThenCatchFinally = (
 const emitCallArguments = (
   args: readonly IrExpression[],
   expr: Extract<IrExpression, { kind: "call" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  parameterTypeOverrides?: readonly (IrType | undefined)[]
 ): [readonly CSharpExpressionAst[], EmitterContext] => {
   const functionValueSignature = getFunctionValueSignature(expr);
+  const valueSymbolSignature =
+    expr.callee.kind === "identifier"
+      ? context.valueSymbols?.get(expr.callee.name)?.type
+      : undefined;
   if (
     functionValueSignature &&
     functionValueSignature.parameters.some(
@@ -2546,9 +2672,34 @@ const emitCallArguments = (
     );
   }
 
-  const parameterTypes = expr.parameterTypes ?? [];
+  const parameterTypes =
+    parameterTypeOverrides && parameterTypeOverrides.length > 0
+      ? parameterTypeOverrides
+      : expr.parameterTypes && expr.parameterTypes.length > 0
+        ? expr.parameterTypes
+        : ((
+            functionValueSignature?.parameters ??
+            valueSymbolSignature?.parameters
+          )?.map((parameter) => parameter?.type) ?? []);
   const normalizedArgs = expandTupleLikeSpreadArguments(args);
-  const restInfo = detectRestParameterInfo(normalizedArgs, parameterTypes, context);
+  const restInfo:
+    | {
+        readonly index: number;
+        readonly arrayType: IrType;
+        readonly elementType: IrType;
+      }
+    | undefined =
+    expr.restParameter?.arrayType &&
+    expr.restParameter.elementType &&
+    normalizedArgs
+      .slice(expr.restParameter.index)
+      .some((candidate) => candidate?.kind === "spread")
+      ? {
+          index: expr.restParameter.index,
+          arrayType: expr.restParameter.arrayType,
+          elementType: expr.restParameter.elementType,
+        }
+      : undefined;
   let currentContext = context;
   const argAsts: CSharpExpressionAst[] = [];
 
@@ -2609,6 +2760,34 @@ const emitCallArguments = (
   }
 
   return [argAsts, currentContext];
+};
+
+const getRuntimeObjectHelperParameterOverrides = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  argCount: number
+): readonly (IrType | undefined)[] | undefined => {
+  if (
+    expr.callee.kind !== "memberAccess" ||
+    expr.callee.isComputed ||
+    expr.callee.object.kind !== "identifier" ||
+    expr.callee.object.name !== "Object" ||
+    (expr.callee.property !== "entries" &&
+      expr.callee.property !== "keys" &&
+      expr.callee.property !== "values")
+  ) {
+    return undefined;
+  }
+
+  if (argCount === 0) {
+    return undefined;
+  }
+
+  const overrides: (IrType | undefined)[] = Array.from(
+    { length: argCount },
+    () => undefined
+  );
+  overrides[0] = { kind: "unknownType" } as IrType;
+  return overrides;
 };
 
 /**
@@ -2784,6 +2963,21 @@ const emitGlobalJsonCall = (
   });
 };
 
+const extractTransparentIdentifier = (
+  expr: IrExpression
+): Extract<IrExpression, { kind: "identifier" }> | undefined => {
+  let current: IrExpression = expr;
+
+  while (
+    current.kind === "typeAssertion" ||
+    current.kind === "numericNarrowing"
+  ) {
+    current = current.expression;
+  }
+
+  return current.kind === "identifier" ? current : undefined;
+};
+
 /**
  * Emit a function call expression as CSharpExpressionAst
  */
@@ -2802,9 +2996,10 @@ export const emitCall = (
   if (promiseChain) return promiseChain;
 
   // Void promise resolve: emit as zero-arg call when safe.
+  const transparentCalleeIdentifier = extractTransparentIdentifier(expr.callee);
   if (
-    expr.callee.kind === "identifier" &&
-    context.voidResolveNames?.has(expr.callee.name)
+    transparentCalleeIdentifier &&
+    context.voidResolveNames?.has(transparentCalleeIdentifier.name)
   ) {
     const isZeroArg = expr.arguments.length === 0;
     const isSingleUndefined =
@@ -2813,7 +3008,10 @@ export const emitCall = (
       expr.arguments[0].name === "undefined";
 
     if (isZeroArg || isSingleUndefined) {
-      const [calleeAst, calleeCtx] = emitExpressionAst(expr.callee, context);
+      const [calleeAst, calleeCtx] = emitExpressionAst(
+        transparentCalleeIdentifier,
+        context
+      );
       return [
         {
           kind: "invocationExpression",
@@ -2886,18 +3084,29 @@ export const emitCall = (
   if (
     expr.callee.kind === "memberAccess" &&
     expr.callee.memberBinding?.isExtensionMethod &&
-    isInstanceMemberAccess(expr.callee, context)
+    isInstanceMemberAccess(expr.callee, context) &&
+    !shouldPreferNativeArrayWrapperInterop(
+      expr.callee.memberBinding,
+      expr.callee.object.inferredType,
+      context
+    )
   ) {
     let currentContext = context;
 
     const binding = expr.callee.memberBinding;
     const receiverExpr = expr.callee.object;
 
-    const [receiverAst, receiverContext] = emitExpressionAst(
+    const [rawReceiverAst, receiverContext] = emitExpressionAst(
       receiverExpr,
       currentContext
     );
-    currentContext = receiverContext;
+    const [receiverAst, preservedReceiverContext] =
+      preserveReceiverTypeAssertionAst(
+        receiverExpr,
+        rawReceiverAst,
+        receiverContext
+      );
+    currentContext = preservedReceiverContext;
 
     // Fluent extension method path
     if (shouldEmitFluentExtensionCall(binding)) {
@@ -3002,16 +3211,18 @@ export const emitCall = (
     };
 
     // Wrap in ToArray() if result type is array
-    const callAst: CSharpExpressionAst =
-      shouldNormalizeArrayLikeInteropResult(expr.inferredType, expectedType)
-        ? {
-            kind: "invocationExpression",
-            expression: identifierExpression(
-              "global::System.Linq.Enumerable.ToArray"
-            ),
-            arguments: [invocation],
-          }
-        : invocation;
+    const callAst: CSharpExpressionAst = shouldNormalizeArrayLikeInteropResult(
+      expr.inferredType,
+      expectedType
+    )
+      ? {
+          kind: "invocationExpression",
+          expression: identifierExpression(
+            "global::System.Linq.Enumerable.ToArray"
+          ),
+          arguments: [invocation],
+        }
+      : invocation;
 
     return [
       wrapIntCast(needsIntCast(expr, finalCalleeName), callAst),
@@ -3065,10 +3276,16 @@ export const emitCall = (
     }
   }
 
+  const parameterTypeOverrides = getRuntimeObjectHelperParameterOverrides(
+    expr,
+    expr.arguments.length
+  );
+
   const [argAsts, argContext] = emitCallArguments(
     expr.arguments,
     expr,
-    currentContext
+    currentContext,
+    parameterTypeOverrides
   );
   currentContext = argContext;
 
@@ -3101,7 +3318,8 @@ export const emitCall = (
     shouldNormalizeUnboundJsArrayWrapperResult(
       expr,
       invocationTarget,
-      expectedType
+      expectedType,
+      context
     )
       ? {
           kind: "invocationExpression",

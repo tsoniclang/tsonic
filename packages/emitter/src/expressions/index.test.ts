@@ -2061,6 +2061,372 @@ describe("Expression Emission", () => {
     );
   });
 
+  it("uses storage-erased element types for JS array wrapper property access on recursive union arrays", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "value" },
+          type: { kind: "primitiveType", name: "string" },
+          initializer: undefined,
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "voidType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const middlewareLike = {
+      kind: "unionType",
+      types: [],
+    } as unknown as Extract<IrType, { kind: "unionType" }> & {
+      types: IrType[];
+    };
+
+    middlewareLike.types.push(handlerType, routerType, {
+      kind: "arrayType",
+      elementType: middlewareLike,
+      origin: "explicit",
+    });
+
+    const expr: IrExpression = {
+      kind: "memberAccess",
+      object: {
+        kind: "identifier",
+        name: "entries",
+        inferredType: {
+          kind: "arrayType",
+          elementType: middlewareLike,
+          origin: "explicit",
+        },
+      },
+      property: "length",
+      isComputed: false,
+      isOptional: false,
+      inferredType: { kind: "primitiveType", name: "int" },
+      memberBinding: {
+        kind: "property",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.JSArray`1",
+        member: "length",
+      },
+    };
+
+    const [result] = emitExpressionAst(expr, {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+      localValueTypes: new Map([
+        [
+          "entries",
+          {
+            kind: "arrayType",
+            elementType: {
+              kind: "referenceType",
+              name: "object",
+              resolvedClrType: "System.Object",
+            },
+            origin: "explicit",
+          } satisfies IrType,
+        ],
+      ]),
+    });
+
+    const text = printExpression(result);
+    expect(text).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>(entries).length"
+    );
+    expect(text).to.not.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
+    );
+  });
+
+  it("uses storage-erased element types for JS array mutation wrappers on recursive union arrays", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "value" },
+          type: { kind: "primitiveType", name: "string" },
+          initializer: undefined,
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "voidType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const middlewareLike = {
+      kind: "unionType",
+      types: [],
+    } as unknown as Extract<IrType, { kind: "unionType" }> & {
+      types: IrType[];
+    };
+
+    middlewareLike.types.push(handlerType, routerType, {
+      kind: "arrayType",
+      elementType: middlewareLike,
+      origin: "explicit",
+    });
+
+    const expr: IrExpression = {
+      kind: "call",
+      callee: {
+        kind: "memberAccess",
+        object: {
+          kind: "identifier",
+          name: "result",
+          inferredType: {
+            kind: "arrayType",
+            elementType: middlewareLike,
+            origin: "explicit",
+          },
+        },
+        property: "push",
+        isComputed: false,
+        isOptional: false,
+        memberBinding: {
+          kind: "method",
+          assembly: "Tsonic.JSRuntime",
+          type: "Tsonic.JSRuntime.JSArray`1",
+          member: "push",
+        },
+      },
+      arguments: [
+        {
+          kind: "identifier",
+          name: "router",
+          inferredType: routerType,
+        },
+      ],
+      isOptional: false,
+      inferredType: { kind: "primitiveType", name: "int" },
+    };
+
+    const [result] = emitExpressionAst(expr, {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+      localValueTypes: new Map([
+        [
+          "result",
+          {
+            kind: "arrayType",
+            elementType: {
+              kind: "referenceType",
+              name: "object",
+              resolvedClrType: "System.Object",
+            },
+            origin: "explicit",
+          } satisfies IrType,
+        ],
+      ]),
+    });
+
+    const text = printExpression(result);
+    expect(text).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>(result)"
+    );
+    expect(text).to.not.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
+    );
+  });
+
+  it("uses storage-erased element types for JS array wrappers on recursive union call results", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const middlewareLike = {
+      kind: "unionType",
+      types: [],
+    } as unknown as Extract<IrType, { kind: "unionType" }> & {
+      types: IrType[];
+    };
+
+    middlewareLike.types.push(handlerType, routerType, {
+      kind: "arrayType",
+      elementType: middlewareLike,
+      origin: "explicit",
+    });
+
+    const expr: IrExpression = {
+      kind: "memberAccess",
+      object: {
+        kind: "call",
+        callee: {
+          kind: "identifier",
+          name: "flatten",
+          inferredType: {
+            kind: "functionType",
+            parameters: [],
+            returnType: {
+              kind: "arrayType",
+              elementType: middlewareLike,
+              origin: "explicit",
+            },
+          },
+        },
+        arguments: [],
+        isOptional: false,
+        inferredType: {
+          kind: "arrayType",
+          elementType: middlewareLike,
+          origin: "explicit",
+        },
+      },
+      property: "length",
+      isComputed: false,
+      isOptional: false,
+      inferredType: { kind: "primitiveType", name: "int" },
+      memberBinding: {
+        kind: "property",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.JSArray`1",
+        member: "length",
+      },
+    };
+
+    const [result] = emitExpressionAst(expr, {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+    });
+
+    const text = printExpression(result);
+    expect(text).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>(flatten()).length"
+    );
+    expect(text).to.not.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
+    );
+  });
+
+  it("uses storage-erased element types for JS array wrappers on asserted recursive union arrays", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const middlewareLike = {
+      kind: "unionType",
+      types: [],
+    } as unknown as Extract<IrType, { kind: "unionType" }> & {
+      types: IrType[];
+    };
+
+    middlewareLike.types.push(handlerType, routerType, {
+      kind: "arrayType",
+      elementType: middlewareLike,
+      origin: "explicit",
+    });
+
+    const expr: IrExpression = {
+      kind: "memberAccess",
+      object: {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "handlerArray",
+          inferredType: middlewareLike,
+        },
+        targetType: {
+          kind: "arrayType",
+          elementType: {
+            kind: "referenceType",
+            name: "object",
+            resolvedClrType: "System.Object",
+          },
+          origin: "explicit",
+        },
+        inferredType: {
+          kind: "arrayType",
+          elementType: middlewareLike,
+          origin: "explicit",
+        },
+      },
+      property: "length",
+      isComputed: false,
+      isOptional: false,
+      inferredType: { kind: "primitiveType", name: "int" },
+      memberBinding: {
+        kind: "property",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.JSArray`1",
+        member: "length",
+      },
+    };
+
+    const [result] = emitExpressionAst(expr, {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+    });
+
+    const text = printExpression(result);
+    expect(text).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>(handlerArray.Match("
+    );
+    expect(text).to.not.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
+    );
+  });
+
   it("should preserve the source member access when no CLR member binding exists", () => {
     const module: IrModule = {
       kind: "module",
@@ -2726,8 +3092,8 @@ describe("Expression Emission", () => {
     expect(result).to.include(
       "result.Match(__m1 => __m1.success, __m2 => __m2.success)"
     );
-    expect(result).to.include("result.As1().error");
-    expect(result).to.include("result.As2().data");
+    expect(result).to.include("result.As2().error");
+    expect(result).to.include("result.As1().data");
   });
 
   it("should escape special characters in dictionary keys", () => {
@@ -3059,7 +3425,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
     expect(result).to.include("global::System.Linq.Enumerable.ToDictionary");
     expect(result).to.include(
-      "global::Tsonic.Runtime.Union<int, string>.From1"
+      "global::Tsonic.Runtime.Union<string, int>.From2"
     );
   });
 
@@ -3466,6 +3832,255 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include("ok(default(object))");
+  });
+
+  it("should emit typed defaults for undefined arguments in nullable and reference contexts", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "acceptString" },
+            arguments: [{ kind: "identifier", name: "undefined" }],
+            isOptional: false,
+            parameterTypes: [
+              {
+                kind: "unionType",
+                types: [
+                  { kind: "primitiveType", name: "string" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+            ],
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 1,
+              column: 1,
+              length: 19,
+            },
+          },
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "acceptNumber" },
+            arguments: [{ kind: "literal", value: undefined }],
+            isOptional: false,
+            parameterTypes: [
+              {
+                kind: "unionType",
+                types: [
+                  { kind: "primitiveType", name: "number" },
+                  { kind: "primitiveType", name: "null" },
+                ],
+              },
+            ],
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 2,
+              column: 1,
+              length: 19,
+            },
+          },
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "acceptBool" },
+            arguments: [{ kind: "literal", value: undefined }],
+            isOptional: false,
+            parameterTypes: [
+              {
+                kind: "unionType",
+                types: [
+                  { kind: "primitiveType", name: "boolean" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+            ],
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 3,
+              column: 1,
+              length: 19,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("acceptString(default(string))");
+    expect(result).to.include("acceptNumber(default(double?))");
+    expect(result).to.include("acceptBool(default(bool?))");
+  });
+
+  it("should fall back to local function signature parameter types for undefined arguments", () => {
+    const stringOptionalType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "primitiveType" as const, name: "string" as const },
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
+    };
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "acceptString",
+              inferredType: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: {
+                      kind: "identifierPattern",
+                      name: "value",
+                    },
+                    type: stringOptionalType,
+                    isOptional: false,
+                    isRest: false,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "voidType" },
+              },
+            },
+            arguments: [{ kind: "identifier", name: "undefined" }],
+            isOptional: false,
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 1,
+              column: 1,
+              length: 19,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("acceptString(default(string))");
+  });
+
+  it("should use local function declaration signatures when parameterTypes are absent", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "acceptString",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: {
+                kind: "unionType",
+                types: [
+                  { kind: "primitiveType", name: "string" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isAsync: false,
+          isGenerator: false,
+          isExported: false,
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "acceptString" },
+            arguments: [{ kind: "identifier", name: "undefined" }],
+            isOptional: false,
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 2,
+              column: 1,
+              length: 19,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("acceptString(default(string))");
+  });
+
+  it("should emit char literals for single-character string assertions to char", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "binary",
+            operator: "===",
+            left: {
+              kind: "typeAssertion",
+              expression: { kind: "literal", value: "Q" },
+              targetType: { kind: "primitiveType", name: "char" },
+              inferredType: { kind: "primitiveType", name: "char" },
+            },
+            right: {
+              kind: "literal",
+              value: "Q",
+              inferredType: { kind: "primitiveType", name: "char" },
+            },
+            inferredType: { kind: "primitiveType", name: "boolean" },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("'Q' == 'Q'");
+    expect(result).not.to.include('(char)"Q"');
   });
 
   it("should lower tuple-rest function value calls as positional arguments", () => {
@@ -3944,6 +4559,316 @@ describe("Expression Emission", () => {
     expect(rendered).to.not.include(
       "(global::Tsonic.Runtime.Union<object?[], string, global::Tsonic.JSRuntime.RegExp>)first"
     );
+  });
+
+  it("narrows runtime-subset identifiers through the full runtime-union arity", () => {
+    const requestHandlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "req" },
+          type: {
+            kind: "referenceType",
+            name: "Request",
+            resolvedClrType: "Test.Request",
+          },
+          initializer: undefined,
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "unknownType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const pathSpecType: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "arrayType",
+          elementType: { kind: "unknownType" },
+          origin: "explicit",
+        },
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "referenceType",
+          name: "RegExp",
+          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+        },
+      ],
+    };
+
+    const broadType: IrType = {
+      kind: "unionType",
+      types: [...pathSpecType.types, routerType, requestHandlerType],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "identifier",
+        name: "first",
+        inferredType: broadType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        narrowedBindings: new Map([
+          [
+            "first",
+            {
+              kind: "runtimeSubset",
+              runtimeMemberNs: [1, 3, 4],
+              runtimeUnionArity: 5,
+              type: pathSpecType,
+            },
+          ],
+        ]),
+      },
+      pathSpecType
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.include("first.Match(");
+    expect(rendered).to.include("__tsonic_union_member_5");
+    expect(rendered).to.include("new global::System.InvalidCastException(");
+  });
+
+  it("does not re-wrap runtime-union assertions that already materialize the target union", () => {
+    const requestHandlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "req" },
+          type: {
+            kind: "referenceType",
+            name: "Request",
+            resolvedClrType: "Test.Request",
+          },
+          initializer: undefined,
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "unknownType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const pathSpecType: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "arrayType",
+          elementType: { kind: "unknownType" },
+          origin: "explicit",
+        },
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "referenceType",
+          name: "RegExp",
+          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+        },
+      ],
+    };
+
+    const broadType: IrType = {
+      kind: "unionType",
+      types: [...pathSpecType.types, routerType, requestHandlerType],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "first",
+          inferredType: broadType,
+        },
+        targetType: pathSpecType,
+        inferredType: pathSpecType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+      },
+      pathSpecType
+    );
+
+    const rendered = printExpression(result);
+    const matchCount = rendered.match(/\.Match\(/g)?.length ?? 0;
+    expect(matchCount).to.equal(1);
+    expect(rendered).to.not.include(")).Match(");
+  });
+
+  it("unwraps parameter-passing modifier wrappers before expected-type adaptation", () => {
+    for (const wrapperName of ["out", "ref", "In", "inref"] as const) {
+      const [result] = emitExpressionAst(
+        {
+          kind: "identifier",
+          name: "value",
+          inferredType: {
+            kind: "typeParameterType",
+            name: "T",
+          },
+        },
+        {
+          indentLevel: 0,
+          options: {
+            rootNamespace: "Test",
+            surface: "@tsonic/js",
+            indent: 4,
+          },
+          isStatic: false,
+          isAsync: false,
+          usings: new Set<string>(),
+          typeParameters: new Set(["T"]),
+        },
+        {
+          kind: "referenceType",
+          name: wrapperName,
+          typeArguments: [{ kind: "typeParameterType", name: "T" }],
+        }
+      );
+
+      expect(printExpression(result)).to.equal("value");
+    }
+  });
+
+  it("preserves explicit array assertions when flow narrowing only changes the semantic type", () => {
+    const targetType: IrType = {
+      kind: "arrayType",
+      elementType: { kind: "unknownType" },
+      origin: "explicit",
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "value",
+          inferredType: { kind: "unknownType" },
+        },
+        targetType,
+        inferredType: targetType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        narrowedBindings: new Map([
+          [
+            "value",
+            {
+              kind: "expr",
+              exprAst: {
+                kind: "identifierExpression",
+                identifier: "value",
+              },
+              type: targetType,
+              sourceType: { kind: "unknownType" },
+            },
+          ],
+        ]),
+      }
+    );
+
+    expect(printExpression(result)).to.equal("(object?[])value");
+  });
+
+  it("prefers throwable storage locals over non-throwable narrowed views", () => {
+    const [result] = emitExpressionAst(
+      {
+        kind: "identifier",
+        name: "e",
+        inferredType: { kind: "unknownType" },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["e", "e"]]),
+        localValueTypes: new Map([
+          [
+            "e",
+            {
+              kind: "referenceType",
+              name: "System.Exception",
+              resolvedClrType: "global::System.Exception",
+            },
+          ],
+        ]),
+        narrowedBindings: new Map([
+          [
+            "e",
+            {
+              kind: "expr",
+              exprAst: {
+                kind: "castExpression",
+                type: {
+                  kind: "nullableType",
+                  underlyingType: {
+                    kind: "predefinedType",
+                    keyword: "object",
+                  },
+                },
+                expression: {
+                  kind: "identifierExpression",
+                  identifier: "e",
+                },
+              },
+              type: { kind: "unknownType" },
+            },
+          ],
+        ]),
+      },
+      {
+        kind: "referenceType",
+        name: "System.Exception",
+        resolvedClrType: "global::System.Exception",
+      }
+    );
+
+    expect(printExpression(result)).to.equal("e");
   });
 
   it("reifies erased recursive nested-union array elements through outer union arms", () => {

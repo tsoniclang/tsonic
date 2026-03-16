@@ -136,8 +136,74 @@ describe("Type Assertion Emission", () => {
     const code = emitModule(module);
 
     // Should preserve union type parameter
-    expect(code).to.include("Union<string, double> input");
+    expect(code).to.include("Union<double, string> input");
     // Should return the value directly
     expect(code).to.include("return input");
+  });
+
+  it("erases dictionary assertions without forcing CLR dictionary casts", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/test/dictionaryAssert.ts",
+      namespace: "Test",
+      className: "dictionaryAssert",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "read",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "input" },
+              type: { kind: "unknownType" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "unknownType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "typeAssertion",
+                  expression: {
+                    kind: "identifier",
+                    name: "input",
+                    inferredType: { kind: "unknownType" },
+                  },
+                  targetType: {
+                    kind: "dictionaryType",
+                    keyType: { kind: "primitiveType", name: "string" },
+                    valueType: { kind: "unknownType" },
+                  },
+                  inferredType: {
+                    kind: "dictionaryType",
+                    keyType: { kind: "primitiveType", name: "string" },
+                    valueType: { kind: "unknownType" },
+                  },
+                },
+              },
+            ],
+          },
+          isAsync: false,
+          isGenerator: false,
+          isExported: true,
+        },
+      ],
+    };
+
+    const code = emitModule(module);
+
+    expect(code).to.include("return input");
+    expect(code).to.not.include("Dictionary<string, object?>");
+    expect(code).to.not.match(
+      /\(global::System\.Collections\.Generic\.Dictionary/
+    );
   });
 });

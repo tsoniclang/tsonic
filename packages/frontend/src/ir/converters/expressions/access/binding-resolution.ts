@@ -19,6 +19,21 @@ import { createDiagnostic } from "../../../../types/diagnostic.js";
 import { loadBindingsFromPath } from "../../../../program/bindings.js";
 import { extractTypeName } from "./member-resolution.js";
 
+const stripTsonicExtensionWrapperType = (
+  type: IrExpression["inferredType"]
+): IrExpression["inferredType"] => {
+  if (!type) return type;
+  if (
+    type.kind === "referenceType" &&
+    type.name.startsWith("__TsonicExt_") &&
+    (type.typeArguments?.length ?? 0) === 1
+  ) {
+    const inner = type.typeArguments?.[0];
+    return inner ? stripTsonicExtensionWrapperType(inner) : type;
+  }
+  return type;
+};
+
 /**
  * Resolve hierarchical binding for a member access
  * Handles namespace.type, type.member, directType.member, and instance.member patterns
@@ -29,6 +44,23 @@ export const resolveHierarchicalBinding = (
   ctx: ProgramContext
 ): IrMemberExpression["memberBinding"] => {
   const registry = ctx.bindings;
+  const isTypeLikeIdentifierName = (name: string | undefined): boolean =>
+    typeof name === "string" && /^[A-Z]/.test(name);
+
+  const tryResolveOwnerMemberBinding = (
+    ownerAliasOrClrType: string | undefined,
+    allowCaseInsensitiveFallback = true
+  ): IrMemberExpression["memberBinding"] => {
+    if (!ownerAliasOrClrType) return undefined;
+    const overloads = registry.getMemberOverloads(
+      ownerAliasOrClrType,
+      propertyName,
+      allowCaseInsensitiveFallback,
+      ownerAliasOrClrType
+    );
+    if (!overloads || overloads.length === 0) return undefined;
+    return toIrMemberBinding(overloads);
+  };
 
   const getWrapperBindingCandidates = (): readonly string[] => {
     const inferredType = object.inferredType;
@@ -45,6 +77,9 @@ export const resolveHierarchicalBinding = (
       inferredType.kind === "arrayType" ||
       inferredType.kind === "tupleType"
     ) {
+      if (ctx.surface === "@tsonic/js") {
+        pushCandidate("JSArray");
+      }
       pushCandidate("Array");
       return candidates;
     }
@@ -126,20 +161,37 @@ export const resolveHierarchicalBinding = (
 
   // Case 1: object is identifier → check if it's a namespace, then check if property is a type
   if (object.kind === "identifier") {
-    const simpleBinding = ctx.bindings.getBinding(object.name);
+    const simpleBinding = ctx.bindings.getExactBinding(object.name);
+
     if (simpleBinding?.staticType) {
-      const staticAlias = tsbindgenClrTypeNameToTsTypeName(
-        simpleBinding.staticType
-      );
-      if (staticAlias) {
-        const overloads = registry.getMemberOverloads(
-          staticAlias,
-          propertyName
+      const staticBinding =
+        tryResolveOwnerMemberBinding(simpleBinding.staticType, false) ??
+        tryResolveOwnerMemberBinding(
+          tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
+          false
         );
-        if (overloads && overloads.length > 0) {
-          return toIrMemberBinding(overloads);
-        }
+      if (staticBinding) {
+        return staticBinding;
       }
+    }
+
+    if (simpleBinding) {
+      const instanceBinding =
+        tryResolveOwnerMemberBinding(simpleBinding.type, false) ??
+        tryResolveOwnerMemberBinding(
+          tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
+          false
+        );
+      if (instanceBinding) {
+        return instanceBinding;
+      }
+    }
+
+    const resolvedClrBinding = tryResolveOwnerMemberBinding(
+      object.resolvedClrType
+    );
+    if (resolvedClrBinding) {
+      return resolvedClrBinding;
     }
 
     const namespace = registry.getNamespace(object.name);
@@ -157,16 +209,23 @@ export const resolveHierarchicalBinding = (
     // Case 1b: object is a direct type import (like `Console` imported directly)
     // Check if the identifier is a type alias, and if so, look up the member
     // First try by local name, then by original name (handles aliased imports like `import { String as ClrString }`)
-    const directType =
-      registry.getType(object.name) ??
-      (object.originalName ? registry.getType(object.originalName) : undefined);
-    if (directType) {
-      const overloads = registry.getMemberOverloads(
-        directType.alias,
-        propertyName
-      );
-      if (!overloads || overloads.length === 0) return undefined;
-      return toIrMemberBinding(overloads);
+    if (
+      isTypeLikeIdentifierName(object.name) ||
+      isTypeLikeIdentifierName(object.originalName)
+    ) {
+      const directType =
+        registry.getType(object.name) ??
+        (object.originalName
+          ? registry.getType(object.originalName)
+          : undefined);
+      if (directType) {
+        const overloads = registry.getMemberOverloads(
+          directType.alias,
+          propertyName
+        );
+        if (!overloads || overloads.length === 0) return undefined;
+        return toIrMemberBinding(overloads);
+      }
     }
   }
 
@@ -361,7 +420,7 @@ export const resolveHierarchicalBindingFromMemberId = (
   const typeAlias = normalizeDeclaringType(declaringTypeName);
   const staticOverloads = (() => {
     if (!ts.isIdentifier(node.expression)) return undefined;
-    const simpleBinding = ctx.bindings.getBinding(node.expression.text);
+    const simpleBinding = ctx.bindings.getExactBinding(node.expression.text);
     if (!simpleBinding?.staticType) return undefined;
     const staticAlias = tsbindgenClrTypeNameToTsTypeName(
       simpleBinding.staticType
@@ -370,10 +429,20 @@ export const resolveHierarchicalBindingFromMemberId = (
     return ctx.bindings.getMemberOverloads(staticAlias, propertyName);
   })();
 
+  const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
+  const jsSurfaceArrayOverloads = canUseJsSurfaceArrayFallback(
+    typeAlias,
+    declSourceFilePath,
+    ctx
+  )
+    ? ctx.bindings.getMemberOverloads("JSArray", propertyName)
+    : undefined;
+
   let overloadsAll =
-    staticOverloads ?? ctx.bindings.getMemberOverloads(typeAlias, propertyName);
+    staticOverloads ??
+    jsSurfaceArrayOverloads ??
+    ctx.bindings.getMemberOverloads(typeAlias, propertyName);
   if (!overloadsAll || overloadsAll.length === 0) {
-    const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
     const bindingsPath =
       declSourceFilePath !== undefined
         ? findNearestBindingsJson(declSourceFilePath)
@@ -606,7 +675,9 @@ export const resolveExtensionMethodsBinding = (
       receiverTypeNameForError = receiverTypeName;
       if (!receiverTypeName) return undefined;
 
-      const actualReceiverTypeName = extractTypeName(object.inferredType);
+      const actualReceiverTypeName = extractTypeName(
+        stripTsonicExtensionWrapperType(object.inferredType)
+      );
       if (
         actualReceiverTypeName &&
         !ctx.bindings.isTypeOrSubtype(actualReceiverTypeName, receiverTypeName)

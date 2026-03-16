@@ -23,7 +23,11 @@ const compareTupleMetadataForUnify = (
   for (let i = 0; i < formalPrefix.length; i += 1) {
     const formalElement = formalPrefix[i];
     const actualElement = actualPrefix[i];
-    if (!formalElement || !actualElement || !typesEqual(formalElement, actualElement)) {
+    if (
+      !formalElement ||
+      !actualElement ||
+      !typesEqual(formalElement, actualElement)
+    ) {
       return false;
     }
   }
@@ -49,7 +53,11 @@ const compareTupleMetadataForEquality = (
   for (let i = 0; i < leftPrefix.length; i += 1) {
     const leftElement = leftPrefix[i];
     const rightElement = rightPrefix[i];
-    if (!leftElement || !rightElement || !typesEqual(leftElement, rightElement)) {
+    if (
+      !leftElement ||
+      !rightElement ||
+      !typesEqual(leftElement, rightElement)
+    ) {
       return false;
     }
   }
@@ -468,8 +476,12 @@ export const substituteIrType = (
       return {
         ...type,
         elementType: newElementType,
-        tuplePrefixElementTypes: newTuplePrefixElementTypes,
-        tupleRestElementType: newTupleRestElementType,
+        ...((newTuplePrefixElementTypes?.length ?? 0) > 0
+          ? { tuplePrefixElementTypes: newTuplePrefixElementTypes }
+          : {}),
+        ...(newTupleRestElementType
+          ? { tupleRestElementType: newTupleRestElementType }
+          : {}),
       };
     }
 

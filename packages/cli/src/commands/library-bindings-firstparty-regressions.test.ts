@@ -1065,13 +1065,13 @@ describe("library bindings first-party regressions", function () {
         /export declare function createSeed\(\): List<User>;/
       );
       expect(rootFacade).to.include(
-        "import type { List } from '@tsonic/dotnet/System.Collections.Generic.js';"
-      );
-      expect(rootFacade).to.include(
         "import type { User } from './Acme.Core.entities.js';"
       );
-      expect(rootFacade).to.match(
-        /export declare function createSeed\(\): List<User>;/
+      expect(rootFacade).to.include(
+        "export { createSeed, UserStore } from './Acme.Core.db.js';"
+      );
+      expect(rootFacade).to.include(
+        "export { User } from './Acme.Core.entities.js';"
       );
 
       runProjectBuild(dir, wsConfigPath, "app");
@@ -4659,11 +4659,42 @@ describe("library bindings first-party regressions", function () {
         join(dir, "packages", "app", "generated", "App.cs"),
         "utf-8"
       );
+      const eventsFacade = readFileSync(
+        join(
+          dir,
+          "packages",
+          "events",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Acme.Events.d.ts"
+        ),
+        "utf-8"
+      );
+      const eventsBindingsJson = readFileSync(
+        join(
+          dir,
+          "packages",
+          "events",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Acme.Events",
+          "bindings.json"
+        ),
+        "utf-8"
+      );
 
       expect(generated).to.not.include("JSON.parse<object>");
+      expect(generated).to.not.include("JsonSerializer.Deserialize<object>");
       expect(generated).to.include("ClientCapabilities");
-      expect(generated).to.include("operator");
-      expect(generated).to.include("operand");
+      expect(generated).to.match(
+        /JsonSerializer\.Deserialize<global::Acme\.Events\.__Anon_[A-Za-z0-9_]+\[]>/
+      );
+      expect(eventsFacade).to.include("export type { ClientCapabilities }");
+      expect(eventsFacade).to.match(/export type \{ __Anon_[A-Za-z0-9_]+ \}/);
+      expect(eventsBindingsJson).to.include('"operator"');
+      expect(eventsBindingsJson).to.include('"operand"');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -4875,6 +4906,85 @@ describe("library bindings first-party regressions", function () {
       expect(emitted).to.not.include(
         "global::System.Collections.Generic.Dictionary<string, object?>"
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("serializes recursive first-party binding semantic graphs without circular bindings.json output", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-lib-bindings-recursive-json-")
+    );
+
+    try {
+      const wsConfigPath = writeLibraryScaffold(dir, "Test.Lib", "Test.Lib");
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "index.ts"),
+        [
+          "export type PathSpec = string | readonly PathSpec[] | null | undefined;",
+          "",
+          "export interface Node {",
+          "  path?: PathSpec;",
+          "  next?: Node;",
+          "  children?: readonly Node[];",
+          "  visit(callback: (value: Node) => Node | undefined): Node | undefined;",
+          "}",
+          "",
+          "export const head = (node: Node): Node | undefined => node.next;",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      runLibraryBuild(dir, wsConfigPath);
+
+      const bindingsText = readFileSync(
+        join(
+          dir,
+          "packages",
+          "lib",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Test.Lib",
+          "bindings.json"
+        ),
+        "utf-8"
+      );
+      const bindings = JSON.parse(bindingsText) as {
+        readonly types?: ReadonlyArray<{
+          readonly clrName?: string;
+          readonly properties?: ReadonlyArray<{
+            readonly clrName?: string;
+            readonly semanticType?: {
+              readonly kind?: string;
+              readonly name?: string;
+            };
+          }>;
+        }>;
+        readonly exports?: Readonly<Record<string, unknown>>;
+      };
+
+      expect(bindingsText).to.not.include("[Circular]");
+      expect(bindings.types?.some((type) => type.clrName === "Test.Lib.Node")).to
+        .equal(true);
+      expect(
+        bindings.types
+          ?.find((type) => type.clrName === "Test.Lib.Node")
+          ?.properties?.find((property) => property.clrName === "next")
+          ?.semanticType
+      ).to.deep.equal({
+        kind: "referenceType",
+        name: "Node",
+        resolvedClrType: "Test.Lib.Node",
+        typeId: {
+          stableId: "Test.Lib:Test.Lib.Node",
+          clrName: "Test.Lib.Node",
+          assemblyName: "Test.Lib",
+          tsName: "Node",
+        },
+      });
+      expect(bindings.exports?.head).to.not.equal(undefined);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

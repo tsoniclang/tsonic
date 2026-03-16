@@ -284,9 +284,8 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         break;
       }
 
-      const targetSymbol = checker.getExportSpecifierLocalTargetSymbol(
-        exportSpecifier
-      );
+      const targetSymbol =
+        checker.getExportSpecifierLocalTargetSymbol(exportSpecifier);
       if (!targetSymbol || targetSymbol === current) {
         break;
       }

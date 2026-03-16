@@ -370,7 +370,9 @@ export const buildModuleDependencyGraph = (
 
   // Run anonymous type lowering pass - transforms objectType to generated named types
   // This must run before soundness validation so the emitter never sees objectType
-  const anonTypeResult = runAnonymousTypeLoweringPass(restResult.modules);
+  const anonTypeResult = runAnonymousTypeLoweringPass(restResult.modules, {
+    bindings: tsonicProgram.bindings.getEmitterTypeMap(),
+  });
   // Note: This pass always succeeds (no diagnostics), but we use the lowered modules
   const loweredModules = anonTypeResult.modules;
 

@@ -91,9 +91,30 @@ describe("Type Emission", () => {
                   kind: "await",
                   expression: {
                     kind: "call",
-                    callee: { kind: "identifier", name: "getData" },
+                    callee: {
+                      kind: "identifier",
+                      name: "getData",
+                      inferredType: {
+                        kind: "functionType",
+                        parameters: [],
+                        returnType: {
+                          kind: "referenceType",
+                          name: "Promise",
+                          typeArguments: [
+                            { kind: "primitiveType", name: "string" },
+                          ],
+                        },
+                      },
+                    },
                     arguments: [],
                     isOptional: false,
+                    inferredType: {
+                      kind: "referenceType",
+                      name: "Promise",
+                      typeArguments: [
+                        { kind: "primitiveType", name: "string" },
+                      ],
+                    },
                   },
                 },
               },
@@ -317,8 +338,10 @@ describe("Type Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include(
-      "global::Tsonic.Runtime.Union<object[], string> value"
+      "global::Tsonic.Runtime.Union<object?[], string> value"
     );
-    expect(result).to.not.include("global::Tsonic.Runtime.Union<object[], global::Tsonic.Runtime.Union");
+    expect(result).to.not.include(
+      "global::Tsonic.Runtime.Union<object[], global::Tsonic.Runtime.Union"
+    );
   });
 });

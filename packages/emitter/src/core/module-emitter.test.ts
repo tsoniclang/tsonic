@@ -478,13 +478,10 @@ describe("Module Generation", () => {
       types: IrType[];
     };
 
-    middlewareLike.types.push(
-      routerType,
-      {
-        kind: "arrayType",
-        elementType: middlewareLike,
-      }
-    );
+    middlewareLike.types.push(routerType, {
+      kind: "arrayType",
+      elementType: middlewareLike,
+    });
 
     routerType.structuralMembers = [
       {

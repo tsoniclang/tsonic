@@ -876,7 +876,8 @@ export const withAppliedNarrowings = (
   let nextAccessEnv: Map<string, IrType> | undefined;
   for (const n of narrowings) {
     if (n.kind === "decl") {
-      if (!nextTypeEnv) nextTypeEnv = new Map<number, IrType>(ctx.typeEnv ?? []);
+      if (!nextTypeEnv)
+        nextTypeEnv = new Map<number, IrType>(ctx.typeEnv ?? []);
       nextTypeEnv.set(n.declId, n.targetType);
       continue;
     }

@@ -50,6 +50,7 @@ export type TypeSyntaxInfo = {
  * Pure data — no TS nodes.
  */
 export type ClassMemberNames = {
+  readonly typeParameters: readonly string[];
   readonly methods: ReadonlySet<string>;
   readonly properties: ReadonlySet<string>;
   readonly methodSignatures: ReadonlyMap<

@@ -76,6 +76,72 @@ describe("Binding System", () => {
       ]);
     });
 
+    it("should prefer the requested CLR owner when a TS alias maps to multiple CLR types", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/globals.json", {
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.console",
+          },
+        },
+      });
+      registry.addBindings("/test/js-runtime/bindings.json", {
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.console",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "error",
+                normalizedSignature:
+                  "error|(System.Object[]):System.Void|static=true",
+                parameterCount: 1,
+                declaringClrType: "Tsonic.JSRuntime.console",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+      registry.addBindings("/test/nodejs/bindings.json", {
+        namespace: "nodejs",
+        types: [
+          {
+            clrName: "nodejs.console",
+            assemblyName: "nodejs",
+            methods: [
+              {
+                clrName: "error",
+                normalizedSignature:
+                  "error|(System.Object,System.Object[]):System.Void|static=true",
+                parameterCount: 2,
+                declaringClrType: "nodejs.console",
+                declaringAssemblyName: "nodejs",
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const overloads = registry.getMemberOverloads(
+        "Tsonic.JSRuntime.console",
+        "error",
+        false
+      );
+
+      expect(overloads?.map((binding) => binding.binding.type)).to.deep.equal([
+        "Tsonic.JSRuntime.console",
+      ]);
+    });
+
     it("should clear all bindings", () => {
       const registry = new BindingRegistry();
 

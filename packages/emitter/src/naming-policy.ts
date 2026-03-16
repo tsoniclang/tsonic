@@ -33,10 +33,7 @@ export const getCSharpName = (
     return `__private_${name.slice(1)}`;
   }
   if (name.startsWith(WELL_KNOWN_SYMBOL_PREFIX) && name.endsWith("]")) {
-    return `__tsonic_symbol_${name.slice(
-      WELL_KNOWN_SYMBOL_PREFIX.length,
-      -1
-    )}`;
+    return `__tsonic_symbol_${name.slice(WELL_KNOWN_SYMBOL_PREFIX.length, -1)}`;
   }
   if (!isSimpleCSharpIdentifier(name)) {
     return `__tsonic_computed_${encodeForGeneratedIdentifier(name)}`;

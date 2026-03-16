@@ -14,12 +14,18 @@ type InterfaceCandidate = {
 };
 
 export type CompatibleInterfacePropertyMatch = {
-  readonly interfaceMember: Extract<IrInterfaceMember, { kind: "propertySignature" }>;
+  readonly interfaceMember: Extract<
+    IrInterfaceMember,
+    { kind: "propertySignature" }
+  >;
   readonly classMember: Extract<IrClassMember, { kind: "propertyDeclaration" }>;
 };
 
 export type CompatibleInterfaceMethodMatch = {
-  readonly interfaceMember: Extract<IrInterfaceMember, { kind: "methodSignature" }>;
+  readonly interfaceMember: Extract<
+    IrInterfaceMember,
+    { kind: "methodSignature" }
+  >;
   readonly classMember: Extract<IrClassMember, { kind: "methodDeclaration" }>;
 };
 
@@ -61,7 +67,10 @@ const buildCanonicalInterfaceRef = (
 const isPublicInstanceClassMember = (member: IrClassMember): boolean => {
   if (member.kind === "constructorDeclaration") return false;
   if (member.isStatic) return false;
-  if (member.accessibility === "private" || member.accessibility === "protected") {
+  if (
+    member.accessibility === "private" ||
+    member.accessibility === "protected"
+  ) {
     return false;
   }
   return true;
@@ -168,45 +177,52 @@ const findCompatibleMethod = (
   members: readonly IrClassMember[],
   target: Extract<IrInterfaceMember, { kind: "methodSignature" }>
 ): Extract<IrClassMember, { kind: "methodDeclaration" }> | undefined =>
-  members.find((member): member is Extract<IrClassMember, { kind: "methodDeclaration" }> => {
-    if (member.kind !== "methodDeclaration" || member.name !== target.name) {
-      return false;
-    }
-
-    if ((member.typeParameters?.length ?? 0) !== (target.typeParameters?.length ?? 0)) {
-      return false;
-    }
-
-    if (member.parameters.length !== target.parameters.length) {
-      return false;
-    }
-
-    for (let index = 0; index < member.parameters.length; index += 1) {
-      const sourceParam = member.parameters[index];
-      const targetParam = target.parameters[index];
-      if (!sourceParam || !targetParam) return false;
-
-      if (
-        sourceParam.isOptional !== targetParam.isOptional ||
-        sourceParam.isRest !== targetParam.isRest ||
-        sourceParam.passing !== targetParam.passing
-      ) {
+  members.find(
+    (
+      member
+    ): member is Extract<IrClassMember, { kind: "methodDeclaration" }> => {
+      if (member.kind !== "methodDeclaration" || member.name !== target.name) {
         return false;
       }
 
       if (
-        !isTypeStructurallyAssignable(targetParam.type, sourceParam.type) ||
-        !isTypeStructurallyAssignable(sourceParam.type, targetParam.type)
+        (member.typeParameters?.length ?? 0) !==
+        (target.typeParameters?.length ?? 0)
       ) {
         return false;
       }
-    }
 
-    return isTypeStructurallyAssignable(
-      member.returnType ?? VOID_TYPE,
-      target.returnType ?? VOID_TYPE
-    );
-  });
+      if (member.parameters.length !== target.parameters.length) {
+        return false;
+      }
+
+      for (let index = 0; index < member.parameters.length; index += 1) {
+        const sourceParam = member.parameters[index];
+        const targetParam = target.parameters[index];
+        if (!sourceParam || !targetParam) return false;
+
+        if (
+          sourceParam.isOptional !== targetParam.isOptional ||
+          sourceParam.isRest !== targetParam.isRest ||
+          sourceParam.passing !== targetParam.passing
+        ) {
+          return false;
+        }
+
+        if (
+          !isTypeStructurallyAssignable(targetParam.type, sourceParam.type) ||
+          !isTypeStructurallyAssignable(sourceParam.type, targetParam.type)
+        ) {
+          return false;
+        }
+      }
+
+      return isTypeStructurallyAssignable(
+        member.returnType ?? VOID_TYPE,
+        target.returnType ?? VOID_TYPE
+      );
+    }
+  );
 
 const collectCompatibleMembers = (
   classInfo: Extract<LocalTypeInfo, { kind: "class" }>,
@@ -242,7 +258,8 @@ const collectInterfaceCandidates = (
   context: EmitterContext
 ): readonly InterfaceCandidate[] => {
   const candidates = new Map<string, InterfaceCandidate>();
-  const currentNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+  const currentNamespace =
+    context.moduleNamespace ?? context.options.rootNamespace;
 
   const pushCandidates = (
     namespace: string,
@@ -300,12 +317,17 @@ export const resolveCompatibleImplementedInterfaces = (
   explicitImplements: readonly IrType[],
   context: EmitterContext
 ): readonly CompatibleInterfaceMatch[] => {
-  const currentNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+  const currentNamespace =
+    context.moduleNamespace ?? context.options.rootNamespace;
   const localInfo = context.localTypes?.get(className);
   if (!localInfo || localInfo.kind !== "class") return [];
 
   const resolved = new Map<string, CompatibleInterfaceMatch>();
-  for (const match of resolveExplicitInterfaceMatches(localInfo, explicitImplements, context)) {
+  for (const match of resolveExplicitInterfaceMatches(
+    localInfo,
+    explicitImplements,
+    context
+  )) {
     resolved.set(`${match.namespace}::${match.name}`, match);
   }
 
@@ -329,7 +351,10 @@ export const resolveCompatibleImplementedInterfaces = (
 
   return Array.from(resolved.values()).map((match) =>
     match.namespace === currentNamespace
-      ? { ...match, ref: buildCanonicalInterfaceRef(match.namespace, match.name) }
+      ? {
+          ...match,
+          ref: buildCanonicalInterfaceRef(match.namespace, match.name),
+        }
       : match
   );
 };

@@ -36,6 +36,7 @@ import {
   IrVariableDeclaration,
   IrPropertyDeclaration,
 } from "../types.js";
+import type { TypeBinding as FrontendTypeBinding } from "../../program/binding-types.js";
 
 /**
  * Result of anonymous type lowering pass
@@ -43,6 +44,10 @@ import {
 export type AnonymousTypeLoweringResult = {
   readonly ok: boolean;
   readonly modules: readonly IrModule[];
+};
+
+export type AnonymousTypeLoweringOptions = {
+  readonly bindings?: ReadonlyMap<string, FrontendTypeBinding>;
 };
 
 /**
@@ -53,6 +58,8 @@ type LoweringContext = {
   readonly generatedDeclarations: IrClassDeclaration[];
   /** Map from shape signature to generated type name for deduplication (shared across modules) */
   readonly shapeToName: Map<string, string>;
+  /** Existing reusable structural reference types available across the compilation, keyed by shape signature. */
+  readonly shapeToExistingReference: Map<string, IrReferenceType>;
   /** Module file path for unique naming */
   readonly moduleFilePath: string;
   /** Type names already declared in the compilation (avoid collisions) */
@@ -182,7 +189,10 @@ const beginSerializeNode = (
  * themselves transitively).
  */
 const serializeType = (type: IrType, state?: SerializeState): string => {
-  const currentState = state ?? { seen: new WeakMap<object, number>(), nextId: 0 };
+  const currentState = state ?? {
+    seen: new WeakMap<object, number>(),
+    nextId: 0,
+  };
 
   switch (type.kind) {
     case "primitiveType":
@@ -354,6 +364,23 @@ const interfaceMembersToClassMembers = (
     });
 };
 
+const classMembersToInterfaceMembers = (
+  members: readonly IrClassMember[]
+): readonly IrInterfaceMember[] =>
+  members.flatMap<IrInterfaceMember>((member) => {
+    if (member.kind !== "propertyDeclaration" || !member.type) {
+      return [];
+    }
+
+    return {
+      kind: "propertySignature",
+      name: member.name,
+      type: member.type,
+      isOptional: false,
+      isReadonly: member.isReadonly,
+    };
+  });
+
 /**
  * Generate a module-unique hash from file path
  */
@@ -436,6 +463,398 @@ const getOrCreateTypeName = (
 
   ctx.generatedDeclarations.push(declaration);
   return name;
+};
+
+const isReusableStructuralCarrierName = (name: string): boolean =>
+  name.startsWith("__Anon_") || /__\d+$/.test(name);
+
+const inferTemplateTypeArguments = (
+  template: IrType,
+  concrete: IrType,
+  substitution: Map<string, IrType>
+): boolean => {
+  if (template.kind === "typeParameterType") {
+    const existing = substitution.get(template.name);
+    if (!existing) {
+      substitution.set(template.name, concrete);
+      return true;
+    }
+    return serializeType(existing) === serializeType(concrete);
+  }
+
+  if (template.kind !== concrete.kind) {
+    return false;
+  }
+
+  switch (template.kind) {
+    case "primitiveType":
+      return (
+        concrete.kind === "primitiveType" && template.name === concrete.name
+      );
+    case "literalType":
+      return (
+        concrete.kind === "literalType" && template.value === concrete.value
+      );
+    case "voidType":
+    case "unknownType":
+    case "anyType":
+    case "neverType":
+      return true;
+    case "referenceType": {
+      if (concrete.kind !== "referenceType") {
+        return false;
+      }
+      if (template.name !== concrete.name) {
+        return false;
+      }
+      const templateArgs = template.typeArguments ?? [];
+      const concreteArgs = concrete.typeArguments ?? [];
+      if (templateArgs.length !== concreteArgs.length) {
+        return false;
+      }
+      for (let index = 0; index < templateArgs.length; index += 1) {
+        const templateArg = templateArgs[index];
+        const concreteArg = concreteArgs[index];
+        if (!templateArg || !concreteArg) {
+          return false;
+        }
+        if (
+          !inferTemplateTypeArguments(templateArg, concreteArg, substitution)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    }
+    case "arrayType":
+      if (concrete.kind !== "arrayType") {
+        return false;
+      }
+      return inferTemplateTypeArguments(
+        template.elementType,
+        concrete.elementType,
+        substitution
+      );
+    case "tupleType":
+      if (concrete.kind !== "tupleType") {
+        return false;
+      }
+      if (template.elementTypes.length !== concrete.elementTypes.length) {
+        return false;
+      }
+      for (let index = 0; index < template.elementTypes.length; index += 1) {
+        const templateElement = template.elementTypes[index];
+        const concreteElement = concrete.elementTypes[index];
+        if (!templateElement || !concreteElement) {
+          return false;
+        }
+        if (
+          !inferTemplateTypeArguments(
+            templateElement,
+            concreteElement,
+            substitution
+          )
+        ) {
+          return false;
+        }
+      }
+      return true;
+    case "unionType":
+    case "intersectionType":
+      if (concrete.kind !== template.kind) {
+        return false;
+      }
+      if (template.types.length !== concrete.types.length) {
+        return false;
+      }
+      for (let index = 0; index < template.types.length; index += 1) {
+        const templateMember = template.types[index];
+        const concreteMember = concrete.types[index];
+        if (!templateMember || !concreteMember) {
+          return false;
+        }
+        if (
+          !inferTemplateTypeArguments(
+            templateMember,
+            concreteMember,
+            substitution
+          )
+        ) {
+          return false;
+        }
+      }
+      return true;
+    case "functionType":
+      if (concrete.kind !== "functionType") {
+        return false;
+      }
+      if (template.parameters.length !== concrete.parameters.length) {
+        return false;
+      }
+      for (let index = 0; index < template.parameters.length; index += 1) {
+        const templateParam = template.parameters[index];
+        const concreteParam = concrete.parameters[index];
+        if (!templateParam || !concreteParam) {
+          return false;
+        }
+        if (
+          templateParam.isOptional !== concreteParam.isOptional ||
+          templateParam.isRest !== concreteParam.isRest ||
+          templateParam.passing !== concreteParam.passing
+        ) {
+          return false;
+        }
+        if (templateParam.type && concreteParam.type) {
+          if (
+            !inferTemplateTypeArguments(
+              templateParam.type,
+              concreteParam.type,
+              substitution
+            )
+          ) {
+            return false;
+          }
+        } else if (templateParam.type || concreteParam.type) {
+          return false;
+        }
+      }
+      return inferTemplateTypeArguments(
+        template.returnType,
+        concrete.returnType,
+        substitution
+      );
+    case "objectType":
+      if (concrete.kind !== "objectType") {
+        return false;
+      }
+      if (template.members.length !== concrete.members.length) {
+        return false;
+      }
+      for (let index = 0; index < template.members.length; index += 1) {
+        const templateMember = template.members[index];
+        const concreteMember = concrete.members[index];
+        if (!templateMember || !concreteMember) {
+          return false;
+        }
+        if (
+          templateMember.kind !== concreteMember.kind ||
+          templateMember.name !== concreteMember.name
+        ) {
+          return false;
+        }
+        if (
+          templateMember.kind === "propertySignature" &&
+          concreteMember.kind === "propertySignature"
+        ) {
+          if (
+            templateMember.isOptional !== concreteMember.isOptional ||
+            templateMember.isReadonly !== concreteMember.isReadonly
+          ) {
+            return false;
+          }
+          if (
+            !inferTemplateTypeArguments(
+              templateMember.type,
+              concreteMember.type,
+              substitution
+            )
+          ) {
+            return false;
+          }
+          continue;
+        }
+        if (
+          templateMember.kind !== "methodSignature" ||
+          concreteMember.kind !== "methodSignature"
+        ) {
+          return false;
+        }
+        if (
+          templateMember.parameters.length !== concreteMember.parameters.length
+        ) {
+          return false;
+        }
+        for (
+          let paramIndex = 0;
+          paramIndex < templateMember.parameters.length;
+          paramIndex += 1
+        ) {
+          const templateParam = templateMember.parameters[paramIndex];
+          const concreteParam = concreteMember.parameters[paramIndex];
+          if (!templateParam || !concreteParam) {
+            return false;
+          }
+          if (
+            templateParam.isOptional !== concreteParam.isOptional ||
+            templateParam.isRest !== concreteParam.isRest ||
+            templateParam.passing !== concreteParam.passing
+          ) {
+            return false;
+          }
+          if (templateParam.type && concreteParam.type) {
+            if (
+              !inferTemplateTypeArguments(
+                templateParam.type,
+                concreteParam.type,
+                substitution
+              )
+            ) {
+              return false;
+            }
+          } else if (templateParam.type || concreteParam.type) {
+            return false;
+          }
+        }
+        if (templateMember.returnType && concreteMember.returnType) {
+          if (
+            !inferTemplateTypeArguments(
+              templateMember.returnType,
+              concreteMember.returnType,
+              substitution
+            )
+          ) {
+            return false;
+          }
+        } else if (templateMember.returnType || concreteMember.returnType) {
+          return false;
+        }
+      }
+      return true;
+    case "dictionaryType":
+      if (concrete.kind !== "dictionaryType") {
+        return false;
+      }
+      return (
+        inferTemplateTypeArguments(
+          template.keyType,
+          concrete.keyType,
+          substitution
+        ) &&
+        inferTemplateTypeArguments(
+          template.valueType,
+          concrete.valueType,
+          substitution
+        )
+      );
+    default:
+      return false;
+  }
+};
+
+const tryInstantiateReusableStructuralCarrier = (
+  objectType: IrObjectType,
+  ctx: LoweringContext
+): IrReferenceType | undefined => {
+  for (const templateRef of ctx.shapeToExistingReference.values()) {
+    if (!isReusableStructuralCarrierName(templateRef.name)) {
+      continue;
+    }
+
+    const templateMembers = templateRef.structuralMembers;
+    if (!templateMembers || templateMembers.length === 0) {
+      continue;
+    }
+
+    const substitution = new Map<string, IrType>();
+    const matches = inferTemplateTypeArguments(
+      { kind: "objectType", members: templateMembers },
+      objectType,
+      substitution
+    );
+    if (!matches) {
+      continue;
+    }
+
+    const templateTypeArgs = templateRef.typeArguments ?? [];
+    const instantiatedTypeArgs: IrType[] = [];
+    for (const typeArg of templateTypeArgs) {
+      if (typeArg.kind !== "typeParameterType") {
+        instantiatedTypeArgs.push(typeArg);
+        continue;
+      }
+      const resolved = substitution.get(typeArg.name);
+      if (!resolved) {
+        instantiatedTypeArgs.length = 0;
+        break;
+      }
+      instantiatedTypeArgs.push(resolved);
+    }
+    if (templateTypeArgs.length > 0 && instantiatedTypeArgs.length === 0) {
+      continue;
+    }
+
+    return {
+      ...templateRef,
+      typeArguments:
+        instantiatedTypeArgs.length > 0 ? instantiatedTypeArgs : undefined,
+      structuralMembers: objectType.members,
+    };
+  }
+
+  return undefined;
+};
+
+const getOrCreateObjectTypeReference = (
+  objectType: IrObjectType,
+  ctx: LoweringContext
+): IrReferenceType => {
+  const signature = computeShapeSignature(objectType);
+  const existingReference = ctx.shapeToExistingReference.get(signature);
+  const typeParamNames = new Set<string>();
+  for (const member of objectType.members) {
+    if (member.kind === "propertySignature") {
+      collectTypeParameterNames(member.type, typeParamNames);
+    } else if (member.kind === "methodSignature") {
+      for (const p of member.parameters) {
+        if (p.type) collectTypeParameterNames(p.type, typeParamNames);
+      }
+      if (member.returnType) {
+        collectTypeParameterNames(member.returnType, typeParamNames);
+      }
+    }
+  }
+  const orderedTypeParams = Array.from(typeParamNames).sort();
+
+  if (existingReference) {
+    return {
+      ...existingReference,
+      typeArguments:
+        orderedTypeParams.length > 0
+          ? orderedTypeParams.map(
+              (tp): IrType => ({
+                kind: "typeParameterType",
+                name: tp,
+              })
+            )
+          : undefined,
+      structuralMembers: objectType.members,
+    };
+  }
+
+  const reusableCarrier = tryInstantiateReusableStructuralCarrier(
+    objectType,
+    ctx
+  );
+  if (reusableCarrier) {
+    return reusableCarrier;
+  }
+
+  const typeName = getOrCreateTypeName(objectType, ctx);
+  return {
+    kind: "referenceType",
+    name: typeName,
+    typeArguments:
+      orderedTypeParams.length > 0
+        ? orderedTypeParams.map(
+            (tp): IrType => ({
+              kind: "typeParameterType",
+              name: tp,
+            })
+          )
+        : undefined,
+    resolvedClrType: undefined,
+    structuralMembers: objectType.members,
+  };
 };
 
 const getOrCreateBehavioralObjectTypeName = (
@@ -539,6 +958,26 @@ const stripNullishFromType = (type: IrType): IrType => {
   return { ...type, types: nonNullish };
 };
 
+const stripUndefinedFromType = (type: IrType): IrType => {
+  if (type.kind !== "unionType") {
+    return type;
+  }
+
+  const nonUndefined = type.types.filter(
+    (t) => !(t.kind === "primitiveType" && t.name === "undefined")
+  );
+  if (nonUndefined.length === type.types.length) {
+    return type;
+  }
+  if (nonUndefined.length === 0) {
+    return type;
+  }
+  if (nonUndefined.length === 1) {
+    return nonUndefined[0] ?? type;
+  }
+  return { ...type, types: nonUndefined };
+};
+
 /**
  * Ensure a type includes `undefined` (for optional members).
  *
@@ -594,41 +1033,7 @@ const lowerType = (
         members: loweredMembers,
       };
 
-      // Generate name for this shape
-      const typeName = getOrCreateTypeName(loweredObjectType, ctx);
-
-      const typeParamNames = new Set<string>();
-      for (const member of loweredObjectType.members) {
-        if (member.kind === "propertySignature") {
-          collectTypeParameterNames(member.type, typeParamNames);
-        } else if (member.kind === "methodSignature") {
-          for (const p of member.parameters) {
-            if (p.type) collectTypeParameterNames(p.type, typeParamNames);
-          }
-          if (member.returnType)
-            collectTypeParameterNames(member.returnType, typeParamNames);
-        }
-      }
-      const orderedTypeParams = Array.from(typeParamNames).sort();
-
-      // Return reference to generated type
-      const refType: IrReferenceType = {
-        kind: "referenceType",
-        name: typeName,
-        typeArguments:
-          orderedTypeParams.length > 0
-            ? orderedTypeParams.map(
-                (tp): IrType => ({
-                  kind: "typeParameterType",
-                  name: tp,
-                })
-              )
-            : undefined,
-        resolvedClrType: undefined,
-        // Preserve structural members for downstream pattern lowering/type recovery.
-        structuralMembers: loweredObjectType.members,
-      };
-      return refType;
+      return getOrCreateObjectTypeReference(loweredObjectType, ctx);
     }
 
     case "arrayType":
@@ -720,7 +1125,8 @@ const lowerType = (
 
       const stableKey = getReferenceLoweringStableKey(type);
       if (stableKey) {
-        const cachedByStableKey = ctx.loweredReferenceByStableKey.get(stableKey);
+        const cachedByStableKey =
+          ctx.loweredReferenceByStableKey.get(stableKey);
         if (cachedByStableKey) {
           ctx.loweredTypeByIdentity.set(type, cachedByStableKey);
           return cachedByStableKey;
@@ -1654,6 +2060,7 @@ const lowerModule = (
   shared: {
     readonly generatedDeclarations: IrClassDeclaration[];
     readonly shapeToName: Map<string, string>;
+    readonly shapeToExistingReference: Map<string, IrReferenceType>;
     readonly existingTypeNames: ReadonlySet<string>;
     readonly loweredTypeByIdentity: WeakMap<object, IrType>;
     readonly loweredReferenceByStableKey: Map<string, IrReferenceType>;
@@ -1662,6 +2069,7 @@ const lowerModule = (
   const ctx: LoweringContext = {
     generatedDeclarations: shared.generatedDeclarations,
     shapeToName: shared.shapeToName,
+    shapeToExistingReference: shared.shapeToExistingReference,
     moduleFilePath: module.filePath,
     existingTypeNames: shared.existingTypeNames,
     loweredTypeByIdentity: shared.loweredTypeByIdentity,
@@ -1713,29 +2121,243 @@ const findCommonNamespacePrefix = (namespaces: readonly string[]): string => {
   return first.slice(0, commonLength).join(".");
 };
 
+const isAnonymousReferenceType = (
+  value: unknown
+): value is IrReferenceType & {
+  readonly structuralMembers: readonly IrInterfaceMember[];
+} => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Partial<IrReferenceType> & {
+    readonly kind?: unknown;
+    readonly name?: unknown;
+    readonly structuralMembers?: unknown;
+  };
+
+  return (
+    record.kind === "referenceType" &&
+    typeof record.name === "string" &&
+    record.name.startsWith("__Anon_") &&
+    Array.isArray(record.structuralMembers) &&
+    record.structuralMembers.length > 0
+  );
+};
+
+const registerExistingAnonymousReference = (
+  type: IrReferenceType & {
+    readonly structuralMembers: readonly IrInterfaceMember[];
+  },
+  shapeToExistingReference: Map<string, IrReferenceType>
+): void => {
+  const signature = computeShapeSignature({
+    kind: "objectType",
+    members: type.structuralMembers,
+  });
+
+  const resolvedClrType =
+    type.resolvedClrType ?? type.typeId?.clrName ?? undefined;
+  const existing = shapeToExistingReference.get(signature);
+  if (
+    existing &&
+    existing.resolvedClrType !== undefined &&
+    resolvedClrType === undefined
+  ) {
+    return;
+  }
+
+  shapeToExistingReference.set(signature, {
+    kind: "referenceType",
+    name: type.name,
+    typeArguments: type.typeArguments,
+    resolvedClrType,
+    structuralMembers: type.structuralMembers,
+  });
+};
+
+const collectExistingAnonymousReferences = (
+  value: unknown,
+  shapeToExistingReference: Map<string, IrReferenceType>,
+  seen: WeakSet<object>
+): void => {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  if (seen.has(value)) {
+    return;
+  }
+  seen.add(value);
+
+  if (isAnonymousReferenceType(value)) {
+    registerExistingAnonymousReference(value, shapeToExistingReference);
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectExistingAnonymousReferences(entry, shapeToExistingReference, seen);
+    }
+    return;
+  }
+
+  for (const entry of Object.values(value as Record<string, unknown>)) {
+    collectExistingAnonymousReferences(entry, shapeToExistingReference, seen);
+  }
+};
+
+const collectAnonymousReferencesFromBindings = (
+  bindings: ReadonlyMap<string, FrontendTypeBinding> | undefined,
+  shapeToExistingReference: Map<string, IrReferenceType>
+): void => {
+  if (!bindings || bindings.size === 0) {
+    return;
+  }
+
+  for (const binding of bindings.values()) {
+    const simpleAlias = binding.alias.split(".").pop() ?? binding.alias;
+    const simpleName = binding.name.split(".").pop() ?? binding.name;
+    if (
+      !simpleAlias.startsWith("__Anon_") &&
+      !simpleName.startsWith("__Anon_")
+    ) {
+      continue;
+    }
+    if (binding.members.some((member) => member.kind === "method")) {
+      continue;
+    }
+
+    const members = binding.members
+      .filter(
+        (
+          member
+        ): member is (typeof binding.members)[number] & { kind: "property" } =>
+          member.kind === "property" && member.semanticType !== undefined
+      )
+      .map((member): IrInterfaceMember => {
+        const semanticType = member.semanticType;
+        if (!semanticType) {
+          throw new Error(
+            "Anonymous binding property matched without semanticType"
+          );
+        }
+
+        const hasUndefinedBranch =
+          semanticType.kind === "unionType" &&
+          semanticType.types.some(
+            (type) => type.kind === "primitiveType" && type.name === "undefined"
+          );
+        const isOptional =
+          member.semanticOptional === true || hasUndefinedBranch;
+
+        return {
+          kind: "propertySignature",
+          name: member.alias,
+          type: isOptional
+            ? stripUndefinedFromType(semanticType)
+            : semanticType,
+          isOptional,
+          isReadonly: false,
+        };
+      });
+
+    if (members.length === 0) {
+      continue;
+    }
+
+    registerExistingAnonymousReference(
+      {
+        kind: "referenceType",
+        name: simpleAlias.startsWith("__Anon_") ? simpleAlias : simpleName,
+        resolvedClrType: binding.name,
+        structuralMembers: members,
+      },
+      shapeToExistingReference
+    );
+  }
+};
+
 /**
  * Run anonymous type lowering pass on all modules
  */
 export const runAnonymousTypeLoweringPass = (
-  modules: readonly IrModule[]
+  modules: readonly IrModule[],
+  options?: AnonymousTypeLoweringOptions
 ): AnonymousTypeLoweringResult => {
   const existingTypeNames = new Set<string>();
+  const shapeToExistingReference = new Map<string, IrReferenceType>();
+  const existingReferenceTraversalSeen = new WeakSet<object>();
   for (const module of modules) {
     for (const stmt of module.body) {
       switch (stmt.kind) {
         case "classDeclaration":
+          if (isReusableStructuralCarrierName(stmt.name)) {
+            const members = classMembersToInterfaceMembers(stmt.members);
+            if (members.length > 0) {
+              registerExistingAnonymousReference(
+                {
+                  kind: "referenceType",
+                  name: stmt.name,
+                  typeArguments:
+                    stmt.typeParameters?.map(
+                      (parameter): IrType => ({
+                        kind: "typeParameterType",
+                        name: parameter.name,
+                      })
+                    ) ?? undefined,
+                  resolvedClrType: `${module.namespace}.${stmt.name}`,
+                  structuralMembers: members,
+                },
+                shapeToExistingReference
+              );
+            }
+          }
+          existingTypeNames.add(stmt.name);
+          break;
         case "interfaceDeclaration":
+          if (isReusableStructuralCarrierName(stmt.name)) {
+            registerExistingAnonymousReference(
+              {
+                kind: "referenceType",
+                name: stmt.name,
+                typeArguments:
+                  stmt.typeParameters?.map(
+                    (parameter): IrType => ({
+                      kind: "typeParameterType",
+                      name: parameter.name,
+                    })
+                  ) ?? undefined,
+                resolvedClrType: `${module.namespace}.${stmt.name}`,
+                structuralMembers: stmt.members,
+              },
+              shapeToExistingReference
+            );
+          }
+          existingTypeNames.add(stmt.name);
+          break;
         case "enumDeclaration":
         case "typeAliasDeclaration":
           existingTypeNames.add(stmt.name);
           break;
       }
     }
+
+    collectExistingAnonymousReferences(
+      module,
+      shapeToExistingReference,
+      existingReferenceTraversalSeen
+    );
   }
+
+  collectAnonymousReferencesFromBindings(
+    options?.bindings,
+    shapeToExistingReference
+  );
 
   const shared = {
     generatedDeclarations: [] as IrClassDeclaration[],
     shapeToName: new Map<string, string>(),
+    shapeToExistingReference,
     existingTypeNames,
     loweredTypeByIdentity: new WeakMap<object, IrType>(),
     loweredReferenceByStableKey: new Map<string, IrReferenceType>(),

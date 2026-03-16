@@ -35,9 +35,7 @@ const createRecursiveMiddlewareGraph = (): IrType => {
     elementType: middlewareLike,
   };
 
-  (
-    routerType
-  ).structuralMembers = [
+  routerType.structuralMembers = [
     {
       kind: "methodSignature",
       name: "use",
@@ -167,7 +165,12 @@ const createWideRecursiveMiddlewareGraph = (): IrType => {
     },
   ];
 
-  middlewareLike.types.push(routerType, applicationType, middlewareArray, middlewareTuple);
+  middlewareLike.types.push(
+    routerType,
+    applicationType,
+    middlewareArray,
+    middlewareTuple
+  );
   return middlewareLike;
 };
 

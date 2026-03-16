@@ -255,7 +255,9 @@ const validateType = (
           // Is a known builtin handled by emitter
           candidateNames.some((candidate) => KNOWN_BUILTINS.has(candidate)) ||
           // Is a local type defined in this module
-          candidateNames.some((candidate) => ctx.localTypeNames.has(candidate)) ||
+          candidateNames.some((candidate) =>
+            ctx.localTypeNames.has(candidate)
+          ) ||
           // Is a sibling type defined in the same namespace across modules
           candidateNames.some((candidate) =>
             ctx.namespaceLocalTypeNames.has(candidate)
@@ -942,7 +944,8 @@ export const validateIrSoundness = (
   const namespaceTypeNames = new Map<string, Set<string>>();
 
   for (const module of modules) {
-    const current = namespaceTypeNames.get(module.namespace) ?? new Set<string>();
+    const current =
+      namespaceTypeNames.get(module.namespace) ?? new Set<string>();
     for (const name of extractLocalTypeNames(module.body)) {
       current.add(name);
     }

@@ -21,6 +21,11 @@ export type RuntimeUnionLayout = {
   readonly runtimeUnionArity: number;
 };
 
+export type RuntimeUnionFrame = {
+  readonly members: readonly IrType[];
+  readonly runtimeUnionArity: number;
+};
+
 const UNKNOWN_TYPE: IrType = { kind: "unknownType" };
 
 const toRuntimeOrderingComparableType = (type: IrType): IrType => {
@@ -39,7 +44,9 @@ const toRuntimeOrderingComparableType = (type: IrType): IrType => {
   if (type.kind === "unionType") {
     return {
       ...type,
-      types: type.types.map((member) => toRuntimeOrderingComparableType(member)),
+      types: type.types.map((member) =>
+        toRuntimeOrderingComparableType(member)
+      ),
     };
   }
 
@@ -49,15 +56,14 @@ const toRuntimeOrderingComparableType = (type: IrType): IrType => {
 const toRuntimeOrderingTypeKey = (type: IrType): string =>
   stableIrTypeKey(toRuntimeOrderingComparableType(type));
 
-const buildRuntimeOrderingMemberKey = (
-  member: IrInterfaceMember
-): string => {
+const buildRuntimeOrderingMemberKey = (member: IrInterfaceMember): string => {
   if (member.kind === "propertySignature") {
     return `prop:${member.name}:${member.isOptional ? "opt" : "req"}:${member.isReadonly ? "ro" : "rw"}:${toRuntimeOrderingTypeKey(member.type)}`;
   }
 
-  const parameters = member.parameters.map((parameter: typeof member.parameters[number]) =>
-    toRuntimeOrderingTypeKey(parameter.type ?? UNKNOWN_TYPE)
+  const parameters = member.parameters.map(
+    (parameter: (typeof member.parameters)[number]) =>
+      toRuntimeOrderingTypeKey(parameter.type ?? UNKNOWN_TYPE)
   );
   return `method:${member.name}:${parameters.join(",")}:${member.parameters.length}:${toRuntimeOrderingTypeKey(member.returnType ?? UNKNOWN_TYPE)}`;
 };
@@ -103,38 +109,38 @@ const buildRuntimeOrderingStructuralKey = (
   }
 
   const members = localInfo.members
-    .flatMap<
-      Extract<IrType, { kind: "objectType" }>["members"][number]
-    >((member) => {
-      if (member.kind === "propertyDeclaration" && member.type) {
-        return [
-          {
-            kind: "propertySignature" as const,
-            name: member.name,
-            type: member.type,
-            isOptional: false,
-            isReadonly: member.isReadonly ?? false,
-          },
-        ];
+    .flatMap<Extract<IrType, { kind: "objectType" }>["members"][number]>(
+      (member) => {
+        if (member.kind === "propertyDeclaration" && member.type) {
+          return [
+            {
+              kind: "propertySignature" as const,
+              name: member.name,
+              type: member.type,
+              isOptional: false,
+              isReadonly: member.isReadonly ?? false,
+            },
+          ];
+        }
+        if (member.kind === "propertySignature") {
+          return [member];
+        }
+        if (member.kind === "methodDeclaration") {
+          return [
+            {
+              kind: "methodSignature" as const,
+              name: member.name,
+              parameters: member.parameters,
+              returnType: member.returnType ?? UNKNOWN_TYPE,
+            },
+          ];
+        }
+        if (member.kind === "methodSignature") {
+          return [member];
+        }
+        return [];
       }
-      if (member.kind === "propertySignature") {
-        return [member];
-      }
-      if (member.kind === "methodDeclaration") {
-        return [
-          {
-            kind: "methodSignature" as const,
-            name: member.name,
-            parameters: member.parameters,
-            returnType: member.returnType ?? UNKNOWN_TYPE,
-          },
-        ];
-      }
-      if (member.kind === "methodSignature") {
-        return [member];
-      }
-      return [];
-    })
+    )
     .map((member) => buildRuntimeOrderingMemberKey(member))
     .sort();
 
@@ -339,10 +345,11 @@ export const buildRuntimeUnionLayout = (
   context: EmitterContext,
   emitTypeAst: EmitTypeAstLike
 ): [RuntimeUnionLayout | undefined, EmitterContext] => {
-  const semanticMembers = getCanonicalRuntimeUnionMembers(type, context);
-  if (!semanticMembers) {
+  const frame = buildRuntimeUnionFrame(type, context);
+  if (!frame) {
     return [undefined, context];
   }
+  const semanticMembers = frame.members;
 
   const byAstKey = new Map<
     string,
@@ -383,6 +390,21 @@ export const buildRuntimeUnionLayout = (
     },
     currentContext,
   ];
+};
+
+export const buildRuntimeUnionFrame = (
+  type: IrType,
+  context: EmitterContext
+): RuntimeUnionFrame | undefined => {
+  const members = getCanonicalRuntimeUnionMembers(type, context);
+  if (!members) {
+    return undefined;
+  }
+
+  return {
+    members,
+    runtimeUnionArity: members.length,
+  };
 };
 
 export const getCanonicalRuntimeUnionMembers = (

@@ -23,18 +23,17 @@ import type {
   CompatibleInterfaceMethodMatch,
 } from "../../core/semantic/implicit-interfaces.js";
 
-type AsyncBridgeKind =
-  | "task"
-  | "taskOf"
-  | "valueTask"
-  | "valueTaskOf";
+type AsyncBridgeKind = "task" | "taskOf" | "valueTask" | "valueTaskOf";
 
 type AsyncBridgeInfo = {
   readonly kind: AsyncBridgeKind;
   readonly payload?: CSharpTypeAst;
 };
 
-const VOID_TYPE_AST: CSharpTypeAst = { kind: "predefinedType", keyword: "void" };
+const VOID_TYPE_AST: CSharpTypeAst = {
+  kind: "predefinedType",
+  keyword: "void",
+};
 
 const memberAccess = (
   expression: CSharpExpressionAst,
@@ -56,31 +55,44 @@ const invocation = (
   ...(typeArguments && typeArguments.length > 0 ? { typeArguments } : {}),
 });
 
-const expressionStatement = (expression: CSharpExpressionAst): CSharpStatementAst => ({
+const expressionStatement = (
+  expression: CSharpExpressionAst
+): CSharpStatementAst => ({
   kind: "expressionStatement",
   expression,
 });
 
-const returnStatement = (expression?: CSharpExpressionAst): CSharpStatementAst => ({
+const returnStatement = (
+  expression?: CSharpExpressionAst
+): CSharpStatementAst => ({
   kind: "returnStatement",
   ...(expression ? { expression } : {}),
 });
 
-const taskLikeInfoFromTypeAst = (type: CSharpTypeAst): AsyncBridgeInfo | undefined => {
+const taskLikeInfoFromTypeAst = (
+  type: CSharpTypeAst
+): AsyncBridgeInfo | undefined => {
   const stripped = stripNullableTypeAst(type);
   const leaf = getIdentifierTypeLeafName(stripped);
   if (!leaf) return undefined;
 
   switch (leaf) {
     case "Task":
-      if (stripped.kind === "identifierType" || stripped.kind === "qualifiedIdentifierType") {
+      if (
+        stripped.kind === "identifierType" ||
+        stripped.kind === "qualifiedIdentifierType"
+      ) {
         const args = stripped.typeArguments ?? [];
         if (args.length === 0) return { kind: "task" };
-        if (args.length === 1 && args[0]) return { kind: "taskOf", payload: args[0] };
+        if (args.length === 1 && args[0])
+          return { kind: "taskOf", payload: args[0] };
       }
       return undefined;
     case "ValueTask":
-      if (stripped.kind === "identifierType" || stripped.kind === "qualifiedIdentifierType") {
+      if (
+        stripped.kind === "identifierType" ||
+        stripped.kind === "qualifiedIdentifierType"
+      ) {
         const args = stripped.typeArguments ?? [];
         if (args.length === 0) return { kind: "valueTask" };
         if (args.length === 1 && args[0]) {
@@ -122,7 +134,9 @@ const buildCompletedAsyncExpression = (
       );
     case "valueTaskOf":
       if (!expression || !asyncInfo.payload) {
-        throw new Error("ICE: ValueTask<T> bridge requires a value expression.");
+        throw new Error(
+          "ICE: ValueTask<T> bridge requires a value expression."
+        );
       }
       return {
         kind: "objectCreationExpression",
@@ -193,7 +207,9 @@ const buildMethodBridgeBody = (
     return {
       kind: "blockStatement",
       statements: [
-        returnStatement(buildCompletedAsyncExpression(interfaceAsync, targetCall)),
+        returnStatement(
+          buildCompletedAsyncExpression(interfaceAsync, targetCall)
+        ),
       ],
     };
   }
@@ -209,8 +225,16 @@ const buildMethodBridgeMember = (
   interfaceTypeAst: CSharpTypeAst,
   context: EmitterContext
 ): [CSharpMemberAst, EmitterContext] => {
-  const interfaceMethodName = emitCSharpName(match.interfaceMember.name, "methods", context);
-  const classMethodName = emitCSharpName(match.classMember.name, "methods", context);
+  const interfaceMethodName = emitCSharpName(
+    match.interfaceMember.name,
+    "methods",
+    context
+  );
+  const classMethodName = emitCSharpName(
+    match.classMember.name,
+    "methods",
+    context
+  );
 
   let currentContext = context;
   const [typeParameters, constraints, typeParamContext] = emitTypeParametersAst(
@@ -237,10 +261,14 @@ const buildMethodBridgeMember = (
   );
   currentContext = classContext;
 
-  const callArguments = parameters.map((parameter) => identifierExpression(parameter.name));
+  const callArguments = parameters.map((parameter) =>
+    identifierExpression(parameter.name)
+  );
   const typeArguments =
     typeParameters.length > 0
-      ? typeParameters.map((typeParameter) => identifierType(typeParameter.name))
+      ? typeParameters.map((typeParameter) =>
+          identifierType(typeParameter.name)
+        )
       : undefined;
   const targetCall = invocation(
     memberAccess(identifierExpression("this"), classMethodName),
@@ -258,7 +286,11 @@ const buildMethodBridgeMember = (
       explicitInterface: interfaceTypeAst,
       ...(typeParameters.length > 0 ? { typeParameters } : {}),
       parameters,
-      body: buildMethodBridgeBody(interfaceReturnType, classReturnType, targetCall),
+      body: buildMethodBridgeBody(
+        interfaceReturnType,
+        classReturnType,
+        targetCall
+      ),
       ...(constraints.length > 0 ? { constraints } : {}),
     },
     currentContext,
@@ -283,12 +315,23 @@ const buildPropertyBridgeMember = (
   );
   currentContext = classContext;
 
-  if (stableTypeKeyFromAst(interfacePropertyType) !== stableTypeKeyFromAst(classPropertyType)) {
+  if (
+    stableTypeKeyFromAst(interfacePropertyType) !==
+    stableTypeKeyFromAst(classPropertyType)
+  ) {
     return [undefined, currentContext];
   }
 
-  const propertyName = emitCSharpName(match.interfaceMember.name, "properties", context);
-  const classPropertyName = emitCSharpName(match.classMember.name, "properties", context);
+  const propertyName = emitCSharpName(
+    match.interfaceMember.name,
+    "properties",
+    context
+  );
+  const classPropertyName = emitCSharpName(
+    match.classMember.name,
+    "properties",
+    context
+  );
 
   const getterBody: CSharpBlockStatementAst = {
     kind: "blockStatement",
@@ -308,7 +351,10 @@ const buildPropertyBridgeMember = (
             expressionStatement({
               kind: "assignmentExpression",
               operatorToken: "=",
-              left: memberAccess(identifierExpression("this"), classPropertyName),
+              left: memberAccess(
+                identifierExpression("this"),
+                classPropertyName
+              ),
               right: identifierExpression("value"),
             }),
           ],
@@ -340,7 +386,10 @@ export const generateExplicitInterfaceBridgeMembers = (
   const members: CSharpMemberAst[] = [];
 
   for (const match of matches) {
-    const [interfaceTypeAst, interfaceContext] = emitTypeAst(match.ref, currentContext);
+    const [interfaceTypeAst, interfaceContext] = emitTypeAst(
+      match.ref,
+      currentContext
+    );
     currentContext = interfaceContext;
 
     for (const propertyMatch of match.propertyMatches) {

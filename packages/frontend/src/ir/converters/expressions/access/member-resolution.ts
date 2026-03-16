@@ -10,7 +10,7 @@ import * as ts from "typescript";
 import { IrType, ComputedAccessKind } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 
-  const receiverHasDeclaredUnknownMember = (
+const receiverHasDeclaredUnknownMember = (
   receiverIrType: IrType | undefined,
   propertyName: string,
   ctx: ProgramContext

@@ -127,7 +127,7 @@ describe("Union Type Emission", () => {
 
     // Should use fully-qualified Union<T1, T2>
     expect(code).to.include(
-      "global::Tsonic.Runtime.Union<string, double> value"
+      "global::Tsonic.Runtime.Union<double, string> value"
     );
     // Should NOT include using directives - uses global:: FQN
     expect(code).to.not.include("using Tsonic.Runtime");
@@ -174,7 +174,7 @@ describe("Union Type Emission", () => {
 
     // Should return Union<string, double> with global:: FQN
     expect(code).to.include(
-      "public static global::Tsonic.Runtime.Union<string, double> getValue()"
+      "public static global::Tsonic.Runtime.Union<double, string> getValue()"
     );
   });
 
@@ -223,7 +223,7 @@ describe("Union Type Emission", () => {
 
     // Should accept Union<string, bool> parameter with global:: FQN
     expect(code).to.include(
-      "process(global::Tsonic.Runtime.Union<string, bool> input)"
+      "process(global::Tsonic.Runtime.Union<bool, string> input)"
     );
   });
 
@@ -352,7 +352,7 @@ describe("Union Type Emission", () => {
     const code = emitModule(module);
 
     // Should use Union<User, Product>
-    expect(code).to.include("Union<User, Product> getResult()");
+    expect(code).to.include("Union<Product, User> getResult()");
   });
 
   it("should emit three-type union as Union<T1, T2, T3>", () => {
@@ -392,7 +392,7 @@ describe("Union Type Emission", () => {
 
     // Should use fully-qualified Union<T1, T2, T3>
     expect(code).to.include(
-      "global::Tsonic.Runtime.Union<string, double, bool> value"
+      "global::Tsonic.Runtime.Union<bool, double, string> value"
     );
     // Should NOT include using directives - uses global:: FQN
     expect(code).to.not.include("using Tsonic.Runtime");
@@ -488,7 +488,7 @@ describe("Union Type Emission", () => {
     const code = emitModule(module);
 
     expect(code).to.include(
-      "global::Tsonic.Runtime.Union<string, double>? value"
+      "global::Tsonic.Runtime.Union<double, string>? value"
     );
     expect(code).not.to.include("Union<string, double,");
   });
@@ -546,7 +546,7 @@ describe("Union Type Emission", () => {
 
     // Should use Union<T1, T2, T3, T4> with global:: FQN
     expect(code).to.include(
-      "global::Tsonic.Runtime.Union<string, double, bool, DateLike> process()"
+      "global::Tsonic.Runtime.Union<bool, double, string, DateLike> process()"
     );
   });
 
@@ -609,7 +609,7 @@ describe("Union Type Emission", () => {
 
     // Should use Union<T1, T2, T3, T4, T5, T6, T7, T8> with global:: FQN
     expect(code).to.include(
-      "global::Tsonic.Runtime.Union<string, double, bool, User, Product, Order, Payment, Invoice> value"
+      "global::Tsonic.Runtime.Union<bool, double, string, Invoice, Order, Payment, Product, User> value"
     );
   });
 
@@ -725,9 +725,7 @@ describe("Union Type Emission", () => {
     };
 
     const code = emitModule(module);
-    expect(code).to.include(
-      "global::Tsonic.Runtime.Union<global::System.Object, object[]> handlers"
-    );
+    expect(code).to.include("object handlers");
   });
 
   it("collapses unions that already contain object to plain object", () => {
@@ -753,7 +751,11 @@ describe("Union Type Emission", () => {
                 types: [
                   { kind: "referenceType", name: "object" },
                   { kind: "primitiveType", name: "string" },
-                  { kind: "referenceType", name: "RegExp", resolvedClrType: "System.Text.RegularExpressions.Regex" },
+                  {
+                    kind: "referenceType",
+                    name: "RegExp",
+                    resolvedClrType: "System.Text.RegularExpressions.Regex",
+                  },
                 ],
               },
               initializer: { kind: "literal", value: null },

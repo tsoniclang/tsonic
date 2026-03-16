@@ -13,6 +13,7 @@ import { emitTypeAst } from "../type-emitter.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import {
   getPropertyType,
+  resolveStructuralReferenceType,
   stripNullish,
   resolveTypeAlias,
   getArrayLikeElementType,
@@ -71,9 +72,10 @@ const resolveArrayLiteralContextType = (
     return strippedExpected;
   }
 
-  const arrayLikeMembers = resolvedExpected.types.filter((member): member is IrType =>
-    getArrayLikeElementType(member, context) !== undefined ||
-    resolveTypeAlias(stripNullish(member), context).kind === "tupleType"
+  const arrayLikeMembers = resolvedExpected.types.filter(
+    (member): member is IrType =>
+      getArrayLikeElementType(member, context) !== undefined ||
+      resolveTypeAlias(stripNullish(member), context).kind === "tupleType"
   );
 
   if (arrayLikeMembers.length === 1) {
@@ -200,11 +202,17 @@ const shouldCoerceArrayLiteralElementToExpectedType = (
   expectedElementType: IrType | undefined,
   context: EmitterContext
 ): boolean => {
+  if (element.kind === "literal") {
+    return false;
+  }
+
   if (!expectedElementType || !element.inferredType) {
     return false;
   }
 
-  const actual = stableIrTypeKey(resolveTypeAlias(stripNullish(element.inferredType), context));
+  const actual = stableIrTypeKey(
+    resolveTypeAlias(stripNullish(element.inferredType), context)
+  );
   const expected = stableIrTypeKey(
     resolveTypeAlias(stripNullish(expectedElementType), context)
   );
@@ -310,7 +318,10 @@ export const emitArray = (
       context
     );
 
-    const resolveExpectedArrayElementTypeAst = (): [CSharpTypeAst, EmitterContext] => {
+    const resolveExpectedArrayElementTypeAst = (): [
+      CSharpTypeAst,
+      EmitterContext,
+    ] => {
       const [expectedTypeAst, nextContext] = emitTypeAst(
         effectiveExpectedType,
         currentContext
@@ -453,19 +464,18 @@ export const emitArray = (
         continue;
       }
 
-      const elementExpr =
-        shouldCoerceArrayLiteralElementToExpectedType(
-          element,
-          expectedElementType,
-          currentContext
-        )
-          ? ({
-              kind: "typeAssertion",
-              expression: element,
-              targetType: expectedElementType!,
-              inferredType: expectedElementType!,
-            } satisfies IrExpression)
-          : element;
+      const elementExpr = shouldCoerceArrayLiteralElementToExpectedType(
+        element,
+        expectedElementType,
+        currentContext
+      )
+        ? ({
+            kind: "typeAssertion",
+            expression: element,
+            targetType: expectedElementType!,
+            inferredType: expectedElementType!,
+          } satisfies IrExpression)
+        : element;
       const [elemAst, newContext] = emitExpressionAst(
         elementExpr,
         currentContext,
@@ -533,19 +543,18 @@ export const emitArray = (
       // Sparse array hole
       elementAsts.push({ kind: "defaultExpression" });
     } else {
-      const elementExpr =
-        shouldCoerceArrayLiteralElementToExpectedType(
-          element,
-          expectedElementType,
-          currentContext
-        )
-          ? ({
-              kind: "typeAssertion",
-              expression: element,
-              targetType: expectedElementType!,
-              inferredType: expectedElementType!,
-            } satisfies IrExpression)
-          : element;
+      const elementExpr = shouldCoerceArrayLiteralElementToExpectedType(
+        element,
+        expectedElementType,
+        currentContext
+      )
+        ? ({
+            kind: "typeAssertion",
+            expression: element,
+            targetType: expectedElementType!,
+            inferredType: expectedElementType!,
+          } satisfies IrExpression)
+        : element;
       const [elemAst, newContext] = emitExpressionAst(
         elementExpr,
         currentContext,
@@ -1424,18 +1433,18 @@ const resolveContextualTypeAst = (
     return [undefined, context];
   }
 
-  if (contextualType.kind === "referenceType") {
-    const typeName = contextualType.name;
+  const emissionType =
+    resolveStructuralReferenceType(contextualType, context) ?? contextualType;
+
+  if (emissionType.kind === "referenceType") {
+    const typeName = emissionType.name;
     const importBinding = context.importBindings?.get(typeName);
 
     if (importBinding && importBinding.kind === "type") {
-      if (
-        contextualType.typeArguments &&
-        contextualType.typeArguments.length > 0
-      ) {
+      if (emissionType.typeArguments && emissionType.typeArguments.length > 0) {
         let currentContext = context;
         const typeArgAsts: CSharpTypeAst[] = [];
-        for (const typeArg of contextualType.typeArguments) {
+        for (const typeArg of emissionType.typeArguments) {
           const [typeArgAst, newContext] = emitTypeAst(typeArg, currentContext);
           typeArgAsts.push(typeArgAst);
           currentContext = newContext;
@@ -1449,7 +1458,7 @@ const resolveContextualTypeAst = (
     }
   }
 
-  return emitTypeAst(contextualType, context);
+  return emitTypeAst(emissionType, context);
 };
 
 /**

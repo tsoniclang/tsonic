@@ -244,7 +244,8 @@ export const convertAccessorProperty = (
       : "public";
 
   const isEcmaPrivate =
-    isPrivateClassMemberName(getter?.name) || isPrivateClassMemberName(setter?.name);
+    isPrivateClassMemberName(getter?.name) ||
+    isPrivateClassMemberName(setter?.name);
 
   const finalAccessibility = (() => {
     if (!overrideInfo.isOverride || !overrideInfo.requiredAccessibility) {

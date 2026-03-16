@@ -4,7 +4,7 @@ namespace TestCases.common.operators.optionalchaining
     {
         public string? name { get; set; }
 
-        public global::TestCases.common.operators.optionalchaining.__Anon_5026_7da65eac? address { get; set; }
+        public global::TestCases.common.operators.optionalchaining.__Anon_5026_71c63706? address { get; set; }
     }
 
     [global::Tsonic.Internal.ModuleContainerAttribute]

@@ -417,15 +417,16 @@ const resolveSourceBindingsClrIdentity = (
 /**
  * Determine whether a TS-only type alias target is safe to erase to its underlying shape.
  *
- * We ONLY erase aliases whose targets are "reference-shaped" (type references / intersections
- * / primitives / arrays, etc.). We intentionally DO NOT erase:
- * - Union aliases (discriminated unions rely on the alias identity across lowering)
- * - Tuple aliases (tuple alias resolution is handled via emitter-side type-alias resolution)
- * - Type-literal aliases (structural alias → __Alias class; handled separately)
+ * Erase only aliases whose targets are semantically transparent for lowering:
+ * - references / arrays / primitive and literal aliases
+ * - callable aliases
+ * - intersections / indexed access / typeof / keyof / readonly-style wrappers
  *
- * This preserves the established lowering contracts while still enabling deterministic
- * receiver-driven generic inference for aliases like:
- *   type LinqList<T> = Linq<List<T>>;
+ * Preserve aliases whose identity is required for stable lowering contracts:
+ * - object/type-literal aliases (these lower to stable emitted shapes)
+ * - union aliases (runtime-union/discriminant stability)
+ * - tuple aliases (tuple lowering stability)
+ * - mapped / conditional aliases (non-local shape selection)
  */
 const isSafeToEraseUserTypeAliasTarget = (node: ts.TypeNode): boolean => {
   // Peel parentheses (e.g., type X = (Y))
@@ -433,18 +434,40 @@ const isSafeToEraseUserTypeAliasTarget = (node: ts.TypeNode): boolean => {
     node = node.type;
   }
 
-  // User/source-package aliases are TS-only and have no CLR identity.
-  // Erase them broadly so contextual typing and structural recovery preserve
-  // the real underlying shape across:
-  // - unions
-  // - tuples
-  // - object/type-literal aliases
-  // - callable aliases
-  // - recursive first-party/source-package helper aliases
-  //
-  // Keep conditional aliases nominal here. They encode arity families and other
-  // non-local selection logic that needs dedicated handling below.
-  return !ts.isConditionalTypeNode(node);
+  if (
+    ts.isTypeLiteralNode(node) ||
+    ts.isTupleTypeNode(node) ||
+    ts.isMappedTypeNode(node) ||
+    ts.isConditionalTypeNode(node)
+  ) {
+    return false;
+  }
+
+  return (
+    ts.isTypeReferenceNode(node) ||
+    ts.isExpressionWithTypeArguments(node) ||
+    ts.isArrayTypeNode(node) ||
+    ts.isUnionTypeNode(node) ||
+    ts.isFunctionTypeNode(node) ||
+    ts.isConstructorTypeNode(node) ||
+    ts.isIntersectionTypeNode(node) ||
+    ts.isTypeOperatorNode(node) ||
+    ts.isIndexedAccessTypeNode(node) ||
+    ts.isLiteralTypeNode(node) ||
+    ts.isTypePredicateNode(node) ||
+    node.kind === ts.SyntaxKind.AnyKeyword ||
+    node.kind === ts.SyntaxKind.UnknownKeyword ||
+    node.kind === ts.SyntaxKind.NeverKeyword ||
+    node.kind === ts.SyntaxKind.VoidKeyword ||
+    node.kind === ts.SyntaxKind.UndefinedKeyword ||
+    node.kind === ts.SyntaxKind.NullKeyword ||
+    node.kind === ts.SyntaxKind.StringKeyword ||
+    node.kind === ts.SyntaxKind.NumberKeyword ||
+    node.kind === ts.SyntaxKind.BooleanKeyword ||
+    node.kind === ts.SyntaxKind.ObjectKeyword ||
+    node.kind === ts.SyntaxKind.SymbolKeyword ||
+    node.kind === ts.SyntaxKind.BigIntKeyword
+  );
 };
 
 const isRecursiveUserTypeAliasDeclaration = (
@@ -538,10 +561,10 @@ const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
   // in the tsbindgen sense; they are the authoritative first-party semantic
   // surface and must preserve structural shape.
   if (
-    ((!isSourceBindingsDecl &&
+    (!isSourceBindingsDecl &&
       !isInstalledSourcePackageFile &&
       fileName.includes("node_modules")) ||
-      fileName.includes("lib.")) ||
+    fileName.includes("lib.") ||
     (sourceFile.isDeclarationFile && !isSourceBindingsDecl)
   ) {
     return false;
@@ -666,7 +689,11 @@ const extractStructuralMembersFromDeclarations = (
       ) {
         return false;
       }
-      if ("name" in member && member.name && ts.isPrivateIdentifier(member.name)) {
+      if (
+        "name" in member &&
+        member.name &&
+        ts.isPrivateIdentifier(member.name)
+      ) {
         return false;
       }
       return true;
@@ -683,7 +710,7 @@ const extractStructuralMembersFromDeclarations = (
         ? decl.type.members
         : ts.isClassDeclaration(decl)
           ? decl.members
-        : undefined;
+          : undefined;
 
     if (!typeElements) {
       structuralMembersCache.set(declId, null);
@@ -704,7 +731,10 @@ const extractStructuralMembersFromDeclarations = (
         ts.isGetAccessorDeclaration(member) ||
         ts.isSetAccessorDeclaration(member)
       ) {
-        if (ts.isClassDeclaration(decl) && !isPublicInstanceClassMember(member)) {
+        if (
+          ts.isClassDeclaration(decl) &&
+          !isPublicInstanceClassMember(member)
+        ) {
           continue;
         }
 
@@ -730,7 +760,10 @@ const extractStructuralMembersFromDeclarations = (
 
       // Property signature / declaration
       if (ts.isPropertySignature(member) || ts.isPropertyDeclaration(member)) {
-        if (ts.isPropertyDeclaration(member) && !isPublicInstanceClassMember(member)) {
+        if (
+          ts.isPropertyDeclaration(member) &&
+          !isPublicInstanceClassMember(member)
+        ) {
           continue;
         }
 
@@ -797,7 +830,10 @@ const extractStructuralMembersFromDeclarations = (
 
       // Method signature / declaration
       if (ts.isMethodSignature(member) || ts.isMethodDeclaration(member)) {
-        if (ts.isMethodDeclaration(member) && !isPublicInstanceClassMember(member)) {
+        if (
+          ts.isMethodDeclaration(member) &&
+          !isPublicInstanceClassMember(member)
+        ) {
           continue;
         }
 
@@ -1110,11 +1146,11 @@ export const convertTypeReference = (
         return pureIndexSigDict;
       }
 
-        // Check for type alias to function type
-        // DETERMINISTIC: Expand function type aliases so lambda contextual typing works
-        // e.g., `type NumberToNumber = (x: number) => number` should be converted
-        // to a functionType, not a referenceType
-        if (declNode && ts.isTypeAliasDeclaration(declNode)) {
+      // Check for type alias to function type
+      // DETERMINISTIC: Expand function type aliases so lambda contextual typing works
+      // e.g., `type NumberToNumber = (x: number) => number` should be converted
+      // to a functionType, not a referenceType
+      if (declNode && ts.isTypeAliasDeclaration(declNode)) {
         const convertFunctionAliasBody = (
           functionTypeNode: ts.FunctionTypeNode
         ): IrType => {
@@ -1198,7 +1234,9 @@ export const convertTypeReference = (
           // deterministic lambda typing at call sites.
           if (declNode.getSourceFile().isDeclarationFile) {
             if (
-              isTsonicBindingsDeclarationFile(declNode.getSourceFile().fileName) &&
+              isTsonicBindingsDeclarationFile(
+                declNode.getSourceFile().fileName
+              ) &&
               !declInfo.valueDeclNode
             ) {
               return convertFunctionAliasBody(declNode.type);

@@ -754,6 +754,12 @@ export const convertType = (
     );
 
     if (hasRest) {
+      const restIndex = typeNode.elements.findIndex(
+        (el) =>
+          ts.isRestTypeNode(el) ||
+          (ts.isNamedTupleMember(el) &&
+            (el.dotDotDotToken !== undefined || ts.isRestTypeNode(el.type)))
+      );
       const elementTypes: IrType[] = [];
 
       for (const element of typeNode.elements) {
@@ -826,80 +832,78 @@ export const convertType = (
         elementTypes.push(convertType(element, binding));
       }
 
+      const hasRepresentableSpreadMetadata =
+        restIndex >= 0 &&
+        typeNode.elements
+          .slice(restIndex + 1)
+          .every(
+            (element) =>
+              ts.isRestTypeNode(element) ||
+              (ts.isNamedTupleMember(element) &&
+                (element.dotDotDotToken !== undefined ||
+                  ts.isRestTypeNode(element.type)))
+          );
+      const tuplePrefixElementTypes = hasRepresentableSpreadMetadata
+        ? typeNode.elements.slice(0, restIndex).flatMap((element): IrType[] => {
+            if (ts.isNamedTupleMember(element)) {
+              return [convertType(element.type, binding)];
+            }
+            if (ts.isRestTypeNode(element)) {
+              return [];
+            }
+            return [convertType(element, binding)];
+          })
+        : undefined;
+      const tupleRestElementType = hasRepresentableSpreadMetadata
+        ? (() => {
+            const restElement = typeNode.elements[restIndex];
+            if (!restElement) return undefined;
+
+            if (ts.isNamedTupleMember(restElement)) {
+              const restType = ts.isRestTypeNode(restElement.type)
+                ? restElement.type.type
+                : restElement.type;
+              if (ts.isArrayTypeNode(restType)) {
+                return convertType(restType.elementType, binding);
+              }
+              if (ts.isTupleTypeNode(restType)) {
+                const nestedRest = restType.elements.find((nestedElement) =>
+                  ts.isRestTypeNode(nestedElement)
+                );
+                if (nestedRest && ts.isArrayTypeNode(nestedRest.type)) {
+                  return convertType(nestedRest.type.elementType, binding);
+                }
+              }
+              return undefined;
+            }
+
+            if (ts.isRestTypeNode(restElement)) {
+              const restType = restElement.type;
+              if (ts.isArrayTypeNode(restType)) {
+                return convertType(restType.elementType, binding);
+              }
+              if (ts.isTupleTypeNode(restType)) {
+                const nestedRest = restType.elements.find((nestedElement) =>
+                  ts.isRestTypeNode(nestedElement)
+                );
+                if (nestedRest && ts.isArrayTypeNode(nestedRest.type)) {
+                  return convertType(nestedRest.type.elementType, binding);
+                }
+              }
+            }
+
+            return undefined;
+          })()
+        : undefined;
+
       return {
         kind: "arrayType",
         elementType: toUnionOrSingle(elementTypes),
         origin: "explicit",
-        tuplePrefixElementTypes: typeNode.elements
-          .flatMap((element): IrType[] => {
-            if (ts.isNamedTupleMember(element)) {
-              if (
-                element.dotDotDotToken !== undefined ||
-                ts.isRestTypeNode(element.type)
-              ) {
-                return [];
-              }
-              return [convertType(element.type, binding)];
-            }
-
-            if (ts.isRestTypeNode(element)) {
-              return [];
-            }
-
-            return [convertType(element, binding)];
-          }),
-        tupleRestElementType: (() => {
-          for (const element of typeNode.elements) {
-            if (ts.isNamedTupleMember(element)) {
-              if (
-                element.dotDotDotToken === undefined &&
-                !ts.isRestTypeNode(element.type)
-              ) {
-                continue;
-              }
-
-              const restType = ts.isRestTypeNode(element.type)
-                ? element.type.type
-                : element.type;
-              if (ts.isArrayTypeNode(restType)) {
-                return convertType(restType.elementType, binding);
-              }
-              if (ts.isTupleTypeNode(restType)) {
-                const nestedRest = restType.elements.find((nestedElement) =>
-                  ts.isRestTypeNode(nestedElement)
-                );
-                if (
-                  nestedRest &&
-                  ts.isArrayTypeNode(nestedRest.type)
-                ) {
-                  return convertType(nestedRest.type.elementType, binding);
-                }
-              }
-              return undefined;
-            }
-
-            if (ts.isRestTypeNode(element)) {
-              const restType = element.type;
-              if (ts.isArrayTypeNode(restType)) {
-                return convertType(restType.elementType, binding);
-              }
-              if (ts.isTupleTypeNode(restType)) {
-                const nestedRest = restType.elements.find((nestedElement) =>
-                  ts.isRestTypeNode(nestedElement)
-                );
-                if (
-                  nestedRest &&
-                  ts.isArrayTypeNode(nestedRest.type)
-                ) {
-                  return convertType(nestedRest.type.elementType, binding);
-                }
-              }
-              return undefined;
-            }
-          }
-
-          return undefined;
-        })(),
+        ...((tuplePrefixElementTypes?.length ?? 0) > 0
+          ? { tuplePrefixElementTypes }
+          : {}),
+        ...(tupleRestElementType ? { tupleRestElementType } : {}),
       };
     }
 

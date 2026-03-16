@@ -321,7 +321,10 @@ const inferExpressionTypeSyntax = (
     return inferExpressionTypeSyntax(current.expression, convertType);
   }
 
-  if (ts.isStringLiteral(current) || ts.isNoSubstitutionTemplateLiteral(current)) {
+  if (
+    ts.isStringLiteral(current) ||
+    ts.isNoSubstitutionTemplateLiteral(current)
+  ) {
     return { kind: "primitiveType", name: "string" };
   }
 
@@ -385,19 +388,20 @@ const inferExpressionTypeSyntax = (
       passing: "value" as const,
     }));
 
-    const returnType =
-      current.type
-        ? convertType(current.type)
-        : ts.isBlock(current.body)
-          ? (() => {
-              const returns = current.body.statements.filter(ts.isReturnStatement);
-              if (returns.length === 0) return { kind: "voidType" as const };
-              const firstExpr = returns[0]?.expression;
-              return firstExpr
-                ? inferExpressionTypeSyntax(firstExpr, convertType)
-                : ({ kind: "voidType" as const });
-            })()
-          : inferExpressionTypeSyntax(current.body, convertType);
+    const returnType = current.type
+      ? convertType(current.type)
+      : ts.isBlock(current.body)
+        ? (() => {
+            const returns = current.body.statements.filter(
+              ts.isReturnStatement
+            );
+            if (returns.length === 0) return { kind: "voidType" as const };
+            const firstExpr = returns[0]?.expression;
+            return firstExpr
+              ? inferExpressionTypeSyntax(firstExpr, convertType)
+              : { kind: "voidType" as const };
+          })()
+        : inferExpressionTypeSyntax(current.body, convertType);
 
     if (!returnType) return undefined;
     return {
@@ -410,7 +414,10 @@ const inferExpressionTypeSyntax = (
   if (ts.isObjectLiteralExpression(current)) {
     const members: IrInterfaceMember[] = [];
     for (const property of current.properties) {
-      if (ts.isSpreadAssignment(property) || ts.isShorthandPropertyAssignment(property)) {
+      if (
+        ts.isSpreadAssignment(property) ||
+        ts.isShorthandPropertyAssignment(property)
+      ) {
         return undefined;
       }
 
@@ -453,12 +460,14 @@ const inferExpressionTypeSyntax = (
           ? convertType(property.type)
           : property.body
             ? (() => {
-                const returns = property.body.statements.filter(ts.isReturnStatement);
+                const returns = property.body.statements.filter(
+                  ts.isReturnStatement
+                );
                 if (returns.length === 0) return { kind: "voidType" as const };
                 const firstExpr = returns[0]?.expression;
                 return firstExpr
                   ? inferExpressionTypeSyntax(firstExpr, convertType)
-                  : ({ kind: "voidType" as const });
+                  : { kind: "voidType" as const };
               })()
             : undefined;
         if (!returnType) return undefined;
@@ -971,7 +980,8 @@ export const buildTypeRegistry = (
       const callableAlias = convertCallableInterfaceOnlyType(node, convert);
 
       if (callableAlias) {
-        const aliasedMembers = extractMembersFromAliasedObjectType(callableAlias);
+        const aliasedMembers =
+          extractMembersFromAliasedObjectType(callableAlias);
         entries.set(fqName, {
           kind: "typeAlias",
           name: simpleName,

@@ -3,7 +3,11 @@
  */
 
 import { IrModule, IrStatement, IrType } from "@tsonic/frontend";
-import { EmitterOptions, LocalTypeInfo, createContext } from "../../../types.js";
+import {
+  EmitterOptions,
+  LocalTypeInfo,
+  createContext,
+} from "../../../types.js";
 import { generateStructuralAdapters } from "../../../adapter-generator.js";
 import {
   collectSpecializations,

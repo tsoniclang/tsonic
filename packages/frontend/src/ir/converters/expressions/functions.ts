@@ -19,8 +19,7 @@ import type { ProgramContext } from "../../program-context.js";
 const makeOptionalReadType = (type: IrType): IrType => {
   if (type.kind === "unionType") {
     const hasUndefined = type.types.some(
-      (member) =>
-        member.kind === "primitiveType" && member.name === "undefined"
+      (member) => member.kind === "primitiveType" && member.name === "undefined"
     );
     if (hasUndefined) return type;
     return {

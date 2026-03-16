@@ -367,7 +367,8 @@ export type TypeAuthority = {
     declId: DeclId,
     memberName: string,
     memberKind: "method" | "property",
-    parameters?: readonly IrParameter[]
+    parameters?: readonly IrParameter[],
+    baseClassType?: IrType
   ): { isOverride: boolean; isShadow: boolean };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -617,13 +618,20 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     signatureHasVariadicTypeParams: (sigId) =>
       infSignatureHasVariadicTypeParams(state, sigId),
     declHasTypeAnnotation: (declId) => infDeclHasTypeAnnotation(state, declId),
-    checkTsClassMemberOverride: (declId, memberName, memberKind, parameters) =>
+    checkTsClassMemberOverride: (
+      declId,
+      memberName,
+      memberKind,
+      parameters,
+      baseClassType
+    ) =>
       infCheckTsClassMemberOverride(
         state,
         declId,
         memberName,
         memberKind,
-        parameters
+        parameters,
+        baseClassType
       ),
 
     // Diagnostics

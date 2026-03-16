@@ -23,7 +23,9 @@ import { buildCommand } from "./build.js";
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../..")
 );
-const localJsPackageRoot = resolve(join(repoRoot, "..", "js", "versions", "10"));
+const localJsPackageRoot = resolve(
+  join(repoRoot, "..", "js", "versions", "10")
+);
 const linkedJsPackageRoot = existsSync(localJsPackageRoot)
   ? localJsPackageRoot
   : join(repoRoot, "node_modules/@tsonic/js");
@@ -203,10 +205,7 @@ describe("build command (library bindings ref dirs)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -531,10 +530,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -557,7 +553,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -627,10 +628,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -653,7 +651,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -704,7 +707,9 @@ describe("build command (native library port regressions)", function () {
   });
 
   it("builds Array.isArray fallthrough narrowing for methods on the JS surface", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-array-method-fallthrough-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-array-method-fallthrough-")
+    );
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
@@ -718,10 +723,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -744,7 +746,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -754,7 +761,7 @@ describe("build command (native library port regressions)", function () {
         join(projectRoot, "src", "index.ts"),
         [
           "class Response {",
-          "  private header = \"\";",
+          '  private header = "";',
           "  append(field: string, value: string): void;",
           "  append(field: string, value: string[]): void;",
           "  append(field: string, value: string | string[]): void {",
@@ -820,10 +827,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -846,7 +850,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -927,7 +936,9 @@ describe("build command (native library port regressions)", function () {
   });
 
   it("builds JS array-like interop results and deterministic union constructor arguments in native ports", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-js-array-like-interop-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-js-array-like-interop-")
+    );
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
@@ -941,10 +952,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -967,7 +975,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -977,7 +990,7 @@ describe("build command (native library port regressions)", function () {
         join(projectRoot, "src", "index.ts"),
         [
           "export function run(values: string[], stat: string, pattern: string, value: string): boolean {",
-          '  const filtered = values.filter((item) => item.length > 0);',
+          "  const filtered = values.filter((item) => item.length > 0);",
           '  const parts = stat.split(" ");',
           "  const regex = new RegExp(pattern);",
           "  return filtered.length >= 0 && parts.length >= 0 && regex.test(value);",
@@ -1054,7 +1067,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -1144,7 +1162,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -1256,7 +1279,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -1344,10 +1372,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -1374,7 +1399,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -1426,8 +1456,8 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("builds typeof fallthrough narrowing for class properties in JS-surface source ports", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-property-typeof-"));
+  it("builds JS array callbacks and rest-only timer callbacks in JS-surface ports", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-js-array-callbacks-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
@@ -1441,10 +1471,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -1467,7 +1494,650 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          "type Todo = { id: number; title: string; completed: boolean };",
+          "const todos: Todo[] = [];",
+          "",
+          "export function getById(id: number): Todo | undefined {",
+          "  return todos.find((t) => t.id === id);",
+          "}",
+          "",
+          "export function remove(id: number): boolean {",
+          "  const index = todos.findIndex((t) => t.id === id);",
+          "  return index !== -1;",
+          "}",
+          "",
+          "export function main(): void {",
+          "  setInterval(() => {}, 1000);",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.match(
+        /new global::Tsonic\.JSRuntime\.JSArray<(?:global::App\.)?Todo(?:__Alias)?>\(todos\)\.find\(/
+      );
+      expect(tree).to.match(
+        /new global::Tsonic\.JSRuntime\.JSArray<(?:global::App\.)?Todo(?:__Alias)?>\(todos\)\.findIndex\(/
+      );
+      expect(tree).to.include(
+        "global::Tsonic.JSRuntime.Timers.setInterval(() =>"
+      );
+      expect(tree).to.not.include("__unused_args");
+      expect(tree).to.not.include("todos.Find(");
+      expect(tree).to.not.include("todos.FindIndex(");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds typeof-narrowed unknown entry assignments with concrete CLR casts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-typeof-entry-casts-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          "export function readFirst(root: Record<string, unknown>): string {",
+          "  const first = Object.entries(root)[0];",
+          '  let title = "";',
+          "  let enabled = false;",
+          "  let weight: number = 0;",
+          "  if (first === undefined) return title;",
+          "  const [key, value] = first;",
+          '  if (typeof value === "string") {',
+          "    title = value;",
+          '  } else if (typeof value === "boolean") {',
+          "    enabled = value;",
+          '  } else if (typeof value === "number") {',
+          "    weight = value;",
+          "  }",
+          "  return enabled ? `${key}:${title}:${weight}` : title;",
+          "}",
+          "",
+          "export function main(): string {",
+          '  return readFirst({ title: \"hello\" });',
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.include("title = (string)value;");
+      expect(tree).to.include("enabled = (bool)value;");
+      expect(tree).to.include("weight = (double)value;");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps JS Object.entries object-based for JSON.parse<object> values narrowed by user guards", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-json-object-entries-")
+    );
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          "const isObject = (value: unknown): value is Record<string, unknown> => {",
+          '  return value !== null && typeof value === "object" && !Array.isArray(value);',
+          "};",
+          "",
+          "export function main(): void {",
+          '  const root = JSON.parse("{\\"title\\":\\"hello\\",\\"count\\":2}");',
+          "  if (!isObject(root)) return;",
+          "  const first = Object.entries(root)[0];",
+          "  if (first === undefined) return;",
+          "  const [key, value] = first;",
+          '  if (typeof value === "number") {',
+          "    console.log(key, value.toString());",
+          '  } else if (typeof value === "string") {',
+          "    console.log(key, value.toUpperCase());",
+          "  }",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.include("global::Tsonic.JSRuntime.Object.entries(root)");
+      expect(tree).to.not.include(
+        "Object.entries((global::System.Collections.Generic.Dictionary<string, object?>)root)"
+      );
+      expect(tree).to.include("((double)value).toString()");
+      expect(tree).to.include("((string)value).toUpperCase()");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds explicit generic ContinueWith state overloads with Task-returning local helpers", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-continuewith-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'import { Console } from "@tsonic/dotnet/System.js";',
+          'import { Task, TaskExtensions } from "@tsonic/dotnet/System.Threading.Tasks.js";',
+          "",
+          "function writeTask(): Task {",
+          '  Console.WriteLine("WRITE");',
+          "  return Task.CompletedTask;",
+          "}",
+          "",
+          "export function main(): void {",
+          '  const t = Task.FromResult<string>("X").ContinueWith<Task>(',
+          "    (task, _state) => {",
+          "      Console.WriteLine(task.Result);",
+          "      return writeTask();",
+          "    },",
+          "    undefined",
+          "  );",
+          "  TaskExtensions.Unwrap(t).Wait();",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.include("return writeTask();");
+      expect(tree).to.not.include("writeTask();\n                return;");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds generic discriminated unions with inline object members through helper calls", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-generic-result-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          "type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };",
+          "",
+          "function ok<T, E>(value: T): Result<T, E> {",
+          "  return { ok: true, value };",
+          "}",
+          "",
+          "function err<T, E>(error: E): Result<T, E> {",
+          "  return { ok: false, error };",
+          "}",
+          "",
+          "export function divide(a: number, b: number): Result<number, string> {",
+          "  if (b === 0) {",
+          '    return err<number, string>("Division by zero");',
+          "  }",
+          "  return ok<number, string>(a / b);",
+          "}",
+          "",
+          "export function main(): void {",
+          "  divide(1, 0);",
+          "  divide(4, 2);",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds exact numeric widening through contextual generic lambdas", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-generic-long-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'import type { int, long } from "@tsonic/core/types.js";',
+          "",
+          "interface Box<T> {",
+          "  value: T;",
+          "}",
+          "",
+          "function wrap<T>(value: T): Box<T> {",
+          "  return { value };",
+          "}",
+          "",
+          "function mapBox<T, U>(box: Box<T>, fn: (value: T) => U): Box<U> {",
+          "  return { value: fn(box.value) };",
+          "}",
+          "",
+          "export function main(): long {",
+          "  const input: Box<int> = wrap(25);",
+          "  const output = mapBox<int, long>(input, (x) => (x as long) * 1000000);",
+          "  return output.value;",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds typeof fallthrough narrowing for class properties in JS-surface source ports", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-property-typeof-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -1539,10 +2209,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -1565,7 +2232,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -1631,10 +2303,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -1657,7 +2326,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -1728,10 +2402,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -1754,7 +2425,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -1811,7 +2487,9 @@ describe("build command (native library port regressions)", function () {
   });
 
   it("builds recursive middleware handler surfaces in JS-surface source ports", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-recursive-middleware-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-recursive-middleware-")
+    );
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
@@ -1825,10 +2503,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -1851,7 +2526,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -1959,7 +2639,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -2054,10 +2739,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -2080,7 +2762,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -2160,10 +2847,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -2190,7 +2874,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -2254,10 +2943,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -2284,7 +2970,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -2349,10 +3040,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -2379,7 +3067,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -2429,8 +3122,10 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("builds installed source-package recursive aliases and structural local-class interface adaptation", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-expresslike-source-package-"));
+  it("prefers resolved global console bindings over polluted ambient identifier types", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-console-error-binding-")
+    );
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
@@ -2444,10 +3139,952 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
       );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          "declare class Console {",
+          "  log(...data: unknown[]): void;",
+          "  error(...data: unknown[]): void;",
+          "}",
+          "",
+          "declare const console: Console;",
+          "",
+          "export function main(): void {",
+          '  console.error(\"bad\");',
+          '  console.log(\"ok\");',
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+
+      const generatedText = readFileSync(
+        join(projectRoot, "generated", "index.cs"),
+        "utf-8"
+      );
+      expect(generatedText).to.include(
+        'global::Tsonic.JSRuntime.console.error("bad")'
+      );
+      expect(generatedText).to.include(
+        'global::Tsonic.JSRuntime.console.log("ok")'
+      );
+      expect(generatedText).to.not.include("global::System.Console.Error");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps sibling narrowing branches lexically isolated for repeated local names and mixed property shapes", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-branch-scope-isolation-")
+    );
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'import { List } from "@tsonic/dotnet/System.Collections.Generic.js";',
+          'import type { int } from "@tsonic/core/types.js";',
+          "",
+          "class StringValue {",
+          "  readonly value: string;",
+          "  constructor(value: string) {",
+          "    this.value = value;",
+          "  }",
+          "}",
+          "",
+          "class PageArrayValue {",
+          "  readonly value: string[];",
+          "  constructor(value: string[]) {",
+          "    this.value = value;",
+          "  }",
+          "}",
+          "",
+          "class AnyArrayValue {",
+          "  readonly value: List<string>;",
+          "  constructor(value: List<string>) {",
+          "    this.value = value;",
+          "  }",
+          "}",
+          "",
+          "type Value = StringValue | PageArrayValue | AnyArrayValue;",
+          "",
+          "export const len = (value: Value): int => {",
+          "  if (value instanceof StringValue) {",
+          "    const l: int = value.value.length;",
+          "    return l;",
+          "  }",
+          "  if (value instanceof PageArrayValue) {",
+          "    const l: int = value.value.length;",
+          "    return l;",
+          "  }",
+          "  if (value instanceof AnyArrayValue) {",
+          "    const items = value.value.ToArray();",
+          "    const l: int = items.length;",
+          "    return l;",
+          "  }",
+          "  return 0 as int;",
+          "};",
+          "",
+          "export function main(): void {}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps wrapper-member types isolated across sibling instanceof branches inside loop bodies", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-wrapper-member-isolation-")
+    );
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          "function keepString(value: string): string {",
+          "  return value;",
+          "}",
+          "",
+          "class TemplateValue {}",
+          "class NilValue extends TemplateValue {}",
+          "",
+          "class PageContext {",
+          '  title = "";',
+          "}",
+          "",
+          "class SiteContext {",
+          '  baseURL = "";',
+          "}",
+          "",
+          "class PageValue extends TemplateValue {",
+          "  readonly value: PageContext;",
+          "  constructor(value: PageContext) {",
+          "    super();",
+          "    this.value = value;",
+          "  }",
+          "}",
+          "",
+          "class SiteValue extends TemplateValue {",
+          "  readonly value: SiteContext;",
+          "  constructor(value: SiteContext) {",
+          "    super();",
+          "    this.value = value;",
+          "  }",
+          "}",
+          "",
+          "type Value = NilValue | PageValue | SiteValue;",
+          "",
+          "export const resolve = (value: Value, segments: string[]): void => {",
+          "  let cur: Value = value;",
+          "  for (let i = 0; i < segments.length; i++) {",
+          "    const seg = segments[i]!;",
+          "    if (cur instanceof NilValue) return;",
+          "    if (cur instanceof PageValue) {",
+          "      const page = cur.value;",
+          '      if (seg === "title") keepString(page.title);',
+          "      cur = new NilValue();",
+          "      continue;",
+          "    }",
+          "    if (cur instanceof SiteValue) {",
+          "      const site = cur.value;",
+          '      if (seg === "baseurl") keepString(site.baseURL);',
+          "      cur = new NilValue();",
+          "      continue;",
+          "    }",
+          "  }",
+          "};",
+          "",
+          "export function main(): void {}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps imported wrapper-member types isolated across sibling instanceof branches inside loop bodies", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-imported-wrapper-member-isolation-")
+    );
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src", "values"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "models.ts"),
+        [
+          "export class PageContext {",
+          '  title = "";',
+          "}",
+          "",
+          "export class SiteContext {",
+          '  baseURL = "";',
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "values", "base.ts"),
+        [
+          "export class TemplateValue {}",
+          "export class NilValue extends TemplateValue {}",
+        ].join("\n"),
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "values", "page.ts"),
+        [
+          'import { PageContext } from "../models.ts";',
+          'import { TemplateValue } from "./base.ts";',
+          "",
+          "export class PageValue extends TemplateValue {",
+          "  readonly value: PageContext;",
+          "  constructor(value: PageContext) {",
+          "    super();",
+          "    this.value = value;",
+          "  }",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "values", "site.ts"),
+        [
+          'import { SiteContext } from "../models.ts";',
+          'import { TemplateValue } from "./base.ts";',
+          "",
+          "export class SiteValue extends TemplateValue {",
+          "  readonly value: SiteContext;",
+          "  constructor(value: SiteContext) {",
+          "    super();",
+          "    this.value = value;",
+          "  }",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'import { NilValue } from "./values/base.ts";',
+          'import { PageValue } from "./values/page.ts";',
+          'import { SiteValue } from "./values/site.ts";',
+          "",
+          "function keepString(value: string): string {",
+          "  return value;",
+          "}",
+          "",
+          "type Value = NilValue | PageValue | SiteValue;",
+          "",
+          "export const resolve = (value: Value, segments: string[]): void => {",
+          "  let cur: Value = value;",
+          "  for (let i = 0; i < segments.length; i++) {",
+          "    const seg = segments[i]!;",
+          "    if (cur instanceof NilValue) return;",
+          "    if (cur instanceof PageValue) {",
+          "      const page = cur.value;",
+          '      if (seg === "title") keepString(page.title);',
+          "      cur = new NilValue();",
+          "      continue;",
+          "    }",
+          "    if (cur instanceof SiteValue) {",
+          "      const site = cur.value;",
+          '      if (seg === "baseurl") keepString(site.baseURL);',
+          "      cur = new NilValue();",
+          "      continue;",
+          "    }",
+          "  }",
+          "};",
+          "",
+          "export function main(): void {}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds imported nominal base-class wrapper members after instanceof narrowing", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-imported-base-wrapper-member-")
+    );
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src", "values"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "models.ts"),
+        [
+          "export class PageContext {",
+          '  title = "";',
+          "}",
+          "",
+          "export class SiteContext {",
+          '  baseURL = "";',
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "values", "base.ts"),
+        [
+          "export class TemplateValue {}",
+          "export class NilValue extends TemplateValue {}",
+        ].join("\n"),
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "values", "page.ts"),
+        [
+          'import { PageContext } from "../models.ts";',
+          'import { TemplateValue } from "./base.ts";',
+          "",
+          "export class PageValue extends TemplateValue {",
+          "  readonly value: PageContext;",
+          "  constructor(value: PageContext) {",
+          "    super();",
+          "    this.value = value;",
+          "  }",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "values", "site.ts"),
+        [
+          'import { SiteContext } from "../models.ts";',
+          'import { TemplateValue } from "./base.ts";',
+          "",
+          "export class SiteValue extends TemplateValue {",
+          "  readonly value: SiteContext;",
+          "  constructor(value: SiteContext) {",
+          "    super();",
+          "    this.value = value;",
+          "  }",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          "function keepString(value: string): string {",
+          "  return value;",
+          "}",
+          "",
+          'import { TemplateValue, NilValue } from "./values/base.ts";',
+          'import { PageValue } from "./values/page.ts";',
+          'import { SiteValue } from "./values/site.ts";',
+          "",
+          "export const resolve = (value: TemplateValue, segments: string[]): void => {",
+          "  let cur: TemplateValue = value;",
+          "  for (let i = 0; i < segments.length; i++) {",
+          "    const seg = segments[i]!;",
+          "    if (cur instanceof NilValue) return;",
+          "    if (cur instanceof PageValue) {",
+          "      const page = cur.value;",
+          '      if (seg === "title") keepString(page.title);',
+          "      cur = new NilValue();",
+          "      continue;",
+          "    }",
+          "    if (cur instanceof SiteValue) {",
+          "      const site = cur.value;",
+          '      if (seg === "baseurl") keepString(site.baseURL);',
+          "      cur = new NilValue();",
+          "      continue;",
+          "    }",
+          "  }",
+          "};",
+          "",
+          "export function main(): void {}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+
+      const generatedText = readFileSync(
+        join(projectRoot, "generated", "index.cs"),
+        "utf-8"
+      );
+      expect(generatedText).to.include("keepString(site.baseURL)");
+      expect(generatedText).to.not.include("PageContext)site");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps sibling catch scopes lexically isolated when catch variables are narrowed repeatedly", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-catch-scope-isolation-")
+    );
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          "export const render = (flag: boolean): string => {",
+          "  if (flag) {",
+          '    try { throw new Error("first"); } catch (e) {',
+          "      if (e instanceof Error) return e.message;",
+          "      throw e;",
+          "    }",
+          "  }",
+          '  try { throw new Error("second"); } catch (e) {',
+          "    if (e instanceof Error) return e.message;",
+          "    throw e;",
+          "  }",
+          "};",
+          "",
+          "export function main(): void {}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("infers branch-local storage from narrowed member-access initializers for repeated locals", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-narrowed-local-storage-")
+    );
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'import { List } from "@tsonic/dotnet/System.Collections.Generic.js";',
+          'import type { int } from "@tsonic/core/types.js";',
+          "",
+          "class Item {",
+          "  readonly name: string;",
+          "  constructor(name: string) {",
+          "    this.name = name;",
+          "  }",
+          "}",
+          "",
+          "class PageArrayValue {",
+          "  readonly value: Item[];",
+          "  constructor(value: Item[]) {",
+          "    this.value = value;",
+          "  }",
+          "}",
+          "",
+          "class AnyArrayValue {",
+          "  readonly value: List<Item>;",
+          "  constructor(value: List<Item>) {",
+          "    this.value = value;",
+          "  }",
+          "}",
+          "",
+          "type Value = PageArrayValue | AnyArrayValue;",
+          "",
+          "export const len = (value: Value): int => {",
+          "  if (value instanceof PageArrayValue) {",
+          "    const items = value.value;",
+          "    return items.length;",
+          "  }",
+          "  if (value instanceof AnyArrayValue) {",
+          "    const items = value.value;",
+          "    if (items.Count === 0) return 0 as int;",
+          "    const arr = items.ToArray();",
+          "    return arr.length;",
+          "  }",
+          "  return 0 as int;",
+          "};",
+          "",
+          "export function main(): void {}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.ok).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds installed source-package recursive aliases and structural local-class interface adaptation", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-expresslike-source-package-")
+    );
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -2608,7 +4245,7 @@ describe("build command (native library port regressions)", function () {
           "}",
           "",
           "function isPathSpec(value: unknown): value is PathSpec {",
-          "  if (value == null || typeof value === \"string\" || value instanceof RegExp) {",
+          '  if (value == null || typeof value === "string" || value instanceof RegExp) {',
           "    return true;",
           "  }",
           "  if (!Array.isArray(value)) {",
@@ -2637,7 +4274,7 @@ describe("build command (native library port regressions)", function () {
           "  get(name: string): unknown;",
           "  override get(path: PathSpec, ...handlers: RequestHandler[]): this;",
           "  override get(nameOrPath: string | PathSpec, ...handlers: RequestHandler[]): unknown {",
-          "    if (handlers.length === 0 && typeof nameOrPath === \"string\") {",
+          '    if (handlers.length === 0 && typeof nameOrPath === "string") {',
           "      return this.settings[nameOrPath];",
           "    }",
           "    return super.get(nameOrPath as PathSpec, ...handlers);",
@@ -2667,8 +4304,8 @@ describe("build command (native library port regressions)", function () {
           'import { Application } from "./application.js";',
           'import type { TransportContext } from "./types.js";',
           'export type { TransportContext, TransportResponse } from "./types.js";',
-          'export const create = (): Application => new Application();',
-          'export const dispatch = async (app: Application, context: TransportContext): Promise<void> => {',
+          "export const create = (): Application => new Application();",
+          "export const dispatch = async (app: Application, context: TransportContext): Promise<void> => {",
           "  await app.handle(context);",
           "};",
         ].join("\n"),
@@ -2692,7 +4329,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -2732,12 +4374,12 @@ describe("build command (native library port regressions)", function () {
           "",
           "export async function main(): Promise<void> {",
           "  const app = create();",
-          "  app.get(\"/items\", async (_req, res, _next) => {",
-          "    res.send(\"ok\");",
+          '  app.get("/items", async (_req, res, _next) => {',
+          '    res.send("ok");',
           "  });",
           "  const response = new MemoryResponse();",
           "  const context: TransportContext = {",
-          "    request: { method: \"GET\", path: \"/items\", headers: {} },",
+          '    request: { method: "GET", path: "/items", headers: {} },',
           "    response,",
           "  };",
           "  await dispatch(app, context);",
@@ -2773,7 +4415,7 @@ describe("build command (native library port regressions)", function () {
         "global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<object[]"
       );
       expect(tree).to.not.include("var items = value;");
-      expect(tree).to.match(/object\?\[\] items = (?:\(object\?\[\]\))+value;/);
+      expect(tree).to.include("object?[] items = (object?[])(object?)value;");
       expect(tree).to.match(
         /class MemoryResponse\s*:\s*global::.*TransportResponse/
       );
@@ -2809,10 +4451,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -2835,7 +4474,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -2906,10 +4550,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -2985,7 +4626,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -3171,7 +4817,9 @@ describe("build command (native library port regressions)", function () {
   });
 
   it("builds private class members in JS-surface source packages", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-private-source-port-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-private-source-port-")
+    );
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
@@ -3255,11 +4903,11 @@ describe("build command (native library port regressions)", function () {
           "      return this.#prefix;",
           "    }",
           "",
-          '    return `${this.#prefix}:${value}:${this.#increment()}`;',
+          "    return `${this.#prefix}:${value}:${this.#increment()}`;",
           "  }",
           "",
           "  read(): string {",
-          "    return this.append(\"value\");",
+          '    return this.append("value");',
           "  }",
           "}",
           "",
@@ -3285,7 +4933,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -3420,7 +5073,12 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
-          { name: "@acme/app", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         ) + "\n",
@@ -3471,7 +5129,9 @@ describe("build command (native library port regressions)", function () {
   });
 
   it("builds imported callback types that use aliased local type imports", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-import-alias-callback-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-import-alias-callback-")
+    );
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
@@ -3485,10 +5145,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")
@@ -3553,7 +5210,7 @@ describe("build command (native library port regressions)", function () {
           '  item.Path = "/x";',
           '  item.VisitorId = "v1";',
           "  const rows = topByKey([item], (e) => e.Path!, (e) => e.VisitorId);",
-          "  if (rows[0] !== \"/x:v1\") throw new Error(\"bad callback typing\");",
+          '  if (rows[0] !== "/x:v1") throw new Error("bad callback typing");',
           "}",
         ].join("\n"),
         "utf-8"
@@ -3598,7 +5255,9 @@ describe("build command (native library port regressions)", function () {
   });
 
   it("builds contextual callback parameters that flow from imported class-backed query surfaces", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-contextual-class-callback-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-contextual-class-callback-")
+    );
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
@@ -3612,10 +5271,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
 
-      linkDir(
-        linkedJsPackageRoot,
-        join(dir, "node_modules/@tsonic/js")
-      );
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
       linkDir(
         join(repoRoot, "node_modules/@tsonic/core"),
         join(dir, "node_modules/@tsonic/core")

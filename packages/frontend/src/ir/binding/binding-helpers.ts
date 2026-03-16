@@ -417,6 +417,9 @@ export const extractDeclaringIdentity = (
 export const extractClassMemberNames = (
   classDecl: ts.ClassDeclaration
 ): ClassMemberNames => {
+  const typeParameters = (classDecl.typeParameters ?? []).map(
+    (parameter) => parameter.name.text
+  );
   const methods = new Set<string>();
   const properties = new Set<string>();
   const methodSignatures = new Map<string, CapturedClassMethodSignature[]>();
@@ -471,5 +474,11 @@ export const extractClassMemberNames = (
     }
   }
 
-  return { methods, properties, methodSignatures, propertyTypeNodes };
+  return {
+    typeParameters,
+    methods,
+    properties,
+    methodSignatures,
+    propertyTypeNodes,
+  };
 };

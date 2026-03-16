@@ -325,6 +325,7 @@ type NamespacePlan = {
   readonly crossNamespaceReexports: {
     readonly dtsStatements: readonly string[];
     readonly jsValueStatements: readonly string[];
+    readonly valueExportNames: ReadonlySet<string>;
   };
   readonly crossNamespaceTypeDeclarations: readonly ExportedSymbol[];
   readonly sourceAliases: readonly SourceAliasPlan[];
@@ -348,6 +349,10 @@ const printTypeNodeText = (
   node: ts.TypeNode,
   sourceFile: ts.SourceFile
 ): string => {
+  const raw = node.getText(sourceFile).trim();
+  if (raw.length > 0) {
+    return raw;
+  }
   return typePrinter
     .printNode(ts.EmitHint.Unspecified, node, sourceFile)
     .trim();
@@ -1717,9 +1722,11 @@ const finalizeCrossNamespaceReexports = (
 ): {
   readonly dtsStatements: readonly string[];
   readonly jsValueStatements: readonly string[];
+  readonly valueExportNames: ReadonlySet<string>;
 } => {
   const dtsStatements: string[] = [];
   const jsValueStatements: string[] = [];
+  const valueExportNames = new Set<string>();
 
   for (const [key, specs] of Array.from(grouped.entries()).sort((a, b) =>
     a[0].localeCompare(b[0])
@@ -1740,9 +1747,13 @@ const finalizeCrossNamespaceReexports = (
     const statement = `export { ${unique.join(", ")} } from '${moduleSpecifier}';`;
     dtsStatements.push(statement);
     jsValueStatements.push(statement);
+    for (const spec of unique) {
+      const aliasParts = spec.split(/\s+as\s+/);
+      valueExportNames.add(aliasParts.length === 2 ? aliasParts[1]! : spec);
+    }
   }
 
-  return { dtsStatements, jsValueStatements };
+  return { dtsStatements, jsValueStatements, valueExportNames };
 };
 
 const moduleNamespacePath = (namespace: string): string => {
@@ -2496,43 +2507,80 @@ const isNumericValueType = (name: string): boolean => {
   );
 };
 
-const rewriteBindingSemanticParameter = (
-  parameter: IrParameter,
-  localTypeNameRemaps: ReadonlyMap<string, string>
-): IrParameter => ({
-  ...parameter,
-  type: rewriteBindingSemanticType(parameter.type, localTypeNameRemaps),
-});
-
-const rewriteBindingSemanticMember = (
-  member: IrInterfaceMember,
-  localTypeNameRemaps: ReadonlyMap<string, string>
-): IrInterfaceMember => {
-  if (member.kind === "propertySignature") {
-    return {
-      ...member,
-      type:
-        rewriteBindingSemanticType(member.type, localTypeNameRemaps) ??
-        member.type,
-    };
-  }
-
-  return {
-    ...member,
-    parameters: member.parameters.map((parameter) =>
-      rewriteBindingSemanticParameter(parameter, localTypeNameRemaps)
-    ),
-    returnType:
-      rewriteBindingSemanticType(member.returnType, localTypeNameRemaps) ??
-      member.returnType,
-  };
+type BindingSemanticRewriteCaches = {
+  readonly types: WeakMap<object, IrType>;
+  readonly members: WeakMap<object, IrInterfaceMember>;
 };
 
-const rewriteBindingSemanticType = (
+const createBindingSemanticRewriteCaches = (): BindingSemanticRewriteCaches => ({
+  types: new WeakMap<object, IrType>(),
+  members: new WeakMap<object, IrInterfaceMember>(),
+});
+
+const rewriteBindingSemanticParameterInternal = (
+  parameter: IrParameter,
+  localTypeNameRemaps: ReadonlyMap<string, string>,
+  caches: BindingSemanticRewriteCaches
+): IrParameter => ({
+  ...parameter,
+  type: rewriteBindingSemanticTypeInternal(
+    parameter.type,
+    localTypeNameRemaps,
+    caches
+  ),
+});
+
+const rewriteBindingSemanticMemberInternal = (
+  member: IrInterfaceMember,
+  localTypeNameRemaps: ReadonlyMap<string, string>,
+  caches: BindingSemanticRewriteCaches
+): IrInterfaceMember => {
+  const cached = caches.members.get(member);
+  if (cached) return cached;
+
+  if (member.kind === "propertySignature") {
+    const rewritten: IrInterfaceMember = {
+      ...member,
+      type: member.type,
+    };
+    caches.members.set(member, rewritten);
+    (rewritten as { type: typeof member.type }).type =
+      rewriteBindingSemanticTypeInternal(
+        member.type,
+        localTypeNameRemaps,
+        caches
+      ) ?? member.type;
+    return rewritten;
+  }
+
+  const rewritten: IrInterfaceMember = {
+    ...member,
+    parameters: member.parameters,
+    returnType: member.returnType,
+  };
+  caches.members.set(member, rewritten);
+  (rewritten as { parameters: typeof member.parameters }).parameters =
+    member.parameters.map((parameter) =>
+    rewriteBindingSemanticParameterInternal(parameter, localTypeNameRemaps, caches)
+  );
+  (rewritten as { returnType: typeof member.returnType }).returnType =
+    rewriteBindingSemanticTypeInternal(
+      member.returnType,
+      localTypeNameRemaps,
+      caches
+    ) ?? member.returnType;
+  return rewritten;
+};
+
+const rewriteBindingSemanticTypeInternal = (
   type: IrType | undefined,
-  localTypeNameRemaps: ReadonlyMap<string, string>
+  localTypeNameRemaps: ReadonlyMap<string, string>,
+  caches: BindingSemanticRewriteCaches
 ): IrType | undefined => {
   if (!type) return undefined;
+
+  const cached = caches.types.get(type);
+  if (cached) return cached;
 
   switch (type.kind) {
     case "referenceType": {
@@ -2540,70 +2588,151 @@ const rewriteBindingSemanticType = (
         localTypeNameRemaps.get(type.name) ?? type.name,
         type.typeArguments?.length
       );
-      return {
+      const rewritten: IrType = {
         ...type,
         name: rewrittenName,
-        typeArguments: type.typeArguments?.map((arg) =>
-          rewriteBindingSemanticType(arg, localTypeNameRemaps)
-        ) as readonly IrType[] | undefined,
-        structuralMembers: type.structuralMembers?.map((member) =>
-          rewriteBindingSemanticMember(member, localTypeNameRemaps)
-        ),
+        typeArguments: undefined,
+        structuralMembers: undefined,
       };
+      caches.types.set(type, rewritten);
+      (
+        rewritten as { typeArguments?: typeof type.typeArguments }
+      ).typeArguments = type.typeArguments?.map((arg) =>
+        rewriteBindingSemanticTypeInternal(arg, localTypeNameRemaps, caches)
+      ) as readonly IrType[] | undefined;
+      (
+        rewritten as { structuralMembers?: typeof type.structuralMembers }
+      ).structuralMembers = type.structuralMembers?.map((member) =>
+        rewriteBindingSemanticMemberInternal(member, localTypeNameRemaps, caches)
+      );
+      return rewritten;
     }
-    case "arrayType":
-      return {
+    case "arrayType": {
+      const rewritten: IrType = {
         ...type,
-        elementType:
-          rewriteBindingSemanticType(type.elementType, localTypeNameRemaps) ??
+        elementType: type.elementType,
+      };
+      caches.types.set(type, rewritten);
+      (rewritten as { elementType: typeof type.elementType }).elementType =
+        rewriteBindingSemanticTypeInternal(
           type.elementType,
-      };
-    case "tupleType":
-      return {
+          localTypeNameRemaps,
+          caches
+        ) ?? type.elementType;
+      return rewritten;
+    }
+    case "tupleType": {
+      const rewritten: IrType = {
         ...type,
-        elementTypes: type.elementTypes.map((elementType) =>
-          rewriteBindingSemanticType(elementType, localTypeNameRemaps)
-        ) as readonly IrType[],
+        elementTypes: type.elementTypes,
       };
-    case "functionType":
-      return {
+      caches.types.set(type, rewritten);
+      (rewritten as { elementTypes: typeof type.elementTypes }).elementTypes =
+        type.elementTypes.map((elementType) =>
+        rewriteBindingSemanticTypeInternal(
+          elementType,
+          localTypeNameRemaps,
+          caches
+        )
+      ) as readonly IrType[];
+      return rewritten;
+    }
+    case "functionType": {
+      const rewritten: IrType = {
         ...type,
-        parameters: type.parameters.map((parameter) =>
-          rewriteBindingSemanticParameter(parameter, localTypeNameRemaps)
-        ),
-        returnType:
-          rewriteBindingSemanticType(type.returnType, localTypeNameRemaps) ??
+        parameters: type.parameters,
+        returnType: type.returnType,
+      };
+      caches.types.set(type, rewritten);
+      (rewritten as { parameters: typeof type.parameters }).parameters =
+        type.parameters.map((parameter) =>
+        rewriteBindingSemanticParameterInternal(
+          parameter,
+          localTypeNameRemaps,
+          caches
+        )
+      );
+      (rewritten as { returnType: typeof type.returnType }).returnType =
+        rewriteBindingSemanticTypeInternal(
           type.returnType,
-      };
-    case "objectType":
-      return {
+          localTypeNameRemaps,
+          caches
+        ) ?? type.returnType;
+      return rewritten;
+    }
+    case "objectType": {
+      const rewritten: IrType = {
         ...type,
-        members: type.members.map((member) =>
-          rewriteBindingSemanticMember(member, localTypeNameRemaps)
-        ),
+        members: type.members,
       };
-    case "dictionaryType":
-      return {
+      caches.types.set(type, rewritten);
+      (rewritten as { members: typeof type.members }).members = type.members.map((member) =>
+        rewriteBindingSemanticMemberInternal(member, localTypeNameRemaps, caches)
+      );
+      return rewritten;
+    }
+    case "dictionaryType": {
+      const rewritten: IrType = {
         ...type,
-        keyType:
-          rewriteBindingSemanticType(type.keyType, localTypeNameRemaps) ??
+        keyType: type.keyType,
+        valueType: type.valueType,
+      };
+      caches.types.set(type, rewritten);
+      (rewritten as { keyType: typeof type.keyType }).keyType =
+        rewriteBindingSemanticTypeInternal(
           type.keyType,
-        valueType:
-          rewriteBindingSemanticType(type.valueType, localTypeNameRemaps) ??
+          localTypeNameRemaps,
+          caches
+        ) ?? type.keyType;
+      (rewritten as { valueType: typeof type.valueType }).valueType =
+        rewriteBindingSemanticTypeInternal(
           type.valueType,
-      };
+          localTypeNameRemaps,
+          caches
+        ) ?? type.valueType;
+      return rewritten;
+    }
     case "unionType":
-    case "intersectionType":
-      return {
+    case "intersectionType": {
+      const rewritten: IrType = {
         ...type,
-        types: type.types.map((candidate) =>
-          rewriteBindingSemanticType(candidate, localTypeNameRemaps)
-        ) as readonly IrType[],
+        types: type.types,
       };
+      caches.types.set(type, rewritten);
+      (rewritten as { types: typeof type.types }).types = type.types.map((candidate) =>
+        rewriteBindingSemanticTypeInternal(
+          candidate,
+          localTypeNameRemaps,
+          caches
+        )
+      ) as readonly IrType[];
+      return rewritten;
+    }
     default:
       return type;
   }
 };
+
+const rewriteBindingSemanticType = (
+  type: IrType | undefined,
+  localTypeNameRemaps: ReadonlyMap<string, string>
+): IrType | undefined =>
+  rewriteBindingSemanticTypeInternal(
+    type,
+    localTypeNameRemaps,
+    createBindingSemanticRewriteCaches()
+  );
+
+const rewriteBindingSemanticParameter = (
+  parameter: IrParameter,
+  localTypeNameRemaps: ReadonlyMap<string, string>
+): IrParameter =>
+  rewriteBindingSemanticParameterInternal(
+    parameter,
+    localTypeNameRemaps,
+    createBindingSemanticRewriteCaches()
+  );
+
 
 const buildSemanticSignature = (opts: {
   readonly typeParameters: readonly IrTypeParameter[] | undefined;
@@ -2646,6 +2775,223 @@ const buildSemanticSignatureFromFunctionType = (
   returnType: rewriteBindingSemanticType(type.returnType, localTypeNameRemaps),
 });
 
+type BindingClrIdentityReattachCaches = {
+  readonly types: WeakMap<object, IrType>;
+  readonly members: WeakMap<object, IrInterfaceMember>;
+};
+
+const createBindingClrIdentityReattachCaches =
+  (): BindingClrIdentityReattachCaches => ({
+    types: new WeakMap<object, IrType>(),
+    members: new WeakMap<object, IrInterfaceMember>(),
+  });
+
+const reattachBindingClrIdentityMemberInternal = (
+  member: IrInterfaceMember,
+  clrNamesByAlias: ReadonlyMap<string, string>,
+  caches: BindingClrIdentityReattachCaches
+): IrInterfaceMember => {
+  const cached = caches.members.get(member);
+  if (cached) return cached;
+
+  if (member.kind === "propertySignature") {
+    const rewritten: IrInterfaceMember = {
+      ...member,
+      type: member.type,
+    };
+    caches.members.set(member, rewritten);
+    (rewritten as { type: typeof member.type }).type =
+      reattachBindingClrIdentitiesInternal(
+        member.type,
+        clrNamesByAlias,
+        caches
+      ) ?? member.type;
+    return rewritten;
+  }
+
+  const rewritten: IrInterfaceMember = {
+    ...member,
+    parameters: member.parameters,
+    returnType: member.returnType,
+  };
+  caches.members.set(member, rewritten);
+  (rewritten as { parameters: typeof member.parameters }).parameters =
+    member.parameters.map((parameter) => ({
+      ...parameter,
+      type:
+        reattachBindingClrIdentitiesInternal(
+          parameter.type,
+          clrNamesByAlias,
+          caches
+        ) ?? parameter.type,
+    }));
+  (rewritten as { returnType: typeof member.returnType }).returnType =
+    reattachBindingClrIdentitiesInternal(
+      member.returnType,
+      clrNamesByAlias,
+      caches
+    ) ?? member.returnType;
+  return rewritten;
+};
+
+const reattachBindingClrIdentitiesInternal = (
+  type: IrType | undefined,
+  clrNamesByAlias: ReadonlyMap<string, string>,
+  caches: BindingClrIdentityReattachCaches
+): IrType | undefined => {
+  if (!type) return undefined;
+
+  const cached = caches.types.get(type);
+  if (cached) return cached;
+
+  switch (type.kind) {
+    case "referenceType": {
+      const normalizedName = normalizeTypeReferenceName(
+        type.name,
+        type.typeArguments?.length
+      );
+      const rewritten: IrType = {
+        ...type,
+        resolvedClrType:
+          type.resolvedClrType ??
+          clrNamesByAlias.get(type.name) ??
+          clrNamesByAlias.get(normalizedName),
+        typeArguments: type.typeArguments,
+        structuralMembers: type.structuralMembers,
+      };
+      caches.types.set(type, rewritten);
+      (
+        rewritten as { typeArguments?: typeof type.typeArguments }
+      ).typeArguments = type.typeArguments?.map((argument) =>
+        reattachBindingClrIdentitiesInternal(argument, clrNamesByAlias, caches)
+      ) as readonly IrType[] | undefined;
+      (
+        rewritten as { structuralMembers?: typeof type.structuralMembers }
+      ).structuralMembers = type.structuralMembers?.map((member) =>
+        reattachBindingClrIdentityMemberInternal(member, clrNamesByAlias, caches)
+      );
+      return rewritten;
+    }
+    case "arrayType": {
+      const rewritten: IrType = {
+        ...type,
+        elementType: type.elementType,
+      };
+      caches.types.set(type, rewritten);
+      (rewritten as { elementType: typeof type.elementType }).elementType =
+        reattachBindingClrIdentitiesInternal(
+          type.elementType,
+          clrNamesByAlias,
+          caches
+        ) ?? type.elementType;
+      return rewritten;
+    }
+    case "tupleType": {
+      const rewritten: IrType = {
+        ...type,
+        elementTypes: type.elementTypes,
+      };
+      caches.types.set(type, rewritten);
+      (rewritten as { elementTypes: typeof type.elementTypes }).elementTypes =
+        type.elementTypes.map((elementType) =>
+          reattachBindingClrIdentitiesInternal(
+            elementType,
+            clrNamesByAlias,
+            caches
+          )
+        ) as readonly IrType[];
+      return rewritten;
+    }
+    case "functionType": {
+      const rewritten: IrType = {
+        ...type,
+        parameters: type.parameters,
+        returnType: type.returnType,
+      };
+      caches.types.set(type, rewritten);
+      (rewritten as { parameters: typeof type.parameters }).parameters =
+        type.parameters.map((parameter) => ({
+          ...parameter,
+          type:
+            reattachBindingClrIdentitiesInternal(
+              parameter.type,
+              clrNamesByAlias,
+              caches
+            ) ?? parameter.type,
+        }));
+      (rewritten as { returnType: typeof type.returnType }).returnType =
+        reattachBindingClrIdentitiesInternal(
+          type.returnType,
+          clrNamesByAlias,
+          caches
+        ) ?? type.returnType;
+      return rewritten;
+    }
+    case "objectType": {
+      const rewritten: IrType = {
+        ...type,
+        members: type.members,
+      };
+      caches.types.set(type, rewritten);
+      (rewritten as { members: typeof type.members }).members = type.members.map(
+        (member) =>
+          reattachBindingClrIdentityMemberInternal(
+            member,
+            clrNamesByAlias,
+            caches
+          )
+      );
+      return rewritten;
+    }
+    case "dictionaryType": {
+      const rewritten: IrType = {
+        ...type,
+        keyType: type.keyType,
+        valueType: type.valueType,
+      };
+      caches.types.set(type, rewritten);
+      (rewritten as { keyType: typeof type.keyType }).keyType =
+        reattachBindingClrIdentitiesInternal(
+          type.keyType,
+          clrNamesByAlias,
+          caches
+        ) ?? type.keyType;
+      (rewritten as { valueType: typeof type.valueType }).valueType =
+        reattachBindingClrIdentitiesInternal(
+          type.valueType,
+          clrNamesByAlias,
+          caches
+        ) ?? type.valueType;
+      return rewritten;
+    }
+    case "unionType":
+    case "intersectionType": {
+      const rewritten: IrType = {
+        ...type,
+        types: type.types,
+      };
+      caches.types.set(type, rewritten);
+      (rewritten as { types: typeof type.types }).types = type.types.map(
+        (member) =>
+          reattachBindingClrIdentitiesInternal(member, clrNamesByAlias, caches)
+      ) as readonly IrType[];
+      return rewritten;
+    }
+    default:
+      return type;
+  }
+};
+
+const reattachBindingClrIdentities = (
+  type: IrType | undefined,
+  clrNamesByAlias: ReadonlyMap<string, string>
+): IrType | undefined =>
+  reattachBindingClrIdentitiesInternal(
+    type,
+    clrNamesByAlias,
+    createBindingClrIdentityReattachCaches()
+  );
+
 const resolveFunctionTypeFromValueDeclarator = (
   declarator: FirstPartyValueDeclarator | undefined
 ): Extract<IrType, { kind: "functionType" }> | undefined => {
@@ -2676,7 +3022,9 @@ const areBindingSemanticSignaturesEqual = (
         readonly returnType?: IrType;
       }
     | undefined
-): boolean => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+): boolean =>
+  stableSerializeBindingSemanticValue(left) ===
+  stableSerializeBindingSemanticValue(right);
 
 const areBindingSemanticsEqual = (
   left: FirstPartyBindingsExport,
@@ -2687,12 +3035,270 @@ const areBindingSemanticsEqual = (
   left.declaringClrType === right.declaringClrType &&
   left.declaringAssemblyName === right.declaringAssemblyName &&
   left.semanticOptional === right.semanticOptional &&
-  JSON.stringify(left.semanticType ?? null) ===
-    JSON.stringify(right.semanticType ?? null) &&
+  stableSerializeBindingSemanticValue(left.semanticType) ===
+    stableSerializeBindingSemanticValue(right.semanticType) &&
   areBindingSemanticSignaturesEqual(
     left.semanticSignature,
     right.semanticSignature
   );
+
+const stableSerializeBindingSemanticValue = (value: unknown): string => {
+  const seen = new Map<object, number>();
+
+  const encode = (current: unknown): unknown => {
+    if (current === null || current === undefined) {
+      return null;
+    }
+
+    if (typeof current !== "object") {
+      return current;
+    }
+
+    const cachedId = seen.get(current);
+    if (cachedId !== undefined) {
+      return { $ref: cachedId };
+    }
+
+    const id = seen.size;
+    seen.set(current, id);
+
+    if (Array.isArray(current)) {
+      return {
+        $id: id,
+        $array: current.map((item) => encode(item)),
+      };
+    }
+
+    const encoded: Record<string, unknown> = { $id: id };
+    for (const key of Object.keys(current).sort((left, right) =>
+      left.localeCompare(right)
+    )) {
+      encoded[key] = encode((current as Record<string, unknown>)[key]);
+    }
+    return encoded;
+  };
+
+  return JSON.stringify(encode(value));
+};
+
+const isIrTypeNode = (value: unknown): value is IrType => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const kind = candidate.kind;
+  if (typeof kind !== "string") {
+    return false;
+  }
+
+  switch (kind) {
+    case "primitiveType":
+      return typeof candidate.name === "string";
+    case "referenceType":
+    case "typeParameterType":
+      return typeof candidate.name === "string";
+    case "arrayType":
+      return "elementType" in candidate;
+    case "tupleType":
+      return Array.isArray(candidate.elementTypes);
+    case "functionType":
+      return (
+        Array.isArray(candidate.parameters) && "returnType" in candidate
+      );
+    case "objectType":
+      return Array.isArray(candidate.members);
+    case "dictionaryType":
+      return "keyType" in candidate && "valueType" in candidate;
+    case "unionType":
+    case "intersectionType":
+      return Array.isArray(candidate.types);
+    case "literalType":
+      return "value" in candidate;
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return true;
+  }
+
+  return false;
+};
+
+const serializeRecursiveBindingType = (
+  type: IrType,
+  serialize: (value: unknown) => unknown
+): IrType => {
+  switch (type.kind) {
+    case "primitiveType":
+      return { ...type };
+    case "referenceType":
+      return {
+        kind: "referenceType",
+        name: type.name,
+        ...(type.typeArguments
+          ? {
+              typeArguments: type.typeArguments.map(
+                (argument) => serialize(argument) as IrType
+              ),
+            }
+          : {}),
+        ...(type.resolvedClrType
+          ? { resolvedClrType: type.resolvedClrType }
+          : {}),
+        ...(type.typeId ? { typeId: { ...type.typeId } } : {}),
+      };
+    case "typeParameterType":
+      return { ...type };
+    case "arrayType":
+      return {
+        kind: "arrayType",
+        elementType: serialize(type.elementType) as IrType,
+        ...(type.origin ? { origin: type.origin } : {}),
+        ...(type.tuplePrefixElementTypes
+          ? {
+              tuplePrefixElementTypes: type.tuplePrefixElementTypes.map(
+                (elementType) => serialize(elementType) as IrType
+              ),
+            }
+          : {}),
+        ...(type.tupleRestElementType
+          ? {
+              tupleRestElementType: serialize(type.tupleRestElementType) as IrType,
+            }
+          : {}),
+      };
+    case "tupleType":
+      return {
+        kind: "tupleType",
+        elementTypes: type.elementTypes.map(
+          (elementType) => serialize(elementType) as IrType
+        ),
+      };
+    case "functionType":
+      return {
+        kind: "functionType",
+        parameters: type.parameters.map(
+          (parameter) => serialize(parameter) as IrParameter
+        ),
+        returnType: serialize(type.returnType) as IrType,
+      };
+    case "objectType":
+      return {
+        kind: "objectType",
+        members: type.members.map(
+          (member) => serialize(member) as IrInterfaceMember
+        ),
+      };
+    case "dictionaryType":
+      return {
+        kind: "dictionaryType",
+        keyType: serialize(type.keyType) as IrType,
+        valueType: serialize(type.valueType) as IrType,
+      };
+    case "unionType":
+      return {
+        kind: "unionType",
+        types: type.types.map((member) => serialize(member) as IrType),
+      };
+    case "intersectionType":
+      return {
+        kind: "intersectionType",
+        types: type.types.map((member) => serialize(member) as IrType),
+      };
+    case "literalType":
+      return { ...type };
+    case "anyType":
+      return { kind: "anyType" };
+    case "unknownType":
+      return { kind: "unknownType" };
+    case "voidType":
+      return { kind: "voidType" };
+    case "neverType":
+      return { kind: "neverType" };
+  }
+};
+
+const serializeBindingsJsonSafe = <T>(value: T): T => {
+  const active = new Set<object>();
+  const cache = new Map<object, unknown>();
+
+  const collapseRecursiveValue = (current: object): unknown => {
+    if (isIrTypeNode(current)) {
+      return serializeRecursiveBindingType(current, serialize);
+    }
+
+    const collapsed: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(current)) {
+      if (
+        child === null ||
+        typeof child === "string" ||
+        typeof child === "number" ||
+        typeof child === "boolean"
+      ) {
+        collapsed[key] = child;
+      }
+    }
+    return collapsed;
+  };
+
+  const serialize = (current: unknown): unknown => {
+    if (current === null || current === undefined) {
+      return current;
+    }
+
+    if (
+      typeof current === "string" ||
+      typeof current === "number" ||
+      typeof current === "boolean"
+    ) {
+      return current;
+    }
+
+    if (typeof current !== "object") {
+      return current;
+    }
+
+    if (active.has(current)) {
+      return collapseRecursiveValue(current);
+    }
+
+    const cached = cache.get(current);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    if (Array.isArray(current)) {
+      const cloned: unknown[] = [];
+      cache.set(current, cloned);
+      active.add(current);
+      for (const item of current) {
+        cloned.push(serialize(item));
+      }
+      active.delete(current);
+      return cloned;
+    }
+
+    if (isIrTypeNode(current)) {
+      active.add(current);
+      const cloned = serializeRecursiveBindingType(current, serialize);
+      cache.set(current, cloned);
+      active.delete(current);
+      return cloned;
+    }
+
+    const cloned: Record<string, unknown> = {};
+    cache.set(current, cloned);
+    active.add(current);
+    for (const [key, child] of Object.entries(current)) {
+      cloned[key] = serialize(child);
+    }
+    active.delete(current);
+    return cloned;
+  };
+
+  return serialize(value) as T;
+};
 
 const toSignatureType = (
   type: IrType | undefined,
@@ -3240,6 +3846,51 @@ const renderSourceAliasPlan = (
   readonly line: string;
   readonly internalImport?: string;
 } => {
+  const containsInlineStructuralObjectType = (type: IrType): boolean => {
+    switch (type.kind) {
+      case "objectType":
+        return true;
+      case "arrayType":
+        return containsInlineStructuralObjectType(type.elementType);
+      case "tupleType":
+        return type.elementTypes.some(containsInlineStructuralObjectType);
+      case "unionType":
+      case "intersectionType":
+        return type.types.some(containsInlineStructuralObjectType);
+      case "dictionaryType":
+        return (
+          containsInlineStructuralObjectType(type.keyType) ||
+          containsInlineStructuralObjectType(type.valueType)
+        );
+      case "functionType":
+        return (
+          type.parameters.some((parameter) =>
+            parameter.type
+              ? containsInlineStructuralObjectType(parameter.type)
+              : false
+          ) ||
+          (type.returnType
+            ? containsInlineStructuralObjectType(type.returnType)
+            : false)
+        );
+      case "referenceType":
+        return (type.typeArguments ?? []).some(
+          containsInlineStructuralObjectType
+        );
+      default:
+        return false;
+    }
+  };
+  const shouldPreserveSourceAliasText = (() => {
+    if (!plan.sourceAlias) return false;
+    if (/\btypeof\b/.test(plan.sourceAlias.typeText)) {
+      return false;
+    }
+    if (/[{]/.test(plan.sourceAlias.typeText)) {
+      return false;
+    }
+    return !containsInlineStructuralObjectType(plan.declaration.type);
+  })();
   const sourceTypeParams =
     plan.sourceAlias?.typeParametersText ??
     printTypeParameters(plan.declaration.typeParameters);
@@ -3266,19 +3917,11 @@ const renderSourceAliasPlan = (
     new Map(),
     anonymousStructuralAliases
   );
-  const shouldPreferSourceAliasText =
-    plan.sourceAlias !== undefined &&
-    !typeNodeUsesImportedTypeNames(
-      plan.sourceAlias.type,
-      plan.typeImportsByLocalName
-    ) &&
-    /__\d+\b|\$instance\b/.test(rhs);
-
   return {
     line: `export type ${plan.declaration.name}${sourceTypeParams} = ${
-      shouldPreferSourceAliasText
+      shouldPreserveSourceAliasText
         ? rewriteSourceTypeText(
-            plan.sourceAlias.typeText,
+            plan.sourceAlias!.typeText,
             new Map(),
             anonymousStructuralAliases
           )
@@ -3980,7 +4623,7 @@ const collectNamespacePlans = (
       ): string => {
         const functionType = resolveFunctionTypeFromValueDeclarator(declarator);
         if (functionType) {
-          return JSON.stringify(
+          return stableSerializeBindingSemanticValue(
             buildSemanticSignatureFromFunctionType(
               functionType,
               localTypeNameRemaps
@@ -5574,6 +6217,11 @@ const writeNamespaceArtifacts = (
 
   for (const valueExport of plan.valueExports) {
     valueBindings.set(valueExport.exportName, valueExport.binding);
+    if (
+      plan.crossNamespaceReexports.valueExportNames.has(valueExport.exportName)
+    ) {
+      continue;
+    }
     if (valueExport.facade.kind === "function") {
       const sourceSignature = renderSourceFunctionSignature({
         declaration: valueExport.facade.declaration,
@@ -5690,16 +6338,100 @@ const writeNamespaceArtifacts = (
     "utf-8"
   );
 
+  const clrNamesByAlias = new Map<string, string>();
+  for (const typeBinding of typeBindings) {
+    clrNamesByAlias.set(typeBinding.alias, typeBinding.clrName);
+    clrNamesByAlias.set(
+      normalizeTypeReferenceName(typeBinding.alias, typeBinding.arity),
+      typeBinding.clrName
+    );
+  }
+
+  const normalizedTypeBindings = typeBindings.map((typeBinding) => ({
+    ...typeBinding,
+    methods: typeBinding.methods.map((method) => ({
+      ...method,
+      semanticSignature: method.semanticSignature
+        ? {
+            ...method.semanticSignature,
+            parameters: method.semanticSignature.parameters.map(
+              (parameter) => ({
+                ...parameter,
+                type:
+                  reattachBindingClrIdentities(
+                    parameter.type,
+                    clrNamesByAlias
+                  ) ?? parameter.type,
+              })
+            ),
+            returnType: reattachBindingClrIdentities(
+              method.semanticSignature.returnType,
+              clrNamesByAlias
+            ),
+          }
+        : undefined,
+    })),
+    properties: typeBinding.properties.map((property) => ({
+      ...property,
+      semanticType: reattachBindingClrIdentities(
+        property.semanticType,
+        clrNamesByAlias
+      ),
+    })),
+    fields: typeBinding.fields.map((field) => ({
+      ...field,
+      semanticType: reattachBindingClrIdentities(
+        field.semanticType,
+        clrNamesByAlias
+      ),
+    })),
+  }));
+
+  const normalizedValueBindings =
+    valueBindings.size > 0
+      ? new Map(
+          Array.from(valueBindings.entries()).map(([exportName, binding]) => [
+            exportName,
+            {
+              ...binding,
+              semanticType: reattachBindingClrIdentities(
+                binding.semanticType,
+                clrNamesByAlias
+              ),
+              semanticSignature: binding.semanticSignature
+                ? {
+                    ...binding.semanticSignature,
+                    parameters: binding.semanticSignature.parameters.map(
+                      (parameter) => ({
+                        ...parameter,
+                        type:
+                          reattachBindingClrIdentities(
+                            parameter.type,
+                            clrNamesByAlias
+                          ) ?? parameter.type,
+                      })
+                    ),
+                    returnType: reattachBindingClrIdentities(
+                      binding.semanticSignature.returnType,
+                      clrNamesByAlias
+                    ),
+                  }
+                : undefined,
+            } satisfies FirstPartyBindingsExport,
+          ])
+        )
+      : undefined;
+
   const bindings: FirstPartyBindingsFile = {
     namespace: plan.namespace,
     contributingAssemblies: [config.outputName],
-    types: typeBindings.sort((left, right) =>
+    types: normalizedTypeBindings.sort((left, right) =>
       left.clrName.localeCompare(right.clrName)
     ),
     exports:
-      valueBindings.size > 0
+      normalizedValueBindings && normalizedValueBindings.size > 0
         ? Object.fromEntries(
-            Array.from(valueBindings.entries()).sort((left, right) =>
+            Array.from(normalizedValueBindings.entries()).sort((left, right) =>
               left[0].localeCompare(right[0])
             )
           )
@@ -5712,7 +6444,7 @@ const writeNamespaceArtifacts = (
 
   writeFileSync(
     bindingsPath,
-    JSON.stringify(bindings, null, 2) + "\n",
+    JSON.stringify(serializeBindingsJsonSafe(bindings), null, 2) + "\n",
     "utf-8"
   );
   return { ok: true, value: undefined };

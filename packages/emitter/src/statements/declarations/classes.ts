@@ -8,7 +8,12 @@ import {
   type IrClassMember,
   type IrType,
 } from "@tsonic/frontend";
-import { EmitterContext, indent, withClassName } from "../../types.js";
+import {
+  EmitterContext,
+  indent,
+  withClassName,
+  type LocalTypeInfo,
+} from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
@@ -18,13 +23,10 @@ import {
   identifierType,
 } from "../../core/format/backend-ast/builders.js";
 import { substituteType } from "../../specialization/substitution.js";
-import { resolveLocalTypeInfo } from "../../core/semantic/type-resolution.js";
 import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
-import {
-  inferImplicitImplementedInterfaces,
-  resolveCompatibleImplementedInterfaces,
-} from "../../core/semantic/implicit-interfaces.js";
+import { resolveCompatibleImplementedInterfaces } from "../../core/semantic/implicit-interfaces.js";
+import { resolveLocalTypeInfo } from "../../core/semantic/type-resolution.js";
 import { generateExplicitInterfaceBridgeMembers } from "./interface-bridges.js";
 import type {
   CSharpAttributeAst,
@@ -33,6 +35,48 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+
+const emitsAsCSharpInterface = (
+  localInfo: LocalTypeInfo | undefined
+): boolean =>
+  !!localInfo &&
+  localInfo.kind === "interface" &&
+  localInfo.members.some((member) => member.kind === "methodSignature");
+
+const isInterfaceReference = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): boolean => {
+  const localInfo = resolveLocalTypeInfo(ref, context)?.info;
+  if (emitsAsCSharpInterface(localInfo)) {
+    return true;
+  }
+
+  const candidates = new Set<string>();
+  const add = (value: string | undefined): void => {
+    if (value) {
+      candidates.add(value);
+    }
+  };
+
+  add(ref.name);
+  add(ref.resolvedClrType);
+  add(ref.typeId?.tsName);
+  add(ref.typeId?.clrName);
+  for (const value of [...candidates]) {
+    if (!value.includes(".")) continue;
+    add(value.split(".").pop());
+  }
+
+  for (const candidate of candidates) {
+    const binding = context.bindingsRegistry?.get(candidate);
+    if (binding?.kind === "interface") {
+      return true;
+    }
+  }
+
+  return false;
+};
 
 const irNodeUsesInstanceContext = (
   value: unknown,
@@ -135,6 +179,7 @@ export const emitClassDeclaration = (
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
     localNameMap: context.localNameMap,
+    localValueTypes: context.localValueTypes,
   };
 
   const needsUnsafe = statementUsesPointer(stmt);
@@ -315,42 +360,17 @@ export const emitClassDeclaration = (
 
   // Interfaces (implements clause)
   const implementedInterfaces: CSharpTypeAst[] = [];
-  const allImplements = [
-    ...stmt.implements,
-    ...inferImplicitImplementedInterfaces(stmt.name, stmt.implements, currentContext),
-  ];
   const compatibleInterfaces = resolveCompatibleImplementedInterfaces(
     stmt.name,
     stmt.implements,
     currentContext
   );
   const emittedInterfaceKeys = new Set<string>();
-  for (const impl of allImplements) {
+  for (const impl of stmt.implements) {
     if (impl.kind !== "referenceType") continue;
     const implKey = stableIrTypeKey(impl);
     if (emittedInterfaceKeys.has(implKey)) continue;
-
-    const localInfoResult =
-      impl.kind === "referenceType" ? resolveLocalTypeInfo(impl, currentContext) : undefined;
-    const isLocalCSharpInterface =
-      localInfoResult?.info.kind === "interface";
-
-    const bindingKeyCandidates: string[] = [impl.name];
-    if (impl.typeId?.tsName) bindingKeyCandidates.push(impl.typeId.tsName);
-    if (impl.name.endsWith("$instance")) {
-      bindingKeyCandidates.push(impl.name.slice(0, -"$instance".length));
-    }
-    if (impl.name.startsWith("__") && impl.name.endsWith("$views")) {
-      bindingKeyCandidates.push(impl.name.slice("__".length, -"$views".length));
-    }
-
-    const regBinding = bindingKeyCandidates
-      .map((k) => context.bindingsRegistry?.get(k))
-      .find((b): b is NonNullable<typeof b> => b !== undefined);
-
-    const isClrInterface = regBinding?.kind === "interface";
-
-    if (!isLocalCSharpInterface && !isClrInterface) continue;
+    if (!isInterfaceReference(impl, currentContext)) continue;
 
     const [implTypeAst, newContext] = emitTypeAst(impl, currentContext);
     currentContext = newContext;
@@ -390,7 +410,13 @@ export const emitClassDeclaration = (
   }
 
   const [interfaceBridgeMembers, bridgeContext] =
-    generateExplicitInterfaceBridgeMembers(compatibleInterfaces, bodyContext);
+    generateExplicitInterfaceBridgeMembers(
+      compatibleInterfaces.filter(
+        (match) =>
+          match.isExplicit && isInterfaceReference(match.ref, bodyContext)
+      ),
+      bodyContext
+    );
   currentContext = bridgeContext;
   memberAsts.push(...interfaceBridgeMembers);
 

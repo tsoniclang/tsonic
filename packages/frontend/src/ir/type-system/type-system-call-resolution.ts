@@ -99,10 +99,8 @@ const substitutePolymorphicThis = (
                   ? {
                       ...member,
                       type:
-                        substitutePolymorphicThis(
-                          member.type,
-                          receiverType
-                        ) ?? member.type,
+                        substitutePolymorphicThis(member.type, receiverType) ??
+                        member.type,
                     }
                   : {
                       ...member,
@@ -115,10 +113,10 @@ const substitutePolymorphicThis = (
                           ) ?? parameter.type,
                       })),
                       returnType: member.returnType
-                        ? substitutePolymorphicThis(
+                        ? (substitutePolymorphicThis(
                             member.returnType,
                             receiverType
-                          ) ?? member.returnType
+                          ) ?? member.returnType)
                         : undefined,
                     }
               ),
@@ -342,11 +340,7 @@ export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
           type.typeArguments?.length
         ) ??
         (sourceFqName
-          ? resolveTypeIdByName(
-              state,
-              sourceFqName,
-              type.typeArguments?.length
-            )
+          ? resolveTypeIdByName(state, sourceFqName, type.typeArguments?.length)
           : undefined);
 
       return {
@@ -1177,7 +1171,11 @@ export const expandParameterTypesForArguments = (
   }
 
   const expanded: (IrType | undefined)[] = [];
-  for (let argumentIndex = 0; argumentIndex < argumentCount; argumentIndex += 1) {
+  for (
+    let argumentIndex = 0;
+    argumentIndex < argumentCount;
+    argumentIndex += 1
+  ) {
     if (argumentIndex < restIndex) {
       expanded.push(parameterTypes[argumentIndex]);
       continue;
@@ -1439,25 +1437,20 @@ export const scoreSignatureMatch = (
   argTypes: readonly (IrType | undefined)[],
   argumentCount: number
 ): number => {
-  let score = 0;
-  const pairs = Math.min(argumentCount, parameterTypes.length, argTypes.length);
-  for (let i = 0; i < pairs; i++) {
-    const pt = parameterTypes[i];
-    const at = argTypes[i];
-    if (!pt || !at) continue;
-
-    if (typesEqual(pt, at)) {
-      score += 3;
-      continue;
+  const scoreTypeCompatibility = (
+    parameterType: IrType,
+    argumentType: IrType
+  ): number => {
+    if (typesEqual(parameterType, argumentType)) {
+      return 3;
     }
 
-    const pNom = normalizeToNominal(state, pt);
-    const aNom = normalizeToNominal(state, at);
-    if (!pNom || !aNom) continue;
+    const pNom = normalizeToNominal(state, parameterType);
+    const aNom = normalizeToNominal(state, argumentType);
+    if (!pNom || !aNom) return 0;
 
     if (pNom.typeId.stableId === aNom.typeId.stableId) {
-      score += 2;
-      continue;
+      return 2;
     }
 
     const inst = state.nominalEnv.getInstantiation(
@@ -1465,7 +1458,73 @@ export const scoreSignatureMatch = (
       aNom.typeArgs,
       pNom.typeId
     );
-    if (inst) score += 1;
+    return inst ? 1 : 0;
+  };
+
+  const scoreFunctionLikeCompatibility = (
+    parameterType: IrType,
+    argumentType: IrType
+  ): number => {
+    const parameterFn =
+      parameterType.kind === "functionType"
+        ? parameterType
+        : delegateToFunctionType(state, parameterType);
+    const argumentFn =
+      argumentType.kind === "functionType"
+        ? argumentType
+        : delegateToFunctionType(state, argumentType);
+
+    if (!parameterFn || !argumentFn) {
+      return 0;
+    }
+
+    let score = 0;
+    if (parameterFn.parameters.length === argumentFn.parameters.length) {
+      score += 8;
+    } else {
+      score -=
+        Math.abs(parameterFn.parameters.length - argumentFn.parameters.length) *
+        2;
+    }
+
+    const pairCount = Math.min(
+      parameterFn.parameters.length,
+      argumentFn.parameters.length
+    );
+    for (let index = 0; index < pairCount; index += 1) {
+      const parameter = parameterFn.parameters[index];
+      const argument = argumentFn.parameters[index];
+      if (!parameter?.type || !argument?.type) continue;
+      score += scoreTypeCompatibility(parameter.type, argument.type);
+    }
+
+    if (
+      argumentFn.returnType.kind !== "unknownType" &&
+      argumentFn.returnType.kind !== "anyType"
+    ) {
+      score += scoreTypeCompatibility(
+        parameterFn.returnType,
+        argumentFn.returnType
+      );
+    }
+
+    return score;
+  };
+
+  let score = 0;
+  const pairs = Math.min(argumentCount, parameterTypes.length, argTypes.length);
+  for (let i = 0; i < pairs; i++) {
+    const pt = parameterTypes[i];
+    const at = argTypes[i];
+    if (!pt || !at) continue;
+
+    const functionLikeScore = scoreFunctionLikeCompatibility(pt, at);
+    if (functionLikeScore !== 0) {
+      score += functionLikeScore;
+      continue;
+    }
+
+    score += scoreTypeCompatibility(pt, at);
   }
 
   return score;
@@ -1488,8 +1547,24 @@ const refineParameterTypeForConcreteArgument = (
     isAssignableTo(state, argumentType, candidate)
   );
 
+  const nonNullishMembers = parameterType.types.filter(
+    (candidate) =>
+      !(
+        candidate.kind === "primitiveType" &&
+        (candidate.name === "null" || candidate.name === "undefined")
+      )
+  );
+  const shouldPreserveNullableParameterSurface = (
+    candidate: IrType | undefined
+  ): boolean =>
+    !!candidate &&
+    nonNullishMembers.length === 1 &&
+    candidate.kind === "primitiveType" &&
+    (candidate.name === "null" || candidate.name === "undefined");
+
   if (matchingMembers.length === 1) {
-    return matchingMembers[0];
+    const only = matchingMembers[0];
+    return shouldPreserveNullableParameterSurface(only) ? parameterType : only;
   }
 
   const distinctMatches = matchingMembers.filter((candidate, index) => {
@@ -1503,7 +1578,8 @@ const refineParameterTypeForConcreteArgument = (
   });
 
   if (distinctMatches.length === 1) {
-    return distinctMatches[0];
+    const only = distinctMatches[0];
+    return shouldPreserveNullableParameterSurface(only) ? parameterType : only;
   }
 
   return parameterType;
@@ -1543,6 +1619,48 @@ const refineResolvedParameterTypesForArguments = (
   });
 
   return changed ? refined : expandedParameterTypes;
+};
+
+const buildResolvedRestParameter = (
+  parameterFlags: readonly { readonly isRest: boolean }[],
+  parameterTypes: readonly (IrType | undefined)[]
+):
+  | {
+      readonly index: number;
+      readonly arrayType: IrType | undefined;
+      readonly elementType: IrType | undefined;
+    }
+  | undefined => {
+  const index = parameterFlags.findIndex((parameter) => parameter.isRest);
+  if (index < 0) {
+    return undefined;
+  }
+
+  const arrayType = parameterTypes[index];
+  if (!arrayType) {
+    return {
+      index,
+      arrayType: undefined,
+      elementType: undefined,
+    };
+  }
+
+  const elementType =
+    arrayType.kind === "arrayType"
+      ? arrayType.elementType
+      : arrayType.kind === "referenceType" &&
+          (arrayType.name === "Array" ||
+            arrayType.name === "ReadonlyArray" ||
+            arrayType.name === "JSArray") &&
+          arrayType.typeArguments?.length === 1
+        ? arrayType.typeArguments[0]
+        : undefined;
+
+  return {
+    index,
+    arrayType,
+    elementType,
+  };
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1590,6 +1708,12 @@ export const tryResolveCallFromUnifiedCatalog = (
     signature: MethodSignatureEntry
   ): ResolvedCall | undefined => {
     if (!isArityCompatible(signature, argumentCount)) return undefined;
+    if (
+      explicitTypeArgs &&
+      explicitTypeArgs.length > signature.typeParameters.length
+    ) {
+      return undefined;
+    }
 
     let workingParams = signature.parameters.map((p) => p.type);
     let workingReturn = signature.returnType;
@@ -1692,6 +1816,12 @@ export const tryResolveCallFromUnifiedCatalog = (
 
     return {
       parameterTypes: workingParams,
+      restParameter: buildResolvedRestParameter(
+        signature.parameters.map((parameter) => ({
+          isRest: parameter.isRest,
+        })),
+        workingParams
+      ),
       parameterModes: signature.parameters.map((p) => p.mode),
       returnType: workingReturn,
       hasDeclaredReturnType: true,
@@ -1943,7 +2073,7 @@ export const resolveCall = (
 
   if (effectiveReceiverType) {
     workingParams = workingParams.map((p) =>
-      p ? substitutePolymorphicThis(p, effectiveReceiverType) ?? p : undefined
+      p ? (substitutePolymorphicThis(p, effectiveReceiverType) ?? p) : undefined
     );
     if (workingThisParam) {
       workingThisParam =
@@ -2217,6 +2347,10 @@ export const resolveCall = (
   }
 
   const resolved: ResolvedCall = {
+    restParameter: buildResolvedRestParameter(
+      rawSig.parameterFlags,
+      workingParams
+    ),
     parameterTypes: refineResolvedParameterTypesForArguments(
       state,
       rawSig.parameterFlags,
@@ -2229,7 +2363,9 @@ export const resolveCall = (
     hasDeclaredReturnType: rawSig.hasDeclaredReturnType,
     typePredicate: workingPredicate,
     selectionMeta: {
-      hasRestParameter: rawSig.parameterFlags.some((parameter) => parameter.isRest),
+      hasRestParameter: rawSig.parameterFlags.some(
+        (parameter) => parameter.isRest
+      ),
       typeParamCount: rawSig.typeParameters.length,
       parameterCount: rawSig.parameterTypes.length,
       stableId: String(sigId.id),
@@ -2287,9 +2423,8 @@ export const resolveCall = (
         const catalogWinsTie =
           currentMeta !== undefined &&
           catalogMeta !== undefined &&
-          (
-            (catalogMeta.hasRestParameter !== currentMeta.hasRestParameter &&
-              !catalogMeta.hasRestParameter) ||
+          ((catalogMeta.hasRestParameter !== currentMeta.hasRestParameter &&
+            !catalogMeta.hasRestParameter) ||
             (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
               catalogMeta.typeParamCount < currentMeta.typeParamCount) ||
             (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
@@ -2298,10 +2433,12 @@ export const resolveCall = (
             (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
               catalogMeta.typeParamCount === currentMeta.typeParamCount &&
               catalogMeta.parameterCount === currentMeta.parameterCount &&
-              catalogMeta.stableId < currentMeta.stableId)
-          );
+              catalogMeta.stableId < currentMeta.stableId));
 
-        if (catalogScore > currentScore || (catalogScore === currentScore && catalogWinsTie)) {
+        if (
+          catalogScore > currentScore ||
+          (catalogScore === currentScore && catalogWinsTie)
+        ) {
           return catalogResolved;
         }
       }

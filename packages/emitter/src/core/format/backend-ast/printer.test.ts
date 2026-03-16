@@ -174,7 +174,10 @@ describe("backend-ast printer", () => {
                   kind: "returnStatement",
                   expression: {
                     kind: "memberAccessExpression",
-                    expression: { kind: "identifierExpression", identifier: "this" },
+                    expression: {
+                      kind: "identifierExpression",
+                      identifier: "this",
+                    },
                     memberName: "statusCode",
                   },
                 },
@@ -190,10 +193,16 @@ describe("backend-ast printer", () => {
                     operatorToken: "=",
                     left: {
                       kind: "memberAccessExpression",
-                      expression: { kind: "identifierExpression", identifier: "this" },
+                      expression: {
+                        kind: "identifierExpression",
+                        identifier: "this",
+                      },
                       memberName: "statusCode",
                     },
-                    right: { kind: "identifierExpression", identifier: "value" },
+                    right: {
+                      kind: "identifierExpression",
+                      identifier: "value",
+                    },
                   },
                 },
               ],
@@ -237,9 +246,7 @@ describe("backend-ast printer", () => {
       ""
     );
 
-    expect(printed).to.include(
-      "int global::Demo.TransportResponse.statusCode"
-    );
+    expect(printed).to.include("int global::Demo.TransportResponse.statusCode");
     expect(printed).to.include(
       "global::System.Threading.Tasks.Task global::Demo.TransportResponse.sendText(string text)"
     );

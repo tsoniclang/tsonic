@@ -11,5 +11,4 @@ export const isPrivateClassMemberName = (
 
 export const hasNonComputedClassMemberName = (
   name: ts.PropertyName | ts.PrivateIdentifier | undefined
-): boolean =>
-  tryResolveDeterministicPropertyName(name) !== undefined;
+): boolean => tryResolveDeterministicPropertyName(name) !== undefined;

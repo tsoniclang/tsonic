@@ -13,6 +13,7 @@ import {
   getIdentifierTypeName,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
+import { normalizeStructuralEmissionType } from "../core/semantic/type-resolution.js";
 
 const isRuntimeUnionTypeAst = (typeAst: CSharpTypeAst): boolean => {
   const concrete = stripNullableTypeAst(typeAst);
@@ -32,19 +33,18 @@ export const emitArrayType = (
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
   const currentArrayKey = stableIrTypeKey(type);
-  const elementContext =
-    context.activeTypeEmissionKeys?.has(currentArrayKey)
-      ? {
-          ...context,
-          activeTypeEmissionKeys: new Set(
-            Array.from(context.activeTypeEmissionKeys).filter(
-              (key) => key !== currentArrayKey
-            )
-          ),
-        }
-      : context;
+  const elementContext = context.activeTypeEmissionKeys?.has(currentArrayKey)
+    ? {
+        ...context,
+        activeTypeEmissionKeys: new Set(
+          Array.from(context.activeTypeEmissionKeys).filter(
+            (key) => key !== currentArrayKey
+          )
+        ),
+      }
+    : context;
   const [elementTypeAst, newContext] = emitTypeAst(
-    type.elementType,
+    normalizeStructuralEmissionType(type.elementType, elementContext),
     elementContext
   );
   const normalizedElementTypeAst: CSharpTypeAst = isRuntimeUnionTypeAst(

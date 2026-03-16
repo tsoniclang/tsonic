@@ -14,6 +14,10 @@ import {
   resolveTypeAlias,
   stripNullish,
   getAllPropertySignatures,
+  hasDeterministicPropertyMembership,
+  normalizeStructuralEmissionType,
+  resolveLocalTypeInfo,
+  resolveStructuralReferenceType,
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
@@ -27,8 +31,12 @@ import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
 import { getIdentifierTypeName } from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import {
-  buildRuntimeUnionLayout,
+  buildRuntimeUnionFrame,
+  getRuntimeUnionReferenceMembers,
+  isRuntimeUnionTypeName,
 } from "../core/semantic/runtime-unions.js";
+import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -138,7 +146,9 @@ const buildArrayShapeCondition = (
   valueAst: CSharpExpressionAst
 ): CSharpExpressionAst => ({
   kind: "invocationExpression",
-  expression: identifierExpression("global::Tsonic.JSRuntime.JSArrayStatics.isArray"),
+  expression: identifierExpression(
+    "global::Tsonic.JSRuntime.JSArrayStatics.isArray"
+  ),
   arguments: [valueAst],
 });
 
@@ -158,15 +168,31 @@ const emitArrayWrapperElementTypeAst = (
   fallbackElementType: IrType,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  const [receiverTypeAst, receiverTypeContext] = emitTypeAst(
-    receiverType ?? { kind: "arrayType", elementType: fallbackElementType },
+  const storageReceiverType = normalizeRuntimeStorageType(
+    receiverType,
     context
   );
-  const concreteReceiverTypeAst = unwrapNullableTypeAst(receiverTypeAst);
-  if (concreteReceiverTypeAst.kind === "arrayType") {
-    return [concreteReceiverTypeAst.elementType, receiverTypeContext];
+  const resolvedReceiverType = storageReceiverType
+    ? resolveTypeAlias(stripNullish(storageReceiverType), context)
+    : undefined;
+
+  if (resolvedReceiverType?.kind === "arrayType") {
+    return emitTypeAst(resolvedReceiverType.elementType, context);
   }
-  return emitTypeAst(fallbackElementType, receiverTypeContext);
+
+  if (
+    resolvedReceiverType?.kind === "referenceType" &&
+    (resolvedReceiverType.name === "Array" ||
+      resolvedReceiverType.name === "ReadonlyArray") &&
+    resolvedReceiverType.typeArguments?.length === 1
+  ) {
+    const elementType = resolvedReceiverType.typeArguments[0];
+    if (elementType) {
+      return emitTypeAst(elementType, context);
+    }
+  }
+
+  return emitTypeAst(fallbackElementType, context);
 };
 
 const buildRuntimeMatchPlan = (
@@ -174,7 +200,10 @@ const buildRuntimeMatchPlan = (
   expectedType: IrType,
   context: EmitterContext
 ): RuntimeMatchPlan | undefined => {
-  const resolvedExpected = resolveTypeAlias(stripNullish(expectedType), context);
+  const resolvedExpected = resolveTypeAlias(
+    stripNullish(expectedType),
+    context
+  );
 
   if (
     resolvedExpected.kind === "unknownType" ||
@@ -208,12 +237,8 @@ const buildRuntimeMatchPlan = (
       return undefined;
     }
 
-    const [runtimeLayout, layoutContext] = buildRuntimeUnionLayout(
-      expectedType,
-      unionTypeContext,
-      emitTypeAst
-    );
-    const members = runtimeLayout?.members ?? resolvedExpected.types;
+    const runtimeFrame = buildRuntimeUnionFrame(expectedType, unionTypeContext);
+    const members = runtimeFrame?.members ?? resolvedExpected.types;
 
     const cases: RuntimeMatchPlan[] = [
       {
@@ -234,11 +259,15 @@ const buildRuntimeMatchPlan = (
       },
     ];
 
-    let currentContext = runtimeLayout ? layoutContext : unionTypeContext;
+    let currentContext = unionTypeContext;
     for (let index = 0; index < members.length; index += 1) {
       const member = members[index];
       if (!member) continue;
-      const memberPlan = buildRuntimeMatchPlan(valueAst, member, currentContext);
+      const memberPlan = buildRuntimeMatchPlan(
+        valueAst,
+        member,
+        currentContext
+      );
       if (!memberPlan) continue;
       currentContext = memberPlan.context;
       cases.push({
@@ -341,7 +370,15 @@ const maybeReifyErasedArrayElement = (
   desiredType: IrType | undefined,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  if (!desiredType || isPlainObjectIrType(desiredType, context)) {
+  const normalizedDesiredType =
+    desiredType && desiredType.kind === "objectType"
+      ? (resolveStructuralReferenceType(desiredType, context) ?? desiredType)
+      : desiredType;
+
+  if (
+    !normalizedDesiredType ||
+    isPlainObjectIrType(normalizedDesiredType, context)
+  ) {
     return [accessAst, context];
   }
 
@@ -356,11 +393,18 @@ const maybeReifyErasedArrayElement = (
   if (concreteReceiverTypeAst.kind !== "arrayType") {
     return [accessAst, receiverTypeContext];
   }
-  if (!isObjectTypeAst(concreteReceiverTypeAst.elementType)) {
+  const concreteElementTypeAst = unwrapNullableTypeAst(
+    concreteReceiverTypeAst.elementType
+  );
+  if (!isObjectTypeAst(concreteElementTypeAst)) {
     return [accessAst, receiverTypeContext];
   }
 
-  const plan = buildRuntimeMatchPlan(accessAst, desiredType, receiverTypeContext);
+  const plan = buildRuntimeMatchPlan(
+    accessAst,
+    normalizedDesiredType,
+    receiverTypeContext
+  );
   if (!plan) {
     return [accessAst, receiverTypeContext];
   }
@@ -544,33 +588,6 @@ const tryExtractRuntimeUnionMemberN = (
   return Number.parseInt(match[1], 10);
 };
 
-const tryResolveRuntimeUnionMemberType = (
-  baseType: IrType | undefined,
-  exprAst: CSharpExpressionAst,
-  context: EmitterContext
-): IrType | undefined => {
-  if (!baseType) return undefined;
-
-  const memberN = tryExtractRuntimeUnionMemberN(exprAst);
-  if (!memberN) return undefined;
-
-  const resolvedBase = resolveTypeAlias(stripNullish(baseType), context);
-  if (resolvedBase.kind === "unionType") {
-    return resolvedBase.types[memberN - 1];
-  }
-
-  if (
-    resolvedBase.kind === "referenceType" &&
-    resolvedBase.name === "Union" &&
-    resolvedBase.typeArguments &&
-    memberN <= resolvedBase.typeArguments.length
-  ) {
-    return resolvedBase.typeArguments[memberN - 1];
-  }
-
-  return undefined;
-};
-
 const tryResolveEmittedRuntimeUnionMemberTypeAst = (
   baseType: IrType | undefined,
   exprAst: CSharpExpressionAst,
@@ -583,10 +600,15 @@ const tryResolveEmittedRuntimeUnionMemberTypeAst = (
 
   const [baseTypeAst, nextContext] = emitTypeAst(baseType, context);
   const concreteBaseTypeAst = unwrapNullableTypeAst(baseTypeAst);
+  const baseTypeName = getIdentifierTypeName(concreteBaseTypeAst);
   if (
     concreteBaseTypeAst.kind !== "identifierType" &&
     concreteBaseTypeAst.kind !== "qualifiedIdentifierType"
   ) {
+    return [undefined, nextContext];
+  }
+
+  if (!baseTypeName || !/^global::Tsonic\.Runtime\.Union$/.test(baseTypeName)) {
     return [undefined, nextContext];
   }
 
@@ -597,43 +619,67 @@ const tryResolveEmittedRuntimeUnionMemberTypeAst = (
 const resolveEffectiveReceiverType = (
   receiverExpr: IrExpression,
   context: EmitterContext
-): IrType | undefined => {
-  const baseType = receiverExpr.inferredType;
-  if (!context.narrowedBindings) {
-    return baseType;
+): IrType | undefined => resolveEffectiveExpressionType(receiverExpr, context);
+
+const hasSourceDeclaredMember = (
+  receiverType: IrType | undefined,
+  memberName: string,
+  usage: MemberAccessUsage,
+  context: EmitterContext
+): boolean => {
+  if (!receiverType) {
+    return false;
   }
 
-  const narrowKey =
-    receiverExpr.kind === "identifier"
-      ? receiverExpr.name
-      : receiverExpr.kind === "memberAccess"
-        ? getMemberAccessNarrowKey(receiverExpr)
-        : undefined;
+  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
+  if (usage === "value") {
+    if (resolved.kind === "objectType") {
+      return resolved.members.some(
+        (member) =>
+          member.kind === "propertySignature" && member.name === memberName
+      );
+    }
 
-  if (!narrowKey) {
-    return baseType;
+    if (
+      resolved.kind === "referenceType" &&
+      hasDeterministicPropertyMembership(resolved, memberName, context) === true
+    ) {
+      return true;
+    }
   }
 
-  const narrowed = context.narrowedBindings.get(narrowKey);
-  if (!narrowed) {
-    return baseType;
+  if (resolved.kind !== "referenceType") {
+    return false;
   }
 
   if (
-    narrowed.kind === "rename" ||
-    narrowed.kind === "expr" ||
-    narrowed.kind === "runtimeSubset"
+    resolved.structuralMembers?.some((member) => member.name === memberName)
   ) {
-    return (
-      narrowed.type ??
-      (narrowed.kind === "expr"
-        ? tryResolveRuntimeUnionMemberType(baseType, narrowed.exprAst, context)
-        : undefined) ??
-      baseType
-    );
+    return true;
   }
 
-  return baseType;
+  const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
+  if (!localInfo) {
+    return false;
+  }
+
+  switch (localInfo.kind) {
+    case "class":
+      return localInfo.members.some((member) =>
+        usage === "call"
+          ? member.kind === "methodDeclaration" && member.name === memberName
+          : member.kind === "propertyDeclaration" && member.name === memberName
+      );
+    case "interface":
+      return localInfo.members.some(
+        (member) =>
+          (usage === "call"
+            ? member.kind === "methodSignature"
+            : member.kind === "propertySignature") && member.name === memberName
+      );
+    default:
+      return false;
+  }
 };
 
 const resolveEmittedReceiverTypeAst = (
@@ -670,7 +716,7 @@ const resolveEmittedReceiverTypeAst = (
   if (!receiverType) {
     return [undefined, context];
   }
-  return emitTypeAst(receiverType, context);
+  return emitTypeAst(normalizeStructuralEmissionType(receiverType, context), context);
 };
 
 const emitMemberName = (
@@ -823,7 +869,9 @@ export const emitMemberAccess = (
     return [
       {
         kind: "invocationExpression",
-        expression: identifierExpression("global::Tsonic.JSRuntime.String.length"),
+        expression: identifierExpression(
+          "global::Tsonic.JSRuntime.String.length"
+        ),
         arguments: [stringObjectAst],
       },
       stringContext,
@@ -835,26 +883,22 @@ export const emitMemberAccess = (
     const prop = expr.property as string;
     if (objectType) {
       const resolvedBase = resolveTypeAlias(stripNullish(objectType), context);
-      const isClrUnionName = (name: string): boolean =>
-        /^Union_[2-8]$/.test(name) ||
-        name === "Union" ||
-        name.endsWith(".Union");
       const resolved =
         resolvedBase.kind === "intersectionType"
           ? (resolvedBase.types.find(
               (t): t is Extract<IrType, { kind: "referenceType" }> =>
-                t.kind === "referenceType" && isClrUnionName(t.name)
+                t.kind === "referenceType" && isRuntimeUnionTypeName(t.name)
             ) ?? resolvedBase)
           : resolvedBase;
+      const runtimeReferenceMembers =
+        resolved.kind === "referenceType"
+          ? getRuntimeUnionReferenceMembers(resolved)
+          : undefined;
       const members: readonly IrType[] =
         resolved.kind === "unionType"
           ? resolved.types
-          : resolved.kind === "referenceType" &&
-              isClrUnionName(resolved.name) &&
-              resolved.typeArguments &&
-              resolved.typeArguments.length >= 2 &&
-              resolved.typeArguments.length <= 8
-            ? resolved.typeArguments
+          : runtimeReferenceMembers
+            ? runtimeReferenceMembers
             : [];
 
       const runtimeLayout = (() => {
@@ -862,8 +906,7 @@ export const emitMemberAccess = (
           return undefined;
         }
 
-        const [layout] = buildRuntimeUnionLayout(objectType, context, emitTypeAst);
-        return layout;
+        return buildRuntimeUnionFrame(objectType, context);
       })();
       const runtimeMembers = runtimeLayout?.members ?? members;
       const arity = runtimeMembers.length;
@@ -961,7 +1004,7 @@ export const emitMemberAccess = (
     const escapedMember = escapeCSharpIdentifier(member);
     const bindingTypeLeaf = stripClrGenericArity(type).split(".").pop();
 
-    const receiverType = expr.object.inferredType;
+    const receiverType = resolveEffectiveReceiverType(expr.object, context);
     const arrayLikeReceiver = resolveArrayLikeReceiver(receiverType, context);
     if (
       usage === "value" &&
@@ -982,10 +1025,12 @@ export const emitMemberAccess = (
 
         let wrapperTypeArguments: readonly CSharpTypeAst[] | undefined;
         if (genericArity === 1) {
-          const [elementTypeAst, withElementType] = emitTypeAst(
-            arrayLikeReceiver.elementType,
-            currentContext
-          );
+          const [elementTypeAst, withElementType] =
+            emitArrayWrapperElementTypeAst(
+              receiverType,
+              arrayLikeReceiver.elementType,
+              currentContext
+            );
           currentContext = withElementType;
           wrapperTypeArguments = [elementTypeAst];
         }
@@ -1073,12 +1118,29 @@ export const emitMemberAccess = (
     } else {
       // Instance access: emit object.ClrMemberName
       const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+      const sourcePropertyName =
+        typeof expr.property === "string" ? expr.property : member;
+      const emittedSourceMemberName = emitMemberName(
+        expr.object,
+        receiverType,
+        sourcePropertyName,
+        context,
+        usage
+      );
+      const emittedMemberName = hasSourceDeclaredMember(
+        receiverType,
+        sourcePropertyName,
+        usage,
+        context
+      )
+        ? emittedSourceMemberName
+        : escapedMember;
       if (expr.isOptional) {
         return [
           {
             kind: "conditionalMemberAccessExpression",
             expression: objectAst,
-            memberName: escapedMember,
+            memberName: emittedMemberName,
           },
           newContext,
         ];
@@ -1087,7 +1149,7 @@ export const emitMemberAccess = (
         {
           kind: "memberAccessExpression",
           expression: objectAst,
-          memberName: escapedMember,
+          memberName: emittedMemberName,
         },
         newContext,
       ];

@@ -8,10 +8,10 @@ namespace TestCases.common.operators.inoperator
         private static string check__Impl(bool fail)
         {
             var auth = global::TestCases.common.operators.inoperator.Auth.getAuth(fail);
-            if (auth.Is2())
+            if (auth.Is1())
             {
-                var auth__2_1 = auth.As2();
-                return auth__2_1.error;
+                var auth__1_1 = auth.As1();
+                return auth__1_1.error;
             }
             return "ok";
         }

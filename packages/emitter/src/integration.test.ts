@@ -264,6 +264,83 @@ describe("End-to-End Integration", () => {
         /apply\(\(string value,\s*double\? __unused_index\)\s*=>/
       );
     });
+
+    it("does not synthesize ignored parameters for rest-only contextual callbacks", () => {
+      const source = `
+        type Tick = (...args: unknown[]) => void;
+
+        function consume(tick: Tick): void {
+          tick("ok", 1);
+        }
+
+        export function main(): void {
+          consume(() => undefined);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("consume(() =>");
+      expect(csharp).not.to.match(/__unused_args/);
+    });
+
+    it("does not synthesize ignored rest parameters after required contextual callback parameters", () => {
+      const source = `
+        type Tick = (value: string, ...rest: unknown[]) => void;
+
+        function consume(tick: Tick): void {
+          tick("ok", 1);
+        }
+
+        export function main(): void {
+          consume(() => undefined);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("consume((string __unused_value) =>");
+      expect(csharp).not.to.match(/__unused_args/);
+    });
+  });
+
+  describe("Narrowed Member Truthiness", () => {
+    it("uses narrowed member property types in boolean contexts after instanceof", () => {
+      const source = `
+        class TemplateValue {}
+        class BoolValue extends TemplateValue {
+          constructor(readonly value: boolean) { super(); }
+        }
+        class StringValue extends TemplateValue {
+          constructor(readonly value: string) { super(); }
+        }
+
+        export function render(value: TemplateValue): string {
+          if (value instanceof BoolValue) {
+            return value.value ? "true" : "false";
+          }
+          if (value instanceof StringValue) {
+            return value.value ? value.value : "";
+          }
+          return "";
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include('return value__is_1.value ? "true" : "false";');
+      expect(csharp).to.not.include("__tsonic_truthy_");
+      expect(csharp).to.satisfy((code: string) => {
+        return (
+          code.includes(
+            'return (!string.IsNullOrEmpty(value__is_2.value)) ? value__is_2.value : "";'
+          ) ||
+          code.includes(
+            'return value__is_2.value != "" ? value__is_2.value : "";'
+          )
+        );
+      });
+    });
   });
 
   describe("Generic Functions", () => {
@@ -1066,7 +1143,9 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("await global::System.Threading.Tasks.Task.FromResult(render(flag));");
+      expect(csharp).to.include(
+        "await global::System.Threading.Tasks.Task.FromResult(render(flag));"
+      );
       expect(csharp).not.to.include("render(flag).Match(");
     });
 
@@ -1081,8 +1160,12 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("await global::System.Threading.Tasks.Task.FromResult(maybeText(flag));");
-      expect(csharp).not.to.include("?? global::System.Threading.Tasks.Task.CompletedTask");
+      expect(csharp).to.include(
+        "await global::System.Threading.Tasks.Task.FromResult(maybeText(flag));"
+      );
+      expect(csharp).not.to.include(
+        "?? global::System.Threading.Tasks.Task.CompletedTask"
+      );
       expect(csharp).not.to.include("maybeText(flag).Match(");
     });
 
@@ -1340,6 +1423,35 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("var limit =");
     });
 
+    it("preserves optional exact-numeric arguments for function-valued calls", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        type Query = {
+          limit?: int;
+        };
+
+        declare function takeDeclared(value?: int): void;
+
+        export function run(query: Query): void {
+          const takeLocal = (value?: int): void => {};
+          const takeTyped: (value?: int) => void = (value?: int): void => {};
+
+          takeDeclared(query.limit);
+          takeLocal(query.limit);
+          takeTyped(query.limit);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("takeDeclared(query.limit);");
+      expect(csharp).to.include("takeLocal(query.limit);");
+      expect(csharp).to.include("takeTyped(query.limit);");
+      expect(csharp).not.to.include("takeDeclared(query.limit.Value)");
+      expect(csharp).not.to.include("takeLocal(query.limit.Value)");
+      expect(csharp).not.to.include("takeTyped(query.limit.Value)");
+    });
+
     it("lowers typed object spreads into object-root dictionary results", () => {
       const source = `
         type ApiKeyData = {
@@ -1396,7 +1508,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include('state["user_id"] = "u1";');
       expect(csharp).to.include('state["email"] = "u@example.com";');
       expect(csharp).to.include('var bot = state["user_id"];');
-      expect(csharp).to.include('state["is_bot"] = bot == "u1";');
+      expect(csharp).to.include(
+        'state["is_bot"] = global::System.Object.Equals(bot, "u1");'
+      );
       expect(csharp).not.to.include("state.user_id");
       expect(csharp).not.to.include("state.email");
       expect(csharp).not.to.include("state.is_bot");
@@ -1580,6 +1694,34 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("createDraftsDomain(inputs.ToArray());");
     });
 
+    it("reifies structural alias array elements after generic List<T>.ToArray()", () => {
+      const source = `
+        declare class List<T> {
+          Add(item: T): void;
+          ToArray(): T[];
+        }
+
+        type TopRow = {
+          key: string;
+          pageviews: number;
+        };
+
+        export function run(): number {
+          const rows = new List<TopRow>();
+          rows.Add({ key: "home", pageviews: 1 });
+          const arr = rows.ToArray();
+          return arr[0]!.pageviews;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.not.include(
+        "ICE: Anonymous object type reached emitter"
+      );
+      expect(csharp).to.include("rows.ToArray()");
+      expect(csharp).to.match(/return .*pageviews;/);
+    });
+
     it("emits empty inline object-type locals with optional properties", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
@@ -1685,7 +1827,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("var __tsonic_object_method_argument_0 = x;");
       expect(csharp).to.include(
-        "return (double)__tsonic_object_method_argument_0 + y;"
+        "return __tsonic_object_method_argument_0 + y;"
       );
       expect(csharp).not.to.include("arguments");
     });

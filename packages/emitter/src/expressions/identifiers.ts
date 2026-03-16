@@ -3,15 +3,220 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext } from "../types.js";
+import { EmitterContext, NarrowedBinding } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
-import { identifierExpression } from "../core/format/backend-ast/builders.js";
-import { stableIdentifierSuffixFromTypeAst } from "../core/format/backend-ast/utils.js";
+import {
+  identifierExpression,
+  identifierType,
+  stringLiteral,
+} from "../core/format/backend-ast/builders.js";
+import {
+  getIdentifierTypeName,
+  stableIdentifierSuffixFromTypeAst,
+  stableTypeKeyFromAst,
+} from "../core/format/backend-ast/utils.js";
+import { emitTypedDefaultAst } from "../core/semantic/defaults.js";
+import {
+  buildRuntimeUnionLayout,
+  findRuntimeUnionMemberIndex,
+} from "../core/semantic/runtime-unions.js";
+import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import { isAssignable } from "../core/semantic/index.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
+
+const unwrapNullableTypeAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
+  typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
+
+const isRuntimeUnionTypeAst = (typeAst: CSharpTypeAst): boolean => {
+  const concrete = unwrapNullableTypeAst(typeAst);
+  const name = getIdentifierTypeName(concrete);
+  return (
+    name === "global::Tsonic.Runtime.Union" ||
+    name === "Tsonic.Runtime.Union" ||
+    name === "Union"
+  );
+};
+
+const buildUnionFactoryCallAst = (
+  unionTypeAst: CSharpTypeAst,
+  memberIndex: number,
+  valueAst: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: {
+    kind: "memberAccessExpression",
+    expression: {
+      kind: "typeReferenceExpression",
+      type: unionTypeAst,
+    },
+    memberName: `From${memberIndex}`,
+  },
+  arguments: [valueAst],
+});
+
+const buildInvalidRuntimeUnionCastExpression = (
+  actualType: IrType,
+  expectedType: IrType
+): CSharpExpressionAst => ({
+  kind: "throwExpression",
+  expression: {
+    kind: "objectCreationExpression",
+    type: identifierType("global::System.InvalidCastException"),
+    arguments: [
+      stringLiteral(
+        `Cannot cast runtime union ${actualType.kind} to ${expectedType.kind}`
+      ),
+    ],
+  },
+});
+
+const buildRuntimeSubsetExpressionAst = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  narrowed: Extract<NarrowedBinding, { kind: "runtimeSubset" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const sourceType = narrowed.sourceType ?? expr.inferredType;
+  const subsetType = narrowed.type;
+  if (!sourceType || !subsetType) {
+    return undefined;
+  }
+
+  const [sourceLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
+    sourceType,
+    context,
+    emitTypeAst
+  );
+  if (!sourceLayout) {
+    return undefined;
+  }
+
+  const [subsetLayout, subsetLayoutContext] = buildRuntimeUnionLayout(
+    subsetType,
+    sourceLayoutContext,
+    emitTypeAst
+  );
+  if (!subsetLayout) {
+    return undefined;
+  }
+
+  const [subsetTypeAst, subsetTypeContext] = emitTypeAst(
+    subsetType,
+    subsetLayoutContext
+  );
+  const concreteSubsetTypeAst = unwrapNullableTypeAst(subsetTypeAst);
+  if (!isRuntimeUnionTypeAst(concreteSubsetTypeAst)) {
+    return undefined;
+  }
+
+  const expectedMemberIndexByAstKey = new Map<string, number>();
+  for (let index = 0; index < subsetLayout.memberTypeAsts.length; index += 1) {
+    const memberTypeAst = subsetLayout.memberTypeAsts[index];
+    if (!memberTypeAst) continue;
+    expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
+  }
+
+  const selectedRuntimeMembers = new Set(narrowed.runtimeMemberNs);
+  const lambdaArgs: CSharpExpressionAst[] = [];
+
+  for (let index = 0; index < sourceLayout.members.length; index += 1) {
+    const actualMember = sourceLayout.members[index];
+    if (!actualMember) continue;
+
+    const parameterName = `__tsonic_union_member_${index + 1}`;
+    const parameterExpr: CSharpExpressionAst = {
+      kind: "identifierExpression",
+      identifier: parameterName,
+    };
+
+    if (!selectedRuntimeMembers.has(index + 1)) {
+      lambdaArgs.push({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: parameterName }],
+        body: buildInvalidRuntimeUnionCastExpression(actualMember, subsetType),
+      });
+      continue;
+    }
+
+    const actualMemberTypeAst = sourceLayout.memberTypeAsts[index];
+    const expectedMemberIndex =
+      (actualMemberTypeAst
+        ? expectedMemberIndexByAstKey.get(
+            stableTypeKeyFromAst(actualMemberTypeAst)
+          )
+        : undefined) ??
+      findRuntimeUnionMemberIndex(
+        subsetLayout.members,
+        actualMember,
+        subsetTypeContext
+      );
+
+    if (expectedMemberIndex === undefined) {
+      lambdaArgs.push({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: parameterName }],
+        body: buildInvalidRuntimeUnionCastExpression(actualMember, subsetType),
+      });
+      continue;
+    }
+
+    lambdaArgs.push({
+      kind: "lambdaExpression",
+      isAsync: false,
+      parameters: [{ name: parameterName }],
+      body: buildUnionFactoryCallAst(
+        concreteSubsetTypeAst,
+        expectedMemberIndex + 1,
+        parameterExpr
+      ),
+    });
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: identifierExpression(escapeCSharpIdentifier(expr.name)),
+        memberName: "Match",
+      },
+      arguments: lambdaArgs,
+    },
+    subsetTypeContext,
+  ];
+};
+
+const tryEmitStorageCompatibleIdentifier = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): CSharpExpressionAst | undefined => {
+  if (!expectedType) {
+    return undefined;
+  }
+
+  const remappedLocal = context.localNameMap?.get(expr.name);
+  const storageType = context.localValueTypes?.get(expr.name);
+  if (!remappedLocal || !storageType) {
+    return undefined;
+  }
+
+  const effectiveType = resolveEffectiveExpressionType(expr, context);
+  if (isAssignable(effectiveType, expectedType)) {
+    return undefined;
+  }
+
+  if (!isAssignable(storageType, expectedType)) {
+    return undefined;
+  }
+
+  return identifierExpression(remappedLocal);
+};
 
 /**
  * Emit an identifier as CSharpExpressionAst
@@ -36,6 +241,10 @@ export const emitIdentifier = (
         context,
       ];
     }
+    if (expectedType) {
+      const [typeAst, nextContext] = emitTypedDefaultAst(expectedType, context);
+      return [{ kind: "defaultExpression", type: typeAst }, nextContext];
+    }
     return [{ kind: "defaultExpression" }, context];
   }
 
@@ -51,6 +260,15 @@ export const emitIdentifier = (
   if (context.narrowedBindings) {
     const narrowed = context.narrowedBindings.get(expr.name);
     if (narrowed) {
+      const storageFallback = tryEmitStorageCompatibleIdentifier(
+        expr,
+        context,
+        expectedType
+      );
+      if (storageFallback) {
+        return [storageFallback, context];
+      }
+
       if (narrowed.kind === "rename") {
         return [
           identifierExpression(escapeCSharpIdentifier(narrowed.name)),
@@ -59,6 +277,15 @@ export const emitIdentifier = (
       } else if (narrowed.kind === "expr") {
         // kind === "expr" - emit pre-built AST (e.g., parenthesized AsN() call)
         return [narrowed.exprAst, context];
+      } else if (narrowed.kind === "runtimeSubset") {
+        const subsetAst = buildRuntimeSubsetExpressionAst(
+          expr,
+          narrowed,
+          context
+        );
+        if (subsetAst) {
+          return subsetAst;
+        }
       }
 
       return [identifierExpression(escapeCSharpIdentifier(expr.name)), context];

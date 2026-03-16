@@ -13,6 +13,7 @@ import { emitStatementAst } from "../statement-emitter.js";
 import { lowerPatternAst } from "../patterns.js";
 import { allocateLocalName } from "../core/format/local-names.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
+import { withScoped } from "../emitter-types/context.js";
 import type {
   CSharpStatementAst,
   CSharpBlockStatementAst,
@@ -71,23 +72,26 @@ export const emitBlockStatementAst = (
   context: EmitterContext
 ): [CSharpBlockStatementAst, EmitterContext] => {
   const outerNameMap = context.localNameMap;
-  // New lexical scope for locals (prevents C# CS0136 shadowing errors).
-  let currentContext: EmitterContext = {
-    ...context,
-    localNameMap: new Map(outerNameMap ?? []),
-  };
-  const statements: CSharpStatementAst[] = [];
+  const outerValueTypes = context.localValueTypes;
+  return withScoped(
+    context,
+    {
+      localNameMap: new Map(outerNameMap ?? []),
+      localValueTypes: new Map(outerValueTypes ?? []),
+    },
+    (scopedContext) => {
+      let currentContext: EmitterContext = scopedContext;
+      const statements: CSharpStatementAst[] = [];
 
-  for (const s of stmt.statements) {
-    const [stmts, newContext] = emitStatementAst(s, currentContext);
-    statements.push(...stmts);
-    currentContext = newContext;
-  }
+      for (const s of stmt.statements) {
+        const [stmts, newContext] = emitStatementAst(s, currentContext);
+        statements.push(...stmts);
+        currentContext = newContext;
+      }
 
-  return [
-    { kind: "blockStatement", statements },
-    { ...currentContext, localNameMap: outerNameMap },
-  ];
+      return [{ kind: "blockStatement", statements }, currentContext];
+    }
+  );
 };
 
 /**

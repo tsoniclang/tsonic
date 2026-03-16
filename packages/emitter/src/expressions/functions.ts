@@ -16,10 +16,23 @@ import { emitBlockStatementAst } from "../statement-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { lowerPatternAst } from "../patterns.js";
-import { resolveTypeAlias, stripNullish } from "../core/semantic/type-resolution.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../core/semantic/type-resolution.js";
+import {
+  buildRuntimeUnionLayout,
+  findRuntimeUnionMemberIndex,
+} from "../core/semantic/runtime-unions.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
-import { getIdentifierTypeName } from "../core/format/backend-ast/utils.js";
-import { allocateLocalName } from "../core/format/local-names.js";
+import {
+  getIdentifierTypeName,
+  stableTypeKeyFromAst,
+} from "../core/format/backend-ast/utils.js";
+import {
+  allocateLocalName,
+  registerLocalValueType,
+} from "../core/format/local-names.js";
 import type {
   CSharpBlockStatementAst,
   CSharpExpressionAst,
@@ -40,14 +53,25 @@ const seedLocalNameMapFromParameters = (
   context: EmitterContext
 ): EmitterContext => {
   const map = new Map(context.localNameMap ?? []);
+  let currentContext = context;
   const used = new Set(context.usedLocalNames ?? []);
   for (const p of params) {
     if (!p.bindsDirectly) continue;
-    if (!p.parameter || p.parameter.pattern.kind !== "identifierPattern") continue;
+    if (!p.parameter || p.parameter.pattern.kind !== "identifierPattern")
+      continue;
     map.set(p.parameter.pattern.name, p.emittedName);
     used.add(p.emittedName);
+    currentContext = registerLocalValueType(
+      p.parameter.pattern.name,
+      p.parameter.type,
+      currentContext
+    );
   }
-  return { ...context, localNameMap: map, usedLocalNames: used };
+  return {
+    ...currentContext,
+    localNameMap: map,
+    usedLocalNames: used,
+  };
 };
 
 type ContextualFunctionType = Extract<IrType, { kind: "functionType" }>;
@@ -55,19 +79,19 @@ type ContextualFunctionType = Extract<IrType, { kind: "functionType" }>;
 type AsyncUnionReturnPlan = {
   readonly unionReturnType: IrType;
   readonly awaitedReturnType: IrType;
-  readonly awaitableMemberIndex: number;
+  readonly awaitableMemberType: IrType;
 };
 
 const resolveContextualFunctionType = (
-  expr: Extract<
-    IrExpression,
-    { kind: "functionExpression" | "arrowFunction" }
-  >,
+  expr: Extract<IrExpression, { kind: "functionExpression" | "arrowFunction" }>,
   expectedType: IrType | undefined,
   context: EmitterContext
 ): ContextualFunctionType | undefined => {
   if (expectedType) {
-    const resolvedExpected = resolveTypeAlias(stripNullish(expectedType), context);
+    const resolvedExpected = resolveTypeAlias(
+      stripNullish(expectedType),
+      context
+    );
     if (resolvedExpected.kind === "functionType") {
       return resolvedExpected;
     }
@@ -104,6 +128,7 @@ const getAsyncUnionReturnPlan = (
 
   let awaitableIndex = -1;
   let awaitedReturnType: IrType | undefined;
+  let awaitableMemberType: IrType | undefined;
 
   for (let index = 0; index < resolved.types.length; index += 1) {
     const member = resolved.types[index];
@@ -117,16 +142,17 @@ const getAsyncUnionReturnPlan = (
 
     awaitableIndex = index;
     awaitedReturnType = getAwaitedIrType(member) ?? { kind: "voidType" };
+    awaitableMemberType = member;
   }
 
-  if (awaitableIndex === -1 || !awaitedReturnType) {
+  if (awaitableIndex === -1 || !awaitedReturnType || !awaitableMemberType) {
     return undefined;
   }
 
   return {
     unionReturnType: returnType,
     awaitedReturnType,
-    awaitableMemberIndex: awaitableIndex + 1,
+    awaitableMemberType,
   };
 };
 
@@ -212,19 +238,17 @@ const emitAsyncUnionReturningLambdaBodyAst = (
 
   let currentContext = awaitedReturnTypeContext;
   let taskBody: CSharpBlockStatementAst;
-  const isVoidAwaitedReturn =
-    unionPlan.awaitedReturnType.kind === "voidType";
+  const isVoidAwaitedReturn = unionPlan.awaitedReturnType.kind === "voidType";
 
   if (body.kind === "blockStatement") {
     const [blockAst] = emitBlockStatementAst(body, {
       ...currentContext,
       returnType: unionPlan.awaitedReturnType,
     });
-    const needsImplicitUndefinedReturn =
-      !(
-        unionPlan.awaitedReturnType.kind === "voidType" ||
-        isDefinitelyTerminatingStatement(body)
-      );
+    const needsImplicitUndefinedReturn = !(
+      unionPlan.awaitedReturnType.kind === "voidType" ||
+      isDefinitelyTerminatingStatement(body)
+    );
 
     taskBody = {
       kind: "blockStatement",
@@ -306,14 +330,45 @@ const emitAsyncUnionReturningLambdaBodyAst = (
     return [taskInvocationAst, unionTypeContext];
   }
 
+  const [runtimeLayout, runtimeLayoutContext] = buildRuntimeUnionLayout(
+    unionPlan.unionReturnType,
+    unionTypeContext,
+    emitTypeAst
+  );
+  const [awaitableMemberTypeAst, awaitableMemberTypeContext] = emitTypeAst(
+    unionPlan.awaitableMemberType,
+    runtimeLayoutContext
+  );
+  const awaitableMemberTypeKey = stableTypeKeyFromAst(awaitableMemberTypeAst);
+  const awaitableMemberIndex =
+    runtimeLayout?.memberTypeAsts.findIndex(
+      (memberTypeAst) =>
+        stableTypeKeyFromAst(memberTypeAst) === awaitableMemberTypeKey
+    ) ?? -1;
+
+  const resolvedAwaitableMemberIndex =
+    awaitableMemberIndex >= 0
+      ? awaitableMemberIndex
+      : runtimeLayout
+        ? findRuntimeUnionMemberIndex(
+            runtimeLayout.members,
+            unionPlan.awaitableMemberType,
+            awaitableMemberTypeContext
+          )
+        : undefined;
+
+  if (resolvedAwaitableMemberIndex === undefined) {
+    return [taskInvocationAst, awaitableMemberTypeContext];
+  }
+
   const wrappedTaskAst = wrapInUnionReturnMemberAst(
     concreteUnionTypeAst,
-    unionPlan.awaitableMemberIndex,
+    resolvedAwaitableMemberIndex + 1,
     taskInvocationAst
   );
 
   if (preludeStatements.length === 0) {
-    return [wrappedTaskAst, unionTypeContext];
+    return [wrappedTaskAst, awaitableMemberTypeContext];
   }
 
   return [
@@ -327,7 +382,7 @@ const emitAsyncUnionReturningLambdaBodyAst = (
         },
       ],
     },
-    unionTypeContext,
+    awaitableMemberTypeContext,
   ];
 };
 
@@ -393,9 +448,11 @@ const emitLambdaParametersAst = (
 ): [readonly EmittedLambdaParameter[], EmitterContext] => {
   let currentContext = context;
   const contextualParameters = contextualFunctionType?.parameters ?? [];
-  const trailingContextualParameters =
+  const synthesizedContextualParameters =
     contextualParameters.length > parameters.length
-      ? contextualParameters.slice(parameters.length)
+      ? contextualParameters
+          .slice(parameters.length)
+          .filter((parameter) => !parameter.isRest)
       : [];
 
   const allHaveConcreteTypes =
@@ -405,7 +462,7 @@ const emitLambdaParametersAst = (
       const actualType = unwrapped ?? p.type;
       return isConcreteLambdaParamType(actualType, currentContext);
     }) &&
-    trailingContextualParameters.every((p) => {
+    synthesizedContextualParameters.every((p) => {
       if (!p.type) return false;
       const unwrapped = unwrapParameterModifierType(p.type);
       const actualType = unwrapped ?? p.type;
@@ -456,17 +513,18 @@ const emitLambdaParametersAst = (
   }
 
   for (
-    let index = parameters.length;
-    index < contextualParameters.length;
+    let index = 0;
+    index < synthesizedContextualParameters.length;
     index += 1
   ) {
-    const contextualParam = contextualParameters[index];
+    const contextualParam = synthesizedContextualParameters[index];
     if (!contextualParam) continue;
+    const contextualIndex = parameters.length + index;
 
     const name =
       contextualParam.pattern.kind === "identifierPattern"
         ? `__unused_${escapeCSharpIdentifier(contextualParam.pattern.name)}`
-        : `__unused${index}`;
+        : `__unused${contextualIndex}`;
 
     if (allHaveConcreteTypes && contextualParam.type) {
       const unwrapped = unwrapParameterModifierType(contextualParam.type);

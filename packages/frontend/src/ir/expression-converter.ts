@@ -4,6 +4,7 @@
  */
 
 import * as ts from "typescript";
+import type { BindingInternal } from "./binding/binding-types.js";
 import {
   IrExpression,
   IrNumericNarrowingExpression,
@@ -98,6 +99,100 @@ const inferThisType = (node: ts.Node): IrType | undefined => {
   }
 
   return undefined;
+};
+
+const isExactNumericIrType = (type: IrType): boolean =>
+  type.kind === "referenceType" && TSONIC_TO_NUMERIC_KIND.has(type.name);
+
+const shouldWrapIdentifierWithAssertion = (
+  ctx: ProgramContext,
+  fromDecl: IrType | undefined,
+  fromEnv: IrType | undefined
+): boolean => {
+  if (!fromEnv) return false;
+  if (!fromDecl || fromDecl.kind === "unknownType") {
+    return fromEnv.kind !== "unknownType";
+  }
+  if (ctx.typeSystem.typesEqual(fromEnv, fromDecl)) return false;
+
+  if (fromEnv.kind === "unionType" || fromDecl.kind === "unionType") {
+    return true;
+  }
+
+  if (isExactNumericIrType(fromEnv) && !isExactNumericIrType(fromDecl)) {
+    return true;
+  }
+
+  if (fromEnv.kind === "arrayType" && fromDecl.kind !== "arrayType") {
+    return true;
+  }
+
+  if (fromEnv.kind === "functionType" && fromDecl.kind !== "functionType") {
+    return true;
+  }
+
+  return false;
+};
+
+const unwrapParens = (node: ts.Expression): ts.Expression => {
+  let current = node;
+  while (ts.isParenthesizedExpression(current)) {
+    current = current.expression;
+  }
+  return current;
+};
+
+const isExplicitUnknownTypeNode = (node: ts.TypeNode | undefined): boolean =>
+  !!node && node.kind === ts.SyntaxKind.UnknownKeyword;
+
+const hasExplicitUnknownStorageInitializer = (
+  node: ts.Expression | undefined
+): boolean => {
+  if (!node) return false;
+
+  const current = unwrapParens(node);
+  if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current)) {
+    return isExplicitUnknownTypeNode(current.type);
+  }
+
+  if (ts.isSatisfiesExpression(current)) {
+    return isExplicitUnknownTypeNode(current.type);
+  }
+
+  return false;
+};
+
+const getIdentifierStorageType = (
+  ctx: ProgramContext,
+  declId: ReturnType<ProgramContext["binding"]["resolveIdentifier"]>,
+  fromDecl: IrType | undefined,
+  fromEnv: IrType | undefined
+): IrType | undefined => {
+  if (!fromDecl) return fromEnv;
+  if (fromDecl.kind !== "unknownType") return fromDecl;
+  if (!fromEnv) return fromDecl;
+  if (!declId) return fromEnv;
+
+  const declInfo = (ctx.binding as BindingInternal)
+    ._getHandleRegistry()
+    .getDecl(declId);
+  if (!declInfo) return fromEnv;
+  if (declInfo.typeNode) return fromDecl;
+
+  const declNode = declInfo.declNode as ts.Node | undefined;
+  if (declNode) {
+    if (
+      ts.isVariableDeclaration(declNode) ||
+      ts.isParameter(declNode) ||
+      ts.isBindingElement(declNode)
+    ) {
+      if (hasExplicitUnknownStorageInitializer(declNode.initializer)) {
+        return fromDecl;
+      }
+    }
+  }
+
+  return fromEnv;
 };
 
 const stripNullish = (type: IrType | undefined): IrType | undefined => {
@@ -197,15 +292,16 @@ export const convertExpression = (
 
     // DETERMINISTIC: Prefer lexical flow type (narrowing / lambda params), then decl type.
     const fromEnv = declId ? ctx.typeEnv?.get(declId.id) : undefined;
-    const fromDecl =
-      declId
-        ? (() => {
-            const t = ctx.typeSystem.typeOfValueRead(declId);
-            return t.kind === "unknownType" ? undefined : t;
-          })()
-        : undefined;
+    const fromDecl = declId
+      ? ctx.typeSystem.typeOfValueRead(declId)
+      : undefined;
 
-    const identifierType = fromEnv ?? fromDecl;
+    const identifierStorageType = getIdentifierStorageType(
+      ctx,
+      declId,
+      fromDecl,
+      fromEnv
+    );
 
     // Check if this identifier is an aliased import (e.g., import { String as ClrString })
     // ALICE'S SPEC: Use TypeSystem.getFQNameOfDecl() to get the original name
@@ -219,12 +315,12 @@ export const convertExpression = (
     }
 
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
-    const clrBinding = ctx.bindings.getBinding(node.text);
+    const clrBinding = ctx.bindings.getExactBinding(node.text);
     if (clrBinding && clrBinding.kind === "global") {
       const baseIdentifier: IrExpression = {
         kind: "identifier",
         name: node.text,
-        inferredType: fromDecl ?? identifierType,
+        inferredType: identifierStorageType,
         sourceSpan: getSourceSpan(node),
         resolvedClrType: clrBinding.type,
         resolvedAssembly: clrBinding.assembly,
@@ -232,35 +328,38 @@ export const convertExpression = (
         originalName,
         declId,
       };
-      return fromEnv &&
-        (!fromDecl || !ctx.typeSystem.typesEqual(fromEnv, fromDecl))
-        ? {
-            kind: "typeAssertion",
-            expression: baseIdentifier,
-            targetType: fromEnv,
-            inferredType: fromEnv,
-            sourceSpan: getSourceSpan(node),
-          }
-        : baseIdentifier;
-    }
-    const baseIdentifier: IrExpression = {
-      kind: "identifier",
-      name: node.text,
-      inferredType: fromDecl ?? identifierType,
-      sourceSpan: getSourceSpan(node),
-      originalName,
-      declId,
-    };
-    return fromEnv &&
-      (!fromDecl || !ctx.typeSystem.typesEqual(fromEnv, fromDecl))
-      ? {
+      if (
+        shouldWrapIdentifierWithAssertion(ctx, fromDecl, fromEnv) &&
+        fromEnv
+      ) {
+        return {
           kind: "typeAssertion",
           expression: baseIdentifier,
           targetType: fromEnv,
           inferredType: fromEnv,
           sourceSpan: getSourceSpan(node),
-        }
-      : baseIdentifier;
+        };
+      }
+      return baseIdentifier;
+    }
+    const baseIdentifier: IrExpression = {
+      kind: "identifier",
+      name: node.text,
+      inferredType: identifierStorageType,
+      sourceSpan: getSourceSpan(node),
+      originalName,
+      declId,
+    };
+    if (shouldWrapIdentifierWithAssertion(ctx, fromDecl, fromEnv) && fromEnv) {
+      return {
+        kind: "typeAssertion",
+        expression: baseIdentifier,
+        targetType: fromEnv,
+        inferredType: fromEnv,
+        sourceSpan: getSourceSpan(node),
+      };
+    }
+    return baseIdentifier;
   }
   if (isImportMetaMetaProperty(node)) {
     return convertImportMetaObject(node, ctx);

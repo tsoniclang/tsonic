@@ -213,7 +213,9 @@ describe("Reference Type Emission", () => {
       });
 
       const printed = printType(typeAst);
-      expect(printed).to.equal("object?");
+      expect(printed).to.equal(
+        "global::Tsonic.Runtime.Union<object?[], string, global::System.Text.RegularExpressions.Regex>?"
+      );
     });
 
     it("emits recursive middleware aliases without stack overflow", () => {
@@ -251,7 +253,9 @@ describe("Reference Type Emission", () => {
       });
 
       const printed = printType(typeAst);
-      expect(printed).to.equal("object");
+      expect(printed).to.equal(
+        "global::Tsonic.Runtime.Union<object?[], global::System.Delegate>"
+      );
     });
 
     it("does not leak recursive alias resolution state into later emissions", () => {
@@ -325,7 +329,9 @@ describe("Reference Type Emission", () => {
         recursiveContext.resolvingTypeAliases
       );
       expect(printType(firstTypeAst)).to.equal(printType(secondTypeAst));
-      expect(printType(secondTypeAst)).to.equal("object");
+      expect(printType(secondTypeAst)).to.equal(
+        "global::Tsonic.Runtime.Union<object?[], global::System.Delegate, global::Test.Router>"
+      );
     });
 
     it("preserves recursive array alias members when emitting outer array containers", () => {
@@ -725,6 +731,68 @@ describe("Reference Type Emission", () => {
       const result = emitModule(module, { clrBindings });
 
       expect(result).to.include("global::nodejs.MkdirOptions x");
+    });
+
+    it("should canonicalize anonymous structural references to a unique binding-backed type", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "__Anon_local",
+        structuralMembers: [
+          {
+            kind: "propertySignature",
+            name: "success",
+            type: { kind: "literalType", value: true },
+            isOptional: false,
+            isReadonly: false,
+          },
+          {
+            kind: "propertySignature",
+            name: "rendered",
+            type: { kind: "primitiveType", name: "string" },
+            isOptional: false,
+            isReadonly: false,
+          },
+        ],
+      });
+
+      const anonymousBinding: FrontendTypeBinding = {
+        name: "Acme.Messages.__Anon_8be6_614f176b",
+        alias: "__Anon_8be6_614f176b",
+        kind: "class",
+        members: [
+          {
+            kind: "property",
+            alias: "success",
+            name: "success",
+            semanticType: { kind: "literalType", value: true },
+            binding: {
+              assembly: "Acme.Messages",
+              type: "Acme.Messages.__Anon_8be6_614f176b",
+              member: "success",
+            },
+          },
+          {
+            kind: "property",
+            alias: "rendered",
+            name: "rendered",
+            semanticType: { kind: "primitiveType", name: "string" },
+            binding: {
+              assembly: "Acme.Messages",
+              type: "Acme.Messages.__Anon_8be6_614f176b",
+              member: "rendered",
+            },
+          },
+        ],
+      };
+
+      const clrBindings = new Map<string, FrontendTypeBinding>([
+        [anonymousBinding.alias, anonymousBinding],
+      ]);
+
+      const result = emitModule(module, { clrBindings });
+
+      expect(result).to.include("global::Acme.Messages.__Anon_8be6_614f176b x");
+      expect(result).to.not.include("__Anon_local x");
     });
   });
 

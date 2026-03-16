@@ -165,6 +165,21 @@ describe("Attribute Collection Pass", () => {
     body: makeMemberAccess(makeIdentifier("x"), memberName),
   });
 
+  const makeWrappedSelector = (memberName: string) => ({
+    kind: "arrowFunction" as const,
+    parameters: [makeParameter("x")],
+    isAsync: false,
+    body: makeMemberAccess(
+      {
+        kind: "typeAssertion" as const,
+        expression: makeTypedIdentifier("x", makeRefType("User")),
+        targetType: makeRefType("User"),
+        inferredType: makeRefType("User"),
+      },
+      memberName
+    ),
+  });
+
   const makeBadSelectorCallBody = (memberName: string) => ({
     kind: "arrowFunction" as const,
     parameters: [makeParameter("x")],
@@ -325,7 +340,8 @@ describe("Attribute Collection Pass", () => {
   const makePropMarkerCall = (
     targetName: string,
     propName: string,
-    attrName: string
+    attrName: string,
+    selector: unknown = makeSelector(propName)
   ) => ({
     kind: "expressionStatement" as const,
     expression: makeCall(
@@ -337,7 +353,7 @@ describe("Attribute Collection Pass", () => {
             ]),
             "prop"
           ),
-          [makeSelector(propName)]
+          [selector]
         ),
         "add"
       ),
@@ -1008,6 +1024,46 @@ describe("Attribute Collection Pass", () => {
       expect(attr0.target).to.equal("return");
     });
 
+    it("should accept selectors whose parameter identifier is wrapped in transparent assertions", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "save",
+              parameters: [],
+              body: { kind: "blockStatement", statements: [] },
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        makeMethodMarkerCall(
+          "User",
+          "PureAttribute",
+          makeWrappedSelector("save")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      const method = classDecl.members.find(
+        (m) => m.kind === "methodDeclaration"
+      );
+      expect(
+        method && "attributes" in method ? method.attributes : undefined
+      ).to.have.length(1);
+    });
+
     it("should accept AttributeTargets.<target> (aliased import)", () => {
       const module = createModule(
         [
@@ -1342,6 +1398,44 @@ describe("Attribute Collection Pass", () => {
         prop && "attributes" in prop ? prop.attributes?.[0] : undefined
       );
       expect(attr0.target).to.equal("field");
+    });
+
+    it("should accept property selectors whose parameter identifier is wrapped in transparent assertions", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "propertyDeclaration",
+              name: "name",
+              isStatic: false,
+              isReadonly: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        makePropMarkerCall(
+          "User",
+          "name",
+          "DataMemberAttribute",
+          makeWrappedSelector("name")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      const prop = classDecl.members.find(
+        (m) => m.kind === "propertyDeclaration"
+      );
+      expect(
+        prop && "attributes" in prop ? prop.attributes : undefined
+      ).to.have.length(1);
     });
 
     it("should reject [field: ...] on accessor properties", () => {

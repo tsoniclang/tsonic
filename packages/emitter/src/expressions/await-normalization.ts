@@ -192,7 +192,7 @@ export const emitNormalizedAwaitTaskAst = (
 
   if (isDefinitelyNonAwaitableType(valueType)) {
     const explicitResultType = requiresExplicitTaskFromResultType(valueAst)
-      ? resultType ?? valueType
+      ? (resultType ?? valueType)
       : undefined;
     const [resultTypeAst, resultTypeContext] = explicitResultType
       ? emitTypeAst(explicitResultType, currentContext)
@@ -217,7 +217,11 @@ export const emitNormalizedAwaitTaskAst = (
     const allNonAwaitableMembers = nonNullMembers.every(
       (member) => !isAwaitableIrType(member)
     );
-    if (allNonAwaitableMembers && resultType && resultType.kind !== "voidType") {
+    if (
+      allNonAwaitableMembers &&
+      resultType &&
+      resultType.kind !== "voidType"
+    ) {
       const arms: CSharpExpressionAst[] = [];
       for (let index = 0; index < nonNullMembers.length; index += 1) {
         const memberType = nonNullMembers[index];

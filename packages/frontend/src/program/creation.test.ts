@@ -135,7 +135,12 @@ describe("Program Creation", function () {
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
 
-      const nodejsRoot = path.join(tempDir, "node_modules", "@tsonic", "nodejs");
+      const nodejsRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@tsonic",
+        "nodejs"
+      );
       fs.mkdirSync(path.join(nodejsRoot, "src"), { recursive: true });
       fs.mkdirSync(path.join(nodejsRoot, "tsonic"), { recursive: true });
       fs.writeFileSync(

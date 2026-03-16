@@ -99,6 +99,13 @@ export type ResolvedCall = {
   /** Fully instantiated parameter types (undefined = missing annotation) */
   readonly parameterTypes: readonly (IrType | undefined)[];
 
+  /** Explicit rest-parameter metadata from the selected signature. */
+  readonly restParameter?: {
+    readonly index: number;
+    readonly arrayType: IrType | undefined;
+    readonly elementType: IrType | undefined;
+  };
+
   /** Parameter passing modes (value, ref, out, in) */
   readonly parameterModes: readonly ParameterMode[];
 
@@ -268,6 +275,7 @@ export type TypeSyntaxInfo = {
  * Pure data — no TS nodes.
  */
 export type ClassMemberNames = {
+  readonly typeParameters: readonly string[];
   readonly methods: ReadonlySet<string>;
   readonly properties: ReadonlySet<string>;
   readonly methodSignatures: ReadonlyMap<

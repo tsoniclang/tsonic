@@ -90,7 +90,9 @@ export const extractCalleeNameFromAst = (ast: CSharpExpressionAst): string => {
 };
 
 export const stripNullableTypeAst = (type: CSharpTypeAst): CSharpTypeAst =>
-  type.kind === "nullableType" ? stripNullableTypeAst(type.underlyingType) : type;
+  type.kind === "nullableType"
+    ? stripNullableTypeAst(type.underlyingType)
+    : type;
 
 export const globallyQualifyTypeAst = (type: CSharpTypeAst): CSharpTypeAst => {
   switch (type.kind) {

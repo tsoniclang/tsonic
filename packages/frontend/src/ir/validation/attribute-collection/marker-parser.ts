@@ -90,6 +90,24 @@ export const getMemberName = (expr: IrExpression): string | undefined => {
   return expr.property;
 };
 
+const unwrapTransparentSelectorExpression = (
+  expr: IrExpression
+): IrExpression => {
+  let current = expr;
+  while (true) {
+    switch (current.kind) {
+      case "typeAssertion":
+      case "numericNarrowing":
+      case "asinterface":
+      case "trycast":
+        current = current.expression;
+        continue;
+      default:
+        return current;
+    }
+  }
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // API USAGE DETECTION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -223,7 +241,8 @@ export const parseSelector = (
   selector: IrExpression,
   module: IrModule
 ): ParseResult<string> => {
-  if (selector.kind !== "arrowFunction") {
+  const unwrappedSelector = unwrapTransparentSelectorExpression(selector);
+  if (unwrappedSelector.kind !== "arrowFunction") {
     return {
       kind: "error",
       diagnostic: createDiagnostic(
@@ -235,7 +254,7 @@ export const parseSelector = (
     };
   }
 
-  const fn = selector as IrArrowFunctionExpression;
+  const fn = unwrappedSelector as IrArrowFunctionExpression;
   if (fn.parameters.length !== 1) {
     return {
       kind: "error",
@@ -287,7 +306,8 @@ export const parseSelector = (
     };
   }
 
-  if (body.object.kind !== "identifier" || body.object.name !== paramName) {
+  const bodyObject = unwrapTransparentSelectorExpression(body.object);
+  if (bodyObject.kind !== "identifier" || bodyObject.name !== paramName) {
     return {
       kind: "error",
       diagnostic: createDiagnostic(

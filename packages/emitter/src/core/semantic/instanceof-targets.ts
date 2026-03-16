@@ -10,10 +10,7 @@ export const normalizeInstanceofTargetType = (
   type: IrType | undefined
 ): IrType | undefined => {
   if (!type) return undefined;
-  if (
-    type.kind === "referenceType" &&
-    type.name.endsWith("Constructor")
-  ) {
+  if (type.kind === "referenceType" && type.name.endsWith("Constructor")) {
     return {
       kind: "referenceType",
       name: type.name.slice(0, -"Constructor".length),

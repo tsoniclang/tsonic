@@ -522,9 +522,7 @@ const normalizeExpectedArrayType = (
       (member): member is IrType => !!member && !isNullishPrimitive(member)
     )
     .filter(
-      (
-        member
-      ): member is Extract<IrType, { kind: "arrayType" }> =>
+      (member): member is Extract<IrType, { kind: "arrayType" }> =>
         member.kind === "arrayType" && !containsTypeParameter(member)
     );
 

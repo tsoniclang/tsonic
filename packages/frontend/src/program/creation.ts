@@ -765,9 +765,8 @@ export const createProgram = (
     ".tsonic",
     "__js_surface_globals__.d.ts"
   );
-  const isJsSurfaceCompilation = surfaceCapabilities.resolvedModes.includes(
-    "@tsonic/js"
-  );
+  const isJsSurfaceCompilation =
+    surfaceCapabilities.resolvedModes.includes("@tsonic/js");
   const virtualDeclarationSources = new Map<string, string>([
     [path.resolve(coreGlobalsVirtualPath), CORE_GLOBALS_DECLARATIONS],
     ...(isJsSurfaceCompilation

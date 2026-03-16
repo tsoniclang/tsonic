@@ -261,6 +261,8 @@ export type NarrowedBinding =
       readonly kind: "runtimeSubset";
       readonly runtimeMemberNs: readonly number[];
       readonly runtimeUnionArity: number;
+      readonly sourceMembers?: readonly IrType[];
+      readonly sourceCandidateMemberNs?: readonly number[];
       readonly type?: IrType;
       readonly sourceType?: IrType;
     };
@@ -270,6 +272,7 @@ export type ValueSymbolKind = "function" | "variable";
 export type ValueSymbolInfo = {
   readonly kind: ValueSymbolKind;
   readonly csharpName: string;
+  readonly type?: Extract<IrType, { kind: "functionType" }>;
 };
 
 /**
@@ -350,6 +353,8 @@ export type EmitterContext = {
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
   readonly localNameMap?: ReadonlyMap<string, string>;
+  /** Scoped runtime storage types for locals/parameters when they differ from frontend IR narrowing. */
+  readonly localValueTypes?: ReadonlyMap<string, IrType>;
   /** Module-level bindings that require mutable storage because JS array writes reassign them. */
   readonly mutableModuleBindings?: ReadonlySet<string>;
   /** Local class/interface property slots that require mutable storage because JS array writes reassign them. */

@@ -221,7 +221,10 @@ export const getSpreadTupleShape = (
   return undefined;
 };
 
-const stableIrTypeKeyImpl = (type: IrType, state: StableTypeKeyState): string => {
+const stableIrTypeKeyImpl = (
+  type: IrType,
+  state: StableTypeKeyState
+): string => {
   const visit = beginStableTypeNode(state, type);
   if (visit.seenBefore) {
     return `cycle:${visit.id}`;
@@ -238,9 +241,13 @@ const stableIrTypeKeyImpl = (type: IrType, state: StableTypeKeyState): string =>
       return primitiveKey(type);
 
     case "arrayType":
-      return `arr#${visit.id}:${stableIrTypeKeyImpl(type.elementType, state)}:tuple:${(type.tuplePrefixElementTypes ?? [])
+      return `arr#${visit.id}:${stableIrTypeKeyImpl(type.elementType, state)}:tuple:${(
+        type.tuplePrefixElementTypes ?? []
+      )
         .map((elementType) => stableIrTypeKeyImpl(elementType, state))
-        .join(",")}:rest:${type.tupleRestElementType ? stableIrTypeKeyImpl(type.tupleRestElementType, state) : "none"}`;
+        .join(
+          ","
+        )}:rest:${type.tupleRestElementType ? stableIrTypeKeyImpl(type.tupleRestElementType, state) : "none"}`;
 
     case "tupleType":
       return `tuple#${visit.id}:${type.elementTypes

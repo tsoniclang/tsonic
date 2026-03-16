@@ -13,6 +13,34 @@ import {
 } from "../../helpers.js";
 import type { ProgramContext } from "../../../../program-context.js";
 
+const isParameterPropertyParameter = (
+  param: ts.ParameterDeclaration
+): boolean => {
+  const modifiers = ts.getModifiers(param);
+  return (
+    modifiers?.some(
+      (m) =>
+        m.kind === ts.SyntaxKind.PublicKeyword ||
+        m.kind === ts.SyntaxKind.PrivateKeyword ||
+        m.kind === ts.SyntaxKind.ProtectedKeyword ||
+        m.kind === ts.SyntaxKind.ReadonlyKeyword
+    ) ?? false
+  );
+};
+
+const isLeadingSuperCallStatement = (statement: IrStatement): boolean => {
+  if (statement.kind !== "expressionStatement") {
+    return false;
+  }
+
+  const expression = statement.expression;
+  return (
+    expression.kind === "call" &&
+    expression.callee.kind === "identifier" &&
+    expression.callee.name === "super"
+  );
+};
+
 /**
  * Convert constructor declaration to IR
  */
@@ -21,24 +49,14 @@ export const convertConstructor = (
   ctx: ProgramContext,
   constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
 ): IrClassMember => {
-  // Build constructor body with parameter property assignments
-  const statements: IrStatement[] = [];
+  const parameterPropertyAssignments: IrStatement[] = [];
 
   // Add assignments for parameter properties (parameters with explicit modifiers)
   if (constructorParams) {
     for (const param of constructorParams) {
-      // Check if parameter has an EXPLICIT accessibility modifier
-      const modifiers = ts.getModifiers(param);
-      const hasAccessibilityModifier = modifiers?.some(
-        (m) =>
-          m.kind === ts.SyntaxKind.PublicKeyword ||
-          m.kind === ts.SyntaxKind.PrivateKeyword ||
-          m.kind === ts.SyntaxKind.ProtectedKeyword
-      );
-
-      if (hasAccessibilityModifier && ts.isIdentifier(param.name)) {
+      if (isParameterPropertyParameter(param) && ts.isIdentifier(param.name)) {
         // Create: this.name = name;
-        statements.push({
+        parameterPropertyAssignments.push({
           kind: "expressionStatement",
           expression: {
             kind: "assignment",
@@ -63,9 +81,20 @@ export const convertConstructor = (
   }
 
   // Add existing constructor body statements
+  const statements: IrStatement[] = [];
   if (node.body) {
     const existingBody = convertBlockStatement(node.body, ctx, undefined);
-    statements.push(...existingBody.statements);
+    const [first, ...rest] = existingBody.statements;
+    if (first && isLeadingSuperCallStatement(first)) {
+      statements.push(first, ...parameterPropertyAssignments, ...rest);
+    } else {
+      statements.push(
+        ...parameterPropertyAssignments,
+        ...existingBody.statements
+      );
+    }
+  } else {
+    statements.push(...parameterPropertyAssignments);
   }
 
   return {
@@ -90,17 +119,7 @@ export const extractParameterProperties = (
   const parameterProperties: IrClassMember[] = [];
 
   for (const param of constructor.parameters) {
-    // Check if parameter has an EXPLICIT accessibility modifier
-    // (public/private/protected makes it a parameter property)
-    const modifiers = ts.getModifiers(param);
-    const hasAccessibilityModifier = modifiers?.some(
-      (m) =>
-        m.kind === ts.SyntaxKind.PublicKeyword ||
-        m.kind === ts.SyntaxKind.PrivateKeyword ||
-        m.kind === ts.SyntaxKind.ProtectedKeyword
-    );
-
-    if (!hasAccessibilityModifier) {
+    if (!isParameterPropertyParameter(param)) {
       continue; // Not a parameter property
     }
 

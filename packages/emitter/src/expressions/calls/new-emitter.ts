@@ -266,6 +266,11 @@ const getPromiseValueType = (
 const getExecutorArity = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): number => {
+  const executorType = expr.parameterTypes?.[0];
+  const contextualArity =
+    executorType?.kind === "functionType"
+      ? executorType.parameters.length
+      : undefined;
   const executor = expr.arguments[0];
   if (
     executor &&
@@ -273,12 +278,11 @@ const getExecutorArity = (
     (executor.kind === "arrowFunction" ||
       executor.kind === "functionExpression")
   ) {
-    return executor.parameters.length;
+    return Math.max(executor.parameters.length, contextualArity ?? 0);
   }
 
-  const executorType = expr.parameterTypes?.[0];
-  if (executorType?.kind === "functionType") {
-    return executorType.parameters.length;
+  if (contextualArity !== undefined) {
+    return contextualArity;
   }
 
   return 1;

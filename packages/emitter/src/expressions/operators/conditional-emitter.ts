@@ -14,6 +14,7 @@ import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js"
 import { emitRemappedLocalName } from "../../core/format/local-names.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import {
+  buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
   findRuntimeUnionMemberIndex,
 } from "../../core/semantic/runtime-unions.js";
@@ -119,15 +120,11 @@ const tryResolveTernaryGuard = (
     const unionSourceType = arg.inferredType;
     if (!unionSourceType) return undefined;
 
-    const [runtimeLayout] = buildRuntimeUnionLayout(
-      unionSourceType,
-      context,
-      emitTypeAst
-    );
-    if (!runtimeLayout) return undefined;
+    const runtimeFrame = buildRuntimeUnionFrame(unionSourceType, context);
+    if (!runtimeFrame) return undefined;
 
     const idx = findRuntimeUnionMemberIndex(
-      runtimeLayout.members,
+      runtimeFrame.members,
       narrowing.targetType,
       context
     );

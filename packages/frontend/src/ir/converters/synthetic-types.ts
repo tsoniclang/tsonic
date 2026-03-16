@@ -76,6 +76,96 @@ const typeParamsToTypeArgs = (
   );
 };
 
+const collectUsedTypeParameterNames = (
+  type: IrType,
+  out: Set<string>
+): void => {
+  switch (type.kind) {
+    case "typeParameterType":
+      out.add(type.name);
+      return;
+    case "arrayType":
+      collectUsedTypeParameterNames(type.elementType, out);
+      return;
+    case "tupleType":
+      for (const elementType of type.elementTypes) {
+        collectUsedTypeParameterNames(elementType, out);
+      }
+      return;
+    case "unionType":
+    case "intersectionType":
+      for (const member of type.types) {
+        collectUsedTypeParameterNames(member, out);
+      }
+      return;
+    case "referenceType":
+      for (const typeArgument of type.typeArguments ?? []) {
+        collectUsedTypeParameterNames(typeArgument, out);
+      }
+      return;
+    case "functionType":
+      for (const parameter of type.parameters) {
+        if (parameter.type) {
+          collectUsedTypeParameterNames(parameter.type, out);
+        }
+      }
+      collectUsedTypeParameterNames(type.returnType, out);
+      return;
+    case "objectType":
+      for (const member of type.members) {
+        if (member.kind === "propertySignature") {
+          collectUsedTypeParameterNames(member.type, out);
+          continue;
+        }
+        for (const parameter of member.parameters) {
+          if (parameter.type) {
+            collectUsedTypeParameterNames(parameter.type, out);
+          }
+        }
+        if (member.returnType) {
+          collectUsedTypeParameterNames(member.returnType, out);
+        }
+      }
+      return;
+    case "dictionaryType":
+      collectUsedTypeParameterNames(type.keyType, out);
+      collectUsedTypeParameterNames(type.valueType, out);
+      return;
+    default:
+      return;
+  }
+};
+
+const filterTypeParametersForObjectType = (
+  objectType: IrObjectType,
+  typeParameters: readonly IrTypeParameter[] | undefined
+): readonly IrTypeParameter[] | undefined => {
+  if (!typeParameters || typeParameters.length === 0) {
+    return undefined;
+  }
+
+  const used = new Set<string>();
+  for (const member of objectType.members) {
+    if (member.kind === "propertySignature") {
+      collectUsedTypeParameterNames(member.type, used);
+      continue;
+    }
+    for (const parameter of member.parameters) {
+      if (parameter.type) {
+        collectUsedTypeParameterNames(parameter.type, used);
+      }
+    }
+    if (member.returnType) {
+      collectUsedTypeParameterNames(member.returnType, used);
+    }
+  }
+
+  const filtered = typeParameters.filter((parameter) =>
+    used.has(parameter.name)
+  );
+  return filtered.length > 0 ? filtered : undefined;
+};
+
 /**
  * Create a synthetic interface declaration from an object type
  */
@@ -136,23 +226,27 @@ export const processTypeAliasForSynthetics = (
   // Generate synthetic interfaces and rewrite union members
   const syntheticInterfaces: IrInterfaceDeclaration[] = [];
   const rewrittenUnionTypes: IrType[] = [];
-  const typeArgs = typeParamsToTypeArgs(typeParameters);
-
   let objectIndex = 0;
   for (const memberType of union.types) {
     if (isObjectType(memberType)) {
+      const memberTypeParameters = filterTypeParametersForObjectType(
+        memberType,
+        typeParameters
+      );
+      const memberTypeArgs = typeParamsToTypeArgs(memberTypeParameters);
+
       // Generate synthetic interface for this object type
       const syntheticName = generateSyntheticName(name, objectIndex);
       const syntheticInterface = createSyntheticInterface(
         memberType,
         syntheticName,
-        typeParameters,
+        memberTypeParameters,
         isExported // Synthetic interfaces inherit export status
       );
       syntheticInterfaces.push(syntheticInterface);
 
       // Replace object type with reference to synthetic
-      const reference = createSyntheticReference(syntheticName, typeArgs);
+      const reference = createSyntheticReference(syntheticName, memberTypeArgs);
       rewrittenUnionTypes.push(reference);
 
       objectIndex++;

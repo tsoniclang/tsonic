@@ -85,12 +85,13 @@ export const convertMemberExpression = (
 
     const object = convertExpression(node.expression, ctx, undefined);
     const propertyName = node.name.text;
-    const narrowedReceiverType = hasAccessPathNarrowing(node.expression, ctx)
-      ? getCurrentTypeForAccessExpression(node.expression, ctx)
-      : undefined;
+    const currentReceiverType = getCurrentTypeForAccessExpression(
+      node.expression,
+      ctx
+    );
     const bindingResolutionObject =
-      narrowedReceiverType !== undefined
-        ? { ...object, inferredType: narrowedReceiverType }
+      currentReceiverType !== undefined
+        ? { ...object, inferredType: currentReceiverType }
         : object;
 
     // Try to resolve hierarchical binding
@@ -117,12 +118,17 @@ export const convertMemberExpression = (
     //
     // EXCEPTION: If memberBinding exists AND declaredType is undefined, return undefined.
     // This handles pure CLR-bound methods like Console.WriteLine that have no TS declaration.
-    const narrowedAccessType = hasAccessPathNarrowing(node, ctx)
-      ? getCurrentTypeForAccessExpression(node, ctx)
-      : undefined;
+    const narrowedAccessType =
+      hasAccessPathNarrowing(node, ctx) || currentReceiverType !== undefined
+        ? getCurrentTypeForAccessExpression(node, ctx)
+        : undefined;
     const declaredType =
       narrowedAccessType ??
-      getDeclaredPropertyType(node, object.inferredType, ctx);
+      getDeclaredPropertyType(
+        node,
+        currentReceiverType ?? object.inferredType,
+        ctx
+      );
 
     // Hierarchical bindings: namespace.type is a static type reference, not a runtime
     // value. When this pattern is present in the binding manifest, avoid poisoning the
