@@ -21,6 +21,7 @@ import {
   splitRuntimeNullishUnionMembers,
   substituteTypeArgs,
 } from "./type-resolution.js";
+import { applyLogicalOperandNarrowing } from "./condition-branch-narrowing.js";
 import { buildRuntimeUnionFrame } from "./runtime-unions.js";
 import {
   booleanLiteral,
@@ -938,11 +939,23 @@ export const emitBooleanConditionAst = (
       emitExprAst,
       context
     );
+    const rightBaseContext = applyLogicalOperandNarrowing(
+      expr.left,
+      expr.operator,
+      leftCtx,
+      emitExprAst
+    );
     const [rightAst, rightCtx] = emitBooleanConditionAst(
       expr.right,
       emitExprAst,
-      leftCtx
+      rightBaseContext
     );
+    const finalContext: EmitterContext = {
+      ...rightCtx,
+      tempVarId: Math.max(leftCtx.tempVarId ?? 0, rightCtx.tempVarId ?? 0),
+      usings: new Set([...(leftCtx.usings ?? []), ...(rightCtx.usings ?? [])]),
+      narrowedBindings: leftCtx.narrowedBindings,
+    };
 
     return [
       {
@@ -951,7 +964,7 @@ export const emitBooleanConditionAst = (
         left: leftAst,
         right: rightAst,
       },
-      rightCtx,
+      finalContext,
     ];
   }
 

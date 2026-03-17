@@ -10,6 +10,107 @@ import { IrModule, type IrType } from "@tsonic/frontend";
 import type { TypeMemberKind } from "../types.js";
 
 describe("Statement Emission", () => {
+  it("keeps nullable update targets writable when flow narrowing wraps the operand in assertions", () => {
+    const intType: IrType = { kind: "referenceType", name: "int" };
+    const nullableInt: IrType = {
+      kind: "unionType",
+      types: [intType, { kind: "primitiveType", name: "undefined" }],
+    };
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "bump",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "id" },
+              type: nullableInt,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: intType,
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "!==",
+                  left: {
+                    kind: "identifier",
+                    name: "id",
+                    inferredType: nullableInt,
+                  },
+                  right: { kind: "identifier", name: "undefined" },
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "expressionStatement",
+                      expression: {
+                        kind: "update",
+                        operator: "++",
+                        prefix: false,
+                        expression: {
+                          kind: "typeAssertion",
+                          expression: {
+                            kind: "identifier",
+                            name: "id",
+                            inferredType: nullableInt,
+                          },
+                          targetType: intType,
+                          inferredType: intType,
+                        },
+                        inferredType: intType,
+                      },
+                    },
+                    {
+                      kind: "returnStatement",
+                      expression: {
+                        kind: "identifier",
+                        name: "id",
+                        inferredType: intType,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "unary",
+                  operator: "-",
+                  expression: { kind: "literal", value: 1, raw: "1" },
+                  inferredType: intType,
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("id++;");
+    expect(result).not.to.include("id.Value++;");
+  });
+
   it("should preserve explicit local array assertions as CLR casts with explicit local types", () => {
     const module: IrModule = {
       kind: "module",
@@ -888,7 +989,9 @@ describe("Statement Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include("if (value.Is2())");
-    expect(result).to.include("var value__is_1 = value.As2();");
+    expect(result).to.include(
+      "Uint8Array value__is_1 = (Uint8Array)value.As2();"
+    );
     expect(result).to.not.include("Uint8ArrayConstructor");
   });
 
@@ -1330,6 +1433,75 @@ describe("Statement Emission", () => {
       'return result__1_1.code == null ? result__1_1.error : result__1_1.code + ":" + result__1_1.error;'
     );
     expect(result).to.not.include("return result.code == null");
+  });
+
+  it("casts runtime unions to object for direct nullish comparisons", () => {
+    const valueType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "functionType",
+          parameters: [],
+          returnType: { kind: "voidType" },
+        },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "check",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: valueType,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "boolean" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "binary",
+                  operator: "==",
+                  left: {
+                    kind: "identifier",
+                    name: "value",
+                    inferredType: valueType,
+                  },
+                  right: { kind: "literal", value: undefined },
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("((global::System.Object)(value)) == null");
+    expect(result).to.not.include("value == null");
   });
 
   it("handles `in` guards after earlier narrowing collapses a union to one member", () => {

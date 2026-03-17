@@ -22,6 +22,9 @@ export type ResolvedSourcePackageImport = {
   readonly resolvedPath: string;
 };
 
+const installedPackageRootCache = new Map<string, string>();
+const containingSourcePackageRootCache = new Map<string, string>();
+
 const splitPackageNameSegments = (packageName: string): readonly string[] =>
   packageName.startsWith("@") ? packageName.split("/") : [packageName];
 
@@ -29,12 +32,18 @@ const findInstalledPackageRoot = (
   packageName: string,
   containingFile: string
 ): string | undefined => {
+  const cacheKey = `${path.resolve(containingFile)}::${packageName}`;
+  const cached = installedPackageRootCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
   const packageSegments = splitPackageNameSegments(packageName);
   let currentDir = path.dirname(path.resolve(containingFile));
 
   for (;;) {
     const candidate = path.join(currentDir, "node_modules", ...packageSegments);
     if (fs.existsSync(path.join(candidate, "package.json"))) {
+      installedPackageRootCache.set(cacheKey, candidate);
       return candidate;
     }
 
@@ -49,6 +58,11 @@ const findInstalledPackageRoot = (
 const findContainingSourcePackageRoot = (
   filePath: string
 ): string | undefined => {
+  const normalizedFilePath = path.resolve(filePath);
+  const cached = containingSourcePackageRootCache.get(normalizedFilePath);
+  if (cached !== undefined) {
+    return cached;
+  }
   let currentDir = path.dirname(filePath);
   for (;;) {
     const manifestPath = path.join(
@@ -63,6 +77,7 @@ const findContainingSourcePackageRoot = (
         manifestResult.ok &&
         manifestResult.value?.kind === "tsonic-source-package"
       ) {
+        containingSourcePackageRootCache.set(normalizedFilePath, currentDir);
         return currentDir;
       }
     }
@@ -149,7 +164,9 @@ const readManifest = (
         )
       );
     }
-    return ok(parsed as SourcePackageManifest);
+    return ok(
+      parsed as SourcePackageManifest
+    );
   } catch (err) {
     return error(
       createDiagnostic(
@@ -342,13 +359,17 @@ export const resolveSourcePackageImport = (
   projectRoot: string
 ): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
   const parsedSpecifier = parsePackageSpecifier(importSpecifier);
-  if (!parsedSpecifier) return ok(null);
+  if (!parsedSpecifier) {
+    return ok(null);
+  }
 
   const packageRoot = findInstalledPackageRoot(
     parsedSpecifier.packageName,
     containingFile
   );
-  if (!packageRoot) return ok(null);
+  if (!packageRoot) {
+    return ok(null);
+  }
   const manifestPath = path.join(
     packageRoot,
     "tsonic",
@@ -357,7 +378,9 @@ export const resolveSourcePackageImport = (
   const manifestResult = readManifest(manifestPath);
   if (!manifestResult.ok) return manifestResult;
   const manifest = manifestResult.value;
-  if (!manifest) return ok(null);
+  if (!manifest) {
+    return ok(null);
+  }
 
   if (manifest.schemaVersion !== 1) {
     return error(
@@ -368,7 +391,7 @@ export const resolveSourcePackageImport = (
         undefined,
         "schemaVersion must be 1."
       )
-    );
+      );
   }
 
   if (manifest.kind !== "tsonic-source-package") {
@@ -393,7 +416,7 @@ export const resolveSourcePackageImport = (
         undefined,
         `Supported surfaces: ${surfaces.value.join(", ")}`
       )
-    );
+      );
   }
 
   const source = parseSourceSection(manifest.source, manifestPath);
@@ -413,7 +436,7 @@ export const resolveSourcePackageImport = (
         undefined,
         `Declare it in ${path.relative(packageRoot, manifestPath)} under source.exports.`
       )
-    );
+      );
   }
 
   const resolvedTarget = resolveExportTarget(packageRoot, target);

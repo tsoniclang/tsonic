@@ -8,71 +8,44 @@ import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import {
   identifierExpression,
-  identifierType,
-  stringLiteral,
 } from "../core/format/backend-ast/builders.js";
 import {
-  getIdentifierTypeName,
   stableIdentifierSuffixFromTypeAst,
   stableTypeKeyFromAst,
 } from "../core/format/backend-ast/utils.js";
 import { emitTypedDefaultAst } from "../core/semantic/defaults.js";
 import {
-  buildRuntimeUnionLayout,
-  findRuntimeUnionMemberIndex,
-} from "../core/semantic/runtime-unions.js";
+  matchesExpectedEmissionType,
+  requiresValueTypeMaterialization,
+} from "../core/semantic/expected-type-matching.js";
+import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
+import { tryBuildRuntimeMaterializationAst, tryBuildRuntimeReificationPlan } from "../core/semantic/runtime-reification.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
-import { isAssignable } from "../core/semantic/index.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../core/semantic/type-resolution.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
 
-const unwrapNullableTypeAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
-  typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
+const isBroadStorageTarget = (
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!expectedType) {
+    return false;
+  }
 
-const isRuntimeUnionTypeAst = (typeAst: CSharpTypeAst): boolean => {
-  const concrete = unwrapNullableTypeAst(typeAst);
-  const name = getIdentifierTypeName(concrete);
+  const resolved = resolveTypeAlias(stripNullish(expectedType), context);
   return (
-    name === "global::Tsonic.Runtime.Union" ||
-    name === "Tsonic.Runtime.Union" ||
-    name === "Union"
+    resolved.kind === "unknownType" ||
+    resolved.kind === "anyType" ||
+    resolved.kind === "objectType" ||
+    (resolved.kind === "referenceType" && resolved.name === "object")
   );
 };
-
-const buildUnionFactoryCallAst = (
-  unionTypeAst: CSharpTypeAst,
-  memberIndex: number,
-  valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "typeReferenceExpression",
-      type: unionTypeAst,
-    },
-    memberName: `From${memberIndex}`,
-  },
-  arguments: [valueAst],
-});
-
-const buildInvalidRuntimeUnionCastExpression = (
-  actualType: IrType,
-  expectedType: IrType
-): CSharpExpressionAst => ({
-  kind: "throwExpression",
-  expression: {
-    kind: "objectCreationExpression",
-    type: identifierType("global::System.InvalidCastException"),
-    arguments: [
-      stringLiteral(
-        `Cannot cast runtime union ${actualType.kind} to ${expectedType.kind}`
-      ),
-    ],
-  },
-});
 
 const buildRuntimeSubsetExpressionAst = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
@@ -85,110 +58,14 @@ const buildRuntimeSubsetExpressionAst = (
     return undefined;
   }
 
-  const [sourceLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
+  return tryBuildRuntimeMaterializationAst(
+    identifierExpression(escapeCSharpIdentifier(expr.name)),
     sourceType,
+    subsetType,
     context,
-    emitTypeAst
+    emitTypeAst,
+    new Set(narrowed.runtimeMemberNs)
   );
-  if (!sourceLayout) {
-    return undefined;
-  }
-
-  const [subsetLayout, subsetLayoutContext] = buildRuntimeUnionLayout(
-    subsetType,
-    sourceLayoutContext,
-    emitTypeAst
-  );
-  if (!subsetLayout) {
-    return undefined;
-  }
-
-  const [subsetTypeAst, subsetTypeContext] = emitTypeAst(
-    subsetType,
-    subsetLayoutContext
-  );
-  const concreteSubsetTypeAst = unwrapNullableTypeAst(subsetTypeAst);
-  if (!isRuntimeUnionTypeAst(concreteSubsetTypeAst)) {
-    return undefined;
-  }
-
-  const expectedMemberIndexByAstKey = new Map<string, number>();
-  for (let index = 0; index < subsetLayout.memberTypeAsts.length; index += 1) {
-    const memberTypeAst = subsetLayout.memberTypeAsts[index];
-    if (!memberTypeAst) continue;
-    expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
-  }
-
-  const selectedRuntimeMembers = new Set(narrowed.runtimeMemberNs);
-  const lambdaArgs: CSharpExpressionAst[] = [];
-
-  for (let index = 0; index < sourceLayout.members.length; index += 1) {
-    const actualMember = sourceLayout.members[index];
-    if (!actualMember) continue;
-
-    const parameterName = `__tsonic_union_member_${index + 1}`;
-    const parameterExpr: CSharpExpressionAst = {
-      kind: "identifierExpression",
-      identifier: parameterName,
-    };
-
-    if (!selectedRuntimeMembers.has(index + 1)) {
-      lambdaArgs.push({
-        kind: "lambdaExpression",
-        isAsync: false,
-        parameters: [{ name: parameterName }],
-        body: buildInvalidRuntimeUnionCastExpression(actualMember, subsetType),
-      });
-      continue;
-    }
-
-    const actualMemberTypeAst = sourceLayout.memberTypeAsts[index];
-    const expectedMemberIndex =
-      (actualMemberTypeAst
-        ? expectedMemberIndexByAstKey.get(
-            stableTypeKeyFromAst(actualMemberTypeAst)
-          )
-        : undefined) ??
-      findRuntimeUnionMemberIndex(
-        subsetLayout.members,
-        actualMember,
-        subsetTypeContext
-      );
-
-    if (expectedMemberIndex === undefined) {
-      lambdaArgs.push({
-        kind: "lambdaExpression",
-        isAsync: false,
-        parameters: [{ name: parameterName }],
-        body: buildInvalidRuntimeUnionCastExpression(actualMember, subsetType),
-      });
-      continue;
-    }
-
-    lambdaArgs.push({
-      kind: "lambdaExpression",
-      isAsync: false,
-      parameters: [{ name: parameterName }],
-      body: buildUnionFactoryCallAst(
-        concreteSubsetTypeAst,
-        expectedMemberIndex + 1,
-        parameterExpr
-      ),
-    });
-  }
-
-  return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "memberAccessExpression",
-        expression: identifierExpression(escapeCSharpIdentifier(expr.name)),
-        memberName: "Match",
-      },
-      arguments: lambdaArgs,
-    },
-    subsetTypeContext,
-  ];
 };
 
 const tryEmitStorageCompatibleIdentifier = (
@@ -206,16 +83,267 @@ const tryEmitStorageCompatibleIdentifier = (
     return undefined;
   }
 
+  if (isBroadStorageTarget(expectedType, context)) {
+    return identifierExpression(remappedLocal);
+  }
+
   const effectiveType = resolveEffectiveExpressionType(expr, context);
-  if (isAssignable(effectiveType, expectedType)) {
+  if (
+    !isBroadStorageTarget(expectedType, context) &&
+    matchesExpectedEmissionType(effectiveType, expectedType, context)
+  ) {
     return undefined;
   }
 
-  if (!isAssignable(storageType, expectedType)) {
+  if (!matchesExpectedEmissionType(storageType, expectedType, context)) {
     return undefined;
   }
 
   return identifierExpression(remappedLocal);
+};
+
+const tryEmitCollapsedStorageIdentifier = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const remappedLocal = context.localNameMap?.get(expr.name);
+  const storageType = context.localValueTypes?.get(expr.name);
+  if (!remappedLocal || !storageType) {
+    return undefined;
+  }
+
+  const effectiveType = resolveEffectiveExpressionType(expr, context);
+  if (!effectiveType) {
+    return undefined;
+  }
+
+  if (matchesExpectedEmissionType(storageType, effectiveType, context)) {
+    return [identifierExpression(remappedLocal), context];
+  }
+
+  const [sameSurface, nextContext] = matchesEmittedStorageSurface(
+    storageType,
+    effectiveType,
+    context
+  );
+  if (!sameSurface) {
+    return undefined;
+  }
+
+  return [identifierExpression(remappedLocal), nextContext];
+};
+
+const tryEmitImplicitNarrowedStorageIdentifier = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  narrowed: Extract<NarrowedBinding, { kind: "expr" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!narrowed.storageExprAst || !narrowed.type) {
+    return undefined;
+  }
+
+  const storageType = context.localValueTypes?.get(expr.name);
+  if (!storageType) {
+    return undefined;
+  }
+
+  if (!matchesExpectedEmissionType(storageType, narrowed.type, context)) {
+    const [sameSurface, nextContext] = matchesEmittedStorageSurface(
+      storageType,
+      narrowed.type,
+      context
+    );
+    if (!sameSurface) {
+      return undefined;
+    }
+    return [narrowed.storageExprAst, nextContext];
+  }
+
+  return [narrowed.storageExprAst, context];
+};
+
+const tryEmitStorageCompatibleRuntimeSubsetIdentifier = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!expectedType) {
+    return undefined;
+  }
+
+  const remappedLocal = context.localNameMap?.get(expr.name);
+  const storageType = context.localValueTypes?.get(expr.name);
+  if (!remappedLocal || !storageType) {
+    return undefined;
+  }
+
+  if (
+    !isBroadStorageTarget(expectedType, context) &&
+    !matchesExpectedEmissionType(storageType, expectedType, context)
+  ) {
+    const [sameSurface, nextContext] = matchesEmittedStorageSurface(
+      storageType,
+      expectedType,
+      context
+    );
+    if (!sameSurface) {
+      return undefined;
+    }
+    return [identifierExpression(remappedLocal), nextContext];
+  }
+
+  return [identifierExpression(remappedLocal), context];
+};
+
+const tryEmitImplicitRuntimeSubsetStorageIdentifier = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  narrowed: Extract<NarrowedBinding, { kind: "runtimeSubset" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!narrowed.type) {
+    return undefined;
+  }
+
+  const remappedLocal = context.localNameMap?.get(expr.name);
+  const storageType = context.localValueTypes?.get(expr.name);
+  if (!remappedLocal || !storageType) {
+    return undefined;
+  }
+
+  if (matchesExpectedEmissionType(storageType, narrowed.type, context)) {
+    return [identifierExpression(remappedLocal), context];
+  }
+
+  const [sameSurface, nextContext] = matchesEmittedStorageSurface(
+    storageType,
+    narrowed.type,
+    context
+  );
+  if (!sameSurface) {
+    return undefined;
+  }
+
+  return [identifierExpression(remappedLocal), nextContext];
+};
+
+const tryEmitReifiedStorageIdentifier = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!expectedType) {
+    return undefined;
+  }
+
+  const remappedLocal = context.localNameMap?.get(expr.name);
+  const storageType = context.localValueTypes?.get(expr.name);
+  if (!remappedLocal || !storageType) {
+    return undefined;
+  }
+
+  const effectiveType = resolveEffectiveExpressionType(expr, context);
+  if (!matchesExpectedEmissionType(effectiveType, expectedType, context)) {
+    return undefined;
+  }
+
+  if (matchesExpectedEmissionType(storageType, expectedType, context)) {
+    return undefined;
+  }
+
+  const plan = tryBuildRuntimeReificationPlan(
+    identifierExpression(remappedLocal),
+    expectedType,
+    context,
+    emitTypeAst
+  );
+  if (!plan) {
+    return undefined;
+  }
+
+  return [plan.value, plan.context];
+};
+
+const tryEmitStorageCompatibleNarrowedIdentifier = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  narrowed: Extract<NarrowedBinding, { kind: "expr" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!narrowed.storageExprAst || !narrowed.type) {
+    return undefined;
+  }
+
+  const storageType = context.localValueTypes?.get(expr.name);
+  if (!storageType) {
+    return undefined;
+  }
+
+  const targetType = expectedType ?? narrowed.type;
+  if (!matchesExpectedEmissionType(storageType, targetType, context)) {
+    const [sameSurface, nextContext] = matchesEmittedStorageSurface(
+      storageType,
+      targetType,
+      context
+    );
+    if (!sameSurface) {
+      return undefined;
+    }
+    return [narrowed.storageExprAst, nextContext];
+  }
+
+  return [narrowed.storageExprAst, context];
+};
+
+const tryEmitMaterializedNarrowedIdentifier = (
+  narrowed: Extract<NarrowedBinding, { kind: "expr" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (!expectedType) {
+    return undefined;
+  }
+
+  const effectiveType = narrowed.type ?? narrowed.sourceType;
+  if (!effectiveType) {
+    return undefined;
+  }
+
+  return materializeDirectNarrowingAst(
+    narrowed.exprAst,
+    effectiveType,
+    expectedType,
+    context
+  );
+};
+
+const matchesEmittedStorageSurface = (
+  actualType: IrType | undefined,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): [boolean, EmitterContext] => {
+  if (!actualType || !expectedType) {
+    return [false, context];
+  }
+
+  if (requiresValueTypeMaterialization(actualType, expectedType, context)) {
+    return [false, context];
+  }
+
+  const strippedActual = stripNullish(actualType);
+  const strippedExpected = stripNullish(expectedType);
+  const [actualTypeAst, actualTypeContext] = emitTypeAst(
+    strippedActual,
+    context
+  );
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    strippedExpected,
+    actualTypeContext
+  );
+
+  return [
+    stableTypeKeyFromAst(actualTypeAst) === stableTypeKeyFromAst(expectedTypeAst),
+    expectedTypeContext,
+  ];
 };
 
 /**
@@ -269,15 +397,69 @@ export const emitIdentifier = (
         return [storageFallback, context];
       }
 
+      const collapsedStorage = tryEmitCollapsedStorageIdentifier(
+        expr,
+        context
+      );
+      if (collapsedStorage) {
+        return collapsedStorage;
+      }
+
       if (narrowed.kind === "rename") {
         return [
           identifierExpression(escapeCSharpIdentifier(narrowed.name)),
           context,
         ];
       } else if (narrowed.kind === "expr") {
-        // kind === "expr" - emit pre-built AST (e.g., parenthesized AsN() call)
+        const storageCompatible = tryEmitStorageCompatibleNarrowedIdentifier(
+          expr,
+          narrowed,
+          context,
+          expectedType
+        );
+        if (storageCompatible) {
+          return storageCompatible;
+        }
+
+        const materializedNarrowed = tryEmitMaterializedNarrowedIdentifier(
+          narrowed,
+          context,
+          expectedType
+        );
+        if (materializedNarrowed) {
+          return materializedNarrowed;
+        }
+
+        const implicitStorage = tryEmitImplicitNarrowedStorageIdentifier(
+          expr,
+          narrowed,
+          context
+        );
+        if (implicitStorage) {
+          return implicitStorage;
+        }
+
         return [narrowed.exprAst, context];
       } else if (narrowed.kind === "runtimeSubset") {
+        const implicitStorage = tryEmitImplicitRuntimeSubsetStorageIdentifier(
+          expr,
+          narrowed,
+          context
+        );
+        if (implicitStorage) {
+          return implicitStorage;
+        }
+
+        const storageCompatible =
+          tryEmitStorageCompatibleRuntimeSubsetIdentifier(
+            expr,
+            context,
+            expectedType
+          );
+        if (storageCompatible) {
+          return storageCompatible;
+        }
+
         const subsetAst = buildRuntimeSubsetExpressionAst(
           expr,
           narrowed,
@@ -293,6 +475,15 @@ export const emitIdentifier = (
   }
 
   // Lexical remap for locals/parameters (prevents C# CS0136 shadowing errors).
+  const reifiedStorage = tryEmitReifiedStorageIdentifier(
+    expr,
+    context,
+    expectedType
+  );
+  if (reifiedStorage) {
+    return reifiedStorage;
+  }
+
   const remappedLocal = context.localNameMap?.get(expr.name);
   if (remappedLocal) {
     return [identifierExpression(remappedLocal), context];

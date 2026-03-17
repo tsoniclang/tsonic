@@ -7,6 +7,7 @@ import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { nullableType } from "../core/format/backend-ast/builders.js";
+import { unwrapParameterModifierType } from "../core/semantic/parameter-modifier-types.js";
 import type {
   CSharpTypeAst,
   CSharpTypeParameterConstraintNodeAst,
@@ -237,28 +238,6 @@ export const emitTypeParametersAst = (
   }
 
   return [typeParamAsts, constraintAsts, currentContext];
-};
-
-/**
- * Check if a type is a ref/out/in wrapper type and return the inner type
- */
-const unwrapParameterModifierType = (type: IrType): IrType | null => {
-  if (type.kind !== "referenceType") {
-    return null;
-  }
-
-  const name = type.name;
-  // Check for wrapper types: out<T>, ref<T>, In<T>
-  if (
-    (name === "out" || name === "ref" || name === "In") &&
-    type.typeArguments &&
-    type.typeArguments.length === 1
-  ) {
-    const innerType = type.typeArguments[0];
-    return innerType ?? null;
-  }
-
-  return null;
 };
 
 /**

@@ -160,6 +160,18 @@ const findExpression = (
   return undefined;
 };
 
+const unwrapTransparentExpression = (expr: IrExpression): IrExpression => {
+  let current = expr;
+  while (
+    current.kind === "typeAssertion" ||
+    current.kind === "asinterface" ||
+    current.kind === "numericNarrowing"
+  ) {
+    current = current.expression;
+  }
+  return current;
+};
+
 describe("Declaration-Based Numeric Intent Recovery", function () {
   this.timeout(60_000);
   describe("Property Access Recovery", () => {
@@ -331,16 +343,23 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
 
       const lengthExpr = findExpression(
         modules,
-        (expr): expr is IrMemberExpression =>
-          expr.kind === "memberAccess" &&
-          expr.property === "length" &&
-          expr.object.kind === "memberAccess" &&
-          expr.object.property === "paths"
+        (expr): expr is IrMemberExpression => {
+          if (expr.kind !== "memberAccess" || expr.property !== "length") {
+            return false;
+          }
+
+          const target = unwrapTransparentExpression(expr.object);
+          return target.kind === "memberAccess" && target.property === "paths";
+        }
       );
 
       expect(lengthExpr).to.not.be.undefined;
       expect(lengthExpr?.kind).to.equal("memberAccess");
       if (!lengthExpr || lengthExpr.kind !== "memberAccess") return;
+      const target = unwrapTransparentExpression(lengthExpr.object);
+      expect(target.kind).to.equal("memberAccess");
+      if (target.kind !== "memberAccess") return;
+      expect(target.property).to.equal("paths");
       expect(lengthExpr.memberBinding).to.not.equal(undefined);
       expect(lengthExpr.memberBinding?.kind).to.equal("property");
       expect(lengthExpr.memberBinding?.member.toLowerCase()).to.equal("length");

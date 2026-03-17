@@ -46,6 +46,7 @@ import {
   isImportMetaMetaProperty,
 } from "./converters/expressions/import-meta.js";
 import { getSourceSpan } from "./converters/expressions/helpers.js";
+import { shouldWrapExpressionWithAssertion } from "./converters/assertion-wrapping.js";
 
 /**
  * Extract the NumericKind from a type node if it references a known numeric alias.
@@ -99,39 +100,6 @@ const inferThisType = (node: ts.Node): IrType | undefined => {
   }
 
   return undefined;
-};
-
-const isExactNumericIrType = (type: IrType): boolean =>
-  type.kind === "referenceType" && TSONIC_TO_NUMERIC_KIND.has(type.name);
-
-const shouldWrapIdentifierWithAssertion = (
-  ctx: ProgramContext,
-  fromDecl: IrType | undefined,
-  fromEnv: IrType | undefined
-): boolean => {
-  if (!fromEnv) return false;
-  if (!fromDecl || fromDecl.kind === "unknownType") {
-    return fromEnv.kind !== "unknownType";
-  }
-  if (ctx.typeSystem.typesEqual(fromEnv, fromDecl)) return false;
-
-  if (fromEnv.kind === "unionType" || fromDecl.kind === "unionType") {
-    return true;
-  }
-
-  if (isExactNumericIrType(fromEnv) && !isExactNumericIrType(fromDecl)) {
-    return true;
-  }
-
-  if (fromEnv.kind === "arrayType" && fromDecl.kind !== "arrayType") {
-    return true;
-  }
-
-  if (fromEnv.kind === "functionType" && fromDecl.kind !== "functionType") {
-    return true;
-  }
-
-  return false;
 };
 
 const unwrapParens = (node: ts.Expression): ts.Expression => {
@@ -329,7 +297,7 @@ export const convertExpression = (
         declId,
       };
       if (
-        shouldWrapIdentifierWithAssertion(ctx, fromDecl, fromEnv) &&
+        shouldWrapExpressionWithAssertion(ctx, fromDecl, fromEnv) &&
         fromEnv
       ) {
         return {
@@ -350,7 +318,7 @@ export const convertExpression = (
       originalName,
       declId,
     };
-    if (shouldWrapIdentifierWithAssertion(ctx, fromDecl, fromEnv) && fromEnv) {
+    if (shouldWrapExpressionWithAssertion(ctx, fromDecl, fromEnv) && fromEnv) {
       return {
         kind: "typeAssertion",
         expression: baseIdentifier,

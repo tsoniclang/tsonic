@@ -8,6 +8,7 @@ import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitRemappedLocalName } from "../../core/format/local-names.js";
 import { lowerAssignmentPatternAst } from "../../patterns.js";
 import { hasInt32Proof } from "./helpers.js";
+import { emitWritableTargetAst } from "./write-targets.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 /**
@@ -125,26 +126,9 @@ export const emitAssignment = (
     }
   } else {
     const leftExpr = expr.left as IrExpression;
-    // Narrowing maps (instanceof / nullable / union) apply to *reads*, not writes.
-    // For assignment, the LHS is written, so we must not rewrite identifier targets
-    // to narrowed bindings (e.g., C# pattern vars).
-    const leftCtx: EmitterContext =
-      leftExpr.kind === "identifier" &&
-      context.narrowedBindings?.has(leftExpr.name)
-        ? (() => {
-            const next = new Map(context.narrowedBindings);
-            next.delete(leftExpr.name);
-            return { ...context, narrowedBindings: next };
-          })()
-        : context;
-
-    const [emittedLeftAst, ctx] = emitExpressionAst(leftExpr, leftCtx);
+    const [emittedLeftAst, ctx] = emitWritableTargetAst(leftExpr, context);
     leftAst = emittedLeftAst;
-    // Restore narrowing for RHS emission (reads) when we suppressed it for the LHS.
-    leftContext =
-      leftCtx !== context
-        ? { ...ctx, narrowedBindings: context.narrowedBindings }
-        : ctx;
+    leftContext = ctx;
     leftType = leftExpr.inferredType;
   }
 

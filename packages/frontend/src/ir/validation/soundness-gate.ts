@@ -14,6 +14,9 @@ import {
   SourceLocation,
 } from "../../types/diagnostic.js";
 import {
+  isKnownBuiltinReferenceType,
+} from "./known-builtin-reference-types.js";
+import {
   IrModule,
   IrStatement,
   IrExpression,
@@ -49,16 +52,6 @@ export type SoundnessGateOptions = {
  * C# primitives correspond to types defined in @tsonic/core package.
  */
 const KNOWN_BUILTINS = new Set([
-  // JS/TS builtins handled by emitter
-  "Array",
-  "Promise",
-  "Map",
-  "Set",
-  "Error",
-  "Object",
-  "Generator",
-  "AsyncGenerator",
-  "IteratorResult",
   // C# signed integers (from @tsonic/core)
   "sbyte",
   "short",
@@ -85,9 +78,6 @@ const KNOWN_BUILTINS = new Set([
   "string",
   "object",
   "void",
-  // .NET types commonly used
-  "IntPtr",
-  "UIntPtr",
 ]);
 
 /**
@@ -253,7 +243,11 @@ const validateType = (
           (type.structuralMembers !== undefined &&
             type.structuralMembers.length > 0) ||
           // Is a known builtin handled by emitter
-          candidateNames.some((candidate) => KNOWN_BUILTINS.has(candidate)) ||
+          candidateNames.some(
+            (candidate) =>
+              KNOWN_BUILTINS.has(candidate) ||
+              isKnownBuiltinReferenceType(candidate)
+          ) ||
           // Is a local type defined in this module
           candidateNames.some((candidate) =>
             ctx.localTypeNames.has(candidate)

@@ -114,6 +114,7 @@ const queueResolvedLocalDependency = (
   anchor: ts.Node,
   sourceRootAbs: string,
   compilerOptions: ts.CompilerOptions,
+  moduleResolutionCache: ts.ModuleResolutionCache,
   queue: string[],
   diagnostics: Diagnostic[]
 ): void => {
@@ -121,7 +122,8 @@ const queueResolvedLocalDependency = (
     importSpecifier,
     currentFile,
     compilerOptions,
-    ts.sys
+    ts.sys,
+    moduleResolutionCache
   );
 
   if (resolved.resolvedModule?.resolvedFileName) {
@@ -189,6 +191,12 @@ export const buildModuleDependencyGraph = (
 
   // Get TypeScript compiler options for module resolution
   const compilerOptions = createCompilerOptions(options);
+  const moduleResolutionCache = ts.createModuleResolutionCache(
+    options.projectRoot,
+    (fileName) =>
+      ts.sys.useCaseSensitiveFileNames ? fileName : fileName.toLowerCase(),
+    compilerOptions
+  );
 
   // Track all discovered files for later type checking
   const allDiscoveredFiles: string[] = [];
@@ -258,6 +266,7 @@ export const buildModuleDependencyGraph = (
           stmt,
           sourceRootAbs,
           compilerOptions,
+          moduleResolutionCache,
           queue,
           diagnostics
         );
@@ -295,6 +304,7 @@ export const buildModuleDependencyGraph = (
         site.node,
         sourceRootAbs,
         compilerOptions,
+        moduleResolutionCache,
         queue,
         diagnostics
       );

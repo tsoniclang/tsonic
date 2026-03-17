@@ -16,6 +16,8 @@ import {
   identifierType,
 } from "../../core/format/backend-ast/builders.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
+import { emitWritableTargetAst } from "./write-targets.js";
+import { getDictionaryComputedAccess } from "./helpers.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -58,14 +60,8 @@ export const emitUnary = (
   if (expr.operator === "delete") {
     // JavaScript `delete obj[key]` maps to dictionary key removal in CLR:
     //   delete dict[key]  -> dict.Remove(key)
-    const target = expr.expression;
-    if (
-      target.kind === "memberAccess" &&
-      target.isComputed &&
-      typeof target.property !== "string" &&
-      (target.accessKind === "dictionary" ||
-        target.object.inferredType?.kind === "dictionaryType")
-    ) {
+    const target = getDictionaryComputedAccess(expr.expression, context);
+    if (target) {
       const [objectAst, objectContext] = emitExpressionAst(
         target.object,
         context
@@ -88,7 +84,7 @@ export const emitUnary = (
       ];
     }
 
-    const [targetAst] = emitExpressionAst(target, context);
+    const [targetAst] = emitExpressionAst(expr.expression, context);
     const targetText = extractCalleeNameFromAst(targetAst);
     throw new Error(
       `ICE: Unsupported delete target reached emitter: delete ${targetText}. ` +
@@ -261,23 +257,10 @@ export const emitUpdate = (
   expr: Extract<IrExpression, { kind: "update" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  // Narrowing maps apply to *reads*, not writes.
-  // For update operators, suppress narrowed bindings for the target.
-  const operandCtx: EmitterContext =
-    expr.expression.kind === "identifier" &&
-    context.narrowedBindings?.has(expr.expression.name)
-      ? (() => {
-          const next = new Map(context.narrowedBindings);
-          next.delete(expr.expression.name);
-          return { ...context, narrowedBindings: next };
-        })()
-      : context;
-
-  const [operandAst, ctx] = emitExpressionAst(expr.expression, operandCtx);
-  const newContext: EmitterContext =
-    operandCtx !== context
-      ? { ...ctx, narrowedBindings: context.narrowedBindings }
-      : ctx;
+  const [operandAst, newContext] = emitWritableTargetAst(
+    expr.expression,
+    context
+  );
 
   if (expr.prefix) {
     return [

@@ -13,6 +13,7 @@ import {
   IrStatement,
   IrType,
 } from "../../../../types.js";
+import { normalizedUnionType } from "../../../../types/type-ops.js";
 import { convertBlockStatement } from "../../control.js";
 import {
   hasStaticModifier,
@@ -379,13 +380,37 @@ const specializeExpression = (
         left: specializeExpression(expr.left, paramTypesByDeclId),
         right: specializeExpression(expr.right, paramTypesByDeclId),
       };
-    case "conditional":
+    case "conditional": {
+      const condition = specializeExpression(
+        expr.condition,
+        paramTypesByDeclId
+      );
+      const whenTrue = specializeExpression(expr.whenTrue, paramTypesByDeclId);
+      const whenFalse = specializeExpression(
+        expr.whenFalse,
+        paramTypesByDeclId
+      );
+
+      const inferredType = (() => {
+        const trueType = whenTrue.inferredType;
+        const falseType = whenFalse.inferredType;
+
+        if (!trueType) return falseType;
+        if (!falseType) return trueType;
+        if (typesEqualForIsType(trueType, falseType)) {
+          return trueType;
+        }
+        return normalizedUnionType([trueType, falseType]);
+      })();
+
       return {
         ...expr,
-        condition: specializeExpression(expr.condition, paramTypesByDeclId),
-        whenTrue: specializeExpression(expr.whenTrue, paramTypesByDeclId),
-        whenFalse: specializeExpression(expr.whenFalse, paramTypesByDeclId),
+        condition,
+        whenTrue,
+        whenFalse,
+        inferredType,
       };
+    }
     case "assignment":
       return {
         ...expr,
@@ -1156,45 +1181,22 @@ const buildWrapperRestElementOrUndefinedExpression = (
 
 const buildWrapperRestSliceSpread = (
   parameter: IrParameter,
-  startIndex: number,
-  targetType: IrType | undefined
+  startIndex: number
 ): IrSpreadExpression => ({
   kind: "spread",
-  expression:
-    targetType &&
-    parameter.type &&
-    !typesEqualForIsType(parameter.type, targetType)
-      ? {
-          kind: "typeAssertion",
-          expression: {
-            kind: "call",
-            callee: {
-              kind: "memberAccess",
-              object: buildWrapperRestIdentifier(parameter),
-              property: "slice",
-              isComputed: false,
-              isOptional: false,
-            },
-            arguments: [numericIndexLiteral(startIndex)],
-            isOptional: false,
-            inferredType: parameter.type,
-          },
-          targetType,
-          inferredType: targetType,
-        }
-      : {
-          kind: "call",
-          callee: {
-            kind: "memberAccess",
-            object: buildWrapperRestIdentifier(parameter),
-            property: "slice",
-            isComputed: false,
-            isOptional: false,
-          },
-          arguments: [numericIndexLiteral(startIndex)],
-          isOptional: false,
-          inferredType: parameter.type,
-        },
+  expression: {
+    kind: "call",
+    callee: {
+      kind: "memberAccess",
+      object: buildWrapperRestIdentifier(parameter),
+      property: "slice",
+      isComputed: false,
+      isOptional: false,
+    },
+    arguments: [numericIndexLiteral(startIndex)],
+    isOptional: false,
+    inferredType: parameter.type,
+  },
 });
 
 const coerceForwardedArgumentToTargetType = (
@@ -1241,11 +1243,7 @@ const buildForwardedCallArguments = (
         const restStartIndex =
           helperIndex >= wrapperRestIndex ? helperIndex - wrapperRestIndex : 0;
         forwardedArgs.push(
-          buildWrapperRestSliceSpread(
-            wrapperRestParameter,
-            restStartIndex,
-            helperParameter.type
-          )
+          buildWrapperRestSliceSpread(wrapperRestParameter, restStartIndex)
         );
       } else if (helperIndex < wrapperParameters.length) {
         const wrapperParameter = wrapperParameters[helperIndex];

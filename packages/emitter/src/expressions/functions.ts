@@ -20,15 +20,14 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
+import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
+import { unwrapParameterModifierType } from "../core/semantic/parameter-modifier-types.js";
 import {
-  buildRuntimeUnionLayout,
+  emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
 } from "../core/semantic/runtime-unions.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
-import {
-  getIdentifierTypeName,
-  stableTypeKeyFromAst,
-} from "../core/format/backend-ast/utils.js";
+import { stableTypeKeyFromAst } from "../core/format/backend-ast/utils.js";
 import {
   allocateLocalName,
   registerLocalValueType,
@@ -63,7 +62,8 @@ const seedLocalNameMapFromParameters = (
     used.add(p.emittedName);
     currentContext = registerLocalValueType(
       p.parameter.pattern.name,
-      p.parameter.type,
+      normalizeRuntimeStorageType(p.parameter.type, currentContext) ??
+        p.parameter.type,
       currentContext
     );
   }
@@ -197,15 +197,6 @@ const wrapInUnionReturnMemberAst = (
   arguments: [valueAst],
 });
 
-const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
-  const name = getIdentifierTypeName(type);
-  return (
-    name === "global::Tsonic.Runtime.Union" ||
-    name === "Tsonic.Runtime.Union" ||
-    name === "Union"
-  );
-};
-
 const emitAsyncUnionReturningLambdaBodyAst = (
   parameters: readonly EmittedLambdaParameter[],
   body: Extract<
@@ -317,27 +308,23 @@ const emitAsyncUnionReturningLambdaBodyAst = (
       : awaitedReturnTypeAst;
 
   const taskInvocationAst = buildTaskRunInvocationAst(taskBody, resultTypeAst);
-  const [unionTypeAst, unionTypeContext] = emitTypeAst(
-    unionPlan.unionReturnType,
-    currentContext
-  );
+  const [unionTypeAst, runtimeLayout, unionTypeContext] =
+    emitRuntimeCarrierTypeAst(
+      unionPlan.unionReturnType,
+      currentContext,
+      emitTypeAst
+    );
   const concreteUnionTypeAst =
     unionTypeAst.kind === "nullableType"
       ? unionTypeAst.underlyingType
       : unionTypeAst;
 
-  if (!isRuntimeUnionTypeAst(concreteUnionTypeAst)) {
+  if (!runtimeLayout) {
     return [taskInvocationAst, unionTypeContext];
   }
-
-  const [runtimeLayout, runtimeLayoutContext] = buildRuntimeUnionLayout(
-    unionPlan.unionReturnType,
-    unionTypeContext,
-    emitTypeAst
-  );
   const [awaitableMemberTypeAst, awaitableMemberTypeContext] = emitTypeAst(
     unionPlan.awaitableMemberType,
-    runtimeLayoutContext
+    unionTypeContext
   );
   const awaitableMemberTypeKey = stableTypeKeyFromAst(awaitableMemberTypeAst);
   const awaitableMemberIndex =
@@ -384,27 +371,6 @@ const emitAsyncUnionReturningLambdaBodyAst = (
     },
     awaitableMemberTypeContext,
   ];
-};
-
-/**
- * Unwrap ref/out/in wrapper types (e.g., ref<T> -> T)
- */
-const unwrapParameterModifierType = (type: IrType): IrType | null => {
-  if (type.kind !== "referenceType") {
-    return null;
-  }
-
-  const name = type.name;
-  if (
-    (name === "out" || name === "ref" || name === "In") &&
-    type.typeArguments &&
-    type.typeArguments.length === 1
-  ) {
-    const innerType = type.typeArguments[0];
-    return innerType ?? null;
-  }
-
-  return null;
 };
 
 const isTypeParameterLike = (

@@ -2,22 +2,25 @@
  * Conditional (ternary) expression emitter with type predicate narrowing support
  */
 
-import { IrExpression, IrType } from "@tsonic/frontend";
+import { IrExpression, IrType, stableIrTypeKey } from "@tsonic/frontend";
 import { EmitterContext, LocalTypeInfo, NarrowedBinding } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import {
   resolveTypeAlias,
   getPropertyType,
+  stripNullish,
 } from "../../core/semantic/type-resolution.js";
+import { isAssignable } from "../../core/semantic/index.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
 import { emitRemappedLocalName } from "../../core/format/local-names.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import {
   buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
-  findRuntimeUnionMemberIndex,
+  findRuntimeUnionMemberIndices,
 } from "../../core/semantic/runtime-unions.js";
+import { applyConditionBranchNarrowing } from "../../core/semantic/condition-branch-narrowing.js";
 
 /**
  * Try to extract ternary guard info from a condition expression.
@@ -123,11 +126,13 @@ const tryResolveTernaryGuard = (
     const runtimeFrame = buildRuntimeUnionFrame(unionSourceType, context);
     if (!runtimeFrame) return undefined;
 
-    const idx = findRuntimeUnionMemberIndex(
+    const matchingIndices = findRuntimeUnionMemberIndices(
       runtimeFrame.members,
       narrowing.targetType,
       context
     );
+    if (matchingIndices.length !== 1) return undefined;
+    const idx = matchingIndices[0];
     if (idx === undefined) return undefined;
 
     return {
@@ -304,10 +309,48 @@ export const emitConditional = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
-  // When no contextual expectedType is provided (e.g., `var x = cond ? a : b`),
-  // use the conditional expression's own inferred type to guide null/undefined → default
-  // conversions and keep C# type inference consistent with TS.
-  const branchExpectedType = expectedType ?? expr.inferredType;
+  const resolveBranchType = (
+    branchExpr: IrExpression,
+    branchContext: EmitterContext
+  ): IrType | undefined => {
+    const candidate =
+      resolveEffectiveBranchType(branchExpr, branchContext) ??
+      branchExpr.inferredType;
+    return candidate
+      ? resolveTypeAlias(stripNullish(candidate), branchContext)
+      : undefined;
+  };
+
+  const deriveBranchExpectedType = (
+    whenTrueContext: EmitterContext,
+    whenFalseContext: EmitterContext
+  ): IrType | undefined => {
+    if (expectedType) {
+      return expectedType;
+    }
+
+    const trueType = resolveBranchType(expr.whenTrue, whenTrueContext);
+    const falseType = resolveBranchType(expr.whenFalse, whenFalseContext);
+
+    if (
+      trueType &&
+      falseType &&
+      stableIrTypeKey(trueType) === stableIrTypeKey(falseType)
+    ) {
+      return trueType;
+    }
+
+    if (trueType && falseType) {
+      if (isAssignable(trueType, falseType)) {
+        return falseType;
+      }
+      if (isAssignable(falseType, trueType)) {
+        return trueType;
+      }
+    }
+
+    return expr.inferredType;
+  };
 
   // Try to detect type predicate guard in condition
   const guard = tryResolveTernaryGuard(expr.condition, context);
@@ -362,6 +405,10 @@ export const emitConditional = (
       ...context,
       narrowedBindings: narrowedMap,
     };
+    const branchExpectedType = deriveBranchExpectedType(
+      polarity === "positive" ? narrowedContext : context,
+      polarity === "negative" ? narrowedContext : context
+    );
 
     // Apply narrowing to the appropriate branch
     const [trueAst, trueContext] =
@@ -398,17 +445,47 @@ export const emitConditional = (
     context
   );
 
+  const truthyBranchContext = applyConditionBranchNarrowing(
+    expr.condition,
+    "truthy",
+    condContext,
+    (e, ctx) => emitExpressionAst(e, ctx)
+  );
+  const falsyBranchContext = applyConditionBranchNarrowing(
+    expr.condition,
+    "falsy",
+    condContext,
+    (e, ctx) => emitExpressionAst(e, ctx)
+  );
+  const branchExpectedType = deriveBranchExpectedType(
+    truthyBranchContext,
+    falsyBranchContext
+  );
+
   // Pass expectedType (or inferred type) to both branches for null/undefined → default conversion
   const [trueAst, trueContext] = emitExpressionAst(
     expr.whenTrue,
-    condContext,
+    truthyBranchContext,
     branchExpectedType
   );
   const [falseAst, falseContext] = emitExpressionAst(
     expr.whenFalse,
-    trueContext,
+    falsyBranchContext,
     branchExpectedType
   );
+
+  const finalContext: EmitterContext = {
+    ...falseContext,
+    tempVarId: Math.max(
+      trueContext.tempVarId ?? 0,
+      falseContext.tempVarId ?? 0
+    ),
+    usings: new Set([
+      ...(trueContext.usings ?? []),
+      ...(falseContext.usings ?? []),
+    ]),
+    narrowedBindings: condContext.narrowedBindings,
+  };
 
   return [
     {
@@ -417,6 +494,27 @@ export const emitConditional = (
       whenTrue: trueAst,
       whenFalse: falseAst,
     },
-    falseContext,
+    finalContext,
   ];
+};
+
+const resolveEffectiveBranchType = (
+  expr: IrExpression,
+  context: EmitterContext
+): IrType | undefined => {
+  if (expr.kind === "identifier") {
+    return context.narrowedBindings?.get(expr.name)?.type ?? expr.inferredType;
+  }
+
+  if (expr.kind === "memberAccess" && !expr.isComputed) {
+    const key =
+      typeof expr.property === "string" && expr.object.kind === "identifier"
+        ? `${expr.object.name}.${expr.property}`
+        : undefined;
+    return key
+      ? (context.narrowedBindings?.get(key)?.type ?? expr.inferredType)
+      : expr.inferredType;
+  }
+
+  return expr.inferredType;
 };

@@ -23,6 +23,7 @@ import {
 import {
   allocateLocalName,
   registerLocalName,
+  registerLocalValueType,
 } from "../../core/format/local-names.js";
 import { decimalIntegerLiteral } from "../../core/format/backend-ast/builders.js";
 import type {
@@ -30,6 +31,7 @@ import type {
   CSharpExpressionAst,
   CSharpLocalDeclarationStatementAst,
 } from "../../core/format/backend-ast/types.js";
+import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 
 /**
  * Information about a canonical integer loop counter.
@@ -284,6 +286,7 @@ export const emitForStatementAst = (
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const outerNameMap = context.localNameMap;
+  const outerValueTypes = context.localValueTypes;
   let currentContext: EmitterContext = {
     ...context,
     localNameMap: new Map(outerNameMap ?? []),
@@ -402,7 +405,14 @@ export const emitForStatementAst = (
     body: wrapInBlock(bodyStmts),
   };
 
-  return [[forStmt], { ...finalBodyContext, localNameMap: outerNameMap }];
+  return [
+    [forStmt],
+    {
+      ...finalBodyContext,
+      localNameMap: outerNameMap,
+      localValueTypes: outerValueTypes,
+    },
+  ];
 };
 
 /**
@@ -420,10 +430,20 @@ export const emitForOfStatementAst = (
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
   const outerNameMap = exprContext.localNameMap;
+  const outerValueTypes = exprContext.localValueTypes;
   let loopContext: EmitterContext = {
     ...exprContext,
     localNameMap: new Map(outerNameMap ?? []),
   };
+
+  const semanticElementType = deriveForOfElementType(
+    stmt.expression.inferredType,
+    loopContext
+  );
+  const storageElementType = deriveForOfElementType(
+    normalizeRuntimeStorageType(stmt.expression.inferredType, loopContext),
+    loopContext
+  );
 
   if (stmt.variable.kind === "identifierPattern") {
     // Simple identifier: for (const x of items) -> foreach (var x in items)
@@ -433,6 +453,11 @@ export const emitForOfStatementAst = (
       originalName,
       alloc.emittedName,
       alloc.context
+    );
+    loopContext = registerLocalValueType(
+      originalName,
+      storageElementType ?? semanticElementType,
+      loopContext
     );
     const varName = alloc.emittedName;
     const [bodyStmts, bodyContext] = emitStatementAst(stmt.body, loopContext);
@@ -446,7 +471,14 @@ export const emitForOfStatementAst = (
       body: wrapInBlock(bodyStmts),
     };
 
-    return [[foreachStmt], { ...bodyContext, localNameMap: outerNameMap }];
+    return [
+      [foreachStmt],
+      {
+        ...bodyContext,
+        localNameMap: outerNameMap,
+        localValueTypes: outerValueTypes,
+      },
+    ];
   }
 
   // Complex pattern: for (const [a, b] of items) or for (const {x, y} of items)
@@ -456,10 +488,7 @@ export const emitForOfStatementAst = (
   loopContext = tempAlloc.context;
 
   // Get element type from the expression's inferred type
-  const elementType = deriveForOfElementType(
-    stmt.expression.inferredType,
-    loopContext
-  );
+  const elementType = semanticElementType;
 
   // Lower the pattern to destructuring statements (AST)
   const lowerResult = lowerPatternAst(
@@ -496,7 +525,14 @@ export const emitForOfStatementAst = (
     body: bodyAst,
   };
 
-  return [[foreachStmt], { ...bodyContext, localNameMap: outerNameMap }];
+  return [
+    [foreachStmt],
+    {
+      ...bodyContext,
+      localNameMap: outerNameMap,
+      localValueTypes: outerValueTypes,
+    },
+  ];
 };
 
 /**
@@ -513,6 +549,7 @@ export const emitForInStatementAst = (
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
   const outerNameMap = exprContext.localNameMap;
+  const outerValueTypes = exprContext.localValueTypes;
   let loopContext: EmitterContext = {
     ...exprContext,
     localNameMap: new Map(outerNameMap ?? []),
@@ -543,6 +580,11 @@ export const emitForInStatementAst = (
     alloc.emittedName,
     alloc.context
   );
+  loopContext = registerLocalValueType(
+    originalName,
+    { kind: "primitiveType", name: "string" },
+    loopContext
+  );
   const varName = alloc.emittedName;
 
   // Iterate over .Keys: (expr).Keys
@@ -566,5 +608,12 @@ export const emitForInStatementAst = (
     body: wrapInBlock(bodyStmts),
   };
 
-  return [[foreachStmt], { ...bodyContext, localNameMap: outerNameMap }];
+  return [
+    [foreachStmt],
+    {
+      ...bodyContext,
+      localNameMap: outerNameMap,
+      localValueTypes: outerValueTypes,
+    },
+  ];
 };

@@ -18,7 +18,10 @@ export type AccessPathTarget =
 
 const unwrapExpr = (expr: ts.Expression): ts.Expression => {
   let current = expr;
-  while (ts.isParenthesizedExpression(current)) {
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
     current = current.expression;
   }
   return current;
@@ -86,7 +89,10 @@ export const getAccessPathTarget = (
     };
   }
 
-  if (ts.isPropertyAccessExpression(candidate)) {
+  if (
+    ts.isPropertyAccessExpression(candidate) ||
+    ts.isPropertyAccessChain(candidate)
+  ) {
     const base = getAccessPathTarget(candidate.expression, ctx);
     if (!base) return undefined;
     return {
@@ -96,7 +102,10 @@ export const getAccessPathTarget = (
     };
   }
 
-  if (ts.isElementAccessExpression(candidate)) {
+  if (
+    ts.isElementAccessExpression(candidate) ||
+    ts.isElementAccessChain(candidate)
+  ) {
     const base = getAccessPathTarget(candidate.expression, ctx);
     if (!base || !candidate.argumentExpression) return undefined;
     const propertyName = getStringLiteralText(candidate.argumentExpression);

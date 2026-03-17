@@ -299,10 +299,11 @@ export const generateCommand = (
     if (!graphResult.ok) {
       const errorMessages = graphResult.error
         .map((d: Diagnostic) => {
+          const prefix = `${d.code} `;
           if (d.location) {
-            return `${d.location.file}:${d.location.line} ${d.message}`;
+            return `${d.location.file}:${d.location.line} ${prefix}${d.message}`;
           }
-          return d.message;
+          return `${prefix}${d.message}`;
         })
         .join("\n");
       return {

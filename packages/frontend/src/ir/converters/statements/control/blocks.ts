@@ -21,7 +21,9 @@ import {
   collectTypeNarrowingsInFalsyExpr,
   collectTypeNarrowingsInTruthyExpr,
   withAppliedNarrowings,
+  withAssignedAccessPathType,
 } from "../../flow-narrowing.js";
+import { getAccessPathTarget } from "../../access-paths.js";
 
 const statementAlwaysTerminates = (stmt: IrStatement): boolean => {
   switch (stmt.kind) {
@@ -84,6 +86,50 @@ export const convertBlockStatement = (
         s.declarationList.declarations,
         varDecl
       );
+    }
+
+    if (
+      ts.isExpressionStatement(s) &&
+      converted !== null &&
+      !Array.isArray(converted)
+    ) {
+      const single = converted as IrStatement;
+      if (single.kind !== "expressionStatement") {
+        continue;
+      }
+
+      const expr = s.expression;
+      if (
+        ts.isBinaryExpression(expr) &&
+        expr.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        single.expression.kind === "assignment"
+      ) {
+        const target = getAccessPathTarget(expr.left, currentCtx);
+        if (target) {
+          currentCtx = withAssignedAccessPathType(
+            currentCtx,
+            target,
+            single.expression.right.inferredType
+          );
+        }
+        continue;
+      }
+
+      if (
+        (ts.isPrefixUnaryExpression(expr) ||
+          ts.isPostfixUnaryExpression(expr)) &&
+        (expr.operator === ts.SyntaxKind.PlusPlusToken ||
+          expr.operator === ts.SyntaxKind.MinusMinusToken)
+      ) {
+        const target = getAccessPathTarget(expr.operand, currentCtx);
+        if (target) {
+          currentCtx = withAssignedAccessPathType(
+            currentCtx,
+            target,
+            single.expression.inferredType
+          );
+        }
+      }
     }
 
     if (

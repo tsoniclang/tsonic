@@ -1,6 +1,6 @@
 import { IrType, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import { buildRuntimeUnionFrame } from "./runtime-unions.js";
+import { shouldEraseRecursiveRuntimeUnionArrayElement } from "./runtime-unions.js";
 import {
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
@@ -16,6 +16,29 @@ const isRuntimeNullishMember = (type: IrType): boolean =>
   type.kind === "primitiveType" &&
   (type.name === "null" || type.name === "undefined");
 
+const getBareUnconstrainedTypeParameter = (
+  type: IrType,
+  context: EmitterContext
+): string | undefined => {
+  if (type.kind !== "typeParameterType") {
+    return undefined;
+  }
+
+  const constraintKind =
+    context.typeParamConstraints?.get(type.name) ?? "unconstrained";
+  return constraintKind === "unconstrained" ? type.name : undefined;
+};
+
+const shouldEraseRuntimeUnionArrayElementStorage = (
+  arrayType: Extract<IrType, { kind: "arrayType" }>,
+  context: EmitterContext
+): boolean => {
+  return shouldEraseRecursiveRuntimeUnionArrayElement(
+    arrayType.elementType,
+    context
+  );
+};
+
 export const normalizeRuntimeStorageType = (
   type: IrType | undefined,
   context: EmitterContext,
@@ -27,13 +50,22 @@ export const normalizeRuntimeStorageType = (
 
   const resolved = resolveTypeAlias(type, context);
 
+  if (
+    resolved.kind === "unknownType" ||
+    resolved.kind === "anyType" ||
+    resolved.kind === "objectType" ||
+    (resolved.kind === "referenceType" && resolved.name === "object")
+  ) {
+    return OBJECT_STORAGE_TYPE;
+  }
+
   if (resolved.kind === "arrayType") {
     const arrayKey = stableIrTypeKey(resolved);
     if (activeArrayKeys.has(arrayKey)) {
       return resolved;
     }
 
-    if (buildRuntimeUnionFrame(resolved.elementType, context)) {
+    if (shouldEraseRuntimeUnionArrayElementStorage(resolved, context)) {
       return {
         kind: "arrayType",
         elementType: OBJECT_STORAGE_TYPE,
@@ -65,6 +97,14 @@ export const normalizeRuntimeStorageType = (
     const nonNullishMember = split.nonNullishMembers[0];
     if (!nonNullishMember) {
       return resolved;
+    }
+    if (getBareUnconstrainedTypeParameter(nonNullishMember, context)) {
+      return {
+        kind: "unionType",
+        types: resolved.types.map((member) =>
+          isRuntimeNullishMember(member) ? member : OBJECT_STORAGE_TYPE
+        ),
+      };
     }
     const normalizedNonNullishMember =
       normalizeRuntimeStorageType(nonNullishMember, context, activeArrayKeys) ??

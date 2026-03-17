@@ -175,7 +175,10 @@ const extractIdentifierPropertyAccess = (
 ): { declId: BoundDecl; propertyName: string } | undefined => {
   const candidate = unwrapExpr(value);
 
-  if (ts.isPropertyAccessExpression(candidate)) {
+  if (
+    ts.isPropertyAccessExpression(candidate) ||
+    ts.isPropertyAccessChain(candidate)
+  ) {
     const object = unwrapExpr(candidate.expression);
     if (!ts.isIdentifier(object)) return undefined;
     const declId = ctx.binding.resolveIdentifier(object);
@@ -183,7 +186,10 @@ const extractIdentifierPropertyAccess = (
     return { declId, propertyName: candidate.name.text };
   }
 
-  if (ts.isElementAccessExpression(candidate)) {
+  if (
+    ts.isElementAccessExpression(candidate) ||
+    ts.isElementAccessChain(candidate)
+  ) {
     const object = unwrapExpr(candidate.expression);
     const argument = candidate.argumentExpression
       ? unwrapExpr(candidate.argumentExpression)
@@ -209,12 +215,14 @@ const genericTypeofTarget = (tag: string): IrType | undefined => {
       return { kind: "primitiveType", name: "boolean" };
     case "undefined":
       return { kind: "primitiveType", name: "undefined" };
+    case "object":
+      return { kind: "referenceType", name: "object" };
     default:
       return undefined;
   }
 };
 
-const matchesTypeofTag = (type: IrType, tag: string): boolean => {
+const matchesResolvedTypeofTag = (type: IrType, tag: string): boolean => {
   if (type.kind === "literalType") {
     switch (tag) {
       case "string":
@@ -223,9 +231,35 @@ const matchesTypeofTag = (type: IrType, tag: string): boolean => {
         return typeof type.value === "number";
       case "boolean":
         return typeof type.value === "boolean";
+      case "object":
+        return type.value === null;
       default:
         return false;
     }
+  }
+
+  if (type.kind === "functionType") {
+    return tag === "function";
+  }
+
+  if (type.kind === "arrayType" || type.kind === "tupleType") {
+    return tag === "object";
+  }
+
+  if (type.kind === "objectType" || type.kind === "dictionaryType") {
+    return tag === "object";
+  }
+
+  if (type.kind === "referenceType") {
+    if (tag === "function") {
+      return false;
+    }
+
+    if (tag === "object") {
+      return type.name !== "Function";
+    }
+
+    return false;
   }
 
   if (type.kind !== "primitiveType") return false;
@@ -246,42 +280,56 @@ const matchesTypeofTag = (type: IrType, tag: string): boolean => {
 
 const narrowTypeByTypeofTag = (
   currentType: IrType | undefined,
-  tag: string
+  tag: string,
+  ctx: ProgramContext
 ): IrType | undefined => {
   if (!currentType) return genericTypeofTarget(tag);
 
-  if (currentType.kind === "unionType") {
-    const kept = currentType.types.filter(
-      (member): member is IrType => !!member && matchesTypeofTag(member, tag)
-    );
-    if (kept.length === 1) return kept[0];
-    if (kept.length > 1) {
-      return normalizedUnionType(kept);
-    }
-    return genericTypeofTarget(tag);
-  }
-
-  return matchesTypeofTag(currentType, tag)
-    ? currentType
-    : genericTypeofTarget(tag);
+  const filtered = filterTypeByResolvedCandidates(
+    currentType,
+    (candidate) => matchesResolvedTypeofTag(candidate, tag),
+    ctx
+  );
+  return filtered ?? genericTypeofTarget(tag);
 };
 
 const narrowTypeByNotTypeofTag = (
   currentType: IrType | undefined,
-  tag: string
+  tag: string,
+  ctx: ProgramContext
 ): IrType | undefined => {
   if (!currentType) return undefined;
 
+  return filterTypeByResolvedCandidates(
+    currentType,
+    (candidate) => !matchesResolvedTypeofTag(candidate, tag),
+    ctx
+  );
+};
+
+const filterTypeByResolvedCandidates = (
+  currentType: IrType,
+  predicate: (candidate: IrType) => boolean,
+  ctx: ProgramContext
+): IrType | undefined => {
   if (currentType.kind === "unionType") {
-    const kept = currentType.types.filter(
-      (member): member is IrType => !!member && !matchesTypeofTag(member, tag)
-    );
+    const kept = currentType.types
+      .map((member) =>
+        member
+          ? filterTypeByResolvedCandidates(member, predicate, ctx)
+          : undefined
+      )
+      .filter((member): member is IrType => !!member);
     if (kept.length === 0) return undefined;
     if (kept.length === 1) return kept[0];
     return normalizedUnionType(kept);
   }
 
-  return matchesTypeofTag(currentType, tag) ? undefined : currentType;
+  return ctx.typeSystem
+    .collectNarrowingCandidates(currentType)
+    .some((candidate) => predicate(candidate))
+    ? currentType
+    : undefined;
 };
 
 const tryResolveTypeofNarrowing = (
@@ -324,8 +372,158 @@ const tryResolveTypeofNarrowing = (
   const wantTypeofTag = whenTruthy ? isEquality : isInequality;
   const currentType = getCurrentTypeForAccessPath(narrowedTarget, ctx);
   const targetType = wantTypeofTag
-    ? narrowTypeByTypeofTag(currentType, tag)
-    : narrowTypeByNotTypeofTag(currentType, tag);
+    ? narrowTypeByTypeofTag(currentType, tag, ctx)
+    : narrowTypeByNotTypeofTag(currentType, tag, ctx);
+  if (!targetType) return undefined;
+
+  return makeTypeNarrowing(narrowedTarget, targetType);
+};
+
+type EqualityLiteralTarget =
+  | {
+      readonly kind: "exact";
+      readonly type: IrType;
+    }
+  | {
+      readonly kind: "nullish";
+    };
+
+const tryResolveEqualityLiteralTarget = (
+  expr: ts.Expression
+): EqualityLiteralTarget | undefined => {
+  const current = unwrapExpr(expr);
+
+  if (current.kind === ts.SyntaxKind.NullKeyword) {
+    return { kind: "exact", type: { kind: "primitiveType", name: "null" } };
+  }
+
+  if (
+    current.kind === ts.SyntaxKind.Identifier &&
+    (current as ts.Identifier).text === "undefined"
+  ) {
+    return {
+      kind: "exact",
+      type: { kind: "primitiveType", name: "undefined" },
+    };
+  }
+
+  if (
+    current.kind === ts.SyntaxKind.TrueKeyword ||
+    current.kind === ts.SyntaxKind.FalseKeyword
+  ) {
+    return {
+      kind: "exact",
+      type: {
+        kind: "literalType",
+        value: current.kind === ts.SyntaxKind.TrueKeyword,
+      },
+    };
+  }
+
+  if (
+    ts.isStringLiteral(current) ||
+    ts.isNoSubstitutionTemplateLiteral(current)
+  ) {
+    return {
+      kind: "exact",
+      type: { kind: "literalType", value: current.text },
+    };
+  }
+
+  if (ts.isNumericLiteral(current)) {
+    return {
+      kind: "exact",
+      type: { kind: "literalType", value: Number(current.text) },
+    };
+  }
+
+  return undefined;
+};
+
+const candidateMatchesEqualityLiteral = (
+  candidate: IrType,
+  literal: EqualityLiteralTarget
+): boolean => {
+  if (literal.kind === "nullish") {
+    return (
+      (candidate.kind === "primitiveType" && candidate.name === "null") ||
+      (candidate.kind === "primitiveType" && candidate.name === "undefined") ||
+      (candidate.kind === "literalType" && candidate.value === null)
+    );
+  }
+
+  const target = literal.type;
+  if (target.kind === "primitiveType") {
+    return candidate.kind === "primitiveType" && candidate.name === target.name;
+  }
+
+  if (target.kind === "literalType") {
+    return candidate.kind === "literalType" && candidate.value === target.value;
+  }
+
+  return false;
+};
+
+const narrowTypeByEqualityLiteral = (
+  currentType: IrType | undefined,
+  literal: EqualityLiteralTarget,
+  wantEqual: boolean,
+  ctx: ProgramContext
+): IrType | undefined => {
+  if (!currentType) return undefined;
+
+  return filterTypeByResolvedCandidates(
+    currentType,
+    (candidate) =>
+      candidateMatchesEqualityLiteral(candidate, literal) === wantEqual,
+    ctx
+  );
+};
+
+const tryResolveEqualityLiteralNarrowing = (
+  expr: ts.Expression,
+  ctx: ProgramContext,
+  whenTruthy: boolean
+): TypeNarrowing | undefined => {
+  const unwrapped = unwrapExpr(expr);
+  if (!ts.isBinaryExpression(unwrapped)) return undefined;
+
+  const operator = unwrapped.operatorToken.kind;
+  const isEquality = isEqualityOperator(operator);
+  const isInequality = isInequalityOperator(operator);
+  if (!isEquality && !isInequality) return undefined;
+
+  const leftTarget = getAccessPathTarget(unwrapped.left, ctx);
+  const rightTarget = getAccessPathTarget(unwrapped.right, ctx);
+  const leftLiteral = tryResolveEqualityLiteralTarget(unwrapped.left);
+  const rightLiteral = tryResolveEqualityLiteralTarget(unwrapped.right);
+
+  const literal =
+    leftTarget && rightLiteral
+      ? rightLiteral
+      : rightTarget && leftLiteral
+        ? leftLiteral
+        : undefined;
+  const narrowedTarget = leftTarget ?? rightTarget;
+  if (!literal || !narrowedTarget) return undefined;
+
+  const useNullishPair =
+    literal.kind === "exact" &&
+    literal.type.kind === "primitiveType" &&
+    (literal.type.name === "null" || literal.type.name === "undefined") &&
+    (operator === ts.SyntaxKind.EqualsEqualsToken ||
+      operator === ts.SyntaxKind.ExclamationEqualsToken);
+  const effectiveLiteral: EqualityLiteralTarget = useNullishPair
+    ? { kind: "nullish" }
+    : literal;
+  const wantEqual = whenTruthy ? isEquality : isInequality;
+  const currentType = getCurrentTypeForAccessPath(narrowedTarget, ctx);
+  const targetType = narrowTypeByEqualityLiteral(
+    currentType,
+    effectiveLiteral,
+    wantEqual,
+    ctx
+  );
   if (!targetType) return undefined;
 
   return makeTypeNarrowing(narrowedTarget, targetType);
@@ -586,7 +784,7 @@ const tryResolveTruthyNarrowing = (
     if (!tag || !narrowedTarget) return undefined;
 
     const currentType = getCurrentTypeForAccessPath(narrowedTarget, ctx);
-    const targetType = narrowTypeByTypeofTag(currentType, tag);
+    const targetType = narrowTypeByTypeofTag(currentType, tag, ctx);
     if (!targetType) return undefined;
 
     return makeTypeNarrowing(narrowedTarget, targetType);
@@ -646,14 +844,23 @@ export const collectTypeNarrowingsInTruthyExpr = (
   const typeofNarrowing = tryResolveTypeofNarrowing(unwrapped, ctx, true);
   if (typeofNarrowing) return [typeofNarrowing];
 
+  const equalityNarrowing = tryResolveEqualityLiteralNarrowing(
+    unwrapped,
+    ctx,
+    true
+  );
+  if (equalityNarrowing) return [equalityNarrowing];
+
   if (ts.isBinaryExpression(unwrapped)) {
     if (
       unwrapped.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
     ) {
-      return [
-        ...collectTypeNarrowingsInTruthyExpr(unwrapped.left, ctx),
-        ...collectTypeNarrowingsInTruthyExpr(unwrapped.right, ctx),
-      ];
+      return collectSequentialNarrowings(ctx, [
+        (phaseCtx) =>
+          collectTypeNarrowingsInTruthyExpr(unwrapped.left, phaseCtx),
+        (phaseCtx) =>
+          collectTypeNarrowingsInTruthyExpr(unwrapped.right, phaseCtx),
+      ]);
     }
   }
 
@@ -844,10 +1051,10 @@ export const collectTypeNarrowingsInFalsyExpr = (
     ts.isBinaryExpression(unwrapped) &&
     unwrapped.operatorToken.kind === ts.SyntaxKind.BarBarToken
   ) {
-    return [
-      ...collectTypeNarrowingsInFalsyExpr(unwrapped.left, ctx),
-      ...collectTypeNarrowingsInFalsyExpr(unwrapped.right, ctx),
-    ];
+    return collectSequentialNarrowings(ctx, [
+      (phaseCtx) => collectTypeNarrowingsInFalsyExpr(unwrapped.left, phaseCtx),
+      (phaseCtx) => collectTypeNarrowingsInFalsyExpr(unwrapped.right, phaseCtx),
+    ]);
   }
 
   const direct = tryResolveFalsyNarrowing(unwrapped, ctx);
@@ -863,7 +1070,33 @@ export const collectTypeNarrowingsInFalsyExpr = (
   const typeofNarrowing = tryResolveTypeofNarrowing(unwrapped, ctx, false);
   if (typeofNarrowing) return [typeofNarrowing];
 
+  const equalityNarrowing = tryResolveEqualityLiteralNarrowing(
+    unwrapped,
+    ctx,
+    false
+  );
+  if (equalityNarrowing) return [equalityNarrowing];
+
   return [];
+};
+
+const collectSequentialNarrowings = (
+  ctx: ProgramContext,
+  phases: readonly ((ctx: ProgramContext) => readonly TypeNarrowing[])[]
+): readonly TypeNarrowing[] => {
+  const combined: TypeNarrowing[] = [];
+  let currentCtx = ctx;
+
+  for (const collect of phases) {
+    const next = collect(currentCtx);
+    if (next.length === 0) {
+      continue;
+    }
+    combined.push(...next);
+    currentCtx = withAppliedNarrowings(currentCtx, next);
+  }
+
+  return combined;
 };
 
 export const withAppliedNarrowings = (
@@ -892,6 +1125,93 @@ export const withAppliedNarrowings = (
     ...ctx,
     ...(nextTypeEnv ? { typeEnv: nextTypeEnv } : {}),
     ...(nextAccessEnv ? { accessEnv: nextAccessEnv } : {}),
+  };
+};
+
+const isDescendantAccessPath = (
+  target: AccessPathTarget,
+  candidateKey: string
+): boolean => {
+  const candidate = JSON.parse(candidateKey) as
+    | {
+        readonly kind: "decl";
+        readonly declId: number;
+        readonly segments: readonly string[];
+      }
+    | {
+        readonly kind: "this";
+        readonly segments: readonly string[];
+      };
+
+  if (candidate.kind !== target.kind) {
+    return false;
+  }
+
+  if (
+    target.kind === "decl" &&
+    candidate.kind === "decl" &&
+    candidate.declId !== target.declId.id
+  ) {
+    return false;
+  }
+
+  if (candidate.segments.length < target.segments.length) {
+    return false;
+  }
+
+  return target.segments.every(
+    (segment, index) => candidate.segments[index] === segment
+  );
+};
+
+const withoutAssignedTargetFlow = (
+  ctx: ProgramContext,
+  target: AccessPathTarget
+): ProgramContext => {
+  const nextTypeEnv = new Map(ctx.typeEnv ?? []);
+  const nextAccessEnv = new Map(ctx.accessEnv ?? []);
+
+  if (target.kind === "decl" && target.segments.length === 0) {
+    nextTypeEnv.delete(target.declId.id);
+  }
+
+  for (const key of nextAccessEnv.keys()) {
+    if (isDescendantAccessPath(target, key)) {
+      nextAccessEnv.delete(key);
+    }
+  }
+
+  return {
+    ...ctx,
+    typeEnv: nextTypeEnv,
+    accessEnv: nextAccessEnv,
+  };
+};
+
+export const withAssignedAccessPathType = (
+  ctx: ProgramContext,
+  target: AccessPathTarget,
+  assignedType: IrType | undefined
+): ProgramContext => {
+  const cleared = withoutAssignedTargetFlow(ctx, target);
+  if (!assignedType) {
+    return cleared;
+  }
+
+  if (target.kind === "decl" && target.segments.length === 0) {
+    const nextTypeEnv = new Map(cleared.typeEnv ?? []);
+    nextTypeEnv.set(target.declId.id, assignedType);
+    return {
+      ...cleared,
+      typeEnv: nextTypeEnv,
+    };
+  }
+
+  const nextAccessEnv = new Map(cleared.accessEnv ?? []);
+  nextAccessEnv.set(getAccessPathKey(target), assignedType);
+  return {
+    ...cleared,
+    accessEnv: nextAccessEnv,
   };
 };
 type BoundDecl = DeclId;

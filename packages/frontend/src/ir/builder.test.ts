@@ -14,6 +14,7 @@ import { createProgram } from "../program/creation.js";
 import {
   IrExpression,
   IrFunctionDeclaration,
+  IrReturnStatement,
   IrVariableDeclaration,
   IrClassDeclaration,
   IrInterfaceDeclaration,
@@ -6116,7 +6117,9 @@ describe("IR Builder", function () {
         if (!result.ok) return;
 
         const runFn = result.value.body.find(
-          (stmt): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
             stmt.kind === "functionDeclaration" && stmt.name === "run"
         );
         expect(runFn).to.not.equal(undefined);
@@ -6714,6 +6717,73 @@ describe("IR Builder", function () {
       }
     });
 
+    it("contextually types nested recursive middleware array literals without explicit lambda annotations", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type RequestHandler = (value: string) => void;",
+            "type MiddlewareParam = RequestHandler | readonly MiddlewareParam[];",
+            "type MiddlewareLike = MiddlewareParam | Router | readonly MiddlewareLike[];",
+            "class Router {}",
+            "class Application extends Router {}",
+            "export function run(input: readonly MiddlewareLike[]): number {",
+            "  return input.length;",
+            "}",
+            "export function main(): number {",
+            "  const app = new Application();",
+            "  return run([[(value) => { void value; }, [app]]]);",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const mainFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(mainFn).to.not.equal(undefined);
+        if (!mainFn) return;
+
+        const returnStmt = mainFn.body.statements.find(
+          (stmt): stmt is IrReturnStatement => stmt.kind === "returnStatement"
+        );
+        expect(returnStmt?.expression?.kind).to.equal("call");
+        if (!returnStmt?.expression || returnStmt.expression.kind !== "call") {
+          return;
+        }
+
+        const outerArray = returnStmt.expression.arguments[0];
+        expect(outerArray?.kind).to.equal("array");
+        if (!outerArray || outerArray.kind !== "array") return;
+
+        const innerArray = outerArray.elements[0];
+        expect(innerArray?.kind).to.equal("array");
+        if (!innerArray || innerArray.kind !== "array") return;
+
+        const handler = innerArray.elements[0];
+        expect(handler?.kind).to.equal("arrowFunction");
+        if (!handler || handler.kind !== "arrowFunction") return;
+
+        expect(handler.parameters[0]?.type?.kind).to.equal("primitiveType");
+        if (handler.parameters[0]?.type?.kind !== "primitiveType") return;
+        expect(handler.parameters[0]?.type.name).to.equal("string");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("preserves recursive middleware element types after Array.isArray branch narrowing", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -6891,6 +6961,391 @@ describe("IR Builder", function () {
         expect(narrowedType?.kind).to.equal("referenceType");
         if (!narrowedType) return;
         expect(stableIrTypeKey(narrowedType)).to.include("MiddlewareLike");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("applies typeof-function narrowing inside conditional expressions through aliases", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type Callback = (error: unknown, html: string) => void;",
+            "export function pick(",
+            "  value: Record<string, unknown> | Callback | undefined,",
+            "  fallback: Callback | undefined",
+            "): Callback | undefined {",
+            '  return typeof value === "function" ? value : fallback;',
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const pickFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "pick"
+        );
+        expect(pickFn).to.not.equal(undefined);
+        if (!pickFn) return;
+
+        const returnStmt = pickFn.body.statements.find(
+          (stmt): stmt is IrReturnStatement => stmt.kind === "returnStatement"
+        );
+        expect(returnStmt?.expression?.kind).to.equal("conditional");
+        if (
+          !returnStmt?.expression ||
+          returnStmt.expression.kind !== "conditional"
+        ) {
+          return;
+        }
+
+        expect(returnStmt.expression.whenTrue.inferredType?.kind).to.equal(
+          "functionType"
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("applies typeof-function and undefined disjunction narrowing inside conditional expressions", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type Callback = (error: unknown, html: string) => void;",
+            "export function pick(",
+            "  value: Record<string, unknown> | Callback | undefined,",
+            "  fallback: Record<string, unknown>",
+            "): Record<string, unknown> {",
+            '  return typeof value === "function" || value === undefined ? fallback : value;',
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const pickFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "pick"
+        );
+        expect(pickFn).to.not.equal(undefined);
+        if (!pickFn) return;
+
+        const returnStmt = pickFn.body.statements.find(
+          (stmt): stmt is IrReturnStatement => stmt.kind === "returnStatement"
+        );
+        expect(returnStmt?.expression?.kind).to.equal("conditional");
+        if (
+          !returnStmt?.expression ||
+          returnStmt.expression.kind !== "conditional"
+        ) {
+          return;
+        }
+
+        expect(returnStmt.expression.inferredType?.kind).to.equal(
+          "dictionaryType"
+        );
+        if (returnStmt.expression.inferredType?.kind !== "dictionaryType") {
+          return;
+        }
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("prefers the assignable common nominal supertype for conditional expressions", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class TemplateValue {}",
+            "class PageValue extends TemplateValue {",
+            "  constructor(public readonly slug: string) {",
+            "    super();",
+            "  }",
+            "}",
+            "declare function resolve(): TemplateValue;",
+            "export function pick(flag: boolean): TemplateValue {",
+            '  const actual = flag ? new PageValue("home") : resolve();',
+            "  return actual;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const pickFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "pick"
+        );
+        expect(pickFn).to.not.equal(undefined);
+        if (!pickFn) return;
+
+        const actualDecl = pickFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "actual"
+            )
+        );
+        expect(actualDecl).to.not.equal(undefined);
+        if (!actualDecl) return;
+
+        const actualInit = actualDecl.declarations[0]?.initializer;
+        expect(actualInit?.kind).to.equal("conditional");
+        if (!actualInit || actualInit.kind !== "conditional") return;
+
+        expect(actualInit.inferredType?.kind).to.equal("referenceType");
+        if (
+          !actualInit.inferredType ||
+          actualInit.inferredType.kind !== "referenceType"
+        ) {
+          return;
+        }
+        expect(stableIrTypeKey(actualInit.inferredType)).to.include(
+          "TemplateValue"
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("applies sequential falsy narrowing for || inside class-method conditional locals", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type Callback = (error: unknown, html: string) => void;",
+            "export class App {",
+            "  readonly locals: Record<string, unknown> = {};",
+            "  pick(value?: Record<string, unknown> | Callback) {",
+            '    const locals = typeof value === "function" || value === undefined ? this.locals : value;',
+            "    return locals;",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const appClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "App"
+        );
+        expect(appClass).to.not.equal(undefined);
+        if (!appClass) return;
+
+        const pickMethod = appClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "pick"
+        );
+        expect(pickMethod).to.not.equal(undefined);
+        if (!pickMethod || !pickMethod.body) return;
+
+        const localsDecl = pickMethod.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "locals"
+            )
+        );
+        expect(localsDecl).to.not.equal(undefined);
+        if (!localsDecl) return;
+
+        const decl = localsDecl.declarations.find(
+          (candidate) =>
+            candidate.name.kind === "identifierPattern" &&
+            candidate.name.name === "locals"
+        );
+        expect(decl?.initializer?.kind).to.equal("conditional");
+        if (!decl?.initializer || decl.initializer.kind !== "conditional") {
+          return;
+        }
+
+        expect(decl.initializer.inferredType?.kind).to.equal("dictionaryType");
+        expect(decl.initializer.whenFalse.inferredType?.kind).to.equal(
+          "dictionaryType"
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("applies sequential truthy narrowing for && inside class-method conditional locals", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type Callback = (error: unknown, html: string) => void;",
+            "export class App {",
+            "  readonly locals: Record<string, unknown> = {};",
+            "  pick(value?: Record<string, unknown> | Callback) {",
+            '    const locals = typeof value !== "function" && value !== undefined ? value : this.locals;',
+            "    return locals;",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const appClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "App"
+        );
+        expect(appClass).to.not.equal(undefined);
+        if (!appClass) return;
+
+        const pickMethod = appClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "pick"
+        );
+        expect(pickMethod).to.not.equal(undefined);
+        if (!pickMethod || !pickMethod.body) return;
+
+        const localsDecl = pickMethod.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "locals"
+            )
+        );
+        expect(localsDecl).to.not.equal(undefined);
+        if (!localsDecl) return;
+
+        const decl = localsDecl.declarations.find(
+          (candidate) =>
+            candidate.name.kind === "identifierPattern" &&
+            candidate.name.name === "locals"
+        );
+        expect(decl?.initializer?.kind).to.equal("conditional");
+        if (!decl?.initializer || decl.initializer.kind !== "conditional") {
+          return;
+        }
+
+        expect(decl.initializer.inferredType?.kind).to.equal("dictionaryType");
+        expect(decl.initializer.whenTrue.inferredType?.kind).to.equal(
+          "dictionaryType"
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("applies optional-chain typeof narrowing on && rhs property access paths", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type CookieOptions = { sameSite?: string | boolean };",
+            "export function collect(options?: CookieOptions): string[] {",
+            "  const parts: string[] = [];",
+            '  if (typeof options?.sameSite === "string" && options.sameSite.length > 0) {',
+            "    parts.push(options.sameSite);",
+            "  }",
+            "  return parts;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const collectFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "collect"
+        );
+        expect(collectFn).to.not.equal(undefined);
+        if (!collectFn) return;
+
+        const ifStmt = collectFn.body.statements.find(
+          (
+            stmt
+          ): stmt is Extract<
+            IrFunctionDeclaration["body"]["statements"][number],
+            { kind: "ifStatement" }
+          > => stmt.kind === "ifStatement"
+        );
+        expect(ifStmt?.condition.kind).to.equal("logical");
+        if (!ifStmt || ifStmt.condition.kind !== "logical") return;
+
+        expect(ifStmt.condition.right.kind).to.equal("binary");
+        if (ifStmt.condition.right.kind !== "binary") return;
+
+        const access = ifStmt.condition.right.left;
+        expect(access.kind).to.equal("memberAccess");
+        if (access.kind !== "memberAccess") return;
+
+        expect(access.object.inferredType?.kind).to.equal("primitiveType");
+        if (access.object.inferredType?.kind !== "primitiveType") return;
+        expect(access.object.inferredType.name).to.equal("string");
       } finally {
         fixture.cleanup();
       }
@@ -7337,6 +7792,102 @@ describe("IR Builder", function () {
         );
         expect(show).to.not.equal(undefined);
         expect(show?.isOverride).to.equal(true);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("refreshes local flow types after reassignment following terminating nullish guards", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class ImageDimensions {",
+            "  readonly width: number;",
+            "  constructor(width: number) {",
+            "    this.width = width;",
+            "  }",
+            "}",
+            "",
+            "declare const Resource: {",
+            "  parsePngDimensions(bytes: string): ImageDimensions | undefined;",
+            "  parseJpegDimensions(bytes: string): ImageDimensions | undefined;",
+            "  parseGifDimensions(bytes: string): ImageDimensions | undefined;",
+            "};",
+            "",
+            "export function parseImageDimensions(bytes: string): ImageDimensions | undefined {",
+            "  let dims = Resource.parsePngDimensions(bytes);",
+            "  if (dims !== undefined) return dims;",
+            "  dims = Resource.parseJpegDimensions(bytes);",
+            "  if (dims !== undefined) return dims;",
+            "  dims = Resource.parseGifDimensions(bytes);",
+            "  if (dims !== undefined) return dims;",
+            "  return undefined;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" &&
+            stmt.name === "parseImageDimensions"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const ifStatements = fn.body.statements.filter(
+          (
+            stmt
+          ): stmt is Extract<
+            IrFunctionDeclaration["body"]["statements"][number],
+            { kind: "ifStatement" }
+          > => stmt.kind === "ifStatement"
+        );
+        expect(ifStatements).to.have.length(3);
+
+        const secondIf = ifStatements[1];
+        expect(secondIf?.condition.kind).to.equal("binary");
+        if (!secondIf || secondIf.condition.kind !== "binary") {
+          return;
+        }
+        expect(secondIf.condition.left.kind).to.equal("identifier");
+        if (secondIf.condition.left.kind !== "identifier") {
+          return;
+        }
+        expect(secondIf.condition.left.inferredType?.kind).to.equal("unionType");
+
+        const secondReturn = secondIf.thenStatement.kind === "returnStatement"
+          ? secondIf.thenStatement
+          : undefined;
+        expect(secondReturn?.expression).to.not.equal(undefined);
+        if (!secondReturn?.expression) {
+          return;
+        }
+        expect(secondReturn.expression.kind).to.equal("typeAssertion");
+        if (secondReturn.expression.kind !== "typeAssertion") {
+          return;
+        }
+        expect(secondReturn.expression.targetType?.kind).to.equal(
+          "referenceType"
+        );
+        if (secondReturn.expression.targetType?.kind !== "referenceType") {
+          return;
+        }
+        expect(secondReturn.expression.targetType.name).to.equal(
+          "ImageDimensions"
+        );
       } finally {
         fixture.cleanup();
       }

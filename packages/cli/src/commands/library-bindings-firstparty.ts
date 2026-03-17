@@ -2512,10 +2512,11 @@ type BindingSemanticRewriteCaches = {
   readonly members: WeakMap<object, IrInterfaceMember>;
 };
 
-const createBindingSemanticRewriteCaches = (): BindingSemanticRewriteCaches => ({
-  types: new WeakMap<object, IrType>(),
-  members: new WeakMap<object, IrInterfaceMember>(),
-});
+const createBindingSemanticRewriteCaches =
+  (): BindingSemanticRewriteCaches => ({
+    types: new WeakMap<object, IrType>(),
+    members: new WeakMap<object, IrInterfaceMember>(),
+  });
 
 const rewriteBindingSemanticParameterInternal = (
   parameter: IrParameter,
@@ -2561,8 +2562,12 @@ const rewriteBindingSemanticMemberInternal = (
   caches.members.set(member, rewritten);
   (rewritten as { parameters: typeof member.parameters }).parameters =
     member.parameters.map((parameter) =>
-    rewriteBindingSemanticParameterInternal(parameter, localTypeNameRemaps, caches)
-  );
+      rewriteBindingSemanticParameterInternal(
+        parameter,
+        localTypeNameRemaps,
+        caches
+      )
+    );
   (rewritten as { returnType: typeof member.returnType }).returnType =
     rewriteBindingSemanticTypeInternal(
       member.returnType,
@@ -2603,7 +2608,11 @@ const rewriteBindingSemanticTypeInternal = (
       (
         rewritten as { structuralMembers?: typeof type.structuralMembers }
       ).structuralMembers = type.structuralMembers?.map((member) =>
-        rewriteBindingSemanticMemberInternal(member, localTypeNameRemaps, caches)
+        rewriteBindingSemanticMemberInternal(
+          member,
+          localTypeNameRemaps,
+          caches
+        )
       );
       return rewritten;
     }
@@ -2629,12 +2638,12 @@ const rewriteBindingSemanticTypeInternal = (
       caches.types.set(type, rewritten);
       (rewritten as { elementTypes: typeof type.elementTypes }).elementTypes =
         type.elementTypes.map((elementType) =>
-        rewriteBindingSemanticTypeInternal(
-          elementType,
-          localTypeNameRemaps,
-          caches
-        )
-      ) as readonly IrType[];
+          rewriteBindingSemanticTypeInternal(
+            elementType,
+            localTypeNameRemaps,
+            caches
+          )
+        ) as readonly IrType[];
       return rewritten;
     }
     case "functionType": {
@@ -2646,12 +2655,12 @@ const rewriteBindingSemanticTypeInternal = (
       caches.types.set(type, rewritten);
       (rewritten as { parameters: typeof type.parameters }).parameters =
         type.parameters.map((parameter) =>
-        rewriteBindingSemanticParameterInternal(
-          parameter,
-          localTypeNameRemaps,
-          caches
-        )
-      );
+          rewriteBindingSemanticParameterInternal(
+            parameter,
+            localTypeNameRemaps,
+            caches
+          )
+        );
       (rewritten as { returnType: typeof type.returnType }).returnType =
         rewriteBindingSemanticTypeInternal(
           type.returnType,
@@ -2666,9 +2675,14 @@ const rewriteBindingSemanticTypeInternal = (
         members: type.members,
       };
       caches.types.set(type, rewritten);
-      (rewritten as { members: typeof type.members }).members = type.members.map((member) =>
-        rewriteBindingSemanticMemberInternal(member, localTypeNameRemaps, caches)
-      );
+      (rewritten as { members: typeof type.members }).members =
+        type.members.map((member) =>
+          rewriteBindingSemanticMemberInternal(
+            member,
+            localTypeNameRemaps,
+            caches
+          )
+        );
       return rewritten;
     }
     case "dictionaryType": {
@@ -2699,12 +2713,13 @@ const rewriteBindingSemanticTypeInternal = (
         types: type.types,
       };
       caches.types.set(type, rewritten);
-      (rewritten as { types: typeof type.types }).types = type.types.map((candidate) =>
-        rewriteBindingSemanticTypeInternal(
-          candidate,
-          localTypeNameRemaps,
-          caches
-        )
+      (rewritten as { types: typeof type.types }).types = type.types.map(
+        (candidate) =>
+          rewriteBindingSemanticTypeInternal(
+            candidate,
+            localTypeNameRemaps,
+            caches
+          )
       ) as readonly IrType[];
       return rewritten;
     }
@@ -2732,7 +2747,6 @@ const rewriteBindingSemanticParameter = (
     localTypeNameRemaps,
     createBindingSemanticRewriteCaches()
   );
-
 
 const buildSemanticSignature = (opts: {
   readonly typeParameters: readonly IrTypeParameter[] | undefined;
@@ -2868,7 +2882,11 @@ const reattachBindingClrIdentitiesInternal = (
       (
         rewritten as { structuralMembers?: typeof type.structuralMembers }
       ).structuralMembers = type.structuralMembers?.map((member) =>
-        reattachBindingClrIdentityMemberInternal(member, clrNamesByAlias, caches)
+        reattachBindingClrIdentityMemberInternal(
+          member,
+          clrNamesByAlias,
+          caches
+        )
       );
       return rewritten;
     }
@@ -2933,14 +2951,14 @@ const reattachBindingClrIdentitiesInternal = (
         members: type.members,
       };
       caches.types.set(type, rewritten);
-      (rewritten as { members: typeof type.members }).members = type.members.map(
-        (member) =>
+      (rewritten as { members: typeof type.members }).members =
+        type.members.map((member) =>
           reattachBindingClrIdentityMemberInternal(
             member,
             clrNamesByAlias,
             caches
           )
-      );
+        );
       return rewritten;
     }
     case "dictionaryType": {
@@ -3103,9 +3121,7 @@ const isIrTypeNode = (value: unknown): value is IrType => {
     case "tupleType":
       return Array.isArray(candidate.elementTypes);
     case "functionType":
-      return (
-        Array.isArray(candidate.parameters) && "returnType" in candidate
-      );
+      return Array.isArray(candidate.parameters) && "returnType" in candidate;
     case "objectType":
       return Array.isArray(candidate.members);
     case "dictionaryType":
@@ -3164,7 +3180,9 @@ const serializeRecursiveBindingType = (
           : {}),
         ...(type.tupleRestElementType
           ? {
-              tupleRestElementType: serialize(type.tupleRestElementType) as IrType,
+              tupleRestElementType: serialize(
+                type.tupleRestElementType
+              ) as IrType,
             }
           : {}),
       };

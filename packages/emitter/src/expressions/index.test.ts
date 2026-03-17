@@ -733,7 +733,7 @@ describe("Expression Emission", () => {
     expect(result).to.include('req.@params["id"]');
   });
 
-  it("should emit JS runtime string receiver helpers as fluent calls", () => {
+  it("should emit JS runtime string receiver helpers as static calls", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -777,13 +777,13 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include('path.split("/")');
-    expect(result).not.to.include(
+    expect(result).to.include(
       'global::Tsonic.JSRuntime.String.split(path, "/")'
     );
+    expect(result).not.to.include('path.split("/")');
   });
 
-  it("should emit JS runtime numeric receiver helpers as fluent calls", () => {
+  it("should emit JS runtime numeric receiver helpers as static calls", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -827,10 +827,10 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("value.toString()");
-    expect(result).not.to.include(
+    expect(result).to.include(
       "global::Tsonic.JSRuntime.Number.toString(value)"
     );
+    expect(result).not.to.include("value.toString()");
   });
 
   it("should emit fluent LINQ extension method calls (required for EF query precompilation)", () => {
@@ -851,7 +851,11 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "q",
-                inferredType: { kind: "primitiveType", name: "boolean" }, // doesn't matter; only needs to be instance-style
+                inferredType: {
+                  kind: "referenceType",
+                  name: "QueryableRoot",
+                  resolvedClrType: "global::MyApp.QueryableRoot",
+                },
               },
               property: "Count",
               isComputed: false,
@@ -913,7 +917,11 @@ describe("Expression Emission", () => {
             object: {
               kind: "identifier",
               name: "q",
-              inferredType: { kind: "primitiveType", name: "boolean" }, // doesn't matter; only needs to be instance-style
+              inferredType: {
+                kind: "referenceType",
+                name: "QueryableRoot",
+                resolvedClrType: "global::MyApp.QueryableRoot",
+              },
             },
             property: m.member,
             isComputed: false,
@@ -964,7 +972,11 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "xs",
-                inferredType: { kind: "primitiveType", name: "boolean" }, // doesn't matter; instance-style is enough
+                inferredType: {
+                  kind: "referenceType",
+                  name: "EnumerableRoot",
+                  resolvedClrType: "global::MyApp.EnumerableRoot",
+                },
               },
               property: "ToArray",
               isComputed: false,
@@ -993,7 +1005,11 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "xs",
-                inferredType: { kind: "primitiveType", name: "boolean" },
+                inferredType: {
+                  kind: "referenceType",
+                  name: "EnumerableRoot",
+                  resolvedClrType: "global::MyApp.EnumerableRoot",
+                },
               },
               property: "ToList",
               isComputed: false,
@@ -1023,7 +1039,11 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "xs",
-                inferredType: { kind: "primitiveType", name: "boolean" },
+                inferredType: {
+                  kind: "referenceType",
+                  name: "EnumerableRoot",
+                  resolvedClrType: "global::MyApp.EnumerableRoot",
+                },
               },
               property: "Where",
               isComputed: false,
@@ -1077,7 +1097,11 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "q",
-                inferredType: { kind: "primitiveType", name: "boolean" },
+                inferredType: {
+                  kind: "referenceType",
+                  name: "QueryableRoot",
+                  resolvedClrType: "global::MyApp.QueryableRoot",
+                },
               },
               property: "AsNoTracking",
               isComputed: false,
@@ -1331,7 +1355,8 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("useInt(updates.active.Value)");
+    expect(result).to.include("updates.active.Value");
+    expect(result).to.not.include("useInt(updates.active);");
     expect(result).to.not.include("updates.active.Value.Value");
   });
 
@@ -1829,7 +1854,7 @@ describe("Expression Emission", () => {
     );
   });
 
-  it("normalizes fluent JS extension calls back to native arrays when the logical return type is array-like", () => {
+  it("normalizes JS extension call results back to native arrays when the logical return type is array-like", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -1878,7 +1903,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include(
-      'global::System.Linq.Enumerable.ToArray(path.split("/"))'
+      'global::System.Linq.Enumerable.ToArray(global::Tsonic.JSRuntime.String.split(path, "/"))'
     );
   });
 
@@ -2420,7 +2445,110 @@ describe("Expression Emission", () => {
 
     const text = printExpression(result);
     expect(text).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>(handlerArray.Match("
+      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>((global::System.Object[])handlerArray).length"
+    );
+    expect(text).to.not.include(".Match(");
+    expect(text).to.not.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
+    );
+  });
+
+  it("uses storage-erased wrapper element types for narrowed recursive union arrays", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "value" },
+          type: { kind: "primitiveType", name: "string" },
+          initializer: undefined,
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "voidType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const middlewareLike = {
+      kind: "unionType",
+      types: [],
+    } as unknown as Extract<IrType, { kind: "unionType" }> & {
+      types: IrType[];
+    };
+
+    middlewareLike.types.push(handlerType, routerType, {
+      kind: "arrayType",
+      elementType: middlewareLike,
+      origin: "explicit",
+    });
+
+    const expr: IrExpression = {
+      kind: "memberAccess",
+      object: {
+        kind: "identifier",
+        name: "handler",
+        inferredType: middlewareLike,
+      },
+      property: "length",
+      isComputed: false,
+      isOptional: false,
+      inferredType: { kind: "primitiveType", name: "int" },
+      memberBinding: {
+        kind: "property",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.JSArray`1",
+        member: "length",
+      },
+    };
+
+    const [result] = emitExpressionAst(expr, {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+      narrowedBindings: new Map([
+        [
+          "handler",
+          {
+            kind: "expr",
+            exprAst: {
+              kind: "invocationExpression",
+              expression: {
+                kind: "memberAccessExpression",
+                expression: {
+                  kind: "identifierExpression",
+                  identifier: "handler",
+                },
+                memberName: "As1",
+              },
+              arguments: [],
+            },
+            type: {
+              kind: "arrayType",
+              elementType: middlewareLike,
+              origin: "explicit",
+            },
+            sourceType: middlewareLike,
+          },
+        ],
+      ]),
+    });
+
+    const text = printExpression(result);
+    expect(text).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>(handler.As1()).length"
     );
     expect(text).to.not.include(
       "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
@@ -4083,6 +4211,118 @@ describe("Expression Emission", () => {
     expect(result).not.to.include('(char)"Q"');
   });
 
+  it("should preserve contextual char typing for ternary single-character literals", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "value" },
+              type: { kind: "primitiveType", name: "char" },
+              initializer: {
+                kind: "conditional",
+                condition: { kind: "literal", value: false },
+                whenTrue: { kind: "literal", value: "m" },
+                whenFalse: { kind: "literal", value: "n" },
+                inferredType: { kind: "primitiveType", name: "char" },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("char value = false ? 'm' : 'n';");
+    expect(result).not.to.include('false ? "m" : "n"');
+  });
+
+  it("keeps mutable char locals in char/string single-character comparisons", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "main",
+          isAsync: false,
+          isGenerator: false,
+          isExported: false,
+          parameters: [],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "variableDeclaration",
+                declarationKind: "let",
+                isExported: false,
+                declarations: [
+                  {
+                    kind: "variableDeclarator",
+                    name: { kind: "identifierPattern", name: "c" },
+                    type: { kind: "primitiveType", name: "char" },
+                    initializer: { kind: "literal", value: "x" },
+                  },
+                ],
+              },
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "assignment",
+                  operator: "=",
+                  left: {
+                    kind: "identifier",
+                    name: "c",
+                    inferredType: { kind: "primitiveType", name: "char" },
+                  },
+                  right: { kind: "literal", value: "y" },
+                  inferredType: { kind: "primitiveType", name: "char" },
+                },
+              },
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "binary",
+                  operator: "===",
+                  left: {
+                    kind: "identifier",
+                    name: "c",
+                    inferredType: { kind: "primitiveType", name: "string" },
+                  },
+                  right: { kind: "literal", value: "y" },
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                },
+              },
+            ],
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("char c = 'x';");
+    expect(result).to.include("c = 'y';");
+    expect(result).to.include("c == 'y';");
+    expect(result).not.to.include("(string)c == 'y'");
+  });
+
   it("should lower tuple-rest function value calls as positional arguments", () => {
     const tupleRestType = {
       kind: "unionType" as const,
@@ -4365,7 +4605,7 @@ describe("Expression Emission", () => {
     );
 
     expect(printExpression(result)).to.equal(
-      "global::Tsonic.Runtime.Union<object[], global::System.Func<object?>, global::Test.Router>.From1(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(new object[] { (object)handler }, __item => __item)))"
+      "global::Tsonic.Runtime.Union<object[], global::System.Func<object?>, global::Test.Router>.From1(new object[] { (object)handler })"
     );
   });
 

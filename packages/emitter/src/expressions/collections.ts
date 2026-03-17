@@ -17,7 +17,7 @@ import {
   stripNullish,
   resolveTypeAlias,
   getArrayLikeElementType,
-  selectUnionMemberForObjectLiteral,
+  selectObjectLiteralUnionMember,
 } from "../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../core/format/local-names.js";
 import { emitCSharpName } from "../naming-policy.js";
@@ -652,13 +652,31 @@ export const emitObject = (
 
     if (literalKeys.length !== expr.properties.length) return strippedType;
 
-    const selected = selectUnionMemberForObjectLiteral(
+    const selected = selectObjectLiteralUnionMember(
       resolved,
       literalKeys,
       currentContext
     );
     return selected ?? strippedType;
   })();
+
+  const resolvedInstantiationType = instantiationType
+    ? resolveTypeAlias(stripNullish(instantiationType), currentContext)
+    : undefined;
+  if (resolvedInstantiationType?.kind === "dictionaryType") {
+    if (expr.hasSpreads) {
+      return emitDictionaryLiteralWithSpreads(
+        expr,
+        currentContext,
+        resolvedInstantiationType
+      );
+    }
+    return emitDictionaryLiteral(
+      expr,
+      currentContext,
+      resolvedInstantiationType
+    );
+  }
 
   const [typeAst, typeContext] = resolveContextualTypeAst(
     instantiationType,

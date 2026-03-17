@@ -639,10 +639,10 @@ export const emitReferenceType = (
   }
 
   // Handle built-in types
-  // Array<T> emits as native T[] array, same as T[] syntax
-  // Users must explicitly use List<T> to get a List
-  if (name === "Array" && typeArguments && typeArguments.length > 0) {
-    const firstArg = typeArguments[0];
+  // Array-like contracts emit as native T[] arrays.
+  // Users must explicitly use List<T> / collection types to get collection objects.
+  if (name === "Array" || name === "ReadonlyArray" || name === "ArrayLike") {
+    const firstArg = typeArguments?.[0];
     if (!firstArg) {
       return [
         {
@@ -684,6 +684,28 @@ export const emitReferenceType = (
 
   if (name === "Promise") {
     return [identifierType("global::System.Threading.Tasks.Task"), context];
+  }
+
+  if (name === "Iterable" || name === "IterableIterator") {
+    const elementType = typeArguments?.[0] ?? { kind: "unknownType" };
+    const [elementTypeAst, newContext] = emitTypeAst(elementType, context);
+    return [
+      identifierType("global::System.Collections.Generic.IEnumerable", [
+        elementTypeAst,
+      ]),
+      newContext,
+    ];
+  }
+
+  if (name === "AsyncIterable" || name === "AsyncIterableIterator") {
+    const elementType = typeArguments?.[0] ?? { kind: "unknownType" };
+    const [elementTypeAst, newContext] = emitTypeAst(elementType, context);
+    return [
+      identifierType("global::System.Collections.Generic.IAsyncEnumerable", [
+        elementTypeAst,
+      ]),
+      newContext,
+    ];
   }
 
   // Map core Span<T> to System.Span<T>.

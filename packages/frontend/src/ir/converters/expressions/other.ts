@@ -63,6 +63,21 @@ export const convertConditionalExpression = (
     if (!f) return t;
 
     if (irTypesEqual(t, f)) return t;
+    if (
+      ctx.typeSystem.isAssignableTo(t, f) &&
+      ctx.typeSystem.isAssignableTo(f, t)
+    ) {
+      return t;
+    }
+
+    if (ctx.typeSystem.isAssignableTo(t, f)) {
+      return f;
+    }
+
+    if (ctx.typeSystem.isAssignableTo(f, t)) {
+      return t;
+    }
+
     return normalizedUnionType([t, f]);
   })();
 

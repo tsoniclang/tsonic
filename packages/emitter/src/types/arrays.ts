@@ -14,6 +14,7 @@ import {
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
 import { normalizeStructuralEmissionType } from "../core/semantic/type-resolution.js";
+import { shouldEraseRecursiveRuntimeUnionArrayElement } from "../core/semantic/runtime-unions.js";
 
 const isRuntimeUnionTypeAst = (typeAst: CSharpTypeAst): boolean => {
   const concrete = stripNullableTypeAst(typeAst);
@@ -22,6 +23,16 @@ const isRuntimeUnionTypeAst = (typeAst: CSharpTypeAst): boolean => {
     name === "global::Tsonic.Runtime.Union" ||
     name === "Tsonic.Runtime.Union" ||
     name === "Union"
+  );
+};
+
+const shouldEraseRuntimeUnionArrayElementType = (
+  arrayType: Extract<IrType, { kind: "arrayType" }>,
+  context: EmitterContext
+): boolean => {
+  return shouldEraseRecursiveRuntimeUnionArrayElement(
+    arrayType.elementType,
+    context
   );
 };
 
@@ -47,11 +58,11 @@ export const emitArrayType = (
     normalizeStructuralEmissionType(type.elementType, elementContext),
     elementContext
   );
-  const normalizedElementTypeAst: CSharpTypeAst = isRuntimeUnionTypeAst(
-    elementTypeAst
-  )
-    ? { kind: "predefinedType", keyword: "object" }
-    : elementTypeAst;
+  const normalizedElementTypeAst: CSharpTypeAst =
+    isRuntimeUnionTypeAst(elementTypeAst) &&
+    shouldEraseRuntimeUnionArrayElementType(type, context)
+      ? { kind: "predefinedType", keyword: "object" }
+      : elementTypeAst;
   return [
     { kind: "arrayType", elementType: normalizedElementTypeAst, rank: 1 },
     newContext,

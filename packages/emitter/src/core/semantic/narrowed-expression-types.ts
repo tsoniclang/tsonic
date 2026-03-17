@@ -66,6 +66,18 @@ export const resolveEffectiveExpressionType = (
   expr: IrExpression,
   context: EmitterContext
 ): IrType | undefined => {
+  if (expr.kind === "typeAssertion" || expr.kind === "asinterface") {
+    return expr.targetType;
+  }
+
+  if (expr.kind === "trycast") {
+    return expr.targetType;
+  }
+
+  if (expr.kind === "defaultof") {
+    return expr.targetType;
+  }
+
   const baseType = expr.inferredType;
   const storageType =
     expr.kind === "identifier"
@@ -90,7 +102,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return storageType ?? baseType;
+    return baseType ?? storageType;
   }
 
   const narrowKey =
@@ -119,7 +131,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return storageType ?? baseType;
+    return baseType ?? storageType;
   }
 
   const narrowed = context.narrowedBindings.get(narrowKey);
@@ -142,7 +154,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return storageType ?? baseType;
+    return baseType ?? storageType;
   }
 
   if (
@@ -188,5 +200,5 @@ export const resolveEffectiveExpressionType = (
     }
   }
 
-  return storageType ?? baseType;
+  return baseType ?? storageType;
 };

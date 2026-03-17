@@ -225,8 +225,16 @@ export type IrCallExpression = {
   readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[]; // Passing mode for each argument
   /** Parameter types from resolved signature (for expectedType threading to array literals etc.) */
   readonly parameterTypes?: readonly (IrType | undefined)[];
+  /** Declared/public parameter surface types for emission; not narrowed per call-site argument. */
+  readonly surfaceParameterTypes?: readonly (IrType | undefined)[];
   /** Explicit rest-parameter metadata from the resolved/public signature. */
   readonly restParameter?: {
+    readonly index: number;
+    readonly arrayType: IrType | undefined;
+    readonly elementType: IrType | undefined;
+  };
+  /** Declared/public rest-parameter metadata for emission. */
+  readonly surfaceRestParameter?: {
     readonly index: number;
     readonly arrayType: IrType | undefined;
     readonly elementType: IrType | undefined;
@@ -256,8 +264,15 @@ export type IrNewExpression = {
   readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[];
   /** Parameter types from resolved constructor signature (for expectedType threading). */
   readonly parameterTypes?: readonly (IrType | undefined)[];
+  /** Declared/public constructor parameter surface types for emission. */
+  readonly surfaceParameterTypes?: readonly (IrType | undefined)[];
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
+  readonly surfaceRestParameter?: {
+    readonly index: number;
+    readonly arrayType: IrType | undefined;
+    readonly elementType: IrType | undefined;
+  };
 };
 
 export type IrThisExpression = {

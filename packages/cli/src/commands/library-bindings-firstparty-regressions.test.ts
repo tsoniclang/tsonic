@@ -4966,8 +4966,9 @@ describe("library bindings first-party regressions", function () {
       };
 
       expect(bindingsText).to.not.include("[Circular]");
-      expect(bindings.types?.some((type) => type.clrName === "Test.Lib.Node")).to
-        .equal(true);
+      expect(
+        bindings.types?.some((type) => type.clrName === "Test.Lib.Node")
+      ).to.equal(true);
       expect(
         bindings.types
           ?.find((type) => type.clrName === "Test.Lib.Node")

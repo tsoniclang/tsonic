@@ -22,6 +22,7 @@ import {
   allocateLocalName,
   emitRemappedLocalName,
   registerLocalName,
+  registerLocalValueType,
 } from "./core/format/local-names.js";
 import {
   booleanLiteral,
@@ -38,6 +39,7 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "./core/format/backend-ast/types.js";
+import { normalizeRuntimeStorageType } from "./core/semantic/storage-types.js";
 
 const objectTypeAst: CSharpTypeAst = identifierType("object");
 
@@ -249,6 +251,11 @@ const lowerIdentifierAst = (
   };
 
   currentCtx = registerLocalName(name, localName, currentCtx);
+  currentCtx = registerLocalValueType(
+    name,
+    normalizeRuntimeStorageType(type, currentCtx),
+    currentCtx
+  );
   return { statements: [stmt], context: currentCtx };
 };
 

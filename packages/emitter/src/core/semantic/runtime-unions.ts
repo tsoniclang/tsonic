@@ -2,10 +2,12 @@ import { IrType, IrInterfaceMember, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { CSharpTypeAst } from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
+import { identifierType } from "../format/backend-ast/builders.js";
 import {
   resolveLocalTypeInfo,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
+  stripNullish,
   substituteTypeArgs,
   unionMemberMatchesTarget,
 } from "./type-resolution.js";
@@ -184,22 +186,14 @@ export const getRuntimeUnionReferenceMembers = (
 
 const toRecursiveFallbackType = (type: IrType): IrType => {
   if (type.kind === "arrayType") {
-    return {
-      kind: "arrayType",
-      elementType: UNKNOWN_TYPE,
-      origin: type.origin,
-    };
+    return type;
   }
 
   if (type.kind === "unionType") {
     const split = splitRuntimeNullishUnionMembers(type);
     const nonNullish = split?.nonNullishMembers ?? type.types;
     if (nonNullish.length === 1 && nonNullish[0]?.kind === "arrayType") {
-      return {
-        kind: "arrayType",
-        elementType: UNKNOWN_TYPE,
-        origin: nonNullish[0].origin,
-      };
+      return nonNullish[0];
     }
   }
 
@@ -382,6 +376,10 @@ export const buildRuntimeUnionLayout = (
     })
     .map(([, entry]) => entry);
 
+  if (ordered.length < 2 || ordered.length > 8) {
+    return [undefined, currentContext];
+  }
+
   return [
     {
       members: ordered.map((entry) => entry.member),
@@ -390,6 +388,29 @@ export const buildRuntimeUnionLayout = (
     },
     currentContext,
   ];
+};
+
+export const buildRuntimeUnionTypeAst = (
+  layout: RuntimeUnionLayout
+): CSharpTypeAst =>
+  identifierType("global::Tsonic.Runtime.Union", [...layout.memberTypeAsts]);
+
+export const emitRuntimeCarrierTypeAst = (
+  type: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstLike
+): [CSharpTypeAst, RuntimeUnionLayout | undefined, EmitterContext] => {
+  const [layout, layoutContext] = buildRuntimeUnionLayout(
+    type,
+    context,
+    emitTypeAst
+  );
+  if (layout) {
+    return [buildRuntimeUnionTypeAst(layout), layout, layoutContext];
+  }
+
+  const [typeAst, typeContext] = emitTypeAst(type, context);
+  return [typeAst, undefined, typeContext];
 };
 
 export const buildRuntimeUnionFrame = (
@@ -405,6 +426,258 @@ export const buildRuntimeUnionFrame = (
     members,
     runtimeUnionArity: members.length,
   };
+};
+
+const collectRuntimeUnionRawMembers = (
+  type: IrType,
+  context: EmitterContext,
+  activeAliases: ReadonlySet<string> = new Set<string>(),
+  activeTypes: ReadonlySet<object> = new Set<object>()
+): readonly IrType[] => {
+  if (activeTypes.has(type)) {
+    return [type];
+  }
+
+  const nextActiveTypes = new Set(activeTypes);
+  nextActiveTypes.add(type);
+
+  const split = splitRuntimeNullishUnionMembers(type);
+  if (split) {
+    return split.nonNullishMembers.flatMap((member) =>
+      collectRuntimeUnionRawMembers(
+        member,
+        context,
+        activeAliases,
+        nextActiveTypes
+      )
+    );
+  }
+
+  if (type.kind === "intersectionType") {
+    const runtimeCarrier = type.types.find(
+      (
+        member
+      ): member is
+        | Extract<IrType, { kind: "unionType" }>
+        | Extract<IrType, { kind: "referenceType" }> =>
+        member.kind === "unionType" ||
+        (member.kind === "referenceType" &&
+          getRuntimeUnionReferenceMembers(member) !== undefined)
+    );
+    if (runtimeCarrier) {
+      return collectRuntimeUnionRawMembers(
+        runtimeCarrier,
+        context,
+        activeAliases,
+        nextActiveTypes
+      );
+    }
+  }
+
+  if (type.kind === "referenceType") {
+    const runtimeMembers = getRuntimeUnionReferenceMembers(type);
+    if (runtimeMembers) {
+      return runtimeMembers.flatMap((member) =>
+        collectRuntimeUnionRawMembers(
+          member,
+          context,
+          activeAliases,
+          nextActiveTypes
+        )
+      );
+    }
+
+    const localInfo = resolveLocalTypeInfo(type, context);
+    if (localInfo?.info.kind === "typeAlias") {
+      if (localInfo.info.type.kind === "objectType") {
+        return [type];
+      }
+
+      const localName = type.name.includes(".")
+        ? (type.name.split(".").pop() ?? type.name)
+        : type.name;
+      const aliasKey = `${localInfo.namespace}::${localName}`;
+      const aliasTarget =
+        type.typeArguments && type.typeArguments.length > 0
+          ? substituteTypeArgs(
+              localInfo.info.type,
+              localInfo.info.typeParameters,
+              type.typeArguments
+            )
+          : localInfo.info.type;
+
+      if (activeAliases.has(aliasKey)) {
+        return [type];
+      }
+
+      const nextActiveAliases = new Set(activeAliases);
+      nextActiveAliases.add(aliasKey);
+      return collectRuntimeUnionRawMembers(
+        aliasTarget,
+        context,
+        nextActiveAliases,
+        nextActiveTypes
+      );
+    }
+
+    const resolved = resolveTypeAlias(type, context);
+    if (resolved !== type) {
+      return collectRuntimeUnionRawMembers(
+        resolved,
+        context,
+        activeAliases,
+        nextActiveTypes
+      );
+    }
+  }
+
+  if (type.kind === "unionType") {
+    return type.types.flatMap((member) =>
+      collectRuntimeUnionRawMembers(
+        member,
+        context,
+        activeAliases,
+        nextActiveTypes
+      )
+    );
+  }
+
+  return [type];
+};
+
+const isRuntimeUnionElementFamily = (
+  type: IrType,
+  context: EmitterContext,
+  activeAliases: ReadonlySet<string> = new Set<string>(),
+  activeTypes: ReadonlySet<object> = new Set<object>()
+): boolean => {
+  if (activeTypes.has(type)) {
+    return true;
+  }
+
+  const nextActiveTypes = new Set(activeTypes);
+  nextActiveTypes.add(type);
+
+  const split = splitRuntimeNullishUnionMembers(type);
+  if (split) {
+    if (split.nonNullishMembers.length > 1) {
+      return true;
+    }
+    const onlyMember = split.nonNullishMembers[0];
+    return onlyMember
+      ? isRuntimeUnionElementFamily(
+          onlyMember,
+          context,
+          activeAliases,
+          nextActiveTypes
+        )
+      : false;
+  }
+
+  if (type.kind === "unionType") {
+    return true;
+  }
+
+  if (type.kind === "intersectionType") {
+    const runtimeCarrier = type.types.find(
+      (
+        member
+      ): member is
+        | Extract<IrType, { kind: "unionType" }>
+        | Extract<IrType, { kind: "referenceType" }> =>
+        member.kind === "unionType" ||
+        (member.kind === "referenceType" &&
+          getRuntimeUnionReferenceMembers(member) !== undefined)
+    );
+    return runtimeCarrier
+      ? isRuntimeUnionElementFamily(
+          runtimeCarrier,
+          context,
+          activeAliases,
+          nextActiveTypes
+        )
+      : false;
+  }
+
+  if (type.kind === "arrayType") {
+    return isRuntimeUnionElementFamily(
+      type.elementType,
+      context,
+      activeAliases,
+      nextActiveTypes
+    );
+  }
+
+  if (type.kind === "referenceType") {
+    if (getRuntimeUnionReferenceMembers(type)) {
+      return true;
+    }
+
+    const localInfo = resolveLocalTypeInfo(type, context);
+    if (localInfo?.info.kind === "typeAlias") {
+      if (localInfo.info.type.kind === "objectType") {
+        return false;
+      }
+
+      const localName = type.name.includes(".")
+        ? (type.name.split(".").pop() ?? type.name)
+        : type.name;
+      const aliasKey = `${localInfo.namespace}::${localName}`;
+      const aliasTarget =
+        type.typeArguments && type.typeArguments.length > 0
+          ? substituteTypeArgs(
+              localInfo.info.type,
+              localInfo.info.typeParameters,
+              type.typeArguments
+            )
+          : localInfo.info.type;
+
+      if (activeAliases.has(aliasKey)) {
+        return true;
+      }
+
+      const nextActiveAliases = new Set(activeAliases);
+      nextActiveAliases.add(aliasKey);
+      return isRuntimeUnionElementFamily(
+        aliasTarget,
+        context,
+        nextActiveAliases,
+        nextActiveTypes
+      );
+    }
+
+    const resolved = resolveTypeAlias(type, context);
+    if (resolved !== type) {
+      return isRuntimeUnionElementFamily(
+        resolved,
+        context,
+        activeAliases,
+        nextActiveTypes
+      );
+    }
+  }
+
+  return false;
+};
+
+export const hasRuntimeUnionArrayMemberWithRuntimeUnionElements = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  return collectRuntimeUnionRawMembers(type, context).some((member) => {
+    const resolvedMember = resolveTypeAlias(member, context);
+    return (
+      resolvedMember.kind === "arrayType" &&
+      isRuntimeUnionElementFamily(resolvedMember.elementType, context)
+    );
+  });
+};
+
+export const shouldEraseRecursiveRuntimeUnionArrayElement = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  return hasRuntimeUnionArrayMemberWithRuntimeUnionElements(type, context);
 };
 
 export const getCanonicalRuntimeUnionMembers = (
@@ -445,4 +718,136 @@ export const findRuntimeUnionMemberIndex = (
     }
   }
   return undefined;
+};
+
+export const findRuntimeUnionMemberIndices = (
+  members: readonly IrType[],
+  target: IrType,
+  context: EmitterContext
+): readonly number[] =>
+  members.flatMap((member, index) =>
+    member && unionMemberMatchesTarget(member, target, context) ? [index] : []
+  );
+
+export const findExactRuntimeUnionMemberIndices = (
+  members: readonly IrType[],
+  target: IrType,
+  context: EmitterContext
+): readonly number[] => {
+  const targetKey = stableIrTypeKey(resolveTypeAlias(stripNullish(target), context));
+  return members.flatMap((member, index) => {
+    if (!member) {
+      return [];
+    }
+    const memberKey = stableIrTypeKey(resolveTypeAlias(stripNullish(member), context));
+    return memberKey === targetKey ? [index] : [];
+  });
+};
+
+const referenceTypeCanContainInstanceofTarget = (
+  member: Extract<IrType, { kind: "referenceType" }>,
+  target: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext,
+  seen: ReadonlySet<string> = new Set<string>()
+): boolean => {
+  if (unionMemberMatchesTarget(member, target, context)) {
+    return true;
+  }
+
+  const targetKey = stableIrTypeKey(target);
+  if (seen.has(targetKey)) {
+    return false;
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(targetKey);
+
+  const info = resolveLocalTypeInfo(target, context)?.info;
+  if (!info) {
+    return false;
+  }
+
+  if (info.kind === "class") {
+    if (info.superClass) {
+      const resolvedSuper = resolveTypeAlias(info.superClass, context);
+      if (
+        resolvedSuper.kind === "referenceType" &&
+        referenceTypeCanContainInstanceofTarget(
+          member,
+          resolvedSuper,
+          context,
+          nextSeen
+        )
+      ) {
+        return true;
+      }
+    }
+
+    for (const implemented of info.implements) {
+      const resolvedImplemented = resolveTypeAlias(implemented, context);
+      if (
+        resolvedImplemented.kind === "referenceType" &&
+        referenceTypeCanContainInstanceofTarget(
+          member,
+          resolvedImplemented,
+          context,
+          nextSeen
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  if (info.kind === "interface") {
+    for (const extended of info.extends) {
+      const resolvedExtended = resolveTypeAlias(extended, context);
+      if (
+        resolvedExtended.kind === "referenceType" &&
+        referenceTypeCanContainInstanceofTarget(
+          member,
+          resolvedExtended,
+          context,
+          nextSeen
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
+export const findRuntimeUnionInstanceofMemberIndices = (
+  members: readonly IrType[],
+  target: IrType,
+  context: EmitterContext
+): readonly number[] => {
+  const resolvedTarget = resolveTypeAlias(stripNullish(target), context);
+
+  return members.flatMap((member, index) => {
+    if (!member) {
+      return [];
+    }
+
+    if (unionMemberMatchesTarget(member, resolvedTarget, context)) {
+      return [index];
+    }
+
+    const resolvedMember = resolveTypeAlias(stripNullish(member), context);
+    if (
+      resolvedMember.kind === "referenceType" &&
+      resolvedTarget.kind === "referenceType" &&
+      referenceTypeCanContainInstanceofTarget(
+        resolvedMember,
+        resolvedTarget,
+        context
+      )
+    ) {
+      return [index];
+    }
+
+    return [];
+  });
 };

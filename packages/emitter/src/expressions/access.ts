@@ -2,7 +2,8 @@
  * Member access expression emitters
  */
 
-import { IrExpression, type IrType } from "@tsonic/frontend";
+import { IrExpression, stableIrTypeKey, type IrType } from "@tsonic/frontend";
+import type { NarrowedBinding } from "../types.js";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@tsonic/frontend/types/explicit-views.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
+  getPropertyType,
   resolveTypeAlias,
   stripNullish,
   getAllPropertySignatures,
@@ -18,6 +20,7 @@ import {
   normalizeStructuralEmissionType,
   resolveLocalTypeInfo,
   resolveStructuralReferenceType,
+  getArrayLikeElementType,
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
@@ -27,16 +30,22 @@ import {
   nullLiteral,
   stringLiteral,
 } from "../core/format/backend-ast/builders.js";
-import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
-import { getIdentifierTypeName } from "../core/format/backend-ast/utils.js";
+import {
+  extractCalleeNameFromAst,
+  getIdentifierTypeName,
+  stableTypeKeyFromAst,
+} from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import {
   buildRuntimeUnionFrame,
   getRuntimeUnionReferenceMembers,
   isRuntimeUnionTypeName,
 } from "../core/semantic/runtime-unions.js";
+import { tryBuildRuntimeReificationPlan } from "../core/semantic/runtime-reification.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
+import { isAssignable } from "../core/semantic/index.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -70,21 +79,6 @@ const hasInt32Proof = (expr: IrExpression): boolean => {
 type MemberAccessUsage = "value" | "call";
 
 type MemberAccessBucket = "methods" | "properties" | "fields" | "enumMembers";
-
-type RuntimeMatchPlan = {
-  readonly condition: CSharpExpressionAst;
-  readonly value: CSharpExpressionAst;
-  readonly context: EmitterContext;
-};
-
-const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
-  const name = getIdentifierTypeName(type);
-  return (
-    name === "global::Tsonic.Runtime.Union" ||
-    name === "Tsonic.Runtime.Union" ||
-    name === "Union"
-  );
-};
 
 const bucketFromMemberKind = (kind: string): MemberAccessBucket => {
   switch (kind) {
@@ -142,26 +136,58 @@ const isPlainObjectIrType = (
   return resolved.kind === "referenceType" && resolved.name === "object";
 };
 
-const buildArrayShapeCondition = (
-  valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: identifierExpression(
-    "global::Tsonic.JSRuntime.JSArrayStatics.isArray"
-  ),
-  arguments: [valueAst],
-});
+const looksLikeTypeParameterName = (name: string): boolean =>
+  /^T($|[A-Z0-9_])/.test(name);
 
-const buildInvalidReificationExpression = (
-  description: string
-): CSharpExpressionAst => ({
-  kind: "throwExpression",
-  expression: {
-    kind: "objectCreationExpression",
-    type: identifierType("global::System.InvalidOperationException"),
-    arguments: [stringLiteral(description)],
-  },
-});
+const eraseOutOfScopeArrayWrapperTypeParameters = (
+  typeAst: CSharpTypeAst,
+  context: EmitterContext
+): CSharpTypeAst => {
+  switch (typeAst.kind) {
+    case "identifierType": {
+      if (
+        !typeAst.name.includes(".") &&
+        !typeAst.name.includes("::") &&
+        (context.typeParameters?.has(typeAst.name) ?? false) === false &&
+        looksLikeTypeParameterName(typeAst.name)
+      ) {
+        return identifierType("object");
+      }
+
+      if (!typeAst.typeArguments || typeAst.typeArguments.length === 0) {
+        return typeAst;
+      }
+
+      return {
+        ...typeAst,
+        typeArguments: typeAst.typeArguments.map((arg) =>
+          eraseOutOfScopeArrayWrapperTypeParameters(arg, context)
+        ),
+      };
+    }
+
+    case "arrayType":
+      return {
+        ...typeAst,
+        elementType: eraseOutOfScopeArrayWrapperTypeParameters(
+          typeAst.elementType,
+          context
+        ),
+      };
+
+    case "nullableType":
+      return {
+        ...typeAst,
+        underlyingType: eraseOutOfScopeArrayWrapperTypeParameters(
+          typeAst.underlyingType,
+          context
+        ),
+      };
+
+    default:
+      return typeAst;
+  }
+};
 
 const emitArrayWrapperElementTypeAst = (
   receiverType: IrType | undefined,
@@ -177,7 +203,14 @@ const emitArrayWrapperElementTypeAst = (
     : undefined;
 
   if (resolvedReceiverType?.kind === "arrayType") {
-    return emitTypeAst(resolvedReceiverType.elementType, context);
+    const [elementTypeAst, nextContext] = emitTypeAst(
+      resolvedReceiverType.elementType,
+      context
+    );
+    return [
+      eraseOutOfScopeArrayWrapperTypeParameters(elementTypeAst, nextContext),
+      nextContext,
+    ];
   }
 
   if (
@@ -188,180 +221,71 @@ const emitArrayWrapperElementTypeAst = (
   ) {
     const elementType = resolvedReceiverType.typeArguments[0];
     if (elementType) {
-      return emitTypeAst(elementType, context);
+      const [elementTypeAst, nextContext] = emitTypeAst(elementType, context);
+      return [
+        eraseOutOfScopeArrayWrapperTypeParameters(elementTypeAst, nextContext),
+        nextContext,
+      ];
     }
   }
 
-  return emitTypeAst(fallbackElementType, context);
-};
-
-const buildRuntimeMatchPlan = (
-  valueAst: CSharpExpressionAst,
-  expectedType: IrType,
-  context: EmitterContext
-): RuntimeMatchPlan | undefined => {
-  const resolvedExpected = resolveTypeAlias(
-    stripNullish(expectedType),
+  const [elementTypeAst, nextContext] = emitTypeAst(
+    fallbackElementType,
     context
   );
+  return [
+    eraseOutOfScopeArrayWrapperTypeParameters(elementTypeAst, nextContext),
+    nextContext,
+  ];
+};
 
-  if (
-    resolvedExpected.kind === "unknownType" ||
-    resolvedExpected.kind === "anyType" ||
-    resolvedExpected.kind === "neverType" ||
-    resolvedExpected.kind === "voidType"
-  ) {
-    return undefined;
-  }
+const emitStorageCompatibleArrayWrapperElementTypeAst = (
+  receiverExpr: IrExpression,
+  receiverType: IrType | undefined,
+  fallbackElementType: IrType,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
+  const [storageReceiverTypeAst, storageContext] = resolveEmittedReceiverTypeAst(
+    receiverExpr,
+    context
+  );
+  const concreteStorageReceiverTypeAst = storageReceiverTypeAst
+    ? unwrapNullableTypeAst(storageReceiverTypeAst)
+    : undefined;
 
-  if (
-    resolvedExpected.kind === "primitiveType" &&
-    (resolvedExpected.name === "null" || resolvedExpected.name === "undefined")
-  ) {
-    return {
-      condition: {
-        kind: "binaryExpression",
-        operatorToken: "==",
-        left: valueAst,
-        right: nullLiteral(),
-      },
-      value: { kind: "defaultExpression" },
-      context,
-    };
-  }
-
-  if (resolvedExpected.kind === "unionType") {
-    const [unionTypeAst, unionTypeContext] = emitTypeAst(expectedType, context);
-    const concreteUnionTypeAst = unwrapNullableTypeAst(unionTypeAst);
-    if (!isRuntimeUnionTypeAst(concreteUnionTypeAst)) {
-      return undefined;
-    }
-
-    const runtimeFrame = buildRuntimeUnionFrame(expectedType, unionTypeContext);
-    const members = runtimeFrame?.members ?? resolvedExpected.types;
-
-    const cases: RuntimeMatchPlan[] = [
-      {
-        condition: {
-          kind: "isExpression",
-          expression: valueAst,
-          pattern: {
-            kind: "typePattern",
-            type: concreteUnionTypeAst,
-          },
-        },
-        value: {
-          kind: "castExpression",
-          type: concreteUnionTypeAst,
-          expression: valueAst,
-        },
-        context: unionTypeContext,
-      },
+  if (concreteStorageReceiverTypeAst?.kind === "arrayType") {
+    return [
+      eraseOutOfScopeArrayWrapperTypeParameters(
+        concreteStorageReceiverTypeAst.elementType,
+        storageContext
+      ),
+      storageContext,
     ];
-
-    let currentContext = unionTypeContext;
-    for (let index = 0; index < members.length; index += 1) {
-      const member = members[index];
-      if (!member) continue;
-      const memberPlan = buildRuntimeMatchPlan(
-        valueAst,
-        member,
-        currentContext
-      );
-      if (!memberPlan) continue;
-      currentContext = memberPlan.context;
-      cases.push({
-        condition: memberPlan.condition,
-        value: {
-          kind: "invocationExpression",
-          expression: {
-            kind: "memberAccessExpression",
-            expression: {
-              kind: "typeReferenceExpression",
-              type: concreteUnionTypeAst,
-            },
-            memberName: `From${index + 1}`,
-          },
-          arguments: [memberPlan.value],
-        },
-        context: currentContext,
-      });
-    }
-
-    if (cases.length === 0) {
-      return undefined;
-    }
-
-    let conditionAst = cases[0]!.condition;
-    let valueExpression = cases[cases.length - 1]!.value;
-    let finalContext = cases[cases.length - 1]!.context;
-    for (let index = 1; index < cases.length; index += 1) {
-      conditionAst = {
-        kind: "binaryExpression",
-        operatorToken: "||",
-        left: conditionAst,
-        right: cases[index]!.condition,
-      };
-    }
-
-    valueExpression = buildInvalidReificationExpression(
-      "Unreachable runtime union reification path"
-    );
-    for (let index = cases.length - 1; index >= 0; index -= 1) {
-      valueExpression = {
-        kind: "conditionalExpression",
-        condition: cases[index]!.condition,
-        whenTrue: cases[index]!.value,
-        whenFalse: valueExpression,
-      };
-      finalContext = cases[index]!.context;
-    }
-
-    return {
-      condition: conditionAst,
-      value: valueExpression,
-      context: finalContext,
-    };
   }
-
-  const [typeAst, typeContext] = emitTypeAst(expectedType, context);
-  const concreteTypeAst = unwrapNullableTypeAst(typeAst);
 
   if (
-    resolvedExpected.kind === "arrayType" ||
-    resolvedExpected.kind === "tupleType" ||
-    (resolvedExpected.kind === "referenceType" &&
-      (resolvedExpected.name === "Array" ||
-        resolvedExpected.name === "ReadonlyArray" ||
-        resolvedExpected.name === "JSArray"))
+    concreteStorageReceiverTypeAst?.kind === "identifierType" &&
+    (concreteStorageReceiverTypeAst.name === "global::System.Array" ||
+      concreteStorageReceiverTypeAst.name === "System.Array") &&
+    concreteStorageReceiverTypeAst.typeArguments?.length === 1
   ) {
-    return {
-      condition: buildArrayShapeCondition(valueAst),
-      value: {
-        kind: "castExpression",
-        type: concreteTypeAst,
-        expression: valueAst,
-      },
-      context: typeContext,
-    };
+    const [elementTypeAst] = concreteStorageReceiverTypeAst.typeArguments;
+    if (elementTypeAst) {
+      return [
+        eraseOutOfScopeArrayWrapperTypeParameters(
+          elementTypeAst,
+          storageContext
+        ),
+        storageContext,
+      ];
+    }
   }
 
-  return {
-    condition: {
-      kind: "isExpression",
-      expression: valueAst,
-      pattern: {
-        kind: "typePattern",
-        type: concreteTypeAst,
-      },
-    },
-    value: {
-      kind: "castExpression",
-      type: concreteTypeAst,
-      expression: valueAst,
-    },
-    context: typeContext,
-  };
+  return emitArrayWrapperElementTypeAst(
+    receiverType,
+    fallbackElementType,
+    storageContext
+  );
 };
 
 const maybeReifyErasedArrayElement = (
@@ -400,16 +324,121 @@ const maybeReifyErasedArrayElement = (
     return [accessAst, receiverTypeContext];
   }
 
-  const plan = buildRuntimeMatchPlan(
+  const plan = tryBuildRuntimeReificationPlan(
     accessAst,
     normalizedDesiredType,
-    receiverTypeContext
+    receiverTypeContext,
+    emitTypeAst
   );
   if (!plan) {
     return [accessAst, receiverTypeContext];
   }
 
   return [plan.value, plan.context];
+};
+
+const maybeReifyStorageErasedMemberRead = (
+  accessAst: CSharpExpressionAst,
+  expr: Extract<IrExpression, { kind: "memberAccess" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] => {
+  if (!expectedType || expr.isComputed || typeof expr.property !== "string") {
+    return [accessAst, context];
+  }
+
+  const semanticType = resolveEffectiveExpressionType(expr, context);
+  const semanticMatchesExpected =
+    !!semanticType &&
+    (isAssignable(semanticType, expectedType) ||
+      stableIrTypeKey(resolveTypeAlias(stripNullish(semanticType), context)) ===
+        stableIrTypeKey(resolveTypeAlias(stripNullish(expectedType), context)));
+  if (!semanticMatchesExpected) {
+    return [accessAst, context];
+  }
+
+  const storageType =
+    normalizeRuntimeStorageType(
+      getPropertyType(resolveEffectiveExpressionType(expr.object, context), expr.property, context) ??
+        expr.inferredType,
+      context
+    ) ?? expr.inferredType;
+
+  if (
+    !storageType ||
+    matchesExpectedEmissionType(storageType, expectedType, context)
+  ) {
+    return [accessAst, context];
+  }
+
+  const plan = tryBuildRuntimeReificationPlan(
+    accessAst,
+    expectedType,
+    context,
+    emitTypeAst
+  );
+  if (plan) {
+    return [plan.value, plan.context];
+  }
+
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    expectedType,
+    context
+  );
+  if (
+    accessAst.kind === "castExpression" &&
+    stableTypeKeyFromAst(accessAst.type) ===
+      stableTypeKeyFromAst(expectedTypeAst)
+  ) {
+    return [accessAst, expectedTypeContext];
+  }
+  return [
+    {
+      kind: "castExpression",
+      type: expectedTypeAst,
+      expression: accessAst,
+    },
+    expectedTypeContext,
+  ];
+};
+
+const tryEmitStorageCompatibleNarrowedMemberRead = (
+  narrowed: Extract<NarrowedBinding, { kind: "expr" }>,
+  expr: Extract<IrExpression, { kind: "memberAccess" }>,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    !expectedType ||
+    !narrowed.storageExprAst ||
+    typeof expr.property !== "string"
+  ) {
+    return undefined;
+  }
+
+  const storageType =
+    normalizeRuntimeStorageType(
+      getPropertyType(
+        resolveEffectiveExpressionType(expr.object, context),
+        expr.property,
+        context
+      ) ?? expr.inferredType,
+      context
+    ) ?? expr.inferredType;
+
+  if (
+    !storageType ||
+    !matchesExpectedEmissionType(storageType, expectedType, context)
+  ) {
+    return undefined;
+  }
+
+  return maybeReifyStorageErasedMemberRead(
+    narrowed.storageExprAst,
+    expr,
+    context,
+    expectedType
+  );
 };
 
 const isStringReceiverType = (
@@ -426,6 +455,121 @@ const isStringReceiverType = (
         resolved.resolvedClrType === "System.String" ||
         resolved.resolvedClrType === "global::System.String"))
   );
+};
+
+const isLengthPropertyName = (propertyName: string): boolean =>
+  propertyName === "length" || propertyName === "Length" || propertyName === "Count";
+
+const tryEmitErasedLengthAccess = (
+  expr: Extract<IrExpression, { kind: "memberAccess" }>,
+  objectAst: CSharpExpressionAst,
+  objectType: IrType | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    expr.isComputed ||
+    expr.isOptional ||
+    typeof expr.property !== "string" ||
+    !isLengthPropertyName(expr.property)
+  ) {
+    return undefined;
+  }
+
+  const propertyType =
+    getPropertyType(objectType, expr.property, context) ??
+    expr.inferredType;
+  if (!propertyType) {
+    return undefined;
+  }
+
+  const [receiverTypeAst, receiverTypeContext] = resolveEmittedReceiverTypeAst(
+    expr.object,
+    context
+  );
+  const storageReceiverType =
+    expr.object.kind === "identifier"
+      ? context.localValueTypes?.get(expr.object.name)
+      : undefined;
+  const concreteReceiverTypeAst = receiverTypeAst
+    ? unwrapNullableTypeAst(receiverTypeAst)
+    : undefined;
+  const storageIsObject =
+    storageReceiverType !== undefined &&
+    isPlainObjectIrType(storageReceiverType, context);
+  if (
+    !storageIsObject &&
+    (!concreteReceiverTypeAst || !isObjectTypeAst(concreteReceiverTypeAst))
+  ) {
+    return undefined;
+  }
+
+  const [propertyTypeAst, propertyTypeContext] = emitTypeAst(
+    propertyType,
+    receiverTypeContext
+  );
+
+  const castLengthValue = (
+    value: CSharpExpressionAst
+  ): CSharpExpressionAst => ({
+    kind: "castExpression",
+    type: propertyTypeAst,
+    expression: value,
+  });
+
+  return [
+    {
+      kind: "switchExpression",
+      governingExpression: objectAst,
+      arms: [
+        {
+          pattern: {
+            kind: "declarationPattern",
+            type: identifierType("global::System.String"),
+            designation: "__tsonic_string",
+          },
+          expression: castLengthValue({
+            kind: "invocationExpression",
+            expression: identifierExpression(
+              "global::Tsonic.JSRuntime.String.length"
+            ),
+            arguments: [identifierExpression("__tsonic_string")],
+          }),
+        },
+        {
+          pattern: {
+            kind: "declarationPattern",
+            type: identifierType("global::System.Array"),
+            designation: "__tsonic_array",
+          },
+          expression: castLengthValue({
+            kind: "memberAccessExpression",
+            expression: identifierExpression("__tsonic_array"),
+            memberName: "Length",
+          }),
+        },
+        {
+          pattern: {
+            kind: "declarationPattern",
+            type: identifierType("global::System.Collections.ICollection"),
+            designation: "__tsonic_collection",
+          },
+          expression: castLengthValue({
+            kind: "memberAccessExpression",
+            expression: identifierExpression("__tsonic_collection"),
+            memberName: "Count",
+          }),
+        },
+        {
+          pattern: { kind: "discardPattern" },
+          expression: {
+            kind: "defaultExpression",
+            type: propertyTypeAst,
+          },
+        },
+      ],
+    },
+    propertyTypeContext,
+  ];
 };
 
 const lookupMemberKindFromLocalTypes = (
@@ -550,14 +694,8 @@ const resolveArrayLikeReceiver = (
     return resolved;
   }
 
-  if (
-    resolved.kind === "referenceType" &&
-    (resolved.name === "Array" || resolved.name === "ReadonlyArray") &&
-    resolved.typeArguments &&
-    resolved.typeArguments.length === 1
-  ) {
-    const elementType = resolved.typeArguments[0];
-    if (!elementType) return undefined;
+  const elementType = getArrayLikeElementType(receiverType, context);
+  if (elementType) {
     return {
       kind: "arrayType",
       elementType,
@@ -598,22 +736,27 @@ const tryResolveEmittedRuntimeUnionMemberTypeAst = (
   const memberN = tryExtractRuntimeUnionMemberN(exprAst);
   if (!memberN) return [undefined, context];
 
-  const [baseTypeAst, nextContext] = emitTypeAst(baseType, context);
-  const concreteBaseTypeAst = unwrapNullableTypeAst(baseTypeAst);
-  const baseTypeName = getIdentifierTypeName(concreteBaseTypeAst);
-  if (
-    concreteBaseTypeAst.kind !== "identifierType" &&
-    concreteBaseTypeAst.kind !== "qualifiedIdentifierType"
-  ) {
-    return [undefined, nextContext];
+  const runtimeFrame = buildRuntimeUnionFrame(baseType, context);
+  if (!runtimeFrame) {
+    return [undefined, context];
   }
 
-  if (!baseTypeName || !/^global::Tsonic\.Runtime\.Union$/.test(baseTypeName)) {
-    return [undefined, nextContext];
+  const memberIndex = memberN - 1;
+  if (memberIndex < 0 || memberIndex >= runtimeFrame.members.length) {
+    return [undefined, context];
   }
 
-  const typeArguments = concreteBaseTypeAst.typeArguments ?? [];
-  return [typeArguments[memberN - 1], nextContext];
+  const memberType = runtimeFrame.members[memberIndex];
+  if (!memberType) {
+    return [undefined, context];
+  }
+
+  const storageMemberType =
+    normalizeRuntimeStorageType(memberType, context) ?? memberType;
+  return emitTypeAst(
+    normalizeStructuralEmissionType(storageMemberType, context),
+    context
+  );
 };
 
 const resolveEffectiveReceiverType = (
@@ -698,6 +841,16 @@ const resolveEmittedReceiverTypeAst = (
     if (narrowKey) {
       const narrowed = context.narrowedBindings.get(narrowKey);
       if (narrowed?.kind === "expr") {
+        if (narrowed.type) {
+          const storageNarrowedType =
+            normalizeRuntimeStorageType(narrowed.type, context) ??
+            narrowed.type;
+          return emitTypeAst(
+            normalizeStructuralEmissionType(storageNarrowedType, context),
+            context
+          );
+        }
+
         const sourceType = narrowed.sourceType ?? baseType;
         const [memberTypeAst, memberContext] =
           tryResolveEmittedRuntimeUnionMemberTypeAst(
@@ -716,7 +869,32 @@ const resolveEmittedReceiverTypeAst = (
   if (!receiverType) {
     return [undefined, context];
   }
-  return emitTypeAst(normalizeStructuralEmissionType(receiverType, context), context);
+
+  const normalizedReceiverType =
+    normalizeRuntimeStorageType(receiverType, context) ?? receiverType;
+  const arrayLikeElementType = getArrayLikeElementType(
+    normalizedReceiverType,
+    context
+  );
+  if (arrayLikeElementType) {
+    const [elementTypeAst, elementContext] = emitTypeAst(
+      normalizeStructuralEmissionType(arrayLikeElementType, context),
+      context
+    );
+    return [
+      {
+        kind: "arrayType",
+        elementType: elementTypeAst,
+        rank: 1,
+      },
+      elementContext,
+    ];
+  }
+
+  return emitTypeAst(
+    normalizeStructuralEmissionType(normalizedReceiverType, context),
+    context
+  );
 };
 
 const emitMemberName = (
@@ -847,7 +1025,21 @@ export const emitMemberAccess = (
         ];
       }
       if (narrowed.kind === "expr") {
-        return [narrowed.exprAst, context];
+        const storageCompatible = tryEmitStorageCompatibleNarrowedMemberRead(
+          narrowed,
+          expr,
+          context,
+          expectedType
+        );
+        if (storageCompatible) {
+          return storageCompatible;
+        }
+        return maybeReifyStorageErasedMemberRead(
+          narrowed.exprAst,
+          expr,
+          context,
+          expectedType
+        );
       }
     }
   }
@@ -998,7 +1190,6 @@ export const emitMemberAccess = (
     }
   }
 
-  // Check if this is a hierarchical member binding
   if (expr.memberBinding) {
     const { type, member } = expr.memberBinding;
     const escapedMember = escapeCSharpIdentifier(member);
@@ -1026,7 +1217,8 @@ export const emitMemberAccess = (
         let wrapperTypeArguments: readonly CSharpTypeAst[] | undefined;
         if (genericArity === 1) {
           const [elementTypeAst, withElementType] =
-            emitArrayWrapperElementTypeAst(
+            emitStorageCompatibleArrayWrapperElementTypeAst(
+              expr.object,
               receiverType,
               arrayLikeReceiver.elementType,
               currentContext
@@ -1280,6 +1472,29 @@ export const emitMemberAccess = (
     ? resolveTypeAlias(stripNullish(objectType), context)
     : undefined;
 
+  if (
+    usage === "value" &&
+    (prop === "length" || prop === "Length" || prop === "Count")
+  ) {
+    const [storageReceiverTypeAst, storageContext] =
+      resolveEmittedReceiverTypeAst(expr.object, newContext);
+    const concreteStorageReceiverTypeAst = storageReceiverTypeAst
+      ? unwrapNullableTypeAst(storageReceiverTypeAst)
+      : undefined;
+    if (concreteStorageReceiverTypeAst?.kind === "arrayType") {
+      return [
+        {
+          kind: expr.isOptional
+            ? "conditionalMemberAccessExpression"
+            : "memberAccessExpression",
+          expression: objectAst,
+          memberName: "Length",
+        },
+        storageContext,
+      ];
+    }
+  }
+
   // Handle explicit interface view properties (As_IInterface)
   if (isExplicitViewProperty(prop)) {
     const interfaceName = extractInterfaceNameFromView(prop);
@@ -1446,6 +1661,16 @@ export const emitMemberAccess = (
     }
   }
 
+  const erasedLengthAccess = tryEmitErasedLengthAccess(
+    expr,
+    objectAst,
+    objectType,
+    newContext
+  );
+  if (erasedLengthAccess) {
+    return erasedLengthAccess;
+  }
+
   if (expr.isOptional) {
     return [
       {
@@ -1457,12 +1682,14 @@ export const emitMemberAccess = (
     ];
   }
 
-  return [
+  return maybeReifyStorageErasedMemberRead(
     {
       kind: "memberAccessExpression",
       expression: objectAst,
       memberName,
     },
+    expr,
     newContext,
-  ];
+    expectedType
+  );
 };

@@ -38,7 +38,6 @@ import {
 import type { ModuleIdentity } from "../../emitter-types/core.js";
 import {
   extractCalleeNameFromAst,
-  getIdentifierTypeName,
   getIdentifierTypeLeafName,
   stableTypeKeyFromAst,
 } from "../../core/format/backend-ast/utils.js";
@@ -51,15 +50,19 @@ import type {
 } from "../../core/format/backend-ast/types.js";
 import { resolveImportPath } from "../../core/semantic/index.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
-import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import {
   containsTypeParameter,
   getArrayLikeElementType,
   normalizeStructuralEmissionType,
   resolveTypeAlias,
+  splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
-import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
+import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
+import {
+  emitRuntimeCarrierTypeAst,
+  shouldEraseRecursiveRuntimeUnionArrayElement,
+} from "../../core/semantic/runtime-unions.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
 import {
   identifierExpression,
@@ -104,21 +107,143 @@ const preserveReceiverTypeAssertionAst = (
   ];
 };
 
+const buildCallTargetExpectedType = (
+  expr: Extract<IrExpression, { kind: "call" }>
+): IrType | undefined => {
+  const calleeType = expr.callee.inferredType;
+  if (calleeType?.kind === "functionType") {
+    return calleeType;
+  }
+
+  const parameterTypes = expr.surfaceParameterTypes ?? expr.parameterTypes;
+  const restParameter = expr.surfaceRestParameter ?? expr.restParameter;
+
+  if (!parameterTypes || !expr.inferredType) {
+    return undefined;
+  }
+
+  return {
+    kind: "functionType",
+    parameters: parameterTypes.map((parameterType, index) => ({
+      kind: "parameter",
+      pattern: {
+        kind: "identifierPattern",
+        name: `__tsonic_arg_${index}`,
+      },
+      type:
+        restParameter && restParameter.index === index
+          ? restParameter.arrayType ?? parameterType
+          : parameterType,
+      initializer: undefined,
+      isOptional: false,
+      isRest: restParameter?.index === index,
+      passing: expr.argumentPassing?.[index] ?? "value",
+    })),
+    returnType: expr.inferredType,
+  };
+};
+
+const OBJECT_REFERENCE_TYPE: IrType = {
+  kind: "referenceType",
+  name: "object",
+  resolvedClrType: "System.Object",
+};
+
+const normalizeRecursiveArrayExpectedType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const split = splitRuntimeNullishUnionMembers(type);
+  if (
+    type.kind === "unionType" &&
+    split?.hasRuntimeNullish &&
+    split.nonNullishMembers.length === 1
+  ) {
+    const [member] = split.nonNullishMembers;
+    const normalizedMember = normalizeRecursiveArrayExpectedType(
+      member,
+      context
+    );
+    if (!normalizedMember) {
+      return type;
+    }
+
+    return {
+      kind: "unionType",
+      types: [
+        ...type.types.filter(
+          (candidate: IrType) =>
+            candidate.kind === "primitiveType" &&
+            (candidate.name === "null" || candidate.name === "undefined")
+        ),
+        normalizedMember,
+      ],
+    };
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (
+    resolved.kind === "arrayType" &&
+    shouldEraseRecursiveRuntimeUnionArrayElement(
+      resolved.elementType,
+      context
+    )
+  ) {
+    return {
+      kind: "arrayType",
+      elementType: OBJECT_REFERENCE_TYPE,
+      origin: resolved.origin,
+    };
+  }
+
+  if (
+    resolved.kind === "referenceType" &&
+    (resolved.name === "Array" ||
+      resolved.name === "ReadonlyArray" ||
+      resolved.name === "JSArray") &&
+    resolved.typeArguments?.length === 1 &&
+    resolved.typeArguments[0] &&
+    shouldEraseRecursiveRuntimeUnionArrayElement(
+      resolved.typeArguments[0],
+      context
+    )
+  ) {
+    return {
+      kind: "arrayType",
+      elementType: OBJECT_REFERENCE_TYPE,
+      origin: "explicit",
+    };
+  }
+
+  return type;
+};
+
+const normalizeCallArgumentExpectedType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => normalizeRecursiveArrayExpectedType(type, context);
+
 const emitArrayWrapperElementTypeAst = (
   receiverType: IrType,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  const storageReceiverType =
-    normalizeRuntimeStorageType(receiverType, context) ?? receiverType;
-  const resolvedReceiverType = resolveTypeAlias(
-    stripNullish(storageReceiverType),
-    context
-  );
+  const resolvedReceiverType = resolveTypeAlias(stripNullish(receiverType), context);
   if (resolvedReceiverType.kind === "arrayType") {
-    const elementType = normalizeStructuralEmissionType(
-      resolvedReceiverType.elementType,
-      context
-    );
+    const elementType: IrType =
+      shouldEraseRecursiveRuntimeUnionArrayElement(
+        resolvedReceiverType.elementType,
+        context
+      )
+        ? {
+            kind: "referenceType",
+            name: "object",
+            resolvedClrType: "System.Object",
+          }
+        : normalizeStructuralEmissionType(resolvedReceiverType.elementType, context);
     return emitTypeAst(elementType, context);
   }
 
@@ -130,18 +255,26 @@ const emitArrayWrapperElementTypeAst = (
   ) {
     const elementType = resolvedReceiverType.typeArguments[0];
     if (elementType) {
-      const emittedElementType = normalizeStructuralEmissionType(
+      const syntheticArrayType: Extract<IrType, { kind: "arrayType" }> = {
+        kind: "arrayType",
         elementType,
+        origin: "explicit",
+      };
+      const emittedElementType = shouldEraseRecursiveRuntimeUnionArrayElement(
+        syntheticArrayType.elementType,
         context
-      );
+      )
+        ? {
+            kind: "referenceType" as const,
+            name: "object",
+            resolvedClrType: "System.Object",
+          }
+        : normalizeStructuralEmissionType(elementType, context);
       return emitTypeAst(emittedElementType, context);
     }
   }
 
-  const nativeElementType = resolveNativeArrayLikeElementType(
-    storageReceiverType,
-    context
-  );
+  const nativeElementType = resolveNativeArrayLikeElementType(receiverType, context);
   if (nativeElementType) {
     const emittedElementType = normalizeStructuralEmissionType(
       nativeElementType,
@@ -306,22 +439,7 @@ const resolveNativeArrayLikeElementType = (
   receiverType: IrType | undefined,
   context: EmitterContext
 ): IrType | undefined => {
-  if (!receiverType) return undefined;
-
-  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
-  if (resolved.kind === "arrayType") {
-    return resolved.elementType;
-  }
-
-  if (
-    resolved.kind === "referenceType" &&
-    (resolved.name === "Array" || resolved.name === "ReadonlyArray") &&
-    resolved.typeArguments?.length === 1
-  ) {
-    return resolved.typeArguments[0];
-  }
-
-  return undefined;
+  return getArrayLikeElementType(receiverType, context);
 };
 
 const shouldPreferNativeArrayWrapperInterop = (
@@ -372,6 +490,283 @@ const nativeArrayReturningInteropMembers = new Set([
   "toSpliced",
   "with",
 ]);
+
+type ReceiverMemberBinding = NonNullable<
+  Extract<IrExpression, { kind: "memberAccess" }>["memberBinding"]
+> & {
+  readonly parameterCount?: number;
+  readonly semanticSignature?: {
+    readonly parameters: readonly {
+      readonly isOptional?: boolean;
+      readonly initializer?: unknown;
+    }[];
+  };
+};
+
+type ReceiverBindingLookupMember = {
+  readonly kind: "method" | "property";
+  readonly alias?: string;
+  readonly name?: string;
+  readonly binding?: {
+    readonly assembly: string;
+    readonly type: string;
+    readonly member: string;
+  };
+  readonly parameterModifiers?: readonly {
+    readonly index: number;
+    readonly modifier: "ref" | "out" | "in";
+  }[];
+  readonly isExtensionMethod?: boolean;
+  readonly emitSemantics?: {
+    readonly callStyle: "receiver" | "static";
+  };
+  readonly semanticSignature?: {
+    readonly parameters: readonly {
+      readonly isOptional?: boolean;
+      readonly initializer?: unknown;
+    }[];
+  };
+  readonly parameterCount?: number;
+};
+
+const normalizeBindingLookupName = (name: string | undefined): string[] => {
+  if (!name) return [];
+  const values = new Set<string>();
+  const push = (value: string | undefined): void => {
+    if (!value) return;
+    values.add(value);
+    const strippedGlobal = value.replace(/^global::/, "");
+    values.add(strippedGlobal);
+    const leaf = strippedGlobal.split(".").pop();
+    if (leaf) values.add(leaf);
+  };
+
+  push(name);
+  return Array.from(values);
+};
+
+const buildReceiverBindingLookupKeys = (
+  receiverType: IrType | undefined,
+  context: EmitterContext
+): Set<string> => {
+  const keys = new Set<string>();
+  const pushAll = (values: readonly string[]): void => {
+    for (const value of values) {
+      keys.add(value);
+    }
+  };
+
+  if (!receiverType) return keys;
+
+  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
+  if (resolved.kind === "primitiveType") {
+    switch (resolved.name) {
+      case "string":
+        pushAll([
+          "string",
+          "String",
+          "System.String",
+          "Tsonic.JSRuntime.String",
+        ]);
+        return keys;
+      case "number":
+        pushAll([
+          "number",
+          "Number",
+          "System.Double",
+          "Tsonic.JSRuntime.Number",
+        ]);
+        return keys;
+      case "boolean":
+        pushAll([
+          "boolean",
+          "Boolean",
+          "System.Boolean",
+          "Tsonic.JSRuntime.Boolean",
+        ]);
+        return keys;
+    }
+  }
+
+  if (resolved.kind === "literalType") {
+    switch (typeof resolved.value) {
+      case "string":
+        pushAll([
+          "string",
+          "String",
+          "System.String",
+          "Tsonic.JSRuntime.String",
+        ]);
+        return keys;
+      case "number":
+        pushAll([
+          "number",
+          "Number",
+          "System.Double",
+          "Tsonic.JSRuntime.Number",
+        ]);
+        return keys;
+      case "boolean":
+        pushAll([
+          "boolean",
+          "Boolean",
+          "System.Boolean",
+          "Tsonic.JSRuntime.Boolean",
+        ]);
+        return keys;
+    }
+  }
+
+  if (resolved.kind === "arrayType" || resolved.kind === "tupleType") {
+    pushAll(["Array", "ReadonlyArray", "JSArray", "System.Array"]);
+    return keys;
+  }
+
+  if (resolved.kind === "referenceType") {
+    pushAll(normalizeBindingLookupName(resolved.name));
+    pushAll(normalizeBindingLookupName(resolved.resolvedClrType));
+    pushAll(normalizeBindingLookupName(resolved.typeId?.tsName));
+    pushAll(normalizeBindingLookupName(resolved.typeId?.clrName));
+
+    if (resolved.name === "Array" || resolved.name === "ReadonlyArray") {
+      pushAll(["JSArray", "System.Array"]);
+    }
+  }
+
+  return keys;
+};
+
+const bindingMemberMatchesName = (
+  binding: ReceiverBindingLookupMember,
+  memberName: string
+): boolean =>
+  binding.name === memberName ||
+  binding.alias === memberName ||
+  binding.binding?.member === memberName ||
+  binding.binding?.type?.endsWith(`.${memberName}`) === true;
+
+const bindingMatchesArgumentCount = (
+  binding: ReceiverBindingLookupMember,
+  argumentCount: number
+): boolean => {
+  const semanticParams = binding.semanticSignature?.parameters;
+  if (semanticParams && semanticParams.length > 0) {
+    const required = semanticParams.filter(
+      (parameter) => !parameter.isOptional && !parameter.initializer
+    ).length;
+    return argumentCount >= required && argumentCount <= semanticParams.length;
+  }
+
+  if (binding.parameterCount === undefined) {
+    return true;
+  }
+
+  const tsParameterCount =
+    binding.parameterCount - (binding.isExtensionMethod ? 1 : 0);
+  return argumentCount <= tsParameterCount;
+};
+
+const collapseResolvedReceiverBinding = (
+  overloads: readonly ReceiverBindingLookupMember[]
+): ReceiverMemberBinding | undefined => {
+  const first = overloads[0];
+  if (!first) return undefined;
+
+  const getTargetKey = (binding: ReceiverBindingLookupMember): string =>
+    `${binding.binding?.assembly}:${binding.binding?.type}::${binding.binding?.member}`;
+  const targetKey = getTargetKey(first);
+  if (overloads.some((binding) => getTargetKey(binding) !== targetKey)) {
+    return undefined;
+  }
+
+  const getModifiersKey = (binding: ReceiverBindingLookupMember): string => {
+    const modifiers = binding.parameterModifiers ?? [];
+    if (modifiers.length === 0) return "";
+    return [...modifiers]
+      .sort((left, right) => left.index - right.index)
+      .map((modifier) => `${modifier.index}:${modifier.modifier}`)
+      .join(",");
+  };
+
+  const modifiersKey = getModifiersKey(first);
+  const consistentModifiers = overloads.every(
+    (binding) => getModifiersKey(binding) === modifiersKey
+  );
+
+  return {
+    kind: first.kind,
+    assembly: first.binding?.assembly ?? "",
+    type: first.binding?.type ?? "",
+    member: first.binding?.member ?? first.name ?? first.alias ?? "",
+    parameterModifiers:
+      consistentModifiers &&
+      first.parameterModifiers &&
+      first.parameterModifiers.length > 0
+        ? first.parameterModifiers
+        : undefined,
+    isExtensionMethod: first.isExtensionMethod,
+    emitSemantics: first.emitSemantics,
+  };
+};
+
+const resolveRecoveredReceiverBinding = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): ReceiverMemberBinding | undefined => {
+  if (expr.callee.kind !== "memberAccess") return undefined;
+  if (expr.callee.memberBinding) return expr.callee.memberBinding;
+  if (expr.callee.isComputed) return undefined;
+  if (typeof expr.callee.property !== "string") return undefined;
+
+  const registry = context.bindingsRegistry;
+  if (!registry || registry.size === 0) return undefined;
+
+  const receiverType =
+    resolveEffectiveExpressionType(expr.callee.object, context) ??
+    expr.callee.object.inferredType;
+  const receiverKeys = buildReceiverBindingLookupKeys(receiverType, context);
+  if (receiverKeys.size === 0) return undefined;
+
+  const matches: ReceiverBindingLookupMember[] = [];
+  for (const binding of registry.values()) {
+    const bindingKeys = new Set<string>([
+      ...normalizeBindingLookupName(binding.alias),
+      ...normalizeBindingLookupName(binding.name),
+    ]);
+    const matchesReceiver = Array.from(bindingKeys).some((key) =>
+      receiverKeys.has(key)
+    );
+    if (!matchesReceiver) continue;
+
+    for (const member of binding.members) {
+      if (member.kind !== "method") continue;
+      if (!bindingMemberMatchesName(member, expr.callee.property)) continue;
+      if (!bindingMatchesArgumentCount(member, expr.arguments.length)) continue;
+      matches.push(member);
+    }
+  }
+
+  return collapseResolvedReceiverBinding(matches);
+};
+
+const isPrimitiveReceiverExtensionCall = (
+  receiverType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!receiverType) return false;
+  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
+  return (
+    resolved.kind === "primitiveType" ||
+    resolved.kind === "literalType" ||
+    (resolved.kind === "referenceType" &&
+      (resolved.resolvedClrType === "System.String" ||
+        resolved.resolvedClrType === "System.Double" ||
+        resolved.resolvedClrType === "System.Boolean" ||
+        resolved.name === "String" ||
+        resolved.name === "Double" ||
+        resolved.name === "Boolean"))
+  );
+};
 
 const createVarLocal = (
   name: string,
@@ -1148,7 +1543,10 @@ const emitFunctionValueCallArguments = (
       const [argAst, argCtx] = emitExpressionAst(
         arg,
         currentContext,
-        getAcceptedParameterType(parameter?.type, !!parameter?.isOptional)
+        normalizeCallArgumentExpectedType(
+          getAcceptedParameterType(parameter?.type, !!parameter?.isOptional),
+          currentContext
+        )
       );
       const modifier =
         expr.argumentPassing?.[i] &&
@@ -1202,6 +1600,7 @@ const isArrayLikeIrType = (type: IrType | undefined): boolean => {
   return (
     simpleName === "Array" ||
     simpleName === "ReadonlyArray" ||
+    simpleName === "ArrayLike" ||
     simpleName === "JSArray" ||
     simpleName === "Iterable" ||
     simpleName === "IterableIterator" ||
@@ -1636,15 +2035,6 @@ const isValueTaskLikeIrType = (type: IrType | undefined): boolean => {
   );
 };
 
-const isRuntimeUnionTypeAst = (typeAst: CSharpTypeAst): boolean => {
-  const name = getIdentifierTypeName(typeAst);
-  return (
-    name === "global::Tsonic.Runtime.Union" ||
-    name === "Tsonic.Runtime.Union" ||
-    name === "Union"
-  );
-};
-
 const emitPromiseNormalizedTaskAst = (
   valueAst: CSharpExpressionAst,
   valueType: IrType | undefined,
@@ -1671,27 +2061,34 @@ const emitPromiseNormalizedTaskAst = (
     return [valueAst, currentContext];
   }
 
-  if (valueType?.kind === "unionType") {
-    const [emittedUnionTypeAst, emittedUnionTypeContext] = emitTypeAst(
-      valueType,
-      currentContext
-    );
+  if (valueType) {
+    const [, runtimeLayout, emittedUnionTypeContext] =
+      emitRuntimeCarrierTypeAst(valueType, currentContext, emitTypeAst);
     currentContext = emittedUnionTypeContext;
-    const concreteUnionTypeAst =
-      emittedUnionTypeAst.kind === "nullableType"
-        ? emittedUnionTypeAst.underlyingType
-        : emittedUnionTypeAst;
-    const [runtimeLayout, runtimeLayoutContext] = isRuntimeUnionTypeAst(
-      concreteUnionTypeAst
-    )
-      ? buildRuntimeUnionLayout(valueType, currentContext, emitTypeAst)
-      : [undefined, currentContext];
-    currentContext = runtimeLayoutContext;
+    if (!runtimeLayout) {
+      if (!resultTypeAst) {
+        return [buildCompletedTaskAst(), currentContext];
+      }
 
-    const members = runtimeLayout?.members ?? valueType.types;
-    const memberTypeAsts: CSharpTypeAst[] = runtimeLayout
-      ? [...runtimeLayout.memberTypeAsts]
-      : [];
+      return [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: identifierExpression(
+              "global::System.Threading.Tasks.Task"
+            ),
+            memberName: "FromResult",
+          },
+          typeArguments: [resultTypeAst],
+          arguments: [valueAst],
+        },
+        currentContext,
+      ];
+    }
+
+    const members = runtimeLayout.members;
+    const memberTypeAsts: CSharpTypeAst[] = [...runtimeLayout.memberTypeAsts];
     const arms: CSharpExpressionAst[] = [];
     for (let index = 0; index < members.length; index++) {
       const memberType = members[index];
@@ -2659,12 +3056,15 @@ const emitCallArguments = (
   const parameterTypes =
     parameterTypeOverrides && parameterTypeOverrides.length > 0
       ? parameterTypeOverrides
-      : expr.parameterTypes && expr.parameterTypes.length > 0
-        ? expr.parameterTypes
+      : expr.surfaceParameterTypes && expr.surfaceParameterTypes.length > 0
+        ? expr.surfaceParameterTypes
+        : expr.parameterTypes && expr.parameterTypes.length > 0
+          ? expr.parameterTypes
         : ((
             functionValueSignature?.parameters ??
             valueSymbolSignature?.parameters
           )?.map((parameter) => parameter?.type) ?? []);
+  const restParameter = expr.surfaceRestParameter ?? expr.restParameter;
   const normalizedArgs = expandTupleLikeSpreadArguments(args);
   const restInfo:
     | {
@@ -2673,15 +3073,15 @@ const emitCallArguments = (
         readonly elementType: IrType;
       }
     | undefined =
-    expr.restParameter?.arrayType &&
-    expr.restParameter.elementType &&
+    restParameter?.arrayType &&
+    restParameter.elementType &&
     normalizedArgs
-      .slice(expr.restParameter.index)
+      .slice(restParameter.index)
       .some((candidate) => candidate?.kind === "spread")
       ? {
-          index: expr.restParameter.index,
-          arrayType: expr.restParameter.arrayType,
-          elementType: expr.restParameter.elementType,
+          index: restParameter.index,
+          arrayType: restParameter.arrayType,
+          elementType: restParameter.elementType,
         }
       : undefined;
   let currentContext = context;
@@ -2711,7 +3111,46 @@ const emitCallArguments = (
     const expectedType =
       restInfo && i >= restInfo.index
         ? restInfo.elementType
-        : parameterTypes[i];
+        : normalizeCallArgumentExpectedType(parameterTypes[i], currentContext);
+
+    const runtimeParameterType =
+      parameterTypeOverrides && parameterTypeOverrides.length > 0
+        ? parameterTypeOverrides[i]
+        : expr.parameterTypes?.[i];
+    const effectiveExpectedType =
+      (() => {
+        const normalizedRuntime = normalizeCallArgumentExpectedType(
+          runtimeParameterType,
+          currentContext
+        );
+        if (!normalizedRuntime) {
+          return expectedType;
+        }
+
+        const actualArgumentType =
+          resolveEffectiveExpressionType(arg, currentContext) ?? arg.inferredType;
+
+        if (
+          actualArgumentType &&
+          matchesExpectedEmissionType(
+            actualArgumentType,
+            normalizedRuntime,
+            currentContext
+          )
+        ) {
+          return normalizedRuntime;
+        }
+
+        if (
+          normalizedRuntime.kind === "unknownType" ||
+          normalizedRuntime.kind === "anyType" ||
+          (normalizedRuntime.kind === "referenceType" &&
+            normalizedRuntime.name === "object")
+        ) {
+          return normalizedRuntime;
+        }
+        return expectedType ?? normalizedRuntime;
+      })();
 
     if (arg.kind === "spread") {
       const [spreadAst, ctx] = emitExpressionAst(
@@ -2730,7 +3169,7 @@ const emitCallArguments = (
         const [argAst, ctx] = emitExpressionAst(
           arg,
           currentContext,
-          expectedType
+          effectiveExpectedType
         );
         const passingMode = expr.argumentPassing?.[i];
         const modifier =
@@ -2770,7 +3209,7 @@ const getRuntimeObjectHelperParameterOverrides = (
     { length: argCount },
     () => undefined
   );
-  overrides[0] = { kind: "unknownType" } as IrType;
+  overrides[0] = OBJECT_REFERENCE_TYPE;
   return overrides;
 };
 
@@ -2970,6 +3409,11 @@ export const emitCall = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const recoveredReceiverBinding = resolveRecoveredReceiverBinding(
+    expr,
+    context
+  );
+
   const dynamicImport = emitDynamicImportCall(expr, context);
   if (dynamicImport) return dynamicImport;
 
@@ -3067,18 +3511,24 @@ export const emitCall = (
   // Extension method lowering: emit explicit static invocation with receiver as first arg.
   if (
     expr.callee.kind === "memberAccess" &&
-    expr.callee.memberBinding?.isExtensionMethod &&
+    (expr.callee.memberBinding ?? recoveredReceiverBinding)?.isExtensionMethod &&
     isInstanceMemberAccess(expr.callee, context) &&
     !shouldPreferNativeArrayWrapperInterop(
-      expr.callee.memberBinding,
+      expr.callee.memberBinding ?? recoveredReceiverBinding,
       expr.callee.object.inferredType,
       context
     )
   ) {
     let currentContext = context;
 
-    const binding = expr.callee.memberBinding;
+    const binding = expr.callee.memberBinding ?? recoveredReceiverBinding;
+    if (!binding) {
+      throw new Error("ICE: expected recovered extension binding");
+    }
     const receiverExpr = expr.callee.object;
+    const receiverType =
+      resolveEffectiveExpressionType(receiverExpr, currentContext) ??
+      receiverExpr.inferredType;
 
     const [rawReceiverAst, receiverContext] = emitExpressionAst(
       receiverExpr,
@@ -3093,7 +3543,10 @@ export const emitCall = (
     currentContext = preservedReceiverContext;
 
     // Fluent extension method path
-    if (shouldEmitFluentExtensionCall(binding)) {
+    if (
+      shouldEmitFluentExtensionCall(binding) &&
+      !isPrimitiveReceiverExtensionCall(receiverType, currentContext)
+    ) {
       const ns = getTypeNamespace(binding.type);
       if (ns) {
         currentContext.usings.add(ns);
@@ -3228,10 +3681,21 @@ export const emitCall = (
   }
 
   // Regular function call
+  const calleeExprForEmission =
+    expr.callee.kind === "memberAccess" && recoveredReceiverBinding
+      ? {
+          ...expr.callee,
+          memberBinding: recoveredReceiverBinding,
+        }
+      : expr.callee;
+  const calleeExpectedType =
+    calleeExprForEmission.kind === "memberAccess"
+      ? undefined
+      : buildCallTargetExpectedType(expr);
   const [calleeAst, newContext] =
-    expr.callee.kind === "memberAccess"
-      ? emitMemberAccess(expr.callee, context, "call")
-      : emitExpressionAst(expr.callee, context);
+    calleeExprForEmission.kind === "memberAccess"
+      ? emitMemberAccess(calleeExprForEmission, context, "call")
+      : emitExpressionAst(calleeExprForEmission, context, calleeExpectedType);
   let currentContext = newContext;
 
   let calleeExpr: CSharpExpressionAst = calleeAst;

@@ -161,6 +161,242 @@ const collectTypeParameterNames = (
   }
 };
 
+const collectReferencedTypeNames = (
+  type: IrType | undefined,
+  out: Set<string>,
+  seen: WeakSet<object> = new WeakSet<object>()
+): void => {
+  if (!type || typeof type !== "object") {
+    return;
+  }
+  if (seen.has(type)) {
+    return;
+  }
+  seen.add(type);
+
+  switch (type.kind) {
+    case "referenceType":
+      out.add(type.name);
+      for (const arg of type.typeArguments ?? []) {
+        if (arg) {
+          collectReferencedTypeNames(arg, out, seen);
+        }
+      }
+      return;
+    case "arrayType":
+      collectReferencedTypeNames(type.elementType, out, seen);
+      return;
+    case "tupleType":
+      for (const element of type.elementTypes) {
+        if (element) {
+          collectReferencedTypeNames(element, out, seen);
+        }
+      }
+      return;
+    case "unionType":
+    case "intersectionType":
+      for (const member of type.types) {
+        collectReferencedTypeNames(member, out, seen);
+      }
+      return;
+    case "dictionaryType":
+      collectReferencedTypeNames(type.keyType, out, seen);
+      collectReferencedTypeNames(type.valueType, out, seen);
+      return;
+    case "functionType":
+      for (const parameter of type.parameters) {
+        if (parameter.type) {
+          collectReferencedTypeNames(parameter.type, out, seen);
+        }
+      }
+      collectReferencedTypeNames(type.returnType, out, seen);
+      return;
+    case "objectType":
+      for (const member of type.members) {
+        if (member.kind === "propertySignature") {
+          collectReferencedTypeNames(member.type, out, seen);
+          continue;
+        }
+        for (const parameter of member.parameters) {
+          if (parameter.type) {
+            collectReferencedTypeNames(parameter.type, out, seen);
+          }
+        }
+        if (member.returnType) {
+          collectReferencedTypeNames(member.returnType, out, seen);
+        }
+      }
+      return;
+    default:
+      return;
+  }
+};
+
+const collectPubliclyReachableAnonymousTypes = (
+  modules: readonly IrModule[],
+  generatedDeclarations: readonly IrClassDeclaration[]
+): ReadonlySet<string> => {
+  const declarationMap = new Map<string, IrStatement>();
+  for (const module of modules) {
+    for (const statement of module.body) {
+      if (
+        statement.kind === "classDeclaration" ||
+        statement.kind === "interfaceDeclaration" ||
+        statement.kind === "typeAliasDeclaration" ||
+        statement.kind === "enumDeclaration" ||
+        statement.kind === "functionDeclaration"
+      ) {
+        declarationMap.set(statement.name, statement);
+      }
+    }
+  }
+  for (const declaration of generatedDeclarations) {
+    declarationMap.set(declaration.name, declaration);
+  }
+
+  const queue: string[] = [];
+  const reachable = new Set<string>();
+  const enqueueType = (type: IrType | undefined): void => {
+    const names = new Set<string>();
+    collectReferencedTypeNames(type, names);
+    for (const name of names) {
+      if (reachable.has(name)) {
+        continue;
+      }
+      reachable.add(name);
+      queue.push(name);
+    }
+  };
+
+  const enqueueClassMember = (member: IrClassMember): void => {
+    if (member.kind === "propertyDeclaration") {
+      if (member.accessibility === "private") return;
+      enqueueType(member.type);
+      return;
+    }
+    if (member.kind === "methodDeclaration") {
+      if (member.accessibility === "private") return;
+      enqueueType(member.returnType);
+      for (const parameter of member.parameters) {
+        enqueueType(parameter.type);
+      }
+      return;
+    }
+    if (member.accessibility === "private") return;
+    for (const parameter of member.parameters) {
+      enqueueType(parameter.type);
+    }
+  };
+
+  for (const module of modules) {
+    for (const statement of module.body) {
+      if (statement.kind === "classDeclaration") {
+        if (!statement.isExported) continue;
+        enqueueType(statement.superClass);
+        for (const implemented of statement.implements) {
+          enqueueType(implemented);
+        }
+        for (const member of statement.members) {
+          enqueueClassMember(member);
+        }
+        continue;
+      }
+
+      if (statement.kind === "interfaceDeclaration") {
+        if (!statement.isExported) continue;
+        for (const extended of statement.extends) {
+          enqueueType(extended);
+        }
+        for (const member of statement.members) {
+          if (member.kind === "propertySignature") {
+            enqueueType(member.type);
+            continue;
+          }
+          enqueueType(member.returnType);
+          for (const parameter of member.parameters) {
+            enqueueType(parameter.type);
+          }
+        }
+        continue;
+      }
+
+      if (statement.kind === "typeAliasDeclaration") {
+        if (statement.isExported) {
+          enqueueType(statement.type);
+        }
+        continue;
+      }
+
+      if (statement.kind === "functionDeclaration") {
+        if (!statement.isExported) continue;
+        enqueueType(statement.returnType);
+        for (const parameter of statement.parameters) {
+          enqueueType(parameter.type);
+        }
+        continue;
+      }
+
+      if (statement.kind === "variableDeclaration") {
+        if (!statement.isExported) continue;
+        for (const declaration of statement.declarations) {
+          enqueueType(declaration.type);
+        }
+      }
+    }
+  }
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) continue;
+    const declaration = declarationMap.get(current);
+    if (!declaration) continue;
+
+    if (declaration.kind === "classDeclaration") {
+      enqueueType(declaration.superClass);
+      for (const implemented of declaration.implements) {
+        enqueueType(implemented);
+      }
+      for (const member of declaration.members) {
+        enqueueClassMember(member);
+      }
+      continue;
+    }
+
+    if (declaration.kind === "interfaceDeclaration") {
+      for (const extended of declaration.extends) {
+        enqueueType(extended);
+      }
+      for (const member of declaration.members) {
+        if (member.kind === "propertySignature") {
+          enqueueType(member.type);
+          continue;
+        }
+        enqueueType(member.returnType);
+        for (const parameter of member.parameters) {
+          enqueueType(parameter.type);
+        }
+      }
+      continue;
+    }
+
+    if (declaration.kind === "typeAliasDeclaration") {
+      enqueueType(declaration.type);
+      continue;
+    }
+
+    if (declaration.kind === "functionDeclaration") {
+      enqueueType(declaration.returnType);
+      for (const parameter of declaration.parameters) {
+        enqueueType(parameter.type);
+      }
+    }
+  }
+
+  return new Set(
+    [...reachable].filter((name) => generatedDeclarations.some((d) => d.name === name))
+  );
+};
+
 type SerializeState = {
   readonly seen: WeakMap<object, number>;
   nextId: number;
@@ -1520,6 +1756,20 @@ const lowerExpression = (
           parameterTypes: expr.parameterTypes?.map((pt) =>
             pt ? lowerType(pt, ctx) : undefined
           ),
+          surfaceParameterTypes: expr.surfaceParameterTypes?.map((pt) =>
+            pt ? lowerType(pt, ctx) : undefined
+          ),
+          surfaceRestParameter: expr.surfaceRestParameter
+            ? {
+                ...expr.surfaceRestParameter,
+                arrayType: expr.surfaceRestParameter.arrayType
+                  ? lowerType(expr.surfaceRestParameter.arrayType, ctx)
+                  : undefined,
+                elementType: expr.surfaceRestParameter.elementType
+                  ? lowerType(expr.surfaceRestParameter.elementType, ctx)
+                  : undefined,
+              }
+            : undefined,
           narrowing: expr.narrowing
             ? {
                 ...expr.narrowing,
@@ -1537,6 +1787,20 @@ const lowerExpression = (
           parameterTypes: expr.parameterTypes?.map((pt) =>
             pt ? lowerType(pt, ctx) : undefined
           ),
+          surfaceParameterTypes: expr.surfaceParameterTypes?.map((pt) =>
+            pt ? lowerType(pt, ctx) : undefined
+          ),
+          surfaceRestParameter: expr.surfaceRestParameter
+            ? {
+                ...expr.surfaceRestParameter,
+                arrayType: expr.surfaceRestParameter.arrayType
+                  ? lowerType(expr.surfaceRestParameter.arrayType, ctx)
+                  : undefined,
+                elementType: expr.surfaceRestParameter.elementType
+                  ? lowerType(expr.surfaceRestParameter.elementType, ctx)
+                  : undefined,
+              }
+            : undefined,
         };
 
       case "update":
@@ -2368,6 +2632,10 @@ export const runAnonymousTypeLoweringPass = (
   // If any anonymous classes were generated, emit them once in a shared module
   // in the common root namespace so they are visible to all nested namespaces.
   if (shared.generatedDeclarations.length > 0) {
+    const publicAnonymousTypes = collectPubliclyReachableAnonymousTypes(
+      loweredModules,
+      shared.generatedDeclarations
+    );
     const commonNamespace =
       findCommonNamespacePrefix(modules.map((m) => m.namespace)) ||
       (modules[0]?.namespace ?? "");
@@ -2381,7 +2649,10 @@ export const runAnonymousTypeLoweringPass = (
       className: "__tsonic_anonymous_types",
       isStaticContainer: true,
       imports: [],
-      body: shared.generatedDeclarations,
+      body: shared.generatedDeclarations.map((declaration) => ({
+        ...declaration,
+        isExported: publicAnonymousTypes.has(declaration.name),
+      })),
       exports: [],
     };
 

@@ -306,9 +306,35 @@ export const matchesTypeofTag = (
         return typeof resolved.value === "number";
       case "boolean":
         return typeof resolved.value === "boolean";
+      case "object":
+        return resolved.value === null;
       default:
         return false;
     }
+  }
+
+  if (resolved.kind === "functionType") {
+    return tag === "function";
+  }
+
+  if (resolved.kind === "arrayType" || resolved.kind === "tupleType") {
+    return tag === "object";
+  }
+
+  if (resolved.kind === "objectType" || resolved.kind === "dictionaryType") {
+    return tag === "object";
+  }
+
+  if (resolved.kind === "referenceType") {
+    if (tag === "function") {
+      return false;
+    }
+
+    if (tag === "object") {
+      return resolved.name !== "Function";
+    }
+
+    return false;
   }
 
   if (resolved.kind !== "primitiveType") {
@@ -324,6 +350,8 @@ export const matchesTypeofTag = (
       return resolved.name === "boolean";
     case "undefined":
       return resolved.name === "undefined";
+    case "object":
+      return resolved.name === "null";
     default:
       return false;
   }
@@ -339,6 +367,8 @@ const genericTypeofTarget = (tag: string): IrType | undefined => {
       return { kind: "primitiveType", name: "boolean" };
     case "undefined":
       return { kind: "primitiveType", name: "undefined" };
+    case "object":
+      return { kind: "referenceType", name: "object" };
     default:
       return undefined;
   }
@@ -1171,9 +1201,8 @@ export const normalizeStructuralEmissionType = (
         }
         case "arrayType": {
           const elementType = normalize(current.elementType);
-          const tuplePrefixElementTypes = current.tuplePrefixElementTypes?.map(
-            normalize
-          );
+          const tuplePrefixElementTypes =
+            current.tuplePrefixElementTypes?.map(normalize);
           const tupleRestElementType = current.tupleRestElementType
             ? normalize(current.tupleRestElementType)
             : undefined;
@@ -1189,12 +1218,8 @@ export const normalizeStructuralEmissionType = (
             ? {
                 ...current,
                 elementType,
-                ...(tuplePrefixElementTypes
-                  ? { tuplePrefixElementTypes }
-                  : {}),
-                ...(tupleRestElementType
-                  ? { tupleRestElementType }
-                  : {}),
+                ...(tuplePrefixElementTypes ? { tuplePrefixElementTypes } : {}),
+                ...(tupleRestElementType ? { tupleRestElementType } : {}),
               }
             : current;
         }
@@ -1218,7 +1243,9 @@ export const normalizeStructuralEmissionType = (
           const returnType = normalize(current.returnType);
           const hasChanged =
             returnType !== current.returnType ||
-            parameters.some((parameter, index) => parameter !== current.parameters[index]);
+            parameters.some(
+              (parameter, index) => parameter !== current.parameters[index]
+            );
           return hasChanged
             ? {
                 ...current,
@@ -1251,22 +1278,23 @@ export const normalizeStructuralEmissionType = (
                 const returnType = member.returnType
                   ? normalize(member.returnType)
                   : undefined;
-                const typeParameters = member.typeParameters?.map((typeParameter) =>
-                  typeParameter.constraint || typeParameter.default
-                    ? {
-                        ...typeParameter,
-                        ...(typeParameter.constraint
-                          ? {
-                              constraint: normalize(typeParameter.constraint),
-                            }
-                          : {}),
-                        ...(typeParameter.default
-                          ? {
-                              default: normalize(typeParameter.default),
-                            }
-                          : {}),
-                      }
-                    : typeParameter
+                const typeParameters = member.typeParameters?.map(
+                  (typeParameter) =>
+                    typeParameter.constraint || typeParameter.default
+                      ? {
+                          ...typeParameter,
+                          ...(typeParameter.constraint
+                            ? {
+                                constraint: normalize(typeParameter.constraint),
+                              }
+                            : {}),
+                          ...(typeParameter.default
+                            ? {
+                                default: normalize(typeParameter.default),
+                              }
+                            : {}),
+                        }
+                      : typeParameter
                 );
                 const hasChanged =
                   parameters.some(
@@ -1289,7 +1317,9 @@ export const normalizeStructuralEmissionType = (
               }
             }
           });
-          return members.some((member, index) => member !== current.members[index])
+          return members.some(
+            (member, index) => member !== current.members[index]
+          )
             ? { ...current, members }
             : current;
         }
@@ -1397,17 +1427,18 @@ const collectInterfaceProps = (
  * 3) Fewer total properties
  * 4) Lexicographic by type name (stable tie-break)
  */
-export const selectUnionMemberForObjectLiteral = (
+export const selectObjectLiteralUnionMember = (
   unionType: Extract<IrType, { kind: "unionType" }>,
   literalKeys: readonly string[],
   context: EmitterContext
-): Extract<IrType, { kind: "referenceType" }> | undefined => {
+): IrType | undefined => {
   // Normalize keys (defensive: dedupe)
   const keySet = new Set(literalKeys.filter((k) => k.length > 0));
   const keys = [...keySet];
 
   type Candidate = {
-    ref: Extract<IrType, { kind: "referenceType" }>;
+    type: IrType;
+    kind: "dictionary" | "object";
     allProps: Set<string>;
     requiredProps: Set<string>;
   };
@@ -1415,12 +1446,53 @@ export const selectUnionMemberForObjectLiteral = (
   const candidates: Candidate[] = [];
 
   for (const member of unionType.types) {
-    if (member.kind !== "referenceType") continue;
+    const resolved = resolveTypeAlias(stripNullish(member), context);
 
-    // If a union member is itself an alias, chase once (rare, but safe)
-    const resolved = resolveTypeAlias(member, context);
+    if (resolved.kind === "dictionaryType") {
+      if (
+        resolved.keyType.kind === "primitiveType" &&
+        resolved.keyType.name === "string"
+      ) {
+        candidates.push({
+          type: member,
+          kind: "dictionary",
+          allProps: new Set<string>(),
+          requiredProps: new Set<string>(),
+        });
+      }
+      continue;
+    }
+
+    if (resolved.kind === "objectType") {
+      const props = resolved.members.filter(
+        (
+          candidate
+        ): candidate is Extract<
+          (typeof resolved.members)[number],
+          { kind: "propertySignature" }
+        > => candidate.kind === "propertySignature"
+      );
+      const allProps = new Set(props.map((p) => p.name));
+      const requiredProps = new Set(
+        props.filter((p) => !p.isOptional).map((p) => p.name)
+      );
+      candidates.push({
+        type: member,
+        kind: "object",
+        allProps,
+        requiredProps,
+      });
+      continue;
+    }
+
+    if (member.kind !== "referenceType" && resolved.kind !== "referenceType") {
+      continue;
+    }
+
     const ref =
-      resolved.kind === "referenceType" ? resolved : (member as typeof member);
+      resolved.kind === "referenceType"
+        ? resolved
+        : (member as Extract<IrType, { kind: "referenceType" }>);
 
     const infoResult = resolveLocalTypeInfo(ref, context);
     const info = infoResult?.info;
@@ -1436,7 +1508,12 @@ export const selectUnionMemberForObjectLiteral = (
         props.filter((p) => !p.isOptional).map((p) => p.name)
       );
 
-      candidates.push({ ref, allProps, requiredProps });
+      candidates.push({
+        type: member,
+        kind: "object",
+        allProps,
+        requiredProps,
+      });
       continue;
     }
 
@@ -1452,13 +1529,22 @@ export const selectUnionMemberForObjectLiteral = (
         props.filter((p) => p.isRequired).map((p) => p.name)
       );
 
-      candidates.push({ ref, allProps, requiredProps });
+      candidates.push({
+        type: member,
+        kind: "object",
+        allProps,
+        requiredProps,
+      });
       continue;
     }
   }
 
   // Filter by match rules
   const matches = candidates.filter((c) => {
+    if (c.kind === "dictionary") {
+      return true;
+    }
+
     // literal keys must exist on candidate
     for (const k of keys) {
       if (!c.allProps.has(k)) return false;
@@ -1472,10 +1558,18 @@ export const selectUnionMemberForObjectLiteral = (
 
   if (matches.length === 0) return undefined;
   const firstMatch = matches[0];
-  if (matches.length === 1 && firstMatch) return firstMatch.ref;
+  if (matches.length === 1 && firstMatch) return firstMatch.type;
 
   // Pick best by score
   matches.sort((a, b) => {
+    if (a.kind !== b.kind) {
+      return a.kind === "dictionary" ? 1 : -1;
+    }
+
+    if (a.kind === "dictionary" && b.kind === "dictionary") {
+      return stableIrTypeKey(a.type).localeCompare(stableIrTypeKey(b.type));
+    }
+
     const aTotal = a.allProps.size;
     const bTotal = b.allProps.size;
 
@@ -1490,11 +1584,24 @@ export const selectUnionMemberForObjectLiteral = (
 
     if (aTotal !== bTotal) return aTotal - bTotal; // fewer total props is better
 
-    return a.ref.name.localeCompare(b.ref.name); // stable tie-break
+    return stableIrTypeKey(a.type).localeCompare(stableIrTypeKey(b.type)); // stable tie-break
   });
 
   const best = matches[0];
-  return best ? best.ref : undefined;
+  return best?.type;
+};
+
+export const selectUnionMemberForObjectLiteral = (
+  unionType: Extract<IrType, { kind: "unionType" }>,
+  literalKeys: readonly string[],
+  context: EmitterContext
+): Extract<IrType, { kind: "referenceType" }> | undefined => {
+  const selected = selectObjectLiteralUnionMember(
+    unionType,
+    literalKeys,
+    context
+  );
+  return selected?.kind === "referenceType" ? selected : undefined;
 };
 
 /**
@@ -1678,6 +1785,31 @@ const CLR_VALUE_TYPES = new Set([
   "System.Decimal",
 ]);
 
+const TS_VALUE_TYPE_REFERENCE_NAMES = new Set([
+  "bool",
+  "boolean",
+  "byte",
+  "sbyte",
+  "short",
+  "ushort",
+  "int",
+  "uint",
+  "long",
+  "ulong",
+  "nint",
+  "nuint",
+  "char",
+  "float",
+  "double",
+  "decimal",
+  "Half",
+  "System.Half",
+  "Int128",
+  "System.Int128",
+  "UInt128",
+  "System.UInt128",
+]);
+
 /**
  * Check if a type is definitely a C# value type.
  *
@@ -1702,6 +1834,9 @@ export const isDefinitelyValueType = (type: IrType): boolean => {
 
   // Known CLR struct types
   if (base.kind === "referenceType") {
+    if (TS_VALUE_TYPE_REFERENCE_NAMES.has(base.name)) {
+      return true;
+    }
     const clr = base.resolvedClrType;
     if (clr && CLR_VALUE_TYPES.has(clr)) {
       return true;
@@ -1738,6 +1873,7 @@ export const getArrayLikeElementType = (
     resolved.kind === "referenceType" &&
     (resolved.name === "Array" ||
       resolved.name === "ReadonlyArray" ||
+      resolved.name === "ArrayLike" ||
       resolved.name === "JSArray") &&
     resolved.typeArguments?.length === 1
   ) {
@@ -1844,13 +1980,34 @@ export const findUnionMemberIndex = (
   const resolvedTarget = resolveTypeAlias(stripNullish(target), context);
   const matchesPredicateTarget = (
     member: IrType,
-    candidate: IrType
+    candidate: IrType,
+    visited: Set<string> = new Set<string>()
   ): boolean => {
     const resolvedMember = resolveTypeAlias(stripNullish(member), context);
     const resolvedCandidate = resolveTypeAlias(
       stripNullish(candidate),
       context
     );
+    const visitedKey = `${stableIrTypeKey(resolvedMember)}=>${stableIrTypeKey(
+      resolvedCandidate
+    )}`;
+    if (visited.has(visitedKey)) {
+      return true;
+    }
+    const nextVisited = new Set(visited);
+    nextVisited.add(visitedKey);
+
+    if (resolvedCandidate.kind === "unionType") {
+      return resolvedCandidate.types.some((candidateMember) =>
+        matchesPredicateTarget(resolvedMember, candidateMember, nextVisited)
+      );
+    }
+
+    if (resolvedMember.kind === "unionType") {
+      return resolvedMember.types.some((memberType) =>
+        matchesPredicateTarget(memberType, resolvedCandidate, nextVisited)
+      );
+    }
 
     if (
       resolvedMember.kind === "anyType" ||
@@ -1889,9 +2046,38 @@ export const findUnionMemberIndex = (
       resolvedMember.kind === "arrayType" &&
       resolvedCandidate.kind === "arrayType"
     ) {
+      if (
+        resolvedMember.elementType.kind === "unknownType" ||
+        resolvedCandidate.elementType.kind === "unknownType"
+      ) {
+        return true;
+      }
       return matchesPredicateTarget(
         resolvedMember.elementType,
-        resolvedCandidate.elementType
+        resolvedCandidate.elementType,
+        nextVisited
+      );
+    }
+
+    const memberArrayLikeElement = getArrayLikeElementType(
+      resolvedMember,
+      context
+    );
+    const candidateArrayLikeElement = getArrayLikeElementType(
+      resolvedCandidate,
+      context
+    );
+    if (memberArrayLikeElement && candidateArrayLikeElement) {
+      if (
+        memberArrayLikeElement.kind === "unknownType" ||
+        candidateArrayLikeElement.kind === "unknownType"
+      ) {
+        return true;
+      }
+      return matchesPredicateTarget(
+        memberArrayLikeElement,
+        candidateArrayLikeElement,
+        nextVisited
       );
     }
 
@@ -1907,8 +2093,53 @@ export const findUnionMemberIndex = (
       }
       return resolvedMember.elementTypes.every((elementType, index) => {
         const other = resolvedCandidate.elementTypes[index];
-        return other ? matchesPredicateTarget(elementType, other) : false;
+        return other
+          ? matchesPredicateTarget(elementType, other, nextVisited)
+          : false;
       });
+    }
+
+    if (
+      resolvedMember.kind === "functionType" &&
+      resolvedCandidate.kind === "functionType"
+    ) {
+      if (
+        resolvedMember.parameters.length !== resolvedCandidate.parameters.length
+      ) {
+        return false;
+      }
+
+      for (let index = 0; index < resolvedMember.parameters.length; index += 1) {
+        const memberParam = resolvedMember.parameters[index];
+        const candidateParam = resolvedCandidate.parameters[index];
+        if (!memberParam || !candidateParam) {
+          return false;
+        }
+
+        if (!memberParam.type && !candidateParam.type) {
+          continue;
+        }
+
+        if (!memberParam.type || !candidateParam.type) {
+          return false;
+        }
+
+        if (
+          !matchesPredicateTarget(
+            memberParam.type,
+            candidateParam.type,
+            nextVisited
+          )
+        ) {
+          return false;
+        }
+      }
+
+      return matchesPredicateTarget(
+        resolvedMember.returnType,
+        resolvedCandidate.returnType,
+        nextVisited
+      );
     }
 
     if (
@@ -1926,7 +2157,7 @@ export const findUnionMemberIndex = (
       return memberArgs.every((memberArg, index) => {
         const candidateArg = candidateArgs[index];
         return candidateArg
-          ? matchesPredicateTarget(memberArg, candidateArg)
+          ? matchesPredicateTarget(memberArg, candidateArg, nextVisited)
           : false;
       });
     }

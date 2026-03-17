@@ -653,4 +653,35 @@ describe("Anonymous Type Lowering Regression Coverage", () => {
         loweredElementType.resolvedClrType
     ).to.equal("Acme.Messages.__Anon_ext_deadbeef");
   });
+
+  it("keeps synthesized anonymous carriers internal when they only reference internal aliases", () => {
+    const module = createTestModule(`
+      type TreeNode = {
+        child?: TreeNode;
+        value: number;
+      };
+
+      const leaf: TreeNode = { value: 42.0 };
+
+      export function main(): number {
+        return leaf.value;
+      }
+    `);
+
+    const lowered = runAnonymousTypeLoweringPass([module]);
+    const anonModule = lowered.modules.find(
+      (candidate) => candidate.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+    );
+    const anonClass = anonModule?.body.find(
+      (
+        stmt
+      ): stmt is Extract<
+        IrModule["body"][number],
+        { kind: "classDeclaration" }
+      > => stmt.kind === "classDeclaration"
+    );
+
+    expect(anonClass?.name).to.match(/^__Anon_/);
+    expect(anonClass?.isExported).to.equal(false);
+  });
 });

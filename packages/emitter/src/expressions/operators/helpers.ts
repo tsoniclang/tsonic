@@ -3,6 +3,10 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
+import type { EmitterContext } from "../../types.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import { resolveTypeAlias, stripNullish } from "../../core/semantic/type-resolution.js";
+import { unwrapTransparentExpression } from "../../core/semantic/transparent-expressions.js";
 
 /**
  * Check if an expression has proven Int32 type from the numeric proof pass.
@@ -71,6 +75,15 @@ export const isCharTyped = (expr: IrExpression): boolean => {
       expr.inferredType.name === "char") ||
     (expr.inferredType?.kind === "referenceType" &&
       expr.inferredType.name === "char")
+  );
+};
+
+export const isCharType = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+  const stripped = stripNullish(type);
+  return (
+    (stripped.kind === "primitiveType" && stripped.name === "char") ||
+    (stripped.kind === "referenceType" && stripped.name === "char")
   );
 };
 
@@ -147,6 +160,45 @@ export const escapeCharLiteral = (char: string): string => {
 export const isNullishLiteral = (e: IrExpression): boolean =>
   (e.kind === "literal" && (e.value === undefined || e.value === null)) ||
   (e.kind === "identifier" && (e.name === "undefined" || e.name === "null"));
+
+type DictionaryComputedAccessExpression = Extract<
+  IrExpression,
+  { kind: "memberAccess" }
+> & {
+  readonly isComputed: true;
+  readonly property: IrExpression;
+};
+
+export const getDictionaryComputedAccess = (
+  expr: IrExpression,
+  context: EmitterContext
+): DictionaryComputedAccessExpression | undefined => {
+  const target = unwrapTransparentExpression(expr);
+  if (
+    target.kind !== "memberAccess" ||
+    !target.isComputed ||
+    typeof target.property === "string"
+  ) {
+    return undefined;
+  }
+
+  if (target.accessKind === "dictionary") {
+    return target as DictionaryComputedAccessExpression;
+  }
+
+  const effectiveObjectType =
+    resolveEffectiveExpressionType(target.object, context) ?? target.object.inferredType;
+  if (!effectiveObjectType) {
+    return undefined;
+  }
+
+  return (
+    resolveTypeAlias(stripNullish(effectiveObjectType), context).kind ===
+    "dictionaryType"
+  )
+    ? (target as DictionaryComputedAccessExpression)
+    : undefined;
+};
 
 /**
  * Check if an IR type is boolean

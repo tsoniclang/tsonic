@@ -996,6 +996,8 @@ export const convertCallExpression = (
     : lambdaContextResolved;
 
   const parameterTypes = finalResolved?.parameterTypes ?? initialParameterTypes;
+  const surfaceParameterTypes =
+    finalResolved?.surfaceParameterTypes ?? parameterTypes;
   const inferredType = (() => {
     const resolvedReturnType = finalResolved?.returnType;
     if (!resolvedReturnType) {
@@ -1087,7 +1089,9 @@ export const convertCallExpression = (
     requiresSpecialization,
     argumentPassing: argumentPassingWithOverrides,
     parameterTypes,
+    surfaceParameterTypes,
     restParameter: finalResolved?.restParameter,
+    surfaceRestParameter: finalResolved?.surfaceRestParameter,
     narrowing,
   };
 };
