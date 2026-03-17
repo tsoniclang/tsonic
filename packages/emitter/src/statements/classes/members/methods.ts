@@ -24,7 +24,7 @@ import {
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { identifierType } from "../../../core/format/backend-ast/builders.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
-import { registerLocalSemanticType } from "../../../core/format/local-names.js";
+import { registerParameterTypes } from "../../../core/semantic/symbol-types.js";
 import { emitCSharpName } from "../../../naming-policy.js";
 import type {
   CSharpMemberAst,
@@ -54,7 +54,7 @@ const seedLocalNameMapFromParameters = (
       const emitted = escapeCSharpIdentifier(p.pattern.name);
       map.set(p.pattern.name, emitted);
       used.add(emitted);
-      currentContext = registerLocalSemanticType(
+      currentContext = registerParameterTypes(
         p.pattern.name,
         p.type,
         currentContext

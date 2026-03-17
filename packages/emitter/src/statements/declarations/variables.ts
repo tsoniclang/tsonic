@@ -27,8 +27,8 @@ import { getIdentifierTypeName } from "../../core/format/backend-ast/utils.js";
 import {
   allocateLocalName,
   registerLocalName,
-  registerLocalSymbolTypes,
 } from "../../core/format/local-names.js";
+import { registerVariableSymbolTypes } from "../../core/semantic/symbol-types.js";
 import {
   isDefinitelyValueType,
   isTypeOnlyStructuralTarget,
@@ -1101,33 +1101,7 @@ const resolveLocalTypeAst = (
   return [{ kind: "varType" }, context];
 };
 
-/**
- * Register both semantic and storage types for a variable declaration.
- *
- * Semantic type: decl.type (explicit annotation) or the un-normalized
- * initializer type (preserving alias identity and union structure).
- * Storage type: the CLR-normalized carrier via resolveLocalStorageType.
- */
-const registerLocalVariableTypes = (
-  originalName: string,
-  decl: {
-    readonly type?: IrType;
-    readonly initializer?: Extract<
-      IrStatement,
-      { kind: "variableDeclaration" }
-    >["declarations"][number]["initializer"];
-  },
-  context: EmitterContext
-): EmitterContext =>
-  registerLocalSymbolTypes(
-    originalName,
-    decl.type ??
-      resolveSemanticVariableInitializerType(decl.initializer, context),
-    resolveLocalStorageType(decl, context),
-    context
-  );
-
-const resolveLocalStorageType = (
+export const resolveLocalStorageType = (
   decl: {
     readonly type?: IrType;
     readonly initializer?: Extract<
@@ -1150,7 +1124,7 @@ const resolveLocalStorageType = (
  * Returns the authored type without CLR storage normalization — alias names,
  * union structure, and type-parameter shapes are preserved exactly as written.
  */
-const resolveSemanticVariableInitializerType = (
+export const resolveSemanticVariableInitializerType = (
   initializer:
     | {
         readonly kind: string;
@@ -1281,7 +1255,7 @@ export const emitVariableDeclarationAst = (
           localName,
           currentContext
         );
-        currentContext = registerLocalVariableTypes(
+        currentContext = registerVariableSymbolTypes(
           originalName,
           decl,
           currentContext
@@ -1372,7 +1346,7 @@ export const emitVariableDeclarationAst = (
         localName,
         currentContext
       );
-      currentContext = registerLocalVariableTypes(
+      currentContext = registerVariableSymbolTypes(
         originalName,
         decl,
         currentContext

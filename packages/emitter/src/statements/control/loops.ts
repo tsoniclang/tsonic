@@ -23,16 +23,17 @@ import {
 import {
   allocateLocalName,
   registerLocalName,
-  registerLocalSymbolTypes,
-  registerLocalFixedType,
 } from "../../core/format/local-names.js";
+import {
+  registerForOfElementSymbolTypes,
+  registerForInKeyTypes,
+} from "../../core/semantic/symbol-types.js";
 import { decimalIntegerLiteral } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
   CSharpExpressionAst,
   CSharpLocalDeclarationStatementAst,
 } from "../../core/format/backend-ast/types.js";
-import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 
 /**
  * Information about a canonical integer loop counter.
@@ -196,7 +197,7 @@ const deriveTupleIterationElementType = (
   return normalizedUnionType(concrete);
 };
 
-const deriveForOfElementType = (
+export const deriveForOfElementType = (
   type: IrExpression["inferredType"],
   context: EmitterContext
 ): IrExpression["inferredType"] | undefined => {
@@ -419,31 +420,6 @@ export const emitForStatementAst = (
 };
 
 /**
- * Register for-of element semantic and storage types for a loop variable.
- *
- * Semantic element type: derived from the collection's frontend IR type.
- * Storage element type: derived from the collection's CLR-normalized type,
- * falling back to semantic when normalization produces no change.
- */
-const registerForOfElementTypes = (
-  originalName: string,
-  collectionType: IrExpression["inferredType"],
-  context: EmitterContext
-): EmitterContext => {
-  const semanticElementType = deriveForOfElementType(collectionType, context);
-  const storageElementType = deriveForOfElementType(
-    normalizeRuntimeStorageType(collectionType, context),
-    context
-  );
-  return registerLocalSymbolTypes(
-    originalName,
-    semanticElementType,
-    storageElementType ?? semanticElementType,
-    context
-  );
-};
-
-/**
  * Emit a for-of statement as AST
  *
  * TypeScript: for (const x of items) { ... }
@@ -479,7 +455,7 @@ export const emitForOfStatementAst = (
       alloc.emittedName,
       alloc.context
     );
-    loopContext = registerForOfElementTypes(
+    loopContext = registerForOfElementSymbolTypes(
       originalName,
       stmt.expression.inferredType,
       loopContext
@@ -608,11 +584,7 @@ export const emitForInStatementAst = (
     alloc.emittedName,
     alloc.context
   );
-  loopContext = registerLocalFixedType(
-    originalName,
-    { kind: "primitiveType", name: "string" },
-    loopContext
-  );
+  loopContext = registerForInKeyTypes(originalName, loopContext);
   const varName = alloc.emittedName;
 
   // Iterate over .Keys: (expr).Keys

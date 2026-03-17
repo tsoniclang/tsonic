@@ -10,8 +10,8 @@ import { emitBlockStatementAst } from "../blocks.js";
 import {
   allocateLocalName,
   registerLocalName,
-  registerLocalSymbolTypes,
 } from "../../core/format/local-names.js";
+import { registerCatchVariableTypes } from "../../core/semantic/symbol-types.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
@@ -56,12 +56,7 @@ export const emitTryStatementAst = (
       alloc.emittedName,
       alloc.context
     );
-    catchScopeContext = registerLocalSymbolTypes(
-      param,
-      { kind: "unknownType" },
-      SYSTEM_EXCEPTION_IR_TYPE,
-      catchScopeContext
-    );
+    catchScopeContext = registerCatchVariableTypes(param, catchScopeContext);
 
     const [catchBody, catchContext] = emitBlockStatementAst(
       stmt.catchClause.body,

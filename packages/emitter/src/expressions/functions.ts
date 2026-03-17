@@ -27,10 +27,8 @@ import {
 } from "../core/semantic/runtime-unions.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { stableTypeKeyFromAst } from "../core/format/backend-ast/utils.js";
-import {
-  allocateLocalName,
-  registerLocalSemanticType,
-} from "../core/format/local-names.js";
+import { allocateLocalName } from "../core/format/local-names.js";
+import { registerParameterTypes } from "../core/semantic/symbol-types.js";
 import type {
   CSharpBlockStatementAst,
   CSharpExpressionAst,
@@ -59,7 +57,7 @@ const seedLocalNameMapFromParameters = (
       continue;
     map.set(p.parameter.pattern.name, p.emittedName);
     used.add(p.emittedName);
-    currentContext = registerLocalSemanticType(
+    currentContext = registerParameterTypes(
       p.parameter.pattern.name,
       p.parameter.type,
       currentContext

@@ -21,10 +21,8 @@ import {
 } from "../../generator-wrapper.js";
 import { emitAttributes } from "../../core/format/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
-import {
-  allocateLocalName,
-  registerLocalSemanticType,
-} from "../../core/format/local-names.js";
+import { allocateLocalName } from "../../core/format/local-names.js";
+import { registerParameterTypes } from "../../core/semantic/symbol-types.js";
 import {
   identifierType,
   nullableType,
@@ -57,7 +55,7 @@ const seedLocalNameMapFromParameters = (
       const emitted = escapeCSharpIdentifier(p.pattern.name);
       map.set(p.pattern.name, emitted);
       used.add(emitted);
-      currentContext = registerLocalSemanticType(
+      currentContext = registerParameterTypes(
         p.pattern.name,
         p.type,
         currentContext

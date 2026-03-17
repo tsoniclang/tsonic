@@ -22,8 +22,8 @@ import {
   allocateLocalName,
   emitRemappedLocalName,
   registerLocalName,
-  registerLocalSemanticType,
 } from "./core/format/local-names.js";
+import { registerParameterTypes } from "./core/semantic/symbol-types.js";
 import {
   booleanLiteral,
   decimalIntegerLiteral,
@@ -250,7 +250,7 @@ const lowerIdentifierAst = (
   };
 
   currentCtx = registerLocalName(name, localName, currentCtx);
-  currentCtx = registerLocalSemanticType(name, type, currentCtx);
+  currentCtx = registerParameterTypes(name, type, currentCtx);
   return { statements: [stmt], context: currentCtx };
 };
 
