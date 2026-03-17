@@ -8,18 +8,19 @@
  * and delegates to registerLocalSymbolTypes for the actual map update.
  */
 
-import type { IrExpression, IrStatement, IrType } from "@tsonic/frontend";
+import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { normalizeRuntimeStorageType } from "./storage-types.js";
 import {
   registerLocalSymbolTypes,
   registerLocalSemanticType,
 } from "../format/local-names.js";
-import { deriveForOfElementType } from "../../statements/control/loops.js";
+import { deriveForOfElementType } from "./iteration-types.js";
 import {
   resolveSemanticVariableInitializerType,
   resolveLocalStorageType,
-} from "../../statements/declarations/variables.js";
+  type VariableDeclaratorLike,
+} from "./variable-type-resolution.js";
 
 /**
  * Register a local symbol from its semantic (frontend IR) type.
@@ -64,15 +65,6 @@ export const registerForOfElementSymbolTypes = (
     storageElementType ?? semanticElementType,
     context
   );
-};
-
-/** Inline type for variable declarator shape used by registration. */
-type VariableDeclaratorLike = {
-  readonly type?: IrType;
-  readonly initializer?: Extract<
-    IrStatement,
-    { kind: "variableDeclaration" }
-  >["declarations"][number]["initializer"];
 };
 
 /**

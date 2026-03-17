@@ -23,7 +23,10 @@ import {
   lowerPatternAst,
   lowerPatternToStaticMembersAst,
 } from "../../patterns.js";
-import { getIdentifierTypeName } from "../../core/format/backend-ast/utils.js";
+import {
+  resolveAsInterfaceTargetType,
+  resolveEffectiveVariableInitializerType,
+} from "../../core/semantic/variable-type-resolution.js";
 import {
   allocateLocalName,
   registerLocalName,
@@ -36,7 +39,6 @@ import {
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
-import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import {
@@ -177,53 +179,6 @@ const needsExplicitLocalType = (
   }
 
   return false;
-};
-
-/**
- * Resolve a C#-emittable runtime type for `asinterface<T>(x)` locals.
- *
- * `T` may be a type alias or an intersection type (e.g. extension-method overlays).
- * We must pick a nominal/runtime constituent that has a CLR representation.
- */
-const resolveAsInterfaceTargetType = (
-  type: IrType,
-  context: EmitterContext
-): IrType => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-
-  // Unwrap tsbindgen's `ExtensionMethods<TShape>` wrapper (type-only).
-  if (resolved.kind === "referenceType" && resolved.typeArguments?.length) {
-    const importBinding = context.importBindings?.get(resolved.name);
-    const clrName =
-      importBinding?.kind === "type"
-        ? (getIdentifierTypeName(importBinding.typeAst) ?? "")
-        : "";
-    if (clrName.endsWith(".ExtensionMethods")) {
-      const shape = resolved.typeArguments[0];
-      if (shape) return resolveAsInterfaceTargetType(shape, context);
-    }
-  }
-
-  if (resolved.kind === "intersectionType") {
-    for (const part of resolved.types) {
-      const candidate = resolveAsInterfaceTargetType(part, context);
-      if (
-        candidate.kind === "referenceType" &&
-        candidate.name.startsWith("__Ext_")
-      ) {
-        continue;
-      }
-      if (
-        candidate.kind === "objectType" ||
-        candidate.kind === "intersectionType"
-      ) {
-        continue;
-      }
-      return candidate;
-    }
-  }
-
-  return resolved;
 };
 
 const seedLocalNameMapFromParameters = (
@@ -1099,73 +1054,6 @@ const resolveLocalTypeAst = (
 
   // Default: var
   return [{ kind: "varType" }, context];
-};
-
-export const resolveLocalStorageType = (
-  decl: {
-    readonly type?: IrType;
-    readonly initializer?: Extract<
-      IrStatement,
-      { kind: "variableDeclaration" }
-    >["declarations"][number]["initializer"];
-  },
-  context: EmitterContext
-): IrType | undefined => {
-  const sourceType =
-    decl.type ??
-    resolveEffectiveVariableInitializerType(decl.initializer, context);
-
-  return normalizeRuntimeStorageType(sourceType, context);
-};
-
-/**
- * Resolve the semantic (frontend IR) type of a variable initializer.
- *
- * Returns the authored type without CLR storage normalization — alias names,
- * union structure, and type-parameter shapes are preserved exactly as written.
- */
-export const resolveSemanticVariableInitializerType = (
-  initializer:
-    | {
-        readonly kind: string;
-        readonly inferredType?: IrType;
-        readonly targetType?: IrType;
-      }
-    | undefined,
-  context: EmitterContext
-): IrType | undefined => {
-  if (!initializer) {
-    return undefined;
-  }
-
-  const expression = initializer as IrExpression;
-
-  if (expression.kind === "typeAssertion") {
-    return expression.targetType;
-  }
-
-  if (expression.kind === "asinterface") {
-    return resolveAsInterfaceTargetType(expression.targetType, context);
-  }
-
-  return (
-    resolveEffectiveExpressionType(expression, context) ??
-    expression.inferredType
-  );
-};
-
-const resolveEffectiveVariableInitializerType = (
-  initializer:
-    | {
-        readonly kind: string;
-        readonly inferredType?: IrType;
-        readonly targetType?: IrType;
-      }
-    | undefined,
-  context: EmitterContext
-): IrType | undefined => {
-  const semantic = resolveSemanticVariableInitializerType(initializer, context);
-  return normalizeRuntimeStorageType(semantic, context) ?? semantic;
 };
 
 /**
