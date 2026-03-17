@@ -419,6 +419,31 @@ export const emitForStatementAst = (
 };
 
 /**
+ * Register for-of element semantic and storage types for a loop variable.
+ *
+ * Semantic element type: derived from the collection's frontend IR type.
+ * Storage element type: derived from the collection's CLR-normalized type,
+ * falling back to semantic when normalization produces no change.
+ */
+const registerForOfElementTypes = (
+  originalName: string,
+  collectionType: IrExpression["inferredType"],
+  context: EmitterContext
+): EmitterContext => {
+  const semanticElementType = deriveForOfElementType(collectionType, context);
+  const storageElementType = deriveForOfElementType(
+    normalizeRuntimeStorageType(collectionType, context),
+    context
+  );
+  return registerLocalSymbolTypes(
+    originalName,
+    semanticElementType,
+    storageElementType ?? semanticElementType,
+    context
+  );
+};
+
+/**
  * Emit a for-of statement as AST
  *
  * TypeScript: for (const x of items) { ... }
@@ -444,10 +469,6 @@ export const emitForOfStatementAst = (
     stmt.expression.inferredType,
     loopContext
   );
-  const storageElementType = deriveForOfElementType(
-    normalizeRuntimeStorageType(stmt.expression.inferredType, loopContext),
-    loopContext
-  );
 
   if (stmt.variable.kind === "identifierPattern") {
     // Simple identifier: for (const x of items) -> foreach (var x in items)
@@ -458,10 +479,9 @@ export const emitForOfStatementAst = (
       alloc.emittedName,
       alloc.context
     );
-    loopContext = registerLocalSymbolTypes(
+    loopContext = registerForOfElementTypes(
       originalName,
-      semanticElementType,
-      storageElementType ?? semanticElementType,
+      stmt.expression.inferredType,
       loopContext
     );
     const varName = alloc.emittedName;

@@ -1101,6 +1101,32 @@ const resolveLocalTypeAst = (
   return [{ kind: "varType" }, context];
 };
 
+/**
+ * Register both semantic and storage types for a variable declaration.
+ *
+ * Semantic type: decl.type (explicit annotation) or the un-normalized
+ * initializer type (preserving alias identity and union structure).
+ * Storage type: the CLR-normalized carrier via resolveLocalStorageType.
+ */
+const registerLocalVariableTypes = (
+  originalName: string,
+  decl: {
+    readonly type?: IrType;
+    readonly initializer?: Extract<
+      IrStatement,
+      { kind: "variableDeclaration" }
+    >["declarations"][number]["initializer"];
+  },
+  context: EmitterContext
+): EmitterContext =>
+  registerLocalSymbolTypes(
+    originalName,
+    decl.type ??
+      resolveSemanticVariableInitializerType(decl.initializer, context),
+    resolveLocalStorageType(decl, context),
+    context
+  );
+
 const resolveLocalStorageType = (
   decl: {
     readonly type?: IrType;
@@ -1255,14 +1281,9 @@ export const emitVariableDeclarationAst = (
           localName,
           currentContext
         );
-        currentContext = registerLocalSymbolTypes(
+        currentContext = registerLocalVariableTypes(
           originalName,
-          decl.type ??
-            resolveSemanticVariableInitializerType(
-              decl.initializer,
-              currentContext
-            ),
-          resolveLocalStorageType(decl, currentContext),
+          decl,
           currentContext
         );
 
@@ -1351,14 +1372,9 @@ export const emitVariableDeclarationAst = (
         localName,
         currentContext
       );
-      currentContext = registerLocalSymbolTypes(
+      currentContext = registerLocalVariableTypes(
         originalName,
-        decl.type ??
-          resolveSemanticVariableInitializerType(
-            decl.initializer,
-            currentContext
-          ),
-        resolveLocalStorageType(decl, currentContext),
+        decl,
         currentContext
       );
 
