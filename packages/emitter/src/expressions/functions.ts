@@ -30,7 +30,7 @@ import { identifierType } from "../core/format/backend-ast/builders.js";
 import { stableTypeKeyFromAst } from "../core/format/backend-ast/utils.js";
 import {
   allocateLocalName,
-  registerLocalValueType,
+  registerLocalSymbolTypes,
 } from "../core/format/local-names.js";
 import type {
   CSharpBlockStatementAst,
@@ -60,8 +60,9 @@ const seedLocalNameMapFromParameters = (
       continue;
     map.set(p.parameter.pattern.name, p.emittedName);
     used.add(p.emittedName);
-    currentContext = registerLocalValueType(
+    currentContext = registerLocalSymbolTypes(
       p.parameter.pattern.name,
+      p.parameter.type,
       normalizeRuntimeStorageType(p.parameter.type, currentContext) ??
         p.parameter.type,
       currentContext

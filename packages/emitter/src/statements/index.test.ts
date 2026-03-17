@@ -2941,4 +2941,99 @@ describe("Statement Emission", () => {
     // Should NOT include 'await foreach'
     expect(result).to.not.include("await foreach");
   });
+
+  it("does not leak outer localSemanticTypes/localValueTypes into inner block scope for shadowed variables", () => {
+    // TS: function test() {
+    //   const x: string | number = "hello";
+    //   {
+    //     const x: boolean = true;
+    //     console.log(x);
+    //   }
+    //   console.log(x);
+    // }
+    //
+    // The inner `x: boolean` must not inherit the outer `x: string | number`
+    // in either semantic or storage channels.
+    const stringOrNumber: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "number" },
+      ],
+    };
+    const boolType: IrType = { kind: "primitiveType", name: "boolean" };
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "test",
+          parameters: [],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "variableDeclaration",
+                declarationKind: "const",
+                isExported: false,
+                declarations: [
+                  {
+                    kind: "variableDeclarator",
+                    name: { kind: "identifierPattern", name: "x" },
+                    type: stringOrNumber,
+                    initializer: {
+                      kind: "literal",
+                      value: "hello",
+                      raw: '"hello"',
+                      inferredType: { kind: "primitiveType", name: "string" },
+                    },
+                  },
+                ],
+              },
+              {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "variableDeclaration",
+                    declarationKind: "const",
+                    isExported: false,
+                    declarations: [
+                      {
+                        kind: "variableDeclarator",
+                        name: { kind: "identifierPattern", name: "x" },
+                        type: boolType,
+                        initializer: {
+                          kind: "literal",
+                          value: true,
+                          raw: "true",
+                          inferredType: boolType,
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    // Inner block must declare a bool-typed x (shadowed, renamed to x__1)
+    expect(result).to.include("bool");
+    // Must also have the outer union-typed x — emitted output should have both declarations
+    // The key invariant: the inner bool declaration must not be widened to the outer union type
+    expect(result).not.to.match(/bool.*x__1.*object/);
+  });
 });

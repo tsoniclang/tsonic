@@ -434,11 +434,13 @@ const emitForcedBlockWithPreambleAst = (
   bodyCtx: EmitterContext
 ): [CSharpBlockStatementAst, EmitterContext] => {
   const outerNameMap = bodyCtx.localNameMap;
+  const outerSemanticTypes = bodyCtx.localSemanticTypes;
   const outerValueTypes = bodyCtx.localValueTypes;
   return withScoped(
     bodyCtx,
     {
       localNameMap: new Map(outerNameMap ?? []),
+      localSemanticTypes: new Map(outerSemanticTypes ?? []),
       localValueTypes: new Map(outerValueTypes ?? []),
     },
     (scopedContext) => {

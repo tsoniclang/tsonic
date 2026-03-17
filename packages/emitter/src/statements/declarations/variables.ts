@@ -27,7 +27,7 @@ import { getIdentifierTypeName } from "../../core/format/backend-ast/utils.js";
 import {
   allocateLocalName,
   registerLocalName,
-  registerLocalValueType,
+  registerLocalSymbolTypes,
 } from "../../core/format/local-names.js";
 import {
   isDefinitelyValueType,
@@ -1118,7 +1118,13 @@ const resolveLocalStorageType = (
   return normalizeRuntimeStorageType(sourceType, context);
 };
 
-const resolveEffectiveVariableInitializerType = (
+/**
+ * Resolve the semantic (frontend IR) type of a variable initializer.
+ *
+ * Returns the authored type without CLR storage normalization — alias names,
+ * union structure, and type-parameter shapes are preserved exactly as written.
+ */
+const resolveSemanticVariableInitializerType = (
   initializer:
     | {
         readonly kind: string;
@@ -1133,23 +1139,33 @@ const resolveEffectiveVariableInitializerType = (
   }
 
   const expression = initializer as IrExpression;
-  const normalize = (type: IrType | undefined): IrType | undefined =>
-    normalizeRuntimeStorageType(type, context) ?? type;
 
   if (expression.kind === "typeAssertion") {
-    return normalize(expression.targetType);
+    return expression.targetType;
   }
 
   if (expression.kind === "asinterface") {
-    return normalize(
-      resolveAsInterfaceTargetType(expression.targetType, context)
-    );
+    return resolveAsInterfaceTargetType(expression.targetType, context);
   }
 
-  return normalize(
+  return (
     resolveEffectiveExpressionType(expression, context) ??
-      expression.inferredType
+    expression.inferredType
   );
+};
+
+const resolveEffectiveVariableInitializerType = (
+  initializer:
+    | {
+        readonly kind: string;
+        readonly inferredType?: IrType;
+        readonly targetType?: IrType;
+      }
+    | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  const semantic = resolveSemanticVariableInitializerType(initializer, context);
+  return normalizeRuntimeStorageType(semantic, context) ?? semantic;
 };
 
 /**
@@ -1239,8 +1255,13 @@ export const emitVariableDeclarationAst = (
           localName,
           currentContext
         );
-        currentContext = registerLocalValueType(
+        currentContext = registerLocalSymbolTypes(
           originalName,
+          decl.type ??
+            resolveSemanticVariableInitializerType(
+              decl.initializer,
+              currentContext
+            ),
           resolveLocalStorageType(decl, currentContext),
           currentContext
         );
@@ -1330,8 +1351,13 @@ export const emitVariableDeclarationAst = (
         localName,
         currentContext
       );
-      currentContext = registerLocalValueType(
+      currentContext = registerLocalSymbolTypes(
         originalName,
+        decl.type ??
+          resolveSemanticVariableInitializerType(
+            decl.initializer,
+            currentContext
+          ),
         resolveLocalStorageType(decl, currentContext),
         currentContext
       );

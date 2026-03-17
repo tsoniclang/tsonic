@@ -84,6 +84,7 @@ type ScopedFields = Pick<
   | "typeParameterNameMap"
   | "returnType"
   | "localNameMap"
+  | "localSemanticTypes"
   | "localValueTypes"
   | "narrowedBindings"
 >;
@@ -123,6 +124,7 @@ export const withScoped = <T>(
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
     localNameMap: context.localNameMap,
+    localSemanticTypes: context.localSemanticTypes,
     localValueTypes: context.localValueTypes,
     narrowedBindings: context.narrowedBindings,
   };

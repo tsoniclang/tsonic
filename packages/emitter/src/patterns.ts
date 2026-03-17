@@ -22,7 +22,7 @@ import {
   allocateLocalName,
   emitRemappedLocalName,
   registerLocalName,
-  registerLocalValueType,
+  registerLocalSymbolTypes,
 } from "./core/format/local-names.js";
 import {
   booleanLiteral,
@@ -251,8 +251,9 @@ const lowerIdentifierAst = (
   };
 
   currentCtx = registerLocalName(name, localName, currentCtx);
-  currentCtx = registerLocalValueType(
+  currentCtx = registerLocalSymbolTypes(
     name,
+    type,
     normalizeRuntimeStorageType(type, currentCtx),
     currentCtx
   );

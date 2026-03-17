@@ -251,9 +251,13 @@ export const tryBuildRuntimeMaterializationAst = (
         identifier: parameterName,
       };
 
-      const sourceMemberN = sourceFrame?.candidateMemberNs?.[index] ?? index + 1;
+      const sourceMemberN =
+        sourceFrame?.candidateMemberNs?.[index] ?? index + 1;
 
-      if (selectedSourceMemberNs && !selectedSourceMemberNs.has(sourceMemberN)) {
+      if (
+        selectedSourceMemberNs &&
+        !selectedSourceMemberNs.has(sourceMemberN)
+      ) {
         lambdaArgs.push({
           kind: "lambdaExpression",
           isAsync: false,
@@ -342,7 +346,8 @@ export const tryBuildRuntimeMaterializationAst = (
       nextContext
     );
     if (
-      stableTypeKeyFromAst(directTypeAst) === stableTypeKeyFromAst(targetTypeAst)
+      stableTypeKeyFromAst(directTypeAst) ===
+      stableTypeKeyFromAst(targetTypeAst)
     ) {
       return [valueAst, directTypeContext];
     }

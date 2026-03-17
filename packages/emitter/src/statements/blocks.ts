@@ -73,11 +73,13 @@ export const emitBlockStatementAst = (
   context: EmitterContext
 ): [CSharpBlockStatementAst, EmitterContext] => {
   const outerNameMap = context.localNameMap;
+  const outerSemanticTypes = context.localSemanticTypes;
   const outerValueTypes = context.localValueTypes;
   return withScoped(
     context,
     {
       localNameMap: new Map(outerNameMap ?? []),
+      localSemanticTypes: new Map(outerSemanticTypes ?? []),
       localValueTypes: new Map(outerValueTypes ?? []),
     },
     (scopedContext) => {

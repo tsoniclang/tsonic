@@ -1433,7 +1433,8 @@ const maybeCastNullishTypeParamAst = (
     narrowKey && context.narrowedBindings
       ? context.narrowedBindings.get(narrowKey)?.sourceType
       : undefined;
-  const sourceStorageType = narrowedSourceType ?? expr.inferredType ?? actualType;
+  const sourceStorageType =
+    narrowedSourceType ?? expr.inferredType ?? actualType;
   if (!actualType && !sourceStorageType) return [ast, context];
 
   const expectedTypeParam = getBareTypeParameterName(expectedType, context);
@@ -2441,12 +2442,18 @@ const maybeUpcastExpressionToExpectedTypeAst = (
       if (!directLayout || !actualLayout) {
         return true;
       }
-      if (directLayout.memberTypeAsts.length !== actualLayout.memberTypeAsts.length) {
+      if (
+        directLayout.memberTypeAsts.length !==
+        actualLayout.memberTypeAsts.length
+      ) {
         return true;
       }
       return directLayout.memberTypeAsts.some((memberTypeAst, index) => {
         const other = actualLayout.memberTypeAsts[index];
-        return !other || stableTypeKeyFromAst(memberTypeAst) !== stableTypeKeyFromAst(other);
+        return (
+          !other ||
+          stableTypeKeyFromAst(memberTypeAst) !== stableTypeKeyFromAst(other)
+        );
       });
     })();
 
@@ -3123,7 +3130,8 @@ const emitTypeAssertion = (
     context
   );
   const rawSourceContext =
-    expr.expression.kind === "identifier" || expr.expression.kind === "memberAccess"
+    expr.expression.kind === "identifier" ||
+    expr.expression.kind === "memberAccess"
       ? withoutNarrowedBinding(expr.expression, context)
       : context;
   const innerExpectedType =

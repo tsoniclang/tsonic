@@ -23,7 +23,8 @@ import {
 import {
   allocateLocalName,
   registerLocalName,
-  registerLocalValueType,
+  registerLocalSymbolTypes,
+  registerLocalFixedType,
 } from "../../core/format/local-names.js";
 import { decimalIntegerLiteral } from "../../core/format/backend-ast/builders.js";
 import type {
@@ -286,6 +287,7 @@ export const emitForStatementAst = (
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const outerNameMap = context.localNameMap;
+  const outerSemanticTypes = context.localSemanticTypes;
   const outerValueTypes = context.localValueTypes;
   let currentContext: EmitterContext = {
     ...context,
@@ -410,6 +412,7 @@ export const emitForStatementAst = (
     {
       ...finalBodyContext,
       localNameMap: outerNameMap,
+      localSemanticTypes: outerSemanticTypes,
       localValueTypes: outerValueTypes,
     },
   ];
@@ -430,6 +433,7 @@ export const emitForOfStatementAst = (
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
   const outerNameMap = exprContext.localNameMap;
+  const outerSemanticTypes = exprContext.localSemanticTypes;
   const outerValueTypes = exprContext.localValueTypes;
   let loopContext: EmitterContext = {
     ...exprContext,
@@ -454,8 +458,9 @@ export const emitForOfStatementAst = (
       alloc.emittedName,
       alloc.context
     );
-    loopContext = registerLocalValueType(
+    loopContext = registerLocalSymbolTypes(
       originalName,
+      semanticElementType,
       storageElementType ?? semanticElementType,
       loopContext
     );
@@ -476,6 +481,7 @@ export const emitForOfStatementAst = (
       {
         ...bodyContext,
         localNameMap: outerNameMap,
+        localSemanticTypes: outerSemanticTypes,
         localValueTypes: outerValueTypes,
       },
     ];
@@ -530,6 +536,7 @@ export const emitForOfStatementAst = (
     {
       ...bodyContext,
       localNameMap: outerNameMap,
+      localSemanticTypes: outerSemanticTypes,
       localValueTypes: outerValueTypes,
     },
   ];
@@ -549,6 +556,7 @@ export const emitForInStatementAst = (
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
   const outerNameMap = exprContext.localNameMap;
+  const outerSemanticTypes = exprContext.localSemanticTypes;
   const outerValueTypes = exprContext.localValueTypes;
   let loopContext: EmitterContext = {
     ...exprContext,
@@ -580,7 +588,7 @@ export const emitForInStatementAst = (
     alloc.emittedName,
     alloc.context
   );
-  loopContext = registerLocalValueType(
+  loopContext = registerLocalFixedType(
     originalName,
     { kind: "primitiveType", name: "string" },
     loopContext
@@ -613,6 +621,7 @@ export const emitForInStatementAst = (
     {
       ...bodyContext,
       localNameMap: outerNameMap,
+      localSemanticTypes: outerSemanticTypes,
       localValueTypes: outerValueTypes,
     },
   ];

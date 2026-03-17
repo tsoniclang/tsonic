@@ -10,7 +10,7 @@ import { emitBlockStatementAst } from "../blocks.js";
 import {
   allocateLocalName,
   registerLocalName,
-  registerLocalValueType,
+  registerLocalSymbolTypes,
 } from "../../core/format/local-names.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
@@ -43,6 +43,8 @@ export const emitTryStatementAst = (
         ? stmt.catchClause.parameter.name
         : "ex";
     const outerMap = currentContext.localNameMap;
+    const outerSemanticTypes = currentContext.localSemanticTypes;
+    const outerValueTypes = currentContext.localValueTypes;
     let catchScopeContext: EmitterContext = {
       ...currentContext,
       localNameMap: new Map(outerMap ?? []),
@@ -54,8 +56,9 @@ export const emitTryStatementAst = (
       alloc.emittedName,
       alloc.context
     );
-    catchScopeContext = registerLocalValueType(
+    catchScopeContext = registerLocalSymbolTypes(
       param,
+      { kind: "unknownType" },
       SYSTEM_EXCEPTION_IR_TYPE,
       catchScopeContext
     );
@@ -69,7 +72,12 @@ export const emitTryStatementAst = (
       identifier: alloc.emittedName,
       body: catchBody,
     });
-    currentContext = { ...catchContext, localNameMap: outerMap };
+    currentContext = {
+      ...catchContext,
+      localNameMap: outerMap,
+      localSemanticTypes: outerSemanticTypes,
+      localValueTypes: outerValueTypes,
+    };
   }
 
   const finallyResult: {

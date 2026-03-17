@@ -179,6 +179,7 @@ export const emitClassDeclaration = (
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
     localNameMap: context.localNameMap,
+    localSemanticTypes: context.localSemanticTypes,
     localValueTypes: context.localValueTypes,
   };
 
