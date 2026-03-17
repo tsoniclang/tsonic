@@ -7,11 +7,7 @@
  */
 
 import { IrExpression, IrStatement, IrType } from "@tsonic/frontend";
-import {
-  EmitterContext,
-  LocalTypeInfo,
-  NarrowedBinding,
-} from "../../../types.js";
+import { EmitterContext, NarrowedBinding } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { emitTypeAst } from "../../../type-emitter.js";
@@ -40,6 +36,10 @@ import {
 } from "../../../core/semantic/narrowing-keys.js";
 import { normalizeInstanceofTargetType } from "../../../core/semantic/instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "../../../core/semantic/transparent-expressions.js";
+import {
+  resolveLocalTypesForReference,
+  tryGetLiteralSet,
+} from "../../../core/semantic/guard-primitives.js";
 
 /**
  * Information extracted from a type predicate guard call.
@@ -235,60 +235,6 @@ const getGuardPropertyType = (
   return undefined;
 };
 
-/**
- * Resolve a reference type's LocalTypeInfo map (possibly from a different module).
- *
- * This is required for airplane-grade narrowing features that depend on member *types*
- * (not just member names), e.g. discriminant literal equality checks.
- */
-const resolveLocalTypesForReference = (
-  type: Extract<IrType, { kind: "referenceType" }>,
-  context: EmitterContext
-): ReadonlyMap<string, LocalTypeInfo> | undefined => {
-  const lookupName = type.name.includes(".")
-    ? (type.name.split(".").pop() ?? type.name)
-    : type.name;
-
-  if (context.localTypes?.has(lookupName)) {
-    return context.localTypes;
-  }
-
-  const moduleMap = context.options.moduleMap;
-  if (!moduleMap) return undefined;
-
-  const matches: {
-    readonly namespace: string;
-    readonly localTypes: ReadonlyMap<string, LocalTypeInfo>;
-  }[] = [];
-  for (const m of moduleMap.values()) {
-    if (!m.localTypes) continue;
-    if (m.localTypes.has(lookupName)) {
-      matches.push({
-        namespace: m.namespace,
-        localTypes: m.localTypes,
-      });
-    }
-  }
-
-  if (matches.length === 0) return undefined;
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  if (matches.length === 1) return matches[0]!.localTypes;
-
-  // Disambiguate by CLR FQN when available.
-  const fqn =
-    type.resolvedClrType ?? (type.name.includes(".") ? type.name : undefined);
-  if (fqn && fqn.includes(".")) {
-    const lastDot = fqn.lastIndexOf(".");
-    const ns = fqn.slice(0, lastDot);
-    const filtered = matches.filter((m) => m.namespace === ns);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    if (filtered.length === 1) return filtered[0]!.localTypes;
-  }
-
-  // Ambiguous: refuse to guess.
-  return undefined;
-};
-
 const extractTransparentIdentifierTarget = (
   expr: IrExpression
 ): Extract<IrExpression, { kind: "identifier" }> | undefined => {
@@ -327,37 +273,6 @@ const extractTransparentMemberAccessTarget = (
   }
 
   return { access: access as PlainMemberAccessTarget, receiver };
-};
-
-/**
- * Extract the set of allowed discriminant literal values from a type.
- *
- * Airplane-grade rule:
- * - The discriminant property must be typed as a literal or a union of literals.
- * - If it includes any non-literal members (including null/undefined), we refuse to treat
- *   it as a discriminant for equality-guard narrowing.
- */
-const tryGetLiteralSet = (
-  type: IrType,
-  context: EmitterContext
-): ReadonlySet<string | number | boolean> | undefined => {
-  const resolved = resolveTypeAlias(type, context);
-
-  if (resolved.kind === "literalType") {
-    return new Set([resolved.value]);
-  }
-
-  if (resolved.kind === "unionType") {
-    const out = new Set<string | number | boolean>();
-    for (const t of resolved.types) {
-      const r = resolveTypeAlias(t, context);
-      if (r.kind !== "literalType") return undefined;
-      out.add(r.value);
-    }
-    return out;
-  }
-
-  return undefined;
 };
 
 export const resolveRuntimeUnionFrame = (
