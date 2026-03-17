@@ -3153,7 +3153,7 @@ const emitTypeAssertion = (
   );
   const sourceExpressionType =
     transparentSourceExpression.kind === "identifier"
-      ? (ctx1.localValueTypes?.get(transparentSourceExpression.name) ??
+      ? (ctx1.localSemanticTypes?.get(transparentSourceExpression.name) ??
         transparentSourceExpression.inferredType)
       : transparentSourceExpression.inferredType;
   const [sourceRuntimeUnionLayout, sourceLayoutContext] = sourceExpressionType

@@ -1001,7 +1001,7 @@ export const tryResolvePredicateGuard = (
     : context;
   const rawReceiverType =
     target.kind === "identifier"
-      ? (rawContext.localValueTypes?.get(target.name) ??
+      ? (rawContext.localSemanticTypes?.get(target.name) ??
         target.inferredType ??
         arg.inferredType)
       : (target.inferredType ?? arg.inferredType);

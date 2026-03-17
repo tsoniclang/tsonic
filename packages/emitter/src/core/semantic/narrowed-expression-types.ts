@@ -79,9 +79,9 @@ export const resolveEffectiveExpressionType = (
   }
 
   const baseType = expr.inferredType;
-  const storageType =
+  const registeredSemanticType =
     expr.kind === "identifier"
-      ? context.localValueTypes?.get(expr.name)
+      ? context.localSemanticTypes?.get(expr.name)
       : undefined;
   if (!context.narrowedBindings) {
     if (
@@ -102,7 +102,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return baseType ?? storageType;
+    return baseType ?? registeredSemanticType;
   }
 
   const narrowKey =
@@ -131,7 +131,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return baseType ?? storageType;
+    return baseType ?? registeredSemanticType;
   }
 
   const narrowed = context.narrowedBindings.get(narrowKey);
@@ -154,7 +154,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return baseType ?? storageType;
+    return baseType ?? registeredSemanticType;
   }
 
   if (
@@ -162,7 +162,8 @@ export const resolveEffectiveExpressionType = (
     narrowed.kind === "expr" ||
     narrowed.kind === "runtimeSubset"
   ) {
-    const sourceType = narrowed.sourceType ?? storageType ?? baseType;
+    const sourceType =
+      narrowed.sourceType ?? registeredSemanticType ?? baseType;
     const resolvedSource =
       narrowed.kind === "expr"
         ? tryResolveRuntimeUnionMemberType(
@@ -200,5 +201,5 @@ export const resolveEffectiveExpressionType = (
     }
   }
 
-  return baseType ?? storageType;
+  return baseType ?? registeredSemanticType;
 };
