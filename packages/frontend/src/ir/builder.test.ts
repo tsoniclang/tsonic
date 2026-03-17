@@ -7866,11 +7866,14 @@ describe("IR Builder", function () {
         if (secondIf.condition.left.kind !== "identifier") {
           return;
         }
-        expect(secondIf.condition.left.inferredType?.kind).to.equal("unionType");
+        expect(secondIf.condition.left.inferredType?.kind).to.equal(
+          "unionType"
+        );
 
-        const secondReturn = secondIf.thenStatement.kind === "returnStatement"
-          ? secondIf.thenStatement
-          : undefined;
+        const secondReturn =
+          secondIf.thenStatement.kind === "returnStatement"
+            ? secondIf.thenStatement
+            : undefined;
         expect(secondReturn?.expression).to.not.equal(undefined);
         if (!secondReturn?.expression) {
           return;

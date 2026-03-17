@@ -132,7 +132,7 @@ const buildCallTargetExpectedType = (
       },
       type:
         restParameter && restParameter.index === index
-          ? restParameter.arrayType ?? parameterType
+          ? (restParameter.arrayType ?? parameterType)
           : parameterType,
       initializer: undefined,
       isOptional: false,
@@ -188,10 +188,7 @@ const normalizeRecursiveArrayExpectedType = (
   const resolved = resolveTypeAlias(stripNullish(type), context);
   if (
     resolved.kind === "arrayType" &&
-    shouldEraseRecursiveRuntimeUnionArrayElement(
-      resolved.elementType,
-      context
-    )
+    shouldEraseRecursiveRuntimeUnionArrayElement(resolved.elementType, context)
   ) {
     return {
       kind: "arrayType",
@@ -231,19 +228,24 @@ const emitArrayWrapperElementTypeAst = (
   receiverType: IrType,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  const resolvedReceiverType = resolveTypeAlias(stripNullish(receiverType), context);
+  const resolvedReceiverType = resolveTypeAlias(
+    stripNullish(receiverType),
+    context
+  );
   if (resolvedReceiverType.kind === "arrayType") {
-    const elementType: IrType =
-      shouldEraseRecursiveRuntimeUnionArrayElement(
-        resolvedReceiverType.elementType,
-        context
-      )
-        ? {
-            kind: "referenceType",
-            name: "object",
-            resolvedClrType: "System.Object",
-          }
-        : normalizeStructuralEmissionType(resolvedReceiverType.elementType, context);
+    const elementType: IrType = shouldEraseRecursiveRuntimeUnionArrayElement(
+      resolvedReceiverType.elementType,
+      context
+    )
+      ? {
+          kind: "referenceType",
+          name: "object",
+          resolvedClrType: "System.Object",
+        }
+      : normalizeStructuralEmissionType(
+          resolvedReceiverType.elementType,
+          context
+        );
     return emitTypeAst(elementType, context);
   }
 
@@ -274,7 +276,10 @@ const emitArrayWrapperElementTypeAst = (
     }
   }
 
-  const nativeElementType = resolveNativeArrayLikeElementType(receiverType, context);
+  const nativeElementType = resolveNativeArrayLikeElementType(
+    receiverType,
+    context
+  );
   if (nativeElementType) {
     const emittedElementType = normalizeStructuralEmissionType(
       nativeElementType,
@@ -3060,10 +3065,10 @@ const emitCallArguments = (
         ? expr.surfaceParameterTypes
         : expr.parameterTypes && expr.parameterTypes.length > 0
           ? expr.parameterTypes
-        : ((
-            functionValueSignature?.parameters ??
-            valueSymbolSignature?.parameters
-          )?.map((parameter) => parameter?.type) ?? []);
+          : ((
+              functionValueSignature?.parameters ??
+              valueSymbolSignature?.parameters
+            )?.map((parameter) => parameter?.type) ?? []);
   const restParameter = expr.surfaceRestParameter ?? expr.restParameter;
   const normalizedArgs = expandTupleLikeSpreadArguments(args);
   const restInfo:
@@ -3117,40 +3122,39 @@ const emitCallArguments = (
       parameterTypeOverrides && parameterTypeOverrides.length > 0
         ? parameterTypeOverrides[i]
         : expr.parameterTypes?.[i];
-    const effectiveExpectedType =
-      (() => {
-        const normalizedRuntime = normalizeCallArgumentExpectedType(
-          runtimeParameterType,
+    const effectiveExpectedType = (() => {
+      const normalizedRuntime = normalizeCallArgumentExpectedType(
+        runtimeParameterType,
+        currentContext
+      );
+      if (!normalizedRuntime) {
+        return expectedType;
+      }
+
+      const actualArgumentType =
+        resolveEffectiveExpressionType(arg, currentContext) ?? arg.inferredType;
+
+      if (
+        actualArgumentType &&
+        matchesExpectedEmissionType(
+          actualArgumentType,
+          normalizedRuntime,
           currentContext
-        );
-        if (!normalizedRuntime) {
-          return expectedType;
-        }
+        )
+      ) {
+        return normalizedRuntime;
+      }
 
-        const actualArgumentType =
-          resolveEffectiveExpressionType(arg, currentContext) ?? arg.inferredType;
-
-        if (
-          actualArgumentType &&
-          matchesExpectedEmissionType(
-            actualArgumentType,
-            normalizedRuntime,
-            currentContext
-          )
-        ) {
-          return normalizedRuntime;
-        }
-
-        if (
-          normalizedRuntime.kind === "unknownType" ||
-          normalizedRuntime.kind === "anyType" ||
-          (normalizedRuntime.kind === "referenceType" &&
-            normalizedRuntime.name === "object")
-        ) {
-          return normalizedRuntime;
-        }
-        return expectedType ?? normalizedRuntime;
-      })();
+      if (
+        normalizedRuntime.kind === "unknownType" ||
+        normalizedRuntime.kind === "anyType" ||
+        (normalizedRuntime.kind === "referenceType" &&
+          normalizedRuntime.name === "object")
+      ) {
+        return normalizedRuntime;
+      }
+      return expectedType ?? normalizedRuntime;
+    })();
 
     if (arg.kind === "spread") {
       const [spreadAst, ctx] = emitExpressionAst(
@@ -3511,7 +3515,8 @@ export const emitCall = (
   // Extension method lowering: emit explicit static invocation with receiver as first arg.
   if (
     expr.callee.kind === "memberAccess" &&
-    (expr.callee.memberBinding ?? recoveredReceiverBinding)?.isExtensionMethod &&
+    (expr.callee.memberBinding ?? recoveredReceiverBinding)
+      ?.isExtensionMethod &&
     isInstanceMemberAccess(expr.callee, context) &&
     !shouldPreferNativeArrayWrapperInterop(
       expr.callee.memberBinding ?? recoveredReceiverBinding,

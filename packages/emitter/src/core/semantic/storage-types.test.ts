@@ -177,4 +177,60 @@ describe("storage-types", () => {
       ],
     });
   });
+
+  it("erases bare out-of-scope type-parameter storage to object", () => {
+    expect(
+      normalizeRuntimeStorageType(
+        { kind: "typeParameterType", name: "T" },
+        context
+      )
+    ).to.deep.equal({
+      kind: "referenceType",
+      name: "object",
+      resolvedClrType: "System.Object",
+    });
+  });
+
+  it("preserves in-scope bare type-parameter storage", () => {
+    const genericContext: EmitterContext = {
+      ...context,
+      typeParameters: new Set(["T"]),
+      typeParamConstraints: new Map([["T", "unconstrained"]]),
+    };
+
+    expect(
+      normalizeRuntimeStorageType(
+        { kind: "typeParameterType", name: "T" },
+        genericContext
+      )
+    ).to.deep.equal({
+      kind: "typeParameterType",
+      name: "T",
+    });
+  });
+
+  it("erases out-of-scope type parameters nested in reference types", () => {
+    expect(
+      normalizeRuntimeStorageType(
+        {
+          kind: "referenceType",
+          name: "List",
+          resolvedClrType: "System.Collections.Generic.List",
+          typeArguments: [{ kind: "typeParameterType", name: "T" }],
+        },
+        context
+      )
+    ).to.deep.equal({
+      kind: "referenceType",
+      name: "List",
+      resolvedClrType: "System.Collections.Generic.List",
+      typeArguments: [
+        {
+          kind: "referenceType",
+          name: "object",
+          resolvedClrType: "System.Object",
+        },
+      ],
+    });
+  });
 });

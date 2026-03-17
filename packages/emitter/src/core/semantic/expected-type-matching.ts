@@ -18,7 +18,10 @@ export const requiresValueTypeMaterialization = (
   expectedType: IrType,
   context: EmitterContext
 ): boolean => {
-  if (!hasRuntimeNullishBranch(actualType) || hasRuntimeNullishBranch(expectedType)) {
+  if (
+    !hasRuntimeNullishBranch(actualType) ||
+    hasRuntimeNullishBranch(expectedType)
+  ) {
     return false;
   }
 

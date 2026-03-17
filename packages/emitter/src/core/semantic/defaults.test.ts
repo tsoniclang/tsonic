@@ -1,7 +1,10 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrType } from "@tsonic/frontend";
-import { getAcceptedParameterType, getAcceptedSurfaceType } from "./defaults.js";
+import {
+  getAcceptedParameterType,
+  getAcceptedSurfaceType,
+} from "./defaults.js";
 
 describe("defaults", () => {
   it("preserves required parameter types as-is", () => {

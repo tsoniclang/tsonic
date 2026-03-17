@@ -12,8 +12,7 @@ const addUndefinedBranch = (type: IrType): IrType => {
   if (
     type.kind === "unionType" &&
     type.types.some(
-      (member) =>
-        member.kind === "primitiveType" && member.name === "undefined"
+      (member) => member.kind === "primitiveType" && member.name === "undefined"
     )
   ) {
     return type;

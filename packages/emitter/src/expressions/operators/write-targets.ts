@@ -79,7 +79,10 @@ export const emitWritableTargetAst = (
 ): [CSharpExpressionAst, EmitterContext] => {
   const suppressedContext = suppressWriteTargetNarrowing(expr, context);
   const rawTarget = unwrapTransparentExpression(expr);
-  const [targetAst, targetContext] = emitExpressionAst(rawTarget, suppressedContext);
+  const [targetAst, targetContext] = emitExpressionAst(
+    rawTarget,
+    suppressedContext
+  );
 
   if (suppressedContext === context) {
     return [targetAst, targetContext];

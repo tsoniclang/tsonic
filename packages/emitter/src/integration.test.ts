@@ -360,12 +360,14 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("if (candidate is Application candidate__is_1)");
+      expect(csharp).to.include(
+        "if (candidate is Application candidate__is_1)"
+      );
       expect(csharp).to.include("candidate__is_1.mountpath =");
       expect(csharp).to.include(
         "return global::Tsonic.Runtime.Union<string[], string>.From2(candidate__is_1.mountpath);"
       );
-      expect(csharp).to.not.include('candidate.mountpath =');
+      expect(csharp).to.not.include("candidate.mountpath =");
     });
   });
 
@@ -1596,14 +1598,16 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "for (int index = 0; index < (handler.As1()).Length; index += 1)"
       );
-      expect(csharp).to.not.include("new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length");
-      expect(csharp).to.not.include("isMiddlewareHandler(global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From2(handler))");
+      expect(csharp).to.not.include(
+        "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"
+      );
+      expect(csharp).to.not.include(
+        "isMiddlewareHandler(global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From2(handler))"
+      );
       expect(csharp).to.include(
         "isMiddlewareHandler(handler.Match(__tsonic_union_member_1 => global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From1(__tsonic_union_member_1), __tsonic_union_member_2 => global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From2(__tsonic_union_member_2), __tsonic_union_member_3 => global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From3(__tsonic_union_member_3)))"
       );
-      expect(csharp).to.include(
-        "result.push((handler.As2()));"
-      );
+      expect(csharp).to.include("result.push((handler.As2()));");
     });
 
     it("prefers assignable conditional supertypes without double runtime-union projection", () => {
@@ -2002,7 +2006,6 @@ describe("End-to-End Integration", () => {
         "new global::System.Collections.Generic.Dictionary"
       );
     });
-
   });
 
   describe("Object Literal Methods", () => {

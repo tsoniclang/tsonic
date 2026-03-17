@@ -996,10 +996,9 @@ export const tryResolvePredicateGuard = (
 
   const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
   const currentSubsetBinding = context.narrowedBindings?.get(originalName);
-  const rawContext =
-    currentSubsetBinding
-      ? withoutNarrowedBinding(context, originalName)
-      : context;
+  const rawContext = currentSubsetBinding
+    ? withoutNarrowedBinding(context, originalName)
+    : context;
   const rawReceiverType =
     target.kind === "identifier"
       ? (rawContext.localValueTypes?.get(target.name) ??

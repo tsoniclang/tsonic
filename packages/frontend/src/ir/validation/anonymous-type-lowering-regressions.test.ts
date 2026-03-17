@@ -670,7 +670,8 @@ describe("Anonymous Type Lowering Regression Coverage", () => {
 
     const lowered = runAnonymousTypeLoweringPass([module]);
     const anonModule = lowered.modules.find(
-      (candidate) => candidate.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+      (candidate) =>
+        candidate.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
     );
     const anonClass = anonModule?.body.find(
       (

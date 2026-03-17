@@ -17,13 +17,13 @@ import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import {
   matchesTypeofTag,
   narrowTypeByNotTypeofTag,
-    narrowTypeByTypeofTag,
-    splitRuntimeNullishUnionMembers,
-    stripNullish,
-    resolveTypeAlias,
-    isDefinitelyValueType,
-    unionMemberMatchesTarget,
-  } from "./type-resolution.js";
+  narrowTypeByTypeofTag,
+  splitRuntimeNullishUnionMembers,
+  stripNullish,
+  resolveTypeAlias,
+  isDefinitelyValueType,
+  unionMemberMatchesTarget,
+} from "./type-resolution.js";
 import { stableIrTypeKey } from "@tsonic/frontend";
 import {
   buildRuntimeUnionFrame,
@@ -35,7 +35,10 @@ import {
 } from "./runtime-unions.js";
 import { normalizeInstanceofTargetType } from "./instanceof-targets.js";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
-import { tryBuildRuntimeMaterializationAst } from "./runtime-reification.js";
+import {
+  RuntimeMaterializationSourceFrame,
+  tryBuildRuntimeMaterializationAst,
+} from "./runtime-reification.js";
 import { unwrapTransparentNarrowingTarget } from "./transparent-expressions.js";
 
 type BranchTruthiness = "truthy" | "falsy";
@@ -136,13 +139,24 @@ const buildRuntimeSubsetExpressionAst = (
     return undefined;
   }
 
+  const sourceFrame: RuntimeMaterializationSourceFrame | undefined =
+    narrowed.sourceMembers &&
+    narrowed.sourceCandidateMemberNs &&
+    narrowed.sourceMembers.length === narrowed.sourceCandidateMemberNs.length
+      ? {
+          members: narrowed.sourceMembers,
+          candidateMemberNs: narrowed.sourceCandidateMemberNs,
+        }
+      : undefined;
+
   return tryBuildRuntimeMaterializationAst(
     identifierExpression(escapeCSharpIdentifier(expr.name)),
     sourceType,
     subsetType,
     context,
     emitTypeAst,
-    new Set(narrowed.runtimeMemberNs)
+    new Set(narrowed.runtimeMemberNs),
+    sourceFrame
   );
 };
 
@@ -587,7 +601,10 @@ const buildRuntimeUnionSubsetBinding = (
         kind: "lambdaExpression",
         isAsync: false,
         parameters: [{ name: parameterName }],
-        body: buildInvalidRuntimeUnionCastExpression(actualMember, narrowedType),
+        body: buildInvalidRuntimeUnionCastExpression(
+          actualMember,
+          narrowedType
+        ),
       });
       continue;
     }
@@ -597,7 +614,9 @@ const buildRuntimeUnionSubsetBinding = (
       return typeAst;
     })();
     const expectedMemberIndex =
-      expectedMemberIndexByAstKey.get(stableTypeKeyFromAst(sourceMemberTypeAst)) ??
+      expectedMemberIndexByAstKey.get(
+        stableTypeKeyFromAst(sourceMemberTypeAst)
+      ) ??
       findRuntimeUnionMemberIndex(
         subsetLayout.members,
         actualMember,
@@ -609,7 +628,10 @@ const buildRuntimeUnionSubsetBinding = (
         kind: "lambdaExpression",
         isAsync: false,
         parameters: [{ name: parameterName }],
-        body: buildInvalidRuntimeUnionCastExpression(actualMember, narrowedType),
+        body: buildInvalidRuntimeUnionCastExpression(
+          actualMember,
+          narrowedType
+        ),
       });
       continue;
     }
@@ -636,15 +658,14 @@ const buildRuntimeUnionSubsetBinding = (
     arguments: lambdaArgs,
   };
 
-  const exprAst =
-    split?.hasRuntimeNullish
-      ? buildConditionalNullishGuardAst(
-          receiverAst,
-          matchExpr,
-          narrowedType,
-          subsetTypeContext
-        )[0]
-      : matchExpr;
+  const exprAst = split?.hasRuntimeNullish
+    ? buildConditionalNullishGuardAst(
+        receiverAst,
+        matchExpr,
+        narrowedType,
+        subsetTypeContext
+      )[0]
+    : matchExpr;
 
   return [
     buildExprBinding(exprAst, narrowedType, sourceType, receiverAst),
@@ -693,7 +714,10 @@ const applyDirectTypeNarrowing = (
       return [existingBinding.exprAst, context] as const;
     }
 
-    if (existingBinding.kind === "runtimeSubset" && targetExpr.kind === "identifier") {
+    if (
+      existingBinding.kind === "runtimeSubset" &&
+      targetExpr.kind === "identifier"
+    ) {
       const subsetAst = buildRuntimeSubsetExpressionAst(
         targetExpr,
         existingBinding,
@@ -1074,10 +1098,7 @@ const applyArrayIsArrayRefinement = (
       return applyBinding(
         direct.bindingKey,
         buildExprBinding(
-          buildUnionNarrowAst(
-            rawTargetAst,
-            runtimeArrayPair.runtimeMemberN
-          ),
+          buildUnionNarrowAst(rawTargetAst, runtimeArrayPair.runtimeMemberN),
           narrowedType,
           currentType,
           rawTargetAst

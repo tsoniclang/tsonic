@@ -16,7 +16,10 @@ describe("materialized narrowing", () => {
     const intType = { kind: "primitiveType", name: "int" } as const;
     const nullableIntType = {
       kind: "unionType" as const,
-      types: [intType, { kind: "primitiveType" as const, name: "undefined" as const }],
+      types: [
+        intType,
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
     };
 
     const [ast] = materializeDirectNarrowingAst(

@@ -1147,12 +1147,14 @@ const discoverSourceModuleInfos = (opts: {
     const absolutePath = pending.pop();
     if (!absolutePath) continue;
 
-    const relativePath = posix.normalize(
-      posix.relative(
-        opts.absoluteSourceRoot.replace(/\\/g, "/"),
-        absolutePath.replace(/\\/g, "/")
+    const relativePath = posix
+      .normalize(
+        posix.relative(
+          opts.absoluteSourceRoot.replace(/\\/g, "/"),
+          absolutePath.replace(/\\/g, "/")
+        )
       )
-    ).replace(/^\/+/, "");
+      .replace(/^\/+/, "");
     if (relativePath.startsWith("..")) {
       return {
         ok: false,
@@ -1976,8 +1978,7 @@ export const augmentLibraryBindingsFromSource = (
   if (!entrySourceModule) {
     return {
       ok: false,
-      error:
-        `Failed to discover entry source module for bindings augmentation: ${absoluteEntryPoint}`,
+      error: `Failed to discover entry source module for bindings augmentation: ${absoluteEntryPoint}`,
     };
   }
 
@@ -1993,7 +1994,9 @@ export const augmentLibraryBindingsFromSource = (
   }
 
   const irModules = graphResult?.ok ? graphResult.value.modules : [];
-  const entryModule = graphResult?.ok ? graphResult.value.entryModule : undefined;
+  const entryModule = graphResult?.ok
+    ? graphResult.value.entryModule
+    : undefined;
   const facadesByNamespace = new Map(indexFacadeFiles(bindingsOutDir));
   const modulesByFile = new Map<string, IrModule>();
   for (const m of irModules) {
@@ -2077,8 +2080,7 @@ export const augmentLibraryBindingsFromSource = (
       if (!sourceModule) {
         return {
           ok: false,
-          error:
-            `Failed to locate source module metadata for ${moduleKey} during bindings augmentation.`,
+          error: `Failed to locate source module metadata for ${moduleKey} during bindings augmentation.`,
         };
       }
       const sourceIndex = (() => {
@@ -2154,53 +2156,53 @@ export const augmentLibraryBindingsFromSource = (
   if (needsFullGraph && entryModule) {
     const reexports = entryModule.exports.filter((e) => e.kind === "reexport");
     if (reexports.length > 0) {
-    type GroupKey = `${string}|${"type" | "value"}`;
-    const grouped = new Map<GroupKey, string[]>();
+      type GroupKey = `${string}|${"type" | "value"}`;
+      const grouped = new Map<GroupKey, string[]>();
 
-    for (const exp of reexports) {
-      const targetModule = resolveLocalModuleFile(
-        exp.fromModule,
-        entryModule.filePath,
-        modulesByFile
-      );
-      if (!targetModule) {
-        return {
-          ok: false,
-          error:
-            `Failed to resolve re-export '${exp.name}' from '${exp.fromModule}' in ${entryModule.filePath}.\n` +
-            `Ensure the target module is within sourceRoot and is part of the build graph.`,
-        };
+      for (const exp of reexports) {
+        const targetModule = resolveLocalModuleFile(
+          exp.fromModule,
+          entryModule.filePath,
+          modulesByFile
+        );
+        if (!targetModule) {
+          return {
+            ok: false,
+            error:
+              `Failed to resolve re-export '${exp.name}' from '${exp.fromModule}' in ${entryModule.filePath}.\n` +
+              `Ensure the target module is within sourceRoot and is part of the build graph.`,
+          };
+        }
+
+        if (targetModule.namespace === entryModule.namespace) {
+          // Re-export from same namespace is redundant; the facade already exports public members for that namespace.
+          continue;
+        }
+
+        const targetFacade = ensureFacade(targetModule.namespace);
+
+        const kind = classifyExportKind(targetModule, exp.originalName);
+        if (kind === "unknown") {
+          return {
+            ok: false,
+            error:
+              `Failed to classify re-export '${exp.name}' from '${exp.fromModule}'.\n` +
+              `Could not find an exported declaration named '${exp.originalName}' in ${targetModule.filePath}.`,
+          };
+        }
+        const spec =
+          exp.name === exp.originalName
+            ? exp.name
+            : `${exp.originalName} as ${exp.name}`;
+        const isTypeOnly = kind === "type";
+        const key: GroupKey = `${targetFacade.moduleSpecifier}|${isTypeOnly ? "type" : "value"}`;
+        const list = grouped.get(key) ?? [];
+        list.push(spec);
+        grouped.set(key, list);
       }
 
-      if (targetModule.namespace === entryModule.namespace) {
-        // Re-export from same namespace is redundant; the facade already exports public members for that namespace.
-        continue;
-      }
-
-      const targetFacade = ensureFacade(targetModule.namespace);
-
-      const kind = classifyExportKind(targetModule, exp.originalName);
-      if (kind === "unknown") {
-        return {
-          ok: false,
-          error:
-            `Failed to classify re-export '${exp.name}' from '${exp.fromModule}'.\n` +
-            `Could not find an exported declaration named '${exp.originalName}' in ${targetModule.filePath}.`,
-        };
-      }
-      const spec =
-        exp.name === exp.originalName
-          ? exp.name
-          : `${exp.originalName} as ${exp.name}`;
-      const isTypeOnly = kind === "type";
-      const key: GroupKey = `${targetFacade.moduleSpecifier}|${isTypeOnly ? "type" : "value"}`;
-      const list = grouped.get(key) ?? [];
-      list.push(spec);
-      grouped.set(key, list);
-    }
-
-    const start = "// Tsonic entrypoint re-exports (generated)";
-    const end = "// End Tsonic entrypoint re-exports";
+      const start = "// Tsonic entrypoint re-exports (generated)";
+      const end = "// End Tsonic entrypoint re-exports";
 
       const statements: string[] = [];
       for (const [key, specs] of Array.from(grouped.entries()).sort((a, b) =>
@@ -2359,7 +2361,8 @@ export const augmentLibraryBindingsFromSource = (
     }
 
     for (const className of sourceModule.exportedClassNames) {
-      const memberTypes = sourceIndex.memberTypesByClassAndMember.get(className);
+      const memberTypes =
+        sourceIndex.memberTypesByClassAndMember.get(className);
       if (!memberTypes) continue;
 
       for (const [memberName, sourceMember] of memberTypes) {

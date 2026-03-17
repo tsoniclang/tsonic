@@ -7,6 +7,7 @@ import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 import { unwrapParameterModifierType } from "./parameter-modifier-types.js";
 import { unwrapTransparentExpression } from "./transparent-expressions.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
+import { isAssignable } from "./index.js";
 
 export type EmitExprAstFn = (
   expr: IrExpression,
@@ -107,7 +108,9 @@ const resolveAssignmentStorageType = (
   context: EmitterContext
 ): IrExpression["inferredType"] => {
   if (targetExpr.kind === "identifier") {
-    return context.localValueTypes?.get(targetExpr.name) ?? targetExpr.inferredType;
+    return (
+      context.localValueTypes?.get(targetExpr.name) ?? targetExpr.inferredType
+    );
   }
 
   return targetExpr.inferredType;
@@ -136,7 +139,8 @@ export const applyAssignmentStatementNarrowing = (
   }
 
   const assignedType =
-    resolveEffectiveExpressionType(expr.right, context) ?? expr.right.inferredType;
+    resolveEffectiveExpressionType(expr.right, context) ??
+    expr.right.inferredType;
   if (!assignedType) {
     return context;
   }
@@ -158,12 +162,13 @@ export const applyAssignmentStatementNarrowing = (
     withoutNarrowedBinding(context, bindingTarget.bindingKey)
   );
 
-  const [materializedExprAst, materializedContext] = materializeDirectNarrowingAst(
-    targetExprAst,
-    comparableStorageType,
-    comparableAssignedType,
-    targetContext
-  );
+  const [materializedExprAst, materializedContext] =
+    materializeDirectNarrowingAst(
+      targetExprAst,
+      comparableStorageType,
+      comparableAssignedType,
+      targetContext
+    );
 
   const preserveConcreteStorageSurface = shouldPreserveConcreteStorageSurface(
     targetExprAst,
@@ -171,17 +176,23 @@ export const applyAssignmentStatementNarrowing = (
     comparableStorageType,
     materializedContext
   );
+  const preserveReadableMemberSurface =
+    bindingTarget.targetExpr.kind === "memberAccess" &&
+    isConcreteStorageType(comparableStorageType, materializedContext) &&
+    !isAssignable(comparableAssignedType, comparableStorageType);
 
   const narrowedBindings = new Map(materializedContext.narrowedBindings ?? []);
   const nextBinding: NarrowedBinding = {
     kind: "expr",
-    exprAst: preserveConcreteStorageSurface
-      ? targetExprAst
-      : materializedExprAst,
+    exprAst:
+      preserveConcreteStorageSurface || preserveReadableMemberSurface
+        ? targetExprAst
+        : materializedExprAst,
     storageExprAst: targetExprAst,
-    type: preserveConcreteStorageSurface
-      ? comparableStorageType
-      : comparableAssignedType,
+    type:
+      preserveConcreteStorageSurface || preserveReadableMemberSurface
+        ? comparableStorageType
+        : comparableAssignedType,
     sourceType: comparableStorageType,
   };
   narrowedBindings.set(bindingTarget.bindingKey, nextBinding);

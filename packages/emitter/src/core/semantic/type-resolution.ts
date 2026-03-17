@@ -2109,7 +2109,11 @@ export const findUnionMemberIndex = (
         return false;
       }
 
-      for (let index = 0; index < resolvedMember.parameters.length; index += 1) {
+      for (
+        let index = 0;
+        index < resolvedMember.parameters.length;
+        index += 1
+      ) {
         const memberParam = resolvedMember.parameters[index];
         const candidateParam = resolvedCandidate.parameters[index];
         if (!memberParam || !candidateParam) {

@@ -6,9 +6,7 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, NarrowedBinding } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
-import {
-  identifierExpression,
-} from "../core/format/backend-ast/builders.js";
+import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import {
   stableIdentifierSuffixFromTypeAst,
   stableTypeKeyFromAst,
@@ -19,7 +17,11 @@ import {
   requiresValueTypeMaterialization,
 } from "../core/semantic/expected-type-matching.js";
 import { materializeDirectNarrowingAst } from "../core/semantic/materialized-narrowing.js";
-import { tryBuildRuntimeMaterializationAst, tryBuildRuntimeReificationPlan } from "../core/semantic/runtime-reification.js";
+import {
+  RuntimeMaterializationSourceFrame,
+  tryBuildRuntimeMaterializationAst,
+  tryBuildRuntimeReificationPlan,
+} from "../core/semantic/runtime-reification.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import {
   resolveTypeAlias,
@@ -58,13 +60,24 @@ const buildRuntimeSubsetExpressionAst = (
     return undefined;
   }
 
+  const sourceFrame: RuntimeMaterializationSourceFrame | undefined =
+    narrowed.sourceMembers &&
+    narrowed.sourceCandidateMemberNs &&
+    narrowed.sourceMembers.length === narrowed.sourceCandidateMemberNs.length
+      ? {
+          members: narrowed.sourceMembers,
+          candidateMemberNs: narrowed.sourceCandidateMemberNs,
+        }
+      : undefined;
+
   return tryBuildRuntimeMaterializationAst(
     identifierExpression(escapeCSharpIdentifier(expr.name)),
     sourceType,
     subsetType,
     context,
     emitTypeAst,
-    new Set(narrowed.runtimeMemberNs)
+    new Set(narrowed.runtimeMemberNs),
+    sourceFrame
   );
 };
 
@@ -341,7 +354,8 @@ const matchesEmittedStorageSurface = (
   );
 
   return [
-    stableTypeKeyFromAst(actualTypeAst) === stableTypeKeyFromAst(expectedTypeAst),
+    stableTypeKeyFromAst(actualTypeAst) ===
+      stableTypeKeyFromAst(expectedTypeAst),
     expectedTypeContext,
   ];
 };
@@ -397,10 +411,7 @@ export const emitIdentifier = (
         return [storageFallback, context];
       }
 
-      const collapsedStorage = tryEmitCollapsedStorageIdentifier(
-        expr,
-        context
-      );
+      const collapsedStorage = tryEmitCollapsedStorageIdentifier(expr, context);
       if (collapsedStorage) {
         return collapsedStorage;
       }

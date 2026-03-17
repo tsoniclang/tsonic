@@ -165,7 +165,10 @@ const traceLengthAccessOrigin = (
     );
   }
 
-  if (ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression)) {
+  if (
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression)
+  ) {
     return traceLengthAccessOrigin(
       expression.expression,
       checker,
@@ -194,9 +197,7 @@ const traceLengthAccessOrigin = (
   return { expression, throughAssertion };
 };
 
-const getLengthAccessReceiver = (
-  node: ts.Node
-): ts.Expression | undefined => {
+const getLengthAccessReceiver = (node: ts.Node): ts.Expression | undefined => {
   if (
     (ts.isPropertyAccessExpression(node) || ts.isPropertyAccessChain(node)) &&
     node.name.text === "length"

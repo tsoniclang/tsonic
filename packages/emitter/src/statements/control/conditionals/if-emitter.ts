@@ -61,14 +61,8 @@ const mergeBranchContextMeta = (
   alternate: EmitterContext
 ): EmitterContext => ({
   ...preferred,
-  tempVarId: Math.max(
-    preferred.tempVarId ?? 0,
-    alternate.tempVarId ?? 0
-  ),
-  usings: new Set([
-    ...(preferred.usings ?? []),
-    ...(alternate.usings ?? []),
-  ]),
+  tempVarId: Math.max(preferred.tempVarId ?? 0, alternate.tempVarId ?? 0),
+  usings: new Set([...(preferred.usings ?? []), ...(alternate.usings ?? [])]),
 });
 
 const resetBranchFlowState = (

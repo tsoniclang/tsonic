@@ -393,7 +393,9 @@ const collectPubliclyReachableAnonymousTypes = (
   }
 
   return new Set(
-    [...reachable].filter((name) => generatedDeclarations.some((d) => d.name === name))
+    [...reachable].filter((name) =>
+      generatedDeclarations.some((d) => d.name === name)
+    )
   );
 };
 

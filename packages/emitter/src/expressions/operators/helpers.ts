@@ -5,7 +5,10 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
-import { resolveTypeAlias, stripNullish } from "../../core/semantic/type-resolution.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
 import { unwrapTransparentExpression } from "../../core/semantic/transparent-expressions.js";
 
 /**
@@ -187,15 +190,14 @@ export const getDictionaryComputedAccess = (
   }
 
   const effectiveObjectType =
-    resolveEffectiveExpressionType(target.object, context) ?? target.object.inferredType;
+    resolveEffectiveExpressionType(target.object, context) ??
+    target.object.inferredType;
   if (!effectiveObjectType) {
     return undefined;
   }
 
-  return (
-    resolveTypeAlias(stripNullish(effectiveObjectType), context).kind ===
+  return resolveTypeAlias(stripNullish(effectiveObjectType), context).kind ===
     "dictionaryType"
-  )
     ? (target as DictionaryComputedAccessExpression)
     : undefined;
 };

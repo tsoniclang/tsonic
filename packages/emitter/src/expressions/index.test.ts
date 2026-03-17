@@ -2628,6 +2628,102 @@ describe("Expression Emission", () => {
     expect(result).to.not.include("channels.length");
   });
 
+  it("should emit CLR Length when imported array references lower to native arrays", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "process",
+                inferredType: {
+                  kind: "referenceType",
+                  name: "Demo.ProcessModule",
+                  resolvedClrType: "Demo.ProcessModule",
+                },
+              },
+              property: "argv",
+              isComputed: false,
+              isOptional: false,
+              inferredType: {
+                kind: "referenceType",
+                name: "Array",
+                typeArguments: [{ kind: "primitiveType", name: "string" }],
+              },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("process.argv.Length");
+    expect(result).to.not.include("process.argv.length");
+  });
+
+  it("should emit JSArray length for imported array references on the JS surface", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "process",
+                inferredType: {
+                  kind: "referenceType",
+                  name: "Demo.ProcessModule",
+                  resolvedClrType: "Demo.ProcessModule",
+                },
+              },
+              property: "argv",
+              isComputed: false,
+              isOptional: false,
+              inferredType: {
+                kind: "referenceType",
+                name: "Array",
+                typeArguments: [{ kind: "primitiveType", name: "string" }],
+              },
+            },
+            property: "length",
+            isComputed: false,
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "@tsonic/js" });
+    expect(result).to.include(
+      "new global::Tsonic.JSRuntime.JSArray<string>(process.argv).length"
+    );
+    expect(result).to.not.include("process.argv.Length");
+  });
+
   it("should recover JS string length fallback under JS surface when narrowing lost the original binding", () => {
     const module: IrModule = {
       kind: "module",

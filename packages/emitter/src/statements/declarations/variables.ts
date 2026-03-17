@@ -1133,18 +1133,22 @@ const resolveEffectiveVariableInitializerType = (
   }
 
   const expression = initializer as IrExpression;
+  const normalize = (type: IrType | undefined): IrType | undefined =>
+    normalizeRuntimeStorageType(type, context) ?? type;
 
   if (expression.kind === "typeAssertion") {
-    return expression.targetType;
+    return normalize(expression.targetType);
   }
 
   if (expression.kind === "asinterface") {
-    return resolveAsInterfaceTargetType(expression.targetType, context);
+    return normalize(
+      resolveAsInterfaceTargetType(expression.targetType, context)
+    );
   }
 
-  return (
+  return normalize(
     resolveEffectiveExpressionType(expression, context) ??
-    expression.inferredType
+      expression.inferredType
   );
 };
 

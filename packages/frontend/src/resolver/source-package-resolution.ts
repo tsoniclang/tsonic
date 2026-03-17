@@ -164,9 +164,7 @@ const readManifest = (
         )
       );
     }
-    return ok(
-      parsed as SourcePackageManifest
-    );
+    return ok(parsed as SourcePackageManifest);
   } catch (err) {
     return error(
       createDiagnostic(
@@ -391,7 +389,7 @@ export const resolveSourcePackageImport = (
         undefined,
         "schemaVersion must be 1."
       )
-      );
+    );
   }
 
   if (manifest.kind !== "tsonic-source-package") {
@@ -416,7 +414,7 @@ export const resolveSourcePackageImport = (
         undefined,
         `Supported surfaces: ${surfaces.value.join(", ")}`
       )
-      );
+    );
   }
 
   const source = parseSourceSection(manifest.source, manifestPath);
@@ -436,7 +434,7 @@ export const resolveSourcePackageImport = (
         undefined,
         `Declare it in ${path.relative(packageRoot, manifestPath)} under source.exports.`
       )
-      );
+    );
   }
 
   const resolvedTarget = resolveExportTarget(packageRoot, target);

@@ -32,6 +32,7 @@ import {
 } from "../core/format/backend-ast/builders.js";
 import {
   extractCalleeNameFromAst,
+  getIdentifierTypeLeafName,
   getIdentifierTypeName,
   stableTypeKeyFromAst,
 } from "../core/format/backend-ast/utils.js";
@@ -245,10 +246,8 @@ const emitStorageCompatibleArrayWrapperElementTypeAst = (
   fallbackElementType: IrType,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  const [storageReceiverTypeAst, storageContext] = resolveEmittedReceiverTypeAst(
-    receiverExpr,
-    context
-  );
+  const [storageReceiverTypeAst, storageContext] =
+    resolveEmittedReceiverTypeAst(receiverExpr, context);
   const concreteStorageReceiverTypeAst = storageReceiverTypeAst
     ? unwrapNullableTypeAst(storageReceiverTypeAst)
     : undefined;
@@ -359,8 +358,11 @@ const maybeReifyStorageErasedMemberRead = (
 
   const storageType =
     normalizeRuntimeStorageType(
-      getPropertyType(resolveEffectiveExpressionType(expr.object, context), expr.property, context) ??
-        expr.inferredType,
+      getPropertyType(
+        resolveEffectiveExpressionType(expr.object, context),
+        expr.property,
+        context
+      ) ?? expr.inferredType,
       context
     ) ?? expr.inferredType;
 
@@ -458,7 +460,9 @@ const isStringReceiverType = (
 };
 
 const isLengthPropertyName = (propertyName: string): boolean =>
-  propertyName === "length" || propertyName === "Length" || propertyName === "Count";
+  propertyName === "length" ||
+  propertyName === "Length" ||
+  propertyName === "Count";
 
 const tryEmitErasedLengthAccess = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
@@ -476,8 +480,7 @@ const tryEmitErasedLengthAccess = (
   }
 
   const propertyType =
-    getPropertyType(objectType, expr.property, context) ??
-    expr.inferredType;
+    getPropertyType(objectType, expr.property, context) ?? expr.inferredType;
   if (!propertyType) {
     return undefined;
   }
@@ -569,6 +572,158 @@ const tryEmitErasedLengthAccess = (
       ],
     },
     propertyTypeContext,
+  ];
+};
+
+const tryEmitConcreteReceiverLengthAccess = (
+  expr: Extract<IrExpression, { kind: "memberAccess" }>,
+  objectAst: CSharpExpressionAst,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    expr.isComputed ||
+    typeof expr.property !== "string" ||
+    !isLengthPropertyName(expr.property)
+  ) {
+    return undefined;
+  }
+
+  const [receiverTypeAst, receiverTypeContext] = resolveEmittedReceiverTypeAst(
+    expr.object,
+    context
+  );
+  const concreteReceiverTypeAst = receiverTypeAst
+    ? unwrapNullableTypeAst(receiverTypeAst)
+    : undefined;
+
+  if (!concreteReceiverTypeAst) {
+    return undefined;
+  }
+
+  if (concreteReceiverTypeAst.kind === "arrayType") {
+    return [
+      {
+        kind: expr.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: objectAst,
+        memberName: "Length",
+      },
+      receiverTypeContext,
+    ];
+  }
+
+  const receiverTypeName = getIdentifierTypeName(concreteReceiverTypeAst);
+  const receiverLeafName = getIdentifierTypeLeafName(concreteReceiverTypeAst);
+  if (
+    receiverTypeName === "global::System.Array" ||
+    receiverTypeName === "System.Array" ||
+    receiverLeafName === "Array"
+  ) {
+    return [
+      {
+        kind: expr.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: objectAst,
+        memberName: "Length",
+      },
+      receiverTypeContext,
+    ];
+  }
+
+  if (
+    receiverLeafName === "ICollection" ||
+    receiverLeafName === "IReadOnlyCollection"
+  ) {
+    return [
+      {
+        kind: expr.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: objectAst,
+        memberName: "Count",
+      },
+      receiverTypeContext,
+    ];
+  }
+
+  return undefined;
+};
+
+const tryEmitJsSurfaceArrayLikeLengthAccess = (
+  expr: Extract<IrExpression, { kind: "memberAccess" }>,
+  objectAst: CSharpExpressionAst,
+  objectType: IrType | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (
+    context.options.surface !== "@tsonic/js" ||
+    expr.isComputed ||
+    typeof expr.property !== "string" ||
+    !isLengthPropertyName(expr.property)
+  ) {
+    return undefined;
+  }
+
+  const [receiverTypeAst, receiverTypeContext] = resolveEmittedReceiverTypeAst(
+    expr.object,
+    context
+  );
+  const concreteReceiverTypeAst = receiverTypeAst
+    ? unwrapNullableTypeAst(receiverTypeAst)
+    : undefined;
+
+  if (concreteReceiverTypeAst?.kind === "arrayType") {
+    const elementTypeAst = eraseOutOfScopeArrayWrapperTypeParameters(
+      concreteReceiverTypeAst.elementType,
+      receiverTypeContext
+    );
+    return [
+      {
+        kind: expr.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: {
+          kind: "objectCreationExpression",
+          type: identifierType("global::Tsonic.JSRuntime.JSArray", [
+            elementTypeAst,
+          ]),
+          arguments: [objectAst],
+        },
+        memberName: "length",
+      },
+      receiverTypeContext,
+    ];
+  }
+
+  const arrayLikeReceiver = resolveArrayLikeReceiver(objectType, context);
+  if (!arrayLikeReceiver) {
+    return undefined;
+  }
+  const [elementTypeAst, typeContext] =
+    emitStorageCompatibleArrayWrapperElementTypeAst(
+      expr.object,
+      objectType,
+      arrayLikeReceiver.elementType,
+      context
+    );
+
+  return [
+    {
+      kind: expr.isOptional
+        ? "conditionalMemberAccessExpression"
+        : "memberAccessExpression",
+      expression: {
+        kind: "objectCreationExpression",
+        type: identifierType("global::Tsonic.JSRuntime.JSArray", [
+          elementTypeAst,
+        ]),
+        arguments: [objectAst],
+      },
+      memberName: "length",
+    },
+    typeContext,
   ];
 };
 
@@ -881,10 +1036,12 @@ const resolveEmittedReceiverTypeAst = (
       normalizeStructuralEmissionType(arrayLikeElementType, context),
       context
     );
+    const storageCompatibleElementTypeAst =
+      eraseOutOfScopeArrayWrapperTypeParameters(elementTypeAst, elementContext);
     return [
       {
         kind: "arrayType",
-        elementType: elementTypeAst,
+        elementType: storageCompatibleElementTypeAst,
         rank: 1,
       },
       elementContext,
@@ -1197,6 +1354,77 @@ export const emitMemberAccess = (
 
     const receiverType = resolveEffectiveReceiverType(expr.object, context);
     const arrayLikeReceiver = resolveArrayLikeReceiver(receiverType, context);
+    const hasArrayLikeBindingHint =
+      bindingTypeLeaf === "JSArray" ||
+      bindingTypeLeaf === "Array" ||
+      bindingTypeLeaf === "ReadonlyArray" ||
+      type.includes("JSArray") ||
+      type.includes("System.Array");
+    if (
+      usage === "value" &&
+      typeof expr.property === "string" &&
+      isLengthPropertyName(expr.property) &&
+      context.options.surface === "@tsonic/js" &&
+      !expr.memberBinding.isExtensionMethod &&
+      (arrayLikeReceiver || hasArrayLikeBindingHint)
+    ) {
+      const [objectAst, withObject] = emitExpressionAst(expr.object, context);
+      const jsSurfaceArrayLengthAccess = tryEmitJsSurfaceArrayLikeLengthAccess(
+        expr,
+        objectAst,
+        receiverType,
+        withObject
+      );
+      if (jsSurfaceArrayLengthAccess) {
+        return jsSurfaceArrayLengthAccess;
+      }
+
+      let elementTypeAst: CSharpTypeAst = {
+        kind: "predefinedType",
+        keyword: "object",
+      };
+      let elementContext = withObject;
+
+      if (arrayLikeReceiver) {
+        [elementTypeAst, elementContext] =
+          emitStorageCompatibleArrayWrapperElementTypeAst(
+            expr.object,
+            receiverType,
+            arrayLikeReceiver.elementType,
+            withObject
+          );
+      } else {
+        const [receiverTypeAst, receiverTypeContext] =
+          resolveEmittedReceiverTypeAst(expr.object, withObject);
+        elementContext = receiverTypeContext;
+        const concreteReceiverTypeAst = receiverTypeAst
+          ? unwrapNullableTypeAst(receiverTypeAst)
+          : undefined;
+        if (concreteReceiverTypeAst?.kind === "arrayType") {
+          elementTypeAst = eraseOutOfScopeArrayWrapperTypeParameters(
+            concreteReceiverTypeAst.elementType,
+            receiverTypeContext
+          );
+        }
+      }
+
+      return [
+        {
+          kind: expr.isOptional
+            ? "conditionalMemberAccessExpression"
+            : "memberAccessExpression",
+          expression: {
+            kind: "objectCreationExpression",
+            type: identifierType("global::Tsonic.JSRuntime.JSArray", [
+              elementTypeAst,
+            ]),
+            arguments: [objectAst],
+          },
+          memberName: "length",
+        },
+        elementContext,
+      ];
+    }
     if (
       usage === "value" &&
       arrayLikeReceiver &&
@@ -1349,6 +1577,18 @@ export const emitMemberAccess = (
   }
 
   const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+
+  if (usage === "value") {
+    const jsSurfaceArrayLengthAccess = tryEmitJsSurfaceArrayLikeLengthAccess(
+      expr,
+      objectAst,
+      objectType,
+      newContext
+    );
+    if (jsSurfaceArrayLengthAccess) {
+      return jsSurfaceArrayLengthAccess;
+    }
+  }
 
   if (expr.isComputed) {
     const accessKind = expr.accessKind;
@@ -1659,6 +1899,15 @@ export const emitMemberAccess = (
         ];
       }
     }
+  }
+
+  const concreteReceiverLengthAccess = tryEmitConcreteReceiverLengthAccess(
+    expr,
+    objectAst,
+    newContext
+  );
+  if (concreteReceiverLengthAccess) {
+    return concreteReceiverLengthAccess;
   }
 
   const erasedLengthAccess = tryEmitErasedLengthAccess(

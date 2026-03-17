@@ -13,9 +13,7 @@ import {
   createDiagnostic,
   SourceLocation,
 } from "../../types/diagnostic.js";
-import {
-  isKnownBuiltinReferenceType,
-} from "./known-builtin-reference-types.js";
+import { isKnownBuiltinReferenceType } from "./known-builtin-reference-types.js";
 import {
   IrModule,
   IrStatement,

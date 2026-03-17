@@ -1537,10 +1537,7 @@ describe("type-resolution", () => {
       const result = findUnionMemberIndex(
         {
           kind: "unionType",
-          types: [
-            middlewareLikeRef,
-            { kind: "primitiveType", name: "string" },
-          ],
+          types: [middlewareLikeRef, { kind: "primitiveType", name: "string" }],
         },
         middlewareLikeRef,
         context

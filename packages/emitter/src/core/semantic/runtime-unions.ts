@@ -734,12 +734,16 @@ export const findExactRuntimeUnionMemberIndices = (
   target: IrType,
   context: EmitterContext
 ): readonly number[] => {
-  const targetKey = stableIrTypeKey(resolveTypeAlias(stripNullish(target), context));
+  const targetKey = stableIrTypeKey(
+    resolveTypeAlias(stripNullish(target), context)
+  );
   return members.flatMap((member, index) => {
     if (!member) {
       return [];
     }
-    const memberKey = stableIrTypeKey(resolveTypeAlias(stripNullish(member), context));
+    const memberKey = stableIrTypeKey(
+      resolveTypeAlias(stripNullish(member), context)
+    );
     return memberKey === targetKey ? [index] : [];
   });
 };

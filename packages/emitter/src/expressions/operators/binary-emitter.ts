@@ -93,7 +93,9 @@ const isNumericOperandType = (type: IrType | undefined): boolean => {
   return isIntegerType(widened);
 };
 
-const widenLiteralComparisonType = (type: IrType | undefined): IrType | undefined => {
+const widenLiteralComparisonType = (
+  type: IrType | undefined
+): IrType | undefined => {
   if (!type || type.kind !== "literalType") {
     return type;
   }
@@ -511,10 +513,9 @@ export const emitBinary = (
     //
     //   dict[key] === undefined  -> !dict.ContainsKey(key)
     //   dict[key] !== undefined  ->  dict.ContainsKey(key)
-    const dictionaryTarget =
-      isUndefinedLiteral
-        ? getDictionaryComputedAccess(nonNullishTarget, context)
-        : undefined;
+    const dictionaryTarget = isUndefinedLiteral
+      ? getDictionaryComputedAccess(nonNullishTarget, context)
+      : undefined;
     if (dictionaryTarget) {
       const nonNullishContext = buildNullishComparisonContext(
         dictionaryTarget,
@@ -560,7 +561,10 @@ export const emitBinary = (
       nonNullishContext
     );
 
-    const inferred = resolveComparisonOperandType(nonNullishExpr, resultContext);
+    const inferred = resolveComparisonOperandType(
+      nonNullishExpr,
+      resultContext
+    );
     const base = inferred ? stripNullish(inferred) : undefined;
     const hasRuntimeUnionCarrier =
       base !== undefined &&
