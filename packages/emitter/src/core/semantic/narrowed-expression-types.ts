@@ -201,5 +201,5 @@ export const resolveEffectiveExpressionType = (
     }
   }
 
-  return baseType ?? registeredSemanticType;
+  return registeredSemanticType ?? baseType;
 };
