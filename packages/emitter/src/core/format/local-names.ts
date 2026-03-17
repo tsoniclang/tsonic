@@ -62,21 +62,6 @@ export const registerLocalName = (
   return { ...context, localNameMap: nextMap };
 };
 
-/** @deprecated Use registerLocalSymbolTypes or registerLocalFixedType instead. */
-export const registerLocalValueType = (
-  originalName: string,
-  type: IrType | undefined,
-  context: EmitterContext
-): EmitterContext => {
-  if (!type) {
-    return context;
-  }
-
-  const nextMap = new Map(context.localValueTypes ?? []);
-  nextMap.set(originalName, type);
-  return { ...context, localValueTypes: nextMap };
-};
-
 /**
  * Register both semantic and storage types for a local symbol.
  *

@@ -75,8 +75,8 @@ export const materializeDirectNarrowingAst = (
 
   const runtimeMaterialized = tryBuildRuntimeMaterializationAst(
     sourceAst,
-    comparableSourceType,
-    comparableNarrowedType,
+    sourceType,
+    narrowedType,
     context,
     emitTypeAst
   );

@@ -1,5 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
+import type { IrType } from "@tsonic/frontend";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 import type { EmitterContext } from "../../emitter-types/core.js";
 
@@ -58,5 +59,75 @@ describe("materialized narrowing", () => {
       expression: { kind: "identifierExpression", identifier: "flag" },
       memberName: "Value",
     });
+  });
+
+  it("produces .Value unwrap for ref-wrapped nullable value types", () => {
+    const numberType: IrType = { kind: "primitiveType", name: "number" };
+    const undefinedType: IrType = {
+      kind: "primitiveType",
+      name: "undefined",
+    };
+    const sourceAst = {
+      kind: "identifierExpression" as const,
+      identifier: "val",
+    };
+
+    // ref<number | undefined> — parameter modifier wrapping a nullable union
+    const refWrappedNullable: IrType = {
+      kind: "referenceType",
+      name: "ref",
+      typeArguments: [
+        { kind: "unionType", types: [numberType, undefinedType] },
+      ],
+    };
+
+    const [ast] = materializeDirectNarrowingAst(
+      sourceAst,
+      refWrappedNullable,
+      numberType,
+      context
+    );
+
+    // Emission-time comparison unwraps ref → sees number | undefined → number.
+    // The nullable value-type .Value path fires, same as a bare number | undefined source.
+    expect(ast).to.deep.equal({
+      kind: "memberAccessExpression",
+      expression: sourceAst,
+      memberName: "Value",
+    });
+  });
+
+  it("does not build union Match when source is ref-wrapped (boundary enforcement)", () => {
+    const stringType: IrType = { kind: "primitiveType", name: "string" };
+    const numberType: IrType = { kind: "primitiveType", name: "number" };
+    const sourceAst = {
+      kind: "identifierExpression" as const,
+      identifier: "val",
+    };
+
+    // ref<string | number> — ref-wrapped multi-member union
+    const refWrappedUnion: IrType = {
+      kind: "referenceType",
+      name: "ref",
+      typeArguments: [{ kind: "unionType", types: [stringType, numberType] }],
+    };
+
+    const [ast] = materializeDirectNarrowingAst(
+      sourceAst,
+      refWrappedUnion,
+      stringType,
+      context
+    );
+
+    // With boundary enforcement, tryBuildRuntimeMaterializationAst receives
+    // the raw ref-wrapped type (not the unwrapped string | number union),
+    // so it cannot build a union layout and returns undefined.
+    // The fallback cast path fires instead.
+    //
+    // If the premature-unwrapping regression reappears (passing the unwrapped
+    // union to tryBuildRuntimeMaterializationAst), this would produce an
+    // invocationExpression (.Match()) instead of a castExpression.
+    expect(ast.kind).to.equal("castExpression");
+    expect(ast).to.not.equal(sourceAst);
   });
 });

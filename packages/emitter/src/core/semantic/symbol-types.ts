@@ -6,6 +6,29 @@
  * these helpers instead of computing semantic/storage splits ad hoc.
  * Each function encapsulates the derivation strategy for its construct kind
  * and delegates to registerLocalSymbolTypes for the actual map update.
+ *
+ * ## Materialization boundary
+ *
+ * The emitter maintains two type channels:
+ *
+ * - **Semantic types** (localSemanticTypes): Authored frontend IR types
+ *   preserving alias identity, union structure, and type-parameter shapes.
+ *   These flow into analysis functions (narrowing, guard analysis, layout
+ *   building, `buildRuntimeUnionLayout`, `tryBuildRuntimeMaterializationAst`).
+ *
+ * - **Storage types** (localValueTypes): CLR-normalized carriers produced
+ *   by `normalizeRuntimeStorageType`. These are used for C# declarations
+ *   and runtime dispatch.
+ *
+ * The lowering boundary is enforced at emission points:
+ *
+ * - `emitTypeAst()` is where semantic → C# AST conversion happens.
+ * - `normalizeRuntimeStorageType` is called only at symbol registration
+ *   time (here) or at final emission boundaries (e.g., `access.ts`).
+ * - Analysis functions must receive semantic types, never pre-lowered
+ *   storage types. Parameter modifier wrappers (ref/out/In) may be
+ *   stripped for emission-time comparisons but must not be stripped
+ *   before passing types to materialization functions.
  */
 
 import type { IrExpression, IrType } from "@tsonic/frontend";
