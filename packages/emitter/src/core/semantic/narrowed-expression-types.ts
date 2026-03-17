@@ -102,7 +102,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return baseType ?? registeredSemanticType;
+    return registeredSemanticType ?? baseType;
   }
 
   const narrowKey =
@@ -131,7 +131,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return baseType ?? registeredSemanticType;
+    return registeredSemanticType ?? baseType;
   }
 
   const narrowed = context.narrowedBindings.get(narrowKey);
@@ -154,7 +154,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return baseType ?? registeredSemanticType;
+    return registeredSemanticType ?? baseType;
   }
 
   if (

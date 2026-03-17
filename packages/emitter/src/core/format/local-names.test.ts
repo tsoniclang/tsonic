@@ -409,24 +409,36 @@ describe("local-names semantic/storage channels", () => {
       expect(result).to.deep.equal(inferredType);
     });
 
-    it("uses localSemanticTypes as fallback when inferredType is absent", () => {
+    it("prefers localSemanticTypes over inferredType for identifiers", () => {
       const semanticType: IrType = {
         kind: "unionType",
         types: [stringType, { kind: "primitiveType", name: "boolean" }],
       };
+      const inferredType: IrType = { kind: "anyType" };
 
       const ctx: EmitterContext = {
         ...baseContext,
         localSemanticTypes: new Map([["z", semanticType]]),
       };
 
-      // No inferredType on the expression — registered semantic type is the fallback
+      // Registered semantic type takes precedence over inferredType
       const result = resolveEffectiveExpressionType(
-        { kind: "identifier", name: "z" },
+        { kind: "identifier", name: "z", inferredType },
         ctx
       );
 
       expect(result?.kind).to.equal("unionType");
+    });
+
+    it("falls back to inferredType when localSemanticTypes has no entry", () => {
+      const inferredType: IrType = { kind: "anyType" };
+
+      const result = resolveEffectiveExpressionType(
+        { kind: "identifier", name: "z", inferredType },
+        baseContext
+      );
+
+      expect(result).to.deep.equal(inferredType);
     });
 
     it("does not read from localValueTypes for semantic resolution", () => {
