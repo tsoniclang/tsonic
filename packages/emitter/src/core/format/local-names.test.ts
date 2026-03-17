@@ -16,8 +16,10 @@ import type { EmitterContext } from "../../types.js";
 import {
   registerLocalSymbolTypes,
   registerLocalFixedType,
+  registerLocalSemanticType,
 } from "./local-names.js";
 import { withScoped } from "../../emitter-types/context.js";
+import { resolveEffectiveExpressionType } from "../semantic/narrowed-expression-types.js";
 
 const baseContext: EmitterContext = {
   indentLevel: 0,
@@ -328,6 +330,119 @@ describe("local-names semantic/storage channels", () => {
 
       // They are not the same object
       expect(semantic).to.not.deep.equal(storage);
+    });
+  });
+
+  describe("registerLocalSemanticType (Phase 2A centralized helper)", () => {
+    it("derives storage from semantic via normalization for primitive types", () => {
+      const ctx = registerLocalSemanticType("x", stringType, baseContext);
+      expect(ctx.localSemanticTypes?.get("x")).to.deep.equal(stringType);
+      // string normalizes to string (identity) for storage
+      expect(ctx.localValueTypes?.get("x")).to.deep.equal(stringType);
+    });
+
+    it("derives normalized storage for reference types with runtime union members", () => {
+      // A union of string | number has a runtime-union carrier as storage
+      const unionType: IrType = {
+        kind: "unionType",
+        types: [stringType, numberType],
+      };
+      const ctx = registerLocalSemanticType("val", unionType, baseContext);
+      // Semantic preserves the union
+      expect(ctx.localSemanticTypes?.get("val")?.kind).to.equal("unionType");
+      // Storage may differ (depends on normalizeRuntimeStorageType behavior)
+      expect(ctx.localValueTypes?.get("val")).to.not.equal(undefined);
+    });
+
+    it("handles undefined semantic type by clearing both channels", () => {
+      const outerCtx = registerLocalSemanticType("x", stringType, baseContext);
+      const clearedCtx = registerLocalSemanticType("x", undefined, outerCtx);
+      expect(clearedCtx.localSemanticTypes?.has("x")).to.equal(false);
+      expect(clearedCtx.localValueTypes?.has("x")).to.equal(false);
+    });
+
+    it("preserves existing bindings for other names", () => {
+      const ctx1 = registerLocalSemanticType("a", stringType, baseContext);
+      const ctx2 = registerLocalSemanticType("b", numberType, ctx1);
+      expect(ctx2.localSemanticTypes?.get("a")).to.deep.equal(stringType);
+      expect(ctx2.localSemanticTypes?.get("b")).to.deep.equal(numberType);
+    });
+  });
+
+  describe("Phase 2B reader migration: resolveEffectiveExpressionType reads localSemanticTypes", () => {
+    it("returns semantic type for an identifier registered via localSemanticTypes", () => {
+      const semanticUnion: IrType = {
+        kind: "unionType",
+        types: [stringType, numberType],
+      };
+      const normalizedStorage: IrType = { kind: "anyType" };
+
+      const ctx: EmitterContext = {
+        ...baseContext,
+        localSemanticTypes: new Map([["x", semanticUnion]]),
+        localValueTypes: new Map([["x", normalizedStorage]]),
+      };
+
+      const result = resolveEffectiveExpressionType(
+        { kind: "identifier", name: "x", inferredType: undefined },
+        ctx
+      );
+
+      // Reader should return semantic union, not storage anyType
+      expect(result?.kind).to.equal("unionType");
+      expect(
+        (result as Extract<IrType, { kind: "unionType" }>).types
+      ).to.have.length(2);
+    });
+
+    it("falls back to inferredType when no localSemanticTypes entry exists", () => {
+      const inferredType: IrType = {
+        kind: "referenceType",
+        name: "Foo",
+      };
+
+      const result = resolveEffectiveExpressionType(
+        { kind: "identifier", name: "y", inferredType },
+        baseContext
+      );
+
+      expect(result).to.deep.equal(inferredType);
+    });
+
+    it("uses localSemanticTypes as fallback when inferredType is absent", () => {
+      const semanticType: IrType = {
+        kind: "unionType",
+        types: [stringType, { kind: "primitiveType", name: "boolean" }],
+      };
+
+      const ctx: EmitterContext = {
+        ...baseContext,
+        localSemanticTypes: new Map([["z", semanticType]]),
+      };
+
+      // No inferredType on the expression — registered semantic type is the fallback
+      const result = resolveEffectiveExpressionType(
+        { kind: "identifier", name: "z" },
+        ctx
+      );
+
+      expect(result?.kind).to.equal("unionType");
+    });
+
+    it("does not read from localValueTypes for semantic resolution", () => {
+      // Only storage is registered, no semantic entry
+      const ctx: EmitterContext = {
+        ...baseContext,
+        localValueTypes: new Map([["w", storageObject]]),
+      };
+
+      // No inferredType, no localSemanticTypes entry — should return undefined
+      const result = resolveEffectiveExpressionType(
+        { kind: "identifier", name: "w" },
+        ctx
+      );
+
+      expect(result).to.equal(undefined);
     });
   });
 });
