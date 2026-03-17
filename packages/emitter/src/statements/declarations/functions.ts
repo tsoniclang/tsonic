@@ -23,9 +23,8 @@ import { emitAttributes } from "../../core/format/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
 import {
   allocateLocalName,
-  registerLocalSymbolTypes,
+  registerLocalSemanticType,
 } from "../../core/format/local-names.js";
-import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import {
   identifierType,
   nullableType,
@@ -58,10 +57,9 @@ const seedLocalNameMapFromParameters = (
       const emitted = escapeCSharpIdentifier(p.pattern.name);
       map.set(p.pattern.name, emitted);
       used.add(emitted);
-      currentContext = registerLocalSymbolTypes(
+      currentContext = registerLocalSemanticType(
         p.pattern.name,
         p.type,
-        normalizeRuntimeStorageType(p.type, currentContext),
         currentContext
       );
     }

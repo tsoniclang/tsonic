@@ -8,8 +8,7 @@ import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitBlockStatementAst } from "../../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
-import { registerLocalSymbolTypes } from "../../../core/format/local-names.js";
-import { normalizeRuntimeStorageType } from "../../../core/semantic/storage-types.js";
+import { registerLocalSemanticType } from "../../../core/format/local-names.js";
 import {
   emitParametersWithDestructuring,
   generateParameterDestructuringAst,
@@ -33,10 +32,9 @@ const seedLocalNameMapFromParameters = (
       const emitted = escapeCSharpIdentifier(p.pattern.name);
       map.set(p.pattern.name, emitted);
       used.add(emitted);
-      currentContext = registerLocalSymbolTypes(
+      currentContext = registerLocalSemanticType(
         p.pattern.name,
         p.type,
-        normalizeRuntimeStorageType(p.type, currentContext),
         currentContext
       );
     }

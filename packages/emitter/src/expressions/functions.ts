@@ -20,7 +20,6 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
-import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
 import { unwrapParameterModifierType } from "../core/semantic/parameter-modifier-types.js";
 import {
   emitRuntimeCarrierTypeAst,
@@ -30,7 +29,7 @@ import { identifierType } from "../core/format/backend-ast/builders.js";
 import { stableTypeKeyFromAst } from "../core/format/backend-ast/utils.js";
 import {
   allocateLocalName,
-  registerLocalSymbolTypes,
+  registerLocalSemanticType,
 } from "../core/format/local-names.js";
 import type {
   CSharpBlockStatementAst,
@@ -60,11 +59,9 @@ const seedLocalNameMapFromParameters = (
       continue;
     map.set(p.parameter.pattern.name, p.emittedName);
     used.add(p.emittedName);
-    currentContext = registerLocalSymbolTypes(
+    currentContext = registerLocalSemanticType(
       p.parameter.pattern.name,
       p.parameter.type,
-      normalizeRuntimeStorageType(p.parameter.type, currentContext) ??
-        p.parameter.type,
       currentContext
     );
   }

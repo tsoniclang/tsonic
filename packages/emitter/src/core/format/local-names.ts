@@ -1,6 +1,7 @@
 import type { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { normalizeRuntimeStorageType } from "../semantic/storage-types.js";
 
 export type AllocatedLocalName = {
   readonly originalName: string;
@@ -132,6 +133,37 @@ export const registerLocalFixedType = (
   context: EmitterContext
 ): EmitterContext =>
   registerLocalSymbolTypes(originalName, type, type, context);
+
+/**
+ * Register a local symbol from its semantic (frontend IR) type.
+ *
+ * Storage type is derived automatically via normalizeRuntimeStorageType.
+ * Falls back to the semantic type itself when normalization returns undefined.
+ *
+ * Use this for parameters and pattern bindings where the authored type is
+ * the single source of truth and storage is purely derived.
+ */
+export const registerLocalSemanticType = (
+  originalName: string,
+  semanticType: IrType | undefined,
+  context: EmitterContext
+): EmitterContext => {
+  if (!semanticType)
+    return registerLocalSymbolTypes(
+      originalName,
+      undefined,
+      undefined,
+      context
+    );
+  const storageType =
+    normalizeRuntimeStorageType(semanticType, context) ?? semanticType;
+  return registerLocalSymbolTypes(
+    originalName,
+    semanticType,
+    storageType,
+    context
+  );
+};
 
 /**
  * Emit a local/parameter identifier using lexical remaps (CS0136 shadowing avoidance).
