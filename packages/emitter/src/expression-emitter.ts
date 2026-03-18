@@ -40,6 +40,10 @@ import {
 import { isSemanticUnion } from "./core/semantic/union-semantics.js";
 import { matchesExpectedEmissionType } from "./core/semantic/expected-type-matching.js";
 import { resolveEffectiveExpressionType } from "./core/semantic/narrowed-expression-types.js";
+import {
+  buildRuntimeUnionMemberIndexByAstKey,
+  findMappedRuntimeUnionMemberIndex,
+} from "./core/semantic/runtime-union-member-mapping.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -2121,33 +2125,22 @@ const maybeWidenRuntimeUnionExpressionAst = (
 
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = expectedTypeContext;
-  const expectedMemberIndexByAstKey = new Map<string, number>();
-  for (
-    let index = 0;
-    index < expectedLayout.memberTypeAsts.length;
-    index += 1
-  ) {
-    const memberTypeAst = expectedLayout.memberTypeAsts[index];
-    if (!memberTypeAst) continue;
-    expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
-  }
+  const expectedMemberIndexByAstKey = buildRuntimeUnionMemberIndexByAstKey(
+    expectedLayout.memberTypeAsts
+  );
 
   for (let index = 0; index < actualLayout.members.length; index += 1) {
     const actualMember = actualLayout.members[index];
     if (!actualMember) continue;
 
     const actualMemberTypeAst = actualLayout.memberTypeAsts[index];
-    const expectedMemberIndex =
-      (actualMemberTypeAst
-        ? expectedMemberIndexByAstKey.get(
-            stableTypeKeyFromAst(actualMemberTypeAst)
-          )
-        : undefined) ??
-      findRuntimeUnionMemberIndex(
-        expectedLayout.members,
-        actualMember,
-        currentContext
-      );
+    const expectedMemberIndex = findMappedRuntimeUnionMemberIndex({
+      targetMembers: expectedLayout.members,
+      targetMemberIndexByAstKey: expectedMemberIndexByAstKey,
+      actualMember,
+      actualMemberTypeAst,
+      context: currentContext,
+    });
     if (expectedMemberIndex === undefined) {
       return undefined;
     }
@@ -2233,16 +2226,9 @@ const maybeNarrowRuntimeUnionExpressionAst = (
   const expectedTypeContext = actualTypeContext;
   const concreteExpectedTypeAst = buildRuntimeUnionTypeAst(expectedLayout);
 
-  const expectedMemberIndexByAstKey = new Map<string, number>();
-  for (
-    let index = 0;
-    index < expectedLayout.memberTypeAsts.length;
-    index += 1
-  ) {
-    const memberTypeAst = expectedLayout.memberTypeAsts[index];
-    if (!memberTypeAst) continue;
-    expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
-  }
+  const expectedMemberIndexByAstKey = buildRuntimeUnionMemberIndexByAstKey(
+    expectedLayout.memberTypeAsts
+  );
 
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = expectedTypeContext;
@@ -2252,17 +2238,13 @@ const maybeNarrowRuntimeUnionExpressionAst = (
     if (!actualMember) continue;
 
     const actualMemberTypeAst = actualLayout.memberTypeAsts[index];
-    const expectedMemberIndex =
-      (actualMemberTypeAst
-        ? expectedMemberIndexByAstKey.get(
-            stableTypeKeyFromAst(actualMemberTypeAst)
-          )
-        : undefined) ??
-      findRuntimeUnionMemberIndex(
-        expectedLayout.members,
-        actualMember,
-        currentContext
-      );
+    const expectedMemberIndex = findMappedRuntimeUnionMemberIndex({
+      targetMembers: expectedLayout.members,
+      targetMemberIndexByAstKey: expectedMemberIndexByAstKey,
+      actualMember,
+      actualMemberTypeAst,
+      context: currentContext,
+    });
 
     const parameterName = `__tsonic_union_member_${index + 1}`;
     const parameterExpr: CSharpExpressionAst = {

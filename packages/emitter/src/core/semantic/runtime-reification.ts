@@ -21,6 +21,10 @@ import {
   emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
 } from "./runtime-unions.js";
+import {
+  buildRuntimeUnionMemberIndexByAstKey,
+  findMappedRuntimeUnionMemberIndex,
+} from "./runtime-union-member-mapping.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 
 export type EmitTypeAstFn = (
@@ -222,21 +226,9 @@ export const tryBuildRuntimeMaterializationAst = (
 
   if (targetLayout) {
     const concreteTargetUnionTypeAst = buildRuntimeUnionTypeAst(targetLayout);
-    const expectedMemberIndexByAstKey = new Map<string, number>();
-    for (
-      let index = 0;
-      index < targetLayout.memberTypeAsts.length;
-      index += 1
-    ) {
-      const memberTypeAst = targetLayout.memberTypeAsts[index];
-      if (!memberTypeAst) {
-        continue;
-      }
-      expectedMemberIndexByAstKey.set(
-        stableTypeKeyFromAst(memberTypeAst),
-        index
-      );
-    }
+    const expectedMemberIndexByAstKey = buildRuntimeUnionMemberIndexByAstKey(
+      targetLayout.memberTypeAsts
+    );
 
     const lambdaArgs: CSharpExpressionAst[] = [];
     for (let index = 0; index < sourceLayout.members.length; index += 1) {
@@ -271,17 +263,13 @@ export const tryBuildRuntimeMaterializationAst = (
       }
 
       const actualMemberTypeAst = sourceLayout.memberTypeAsts[index];
-      const expectedMemberIndex =
-        (actualMemberTypeAst
-          ? expectedMemberIndexByAstKey.get(
-              stableTypeKeyFromAst(actualMemberTypeAst)
-            )
-          : undefined) ??
-        findRuntimeUnionMemberIndex(
-          targetLayout.members,
-          actualMember,
-          targetLayoutContext
-        );
+      const expectedMemberIndex = findMappedRuntimeUnionMemberIndex({
+        targetMembers: targetLayout.members,
+        targetMemberIndexByAstKey: expectedMemberIndexByAstKey,
+        actualMember,
+        actualMemberTypeAst,
+        context: targetLayoutContext,
+      });
 
       if (expectedMemberIndex === undefined) {
         lambdaArgs.push({

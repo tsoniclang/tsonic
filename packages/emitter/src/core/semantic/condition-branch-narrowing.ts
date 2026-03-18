@@ -9,7 +9,6 @@ import {
   identifierType,
   stringLiteral,
 } from "../format/backend-ast/builders.js";
-import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { nullLiteral } from "../format/backend-ast/builders.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
@@ -28,7 +27,6 @@ import { stableIrTypeKey } from "@tsonic/frontend";
 import {
   buildRuntimeUnionLayout,
   findRuntimeUnionInstanceofMemberIndices,
-  findRuntimeUnionMemberIndex,
   findRuntimeUnionMemberIndices,
   buildRuntimeUnionTypeAst,
 } from "./runtime-unions.js";
@@ -36,6 +34,10 @@ import {
   resolveNarrowedUnionMembers,
   type NarrowedUnionMembers,
 } from "./narrowed-union-resolution.js";
+import {
+  buildRuntimeUnionMemberIndexByAstKey,
+  findMappedRuntimeUnionMemberIndex,
+} from "./runtime-union-member-mapping.js";
 import { normalizeInstanceofTargetType } from "./instanceof-targets.js";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 import {
@@ -498,12 +500,9 @@ const buildRuntimeUnionSubsetBinding = (
   const subsetTypeContext = subsetLayoutContext;
   const concreteSubsetTypeAst = buildRuntimeUnionTypeAst(subsetLayout);
 
-  const expectedMemberIndexByAstKey = new Map<string, number>();
-  for (let index = 0; index < subsetLayout.memberTypeAsts.length; index += 1) {
-    const memberTypeAst = subsetLayout.memberTypeAsts[index];
-    if (!memberTypeAst) continue;
-    expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
-  }
+  const expectedMemberIndexByAstKey = buildRuntimeUnionMemberIndexByAstKey(
+    subsetLayout.memberTypeAsts
+  );
 
   const selectedRuntimeMembers = new Set(
     selectedPairs.map((pair) => pair.runtimeMemberN)
@@ -539,15 +538,13 @@ const buildRuntimeUnionSubsetBinding = (
       const [typeAst] = emitTypeAst(actualMember, subsetTypeContext);
       return typeAst;
     })();
-    const expectedMemberIndex =
-      expectedMemberIndexByAstKey.get(
-        stableTypeKeyFromAst(sourceMemberTypeAst)
-      ) ??
-      findRuntimeUnionMemberIndex(
-        subsetLayout.members,
-        actualMember,
-        subsetTypeContext
-      );
+    const expectedMemberIndex = findMappedRuntimeUnionMemberIndex({
+      targetMembers: subsetLayout.members,
+      targetMemberIndexByAstKey: expectedMemberIndexByAstKey,
+      actualMember,
+      actualMemberTypeAst: sourceMemberTypeAst,
+      context: subsetTypeContext,
+    });
 
     if (expectedMemberIndex === undefined) {
       lambdaArgs.push({
