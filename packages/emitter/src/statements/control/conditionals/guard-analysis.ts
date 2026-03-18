@@ -24,10 +24,13 @@ import {
 } from "../../../core/semantic/type-resolution.js";
 import { matchesExpectedEmissionType } from "../../../core/semantic/expected-type-matching.js";
 import {
-  buildRuntimeUnionFrame,
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
 } from "../../../core/semantic/runtime-unions.js";
+import {
+  resolveNarrowedUnionMembers,
+  type NarrowedUnionMembers,
+} from "../../../core/semantic/narrowed-union-resolution.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
 import {
@@ -165,11 +168,7 @@ export type PropertyTruthinessGuardInfo = {
   readonly narrowedMap: Map<string, NarrowedBinding>;
 };
 
-export type RuntimeUnionFrame = {
-  readonly members: readonly IrType[];
-  readonly candidateMemberNs: readonly number[];
-  readonly runtimeUnionArity: number;
-};
+export type RuntimeUnionFrame = NarrowedUnionMembers;
 
 /**
  * Information extracted from a nullable guard condition.
@@ -275,88 +274,7 @@ const extractTransparentMemberAccessTarget = (
   return { access: access as PlainMemberAccessTarget, receiver };
 };
 
-export const resolveRuntimeUnionFrame = (
-  originalName: string,
-  unionSourceType: IrType,
-  context: EmitterContext
-): RuntimeUnionFrame | undefined => {
-  const narrowed = context.narrowedBindings?.get(originalName);
-  if (
-    narrowed?.kind === "runtimeSubset" &&
-    narrowed.sourceMembers &&
-    narrowed.sourceCandidateMemberNs &&
-    narrowed.sourceMembers.length === narrowed.sourceCandidateMemberNs.length
-  ) {
-    const allowedMemberNs = new Set(narrowed.runtimeMemberNs);
-    const narrowedMembers = narrowed.sourceMembers.filter((_, index) =>
-      allowedMemberNs.has(
-        narrowed.sourceCandidateMemberNs?.[index] ?? index + 1
-      )
-    );
-    const narrowedCandidateMemberNs = narrowed.sourceCandidateMemberNs.filter(
-      (memberN) => allowedMemberNs.has(memberN)
-    );
-
-    if (
-      narrowedMembers.length === 0 ||
-      narrowedMembers.length !== narrowedCandidateMemberNs.length
-    ) {
-      return undefined;
-    }
-
-    return {
-      members: narrowedMembers,
-      candidateMemberNs: narrowedCandidateMemberNs,
-      runtimeUnionArity: narrowed.runtimeUnionArity,
-    };
-  }
-
-  const runtimeSourceType =
-    narrowed?.kind === "runtimeSubset"
-      ? (narrowed.sourceType ?? unionSourceType)
-      : (narrowed?.type ?? narrowed?.sourceType ?? unionSourceType);
-  const runtimeFrame = buildRuntimeUnionFrame(runtimeSourceType, context);
-  const members = runtimeFrame?.members;
-  if (!members) return undefined;
-  const candidateMemberNs = members.map((_, index) => index + 1);
-
-  if (!narrowed) {
-    return {
-      members,
-      candidateMemberNs,
-      runtimeUnionArity: runtimeFrame.runtimeUnionArity,
-    };
-  }
-
-  if (narrowed.kind !== "runtimeSubset") {
-    return {
-      members,
-      candidateMemberNs,
-      runtimeUnionArity: runtimeFrame.runtimeUnionArity,
-    };
-  }
-
-  const allowedMemberNs = new Set(narrowed.runtimeMemberNs);
-  const narrowedMembers = members.filter((_, index) =>
-    allowedMemberNs.has(index + 1)
-  );
-  const narrowedCandidateMemberNs = candidateMemberNs.filter((memberN) =>
-    allowedMemberNs.has(memberN)
-  );
-
-  if (
-    narrowedMembers.length === 0 ||
-    narrowedMembers.length !== narrowedCandidateMemberNs.length
-  ) {
-    return undefined;
-  }
-
-  return {
-    members: narrowedMembers,
-    candidateMemberNs: narrowedCandidateMemberNs,
-    runtimeUnionArity: runtimeFrame.runtimeUnionArity,
-  };
-};
+export const resolveRuntimeUnionFrame = resolveNarrowedUnionMembers;
 
 const stripGlobalPrefix = (name: string): string =>
   name.startsWith("global::") ? name.slice("global::".length) : name;

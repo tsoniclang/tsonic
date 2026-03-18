@@ -26,13 +26,16 @@ import {
 } from "./type-resolution.js";
 import { stableIrTypeKey } from "@tsonic/frontend";
 import {
-  buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
   findRuntimeUnionMemberIndex,
   buildRuntimeUnionTypeAst,
 } from "./runtime-unions.js";
+import {
+  resolveNarrowedUnionMembers,
+  type NarrowedUnionMembers,
+} from "./narrowed-union-resolution.js";
 import { normalizeInstanceofTargetType } from "./instanceof-targets.js";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 import {
@@ -48,11 +51,7 @@ type EmitExprAstFn = (
   context: EmitterContext
 ) => [CSharpExpressionAst, EmitterContext];
 
-type RuntimeUnionFrame = {
-  readonly members: readonly IrType[];
-  readonly candidateMemberNs: readonly number[];
-  readonly runtimeUnionArity: number;
-};
+type RuntimeUnionFrame = NarrowedUnionMembers;
 
 const toReceiverAst = (
   receiver: string | CSharpExpressionAst
@@ -302,80 +301,7 @@ const currentNarrowedType = (
 ): IrType | undefined =>
   context.narrowedBindings?.get(bindingKey)?.type ?? fallbackType;
 
-const resolveRuntimeUnionFrame = (
-  originalName: string,
-  unionSourceType: IrType,
-  context: EmitterContext
-): RuntimeUnionFrame | undefined => {
-  const narrowed = context.narrowedBindings?.get(originalName);
-  if (
-    narrowed?.kind === "runtimeSubset" &&
-    narrowed.sourceMembers &&
-    narrowed.sourceCandidateMemberNs &&
-    narrowed.sourceMembers.length === narrowed.sourceCandidateMemberNs.length
-  ) {
-    const allowedMemberNs = new Set(narrowed.runtimeMemberNs);
-    const narrowedMembers = narrowed.sourceMembers.filter((_, index) =>
-      allowedMemberNs.has(
-        narrowed.sourceCandidateMemberNs?.[index] ?? index + 1
-      )
-    );
-    const narrowedCandidateMemberNs = narrowed.sourceCandidateMemberNs.filter(
-      (memberN) => allowedMemberNs.has(memberN)
-    );
-
-    if (
-      narrowedMembers.length === 0 ||
-      narrowedMembers.length !== narrowedCandidateMemberNs.length
-    ) {
-      return undefined;
-    }
-
-    return {
-      members: narrowedMembers,
-      candidateMemberNs: narrowedCandidateMemberNs,
-      runtimeUnionArity: narrowed.runtimeUnionArity,
-    };
-  }
-
-  const runtimeSourceType =
-    narrowed?.kind === "runtimeSubset"
-      ? (narrowed.sourceType ?? unionSourceType)
-      : (narrowed?.type ?? narrowed?.sourceType ?? unionSourceType);
-  const runtimeFrame = buildRuntimeUnionFrame(runtimeSourceType, context);
-  const members = runtimeFrame?.members;
-  if (!members) return undefined;
-  const candidateMemberNs = members.map((_, index) => index + 1);
-
-  if (!narrowed || narrowed.kind !== "runtimeSubset") {
-    return {
-      members,
-      candidateMemberNs,
-      runtimeUnionArity: runtimeFrame.runtimeUnionArity,
-    };
-  }
-
-  const allowedMemberNs = new Set(narrowed.runtimeMemberNs);
-  const narrowedMembers = members.filter((_, index) =>
-    allowedMemberNs.has(index + 1)
-  );
-  const narrowedCandidateMemberNs = candidateMemberNs.filter((memberN) =>
-    allowedMemberNs.has(memberN)
-  );
-
-  if (
-    narrowedMembers.length === 0 ||
-    narrowedMembers.length !== narrowedCandidateMemberNs.length
-  ) {
-    return undefined;
-  }
-
-  return {
-    members: narrowedMembers,
-    candidateMemberNs: narrowedCandidateMemberNs,
-    runtimeUnionArity: runtimeFrame.runtimeUnionArity,
-  };
-};
+const resolveRuntimeUnionFrame = resolveNarrowedUnionMembers;
 
 const isNullOrUndefined = (expr: IrExpression): boolean => {
   if (

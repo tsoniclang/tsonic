@@ -22,7 +22,7 @@ import {
   substituteTypeArgs,
 } from "./type-resolution.js";
 import { applyLogicalOperandNarrowing } from "./condition-branch-narrowing.js";
-import { buildRuntimeUnionFrame } from "./runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 import {
   booleanLiteral,
   charLiteral,
@@ -604,8 +604,8 @@ const emitUnionTruthinessConditionAst = (
   }
 
   // 2-8 unions use runtime Union<T1..Tn>. We must inspect the active variant.
-  const runtimeFrame = buildRuntimeUnionFrame(unionType, context);
-  if (runtimeFrame) {
+  const runtimeMembers = getCanonicalRuntimeUnionMembers(unionType, context);
+  if (runtimeMembers) {
     const nextId = (context.tempVarId ?? 0) + 1;
     const ctxWithId: EmitterContext = {
       ...context,
@@ -621,9 +621,9 @@ const emitUnionTruthinessConditionAst = (
     let chainCtx = alloc.context;
     const branchAsts: CSharpExpressionAst[] = [];
 
-    for (let i = 0; i < runtimeFrame.members.length; i++) {
+    for (let i = 0; i < runtimeMembers.length; i++) {
       const memberN = i + 1;
-      const memberType = runtimeFrame.members[i];
+      const memberType = runtimeMembers[i];
       if (!memberType || isRuntimeNullishType(memberType)) {
         branchAsts.push(booleanLiteral(false));
         continue;

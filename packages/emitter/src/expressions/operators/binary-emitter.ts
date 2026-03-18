@@ -17,7 +17,7 @@ import {
   hasDeterministicPropertyMembership,
   isDefinitelyValueType,
 } from "../../core/semantic/type-resolution.js";
-import { buildRuntimeUnionFrame } from "../../core/semantic/runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "../../core/semantic/runtime-unions.js";
 import {
   willCarryAsRuntimeUnion,
   isSemanticUnion,
@@ -239,10 +239,9 @@ export const emitBinary = (
     const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
 
     // Semantic gate: only enter union dispatch if the RHS is semantically a union
-    const runtimeFrame = isSemanticUnion(rhsType, rhsCtx)
-      ? buildRuntimeUnionFrame(rhsType, rhsCtx)
+    const runtimeMembers = isSemanticUnion(rhsType, rhsCtx)
+      ? getCanonicalRuntimeUnionMembers(rhsType, rhsCtx)
       : undefined;
-    const runtimeMembers = runtimeFrame?.members;
 
     // Union<T1..Tn>: `"error" in auth` → auth.IsN() (where member N has the prop)
     if (runtimeMembers) {

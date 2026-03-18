@@ -17,7 +17,7 @@ import { EmitterContext } from "../../types.js";
 import { getPropertyType } from "./type-resolution.js";
 import { emitRemappedLocalName } from "../format/local-names.js";
 import {
-  buildRuntimeUnionFrame,
+  getCanonicalRuntimeUnionMembers,
   buildRuntimeUnionLayout,
   findRuntimeUnionMemberIndices,
   type EmitTypeAstLike,
@@ -70,14 +70,14 @@ const tryResolveTernaryPredicateGuard = (
   const unionSourceType = arg.inferredType;
   if (!unionSourceType) return undefined;
 
-  // Semantic gate: confirm this is a union before constructing runtime frame
+  // Semantic gate: confirm this is a union before member resolution
   if (!isSemanticUnion(unionSourceType, context)) return undefined;
 
-  const runtimeFrame = buildRuntimeUnionFrame(unionSourceType, context);
-  if (!runtimeFrame) return undefined;
+  const members = getCanonicalRuntimeUnionMembers(unionSourceType, context);
+  if (!members) return undefined;
 
   const matchingIndices = findRuntimeUnionMemberIndices(
-    runtimeFrame.members,
+    members,
     narrowing.targetType,
     context
   );

@@ -38,7 +38,7 @@ import {
 } from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import {
-  buildRuntimeUnionFrame,
+  getCanonicalRuntimeUnionMembers,
   getRuntimeUnionReferenceMembers,
   isRuntimeUnionTypeName,
 } from "../core/semantic/runtime-unions.js";
@@ -892,17 +892,17 @@ const tryResolveEmittedRuntimeUnionMemberTypeAst = (
   const memberN = tryExtractRuntimeUnionMemberN(exprAst);
   if (!memberN) return [undefined, context];
 
-  const runtimeFrame = buildRuntimeUnionFrame(baseType, context);
-  if (!runtimeFrame) {
+  const members = getCanonicalRuntimeUnionMembers(baseType, context);
+  if (!members) {
     return [undefined, context];
   }
 
   const memberIndex = memberN - 1;
-  if (memberIndex < 0 || memberIndex >= runtimeFrame.members.length) {
+  if (memberIndex < 0 || memberIndex >= members.length) {
     return [undefined, context];
   }
 
-  const memberType = runtimeFrame.members[memberIndex];
+  const memberType = members[memberIndex];
   if (!memberType) {
     return [undefined, context];
   }
@@ -1251,14 +1251,11 @@ export const emitMemberAccess = (
             ? runtimeReferenceMembers
             : [];
 
-      const runtimeLayout = (() => {
-        if (members.length < 2 || members.length > 8) {
-          return undefined;
-        }
-
-        return buildRuntimeUnionFrame(objectType, context);
-      })();
-      const runtimeMembers = runtimeLayout?.members ?? members;
+      const canonicalMembers =
+        members.length >= 2 && members.length <= 8
+          ? getCanonicalRuntimeUnionMembers(objectType, context)
+          : undefined;
+      const runtimeMembers = canonicalMembers ?? members;
       const arity = runtimeMembers.length;
       if (arity >= 2 && arity <= 8) {
         const memberHasProperty = runtimeMembers.map((m) => {
