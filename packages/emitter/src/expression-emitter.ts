@@ -37,6 +37,7 @@ import {
   emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
 } from "./core/semantic/runtime-unions.js";
+import { isSemanticUnion } from "./core/semantic/union-semantics.js";
 import { matchesExpectedEmissionType } from "./core/semantic/expected-type-matching.js";
 import { resolveEffectiveExpressionType } from "./core/semantic/narrowed-expression-types.js";
 import type {
@@ -3156,8 +3157,11 @@ const emitTypeAssertion = (
       ? (ctx1.localSemanticTypes?.get(transparentSourceExpression.name) ??
         transparentSourceExpression.inferredType)
       : transparentSourceExpression.inferredType;
-  const [sourceRuntimeUnionLayout, sourceLayoutContext] = sourceExpressionType
-    ? buildRuntimeUnionLayout(sourceExpressionType, ctx1, emitTypeAst)
+  const isSourceUnion = sourceExpressionType
+    ? isSemanticUnion(sourceExpressionType, ctx1)
+    : false;
+  const [sourceRuntimeUnionLayout, sourceLayoutContext] = isSourceUnion
+    ? buildRuntimeUnionLayout(sourceExpressionType!, ctx1, emitTypeAst)
     : [undefined, ctx1];
   const narrowedBinding = getNarrowedBindingForExpression(
     expr.expression,

@@ -18,6 +18,10 @@ import {
   isDefinitelyValueType,
 } from "../../core/semantic/type-resolution.js";
 import { buildRuntimeUnionFrame } from "../../core/semantic/runtime-unions.js";
+import {
+  willCarryAsRuntimeUnion,
+  isSemanticUnion,
+} from "../../core/semantic/union-semantics.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { isIntegerType } from "../../core/semantic/index.js";
@@ -119,7 +123,7 @@ const hasRuntimeUnionCarrier = (
   if (!type) {
     return false;
   }
-  return buildRuntimeUnionFrame(stripNullish(type), context) !== undefined;
+  return willCarryAsRuntimeUnion(stripNullish(type), context);
 };
 
 const chooseComparisonExpectedType = (
@@ -234,7 +238,10 @@ export const emitBinary = (
     const [rhsAst, rhsCtx] = emitExpressionAst(expr.right, context);
     const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
 
-    const runtimeFrame = buildRuntimeUnionFrame(rhsType, rhsCtx);
+    // Semantic gate: only enter union dispatch if the RHS is semantically a union
+    const runtimeFrame = isSemanticUnion(rhsType, rhsCtx)
+      ? buildRuntimeUnionFrame(rhsType, rhsCtx)
+      : undefined;
     const runtimeMembers = runtimeFrame?.members;
 
     // Union<T1..Tn>: `"error" in auth` → auth.IsN() (where member N has the prop)
@@ -567,8 +574,7 @@ export const emitBinary = (
     );
     const base = inferred ? stripNullish(inferred) : undefined;
     const hasRuntimeUnionCarrier =
-      base !== undefined &&
-      buildRuntimeUnionFrame(base, resultContext) !== undefined;
+      base !== undefined && willCarryAsRuntimeUnion(base, resultContext);
     const bareTypeParamName = (() => {
       if (!base) return undefined;
       if (base.kind === "typeParameterType") return base.name;

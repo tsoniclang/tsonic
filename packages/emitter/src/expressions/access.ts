@@ -42,6 +42,7 @@ import {
   getRuntimeUnionReferenceMembers,
   isRuntimeUnionTypeName,
 } from "../core/semantic/runtime-unions.js";
+import { isSemanticUnion } from "../core/semantic/union-semantics.js";
 import { tryBuildRuntimeReificationPlan } from "../core/semantic/runtime-reification.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
@@ -1230,7 +1231,7 @@ export const emitMemberAccess = (
   // Property access that targets a CLR runtime union
   if (!expr.isComputed && !expr.isOptional) {
     const prop = expr.property as string;
-    if (objectType) {
+    if (objectType && isSemanticUnion(objectType, context)) {
       const resolvedBase = resolveTypeAlias(stripNullish(objectType), context);
       const resolved =
         resolvedBase.kind === "intersectionType"

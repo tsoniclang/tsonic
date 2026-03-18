@@ -22,6 +22,7 @@ import {
   findRuntimeUnionMemberIndices,
   type EmitTypeAstLike,
 } from "./runtime-unions.js";
+import { isSemanticUnion } from "./union-semantics.js";
 import {
   resolveLocalTypesForReference,
   tryGetLiteralSet,
@@ -68,6 +69,9 @@ const tryResolveTernaryPredicateGuard = (
   const originalName = arg.name;
   const unionSourceType = arg.inferredType;
   if (!unionSourceType) return undefined;
+
+  // Semantic gate: confirm this is a union before constructing runtime frame
+  if (!isSemanticUnion(unionSourceType, context)) return undefined;
 
   const runtimeFrame = buildRuntimeUnionFrame(unionSourceType, context);
   if (!runtimeFrame) return undefined;
@@ -170,6 +174,9 @@ const tryResolveTernaryDiscriminantEqualityGuard = (
 
   const unionSourceType = receiver.inferredType;
   if (!unionSourceType) return undefined;
+
+  // Semantic gate: confirm this is a union before constructing runtime layout
+  if (!isSemanticUnion(unionSourceType, context)) return undefined;
 
   const [runtimeLayout] = buildRuntimeUnionLayout(
     unionSourceType,
