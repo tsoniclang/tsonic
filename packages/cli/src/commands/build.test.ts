@@ -4438,6 +4438,18 @@ describe("build command (native library port regressions)", function () {
       expect(tree).to.include(
         "return global::System.Threading.Tasks.Task.CompletedTask;"
       );
+
+      // Semantic alias preservation: the mountedAt ternary must preserve
+      // PathSpec as a named alias in the Union carrier. The full-module
+      // context (with typeAliasIndex/moduleMap) must NOT cause PathSpec
+      // to be expanded into its runtime members.
+      //
+      // Correct shape:   Union<string, PathSpec>
+      // Broken shape:    Union<object?[], object, string, RegExp>
+      expect(tree).to.not.include("Union<object?[], object, string, RegExp>");
+      // mountedAt must not trigger over-materialized Match(...) tree
+      // from premature alias expansion.
+      expect(tree).to.not.match(/mountedAt\.Match\(/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

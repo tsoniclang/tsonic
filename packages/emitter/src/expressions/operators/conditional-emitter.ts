@@ -5,10 +5,7 @@
 import { IrExpression, IrType, stableIrTypeKey } from "@tsonic/frontend";
 import { EmitterContext, NarrowedBinding } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import {
-  resolveTypeAlias,
-  stripNullish,
-} from "../../core/semantic/type-resolution.js";
+import { stripNullish } from "../../core/semantic/type-resolution.js";
 import { isAssignable } from "../../core/semantic/index.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
@@ -35,9 +32,10 @@ export const emitConditional = (
     const candidate =
       resolveEffectiveBranchType(branchExpr, branchContext) ??
       branchExpr.inferredType;
-    return candidate
-      ? resolveTypeAlias(stripNullish(candidate), branchContext)
-      : undefined;
+    // Strip nullish but preserve alias identity. resolveTypeAlias would
+    // erase authored aliases (PathSpec → string | RegExp | ...) which
+    // changes the semantic branch meaning under full-module context.
+    return candidate ? stripNullish(candidate) : undefined;
   };
 
   const deriveBranchExpectedType = (
@@ -129,16 +127,34 @@ export const emitConditional = (
       polarity === "negative" ? narrowedContext : context
     );
 
-    // Apply narrowing to the appropriate branch
-    const [trueAst, trueContext] =
+    // Apply guard narrowing to the matching branch, and condition-based
+    // complement narrowing to the opposite branch so that the complement
+    // type is visible (e.g., first: PathSpec | MiddlewareLike in the
+    // false branch becomes first: MiddlewareLike).
+    const complementContext = applyConditionBranchNarrowing(
+      expr.condition,
+      polarity === "positive" ? "falsy" : "truthy",
+      context,
+      (e, ctx) => emitExpressionAst(e, ctx)
+    );
+
+    const [trueAst] =
       polarity === "positive"
         ? emitExpressionAst(expr.whenTrue, narrowedContext, branchExpectedType)
-        : emitExpressionAst(expr.whenTrue, context, branchExpectedType);
+        : emitExpressionAst(
+            expr.whenTrue,
+            complementContext,
+            branchExpectedType
+          );
 
     const [falseAst, falseContext] =
       polarity === "negative"
         ? emitExpressionAst(expr.whenFalse, narrowedContext, branchExpectedType)
-        : emitExpressionAst(expr.whenFalse, trueContext, branchExpectedType);
+        : emitExpressionAst(
+            expr.whenFalse,
+            complementContext,
+            branchExpectedType
+          );
 
     // Return context WITHOUT narrowing (don't leak)
     const finalContext: EmitterContext = {

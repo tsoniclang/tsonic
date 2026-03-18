@@ -95,10 +95,69 @@ export const resolveSemanticVariableInitializerType = (
 };
 
 /**
+ * Resolve the expected type for initializer EMISSION.
+ *
+ * For annotated locals, returns the declared type (an authored contract).
+ * For unannotated locals with branch-sensitive initializers (conditionals,
+ * ternaries), returns undefined so the conditional-emitter can derive its
+ * own branch expectations from narrowed branch contexts — which produces
+ * a more precise carrier than storage-normalizing the broad inferred type.
+ * For other unannotated locals, returns the semantic initializer type
+ * WITHOUT storage normalization.
+ */
+export const resolveInitializerEmissionExpectedType = (
+  declaredType: IrType | undefined,
+  initializer:
+    | {
+        readonly kind: string;
+        readonly inferredType?: IrType;
+        readonly targetType?: IrType;
+      }
+    | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  // Explicit annotation: use it directly (authored contract)
+  if (declaredType) {
+    return declaredType;
+  }
+
+  if (!initializer) {
+    return undefined;
+  }
+
+  // Branch-sensitive initializers: let the conditional/ternary emitter
+  // derive branch expectations from narrowed contexts. Passing a
+  // storage-normalized expected type here forces a carrier shape that
+  // may not match the actual expression carrier (e.g., alias members
+  // collapsed to 'object' by normalizeRuntimeStorageType).
+  if (initializer.kind === "conditional") {
+    return undefined;
+  }
+
+  // Type assertions / as-interface: use the target type
+  if (
+    initializer.kind === "typeAssertion" ||
+    initializer.kind === "asinterface"
+  ) {
+    return resolveSemanticVariableInitializerType(initializer, context);
+  }
+
+  // Numeric narrowing: use the inferred type directly
+  if (initializer.kind === "numericNarrowing") {
+    return (initializer as { readonly inferredType?: IrType }).inferredType;
+  }
+
+  // Other initializers: use the semantic type (not storage-normalized)
+  return resolveSemanticVariableInitializerType(initializer, context);
+};
+
+/**
  * Resolve the storage-normalized initializer type for a variable.
  *
  * This is the semantic initializer type passed through normalizeRuntimeStorageType.
- * Used internally by resolveLocalStorageType and for expected-type matching.
+ * Used for local storage type registration (resolveLocalStorageType) and
+ * post-emission storage reasoning — NOT for initializer emission expectations.
+ * For emission expected types, use resolveInitializerEmissionExpectedType.
  */
 export const resolveEffectiveVariableInitializerType = (
   initializer:

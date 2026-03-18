@@ -17,12 +17,16 @@ import { EmitterContext } from "../../types.js";
 import { getPropertyType } from "./type-resolution.js";
 import { emitRemappedLocalName } from "../format/local-names.js";
 import {
-  getCanonicalRuntimeUnionMembers,
   buildRuntimeUnionLayout,
+  getCanonicalRuntimeUnionMembers,
   findRuntimeUnionMemberIndices,
   type EmitTypeAstLike,
 } from "./runtime-unions.js";
 import { isSemanticUnion } from "./union-semantics.js";
+import {
+  getSemanticUnionMembers,
+  findSemanticUnionMemberIndex,
+} from "./semantic-union-members.js";
 import {
   resolveLocalTypesForReference,
   tryGetLiteralSet,
@@ -70,24 +74,42 @@ const tryResolveTernaryPredicateGuard = (
   const unionSourceType = arg.inferredType;
   if (!unionSourceType) return undefined;
 
-  // Semantic gate: confirm this is a union before member resolution
-  if (!isSemanticUnion(unionSourceType, context)) return undefined;
+  // Two-phase guard detection:
+  // 1. Semantic gate — use alias-preserving member discovery to confirm
+  //    this is a union and find which semantic member the predicate targets.
+  //    This works regardless of whether moduleMap/typeAliasIndex expands aliases.
+  const semanticMembers = getSemanticUnionMembers(unionSourceType, context);
+  if (!semanticMembers) return undefined;
 
-  const members = getCanonicalRuntimeUnionMembers(unionSourceType, context);
-  if (!members) return undefined;
-
-  const matchingIndices = findRuntimeUnionMemberIndices(
-    members,
+  const semanticIdx = findSemanticUnionMemberIndex(
+    semanticMembers,
     narrowing.targetType,
     context
   );
-  if (matchingIndices.length !== 1) return undefined;
-  const idx = matchingIndices[0];
-  if (idx === undefined) return undefined;
+  if (semanticIdx === undefined) return undefined;
+
+  // 2. Runtime member index — the emitted code uses .IsN()/.AsN() which
+  //    reference runtime carrier slot numbers. The runtime carrier may have
+  //    different member numbering if aliases are expanded. Use the runtime
+  //    member list to find the correct slot index for the matched semantic member.
+  const runtimeMembers = getCanonicalRuntimeUnionMembers(
+    unionSourceType,
+    context
+  );
+  if (!runtimeMembers) return undefined;
+
+  const runtimeIndices = findRuntimeUnionMemberIndices(
+    runtimeMembers,
+    narrowing.targetType,
+    context
+  );
+  if (runtimeIndices.length !== 1) return undefined;
+  const runtimeIdx = runtimeIndices[0];
+  if (runtimeIdx === undefined) return undefined;
 
   return {
     originalName,
-    memberN: idx + 1,
+    memberN: runtimeIdx + 1,
     escapedOrig: emitRemappedLocalName(originalName, context),
     polarity: "positive",
   };

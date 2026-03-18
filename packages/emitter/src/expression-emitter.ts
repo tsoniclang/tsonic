@@ -2106,7 +2106,6 @@ const maybeWidenRuntimeUnionExpressionAst = (
   if (!actualLayout) {
     return undefined;
   }
-
   const [expectedLayout, expectedLayoutContext] = buildRuntimeUnionLayout(
     expectedType,
     actualLayoutContext,
@@ -2201,6 +2200,17 @@ const maybeNarrowRuntimeUnionExpressionAst = (
   expectedType: IrType,
   visited: ReadonlySet<string>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
+  // Semantic gate: only project via Match() when both the actual and
+  // expected types are semantic unions (explicit unionType in IR).
+  // Alias references like MiddlewareLike must not be treated as unions
+  // here — they are single semantic types, even if they alias a union.
+  if (
+    !isSemanticUnion(actualType, context) ||
+    !isSemanticUnion(expectedType, context)
+  ) {
+    return undefined;
+  }
+
   const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
     actualType,
     context,

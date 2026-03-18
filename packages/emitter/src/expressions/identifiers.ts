@@ -175,39 +175,6 @@ const tryEmitImplicitNarrowedStorageIdentifier = (
   return [narrowed.storageExprAst, context];
 };
 
-const tryEmitStorageCompatibleRuntimeSubsetIdentifier = (
-  expr: Extract<IrExpression, { kind: "identifier" }>,
-  context: EmitterContext,
-  expectedType: IrType | undefined
-): [CSharpExpressionAst, EmitterContext] | undefined => {
-  if (!expectedType) {
-    return undefined;
-  }
-
-  const remappedLocal = context.localNameMap?.get(expr.name);
-  const storageType = context.localValueTypes?.get(expr.name);
-  if (!remappedLocal || !storageType) {
-    return undefined;
-  }
-
-  if (
-    !isBroadStorageTarget(expectedType, context) &&
-    !matchesExpectedEmissionType(storageType, expectedType, context)
-  ) {
-    const [sameSurface, nextContext] = matchesEmittedStorageSurface(
-      storageType,
-      expectedType,
-      context
-    );
-    if (!sameSurface) {
-      return undefined;
-    }
-    return [identifierExpression(remappedLocal), nextContext];
-  }
-
-  return [identifierExpression(remappedLocal), context];
-};
-
 const tryEmitImplicitRuntimeSubsetStorageIdentifier = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   narrowed: Extract<NarrowedBinding, { kind: "runtimeSubset" }>,
@@ -402,18 +369,29 @@ export const emitIdentifier = (
   if (context.narrowedBindings) {
     const narrowed = context.narrowedBindings.get(expr.name);
     if (narrowed) {
-      const storageFallback = tryEmitStorageCompatibleIdentifier(
-        expr,
-        context,
-        expectedType
-      );
-      if (storageFallback) {
-        return [storageFallback, context];
-      }
+      // Storage-compatible fast paths must NOT bypass runtimeSubset
+      // narrowing. When a branch context carries a runtimeSubset binding,
+      // the variable is semantically narrowed to a subset of the carrier
+      // (e.g., first: PathSpec slots within Union<5 members>). Emitting
+      // the raw storage identifier would lose that subset information and
+      // cause incorrect carrier-shape adaptation downstream.
+      if (narrowed.kind !== "runtimeSubset") {
+        const storageFallback = tryEmitStorageCompatibleIdentifier(
+          expr,
+          context,
+          expectedType
+        );
+        if (storageFallback) {
+          return [storageFallback, context];
+        }
 
-      const collapsedStorage = tryEmitCollapsedStorageIdentifier(expr, context);
-      if (collapsedStorage) {
-        return collapsedStorage;
+        const collapsedStorage = tryEmitCollapsedStorageIdentifier(
+          expr,
+          context
+        );
+        if (collapsedStorage) {
+          return collapsedStorage;
+        }
       }
 
       if (narrowed.kind === "rename") {
@@ -461,15 +439,12 @@ export const emitIdentifier = (
           return implicitStorage;
         }
 
-        const storageCompatible =
-          tryEmitStorageCompatibleRuntimeSubsetIdentifier(
-            expr,
-            context,
-            expectedType
-          );
-        if (storageCompatible) {
-          return storageCompatible;
-        }
+        // Storage-compatible shortcut is intentionally skipped here.
+        // When a runtimeSubset binding is active, the variable has been
+        // narrowed to a semantic subset (e.g., PathSpec slots within a
+        // 5-member carrier). The raw storage identifier carries the full
+        // carrier, not the subset. Using it would lose the narrowing and
+        // cause incorrect carrier-shape adaptation downstream.
 
         const subsetAst = buildRuntimeSubsetExpressionAst(
           expr,

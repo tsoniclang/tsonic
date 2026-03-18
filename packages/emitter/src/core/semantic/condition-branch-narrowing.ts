@@ -27,9 +27,9 @@ import {
 import { stableIrTypeKey } from "@tsonic/frontend";
 import {
   buildRuntimeUnionLayout,
-  findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
   findRuntimeUnionMemberIndex,
+  findRuntimeUnionMemberIndices,
   buildRuntimeUnionTypeAst,
 } from "./runtime-unions.js";
 import {
@@ -1269,7 +1269,7 @@ const applyPredicateCallRefinement = (
   );
 
   if (runtimeUnionFrame) {
-    const matchingIndices = findExactRuntimeUnionMemberIndices(
+    const matchingIndices = findRuntimeUnionMemberIndices(
       runtimeUnionFrame.members,
       narrowing.targetType,
       rawTargetContext
@@ -1302,6 +1302,45 @@ const applyPredicateCallRefinement = (
         rawTargetContext
       );
       if (complementBinding) {
+        return applyBinding(bindingKey, complementBinding, rawTargetContext);
+      }
+    }
+
+    // Multi-slot predicate targets: a semantic alias (e.g., PathSpec)
+    // may map to multiple runtime carrier slots after alias expansion.
+    // Build runtimeSubset bindings so that both branches carry correct
+    // runtime-slot knowledge.
+    if (matchingIndices.length > 1) {
+      const matchedMemberNs = matchingIndices
+        .map((index) => runtimeUnionFrame.candidateMemberNs[index] ?? index + 1)
+        .filter((n): n is number => n !== undefined);
+      const complementMemberNs = runtimeUnionFrame.candidateMemberNs.filter(
+        (memberN) => !matchedMemberNs.includes(memberN)
+      );
+
+      if (branch === "truthy" && matchedMemberNs.length > 0) {
+        const subsetBinding: NarrowedBinding = {
+          kind: "runtimeSubset",
+          runtimeMemberNs: matchedMemberNs,
+          runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
+          sourceMembers: [...runtimeUnionFrame.members],
+          sourceCandidateMemberNs: [...runtimeUnionFrame.candidateMemberNs],
+          type: narrowedType,
+          sourceType: currentType,
+        };
+        return applyBinding(bindingKey, subsetBinding, rawTargetContext);
+      }
+
+      if (branch === "falsy" && complementMemberNs.length > 0) {
+        const complementBinding: NarrowedBinding = {
+          kind: "runtimeSubset",
+          runtimeMemberNs: complementMemberNs,
+          runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
+          sourceMembers: [...runtimeUnionFrame.members],
+          sourceCandidateMemberNs: [...runtimeUnionFrame.candidateMemberNs],
+          type: narrowedType,
+          sourceType: currentType,
+        };
         return applyBinding(bindingKey, complementBinding, rawTargetContext);
       }
     }

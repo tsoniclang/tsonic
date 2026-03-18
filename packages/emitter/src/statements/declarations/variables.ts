@@ -26,6 +26,7 @@ import {
 import {
   resolveAsInterfaceTargetType,
   resolveEffectiveVariableInitializerType,
+  resolveInitializerEmissionExpectedType,
 } from "../../core/semantic/variable-type-resolution.js";
 import {
   allocateLocalName,
@@ -1180,21 +1181,16 @@ export const emitVariableDeclarationAst = (
       // Emit initializer (after allocation, before registration - C# scoping)
       let initAst = undefined;
       if (decl.initializer) {
-        const numericInitializer = decl.initializer as
-          | ({ readonly inferredType?: IrType } & { readonly kind: string })
-          | undefined;
         const expectedInitializerType = shouldTreatStructuralAssertionAsErased(
           decl,
           currentContext
         )
           ? undefined
-          : (decl.type ??
-            (decl.initializer.kind === "numericNarrowing"
-              ? numericInitializer?.inferredType
-              : resolveEffectiveVariableInitializerType(
-                  decl.initializer,
-                  currentContext
-                )));
+          : resolveInitializerEmissionExpectedType(
+              decl.type,
+              decl.initializer,
+              currentContext
+            );
         const [exprAst, newContext] = emitExpressionAst(
           decl.initializer,
           currentContext,

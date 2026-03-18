@@ -287,16 +287,12 @@ const expandRuntimeUnionMembers = (
       );
     }
 
-    const resolved = resolveTypeAlias(type, context);
-    if (resolved !== type) {
-      return expandRuntimeUnionMembers(
-        resolved,
-        context,
-        activeAliases,
-        nextActiveTypes
-      );
-    }
-
+    // Do not fall back to resolveTypeAlias (typeAliasIndex) here.
+    // Cross-module aliases are resolved through resolveLocalTypeInfo
+    // (which uses localTypes and moduleMap). The typeAliasIndex fallback
+    // created context-dependent divergence: the same union type would
+    // produce different canonical members depending on whether
+    // typeAliasIndex happened to be populated.
     return [type];
   }
 

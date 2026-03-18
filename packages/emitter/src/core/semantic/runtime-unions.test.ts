@@ -4,10 +4,12 @@ import type { IrType, IrInterfaceMember } from "@tsonic/frontend";
 import {
   buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
+  getCanonicalRuntimeUnionMembers,
   findRuntimeUnionMemberIndices,
 } from "./runtime-unions.js";
 import { emitTypeAst } from "../../types/emitter.js";
 import { createContext } from "../../emitter-types/context.js";
+import type { TypeAliasIndex } from "../../emitter-types/core.js";
 
 const property = (
   name: string,
@@ -182,5 +184,119 @@ describe("runtime-unions", () => {
       "primitiveType",
       "referenceType",
     ]);
+  });
+
+  describe("cross-module alias stability", () => {
+    it("canonical runtime union members must not diverge when typeAliasIndex can expand a cross-module alias", () => {
+      // PathSpec is a recursive union alias defined in another module.
+      // In a cross-module union like `string | PathSpec`, the canonical
+      // members should be [string, PathSpec-as-reference] regardless of
+      // whether typeAliasIndex can expand PathSpec.
+      //
+      // This is the emitter-level invariant behind the PathSpec/mountedAt
+      // regression: full-module context must not cause alias expansion to
+      // change the canonical member set.
+
+      const pathSpecRef: IrType = {
+        kind: "referenceType",
+        name: "PathSpec",
+        resolvedClrType: "Other.PathSpec",
+      };
+
+      // The union as the frontend would emit it: string | PathSpec
+      const unionType: IrType = {
+        kind: "unionType",
+        types: [{ kind: "primitiveType", name: "string" }, pathSpecRef],
+      };
+
+      // PathSpec's underlying type (defined in another module)
+      const pathSpecUnderlying: IrType = {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "string" },
+          {
+            kind: "referenceType",
+            name: "RegExp",
+            resolvedClrType: "Other.RegExp",
+          },
+        ],
+      };
+
+      // Context WITHOUT typeAliasIndex: PathSpec is opaque
+      const localContext = createContext({ rootNamespace: "Test" });
+      const localMembers = getCanonicalRuntimeUnionMembers(
+        unionType,
+        localContext
+      );
+
+      // Context WITH typeAliasIndex: PathSpec can be expanded
+      const typeAliasIndex: TypeAliasIndex = {
+        byName: new Map([
+          [
+            "PathSpec",
+            [
+              {
+                name: "PathSpec",
+                fqn: "Other.PathSpec",
+                type: pathSpecUnderlying,
+                typeParameters: [],
+              },
+            ],
+          ],
+        ]),
+        byFqn: new Map([
+          [
+            "Other.PathSpec",
+            {
+              name: "PathSpec",
+              fqn: "Other.PathSpec",
+              type: pathSpecUnderlying,
+              typeParameters: [],
+            },
+          ],
+        ]),
+      };
+      const fullContext = createContext({
+        rootNamespace: "Test",
+        typeAliasIndex,
+      });
+      const fullMembers = getCanonicalRuntimeUnionMembers(
+        unionType,
+        fullContext
+      );
+
+      // Both contexts should produce the same member count.
+      // If typeAliasIndex causes PathSpec to expand into its underlying
+      // members (string, RegExp), the full-module path sees 2 distinct
+      // members after dedup (string, RegExp) instead of 2 members
+      // (string, PathSpec-ref). The member count may be the same but
+      // the identity differs — PathSpec as a named reference is lost.
+      expect(localMembers?.length).to.equal(2);
+      expect(fullMembers?.length).to.equal(localMembers?.length);
+
+      // The members should have the same type kinds.
+      // Local: [primitiveType(string), referenceType(PathSpec)]
+      // Full (correct): same
+      // Full (broken): [primitiveType(string), referenceType(RegExp)] — PathSpec expanded
+      const localKinds = localMembers?.map((m) => m.kind);
+      const fullKinds = fullMembers?.map((m) => m.kind);
+      expect(fullKinds).to.deep.equal(localKinds);
+
+      // If PathSpec survived as a reference, it should still be named PathSpec
+      const localPathSpecMember = localMembers?.find(
+        (m) => m.kind === "referenceType"
+      );
+      const fullPathSpecMember = fullMembers?.find(
+        (m) => m.kind === "referenceType"
+      );
+      expect(localPathSpecMember).to.not.be.undefined;
+      expect(fullPathSpecMember).to.not.be.undefined;
+      if (
+        localPathSpecMember?.kind === "referenceType" &&
+        fullPathSpecMember?.kind === "referenceType"
+      ) {
+        expect(fullPathSpecMember.name).to.equal(localPathSpecMember.name);
+      }
+    });
   });
 });
