@@ -21,6 +21,11 @@ import {
 import type { ResolvedConfig, Result } from "../types.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import * as ts from "typescript";
+import {
+  appendSourceFunctionSignature,
+  renderSourceFunctionParametersText,
+  type SourceFunctionSignatureSurface as SourceFunctionSignatureDef,
+} from "../aikya/source-function-surfaces.js";
 
 type FacadeInfo = {
   readonly namespace: string;
@@ -58,12 +63,6 @@ type SourceMemberTypeDef = {
   readonly typeNode: ts.TypeNode;
   readonly typeText: string;
   readonly isOptional: boolean;
-};
-
-type SourceFunctionSignatureDef = {
-  readonly typeParametersText: string;
-  readonly parametersText: string;
-  readonly returnTypeText: string;
 };
 
 type SourceTypeImport = {
@@ -625,6 +624,7 @@ const collectSourceTypeImportsForSignature = (
   typeImportsByLocalName: ReadonlyMap<string, SourceTypeImport>
 ): readonly SourceTypeImportBinding[] => {
   const required: SourceTypeImportBinding[] = [];
+  const parametersText = renderSourceFunctionParametersText(signature);
 
   for (const [localName, imported] of typeImportsByLocalName) {
     const source = imported.source.trim();
@@ -632,7 +632,7 @@ const collectSourceTypeImportsForSignature = (
     if (source.startsWith(".") || source.startsWith("/")) continue;
     const appearsInSignature =
       textContainsIdentifier(signature.typeParametersText, localName) ||
-      textContainsIdentifier(signature.parametersText, localName) ||
+      textContainsIdentifier(parametersText, localName) ||
       textContainsIdentifier(signature.returnTypeText, localName);
     if (!appearsInSignature) continue;
     required.push({
@@ -695,7 +695,7 @@ const patchFacadeWithSourceFunctionSignatures = (
               }
               return expandUnionsDeep(existingReturnType);
             })();
-            return `export declare function ${name}${sig.typeParametersText}(${sig.parametersText}): ${returnType};`;
+            return `export declare function ${name}${sig.typeParametersText}(${renderSourceFunctionParametersText(sig)}): ${returnType};`;
           })
         )
       ).join("\n");
@@ -733,13 +733,13 @@ const patchFacadeWithSourceFunctionSignatures = (
           .filter((sig) => {
             if (expectedParamCount === undefined) return true;
             const paramCount = splitTopLevelCommaSeparated(
-              sig.parametersText
+              renderSourceFunctionParametersText(sig)
             ).length;
             return paramCount === expectedParamCount;
           })
           .map((sig) => {
             const returnType = forcedReturnType ?? sig.returnTypeText;
-            return `export declare function ${name}${sig.typeParametersText}(${sig.parametersText}): ${returnType};`;
+            return `export declare function ${name}${sig.typeParametersText}(${renderSourceFunctionParametersText(sig)}): ${returnType};`;
           })
       )
     ).join("\n");
@@ -1268,23 +1268,25 @@ const buildSourceModuleInfo = (
     return `<${typeParameters.map((tp) => tp.getText(sourceFile)).join(", ")}>`;
   };
 
-  const printParameterText = (param: ts.ParameterDeclaration): string => {
+  const printParameterText = (
+    param: ts.ParameterDeclaration
+  ): SourceFunctionSignatureDef["parameters"][number] => {
     const rest = param.dotDotDotToken ? "..." : "";
     const name = param.name.getText(sourceFile);
     const optional = param.questionToken ? "?" : "";
-    const type = param.type
-      ? printTypeNodeText(param.type, sourceFile)
-      : "unknown";
-    return `${rest}${name}${optional}: ${type}`;
+    return {
+      prefixText: `${rest}${name}${optional}: `,
+      typeText: param.type
+        ? printTypeNodeText(param.type, sourceFile)
+        : "unknown",
+    };
   };
 
   const addExportedFunctionSignature = (
     name: string,
     sig: SourceFunctionSignatureDef
   ): void => {
-    const list = exportedFunctionSignaturesByName.get(name) ?? [];
-    list.push(sig);
-    exportedFunctionSignaturesByName.set(name, list);
+    appendSourceFunctionSignature(exportedFunctionSignaturesByName, name, sig);
   };
 
   for (const stmt of sourceFile.statements) {
@@ -1347,10 +1349,10 @@ const buildSourceModuleInfo = (
       );
       if (!hasExport || !stmt.name || !stmt.type) continue;
 
-      const parametersText = stmt.parameters.map(printParameterText).join(", ");
       addExportedFunctionSignature(stmt.name.text, {
         typeParametersText: printTypeParametersText(stmt.typeParameters),
-        parametersText,
+        typeParameterCount: stmt.typeParameters?.length ?? 0,
+        parameters: stmt.parameters.map(printParameterText),
         returnTypeText: printTypeNodeText(stmt.type, sourceFile),
       });
       continue;
@@ -1371,12 +1373,10 @@ const buildSourceModuleInfo = (
         if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
           const returnType = init.type;
           if (!returnType) continue;
-          const parametersText = init.parameters
-            .map(printParameterText)
-            .join(", ");
           addExportedFunctionSignature(exportName, {
             typeParametersText: printTypeParametersText(init.typeParameters),
-            parametersText,
+            typeParameterCount: init.typeParameters?.length ?? 0,
+            parameters: init.parameters.map(printParameterText),
             returnTypeText: printTypeNodeText(returnType, sourceFile),
           });
         }

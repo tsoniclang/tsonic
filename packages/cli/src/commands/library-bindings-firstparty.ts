@@ -27,6 +27,12 @@ import * as ts from "typescript";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import type { ResolvedConfig, Result } from "../types.js";
 import { overlayDependencyBindings } from "./library-bindings-augment.js";
+import {
+  appendSourceFunctionSignature,
+  renderSourceFunctionParametersText,
+  selectPreferredSourceFunctionSignature,
+  type SourceFunctionSignatureSurface as SourceFunctionSignatureDef,
+} from "../aikya/source-function-surfaces.js";
 
 type FirstPartyBindingsMethod = {
   readonly stableId: string;
@@ -239,16 +245,6 @@ type SourceMemberTypeDef = {
 type SourceAnonymousTypeLiteralDef = {
   readonly typeText: string;
   readonly members: ReadonlyMap<string, SourceMemberTypeDef>;
-};
-
-type SourceFunctionSignatureDef = {
-  readonly typeParametersText: string;
-  readonly typeParameterCount: number;
-  readonly parameters: readonly {
-    readonly prefixText: string;
-    readonly typeText: string;
-  }[];
-  readonly returnTypeText: string;
 };
 
 type SourceValueTypeDef = {
@@ -1081,22 +1077,6 @@ const rewriteSourceTypeText = (
   return printer.printNode(ts.EmitHint.Unspecified, transformed, sourceFile);
 };
 
-const selectPreferredSourceFunctionSignature = (opts: {
-  readonly declaration: Extract<IrStatement, { kind: "functionDeclaration" }>;
-  readonly sourceSignatures: readonly SourceFunctionSignatureDef[];
-}): SourceFunctionSignatureDef | undefined => {
-  const targetTypeParameterCount = opts.declaration.typeParameters?.length ?? 0;
-  const targetParameterCount = opts.declaration.parameters.length;
-
-  const exact = opts.sourceSignatures.find((signature) => {
-    return (
-      signature.parameters.length === targetParameterCount &&
-      signature.typeParameterCount === targetTypeParameterCount
-    );
-  });
-  return exact ?? opts.sourceSignatures[0];
-};
-
 const renderSourceFunctionSignature = (opts: {
   readonly declaration: Extract<IrStatement, { kind: "functionDeclaration" }>;
   readonly sourceSignatures: readonly SourceFunctionSignatureDef[];
@@ -1113,21 +1093,22 @@ const renderSourceFunctionSignature = (opts: {
     }
   | undefined => {
   const sourceSignature = selectPreferredSourceFunctionSignature({
-    declaration: opts.declaration,
+    targetTypeParameterCount: opts.declaration.typeParameters?.length ?? 0,
+    targetParameterCount: opts.declaration.parameters.length,
     sourceSignatures: opts.sourceSignatures,
   });
   if (!sourceSignature) return undefined;
 
-  const parametersText = sourceSignature.parameters
-    .map(
-      (parameter) =>
-        `${parameter.prefixText}${rewriteSourceTypeText(
-          parameter.typeText,
-          opts.localTypeNameRemaps,
-          opts.anonymousStructuralAliases
-        )}`
-    )
-    .join(", ");
+  const parametersText = renderSourceFunctionParametersText({
+    parameters: sourceSignature.parameters.map((parameter) => ({
+      prefixText: parameter.prefixText,
+      typeText: rewriteSourceTypeText(
+        parameter.typeText,
+        opts.localTypeNameRemaps,
+        opts.anonymousStructuralAliases
+      ),
+    })),
+  });
 
   return {
     typeParametersText: sourceSignature.typeParametersText,
@@ -1166,16 +1147,16 @@ const renderSourceFunctionType = (opts: {
 }): string | undefined => {
   const sourceSignature = opts.sourceSignatures[0];
   if (!sourceSignature) return undefined;
-  const parametersText = sourceSignature.parameters
-    .map(
-      (parameter) =>
-        `${parameter.prefixText}${rewriteSourceTypeText(
-          parameter.typeText,
-          opts.localTypeNameRemaps,
-          opts.anonymousStructuralAliases
-        )}`
-    )
-    .join(", ");
+  const parametersText = renderSourceFunctionParametersText({
+    parameters: sourceSignature.parameters.map((parameter) => ({
+      prefixText: parameter.prefixText,
+      typeText: rewriteSourceTypeText(
+        parameter.typeText,
+        opts.localTypeNameRemaps,
+        opts.anonymousStructuralAliases
+      ),
+    })),
+  });
   return `${sourceSignature.typeParametersText}(${parametersText}) => ${rewriteSourceTypeText(
     sourceSignature.returnTypeText,
     opts.localTypeNameRemaps,
@@ -2052,9 +2033,11 @@ const buildModuleSourceIndex = (
     name: string,
     signature: SourceFunctionSignatureDef
   ): void => {
-    const signatures = exportedFunctionSignaturesByName.get(name) ?? [];
-    signatures.push(signature);
-    exportedFunctionSignaturesByName.set(name, signatures);
+    appendSourceFunctionSignature(
+      exportedFunctionSignaturesByName,
+      name,
+      signature
+    );
   };
 
   const registerAnonymousTypeLiteralsInTypeNode = (
@@ -4643,11 +4626,7 @@ const collectNamespacePlans = (
         const sourceSignatures = (facade.sourceSignatures ?? [])
           .map(
             (signature) =>
-              `${signature.typeParametersText}(${signature.parameters
-                .map(
-                  (parameter) => `${parameter.prefixText}${parameter.typeText}`
-                )
-                .join(", ")}):${signature.returnTypeText}`
+              `${signature.typeParametersText}(${renderSourceFunctionParametersText(signature)}):${signature.returnTypeText}`
           )
           .sort((left, right) => left.localeCompare(right))
           .join("||");
