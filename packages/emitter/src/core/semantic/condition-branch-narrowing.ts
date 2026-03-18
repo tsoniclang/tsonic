@@ -4,11 +4,7 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../format/backend-ast/types.js";
-import {
-  identifierExpression,
-  identifierType,
-  stringLiteral,
-} from "../format/backend-ast/builders.js";
+import { identifierExpression } from "../format/backend-ast/builders.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { nullLiteral } from "../format/backend-ast/builders.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
@@ -28,16 +24,15 @@ import {
   buildRuntimeUnionLayout,
   findRuntimeUnionInstanceofMemberIndices,
   findRuntimeUnionMemberIndices,
-  buildRuntimeUnionTypeAst,
 } from "./runtime-unions.js";
 import {
   resolveNarrowedUnionMembers,
   type NarrowedUnionMembers,
 } from "./narrowed-union-resolution.js";
 import {
-  buildRuntimeUnionMemberIndexByAstKey,
-  findMappedRuntimeUnionMemberIndex,
-} from "./runtime-union-member-mapping.js";
+  buildInvalidRuntimeUnionCastExpression,
+  tryBuildRuntimeUnionProjectionToLayoutAst,
+} from "./runtime-union-projection.js";
 import { normalizeInstanceofTargetType } from "./instanceof-targets.js";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 import {
@@ -392,41 +387,6 @@ const buildRuntimeUnionComplementBinding = (
   };
 };
 
-const buildUnionFactoryCallAst = (
-  unionTypeAst: CSharpTypeAst,
-  memberIndex: number,
-  valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "typeReferenceExpression",
-      type: unionTypeAst,
-    },
-    memberName: `From${memberIndex}`,
-  },
-  arguments: [valueAst],
-});
-
-const buildInvalidRuntimeUnionCastExpression = (
-  actualType: IrType,
-  expectedType: IrType
-): CSharpExpressionAst => ({
-  kind: "throwExpression",
-  expression: {
-    kind: "objectCreationExpression",
-    type: identifierType("global::System.InvalidCastException"),
-    arguments: [
-      stringLiteral(
-        `Cannot cast runtime union ${stableIrTypeKey(
-          actualType
-        )} to ${stableIrTypeKey(expectedType)}`
-      ),
-    ],
-  },
-});
-
 const buildRuntimeUnionSubsetBinding = (
   receiverAst: CSharpExpressionAst,
   runtimeUnionFrame: RuntimeUnionFrame,
@@ -498,101 +458,55 @@ const buildRuntimeUnionSubsetBinding = (
   }
 
   const subsetTypeContext = subsetLayoutContext;
-  const concreteSubsetTypeAst = buildRuntimeUnionTypeAst(subsetLayout);
-
-  const expectedMemberIndexByAstKey = buildRuntimeUnionMemberIndexByAstKey(
-    subsetLayout.memberTypeAsts
-  );
-
   const selectedRuntimeMembers = new Set(
     selectedPairs.map((pair) => pair.runtimeMemberN)
   );
-  const lambdaArgs: CSharpExpressionAst[] = [];
-
-  for (let index = 0; index < runtimeUnionFrame.members.length; index += 1) {
-    const actualMember = runtimeUnionFrame.members[index];
-    if (!actualMember) continue;
-
-    const parameterName = `__tsonic_union_member_${index + 1}`;
-    const parameterExpr: CSharpExpressionAst = {
-      kind: "identifierExpression",
-      identifier: parameterName,
-    };
-    const runtimeMemberN =
-      runtimeUnionFrame.candidateMemberNs[index] ?? index + 1;
-
-    if (!selectedRuntimeMembers.has(runtimeMemberN)) {
-      lambdaArgs.push({
-        kind: "lambdaExpression",
-        isAsync: false,
-        parameters: [{ name: parameterName }],
-        body: buildInvalidRuntimeUnionCastExpression(
-          actualMember,
-          narrowedType
-        ),
-      });
-      continue;
-    }
-
-    const sourceMemberTypeAst = (() => {
-      const [typeAst] = emitTypeAst(actualMember, subsetTypeContext);
-      return typeAst;
-    })();
-    const expectedMemberIndex = findMappedRuntimeUnionMemberIndex({
-      targetMembers: subsetLayout.members,
-      targetMemberIndexByAstKey: expectedMemberIndexByAstKey,
-      actualMember,
-      actualMemberTypeAst: sourceMemberTypeAst,
-      context: subsetTypeContext,
-    });
-
-    if (expectedMemberIndex === undefined) {
-      lambdaArgs.push({
-        kind: "lambdaExpression",
-        isAsync: false,
-        parameters: [{ name: parameterName }],
-        body: buildInvalidRuntimeUnionCastExpression(
-          actualMember,
-          narrowedType
-        ),
-      });
-      continue;
-    }
-
-    lambdaArgs.push({
-      kind: "lambdaExpression",
-      isAsync: false,
-      parameters: [{ name: parameterName }],
-      body: buildUnionFactoryCallAst(
-        concreteSubsetTypeAst,
-        expectedMemberIndex + 1,
-        parameterExpr
-      ),
-    });
+  const sourceMemberTypeAsts: CSharpTypeAst[] = [];
+  let sourceLayoutContext = subsetTypeContext;
+  for (const member of runtimeUnionFrame.members) {
+    const [typeAst, nextContext] = emitTypeAst(member, sourceLayoutContext);
+    sourceMemberTypeAsts.push(typeAst);
+    sourceLayoutContext = nextContext;
   }
 
-  const matchExpr: CSharpExpressionAst = {
-    kind: "invocationExpression",
-    expression: {
-      kind: "memberAccessExpression",
-      expression: receiverAst,
-      memberName: "Match",
+  const projectedSubset = tryBuildRuntimeUnionProjectionToLayoutAst({
+    valueAst: receiverAst,
+    sourceLayout: {
+      members: runtimeUnionFrame.members,
+      memberTypeAsts: sourceMemberTypeAsts,
+      runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
     },
-    arguments: lambdaArgs,
-  };
+    targetLayout: subsetLayout,
+    context: sourceLayoutContext,
+    candidateMemberNs: runtimeUnionFrame.candidateMemberNs,
+    selectedSourceMemberNs: selectedRuntimeMembers,
+    buildMappedMemberValue: ({ parameterExpr, context: nextContext }) => [
+      parameterExpr,
+      nextContext,
+    ],
+    buildExcludedMemberBody: ({ actualMember }) =>
+      buildInvalidRuntimeUnionCastExpression(actualMember, narrowedType),
+    buildUnmappedMemberBody: ({ actualMember }) =>
+      buildInvalidRuntimeUnionCastExpression(actualMember, narrowedType),
+  });
+  if (!projectedSubset) {
+    return undefined;
+  }
+
+  const [matchExpr, matchContext] = projectedSubset;
 
   const exprAst = split?.hasRuntimeNullish
     ? buildConditionalNullishGuardAst(
         receiverAst,
         matchExpr,
         narrowedType,
-        subsetTypeContext
+        matchContext
       )[0]
     : matchExpr;
 
   return [
     buildExprBinding(exprAst, narrowedType, sourceType, receiverAst),
-    subsetTypeContext,
+    matchContext,
   ];
 };
 

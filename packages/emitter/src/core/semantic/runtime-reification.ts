@@ -19,14 +19,14 @@ import type {
 import {
   buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
-  buildRuntimeUnionTypeAst,
   emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
 } from "./runtime-unions.js";
 import {
-  buildRuntimeUnionMemberIndexByAstKey,
-  findMappedRuntimeUnionMemberIndex,
-} from "./runtime-union-member-mapping.js";
+  buildInvalidRuntimeUnionMaterializationExpression,
+  buildRuntimeUnionMatchAst,
+  tryBuildRuntimeUnionProjectionToLayoutAst,
+} from "./runtime-union-projection.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 
 export type EmitTypeAstFn = (
@@ -117,27 +117,6 @@ const buildInvalidReificationExpression = (
   },
 });
 
-const buildInvalidRuntimeMaterializationExpression = (
-  sourceType: IrType,
-  targetType: IrType
-): CSharpExpressionAst =>
-  buildInvalidReificationExpression(
-    `Cannot materialize runtime union ${sourceType.kind} to ${targetType.kind}`
-  );
-
-const buildMaterializationMatchAst = (
-  valueAst: CSharpExpressionAst,
-  lambdaArgs: readonly CSharpExpressionAst[]
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: valueAst,
-    memberName: "Match",
-  },
-  arguments: [...lambdaArgs],
-});
-
 const maybeCastMaterializedValueAst = (
   valueAst: CSharpExpressionAst,
   actualTypeAst: CSharpTypeAst | undefined,
@@ -224,99 +203,37 @@ export const tryBuildRuntimeMaterializationAst = (
   );
 
   if (targetLayout) {
-    const concreteTargetUnionTypeAst = buildRuntimeUnionTypeAst(targetLayout);
-    const expectedMemberIndexByAstKey = buildRuntimeUnionMemberIndexByAstKey(
-      targetLayout.memberTypeAsts
-    );
-
-    const lambdaArgs: CSharpExpressionAst[] = [];
-    for (let index = 0; index < sourceLayout.members.length; index += 1) {
-      const actualMember = sourceLayout.members[index];
-      if (!actualMember) {
-        continue;
-      }
-
-      const parameterName = `__tsonic_union_member_${index + 1}`;
-      const parameterExpr: CSharpExpressionAst = {
-        kind: "identifierExpression",
-        identifier: parameterName,
-      };
-
-      const sourceMemberN =
-        sourceFrame?.candidateMemberNs?.[index] ?? index + 1;
-
-      if (
-        selectedSourceMemberNs &&
-        !selectedSourceMemberNs.has(sourceMemberN)
-      ) {
-        lambdaArgs.push({
-          kind: "lambdaExpression",
-          isAsync: false,
-          parameters: [{ name: parameterName }],
-          body: buildInvalidRuntimeMaterializationExpression(
-            actualMember,
-            targetType
-          ),
-        });
-        continue;
-      }
-
-      const actualMemberTypeAst = sourceLayout.memberTypeAsts[index];
-      const expectedMemberIndex = findMappedRuntimeUnionMemberIndex({
-        targetMembers: targetLayout.members,
-        targetMemberIndexByAstKey: expectedMemberIndexByAstKey,
-        actualMember,
+    return tryBuildRuntimeUnionProjectionToLayoutAst({
+      valueAst,
+      sourceLayout,
+      targetLayout,
+      context: targetLayoutContext,
+      candidateMemberNs: sourceFrame?.candidateMemberNs,
+      selectedSourceMemberNs,
+      buildMappedMemberValue: ({
         actualMemberTypeAst,
-        context: targetLayoutContext,
-      });
-
-      if (expectedMemberIndex === undefined) {
-        lambdaArgs.push({
-          kind: "lambdaExpression",
-          isAsync: false,
-          parameters: [{ name: parameterName }],
-          body: buildInvalidRuntimeMaterializationExpression(
-            actualMember,
-            targetType
-          ),
-        });
-        continue;
-      }
-
-      const targetMemberTypeAst =
-        targetLayout.memberTypeAsts[expectedMemberIndex];
-      const materializedValue =
-        targetMemberTypeAst === undefined
-          ? parameterExpr
-          : maybeCastMaterializedValueAst(
-              parameterExpr,
-              actualMemberTypeAst,
-              targetMemberTypeAst
-            );
-
-      lambdaArgs.push({
-        kind: "lambdaExpression",
-        isAsync: false,
-        parameters: [{ name: parameterName }],
-        body: {
-          kind: "invocationExpression",
-          expression: {
-            kind: "memberAccessExpression",
-            expression: {
-              kind: "typeReferenceExpression",
-              type: concreteTargetUnionTypeAst,
-            },
-            memberName: `From${expectedMemberIndex + 1}`,
-          },
-          arguments: [materializedValue],
-        },
-      });
-    }
-
-    return [
-      buildMaterializationMatchAst(valueAst, lambdaArgs),
-      targetLayoutContext,
-    ];
+        parameterExpr,
+        targetMemberTypeAst,
+        context: nextContext,
+      }) => [
+        maybeCastMaterializedValueAst(
+          parameterExpr,
+          actualMemberTypeAst,
+          targetMemberTypeAst
+        ),
+        nextContext,
+      ],
+      buildExcludedMemberBody: ({ actualMember }) =>
+        buildInvalidRuntimeUnionMaterializationExpression(
+          actualMember,
+          targetType
+        ),
+      buildUnmappedMemberBody: ({ actualMember }) =>
+        buildInvalidRuntimeUnionMaterializationExpression(
+          actualMember,
+          targetType
+        ),
+    });
   }
 
   const [targetTypeAst, nextContext] = emitTypeAst(
@@ -388,7 +305,7 @@ export const tryBuildRuntimeMaterializationAst = (
         kind: "lambdaExpression",
         isAsync: false,
         parameters: [{ name: parameterName }],
-        body: buildInvalidRuntimeMaterializationExpression(
+        body: buildInvalidRuntimeUnionMaterializationExpression(
           actualMember,
           targetType
         ),
@@ -401,7 +318,7 @@ export const tryBuildRuntimeMaterializationAst = (
         kind: "lambdaExpression",
         isAsync: false,
         parameters: [{ name: parameterName }],
-        body: buildInvalidRuntimeMaterializationExpression(
+        body: buildInvalidRuntimeUnionMaterializationExpression(
           actualMember,
           targetType
         ),
@@ -422,7 +339,7 @@ export const tryBuildRuntimeMaterializationAst = (
     });
   }
 
-  return [buildMaterializationMatchAst(valueAst, lambdaArgs), nextContext];
+  return [buildRuntimeUnionMatchAst(valueAst, lambdaArgs), nextContext];
 };
 
 export const tryBuildRuntimeReificationPlan = (

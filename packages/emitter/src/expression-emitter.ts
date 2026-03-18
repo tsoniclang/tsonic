@@ -41,9 +41,10 @@ import { isSemanticUnion } from "./core/semantic/union-semantics.js";
 import { matchesExpectedEmissionType } from "./core/semantic/expected-type-matching.js";
 import { resolveEffectiveExpressionType } from "./core/semantic/narrowed-expression-types.js";
 import {
-  buildRuntimeUnionMemberIndexByAstKey,
-  findMappedRuntimeUnionMemberIndex,
-} from "./core/semantic/runtime-union-member-mapping.js";
+  buildRuntimeUnionFactoryCallAst,
+  buildInvalidRuntimeUnionCastExpression,
+  tryBuildRuntimeUnionProjectionToLayoutAst,
+} from "./core/semantic/runtime-union-projection.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -2058,41 +2059,6 @@ const maybeUpcastDictionaryUnionValueAst = (
   return [converted, ctx1];
 };
 
-const buildUnionFactoryCallAst = (
-  unionTypeAst: CSharpTypeAst,
-  memberIndex: number,
-  valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "typeReferenceExpression",
-      type: unionTypeAst,
-    },
-    memberName: `From${memberIndex}`,
-  },
-  arguments: [valueAst],
-});
-
-const buildInvalidRuntimeUnionCastExpression = (
-  actualType: IrType,
-  expectedType: IrType
-): CSharpExpressionAst => ({
-  kind: "throwExpression",
-  expression: {
-    kind: "objectCreationExpression",
-    type: identifierType("global::System.InvalidCastException"),
-    arguments: [
-      stringLiteral(
-        `Cannot cast runtime union ${stableIrTypeKey(
-          actualType
-        )} to ${stableIrTypeKey(expectedType)}`
-      ),
-    ],
-  },
-});
-
 const maybeWidenRuntimeUnionExpressionAst = (
   ast: CSharpExpressionAst,
   actualType: IrType,
@@ -2117,71 +2083,25 @@ const maybeWidenRuntimeUnionExpressionAst = (
     return undefined;
   }
 
-  const actualTypeContext = expectedLayoutContext;
-  const expectedTypeContext = actualTypeContext;
-  const concreteExpectedTypeAst = buildRuntimeUnionTypeAst(expectedLayout);
-
-  const lambdaArgs: CSharpExpressionAst[] = [];
-  let currentContext = expectedTypeContext;
-  const expectedMemberIndexByAstKey = buildRuntimeUnionMemberIndexByAstKey(
-    expectedLayout.memberTypeAsts
-  );
-
-  for (let index = 0; index < actualLayout.members.length; index += 1) {
-    const actualMember = actualLayout.members[index];
-    if (!actualMember) continue;
-
-    const actualMemberTypeAst = actualLayout.memberTypeAsts[index];
-    const expectedMemberIndex = findMappedRuntimeUnionMemberIndex({
-      targetMembers: expectedLayout.members,
-      targetMemberIndexByAstKey: expectedMemberIndexByAstKey,
+  return tryBuildRuntimeUnionProjectionToLayoutAst({
+    valueAst: ast,
+    sourceLayout: actualLayout,
+    targetLayout: expectedLayout,
+    context: expectedLayoutContext,
+    buildMappedMemberValue: ({
       actualMember,
-      actualMemberTypeAst,
-      context: currentContext,
-    });
-    if (expectedMemberIndex === undefined) {
-      return undefined;
-    }
-
-    const parameterName = `__tsonic_union_member_${index + 1}`;
-    const parameterExpr: CSharpExpressionAst = {
-      kind: "identifierExpression",
-      identifier: parameterName,
-    };
-
-    const nested = maybeUpcastExpressionToExpectedTypeAst(
       parameterExpr,
-      actualMember,
-      currentContext,
-      expectedLayout.members[expectedMemberIndex],
-      visited
-    ) ?? [parameterExpr, currentContext];
-
-    lambdaArgs.push({
-      kind: "lambdaExpression",
-      isAsync: false,
-      parameters: [{ name: parameterName }],
-      body: buildUnionFactoryCallAst(
-        concreteExpectedTypeAst,
-        expectedMemberIndex + 1,
-        nested[0]
-      ),
-    });
-    currentContext = nested[1];
-  }
-
-  return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "memberAccessExpression",
-        expression: ast,
-        memberName: "Match",
-      },
-      arguments: lambdaArgs,
-    },
-    currentContext,
-  ];
+      targetMember,
+      context: nextContext,
+    }) =>
+      maybeUpcastExpressionToExpectedTypeAst(
+        parameterExpr,
+        actualMember,
+        nextContext,
+        targetMember,
+        visited
+      ) ?? [parameterExpr, nextContext],
+  });
 };
 
 const maybeNarrowRuntimeUnionExpressionAst = (
@@ -2220,82 +2140,27 @@ const maybeNarrowRuntimeUnionExpressionAst = (
     return undefined;
   }
 
-  const actualTypeContext = expectedLayoutContext;
-  const expectedTypeContext = actualTypeContext;
-  const concreteExpectedTypeAst = buildRuntimeUnionTypeAst(expectedLayout);
-
-  const expectedMemberIndexByAstKey = buildRuntimeUnionMemberIndexByAstKey(
-    expectedLayout.memberTypeAsts
-  );
-
-  const lambdaArgs: CSharpExpressionAst[] = [];
-  let currentContext = expectedTypeContext;
-
-  for (let index = 0; index < actualLayout.members.length; index += 1) {
-    const actualMember = actualLayout.members[index];
-    if (!actualMember) continue;
-
-    const actualMemberTypeAst = actualLayout.memberTypeAsts[index];
-    const expectedMemberIndex = findMappedRuntimeUnionMemberIndex({
-      targetMembers: expectedLayout.members,
-      targetMemberIndexByAstKey: expectedMemberIndexByAstKey,
+  return tryBuildRuntimeUnionProjectionToLayoutAst({
+    valueAst: ast,
+    sourceLayout: actualLayout,
+    targetLayout: expectedLayout,
+    context: expectedLayoutContext,
+    buildMappedMemberValue: ({
       actualMember,
-      actualMemberTypeAst,
-      context: currentContext,
-    });
-
-    const parameterName = `__tsonic_union_member_${index + 1}`;
-    const parameterExpr: CSharpExpressionAst = {
-      kind: "identifierExpression",
-      identifier: parameterName,
-    };
-
-    if (expectedMemberIndex === undefined) {
-      lambdaArgs.push({
-        kind: "lambdaExpression",
-        isAsync: false,
-        parameters: [{ name: parameterName }],
-        body: buildInvalidRuntimeUnionCastExpression(
-          actualMember,
-          expectedType
-        ),
-      });
-      continue;
-    }
-
-    const nested = maybeUpcastExpressionToExpectedTypeAst(
       parameterExpr,
-      actualMember,
-      currentContext,
-      expectedLayout.members[expectedMemberIndex],
-      visited
-    ) ?? [parameterExpr, currentContext];
-
-    lambdaArgs.push({
-      kind: "lambdaExpression",
-      isAsync: false,
-      parameters: [{ name: parameterName }],
-      body: buildUnionFactoryCallAst(
-        concreteExpectedTypeAst,
-        expectedMemberIndex + 1,
-        nested[0]
-      ),
-    });
-    currentContext = nested[1];
-  }
-
-  return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "memberAccessExpression",
-        expression: ast,
-        memberName: "Match",
-      },
-      arguments: lambdaArgs,
-    },
-    currentContext,
-  ];
+      targetMember,
+      context: nextContext,
+    }) =>
+      maybeUpcastExpressionToExpectedTypeAst(
+        parameterExpr,
+        actualMember,
+        nextContext,
+        targetMember,
+        visited
+      ) ?? [parameterExpr, nextContext],
+    buildUnmappedMemberBody: ({ actualMember }) =>
+      buildInvalidRuntimeUnionCastExpression(actualMember, expectedType),
+  });
 };
 
 const maybeProjectRuntimeUnionMemberExpressionAst = (
@@ -2681,7 +2546,11 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     const concreteUnionTypeAst = buildRuntimeUnionTypeAst(runtimeLayout);
 
     return [
-      buildUnionFactoryCallAst(concreteUnionTypeAst, index + 1, nested[0]),
+      buildRuntimeUnionFactoryCallAst(
+        concreteUnionTypeAst,
+        index + 1,
+        nested[0]
+      ),
       unionTypeContext,
     ];
   }
