@@ -1,11 +1,10 @@
 import { IrType, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { isAssignable } from "./index.js";
+import { resolveComparableType } from "./comparable-types.js";
 import {
   isDefinitelyValueType,
-  resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
-  stripNullish,
 } from "./type-resolution.js";
 import { unwrapParameterModifierType } from "./parameter-modifier-types.js";
 
@@ -25,10 +24,7 @@ export const requiresValueTypeMaterialization = (
     return false;
   }
 
-  const resolvedExpected = resolveTypeAlias(
-    stripNullish(unwrapParameterModifierType(expectedType) ?? expectedType),
-    context
-  );
+  const resolvedExpected = resolveComparableType(expectedType, context);
   return isDefinitelyValueType(resolvedExpected);
 };
 
@@ -51,12 +47,8 @@ export const matchesSemanticExpectedType = (
   }
 
   return (
-    stableIrTypeKey(
-      resolveTypeAlias(stripNullish(actualComparableType), context)
-    ) ===
-    stableIrTypeKey(
-      resolveTypeAlias(stripNullish(expectedComparableType), context)
-    )
+    stableIrTypeKey(resolveComparableType(actualComparableType, context)) ===
+    stableIrTypeKey(resolveComparableType(expectedComparableType, context))
   );
 };
 

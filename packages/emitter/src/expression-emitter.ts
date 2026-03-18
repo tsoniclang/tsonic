@@ -65,6 +65,10 @@ import {
 } from "./core/format/backend-ast/builders.js";
 import { allocateLocalName } from "./core/format/local-names.js";
 import { getAcceptedSurfaceType } from "./core/semantic/defaults.js";
+import {
+  resolveComparableType,
+  unwrapComparableType,
+} from "./core/semantic/comparable-types.js";
 import { resolveDirectValueSurfaceType } from "./core/semantic/direct-value-surfaces.js";
 import { unwrapTransparentExpression } from "./core/semantic/transparent-expressions.js";
 import { resolveRuntimeMaterializationTargetType } from "./core/semantic/runtime-materialization-targets.js";
@@ -1583,49 +1587,6 @@ const maybeUnwrapNullableValueTypeAst = (
   ];
 };
 
-const normalizeComparableType = (
-  type: IrType,
-  context: EmitterContext
-): IrType => {
-  const stripped = stripNullish(type);
-  if (
-    stripped.kind === "referenceType" &&
-    (stripped.name === "out" ||
-      stripped.name === "ref" ||
-      stripped.name === "In" ||
-      stripped.name === "inref") &&
-    stripped.typeArguments &&
-    stripped.typeArguments.length === 1
-  ) {
-    const innerType = stripped.typeArguments[0];
-    if (innerType) {
-      return resolveTypeAlias(stripNullish(innerType), context);
-    }
-  }
-
-  return resolveTypeAlias(stripped, context);
-};
-
-const unwrapEmissionComparableType = (type: IrType): IrType => {
-  const stripped = stripNullish(type);
-  if (
-    stripped.kind === "referenceType" &&
-    (stripped.name === "out" ||
-      stripped.name === "ref" ||
-      stripped.name === "In" ||
-      stripped.name === "inref") &&
-    stripped.typeArguments &&
-    stripped.typeArguments.length === 1
-  ) {
-    const innerType = stripped.typeArguments[0];
-    if (innerType) {
-      return unwrapEmissionComparableType(innerType);
-    }
-  }
-
-  return stripped;
-};
-
 const isSafelyEmittableTypeForExactComparison = (
   type: IrType,
   context: EmitterContext,
@@ -1736,7 +1697,7 @@ const getSafeExactComparisonTargetType = (
     return anonymousStructuralTarget;
   }
 
-  const normalized = normalizeComparableType(type, context);
+  const normalized = resolveComparableType(type, context);
   if (isSafelyEmittableTypeForExactComparison(normalized, context)) {
     return normalized;
   }
@@ -1764,7 +1725,7 @@ const tryEmitExactComparisonTargetAst = (
   };
 
   pushCandidate(getSafeExactComparisonTargetType(type, context));
-  pushCandidate(normalizeComparableType(type, context));
+  pushCandidate(resolveComparableType(type, context));
 
   for (const candidate of candidates) {
     try {
@@ -1786,11 +1747,11 @@ const canUseImplicitOptionalSurfaceConversion = (
     return false;
   }
 
-  const normalizedActualBase = normalizeComparableType(
+  const normalizedActualBase = resolveComparableType(
     stripNullish(actualType),
     context
   );
-  const normalizedExpectedBase = normalizeComparableType(
+  const normalizedExpectedBase = resolveComparableType(
     stripNullish(expectedType),
     context
   );
@@ -1818,8 +1779,8 @@ const areIrTypesEquivalent = (
     visited.set(left, new WeakSet([right]));
   }
 
-  const a = normalizeComparableType(left, context);
-  const b = normalizeComparableType(right, context);
+  const a = resolveComparableType(left, context);
+  const b = resolveComparableType(right, context);
 
   if (a.kind !== b.kind) return false;
 
@@ -1977,8 +1938,8 @@ const maybeUpcastDictionaryUnionValueAst = (
   const actualType = resolveEffectiveExpressionType(expr, context);
   if (!expectedType || !actualType) return [ast, context];
 
-  const expected = normalizeComparableType(expectedType, context);
-  const actual = normalizeComparableType(actualType, context);
+  const expected = resolveComparableType(expectedType, context);
+  const actual = resolveComparableType(actualType, context);
   if (expected.kind !== "dictionaryType" || actual.kind !== "dictionaryType") {
     return [ast, context];
   }
@@ -1987,10 +1948,10 @@ const maybeUpcastDictionaryUnionValueAst = (
     return [ast, context];
   }
 
-  const expectedValue = normalizeComparableType(expected.valueType, context);
+  const expectedValue = resolveComparableType(expected.valueType, context);
   if (expectedValue.kind !== "unionType") return [ast, context];
 
-  const actualValue = normalizeComparableType(actual.valueType, context);
+  const actualValue = resolveComparableType(actual.valueType, context);
   if (areIrTypesEquivalent(expectedValue, actualValue, context)) {
     return [ast, context];
   }
@@ -2162,7 +2123,7 @@ const maybeProjectRuntimeUnionMemberExpressionAst = (
   expectedType: IrType,
   visited: ReadonlySet<string>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  const normalizedExpected = normalizeComparableType(expectedType, context);
+  const normalizedExpected = resolveComparableType(expectedType, context);
   if (normalizedExpected.kind === "unionType") {
     return undefined;
   }
@@ -2311,13 +2272,13 @@ const maybeUpcastExpressionToExpectedTypeAst = (
       : actualType;
   })();
 
-  const emissionActualType = unwrapEmissionComparableType(preferredActualType);
-  const emissionExpectedType = unwrapEmissionComparableType(expectedType);
-  const normalizedActualType = normalizeComparableType(
+  const emissionActualType = unwrapComparableType(preferredActualType);
+  const emissionExpectedType = unwrapComparableType(expectedType);
+  const normalizedActualType = resolveComparableType(
     preferredActualType,
     context
   );
-  const normalizedExpectedType = normalizeComparableType(expectedType, context);
+  const normalizedExpectedType = resolveComparableType(expectedType, context);
 
   const runtimeUnionLayoutsDiffer = (() => {
     const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
@@ -2368,8 +2329,8 @@ const maybeUpcastExpressionToExpectedTypeAst = (
       }
       if (
         !areIrTypesEquivalent(
-          normalizeComparableType(actualMember, expectedLayoutContext),
-          normalizeComparableType(expectedMember, expectedLayoutContext),
+          resolveComparableType(actualMember, expectedLayoutContext),
+          resolveComparableType(expectedMember, expectedLayoutContext),
           expectedLayoutContext
         )
       ) {
@@ -2478,7 +2439,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     layoutContext
   );
   const actualTypeKey = stableTypeKeyFromAst(actualTypeAst);
-  const normalizedActual = normalizeComparableType(
+  const normalizedActual = resolveComparableType(
     emissionActualType,
     actualTypeContext
   );
@@ -2494,7 +2455,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     const member = runtimeLayout.members[index];
     if (
       member &&
-      stableIrTypeKey(normalizeComparableType(member, actualTypeContext)) ===
+      stableIrTypeKey(resolveComparableType(member, actualTypeContext)) ===
         actualSemanticKey
     ) {
       preferredIndices.add(index);
