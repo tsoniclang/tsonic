@@ -32,6 +32,34 @@ export const requiresValueTypeMaterialization = (
   return isDefinitelyValueType(resolvedExpected);
 };
 
+export const matchesSemanticExpectedType = (
+  actualType: IrType | undefined,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!actualType || !expectedType) {
+    return false;
+  }
+
+  const actualComparableType =
+    unwrapParameterModifierType(actualType) ?? actualType;
+  const expectedComparableType =
+    unwrapParameterModifierType(expectedType) ?? expectedType;
+
+  if (isAssignable(actualComparableType, expectedComparableType)) {
+    return true;
+  }
+
+  return (
+    stableIrTypeKey(
+      resolveTypeAlias(stripNullish(actualComparableType), context)
+    ) ===
+    stableIrTypeKey(
+      resolveTypeAlias(stripNullish(expectedComparableType), context)
+    )
+  );
+};
+
 export const matchesExpectedEmissionType = (
   actualType: IrType | undefined,
   expectedType: IrType | undefined,
@@ -56,16 +84,9 @@ export const matchesExpectedEmissionType = (
     return false;
   }
 
-  if (isAssignable(actualComparableType, expectedComparableType)) {
-    return true;
-  }
-
-  return (
-    stableIrTypeKey(
-      resolveTypeAlias(stripNullish(actualComparableType), context)
-    ) ===
-    stableIrTypeKey(
-      resolveTypeAlias(stripNullish(expectedComparableType), context)
-    )
+  return matchesSemanticExpectedType(
+    actualComparableType,
+    expectedComparableType,
+    context
   );
 };

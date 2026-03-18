@@ -2,7 +2,7 @@
  * Member access expression emitters
  */
 
-import { IrExpression, stableIrTypeKey, type IrType } from "@tsonic/frontend";
+import { IrExpression, type IrType } from "@tsonic/frontend";
 import type { NarrowedBinding } from "../types.js";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
@@ -34,7 +34,6 @@ import {
   extractCalleeNameFromAst,
   getIdentifierTypeLeafName,
   getIdentifierTypeName,
-  sameTypeAstSurface,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
@@ -48,7 +47,7 @@ import { tryBuildRuntimeReificationPlan } from "../core/semantic/runtime-reifica
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
-import { isAssignable } from "../core/semantic/index.js";
+import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -346,15 +345,6 @@ const maybeReifyStorageErasedMemberRead = (
   }
 
   const semanticType = resolveEffectiveExpressionType(expr, context);
-  const semanticMatchesExpected =
-    !!semanticType &&
-    (isAssignable(semanticType, expectedType) ||
-      stableIrTypeKey(resolveTypeAlias(stripNullish(semanticType), context)) ===
-        stableIrTypeKey(resolveTypeAlias(stripNullish(expectedType), context)));
-  if (!semanticMatchesExpected) {
-    return [accessAst, context];
-  }
-
   const storageType =
     normalizeRuntimeStorageType(
       getPropertyType(
@@ -365,41 +355,15 @@ const maybeReifyStorageErasedMemberRead = (
       context
     ) ?? expr.inferredType;
 
-  if (
-    !storageType ||
-    matchesExpectedEmissionType(storageType, expectedType, context)
-  ) {
-    return [accessAst, context];
-  }
-
-  const plan = tryBuildRuntimeReificationPlan(
-    accessAst,
+  const adapted = adaptStorageErasedValueAst({
+    valueAst: accessAst,
+    semanticType,
+    storageType,
     expectedType,
     context,
-    emitTypeAst
-  );
-  if (plan) {
-    return [plan.value, plan.context];
-  }
-
-  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
-    expectedType,
-    context
-  );
-  if (
-    accessAst.kind === "castExpression" &&
-    sameTypeAstSurface(accessAst.type, expectedTypeAst)
-  ) {
-    return [accessAst, expectedTypeContext];
-  }
-  return [
-    {
-      kind: "castExpression",
-      type: expectedTypeAst,
-      expression: accessAst,
-    },
-    expectedTypeContext,
-  ];
+    emitTypeAst,
+  });
+  return adapted ?? [accessAst, context];
 };
 
 const tryEmitStorageCompatibleNarrowedMemberRead = (

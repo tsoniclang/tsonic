@@ -20,13 +20,13 @@ import { materializeDirectNarrowingAst } from "../core/semantic/materialized-nar
 import {
   RuntimeMaterializationSourceFrame,
   tryBuildRuntimeMaterializationAst,
-  tryBuildRuntimeReificationPlan,
 } from "../core/semantic/runtime-reification.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import {
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
+import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -211,10 +211,6 @@ const tryEmitReifiedStorageIdentifier = (
   context: EmitterContext,
   expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  if (!expectedType) {
-    return undefined;
-  }
-
   const remappedLocal = context.localNameMap?.get(expr.name);
   const storageType = context.localValueTypes?.get(expr.name);
   if (!remappedLocal || !storageType) {
@@ -222,25 +218,15 @@ const tryEmitReifiedStorageIdentifier = (
   }
 
   const effectiveType = resolveEffectiveExpressionType(expr, context);
-  if (!matchesExpectedEmissionType(effectiveType, expectedType, context)) {
-    return undefined;
-  }
-
-  if (matchesExpectedEmissionType(storageType, expectedType, context)) {
-    return undefined;
-  }
-
-  const plan = tryBuildRuntimeReificationPlan(
-    identifierExpression(remappedLocal),
+  return adaptStorageErasedValueAst({
+    valueAst: identifierExpression(remappedLocal),
+    semanticType: effectiveType,
+    storageType,
     expectedType,
     context,
-    emitTypeAst
-  );
-  if (!plan) {
-    return undefined;
-  }
-
-  return [plan.value, plan.context];
+    emitTypeAst,
+    allowCastFallback: false,
+  });
 };
 
 const tryEmitStorageCompatibleNarrowedIdentifier = (
