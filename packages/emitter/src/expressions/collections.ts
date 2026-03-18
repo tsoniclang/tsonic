@@ -29,7 +29,6 @@ import {
 } from "../core/format/backend-ast/builders.js";
 import {
   extractCalleeNameFromAst,
-  getIdentifierTypeName,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
 import type {
@@ -38,28 +37,11 @@ import type {
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
 import type { LocalTypeInfo } from "../emitter-types/core.js";
-
-type ObjectMemberKind = "method" | "property" | "field" | "enumMember";
-
-type ObjectMemberBucket = "methods" | "properties" | "fields" | "enumMembers";
-
-const bucketFromMemberKind = (
-  kind: ObjectMemberKind | undefined
-): ObjectMemberBucket => {
-  switch (kind) {
-    case "method":
-      return "methods";
-    case "field":
-      return "fields";
-    case "enumMember":
-      return "enumMembers";
-    default:
-      return "properties";
-  }
-};
-
-const stripGlobalPrefix = (name: string): string =>
-  name.startsWith("global::") ? name.slice("global::".length) : name;
+import {
+  resolveTypeMemberIndexMap,
+  resolveTypeMemberKind,
+  typeMemberKindToBucket,
+} from "../core/semantic/member-surfaces.js";
 
 const resolveArrayLiteralContextType = (
   expectedType: IrType | undefined,
@@ -86,116 +68,13 @@ const resolveArrayLiteralContextType = (
   return strippedExpected;
 };
 
-const lookupMemberKindFromLocalTypes = (
-  receiverTypeName: string,
-  memberName: string,
-  context: EmitterContext
-): ObjectMemberKind | undefined => {
-  const local = context.localTypes?.get(receiverTypeName);
-  if (!local) return undefined;
-
-  if (local.kind === "enum") {
-    return local.members.includes(memberName) ? "enumMember" : undefined;
-  }
-
-  if (local.kind === "typeAlias") {
-    if (local.type.kind !== "objectType") return undefined;
-    const found = local.type.members.find((m) => m.name === memberName);
-    if (!found) return undefined;
-    return found.kind === "methodSignature" ? "method" : "property";
-  }
-
-  // class/interface
-  const members = local.members;
-  for (const m of members) {
-    if (!("name" in m) || m.name !== memberName) continue;
-
-    if (m.kind === "methodDeclaration" || m.kind === "methodSignature") {
-      return "method";
-    }
-
-    if (m.kind === "propertySignature") return "property";
-
-    if (m.kind === "propertyDeclaration") {
-      const hasAccessors = !!(m.getterBody || m.setterBody);
-      return hasAccessors ? "property" : "field";
-    }
-  }
-
-  return undefined;
-};
-
-const resolveReceiverTypeFqn = (
-  receiverType: IrType | undefined,
-  context: EmitterContext
-): string | undefined => {
-  if (!receiverType) return undefined;
-
-  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
-  if (resolved.kind !== "referenceType") return undefined;
-
-  if (resolved.resolvedClrType) {
-    return stripGlobalPrefix(resolved.resolvedClrType);
-  }
-
-  const binding = context.importBindings?.get(resolved.name);
-  if (binding?.kind === "type") {
-    const typeName = getIdentifierTypeName(binding.typeAst);
-    return typeName ? stripGlobalPrefix(typeName) : undefined;
-  }
-
-  return undefined;
-};
-
-const lookupMemberKindFromIndex = (
-  receiverTypeFqn: string,
-  memberName: string,
-  context: EmitterContext
-): ObjectMemberKind | undefined => {
-  const perType = context.options.typeMemberIndex?.get(receiverTypeFqn);
-  const kind = perType?.get(memberName) as ObjectMemberKind | undefined;
-  return kind;
-};
-
-const getMemberKind = (
-  receiverType: IrType | undefined,
-  memberName: string,
-  context: EmitterContext
-): ObjectMemberKind | undefined => {
-  if (!receiverType) return undefined;
-
-  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
-
-  if (resolved.kind === "objectType") {
-    const found = resolved.members.find((m) => m.name === memberName);
-    if (!found) return undefined;
-    return found.kind === "methodSignature" ? "method" : "property";
-  }
-
-  if (resolved.kind === "referenceType") {
-    const localKind = lookupMemberKindFromLocalTypes(
-      resolved.name,
-      memberName,
-      context
-    );
-    if (localKind) return localKind;
-
-    const receiverFqn = resolveReceiverTypeFqn(resolved, context);
-    if (receiverFqn) {
-      return lookupMemberKindFromIndex(receiverFqn, memberName, context);
-    }
-  }
-
-  return undefined;
-};
-
 const emitObjectMemberName = (
   receiverType: IrType | undefined,
   memberName: string,
   context: EmitterContext
 ): string => {
-  const kind = getMemberKind(receiverType, memberName, context);
-  return emitCSharpName(memberName, bucketFromMemberKind(kind), context);
+  const kind = resolveTypeMemberKind(receiverType, memberName, context);
+  return emitCSharpName(memberName, typeMemberKindToBucket(kind), context);
 };
 
 const shouldCoerceArrayLiteralElementToExpectedType = (
@@ -1140,18 +1019,15 @@ const getObjectTypePropertyNames = (
         .map((m) => m.name);
     }
 
-    const receiverFqn = resolveReceiverTypeFqn(resolved, context);
-    if (receiverFqn) {
-      const perType = context.options.typeMemberIndex?.get(receiverFqn);
-      if (perType) {
-        const names: string[] = [];
-        for (const [memberName, kind] of perType.entries()) {
-          if (kind === "property" || kind === "field") {
-            names.push(memberName);
-          }
+    const perType = resolveTypeMemberIndexMap(resolved, context);
+    if (perType) {
+      const names: string[] = [];
+      for (const [memberName, kind] of perType.entries()) {
+        if (kind === "property" || kind === "field") {
+          names.push(memberName);
         }
-        return names;
       }
+      return names;
     }
   }
 
