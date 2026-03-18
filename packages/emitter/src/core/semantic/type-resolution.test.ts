@@ -990,6 +990,59 @@ describe("type-resolution", () => {
         elementType: { kind: "primitiveType", name: "string" },
       });
     });
+
+    it("prefers registry-substituted type over structural members", () => {
+      // A reference type may carry both registry info (with type-arg substitution)
+      // and structuralMembers (without substitution). The registry path must win
+      // so that generic substitution is applied correctly.
+      //
+      // interface Box<T> { value: T }
+      // Box<string> with structuralMembers: [{ value: number }]
+      // → getPropertyType should return string (from registry), not number (from structural)
+      const members: IrInterfaceMember[] = [
+        {
+          kind: "propertySignature",
+          name: "value",
+          type: { kind: "typeParameterType", name: "T" },
+          isOptional: false,
+          isReadonly: false,
+        },
+      ];
+
+      const localTypes = new Map<string, LocalTypeInfo>([
+        [
+          "Box",
+          {
+            kind: "interface",
+            typeParameters: ["T"],
+            members,
+            extends: [],
+          },
+        ],
+      ]);
+
+      const contextualType: IrType = {
+        kind: "referenceType",
+        name: "Box",
+        typeArguments: [{ kind: "primitiveType", name: "string" }],
+        structuralMembers: [
+          {
+            kind: "propertySignature" as const,
+            name: "value",
+            type: { kind: "primitiveType", name: "number" } as IrType,
+            isOptional: false,
+            isReadonly: false,
+          },
+        ],
+      };
+
+      const context = createContext(localTypes);
+      const result = getPropertyType(contextualType, "value", context);
+
+      // Registry path substitutes T → string; structural members say number.
+      // Registry must win.
+      expect(result).to.deep.equal({ kind: "primitiveType", name: "string" });
+    });
   });
 
   describe("getArrayLikeElementType", () => {

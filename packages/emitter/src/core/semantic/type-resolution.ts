@@ -662,6 +662,16 @@ const resolvePropertyType = (
   if (type.kind === "referenceType") {
     const typeInfoResult = resolveLocalTypeInfo(type, context);
     if (!typeInfoResult) {
+      // Fall back to structural members carried directly on the reference node.
+      // These are checked after registry lookup to preserve type parameter
+      // substitution from the registry path (structural members lack it).
+      if (type.structuralMembers?.length) {
+        const structProp = findPropertyInMembers(
+          type.structuralMembers,
+          propertyName
+        );
+        if (structProp) return structProp;
+      }
       return resolveBindingBackedPropertyType(type, propertyName, context);
     }
     const typeInfo = typeInfoResult.info;

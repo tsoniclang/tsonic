@@ -24,6 +24,12 @@ import {
   registerLocalName,
 } from "./core/format/local-names.js";
 import { registerParameterTypes } from "./core/semantic/symbol-types.js";
+import { getPropertyType } from "./core/semantic/type-resolution.js";
+import {
+  getTupleElementType,
+  getTupleRestArrayType,
+  resolveArrayPatternType,
+} from "./core/semantic/pattern-types.js";
 import {
   booleanLiteral,
   decimalIntegerLiteral,
@@ -65,59 +71,6 @@ const emitTupleElementAccessAst = (
     },
     index - 7
   );
-};
-
-const getTupleElementType = (
-  tupleType: Extract<IrType, { kind: "tupleType" }>,
-  index: number
-): IrType | undefined => {
-  const direct = tupleType.elementTypes[index];
-  if (direct) return direct;
-
-  if (index < 7) return undefined;
-  const rest = tupleType.elementTypes.slice(7);
-  if (rest.length === 0) return undefined;
-
-  return getTupleElementType(
-    {
-      kind: "tupleType",
-      elementTypes: rest,
-    },
-    index - 7
-  );
-};
-
-const getTupleRestArrayType = (
-  tupleType: Extract<IrType, { kind: "tupleType" }>,
-  startIndex: number
-): IrType | undefined => {
-  const remaining = tupleType.elementTypes.slice(startIndex);
-  if (remaining.length === 0) {
-    return {
-      kind: "arrayType",
-      elementType: { kind: "unknownType" },
-    };
-  }
-
-  const [first, ...rest] = remaining;
-  if (!first) {
-    return {
-      kind: "arrayType",
-      elementType: { kind: "unknownType" },
-    };
-  }
-
-  if (rest.length === 0) {
-    return { kind: "arrayType", elementType: first };
-  }
-
-  return {
-    kind: "arrayType",
-    elementType: {
-      kind: "unionType",
-      types: remaining.filter((item): item is IrType => item !== undefined),
-    },
-  };
 };
 
 const emitTupleRestArrayAst = (
@@ -171,53 +124,6 @@ const emitDefaultExprAst = (
     ];
   }
   return emitExpressionAst(expr, ctx);
-};
-
-const getPropertyType = (
-  type: IrType | undefined,
-  key: string,
-  ctx: EmitterContext
-): IrType | undefined => {
-  if (!type) return undefined;
-
-  if (type.kind === "objectType") {
-    const prop = type.members.find(
-      (m) => m.kind === "propertySignature" && m.name === key
-    );
-    return prop?.kind === "propertySignature" ? prop.type : undefined;
-  }
-
-  if (type.kind === "referenceType" && type.structuralMembers) {
-    const prop = type.structuralMembers.find(
-      (m) => m.kind === "propertySignature" && m.name === key
-    );
-    return prop?.kind === "propertySignature" ? prop.type : undefined;
-  }
-
-  if (type.kind === "referenceType") {
-    const localType = ctx.localTypes?.get(type.name);
-    if (!localType) return undefined;
-
-    if (localType.kind === "interface") {
-      const prop = localType.members.find(
-        (m) => m.kind === "propertySignature" && m.name === key
-      );
-      return prop?.kind === "propertySignature" ? prop.type : undefined;
-    }
-
-    if (localType.kind === "class") {
-      const prop = localType.members.find(
-        (m) => m.kind === "propertyDeclaration" && m.name === key
-      );
-      return prop?.kind === "propertyDeclaration" ? prop.type : undefined;
-    }
-
-    if (localType.kind === "typeAlias") {
-      return getPropertyType(localType.type, key, ctx);
-    }
-  }
-
-  return undefined;
 };
 
 export type LoweringResultAst = {
@@ -478,10 +384,15 @@ const lowerObjectPatternAst = (
         arguments: [],
         initializer: initMembers,
       };
+      const restType: IrType = {
+        kind: "referenceType",
+        name: prop.restSynthTypeName,
+        structuralMembers: prop.restShapeMembers,
+      };
       const rest = lowerPatternAst(
         prop.pattern,
         restExpr,
-        undefined,
+        restType,
         currentCtx
       );
       statements.push(...rest.statements);
@@ -529,12 +440,21 @@ export const lowerPatternAst = (
     case "identifierPattern":
       return lowerIdentifierAst(pattern.name, inputExpr, type, ctx);
     case "arrayPattern": {
-      if (type?.kind === "tupleType") {
-        return lowerTuplePatternAst(pattern, inputExpr, type, ctx);
+      const resolved = resolveArrayPatternType(type, ctx);
+      if (resolved.kind === "tuple") {
+        return lowerTuplePatternAst(
+          pattern,
+          inputExpr,
+          resolved.tupleType,
+          ctx
+        );
       }
-      const elementType =
-        type?.kind === "arrayType" ? type.elementType : undefined;
-      return lowerArrayPatternAst(pattern, inputExpr, elementType, ctx);
+      return lowerArrayPatternAst(
+        pattern,
+        inputExpr,
+        resolved.elementType,
+        ctx
+      );
     }
     case "objectPattern":
       return lowerObjectPatternAst(pattern, inputExpr, type, ctx);
@@ -797,10 +717,15 @@ const lowerObjectPatternStaticAst = (
         arguments: [],
         initializer: initMembers,
       };
+      const restType: IrType = {
+        kind: "referenceType",
+        name: prop.restSynthTypeName,
+        structuralMembers: prop.restShapeMembers,
+      };
       const rest = lowerPatternToStaticMembersAst(
         prop.pattern,
         restExpr,
-        undefined,
+        restType,
         currentCtx
       );
       members.push(...rest.members);
@@ -852,16 +777,20 @@ export const lowerPatternToStaticMembersAst = (
     case "identifierPattern":
       return lowerIdentifierStaticAst(pattern.name, inputExpr, type, ctx);
     case "arrayPattern": {
-      if (type?.kind === "tupleType") {
-        return lowerTuplePatternStaticAst(pattern, inputExpr, type, ctx);
+      const resolved = resolveArrayPatternType(type, ctx);
+      if (resolved.kind === "tuple") {
+        return lowerTuplePatternStaticAst(
+          pattern,
+          inputExpr,
+          resolved.tupleType,
+          ctx
+        );
       }
-      const elementType =
-        type?.kind === "arrayType" ? type.elementType : undefined;
       return lowerArrayPatternStaticAst(
         pattern,
         inputExpr,
-        elementType,
-        type,
+        resolved.elementType,
+        resolved.originalType,
         ctx
       );
     }
@@ -945,7 +874,9 @@ const lowerAssignmentPatternStatementsAst = (
   };
 
   if (pattern.kind === "arrayPattern") {
-    if (type?.kind === "tupleType") {
+    const resolvedArray = resolveArrayPatternType(type, currentCtx);
+    if (resolvedArray.kind === "tuple") {
+      const tupleType = resolvedArray.tupleType;
       let index = 0;
       for (const elem of pattern.elements) {
         if (!elem) {
@@ -953,11 +884,11 @@ const lowerAssignmentPatternStatementsAst = (
           continue;
         }
         if (elem.isRest) {
-          const restExpr = emitTupleRestArrayAst(tempExpr, type, index);
+          const restExpr = emitTupleRestArrayAst(tempExpr, tupleType, index);
           const rest = lowerAssignmentPatternStatementsAst(
             elem.pattern,
             restExpr,
-            getTupleRestArrayType(type, index),
+            getTupleRestArrayType(tupleType, index),
             currentCtx
           );
           statements.push(...rest.statements);
@@ -984,7 +915,7 @@ const lowerAssignmentPatternStatementsAst = (
         const nested = lowerAssignmentPatternStatementsAst(
           elem.pattern,
           valueExpr,
-          getTupleElementType(type, index),
+          getTupleElementType(tupleType, index),
           currentCtx
         );
         statements.push(...nested.statements);
@@ -995,8 +926,7 @@ const lowerAssignmentPatternStatementsAst = (
       return { statements, context: currentCtx };
     }
 
-    const elementType =
-      type?.kind === "arrayType" ? type.elementType : undefined;
+    const elementType = resolvedArray.elementType;
     let index = 0;
     for (const elem of pattern.elements) {
       if (!elem) {
@@ -1087,10 +1017,15 @@ const lowerAssignmentPatternStatementsAst = (
         arguments: [],
         initializer: initMembers,
       };
+      const restType: IrType = {
+        kind: "referenceType",
+        name: prop.restSynthTypeName,
+        structuralMembers: prop.restShapeMembers,
+      };
       const rest = lowerAssignmentPatternStatementsAst(
         prop.pattern,
         restExpr,
-        undefined,
+        restType,
         currentCtx
       );
       statements.push(...rest.statements);
