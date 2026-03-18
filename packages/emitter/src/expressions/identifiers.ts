@@ -218,6 +218,10 @@ const tryEmitReifiedStorageIdentifier = (
   }
 
   const effectiveType = resolveEffectiveExpressionType(expr, context);
+  if (!matchesExpectedEmissionType(effectiveType, expectedType, context)) {
+    return undefined;
+  }
+
   return adaptStorageErasedValueAst({
     valueAst: identifierExpression(remappedLocal),
     semanticType: effectiveType,

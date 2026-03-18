@@ -1502,6 +1502,27 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("takeTyped(query.limit.Value)");
     });
 
+    it("keeps nullable value unwraps on the raw local instead of layering casts before .Value", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function parsePostIdRequired(): int | undefined;
+        declare function unwrapInt(value: int): int;
+
+        export function run(): int {
+          const postIdRaw = parsePostIdRequired();
+          if (postIdRaw === undefined) {
+            return 0 as int;
+          }
+          return unwrapInt(postIdRaw);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("return unwrapInt(postIdRaw.Value);");
+      expect(csharp).not.to.include("((int)(object)postIdRaw).Value");
+    });
+
     it("preserves reference nullable narrowing across repeated reassignment guards", () => {
       const source = `
         class ImageDimensions {
