@@ -9,7 +9,10 @@ import {
   getIdentifierTypeLeafName,
   getIdentifierTypeName,
   globallyQualifyTypeAst,
+  sameConcreteTypeAstSurface,
+  sameTypeAstSurface,
   stableIdentifierSuffixFromTypeAst,
+  stableConcreteTypeKeyFromAst,
   stableTypeKeyFromAst,
   stripNullableTypeAst,
 } from "./utils.js";
@@ -141,6 +144,22 @@ describe("backend-ast utils", () => {
         },
       })
     ).to.equal("nullable:qualifiedIdentifier:global::System.String");
+  });
+
+  it("compares raw and concrete emitted type surfaces consistently", () => {
+    const nullableString: CSharpTypeAst = {
+      kind: "nullableType",
+      underlyingType: identifierType("global::System.String"),
+    };
+    const stringType = identifierType("global::System.String");
+
+    expect(sameTypeAstSurface(nullableString, stringType)).to.equal(false);
+    expect(sameConcreteTypeAstSurface(nullableString, stringType)).to.equal(
+      true
+    );
+    expect(stableConcreteTypeKeyFromAst(nullableString)).to.equal(
+      "qualifiedIdentifier:global::System.String"
+    );
   });
 
   it("extracts identifier type names structurally for simple, qualified, and nullable nodes", () => {

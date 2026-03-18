@@ -30,6 +30,7 @@ import {
 import {
   extractCalleeNameFromAst,
   getIdentifierTypeName,
+  stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
@@ -245,9 +246,6 @@ const isObjectRootType = (type: IrType, context: EmitterContext): boolean => {
   return resolved.kind === "referenceType" && resolved.name === "object";
 };
 
-const unwrapNullableTypeAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
-  typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
-
 const isDictionaryLikeSpreadType = (
   type: IrType,
   context: EmitterContext
@@ -326,7 +324,7 @@ export const emitArray = (
         effectiveExpectedType,
         currentContext
       );
-      const concreteExpectedTypeAst = unwrapNullableTypeAst(expectedTypeAst);
+      const concreteExpectedTypeAst = stripNullableTypeAst(expectedTypeAst);
       if (concreteExpectedTypeAst.kind === "arrayType") {
         return [concreteExpectedTypeAst.elementType, nextContext];
       }

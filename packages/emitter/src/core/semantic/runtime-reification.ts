@@ -8,7 +8,9 @@ import {
 } from "../format/backend-ast/builders.js";
 import {
   getIdentifierTypeName,
-  stableTypeKeyFromAst,
+  sameTypeAstSurface,
+  stableConcreteTypeKeyFromAst,
+  stripNullableTypeAst,
 } from "../format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
@@ -43,9 +45,6 @@ export type RuntimeMaterializationSourceFrame = {
   readonly candidateMemberNs?: readonly number[];
 };
 
-const unwrapNullableTypeAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
-  typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
-
 const boxValueAst = (valueAst: CSharpExpressionAst): CSharpExpressionAst => {
   if (
     valueAst.kind === "castExpression" &&
@@ -73,7 +72,7 @@ const getRuntimeUnionCastMemberTypeAsts = (
     return undefined;
   }
 
-  const castTypeAst = unwrapNullableTypeAst(unwrappedValueAst.type);
+  const castTypeAst = stripNullableTypeAst(unwrappedValueAst.type);
   if (!isRuntimeUnionTypeAst(castTypeAst)) {
     return undefined;
   }
@@ -85,7 +84,7 @@ const getRuntimeUnionCastMemberTypeAsts = (
     return undefined;
   }
 
-  return castTypeAst.typeArguments?.map(unwrapNullableTypeAst);
+  return castTypeAst.typeArguments?.map(stripNullableTypeAst);
 };
 
 const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
@@ -146,7 +145,7 @@ const maybeCastMaterializedValueAst = (
 ): CSharpExpressionAst => {
   if (
     actualTypeAst &&
-    stableTypeKeyFromAst(actualTypeAst) === stableTypeKeyFromAst(targetTypeAst)
+    sameTypeAstSurface(actualTypeAst, targetTypeAst)
   ) {
     return valueAst;
   }
@@ -333,15 +332,13 @@ export const tryBuildRuntimeMaterializationAst = (
       directValueSurfaceType,
       nextContext
     );
-    if (
-      stableTypeKeyFromAst(directTypeAst) ===
-      stableTypeKeyFromAst(targetTypeAst)
-    ) {
+    if (sameTypeAstSurface(directTypeAst, targetTypeAst)) {
       return [valueAst, directTypeContext];
     }
   }
-  const concreteTargetTypeAst = unwrapNullableTypeAst(targetTypeAst);
-  const concreteTargetTypeKey = stableTypeKeyFromAst(concreteTargetTypeAst);
+  const concreteTargetTypeAst = stripNullableTypeAst(targetTypeAst);
+  const concreteTargetTypeKey =
+    stableConcreteTypeKeyFromAst(concreteTargetTypeAst);
   const sourceSurfaceMemberTypeAsts =
     getRuntimeUnionCastMemberTypeAsts(valueAst);
   const matchingSourceIndices = sourceLayout.members.flatMap((member, index) =>
@@ -358,7 +355,7 @@ export const tryBuildRuntimeMaterializationAst = (
         return false;
       }
       return (
-        stableTypeKeyFromAst(unwrapNullableTypeAst(sourceMemberTypeAst)) ===
+        stableConcreteTypeKeyFromAst(sourceMemberTypeAst) ===
         concreteTargetTypeKey
       );
     })() ||
@@ -492,7 +489,7 @@ export const tryBuildRuntimeReificationPlan = (
             expression: boxValueAst(valueAst),
             pattern: {
               kind: "typePattern",
-              type: unwrapNullableTypeAst(unionTypeAst),
+              type: stripNullableTypeAst(unionTypeAst),
             },
           },
           value: materialized[0],
@@ -503,7 +500,7 @@ export const tryBuildRuntimeReificationPlan = (
 
     const [unionTypeAst, runtimeLayout, unionTypeContext] =
       emitRuntimeCarrierTypeAst(expectedType, context, emitTypeAst);
-    const concreteUnionTypeAst = unwrapNullableTypeAst(unionTypeAst);
+    const concreteUnionTypeAst = stripNullableTypeAst(unionTypeAst);
     if (!runtimeLayout || !isRuntimeUnionTypeAst(concreteUnionTypeAst)) {
       return undefined;
     }
@@ -597,7 +594,7 @@ export const tryBuildRuntimeReificationPlan = (
   }
 
   const [typeAst, typeContext] = emitTypeAst(expectedType, context);
-  const concreteTypeAst = unwrapNullableTypeAst(typeAst);
+  const concreteTypeAst = stripNullableTypeAst(typeAst);
   const boxedValue = boxValueAst(valueAst);
 
   if (

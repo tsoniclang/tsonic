@@ -4,7 +4,10 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../format/backend-ast/types.js";
-import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
+import {
+  sameConcreteTypeAstSurface,
+  stripNullableTypeAst,
+} from "../format/backend-ast/utils.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import {
   matchesExpectedEmissionType,
@@ -19,9 +22,6 @@ import {
   stripNullish,
 } from "./type-resolution.js";
 
-const unwrapNullableTypeAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
-  typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
-
 const isExactExpressionToType = (
   ast: CSharpExpressionAst,
   typeAst: CSharpTypeAst
@@ -32,7 +32,7 @@ const isExactExpressionToType = (
 
   const castType =
     ast.type.kind === "nullableType" ? ast.type.underlyingType : ast.type;
-  return stableTypeKeyFromAst(castType) === stableTypeKeyFromAst(typeAst);
+  return sameConcreteTypeAstSurface(castType, typeAst);
 };
 
 export const materializeDirectNarrowingAst = (
@@ -58,8 +58,8 @@ export const materializeDirectNarrowingAst = (
     comparableNarrowedType,
     sourceTypeContext
   );
-  const concreteSourceTypeAst = unwrapNullableTypeAst(sourceTypeAst);
-  const concreteTargetTypeAst = unwrapNullableTypeAst(targetTypeAst);
+  const concreteSourceTypeAst = stripNullableTypeAst(sourceTypeAst);
+  const concreteTargetTypeAst = stripNullableTypeAst(targetTypeAst);
 
   if (
     !requiresValueTypeMaterialization(
@@ -67,8 +67,7 @@ export const materializeDirectNarrowingAst = (
       comparableNarrowedType,
       context
     ) &&
-    stableTypeKeyFromAst(concreteSourceTypeAst) ===
-      stableTypeKeyFromAst(concreteTargetTypeAst)
+    sameConcreteTypeAstSurface(concreteSourceTypeAst, concreteTargetTypeAst)
   ) {
     return [sourceAst, nextContext];
   }

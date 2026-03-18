@@ -39,7 +39,7 @@ import type { ModuleIdentity } from "../../emitter-types/core.js";
 import {
   extractCalleeNameFromAst,
   getIdentifierTypeLeafName,
-  stableTypeKeyFromAst,
+  sameTypeAstSurface,
 } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpBlockStatementAst,
@@ -88,8 +88,7 @@ const preserveReceiverTypeAssertionAst = (
 
   if (
     receiverAst.kind === "castExpression" &&
-    stableTypeKeyFromAst(receiverAst.type) ===
-      stableTypeKeyFromAst(targetTypeAst)
+    sameTypeAstSurface(receiverAst.type, targetTypeAst)
   ) {
     return [receiverAst, nextContext];
   }

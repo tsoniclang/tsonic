@@ -52,7 +52,9 @@ import type {
 import {
   getIdentifierTypeName,
   getIdentifierTypeLeafName,
+  sameTypeAstSurface,
   stableTypeKeyFromAst,
+  stripNullableTypeAst,
 } from "./core/format/backend-ast/utils.js";
 import {
   identifierExpression,
@@ -830,12 +832,9 @@ const getArrayElementType = (
   return undefined;
 };
 
-const unwrapNullableTypeAst = (type: CSharpTypeAst): CSharpTypeAst =>
-  type.kind === "nullableType" ? type.underlyingType : type;
-
 const isObjectLikeTypeAst = (type: CSharpTypeAst | undefined): boolean => {
   if (!type) return false;
-  const concrete = unwrapNullableTypeAst(type);
+  const concrete = stripNullableTypeAst(type);
   if (concrete.kind === "predefinedType") {
     return concrete.keyword === "object";
   }
@@ -930,8 +929,7 @@ const tryAdaptStructuralExpressionAst = (
 
     if (
       emittedAst.kind === "objectCreationExpression" &&
-      (stableTypeKeyFromAst(emittedAst.type) ===
-        stableTypeKeyFromAst(safeTargetTypeAst) ||
+      (sameTypeAstSurface(emittedAst.type, safeTargetTypeAst) ||
         getIdentifierTypeLeafName(emittedAst.type) ===
           getIdentifierTypeLeafName(safeTargetTypeAst))
     ) {
@@ -2403,7 +2401,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     exactComparisonTargetAst &&
     (isExactExpressionToType(
       ast,
-      unwrapNullableTypeAst(exactComparisonTargetAst[0])
+      stripNullableTypeAst(exactComparisonTargetAst[0])
     ) ||
       isExactArrayCreationToType(ast, exactComparisonTargetAst[0]) ||
       isExactNullableValueAccessToType(ast, actualType, expectedType, context))
@@ -2443,10 +2441,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
       }
       return directLayout.memberTypeAsts.some((memberTypeAst, index) => {
         const other = actualLayout.memberTypeAsts[index];
-        return (
-          !other ||
-          stableTypeKeyFromAst(memberTypeAst) !== stableTypeKeyFromAst(other)
-        );
+        return !other || !sameTypeAstSurface(memberTypeAst, other);
       });
     })();
 
@@ -2505,8 +2500,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
         return true;
       }
       if (
-        stableTypeKeyFromAst(actualMemberAst) !==
-        stableTypeKeyFromAst(expectedMemberAst)
+        !sameTypeAstSurface(actualMemberAst, expectedMemberAst)
       ) {
         return true;
       }
@@ -2562,7 +2556,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
   }
 
   if (exactComparisonTargetAst) {
-    const concreteExpectedTypeAst = unwrapNullableTypeAst(
+    const concreteExpectedTypeAst = stripNullableTypeAst(
       exactComparisonTargetAst[0]
     );
     if (isExactExpressionToType(ast, concreteExpectedTypeAst)) {
@@ -2788,7 +2782,7 @@ const isExactCastToType = (
   targetType: CSharpTypeAst
 ): boolean =>
   ast.kind === "castExpression" &&
-  stableTypeKeyFromAst(ast.type) === stableTypeKeyFromAst(targetType);
+  sameTypeAstSurface(ast.type, targetType);
 
 const isExactArrayCreationToType = (
   ast: CSharpExpressionAst,
@@ -2798,12 +2792,11 @@ const isExactArrayCreationToType = (
     return false;
   }
 
-  const concreteTargetType = unwrapNullableTypeAst(targetType);
+  const concreteTargetType = stripNullableTypeAst(targetType);
   return (
     concreteTargetType.kind === "arrayType" &&
     concreteTargetType.rank === 1 &&
-    stableTypeKeyFromAst(ast.elementType) ===
-      stableTypeKeyFromAst(concreteTargetType.elementType)
+    sameTypeAstSurface(ast.elementType, concreteTargetType.elementType)
   );
 };
 
@@ -2828,8 +2821,7 @@ const isExactRuntimeUnionFactoryCallToType = (
   }
 
   return (
-    stableTypeKeyFromAst(ast.expression.expression.type) ===
-    stableTypeKeyFromAst(targetType)
+    sameTypeAstSurface(ast.expression.expression.type, targetType)
   );
 };
 
@@ -2839,7 +2831,7 @@ const isExactDefaultExpressionToType = (
 ): boolean =>
   ast.kind === "defaultExpression" &&
   ast.type !== undefined &&
-  stableTypeKeyFromAst(ast.type) === stableTypeKeyFromAst(targetType);
+  sameTypeAstSurface(ast.type, targetType);
 
 const isThrowExpressionToType = (ast: CSharpExpressionAst): boolean =>
   ast.kind === "throwExpression";
@@ -2933,7 +2925,7 @@ const isExactObjectCreationToType = (
   targetType: CSharpTypeAst
 ): boolean =>
   ast.kind === "objectCreationExpression" &&
-  stableTypeKeyFromAst(ast.type) === stableTypeKeyFromAst(targetType);
+  sameTypeAstSurface(ast.type, targetType);
 
 const getNarrowedBindingForExpression = (
   expr: IrExpression,
@@ -3184,7 +3176,7 @@ const emitTypeAssertion = (
   if (
     isExactExpressionToType(
       innerAst,
-      unwrapNullableTypeAst(runtimeTargetTypeAst)
+      stripNullableTypeAst(runtimeTargetTypeAst)
     )
   ) {
     return [innerAst, runtimeTargetTypeContext];

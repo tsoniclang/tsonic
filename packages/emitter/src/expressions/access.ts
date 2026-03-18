@@ -34,7 +34,8 @@ import {
   extractCalleeNameFromAst,
   getIdentifierTypeLeafName,
   getIdentifierTypeName,
-  stableTypeKeyFromAst,
+  sameTypeAstSurface,
+  stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import {
@@ -104,11 +105,8 @@ const stripClrGenericArity = (typeName: string): string =>
 const createStringLiteralExpression = (value: string): CSharpExpressionAst =>
   stringLiteral(value);
 
-const unwrapNullableTypeAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
-  typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
-
 const isObjectTypeAst = (typeAst: CSharpTypeAst): boolean => {
-  const concrete = unwrapNullableTypeAst(typeAst);
+  const concrete = stripNullableTypeAst(typeAst);
   if (concrete.kind === "predefinedType") {
     return concrete.keyword === "object";
   }
@@ -250,7 +248,7 @@ const emitStorageCompatibleArrayWrapperElementTypeAst = (
   const [storageReceiverTypeAst, storageContext] =
     resolveEmittedReceiverTypeAst(receiverExpr, context);
   const concreteStorageReceiverTypeAst = storageReceiverTypeAst
-    ? unwrapNullableTypeAst(storageReceiverTypeAst)
+    ? stripNullableTypeAst(storageReceiverTypeAst)
     : undefined;
 
   if (concreteStorageReceiverTypeAst?.kind === "arrayType") {
@@ -313,11 +311,11 @@ const maybeReifyErasedArrayElement = (
   if (!receiverTypeAst) {
     return [accessAst, receiverTypeContext];
   }
-  const concreteReceiverTypeAst = unwrapNullableTypeAst(receiverTypeAst);
+  const concreteReceiverTypeAst = stripNullableTypeAst(receiverTypeAst);
   if (concreteReceiverTypeAst.kind !== "arrayType") {
     return [accessAst, receiverTypeContext];
   }
-  const concreteElementTypeAst = unwrapNullableTypeAst(
+  const concreteElementTypeAst = stripNullableTypeAst(
     concreteReceiverTypeAst.elementType
   );
   if (!isObjectTypeAst(concreteElementTypeAst)) {
@@ -390,8 +388,7 @@ const maybeReifyStorageErasedMemberRead = (
   );
   if (
     accessAst.kind === "castExpression" &&
-    stableTypeKeyFromAst(accessAst.type) ===
-      stableTypeKeyFromAst(expectedTypeAst)
+    sameTypeAstSurface(accessAst.type, expectedTypeAst)
   ) {
     return [accessAst, expectedTypeContext];
   }
@@ -495,7 +492,7 @@ const tryEmitErasedLengthAccess = (
       ? context.localValueTypes?.get(expr.object.name)
       : undefined;
   const concreteReceiverTypeAst = receiverTypeAst
-    ? unwrapNullableTypeAst(receiverTypeAst)
+    ? stripNullableTypeAst(receiverTypeAst)
     : undefined;
   const storageIsObject =
     storageReceiverType !== undefined &&
@@ -594,7 +591,7 @@ const tryEmitConcreteReceiverLengthAccess = (
     context
   );
   const concreteReceiverTypeAst = receiverTypeAst
-    ? unwrapNullableTypeAst(receiverTypeAst)
+    ? stripNullableTypeAst(receiverTypeAst)
     : undefined;
 
   if (!concreteReceiverTypeAst) {
@@ -672,7 +669,7 @@ const tryEmitJsSurfaceArrayLikeLengthAccess = (
     context
   );
   const concreteReceiverTypeAst = receiverTypeAst
-    ? unwrapNullableTypeAst(receiverTypeAst)
+    ? stripNullableTypeAst(receiverTypeAst)
     : undefined;
 
   if (concreteReceiverTypeAst?.kind === "arrayType") {
@@ -1396,7 +1393,7 @@ export const emitMemberAccess = (
           resolveEmittedReceiverTypeAst(expr.object, withObject);
         elementContext = receiverTypeContext;
         const concreteReceiverTypeAst = receiverTypeAst
-          ? unwrapNullableTypeAst(receiverTypeAst)
+          ? stripNullableTypeAst(receiverTypeAst)
           : undefined;
         if (concreteReceiverTypeAst?.kind === "arrayType") {
           elementTypeAst = eraseOutOfScopeArrayWrapperTypeParameters(
@@ -1717,7 +1714,7 @@ export const emitMemberAccess = (
     const [storageReceiverTypeAst, storageContext] =
       resolveEmittedReceiverTypeAst(expr.object, newContext);
     const concreteStorageReceiverTypeAst = storageReceiverTypeAst
-      ? unwrapNullableTypeAst(storageReceiverTypeAst)
+      ? stripNullableTypeAst(storageReceiverTypeAst)
       : undefined;
     if (concreteStorageReceiverTypeAst?.kind === "arrayType") {
       return [
