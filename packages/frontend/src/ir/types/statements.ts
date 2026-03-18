@@ -51,6 +51,30 @@ export type IrVariableDeclarator = {
   readonly initializer?: IrExpression;
 };
 
+export type IrOverloadOwnerKind = "function" | "method" | "constructor";
+
+export type IrOverloadFamilyRole = "publicOverload" | "implementation";
+
+/**
+ * Canonical overload-family metadata for lowered declarations.
+ *
+ * - Public overload declarations carry `role: "publicOverload"` and retain the
+ *   authored public name.
+ * - Lowered implementation helpers carry `role: "implementation"` and point
+ *   back to the public family they serve.
+ *
+ * This lets later layers preserve public overload surfaces without reverse-
+ * engineering helper names such as `__tsonic_overload_impl_*`.
+ */
+export type IrOverloadFamilyMember = {
+  readonly ownerKind: IrOverloadOwnerKind;
+  readonly publicName: string;
+  readonly role: IrOverloadFamilyRole;
+  readonly publicSignatureCount: number;
+  readonly publicSignatureIndex?: number;
+  readonly implementationName?: string;
+};
+
 export type IrFunctionDeclaration = {
   readonly kind: "functionDeclaration";
   readonly name: string;
@@ -61,6 +85,7 @@ export type IrFunctionDeclaration = {
   readonly isAsync: boolean;
   readonly isGenerator: boolean;
   readonly isExported: boolean;
+  readonly overloadFamily?: IrOverloadFamilyMember;
   /** C# attributes to emit before the function declaration */
   readonly attributes?: readonly IrAttribute[];
 };
@@ -112,6 +137,7 @@ export type IrMethodDeclaration = {
   readonly isShadow?: boolean;
   /** True if this method should be emitted as virtual (overridden in derived class) */
   readonly isVirtual?: boolean;
+  readonly overloadFamily?: IrOverloadFamilyMember;
   /** C# attributes to emit before the method declaration */
   readonly attributes?: readonly IrAttribute[];
 };

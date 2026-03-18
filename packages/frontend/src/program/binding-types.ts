@@ -3,7 +3,11 @@
  * See spec/bindings.md for full manifest format
  */
 
-import type { IrParameter, IrType } from "../ir/index.js";
+import type {
+  IrOverloadFamilyMember,
+  IrParameter,
+  IrType,
+} from "../ir/index.js";
 
 /**
  * Parameter modifier for ref/out/in parameters
@@ -30,6 +34,8 @@ export type BindingSemanticSignature = {
   readonly returnType?: IrType;
 };
 
+export type BindingOverloadFamily = IrOverloadFamilyMember;
+
 /**
  * Member binding (method/property level)
  */
@@ -39,6 +45,7 @@ export type MemberBinding = {
   readonly semanticType?: IrType;
   readonly semanticOptional?: boolean;
   readonly semanticSignature?: BindingSemanticSignature;
+  readonly overloadFamily?: BindingOverloadFamily;
   /** Total CLR parameter count (includes extension receiver for extension methods). */
   readonly parameterCount?: number;
   readonly name: string; // CLR member name (e.g., "SelectMany")
@@ -112,6 +119,7 @@ export type TsbindgenMethod = {
   /** Normalized signature string (tsbindgen metadata, used for extension receiver inference) */
   readonly normalizedSignature?: string;
   readonly semanticSignature?: BindingSemanticSignature;
+  readonly overloadFamily?: BindingOverloadFamily;
   /** Total parameter count in CLR signature (includes extension receiver) */
   readonly parameterCount?: number;
   readonly declaringClrType: string;

@@ -13,6 +13,8 @@ import type {
   IrExpression,
   IrInterfaceMember,
   IrInterfaceDeclaration,
+  IrMethodDeclaration,
+  IrOverloadFamilyMember,
   IrModule,
   IrParameter,
   IrStatement,
@@ -35,6 +37,7 @@ type FirstPartyBindingsMethod = {
     readonly parameters: readonly IrParameter[];
     readonly returnType?: IrType;
   };
+  readonly overloadFamily?: IrOverloadFamilyMember;
   readonly emitScope?: string;
   readonly provenance?: string;
   readonly arity: number;
@@ -3417,6 +3420,7 @@ const makeMethodBinding = (opts: {
   readonly parameters: readonly IrParameter[];
   readonly returnType: IrType | undefined;
   readonly typeParameters?: readonly IrTypeParameter[];
+  readonly overloadFamily?: IrOverloadFamilyMember;
   readonly arity: number;
   readonly parameterModifiers: readonly {
     readonly index: number;
@@ -3469,6 +3473,7 @@ const makeMethodBinding = (opts: {
       returnType: opts.returnType,
       localTypeNameRemaps: opts.localTypeNameRemaps ?? new Map(),
     }),
+    overloadFamily: opts.overloadFamily,
     arity: opts.arity,
     parameterCount: opts.parameters.length,
     isStatic: opts.isStatic,
@@ -3483,6 +3488,9 @@ const makeMethodBinding = (opts: {
     isExtensionMethod: false,
   };
 };
+
+const isPublicOverloadSurfaceMethod = (member: IrMethodDeclaration): boolean =>
+  member.overloadFamily?.role !== "implementation";
 
 const renderClassInternal = (
   declaration: IrClassDeclaration,
@@ -3547,6 +3555,9 @@ const renderClassInternal = (
 
   for (const member of instanceMembers) {
     if (member.kind === "methodDeclaration") {
+      if (!isPublicOverloadSurfaceMethod(member)) {
+        continue;
+      }
       lines.push(
         `    ${renderMethodSignature(
           member.name,
@@ -3619,6 +3630,9 @@ const renderClassInternal = (
 
   for (const member of staticMembers) {
     if (member.kind === "methodDeclaration") {
+      if (!isPublicOverloadSurfaceMethod(member)) {
+        continue;
+      }
       lines.push(
         `    ${renderMethodSignature(
           member.name,
@@ -4048,6 +4062,9 @@ const buildTypeBindingFromClass = (
     }
 
     if (member.kind === "methodDeclaration") {
+      if (!isPublicOverloadSurfaceMethod(member)) {
+        continue;
+      }
       methods.push(
         makeMethodBinding({
           declaringClrType,
@@ -4056,6 +4073,7 @@ const buildTypeBindingFromClass = (
           parameters: member.parameters,
           returnType: member.returnType,
           typeParameters: member.typeParameters,
+          overloadFamily: member.overloadFamily,
           arity: member.typeParameters?.length ?? 0,
           parameterModifiers: buildParameterModifiers(member.parameters),
           isStatic: member.isStatic,

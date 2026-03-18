@@ -5502,6 +5502,14 @@ describe("IR Builder", function () {
         );
         expect(settingsGetter).to.not.equal(undefined);
         expect(settingsGetter?.isOverride).to.equal(undefined);
+        expect(settingsGetter?.overloadFamily).to.deep.equal({
+          ownerKind: "method",
+          publicName: "get",
+          role: "publicOverload",
+          publicSignatureIndex: 0,
+          publicSignatureCount: 2,
+          implementationName: "__tsonic_overload_impl_get",
+        });
 
         const routeGetter = getMethods.find(
           (member) =>
@@ -5509,6 +5517,14 @@ describe("IR Builder", function () {
         );
         expect(routeGetter).to.not.equal(undefined);
         expect(routeGetter?.isOverride).to.equal(true);
+        expect(routeGetter?.overloadFamily).to.deep.equal({
+          ownerKind: "method",
+          publicName: "get",
+          role: "publicOverload",
+          publicSignatureIndex: 1,
+          publicSignatureCount: 2,
+          implementationName: "__tsonic_overload_impl_get",
+        });
 
         const implMethod = appClass.members.find(
           (member) =>
@@ -5518,6 +5534,13 @@ describe("IR Builder", function () {
         expect(implMethod).to.not.equal(undefined);
         if (!implMethod || implMethod.kind !== "methodDeclaration") return;
         expect(implMethod.accessibility).to.equal("private");
+        expect(implMethod.overloadFamily).to.deep.equal({
+          ownerKind: "method",
+          publicName: "get",
+          role: "implementation",
+          publicSignatureCount: 2,
+          implementationName: "__tsonic_overload_impl_get",
+        });
       } finally {
         fixture.cleanup();
       }

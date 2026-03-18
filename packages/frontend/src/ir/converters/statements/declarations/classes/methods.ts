@@ -1009,6 +1009,32 @@ const OVERLOAD_IMPL_PREFIX = "__tsonic_overload_impl_";
 const getOverloadImplementationName = (memberName: string): string =>
   `${OVERLOAD_IMPL_PREFIX}${memberName}`;
 
+const buildPublicOverloadFamilyMember = (
+  memberName: string,
+  signatureIndex: number,
+  publicSignatureCount: number,
+  implementationName?: string
+): NonNullable<IrMethodDeclaration["overloadFamily"]> => ({
+  ownerKind: "method",
+  publicName: memberName,
+  role: "publicOverload",
+  publicSignatureIndex: signatureIndex,
+  publicSignatureCount,
+  implementationName,
+});
+
+const buildImplementationOverloadFamilyMember = (
+  memberName: string,
+  publicSignatureCount: number,
+  implementationName: string
+): NonNullable<IrMethodDeclaration["overloadFamily"]> => ({
+  ownerKind: "method",
+  publicName: memberName,
+  role: "implementation",
+  publicSignatureCount,
+  implementationName,
+});
+
 const getIdentifierPatternName = (parameter: IrParameter): string => {
   if (parameter.pattern.kind !== "identifierPattern") {
     throw new Error(
@@ -1588,6 +1614,11 @@ export const convertMethodOverloadGroup = (
     const helperMethod: IrMethodDeclaration = {
       ...implMethod,
       name: helperName,
+      overloadFamily: buildImplementationOverloadFamilyMember(
+        memberName,
+        sigs.length,
+        helperName
+      ),
       body: implMethod.body
         ? (adaptReturnStatements(
             implMethod.body,
@@ -1601,7 +1632,7 @@ export const convertMethodOverloadGroup = (
     };
 
     const wrappers: IrMethodDeclaration[] = [];
-    for (const sig of sigs) {
+    for (const [signatureIndex, sig] of sigs.entries()) {
       const sigParams = convertParameters(sig.parameters, ctx);
       const returnType = sig.type
         ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(sig.type))
@@ -1644,6 +1675,12 @@ export const convertMethodOverloadGroup = (
           returnType,
           (sig.typeParameters ?? []).map((tp) => tp.name.text)
         ),
+        overloadFamily: buildPublicOverloadFamilyMember(
+          memberName,
+          signatureIndex,
+          sigs.length,
+          helperName
+        ),
         isStatic,
         isAsync: false,
         isGenerator: false,
@@ -1658,7 +1695,7 @@ export const convertMethodOverloadGroup = (
 
   // Convert each signature into a concrete method emission.
   const out: IrMethodDeclaration[] = [];
-  for (const sig of sigs) {
+  for (const [signatureIndex, sig] of sigs.entries()) {
     const sigParams = convertParameters(sig.parameters, ctx);
     const returnType = sig.type
       ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(sig.type))
@@ -1734,6 +1771,11 @@ export const convertMethodOverloadGroup = (
       parameters,
       returnType,
       body: adapted,
+      overloadFamily: buildPublicOverloadFamilyMember(
+        memberName,
+        signatureIndex,
+        sigs.length
+      ),
       isStatic,
       isAsync,
       isGenerator,
