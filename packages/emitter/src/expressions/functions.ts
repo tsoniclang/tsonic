@@ -25,6 +25,7 @@ import {
   emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
 } from "../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionFactoryCallAst } from "../core/semantic/runtime-union-projection.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { stableTypeKeyFromAst } from "../core/format/backend-ast/utils.js";
 import { allocateLocalName } from "../core/format/local-names.js";
@@ -174,23 +175,6 @@ const buildTaskRunInvocationAst = (
       body,
     },
   ],
-});
-
-const wrapInUnionReturnMemberAst = (
-  unionTypeAst: CSharpTypeAst,
-  memberIndex: number,
-  valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "typeReferenceExpression",
-      type: unionTypeAst,
-    },
-    memberName: `From${memberIndex}`,
-  },
-  arguments: [valueAst],
 });
 
 const emitAsyncUnionReturningLambdaBodyAst = (
@@ -344,7 +328,7 @@ const emitAsyncUnionReturningLambdaBodyAst = (
     return [taskInvocationAst, awaitableMemberTypeContext];
   }
 
-  const wrappedTaskAst = wrapInUnionReturnMemberAst(
+  const wrappedTaskAst = buildRuntimeUnionFactoryCallAst(
     concreteUnionTypeAst,
     resolvedAwaitableMemberIndex + 1,
     taskInvocationAst

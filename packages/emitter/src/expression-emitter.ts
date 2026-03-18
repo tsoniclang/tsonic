@@ -2024,24 +2024,15 @@ const maybeUpcastDictionaryUnionValueAst = (
     kind: "lambdaExpression",
     isAsync: false,
     parameters: [{ name: kvpId }],
-    body: {
-      kind: "invocationExpression",
-      expression: {
+    body: buildRuntimeUnionFactoryCallAst(
+      unionValueTypeAst,
+      runtimeMemberIndex + 1,
+      {
         kind: "memberAccessExpression",
-        expression: {
-          kind: "typeReferenceExpression",
-          type: unionValueTypeAst,
-        },
-        memberName: `From${runtimeMemberIndex + 1}`,
-      },
-      arguments: [
-        {
-          kind: "memberAccessExpression",
-          expression: { kind: "identifierExpression", identifier: kvpId },
-          memberName: "Value",
-        },
-      ],
-    },
+        expression: { kind: "identifierExpression", identifier: kvpId },
+        memberName: "Value",
+      }
+    ),
   };
 
   const converted: CSharpExpressionAst = {

@@ -23,6 +23,7 @@ import {
   findRuntimeUnionMemberIndex,
 } from "./runtime-unions.js";
 import {
+  buildRuntimeUnionFactoryCallAst,
   buildInvalidRuntimeUnionMaterializationExpression,
   buildRuntimeUnionMatchAst,
   tryBuildRuntimeUnionProjectionToLayoutAst,
@@ -458,18 +459,11 @@ export const tryBuildRuntimeReificationPlan = (
       currentContext = memberPlan.context;
       cases.push({
         condition: memberPlan.condition,
-        value: {
-          kind: "invocationExpression",
-          expression: {
-            kind: "memberAccessExpression",
-            expression: {
-              kind: "typeReferenceExpression",
-              type: concreteUnionTypeAst,
-            },
-            memberName: `From${index + 1}`,
-          },
-          arguments: [memberPlan.value],
-        },
+        value: buildRuntimeUnionFactoryCallAst(
+          concreteUnionTypeAst,
+          index + 1,
+          memberPlan.value
+        ),
         context: currentContext,
       });
     }

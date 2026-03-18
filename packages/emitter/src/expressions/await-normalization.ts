@@ -7,6 +7,7 @@ import {
   emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
 } from "../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionFactoryCallAst } from "../core/semantic/runtime-union-projection.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -30,23 +31,6 @@ const buildTaskFromResultExpression = (
   },
   typeArguments: resultTypeAst ? [resultTypeAst] : undefined,
   arguments: [exprAst],
-});
-
-const buildUnionFactoryCallAst = (
-  unionTypeAst: CSharpTypeAst,
-  memberIndex: number,
-  valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "typeReferenceExpression",
-      type: unionTypeAst,
-    },
-    memberName: `From${memberIndex}`,
-  },
-  arguments: [valueAst],
 });
 
 const requiresExplicitTaskFromResultType = (
@@ -172,7 +156,11 @@ const buildPromotedAwaitResultValueAst = (
   }
 
   return [
-    buildUnionFactoryCallAst(resultTypeAst, runtimeMemberIndex + 1, valueAst),
+    buildRuntimeUnionFactoryCallAst(
+      resultTypeAst,
+      runtimeMemberIndex + 1,
+      valueAst
+    ),
     resultTypeAst,
     resultTypeContext,
   ];
