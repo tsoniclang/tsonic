@@ -1604,9 +1604,8 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include(
         "isMiddlewareHandler(global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From2(handler))"
       );
-      expect(csharp).to.include(
-        "isMiddlewareHandler(handler.Match(__tsonic_union_member_1 => global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From1(__tsonic_union_member_1), __tsonic_union_member_2 => global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From2(__tsonic_union_member_2), __tsonic_union_member_3 => global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From3(__tsonic_union_member_3)))"
-      );
+      expect(csharp).to.not.include("isMiddlewareHandler(handler.Match(");
+      expect(csharp).to.include("if (!isMiddlewareHandler(handler))");
       expect(csharp).to.include("result.push((handler.As2()));");
     });
 

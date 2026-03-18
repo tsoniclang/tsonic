@@ -845,7 +845,7 @@ export const tryResolvePredicateGuard = (
       : undefined) ??
     unionSourceType;
   const useRawReceiverAst =
-    !!currentSubsetBinding &&
+    currentSubsetBinding?.kind === "runtimeSubset" &&
     !!rawReceiverType &&
     matchesExpectedEmissionType(
       rawReceiverType,

@@ -130,7 +130,9 @@ const buildComplementNarrowedBinding = (
   candidateMemberNs: readonly number[],
   candidateMembers: readonly import("@tsonic/frontend").IrType[],
   selectedMemberN: number,
-  sourceType?: import("@tsonic/frontend").IrType
+  sourceType?: import("@tsonic/frontend").IrType,
+  sourceMembers?: readonly import("@tsonic/frontend").IrType[],
+  sourceCandidateMemberNs?: readonly number[]
 ): NarrowedBinding | undefined => {
   const remainingPairs = candidateMemberNs.flatMap((runtimeMemberN, index) => {
     if (runtimeMemberN === selectedMemberN) {
@@ -165,8 +167,10 @@ const buildComplementNarrowedBinding = (
     kind: "runtimeSubset",
     runtimeMemberNs: remainingPairs.map((pair) => pair.runtimeMemberN),
     runtimeUnionArity,
-    sourceMembers: [...candidateMembers],
-    sourceCandidateMemberNs: [...candidateMemberNs],
+    sourceMembers: [...(sourceMembers ?? candidateMembers)],
+    sourceCandidateMemberNs: [
+      ...(sourceCandidateMemberNs ?? candidateMemberNs),
+    ],
     type: buildSubsetUnionType(remainingPairs.map((pair) => pair.memberType)),
     sourceType,
   };
@@ -375,13 +379,31 @@ const withComplementNarrowing = (
   const existingBinding = baseContext.narrowedBindings?.get(originalName);
   const sourceType =
     existingBinding?.sourceType ?? buildSubsetUnionType(candidateMembers);
+  const sourceMembers =
+    existingBinding?.kind === "runtimeSubset" &&
+    existingBinding.sourceMembers &&
+    existingBinding.sourceCandidateMemberNs &&
+    existingBinding.sourceMembers.length ===
+      existingBinding.sourceCandidateMemberNs.length
+      ? existingBinding.sourceMembers
+      : undefined;
+  const sourceCandidateMemberNs =
+    existingBinding?.kind === "runtimeSubset" &&
+    existingBinding.sourceMembers &&
+    existingBinding.sourceCandidateMemberNs &&
+    existingBinding.sourceMembers.length ===
+      existingBinding.sourceCandidateMemberNs.length
+      ? existingBinding.sourceCandidateMemberNs
+      : undefined;
   const binding = buildComplementNarrowedBinding(
     receiver,
     runtimeUnionArity,
     candidateMemberNs,
     candidateMembers,
     selectedMemberN,
-    sourceType
+    sourceType,
+    sourceMembers,
+    sourceCandidateMemberNs
   );
 
   if (!binding) {
