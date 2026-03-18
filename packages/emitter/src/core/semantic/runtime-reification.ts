@@ -28,6 +28,7 @@ import {
   buildRuntimeUnionMatchAst,
   tryBuildRuntimeUnionProjectionToLayoutAst,
 } from "./runtime-union-projection.js";
+import { resolveDirectValueSurfaceType } from "./direct-value-surfaces.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 
 export type EmitTypeAstFn = (
@@ -137,26 +138,6 @@ const maybeCastMaterializedValueAst = (
   };
 };
 
-const tryResolveDirectValueSurfaceType = (
-  valueAst: CSharpExpressionAst,
-  context: EmitterContext
-): IrType | undefined => {
-  if (valueAst.kind !== "identifierExpression") {
-    return undefined;
-  }
-
-  const identifier = valueAst.identifier;
-  const direct = context.localValueTypes?.get(identifier);
-  if (direct) {
-    return direct;
-  }
-
-  const originalName = Array.from(context.localNameMap ?? []).find(
-    ([, emitted]) => emitted === identifier
-  )?.[0];
-  return originalName ? context.localValueTypes?.get(originalName) : undefined;
-};
-
 export const tryBuildRuntimeMaterializationAst = (
   valueAst: CSharpExpressionAst,
   sourceType: IrType,
@@ -241,7 +222,7 @@ export const tryBuildRuntimeMaterializationAst = (
     targetType,
     targetLayoutContext
   );
-  const directValueSurfaceType = tryResolveDirectValueSurfaceType(
+  const directValueSurfaceType = resolveDirectValueSurfaceType(
     valueAst,
     targetLayoutContext
   );
@@ -353,7 +334,7 @@ export const tryBuildRuntimeReificationPlan = (
     stripNullish(expectedType),
     context
   );
-  const directValueSurfaceType = tryResolveDirectValueSurfaceType(
+  const directValueSurfaceType = resolveDirectValueSurfaceType(
     valueAst,
     context
   );

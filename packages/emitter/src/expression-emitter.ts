@@ -65,6 +65,7 @@ import {
 } from "./core/format/backend-ast/builders.js";
 import { allocateLocalName } from "./core/format/local-names.js";
 import { getAcceptedSurfaceType } from "./core/semantic/defaults.js";
+import { resolveDirectValueSurfaceType } from "./core/semantic/direct-value-surfaces.js";
 import { unwrapTransparentExpression } from "./core/semantic/transparent-expressions.js";
 import { resolveRuntimeMaterializationTargetType } from "./core/semantic/runtime-materialization-targets.js";
 import { emitCSharpName } from "./naming-policy.js";
@@ -2265,7 +2266,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     return [ast, exactComparisonTargetAst[1]];
   }
 
-  const directValueSurfaceType = tryResolveDirectValueSurfaceType(ast, context);
+  const directValueSurfaceType = resolveDirectValueSurfaceType(ast, context);
   const preferredActualType = (() => {
     if (!directValueSurfaceType) {
       return actualType;
@@ -2803,25 +2804,6 @@ const getNarrowedBindingForExpression = (
         : undefined;
 
   return narrowKey ? context.narrowedBindings.get(narrowKey) : undefined;
-};
-
-const tryResolveDirectValueSurfaceType = (
-  ast: CSharpExpressionAst,
-  context: EmitterContext
-): IrType | undefined => {
-  if (ast.kind !== "identifierExpression") {
-    return undefined;
-  }
-
-  const direct = context.localValueTypes?.get(ast.identifier);
-  if (direct) {
-    return direct;
-  }
-
-  const originalName = Array.from(context.localNameMap ?? []).find(
-    ([, emitted]) => emitted === ast.identifier
-  )?.[0];
-  return originalName ? context.localValueTypes?.get(originalName) : undefined;
 };
 
 const withoutNarrowedBinding = (
