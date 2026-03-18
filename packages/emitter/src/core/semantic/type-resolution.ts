@@ -1893,6 +1893,29 @@ export const getArrayLikeElementType = (
   return undefined;
 };
 
+export const resolveArrayLikeReceiverType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): Extract<IrType, { kind: "arrayType" }> | undefined => {
+  if (!type) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "arrayType") {
+    return resolved;
+  }
+
+  const elementType = getArrayLikeElementType(type, context);
+  if (!elementType) {
+    return undefined;
+  }
+
+  return {
+    kind: "arrayType",
+    elementType,
+    origin: "explicit",
+  };
+};
+
 /**
  * Resolve a type alias to its underlying type.
  *

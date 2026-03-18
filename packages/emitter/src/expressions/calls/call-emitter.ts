@@ -54,6 +54,7 @@ import {
   containsTypeParameter,
   getArrayLikeElementType,
   normalizeStructuralEmissionType,
+  resolveArrayLikeReceiverType,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
   stripNullish,
@@ -227,11 +228,11 @@ const emitArrayWrapperElementTypeAst = (
   receiverType: IrType,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
-  const resolvedReceiverType = resolveTypeAlias(
-    stripNullish(receiverType),
+  const resolvedReceiverType = resolveArrayLikeReceiverType(
+    receiverType,
     context
   );
-  if (resolvedReceiverType.kind === "arrayType") {
+  if (resolvedReceiverType) {
     const elementType: IrType = shouldEraseRecursiveRuntimeUnionArrayElement(
       resolvedReceiverType.elementType,
       context
@@ -246,45 +247,6 @@ const emitArrayWrapperElementTypeAst = (
           context
         );
     return emitTypeAst(elementType, context);
-  }
-
-  if (
-    resolvedReceiverType.kind === "referenceType" &&
-    (resolvedReceiverType.name === "Array" ||
-      resolvedReceiverType.name === "ReadonlyArray") &&
-    resolvedReceiverType.typeArguments?.length === 1
-  ) {
-    const elementType = resolvedReceiverType.typeArguments[0];
-    if (elementType) {
-      const syntheticArrayType: Extract<IrType, { kind: "arrayType" }> = {
-        kind: "arrayType",
-        elementType,
-        origin: "explicit",
-      };
-      const emittedElementType = shouldEraseRecursiveRuntimeUnionArrayElement(
-        syntheticArrayType.elementType,
-        context
-      )
-        ? {
-            kind: "referenceType" as const,
-            name: "object",
-            resolvedClrType: "System.Object",
-          }
-        : normalizeStructuralEmissionType(elementType, context);
-      return emitTypeAst(emittedElementType, context);
-    }
-  }
-
-  const nativeElementType = resolveNativeArrayLikeElementType(
-    receiverType,
-    context
-  );
-  if (nativeElementType) {
-    const emittedElementType = normalizeStructuralEmissionType(
-      nativeElementType,
-      context
-    );
-    return emitTypeAst(emittedElementType, context);
   }
   return [identifierType("object"), context];
 };
@@ -439,13 +401,6 @@ const nativeArrayMutationMembers = new Set([
 const isJsArrayWrapperBindingType = (bindingType: string): boolean =>
   stripClrGenericArity(bindingType).split(".").pop() === "JSArray";
 
-const resolveNativeArrayLikeElementType = (
-  receiverType: IrType | undefined,
-  context: EmitterContext
-): IrType | undefined => {
-  return getArrayLikeElementType(receiverType, context);
-};
-
 const shouldPreferNativeArrayWrapperInterop = (
   binding:
     | NonNullable<
@@ -457,7 +412,7 @@ const shouldPreferNativeArrayWrapperInterop = (
 ): boolean =>
   !!binding &&
   isJsArrayWrapperBindingType(binding.type) &&
-  !!resolveNativeArrayLikeElementType(receiverType, context);
+  !!resolveArrayLikeReceiverType(receiverType, context)?.elementType;
 
 const hasDirectNativeArrayLikeInteropShape = (
   receiverType: IrType | undefined
@@ -899,10 +854,10 @@ const emitArrayMutationInteropCall = (
   const receiverType =
     resolveEffectiveExpressionType(expr.callee.object, context) ??
     expr.callee.object.inferredType;
-  const receiverElementType = resolveNativeArrayLikeElementType(
+  const receiverElementType = resolveArrayLikeReceiverType(
     receiverType,
     context
-  );
+  )?.elementType;
   if (!receiverElementType) return undefined;
 
   const captured = captureAssignableArrayTarget(expr.callee.object, context);
@@ -1067,10 +1022,10 @@ const emitArrayWrapperInteropCall = (
   const receiverType =
     resolveEffectiveExpressionType(expr.callee.object, context) ??
     expr.callee.object.inferredType;
-  const receiverElementType = resolveNativeArrayLikeElementType(
+  const receiverElementType = resolveArrayLikeReceiverType(
     receiverType,
     context
-  );
+  )?.elementType;
   if (!receiverElementType) {
     return undefined;
   }

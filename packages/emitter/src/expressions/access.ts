@@ -12,6 +12,7 @@ import {
 } from "@tsonic/frontend/types/explicit-views.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
+  getArrayLikeElementType,
   getPropertyType,
   resolveTypeAlias,
   stripNullish,
@@ -19,8 +20,8 @@ import {
   hasDeterministicPropertyMembership,
   normalizeStructuralEmissionType,
   resolveLocalTypeInfo,
+  resolveArrayLikeReceiverType,
   resolveStructuralReferenceType,
-  getArrayLikeElementType,
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
@@ -197,11 +198,12 @@ const emitArrayWrapperElementTypeAst = (
     receiverType,
     context
   );
-  const resolvedReceiverType = storageReceiverType
-    ? resolveTypeAlias(stripNullish(storageReceiverType), context)
-    : undefined;
+  const resolvedReceiverType = resolveArrayLikeReceiverType(
+    storageReceiverType,
+    context
+  );
 
-  if (resolvedReceiverType?.kind === "arrayType") {
+  if (resolvedReceiverType) {
     const [elementTypeAst, nextContext] = emitTypeAst(
       resolvedReceiverType.elementType,
       context
@@ -210,22 +212,6 @@ const emitArrayWrapperElementTypeAst = (
       eraseOutOfScopeArrayWrapperTypeParameters(elementTypeAst, nextContext),
       nextContext,
     ];
-  }
-
-  if (
-    resolvedReceiverType?.kind === "referenceType" &&
-    (resolvedReceiverType.name === "Array" ||
-      resolvedReceiverType.name === "ReadonlyArray") &&
-    resolvedReceiverType.typeArguments?.length === 1
-  ) {
-    const elementType = resolvedReceiverType.typeArguments[0];
-    if (elementType) {
-      const [elementTypeAst, nextContext] = emitTypeAst(elementType, context);
-      return [
-        eraseOutOfScopeArrayWrapperTypeParameters(elementTypeAst, nextContext),
-        nextContext,
-      ];
-    }
   }
 
   const [elementTypeAst, nextContext] = emitTypeAst(
@@ -659,7 +645,7 @@ const tryEmitJsSurfaceArrayLikeLengthAccess = (
     ];
   }
 
-  const arrayLikeReceiver = resolveArrayLikeReceiver(objectType, context);
+  const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
   if (!arrayLikeReceiver) {
     return undefined;
   }
@@ -795,29 +781,6 @@ const resolveReceiverTypeFqn = (
       const typeName = getIdentifierTypeName(binding.typeAst);
       return typeName ? stripGlobalPrefix(typeName) : undefined;
     }
-  }
-
-  return undefined;
-};
-
-const resolveArrayLikeReceiver = (
-  receiverType: IrType | undefined,
-  context: EmitterContext
-): Extract<IrType, { kind: "arrayType" }> | undefined => {
-  if (!receiverType) return undefined;
-
-  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
-  if (resolved.kind === "arrayType") {
-    return resolved;
-  }
-
-  const elementType = getArrayLikeElementType(receiverType, context);
-  if (elementType) {
-    return {
-      kind: "arrayType",
-      elementType,
-      origin: "explicit",
-    };
   }
 
   return undefined;
@@ -1312,7 +1275,10 @@ export const emitMemberAccess = (
     const bindingTypeLeaf = stripClrGenericArity(type).split(".").pop();
 
     const receiverType = resolveEffectiveReceiverType(expr.object, context);
-    const arrayLikeReceiver = resolveArrayLikeReceiver(receiverType, context);
+    const arrayLikeReceiver = resolveArrayLikeReceiverType(
+      receiverType,
+      context
+    );
     const hasArrayLikeBindingHint =
       bindingTypeLeaf === "JSArray" ||
       bindingTypeLeaf === "Array" ||
@@ -1816,7 +1782,7 @@ export const emitMemberAccess = (
     !expr.memberBinding &&
     usage === "call"
   ) {
-    const arrayLikeReceiver = resolveArrayLikeReceiver(objectType, context);
+    const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
     if (arrayLikeReceiver) {
       const [elementTypeAst, typeCtx] = emitArrayWrapperElementTypeAst(
         objectType,
