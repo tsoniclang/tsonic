@@ -16,7 +16,6 @@ import {
   resolveStructuralReferenceType,
   stripNullish,
   resolveTypeAlias,
-  getArrayLikeElementType,
   selectObjectLiteralUnionMember,
 } from "../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../core/format/local-names.js";
@@ -42,31 +41,7 @@ import {
   resolveTypeMemberKind,
   typeMemberKindToBucket,
 } from "../core/semantic/member-surfaces.js";
-
-const resolveArrayLiteralContextType = (
-  expectedType: IrType | undefined,
-  context: EmitterContext
-): IrType | undefined => {
-  if (!expectedType) return undefined;
-
-  const strippedExpected = stripNullish(expectedType);
-  const resolvedExpected = resolveTypeAlias(strippedExpected, context);
-  if (resolvedExpected.kind !== "unionType") {
-    return strippedExpected;
-  }
-
-  const arrayLikeMembers = resolvedExpected.types.filter(
-    (member): member is IrType =>
-      getArrayLikeElementType(member, context) !== undefined ||
-      resolveTypeAlias(stripNullish(member), context).kind === "tupleType"
-  );
-
-  if (arrayLikeMembers.length === 1) {
-    return arrayLikeMembers[0];
-  }
-
-  return strippedExpected;
-};
+import { resolveArrayLiteralContextType } from "../core/semantic/array-expected-types.js";
 
 const emitObjectMemberName = (
   receiverType: IrType | undefined,

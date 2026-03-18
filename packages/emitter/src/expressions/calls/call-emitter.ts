@@ -56,10 +56,10 @@ import {
   normalizeStructuralEmissionType,
   resolveArrayLikeReceiverType,
   resolveTypeAlias,
-  splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
+import { normalizeRecursiveArrayExpectedType } from "../../core/semantic/array-expected-types.js";
 import {
   emitRuntimeCarrierTypeAst,
   shouldEraseRecursiveRuntimeUnionArrayElement,
@@ -141,82 +141,6 @@ const buildCallTargetExpectedType = (
     })),
     returnType: expr.inferredType,
   };
-};
-
-const OBJECT_REFERENCE_TYPE: IrType = {
-  kind: "referenceType",
-  name: "object",
-  resolvedClrType: "System.Object",
-};
-
-const normalizeRecursiveArrayExpectedType = (
-  type: IrType | undefined,
-  context: EmitterContext
-): IrType | undefined => {
-  if (!type) {
-    return undefined;
-  }
-
-  const split = splitRuntimeNullishUnionMembers(type);
-  if (
-    type.kind === "unionType" &&
-    split?.hasRuntimeNullish &&
-    split.nonNullishMembers.length === 1
-  ) {
-    const [member] = split.nonNullishMembers;
-    const normalizedMember = normalizeRecursiveArrayExpectedType(
-      member,
-      context
-    );
-    if (!normalizedMember) {
-      return type;
-    }
-
-    return {
-      kind: "unionType",
-      types: [
-        ...type.types.filter(
-          (candidate: IrType) =>
-            candidate.kind === "primitiveType" &&
-            (candidate.name === "null" || candidate.name === "undefined")
-        ),
-        normalizedMember,
-      ],
-    };
-  }
-
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (
-    resolved.kind === "arrayType" &&
-    shouldEraseRecursiveRuntimeUnionArrayElement(resolved.elementType, context)
-  ) {
-    return {
-      kind: "arrayType",
-      elementType: OBJECT_REFERENCE_TYPE,
-      origin: resolved.origin,
-    };
-  }
-
-  if (
-    resolved.kind === "referenceType" &&
-    (resolved.name === "Array" ||
-      resolved.name === "ReadonlyArray" ||
-      resolved.name === "JSArray") &&
-    resolved.typeArguments?.length === 1 &&
-    resolved.typeArguments[0] &&
-    shouldEraseRecursiveRuntimeUnionArrayElement(
-      resolved.typeArguments[0],
-      context
-    )
-  ) {
-    return {
-      kind: "arrayType",
-      elementType: OBJECT_REFERENCE_TYPE,
-      origin: "explicit",
-    };
-  }
-
-  return type;
 };
 
 const normalizeCallArgumentExpectedType = (
@@ -3167,7 +3091,11 @@ const getRuntimeObjectHelperParameterOverrides = (
     { length: argCount },
     () => undefined
   );
-  overrides[0] = OBJECT_REFERENCE_TYPE;
+  overrides[0] = {
+    kind: "referenceType",
+    name: "object",
+    resolvedClrType: "System.Object",
+  };
   return overrides;
 };
 
