@@ -8,7 +8,6 @@
  * call-resolution-utilities, call-resolution-signatures, call-resolution-inference
  */
 
-import type { IrType } from "../types/index.js";
 import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
@@ -24,26 +23,21 @@ import {
   poisonedCall,
 } from "./type-system-state.js";
 import { unknownType } from "./types.js";
-import { typesEqual } from "./type-system-relations.js";
 import {
-  substitutePolymorphicThis,
   expandParameterTypesForArguments,
-  expandParameterTypesForInference,
   buildResolvedRestParameter,
-  collectExpectedReturnCandidates,
   containsMethodTypeParameter,
-  mapEntriesEqual,
 } from "./call-resolution-utilities.js";
 import {
   getRawSignature,
-  computeReceiverSubstitution,
   tryResolveCallFromUnifiedCatalog,
 } from "./call-resolution-signatures.js";
 import {
-  inferMethodTypeArgsFromArguments,
   scoreSignatureMatch,
   refineResolvedParameterTypesForArguments,
 } from "./call-resolution-inference.js";
+import { applyReceiverSubstitution } from "./call-resolution-receiver-substitution.js";
+import { resolveMethodTypeSubstitution } from "./call-resolution-method-substitution.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // resolveCall — Main entry point for call resolution
@@ -94,354 +88,40 @@ export const resolveCall = (
   let workingReturn = rawSig.returnType;
   let workingPredicate = rawSig.typePredicate;
 
-  const collectTypeParameterNames = (
-    type: IrType | undefined,
-    acc: Set<string>
-  ): void => {
-    if (!type) return;
-
-    switch (type.kind) {
-      case "typeParameterType":
-        acc.add(type.name);
-        return;
-      case "arrayType":
-        collectTypeParameterNames(type.elementType, acc);
-        return;
-      case "tupleType":
-        for (const e of type.elementTypes) {
-          collectTypeParameterNames(e, acc);
-        }
-        return;
-      case "dictionaryType":
-        collectTypeParameterNames(type.keyType, acc);
-        collectTypeParameterNames(type.valueType, acc);
-        return;
-      case "referenceType":
-        for (const t of type.typeArguments ?? []) {
-          collectTypeParameterNames(t, acc);
-        }
-        for (const m of type.structuralMembers ?? []) {
-          if (m.kind === "propertySignature") {
-            collectTypeParameterNames(m.type, acc);
-          } else {
-            for (const p of m.parameters) {
-              collectTypeParameterNames(p.type, acc);
-            }
-            collectTypeParameterNames(m.returnType, acc);
-          }
-        }
-        return;
-      case "unionType":
-      case "intersectionType":
-        for (const t of type.types) {
-          collectTypeParameterNames(t, acc);
-        }
-        return;
-      case "functionType":
-        for (const p of type.parameters) {
-          collectTypeParameterNames(p.type, acc);
-        }
-        collectTypeParameterNames(type.returnType, acc);
-        return;
-      default:
-        return;
-    }
-  };
-
-  const collectReceiverGenericNames = (): Set<string> => {
-    const names = new Set<string>();
-    for (const p of workingParams) {
-      collectTypeParameterNames(p, names);
-    }
-    collectTypeParameterNames(workingThisParam, names);
-    collectTypeParameterNames(workingReturn, names);
-    if (workingPredicate) {
-      collectTypeParameterNames(workingPredicate.targetType, names);
-    }
-    for (const methodTp of rawSig.typeParameters) {
-      names.delete(methodTp.name);
-    }
-    return names;
-  };
-
-  // 3. Compute receiver substitution (class type params)
-  if (
-    effectiveReceiverType &&
-    rawSig.declaringTypeTsName &&
-    rawSig.declaringMemberName
-  ) {
-    let receiverSubst = computeReceiverSubstitution(
-      state,
-      effectiveReceiverType,
-      rawSig.declaringTypeTsName,
-      rawSig.declaringMemberName,
-      rawSig.declaringTypeParameterNames
-    );
-
-    // Array receiver fallback:
-    // Some surfaces model JS-style array methods on generic wrapper declarations
-    // where nominal inheritance metadata may not connect `T[]` to the wrapper's
-    // type parameter. If nominal substitution is unavailable, and exactly one
-    // non-method type parameter remains in the signature, bind it to the array
-    // element type deterministically.
-    if (
-      (!receiverSubst || receiverSubst.size === 0) &&
-      effectiveReceiverType.kind === "arrayType"
-    ) {
-      const receiverGenericNames = collectReceiverGenericNames();
-      if (receiverGenericNames.size === 1) {
-        const [only] = receiverGenericNames;
-        if (only) {
-          receiverSubst = new Map<string, IrType>([
-            [only, effectiveReceiverType.elementType],
-          ]);
-        }
-      }
-    }
-
-    if (receiverSubst && receiverSubst.size > 0) {
-      workingParams = workingParams.map((p) =>
-        p ? irSubstitute(p, receiverSubst) : undefined
-      );
-      if (workingThisParam) {
-        workingThisParam = irSubstitute(workingThisParam, receiverSubst);
-      }
-      workingReturn = irSubstitute(workingReturn, receiverSubst);
-      if (workingPredicate) {
-        workingPredicate =
-          workingPredicate.kind === "param"
-            ? {
-                ...workingPredicate,
-                targetType: irSubstitute(
-                  workingPredicate.targetType,
-                  receiverSubst
-                ),
-              }
-            : {
-                ...workingPredicate,
-                targetType: irSubstitute(
-                  workingPredicate.targetType,
-                  receiverSubst
-                ),
-              };
-      }
-    }
-  }
-
-  if (effectiveReceiverType) {
-    workingParams = workingParams.map((p) =>
-      p ? (substitutePolymorphicThis(p, effectiveReceiverType) ?? p) : undefined
-    );
-    if (workingThisParam) {
-      workingThisParam =
-        substitutePolymorphicThis(workingThisParam, effectiveReceiverType) ??
-        workingThisParam;
-    }
-    workingReturn =
-      substitutePolymorphicThis(workingReturn, effectiveReceiverType) ??
-      workingReturn;
-    if (workingPredicate) {
-      workingPredicate =
-        workingPredicate.kind === "param"
-          ? {
-              ...workingPredicate,
-              targetType:
-                substitutePolymorphicThis(
-                  workingPredicate.targetType,
-                  effectiveReceiverType
-                ) ?? workingPredicate.targetType,
-            }
-          : {
-              ...workingPredicate,
-              targetType:
-                substitutePolymorphicThis(
-                  workingPredicate.targetType,
-                  effectiveReceiverType
-                ) ?? workingPredicate.targetType,
-            };
-    }
-  }
+  ({
+    workingParams,
+    workingThisParam,
+    workingReturn,
+    workingPredicate,
+  } = applyReceiverSubstitution(state, rawSig, effectiveReceiverType, {
+    workingParams,
+    workingThisParam,
+    workingReturn,
+    workingPredicate,
+  }));
 
   // 4. Compute call substitution (method type params)
   const methodTypeParams = rawSig.typeParameters;
   if (methodTypeParams.length > 0) {
-    const callSubst = new Map<string, IrType>();
-
-    // Source 1: Explicit type args from call syntax
-    if (explicitTypeArgs) {
-      for (
-        let i = 0;
-        i < Math.min(explicitTypeArgs.length, methodTypeParams.length);
-        i++
-      ) {
-        const param = methodTypeParams[i];
-        const arg = explicitTypeArgs[i];
-        if (param && arg) {
-          callSubst.set(param.name, arg);
-        }
-      }
+    const substitution = resolveMethodTypeSubstitution(
+      state,
+      rawSig,
+      {
+        argTypes,
+        explicitTypeArgs,
+        expectedReturnType,
+        receiverType: effectiveReceiverType,
+      },
+      site,
+      workingParams,
+      workingThisParam,
+      workingReturn,
+      workingPredicate
+    );
+    if (substitution.kind === "error") {
+      return poisonedCall(argumentCount, state.diagnostics.slice());
     }
-
-    // Source 2: Deterministic argument-driven unification
-    // 2a) Receiver-driven unification via TS `this:` parameter
-    //
-    // Method-table extension typing represents the receiver as an explicit `this:` parameter
-    // in the `.d.ts` signature. Generic methods like:
-    //   ToArrayAsync<T>(this: IQueryable<T>, ...): Task<T[]>
-    // must infer T from the receiver even when there are ZERO call arguments.
-    //
-    // This is airplane-grade determinism: we anchor inference to the selected TS signature's
-    // `this:` type and the IR receiver type (not TS structural tricks).
-    if (effectiveReceiverType && workingThisParam) {
-      const receiverParamForInference =
-        callSubst.size > 0
-          ? irSubstitute(workingThisParam, callSubst)
-          : workingThisParam;
-
-      const inferredFromReceiver = inferMethodTypeArgsFromArguments(
-        state,
-        methodTypeParams,
-        [receiverParamForInference],
-        [effectiveReceiverType]
-      );
-
-      if (inferredFromReceiver) {
-        for (const [name, inferredType] of inferredFromReceiver) {
-          const existing = callSubst.get(name);
-          if (existing) {
-            if (!typesEqual(existing, inferredType)) {
-              emitDiagnostic(
-                state,
-                "TSN5202",
-                `Conflicting type argument inference for '${name}' (receiver)`,
-                site
-              );
-              return poisonedCall(argumentCount, state.diagnostics.slice());
-            }
-            continue;
-          }
-          callSubst.set(name, inferredType);
-        }
-      }
-    }
-
-    // 2b) Argument-driven unification (run even when argTypes is empty).
-    if (argTypes) {
-      const paramsForInferenceBase =
-        callSubst.size > 0
-          ? workingParams.map((p) =>
-              p ? irSubstitute(p, callSubst) : undefined
-            )
-          : workingParams;
-      const paramsForInference = expandParameterTypesForInference(
-        rawSig.parameterFlags,
-        paramsForInferenceBase,
-        argTypes.length
-      );
-
-      const inferred = inferMethodTypeArgsFromArguments(
-        state,
-        methodTypeParams,
-        paramsForInference,
-        argTypes
-      );
-
-      if (!inferred) {
-        emitDiagnostic(
-          state,
-          "TSN5202",
-          "Type arguments cannot be inferred deterministically from arguments",
-          site
-        );
-        return poisonedCall(argumentCount, state.diagnostics.slice());
-      }
-
-      for (const [name, inferredType] of inferred) {
-        const existing = callSubst.get(name);
-        if (existing) {
-          if (!typesEqual(existing, inferredType)) {
-            emitDiagnostic(
-              state,
-              "TSN5202",
-              `Conflicting type argument inference for '${name}'`,
-              site
-            );
-            return poisonedCall(argumentCount, state.diagnostics.slice());
-          }
-          continue;
-        }
-        callSubst.set(name, inferredType);
-      }
-    }
-
-    // Source 3: Contextual expected return type from the call site.
-    // This handles generic APIs where method type parameters appear only in
-    // the return position (or where argument inference is intentionally weak).
-    if (expectedReturnType) {
-      const returnForInference =
-        callSubst.size > 0
-          ? irSubstitute(workingReturn, callSubst)
-          : workingReturn;
-      const expectedCandidates = collectExpectedReturnCandidates(
-        state,
-        expectedReturnType
-      );
-      let matched: Map<string, IrType> | undefined;
-
-      for (const candidate of expectedCandidates) {
-        const inferred = inferMethodTypeArgsFromArguments(
-          state,
-          methodTypeParams,
-          [returnForInference],
-          [candidate]
-        );
-        if (!inferred || inferred.size === 0) continue;
-
-        let conflictsWithExisting = false;
-        for (const [name, inferredType] of inferred) {
-          const existing = callSubst.get(name);
-          if (existing && !typesEqual(existing, inferredType)) {
-            conflictsWithExisting = true;
-            break;
-          }
-        }
-        if (conflictsWithExisting) continue;
-
-        if (matched && !mapEntriesEqual(matched, inferred)) {
-          // Ambiguous contextual-return inference: ignore this source and
-          // rely on explicit/argument/default inference only.
-          matched = undefined;
-          break;
-        }
-        matched = inferred;
-      }
-
-      if (matched) {
-        for (const [name, inferredType] of matched) {
-          const existing = callSubst.get(name);
-          if (existing) {
-            if (!typesEqual(existing, inferredType)) {
-              emitDiagnostic(
-                state,
-                "TSN5202",
-                `Conflicting type argument inference for '${name}' (expected return context)`,
-                site
-              );
-              return poisonedCall(argumentCount, state.diagnostics.slice());
-            }
-            continue;
-          }
-          callSubst.set(name, inferredType);
-        }
-      }
-    }
-
-    // Source 4: Default type parameters
-    for (const tp of methodTypeParams) {
-      if (!callSubst.has(tp.name) && tp.defaultType) {
-        callSubst.set(tp.name, tp.defaultType);
-      }
-    }
+    const callSubst = substitution.substitution;
 
     // Apply call substitution
     if (callSubst.size > 0) {

@@ -8,8 +8,6 @@
 
 import * as ts from "typescript";
 import type { ProgramContext } from "../program-context.js";
-import type { IrType } from "../types.js";
-import { normalizedUnionType } from "../types/type-ops.js";
 import { narrowTypeByArrayShape } from "./array-type-guards.js";
 import { narrowTypeByAssignableTarget } from "./reference-type-guards.js";
 import {
@@ -18,7 +16,6 @@ import {
   type AccessPathTarget,
 } from "./access-paths.js";
 import {
-  type BoundDecl,
   type TypeNarrowing,
   unwrapExpr,
   getStringLiteralText,
@@ -32,120 +29,17 @@ import {
   resolveInstanceofTargetType,
 } from "./narrowing-resolvers.js";
 import { withAppliedNarrowings } from "./narrowing-environment.js";
+import {
+  getCurrentTypeForDecl,
+  narrowTypeByPropertyPresence,
+  narrowTypeByPropertyTruthiness,
+} from "./narrowing-property-helpers.js";
 
 const tryResolveTruthyNarrowing = (
   expr: ts.Expression,
   ctx: ProgramContext
 ): TypeNarrowing | undefined => {
   const unwrapped = unwrapExpr(expr);
-
-  const getCurrentType = (declId: BoundDecl): IrType =>
-    ctx.typeEnv?.get(declId.id) ?? ctx.typeSystem.typeOfValueRead(declId);
-
-  const getMemberTypeForNarrowing = (
-    type: IrType,
-    propertyName: string
-  ): IrType | undefined => {
-    if (type.kind === "objectType") {
-      const member = type.members.find(
-        (candidate) =>
-          candidate.kind === "propertySignature" &&
-          candidate.name === propertyName
-      );
-      return member && member.kind === "propertySignature"
-        ? member.type
-        : undefined;
-    }
-
-    if (
-      type.kind === "referenceType" &&
-      type.structuralMembers &&
-      type.structuralMembers.length > 0
-    ) {
-      const member = type.structuralMembers.find(
-        (candidate) =>
-          candidate.kind === "propertySignature" &&
-          candidate.name === propertyName
-      );
-      return member && member.kind === "propertySignature"
-        ? member.type
-        : undefined;
-    }
-
-    const memberType = ctx.typeSystem.typeOfMember(type, {
-      kind: "byName",
-      name: propertyName,
-    });
-    return memberType.kind === "unknownType" ? undefined : memberType;
-  };
-
-  const propertyTypeIsDefinitelyTruthy = (
-    type: IrType | undefined
-  ): boolean => {
-    if (!type) return false;
-    if (type.kind === "literalType") {
-      return type.value === true;
-    }
-    return false;
-  };
-
-  const propertyTypeIsDefinitelyFalsy = (type: IrType | undefined): boolean => {
-    if (!type) return false;
-    if (type.kind === "literalType") {
-      return type.value === false;
-    }
-    if (type.kind === "primitiveType") {
-      return type.name === "undefined" || type.name === "null";
-    }
-    return false;
-  };
-
-  const collectPropertyNarrowingCandidates = (
-    currentType: IrType
-  ): readonly IrType[] => {
-    const expanded = ctx.typeSystem.collectNarrowingCandidates(currentType);
-    return expanded.length > 0 ? expanded : [currentType];
-  };
-
-  const narrowTypeByPropertyTruthiness = (
-    currentType: IrType,
-    propertyName: string,
-    wantTruthy: boolean
-  ): IrType | undefined => {
-    const kept = collectPropertyNarrowingCandidates(currentType).filter(
-      (member): member is IrType => {
-        if (!member) return false;
-        const memberType = getMemberTypeForNarrowing(member, propertyName);
-        return wantTruthy
-          ? propertyTypeIsDefinitelyTruthy(memberType)
-          : propertyTypeIsDefinitelyFalsy(memberType);
-      }
-    );
-
-    if (kept.length === 0) return undefined;
-    if (kept.length === 1) return kept[0];
-    return normalizedUnionType(kept);
-  };
-
-  const narrowTypeByPropertyPresence = (
-    currentType: IrType,
-    propertyName: string,
-    wantPresent: boolean
-  ): IrType | undefined => {
-    const kept = collectPropertyNarrowingCandidates(currentType).filter(
-      (member): member is IrType => {
-        if (!member) return false;
-        const hasMember =
-          getMemberTypeForNarrowing(member, propertyName) !== undefined;
-        return hasMember === wantPresent;
-      }
-    );
-
-    if (kept.length === 0) return undefined;
-    if (kept.length === 1) return kept[0];
-    return normalizedUnionType(kept);
-  };
-
   const arrayTarget = extractArrayIsArrayTarget(unwrapped, ctx);
   if (arrayTarget) {
     const targetType = narrowTypeByArrayShape(
@@ -160,11 +54,12 @@ const tryResolveTruthyNarrowing = (
 
   const propertyAccess = extractIdentifierPropertyAccess(unwrapped, ctx);
   if (propertyAccess) {
-    const currentType = getCurrentType(propertyAccess.declId);
+    const currentType = getCurrentTypeForDecl(propertyAccess.declId, ctx);
     const targetType = narrowTypeByPropertyTruthiness(
       currentType,
       propertyAccess.propertyName,
-      true
+      true,
+      ctx
     );
     if (targetType) {
       return {
@@ -185,9 +80,10 @@ const tryResolveTruthyNarrowing = (
       const declId = ctx.binding.resolveIdentifier(object);
       if (declId) {
         const targetType = narrowTypeByPropertyPresence(
-          getCurrentType(declId),
+          getCurrentTypeForDecl(declId, ctx),
           propertyName,
-          true
+          true,
+          ctx
         );
         if (targetType) {
           return { kind: "decl", declId: declId.id, targetType };
@@ -341,94 +237,6 @@ const tryResolveFalsyNarrowing = (
   ctx: ProgramContext
 ): TypeNarrowing | undefined => {
   const unwrapped = unwrapExpr(expr);
-
-  const getCurrentType = (declId: BoundDecl): IrType =>
-    ctx.typeEnv?.get(declId.id) ?? ctx.typeSystem.typeOfValueRead(declId);
-
-  const getMemberTypeForNarrowing = (
-    type: IrType,
-    propertyName: string
-  ): IrType | undefined => {
-    if (type.kind === "objectType") {
-      const member = type.members.find(
-        (candidate) =>
-          candidate.kind === "propertySignature" &&
-          candidate.name === propertyName
-      );
-      return member && member.kind === "propertySignature"
-        ? member.type
-        : undefined;
-    }
-
-    if (
-      type.kind === "referenceType" &&
-      type.structuralMembers &&
-      type.structuralMembers.length > 0
-    ) {
-      const member = type.structuralMembers.find(
-        (candidate) =>
-          candidate.kind === "propertySignature" &&
-          candidate.name === propertyName
-      );
-      return member && member.kind === "propertySignature"
-        ? member.type
-        : undefined;
-    }
-
-    const memberType = ctx.typeSystem.typeOfMember(type, {
-      kind: "byName",
-      name: propertyName,
-    });
-    return memberType.kind === "unknownType" ? undefined : memberType;
-  };
-
-  const collectPropertyNarrowingCandidates = (
-    currentType: IrType
-  ): readonly IrType[] => {
-    const expanded = ctx.typeSystem.collectNarrowingCandidates(currentType);
-    return expanded.length > 0 ? expanded : [currentType];
-  };
-
-  const narrowTypeByPropertyTruthiness = (
-    currentType: IrType,
-    propertyName: string,
-    wantTruthy: boolean
-  ): IrType | undefined => {
-    const kept = collectPropertyNarrowingCandidates(currentType).filter(
-      (member): member is IrType => {
-        if (!member) return false;
-        const memberType = getMemberTypeForNarrowing(member, propertyName);
-        if (!memberType || memberType.kind !== "literalType") return false;
-        return wantTruthy
-          ? memberType.value === true
-          : memberType.value === false;
-      }
-    );
-
-    if (kept.length === 0) return undefined;
-    if (kept.length === 1) return kept[0];
-    return normalizedUnionType(kept);
-  };
-
-  const narrowTypeByPropertyPresence = (
-    currentType: IrType,
-    propertyName: string,
-    wantPresent: boolean
-  ): IrType | undefined => {
-    const kept = collectPropertyNarrowingCandidates(currentType).filter(
-      (member): member is IrType => {
-        if (!member) return false;
-        const hasMember =
-          getMemberTypeForNarrowing(member, propertyName) !== undefined;
-        return hasMember === wantPresent;
-      }
-    );
-
-    if (kept.length === 0) return undefined;
-    if (kept.length === 1) return kept[0];
-    return normalizedUnionType(kept);
-  };
-
   const arrayTarget = extractArrayIsArrayTarget(unwrapped, ctx);
   if (arrayTarget) {
     const targetType = narrowTypeByArrayShape(
@@ -443,11 +251,12 @@ const tryResolveFalsyNarrowing = (
 
   const propertyAccess = extractIdentifierPropertyAccess(unwrapped, ctx);
   if (propertyAccess) {
-    const currentType = getCurrentType(propertyAccess.declId);
+    const currentType = getCurrentTypeForDecl(propertyAccess.declId, ctx);
     const targetType = narrowTypeByPropertyTruthiness(
       currentType,
       propertyAccess.propertyName,
-      false
+      false,
+      ctx
     );
     if (targetType) {
       return {
@@ -468,9 +277,10 @@ const tryResolveFalsyNarrowing = (
       const declId = ctx.binding.resolveIdentifier(object);
       if (declId) {
         const targetType = narrowTypeByPropertyPresence(
-          getCurrentType(declId),
+          getCurrentTypeForDecl(declId, ctx),
           propertyName,
-          false
+          false,
+          ctx
         );
         if (targetType) {
           return { kind: "decl", declId: declId.id, targetType };
