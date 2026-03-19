@@ -24,14 +24,16 @@ export const writeBindingsManifest = (opts: {
       semanticSignature: method.semanticSignature
         ? {
             ...method.semanticSignature,
-            parameters: method.semanticSignature.parameters.map((parameter) => ({
-              ...parameter,
-              type:
-                reattachBindingClrIdentities(
-                  parameter.type,
-                  opts.clrNamesByAlias
-                ) ?? parameter.type,
-            })),
+            parameters: method.semanticSignature.parameters.map(
+              (parameter) => ({
+                ...parameter,
+                type:
+                  reattachBindingClrIdentities(
+                    parameter.type,
+                    opts.clrNamesByAlias
+                  ) ?? parameter.type,
+              })
+            ),
             returnType: reattachBindingClrIdentities(
               method.semanticSignature.returnType,
               opts.clrNamesByAlias
@@ -58,35 +60,37 @@ export const writeBindingsManifest = (opts: {
   const normalizedValueBindings =
     opts.valueBindings.size > 0
       ? new Map(
-          Array.from(opts.valueBindings.entries()).map(([exportName, binding]) => [
-            exportName,
-            {
-              ...binding,
-              semanticType: reattachBindingClrIdentities(
-                binding.semanticType,
-                opts.clrNamesByAlias
-              ),
-              semanticSignature: binding.semanticSignature
-                ? {
-                    ...binding.semanticSignature,
-                    parameters: binding.semanticSignature.parameters.map(
-                      (parameter) => ({
-                        ...parameter,
-                        type:
-                          reattachBindingClrIdentities(
-                            parameter.type,
-                            opts.clrNamesByAlias
-                          ) ?? parameter.type,
-                      })
-                    ),
-                    returnType: reattachBindingClrIdentities(
-                      binding.semanticSignature.returnType,
-                      opts.clrNamesByAlias
-                    ),
-                  }
-                : undefined,
-            } satisfies FirstPartyBindingsExport,
-          ])
+          Array.from(opts.valueBindings.entries()).map(
+            ([exportName, binding]) => [
+              exportName,
+              {
+                ...binding,
+                semanticType: reattachBindingClrIdentities(
+                  binding.semanticType,
+                  opts.clrNamesByAlias
+                ),
+                semanticSignature: binding.semanticSignature
+                  ? {
+                      ...binding.semanticSignature,
+                      parameters: binding.semanticSignature.parameters.map(
+                        (parameter) => ({
+                          ...parameter,
+                          type:
+                            reattachBindingClrIdentities(
+                              parameter.type,
+                              opts.clrNamesByAlias
+                            ) ?? parameter.type,
+                        })
+                      ),
+                      returnType: reattachBindingClrIdentities(
+                        binding.semanticSignature.returnType,
+                        opts.clrNamesByAlias
+                      ),
+                    }
+                  : undefined,
+              } satisfies FirstPartyBindingsExport,
+            ]
+          )
         )
       : undefined;
 

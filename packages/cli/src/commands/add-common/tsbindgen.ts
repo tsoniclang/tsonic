@@ -1,9 +1,5 @@
 import type { Result } from "../../types.js";
-import {
-  defaultExec,
-  type AddCommandOptions,
-  type Exec,
-} from "./shared.js";
+import { defaultExec, type AddCommandOptions, type Exec } from "./shared.js";
 
 export type TsbindgenClosureOutput = {
   readonly seeds: readonly string[];

@@ -12,10 +12,7 @@ export const typeNodeUsesImportedTypeNames = (
   let found = false;
   const visit = (current: ts.Node): void => {
     if (found) return;
-    if (
-      ts.isTypeReferenceNode(current) &&
-      ts.isIdentifier(current.typeName)
-    ) {
+    if (ts.isTypeReferenceNode(current) && ts.isIdentifier(current.typeName)) {
       const imported = typeImportsByLocalName.get(current.typeName.text);
       if (imported && !allowlistedImportSources.has(imported.source.trim())) {
         found = true;

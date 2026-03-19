@@ -69,7 +69,9 @@ const tryResolveSiblingTsonicPackageRoot = (
 
     for (const versionDir of versionDirs) {
       const candidateRoot = join(versionsRoot, versionDir);
-      const candidateName = readPackageName(join(candidateRoot, "package.json"));
+      const candidateName = readPackageName(
+        join(candidateRoot, "package.json")
+      );
       if (candidateName === packageName) return candidateRoot;
     }
   }

@@ -1,7 +1,11 @@
 export { describe, it } from "mocha";
 export { expect } from "chai";
 export { emitCSharpFiles, emitModule } from "../../emitter.js";
-export type { IrModule, IrType, TypeBinding as FrontendTypeBinding } from "@tsonic/frontend";
+export type {
+  IrModule,
+  IrType,
+  TypeBinding as FrontendTypeBinding,
+} from "@tsonic/frontend";
 export { emitReferenceType } from "../references.js";
 export { emitTypeAst } from "../emitter.js";
 export type { EmitterContext } from "../../types.js";

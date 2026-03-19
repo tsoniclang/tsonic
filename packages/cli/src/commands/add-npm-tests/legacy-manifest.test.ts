@@ -100,7 +100,9 @@ describe("add npm (legacy manifest)", function () {
         name: pkgName,
         manifest: {
           dotnet: {
-            packageReferences: [{ id: "Acme.A", version: "1.0.0", types: pkgName }],
+            packageReferences: [
+              { id: "Acme.A", version: "1.0.0", types: pkgName },
+            ],
           },
         },
       });
@@ -149,7 +151,9 @@ describe("add npm (legacy manifest)", function () {
         manifest: {
           bindingVersion: 2,
           dotnet: {
-            packageReferences: [{ id: "Acme.A", version: "1.0.0", types: pkgName }],
+            packageReferences: [
+              { id: "Acme.A", version: "1.0.0", types: pkgName },
+            ],
           },
         },
       });
@@ -211,7 +215,9 @@ describe("add npm (legacy manifest)", function () {
         },
       });
 
-      const first = addNpmCommand("./local/acme-bindings", configPath, { quiet: true });
+      const first = addNpmCommand("./local/acme-bindings", configPath, {
+        quiet: true,
+      });
       expect(first.ok).to.equal(true);
       const normalizedManifestPath = join(
         dir,
@@ -223,9 +229,13 @@ describe("add npm (legacy manifest)", function () {
       );
       const firstBytes = readFileSync(normalizedManifestPath, "utf-8");
 
-      const second = addNpmCommand("./local/acme-bindings", configPath, { quiet: true });
+      const second = addNpmCommand("./local/acme-bindings", configPath, {
+        quiet: true,
+      });
       expect(second.ok).to.equal(true);
-      expect(readFileSync(normalizedManifestPath, "utf-8")).to.equal(firstBytes);
+      expect(readFileSync(normalizedManifestPath, "utf-8")).to.equal(
+        firstBytes
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

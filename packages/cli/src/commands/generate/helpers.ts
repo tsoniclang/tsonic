@@ -44,7 +44,9 @@ const findDll = (dllName: string): string | null => {
   return null;
 };
 
-export const findRuntimeDlls = (outputDir: string): readonly AssemblyReference[] => {
+export const findRuntimeDlls = (
+  outputDir: string
+): readonly AssemblyReference[] => {
   const refs: AssemblyReference[] = [];
   const runtimeDll = findDll("Tsonic.Runtime.dll");
   if (runtimeDll) {
@@ -99,7 +101,10 @@ export const findRuntimeProjectReferencePath = (): string | undefined => {
       import.meta.dirname,
       "../../../../../@tsonic/runtime/src/Tsonic.Runtime.csproj"
     ),
-    join(import.meta.dirname, "../../../../@tsonic/runtime/src/Tsonic.Runtime.csproj"),
+    join(
+      import.meta.dirname,
+      "../../../../@tsonic/runtime/src/Tsonic.Runtime.csproj"
+    ),
   ].map((pathLike) => resolve(pathLike));
 
   return candidatePaths.find(existsSync);

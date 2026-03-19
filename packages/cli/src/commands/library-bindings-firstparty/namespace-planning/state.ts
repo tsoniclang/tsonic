@@ -39,7 +39,10 @@ export interface NamespacePlanBuilder {
     string,
     InternalHelperTypeDeclaration
   >;
-  readonly internalHelperTypeRemapsByModuleKey: Map<string, Map<string, string>>;
+  readonly internalHelperTypeRemapsByModuleKey: Map<
+    string,
+    Map<string, string>
+  >;
 }
 
 export const createNamespacePlanBuilder = (opts: {

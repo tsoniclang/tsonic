@@ -22,7 +22,9 @@ import { buildCommand } from "../build.js";
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
 );
-const localJsPackageRoot = resolve(join(repoRoot, "..", "js", "versions", "10"));
+const localJsPackageRoot = resolve(
+  join(repoRoot, "..", "js", "versions", "10")
+);
 const linkedJsPackageRoot = existsSync(localJsPackageRoot)
   ? localJsPackageRoot
   : join(repoRoot, "node_modules/@tsonic/js");

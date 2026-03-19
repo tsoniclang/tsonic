@@ -8,7 +8,10 @@ import {
   registerCrossNamespaceReexport,
   registerCrossNamespaceTypeDeclaration,
 } from "../namespace-planning-helpers.js";
-import { registerFunctionExport, registerVariableExport } from "./value-exports.js";
+import {
+  registerFunctionExport,
+  registerVariableExport,
+} from "./value-exports.js";
 import type { NamespacePlanBuilder } from "./state.js";
 
 export const collectExplicitReexports = (
@@ -97,7 +100,8 @@ export const collectExplicitReexports = (
       if (declarationModule.namespace !== builder.namespace) {
         registerCrossNamespaceTypeDeclaration({
           namespace: builder.namespace,
-          crossNamespaceTypeDeclarations: builder.crossNamespaceTypeDeclarations,
+          crossNamespaceTypeDeclarations:
+            builder.crossNamespaceTypeDeclarations,
           seenCrossNamespaceTypeDeclarationKeys:
             builder.seenCrossNamespaceTypeDeclarationKeys,
           symbol: {

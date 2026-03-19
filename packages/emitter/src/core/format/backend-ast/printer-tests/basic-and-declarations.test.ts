@@ -1,4 +1,12 @@
-import { describe, expect, identifierType, it, printExpression, printType, printTypeDeclaration } from "./helpers.js";
+import {
+  describe,
+  expect,
+  identifierType,
+  it,
+  printExpression,
+  printType,
+  printTypeDeclaration,
+} from "./helpers.js";
 import type { CSharpExpressionAst, CSharpTypeAst } from "./helpers.js";
 describe("backend-ast printer", () => {
   it("prints nested nullable types as a single nullable suffix", () => {

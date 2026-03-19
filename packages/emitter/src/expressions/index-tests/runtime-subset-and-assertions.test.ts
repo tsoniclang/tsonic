@@ -257,5 +257,4 @@ describe("Expression Emission", () => {
     expect(matchCount).to.equal(1);
     expect(rendered).to.not.include(")).Match(");
   });
-
 });

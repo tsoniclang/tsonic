@@ -4,10 +4,7 @@ import {
   type SourceFunctionSignatureSurface,
 } from "../../../aikya/source-function-surfaces.js";
 import type { Result } from "../../../types.js";
-import {
-  getPropertyNameText,
-  printTypeNodeText,
-} from "../portable-types.js";
+import { getPropertyNameText, printTypeNodeText } from "../portable-types.js";
 import { renderSourceTypeNodeForAliasLookup } from "../source-type-text.js";
 import type {
   ModuleSourceIndex,

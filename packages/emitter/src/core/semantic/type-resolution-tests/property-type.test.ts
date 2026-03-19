@@ -347,5 +347,4 @@ describe("type-resolution", () => {
       expect(result).to.deep.equal({ kind: "primitiveType", name: "string" });
     });
   });
-
 });

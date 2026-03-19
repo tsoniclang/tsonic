@@ -293,4 +293,3 @@ export const serializeBindingsJsonSafe = <T>(value: T): T => {
 
   return serialize(value) as T;
 };
-

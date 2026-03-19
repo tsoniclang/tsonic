@@ -301,6 +301,5 @@ describe("Generator Emission", () => {
       );
       expect(code).to.include("await _enumerator.MoveNextAsync()");
     });
-
   });
 });

@@ -87,7 +87,12 @@ describe("Config (surfaces and type roots)", () => {
         )
       );
 
-      const customRoot = join(workspaceRoot, "node_modules", "@acme", "surface-node");
+      const customRoot = join(
+        workspaceRoot,
+        "node_modules",
+        "@acme",
+        "surface-node"
+      );
       mkdirSync(customRoot, { recursive: true });
       writeFileSync(
         join(customRoot, "package.json"),

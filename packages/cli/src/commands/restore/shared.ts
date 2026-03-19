@@ -9,7 +9,10 @@ import {
 
 export type RestoreOptions = AddCommandOptions;
 
-export type PackageReference = { readonly id: string; readonly version: string };
+export type PackageReference = {
+  readonly id: string;
+  readonly version: string;
+};
 
 export type ProjectAssets = {
   readonly targets?: Record<string, unknown>;
@@ -92,7 +95,9 @@ export const collectPackageTargets = (
       compile && typeof compile === "object"
         ? Object.keys(compile as Record<string, unknown>)
             .filter((pathLike) => pathLike.toLowerCase().endsWith(".dll"))
-            .map((pathLike) => join(packageFolder, libInfo.path as string, pathLike))
+            .map((pathLike) =>
+              join(packageFolder, libInfo.path as string, pathLike)
+            )
         : [];
 
     byLibrary.set(libKey, {

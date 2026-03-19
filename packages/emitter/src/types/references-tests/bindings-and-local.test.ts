@@ -1,4 +1,10 @@
-import { createModuleWithType, describe, emitModule, expect, it } from "./helpers.js";
+import {
+  createModuleWithType,
+  describe,
+  emitModule,
+  expect,
+  it,
+} from "./helpers.js";
 import type { FrontendTypeBinding, IrModule } from "./helpers.js";
 describe("Reference Type Emission", () => {
   describe("Bindings Registry Types", () => {
@@ -313,5 +319,4 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::Domain.Row row");
     });
   });
-
 });

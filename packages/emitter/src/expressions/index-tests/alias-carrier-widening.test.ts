@@ -260,6 +260,5 @@ describe("Expression Emission", () => {
     // The result must not contain nested Union<Union<...>> shapes.
     // (Match Union<A>.From(Union<B>) is NOT nested — it's sibling factory calls.)
     expect(rendered).to.not.include("Union<global::Tsonic.Runtime.Union<");
-
   });
 });

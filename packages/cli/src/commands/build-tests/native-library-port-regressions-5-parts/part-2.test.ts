@@ -1,46 +1,27 @@
-import {
-  describe,
-  it
-} from "mocha";
-import {
-  buildTestTimeoutMs
-} from "../helpers.js";
-import {
-  expect
-} from "chai";
+import { describe, it } from "mocha";
+import { buildTestTimeoutMs } from "../helpers.js";
+import { expect } from "chai";
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
   symlinkSync,
-  writeFileSync
+  writeFileSync,
 } from "node:fs";
-import {
-  tmpdir
-} from "node:os";
-import {
-  dirname,
-  join,
-  resolve
-} from "node:path";
-import {
-  fileURLToPath
-} from "node:url";
-import {
-  resolveConfig
-} from "../../../config.js";
-import {
-  applyAikyaWorkspaceOverlay
-} from "../../../aikya/bindings.js";
-import {
-  buildCommand
-} from "../../build.js";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { resolveConfig } from "../../../config.js";
+import { applyAikyaWorkspaceOverlay } from "../../../aikya/bindings.js";
+import { buildCommand } from "../../build.js";
 
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
 );
-const localJsPackageRoot = resolve(join(repoRoot, "..", "js", "versions", "10"));
+const localJsPackageRoot = resolve(
+  join(repoRoot, "..", "js", "versions", "10")
+);
 const linkedJsPackageRoot = existsSync(localJsPackageRoot)
   ? localJsPackageRoot
   : join(repoRoot, "node_modules/@tsonic/js");
@@ -243,5 +224,4 @@ describe("build command (native library port regressions)", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
 });

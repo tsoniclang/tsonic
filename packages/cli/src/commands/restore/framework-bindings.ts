@@ -32,7 +32,9 @@ export const generateFrameworkBindings = ({
     const typesPackage = typeof entry === "string" ? undefined : entry.types;
     if (typesPackage !== undefined) continue;
 
-    const runtime = runtimes.find((candidate) => candidate.name === frameworkRef);
+    const runtime = runtimes.find(
+      (candidate) => candidate.name === frameworkRef
+    );
     if (!runtime) {
       const available = runtimes
         .map((candidate) => `${candidate.name} ${candidate.version}`)
@@ -47,10 +49,14 @@ export const generateFrameworkBindings = ({
 
     const packageName = defaultBindingsPackageNameForFramework(frameworkRef);
     const outDir = bindingsStoreDir(workspaceRoot, "framework", packageName);
-    const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
-      kind: "framework",
-      source: { frameworkReference: frameworkRef },
-    });
+    const pkgJsonResult = ensureGeneratedBindingsPackageJson(
+      outDir,
+      packageName,
+      {
+        kind: "framework",
+        source: { frameworkReference: frameworkRef },
+      }
+    );
     if (!pkgJsonResult.ok) return pkgJsonResult;
 
     const generateArgs: string[] = [
@@ -61,9 +67,13 @@ export const generateFrameworkBindings = ({
       "--lib",
       dotnetLib,
     ];
-    for (const candidate of runtimes) generateArgs.push("--ref-dir", candidate.dir);
+    for (const candidate of runtimes)
+      generateArgs.push("--ref-dir", candidate.dir);
     for (const dep of options.deps ?? []) {
-      generateArgs.push("--ref-dir", resolveFromProjectRoot(workspaceRoot, dep));
+      generateArgs.push(
+        "--ref-dir",
+        resolveFromProjectRoot(workspaceRoot, dep)
+      );
     }
 
     const genResult = tsbindgenGenerate(

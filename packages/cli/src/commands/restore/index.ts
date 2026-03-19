@@ -16,7 +16,10 @@ import {
 import { restoreDllBindings } from "./dll-bindings.js";
 import { generateFrameworkBindings } from "./framework-bindings.js";
 import { restoreNugetBindings } from "./nuget-bindings.js";
-import { mergeFrameworkReferences, mergePackageReferences } from "./reference-merge.js";
+import {
+  mergeFrameworkReferences,
+  mergePackageReferences,
+} from "./reference-merge.js";
 
 export type RestoreOptions = AddCommandOptions;
 

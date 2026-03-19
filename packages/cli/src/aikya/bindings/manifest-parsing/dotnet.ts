@@ -4,15 +4,8 @@ import type {
   PackageReferenceConfig,
   Result,
 } from "../../../types.js";
-import {
-  AIKYA_DIAGNOSTIC,
-  errorWithCode,
-  normalizeId,
-} from "../shared.js";
-import type {
-  ManifestDotnet,
-  NormalizedNugetDependency,
-} from "../types.js";
+import { AIKYA_DIAGNOSTIC, errorWithCode, normalizeId } from "../shared.js";
+import type { ManifestDotnet, NormalizedNugetDependency } from "../types.js";
 export {
   canonicalizeManifestDotnet,
   mergeFrameworkReferences,
@@ -355,8 +348,4 @@ export const collectRuntimePackagesFromLegacy = (
   return [...set].sort((a, b) => normalizeId(a).localeCompare(normalizeId(b)));
 };
 
-export {
-  parseFrameworkReference,
-  parseManifestDotnet,
-  parsePackageReference,
-};
+export { parseFrameworkReference, parseManifestDotnet, parsePackageReference };

@@ -366,6 +366,4 @@ describe("aikya bindings", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
-
 });

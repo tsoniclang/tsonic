@@ -1,7 +1,4 @@
-import type {
-  IrInterfaceMember,
-  IrType,
-} from "@tsonic/frontend";
+import type { IrInterfaceMember, IrType } from "@tsonic/frontend";
 import { normalizeTypeReferenceName } from "../portable-types.js";
 import type { FirstPartyValueDeclarator } from "../types.js";
 
@@ -167,14 +164,14 @@ const reattachBindingClrIdentitiesInternal = (
         members: type.members,
       };
       caches.types.set(type, rewritten);
-      (rewritten as { members: typeof type.members }).members = type.members.map(
-        (member) =>
+      (rewritten as { members: typeof type.members }).members =
+        type.members.map((member) =>
           reattachBindingClrIdentityMemberInternal(
             member,
             clrNamesByAlias,
             caches
           )
-      );
+        );
       return rewritten;
     }
     case "dictionaryType": {

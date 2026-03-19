@@ -15,7 +15,8 @@ import type {
 
 export const isPromiseConstructorCall = (
   expr: Extract<IrExpression, { kind: "new" }>
-): boolean => expr.callee.kind === "identifier" && expr.callee.name === "Promise";
+): boolean =>
+  expr.callee.kind === "identifier" && expr.callee.name === "Promise";
 
 const isVoidLikeType = (type: IrType | undefined): boolean => {
   if (!type) return false;

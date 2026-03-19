@@ -115,5 +115,4 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("dynamic isDog");
     });
   });
-
 });

@@ -40,7 +40,9 @@ export const createModuleWithAccess = (options: {
     property: indexExpr,
     isComputed: true,
     isOptional: false,
-    ...(options.accessKind !== undefined ? { accessKind: options.accessKind } : {}),
+    ...(options.accessKind !== undefined
+      ? { accessKind: options.accessKind }
+      : {}),
     inferredType: { kind: "primitiveType", name: "number" },
   };
 

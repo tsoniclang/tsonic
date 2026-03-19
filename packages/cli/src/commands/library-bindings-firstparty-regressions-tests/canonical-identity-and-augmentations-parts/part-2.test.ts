@@ -1,24 +1,8 @@
-import {
-  describe,
-  it
-} from "mocha";
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync
-} from "node:fs";
-import {
-  tmpdir
-} from "node:os";
-import {
-  join
-} from "node:path";
-import {
-  linkDir,
-  repoRoot,
-  runProjectBuild
-} from "../test-helpers.js";
+import { describe, it } from "mocha";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { linkDir, repoRoot, runProjectBuild } from "../test-helpers.js";
 
 describe("library bindings first-party regressions", function () {
   this.timeout(10 * 60 * 1000);
@@ -229,5 +213,4 @@ describe("library bindings first-party regressions", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
 });

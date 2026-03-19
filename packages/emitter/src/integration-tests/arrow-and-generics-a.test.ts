@@ -389,5 +389,4 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(/double\s+id\s*\{\s*get;\s*\}/);
     });
   });
-
 });

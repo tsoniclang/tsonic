@@ -56,8 +56,8 @@ export const patchInternalIndexWithMemberOverrides = (
     }
   }
 
-  const wrapperImports = Array.from(wrapperByAlias.values()).sort((left, right) =>
-    left.aliasName.localeCompare(right.aliasName)
+  const wrapperImports = Array.from(wrapperByAlias.values()).sort(
+    (left, right) => left.aliasName.localeCompare(right.aliasName)
   );
 
   const importLines = wrapperImports.map((wrapper) => {
@@ -130,7 +130,9 @@ export const patchInternalIndexWithMemberOverrides = (
       const propMatch = propRe.exec(body);
       if (propMatch) {
         const baseType =
-          (override.replaceWithSourceType ? override.sourceTypeText : undefined) ??
+          (override.replaceWithSourceType
+            ? override.sourceTypeText
+            : undefined) ??
           propMatch[2] ??
           "";
         let nextType = applyWrappersToBaseType(baseType, override.wrappers);
@@ -165,7 +167,9 @@ export const patchInternalIndexWithMemberOverrides = (
         !override.memberName.startsWith("__tsonic_type_")
       ) {
         const baseType =
-          (override.replaceWithSourceType ? override.sourceTypeText : undefined) ??
+          (override.replaceWithSourceType
+            ? override.sourceTypeText
+            : undefined) ??
           getterMatch?.[2] ??
           setterMatch?.[2] ??
           "";
@@ -197,7 +201,9 @@ export const patchInternalIndexWithMemberOverrides = (
 
       if (getterMatch) {
         const baseType =
-          (override.replaceWithSourceType ? override.sourceTypeText : undefined) ??
+          (override.replaceWithSourceType
+            ? override.sourceTypeText
+            : undefined) ??
           getterMatch[2] ??
           "";
         let nextType = applyWrappersToBaseType(baseType, override.wrappers);
@@ -207,7 +213,9 @@ export const patchInternalIndexWithMemberOverrides = (
 
       if (setterMatch) {
         const baseType =
-          (override.replaceWithSourceType ? override.sourceTypeText : undefined) ??
+          (override.replaceWithSourceType
+            ? override.sourceTypeText
+            : undefined) ??
           setterMatch[2] ??
           "";
         let nextType = applyWrappersToBaseType(baseType, override.wrappers);

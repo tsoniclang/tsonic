@@ -6,7 +6,11 @@ import {
   classifyExportKind,
   resolveLocalModuleFile,
 } from "../source-modules.js";
-import { stripExistingSection, upsertSection, upsertSectionAfterImports } from "../shared.js";
+import {
+  stripExistingSection,
+  upsertSection,
+  upsertSectionAfterImports,
+} from "../shared.js";
 import type { FacadeInfo } from "../types.js";
 
 export const ensureFacade = (
@@ -194,7 +198,9 @@ export const writeEntrypointReexports = (opts: {
         `export type { ${unique.join(", ")} } from '${moduleSpecifier}';`
       );
     } else {
-      statements.push(`export { ${unique.join(", ")} } from '${moduleSpecifier}';`);
+      statements.push(
+        `export { ${unique.join(", ")} } from '${moduleSpecifier}';`
+      );
     }
   }
 

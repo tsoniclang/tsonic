@@ -1,10 +1,11 @@
 import { join } from "node:path";
 import type { PackageReferenceConfig, Result } from "../../types.js";
+import { type AddCommandOptions, type DotnetRuntime } from "../add-common.js";
 import {
-  type AddCommandOptions,
-  type DotnetRuntime,
-} from "../add-common.js";
-import { writeRestoreProject, dotnetRestore, parseProjectAssets } from "./shared.js";
+  writeRestoreProject,
+  dotnetRestore,
+  parseProjectAssets,
+} from "./shared.js";
 import { prepareNugetRestorePlan } from "./nuget-planning.js";
 import { generateNugetBindings } from "./nuget-generation.js";
 

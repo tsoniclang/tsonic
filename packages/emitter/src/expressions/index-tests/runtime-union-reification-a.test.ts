@@ -339,5 +339,4 @@ describe("Expression Emission", () => {
     expect(text).to.include("global::Tsonic.JSRuntime.JSArrayStatics.isArray");
     expect(text).to.not.equal("(handler.As1())[index]");
   });
-
 });

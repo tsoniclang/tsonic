@@ -67,7 +67,9 @@ export const collectModuleSourceMetadata = (
       stmt.kind === "interfaceDeclaration" && stmt.isExported
   );
   for (const iface of exportedInterfaces) {
-    const sourceMembers = sourceIndex.memberTypesByClassAndMember.get(iface.name);
+    const sourceMembers = sourceIndex.memberTypesByClassAndMember.get(
+      iface.name
+    );
     if (!sourceMembers) continue;
     for (const member of iface.members) {
       if (member.kind !== "propertySignature") continue;
@@ -130,7 +132,7 @@ const collectSourceAliasPlans = (
   builder: NamespacePlanBuilder,
   module: IrModule,
   sourceIndex: NonNullable<
-    ReturnType<typeof builder["sourceIndexByFileKey"]["get"]>
+    ReturnType<(typeof builder)["sourceIndexByFileKey"]["get"]>
   >
 ): void => {
   const exportedAliasDecls = module.body.filter(

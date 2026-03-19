@@ -44,7 +44,9 @@ export const buildNamespaceArtifacts = (
 ): BuiltNamespaceArtifacts => {
   const anonymousStructuralAliases = buildAnonymousStructuralAliasMap(plan);
   const internalBodyLines: string[] = [];
-  const memberOverridesByClass = buildMemberOverridesByClass(plan.memberOverrides);
+  const memberOverridesByClass = buildMemberOverridesByClass(
+    plan.memberOverrides
+  );
   const typeBindings: FirstPartyBindingsType[] = [];
 
   renderPlanTypeDeclarations({
@@ -160,7 +162,10 @@ const buildMemberOverridesByClass = (
 const renderPlanTypeDeclarations = (opts: {
   readonly config: ResolvedConfig;
   readonly plan: NamespacePlan;
-  readonly memberOverridesByClass: ReadonlyMap<string, ReadonlyMap<string, MemberOverride>>;
+  readonly memberOverridesByClass: ReadonlyMap<
+    string,
+    ReadonlyMap<string, MemberOverride>
+  >;
   readonly anonymousStructuralAliases: ReadonlyMap<
     string,
     AnonymousStructuralAliasInfo
@@ -198,8 +203,7 @@ const renderPlanTypeDeclarations = (opts: {
         ...renderInterfaceInternal(
           symbol.declaration,
           opts.plan.namespace,
-          opts.memberOverridesByClass.get(symbol.declaration.name) ??
-            new Map()
+          opts.memberOverridesByClass.get(symbol.declaration.name) ?? new Map()
         )
       );
       opts.typeBindings.push(
@@ -249,9 +253,14 @@ const renderPlanTypeDeclarations = (opts: {
     }
   }
 
-  const helperRemapsByModuleKey = new Map<string, ReadonlyMap<string, string>>();
+  const helperRemapsByModuleKey = new Map<
+    string,
+    ReadonlyMap<string, string>
+  >();
   for (const helper of opts.plan.internalHelperTypeDeclarations) {
-    const current = new Map(helperRemapsByModuleKey.get(helper.moduleFileKey) ?? []);
+    const current = new Map(
+      helperRemapsByModuleKey.get(helper.moduleFileKey) ?? []
+    );
     current.set(helper.originalName, helper.emittedName);
     helperRemapsByModuleKey.set(helper.moduleFileKey, current);
   }

@@ -30,7 +30,10 @@ export const runCli = async (args: string[]): Promise<number> => {
   const workspaceContext = loadWorkspaceCommandContext({
     ...parsed,
     options: parsed.options.config
-      ? { ...parsed.options, config: resolve(process.cwd(), parsed.options.config) }
+      ? {
+          ...parsed.options,
+          config: resolve(process.cwd(), parsed.options.config),
+        }
       : parsed.options,
   });
   if ("code" in workspaceContext) {

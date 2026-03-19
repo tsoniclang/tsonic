@@ -14,10 +14,7 @@ import {
   toSignatureType,
   toStableId,
 } from "../binding-semantics.js";
-import type {
-  FirstPartyBindingsType,
-  ModuleContainerEntry,
-} from "../types.js";
+import type { FirstPartyBindingsType, ModuleContainerEntry } from "../types.js";
 
 export const buildTypeBindingFromClass = (
   declaration: IrClassDeclaration,

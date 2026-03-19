@@ -25,7 +25,8 @@ export const loadProjectConfig = (
     };
   }
 
-  const references = (parsed.value as { readonly references?: unknown }).references;
+  const references = (parsed.value as { readonly references?: unknown })
+    .references;
   if (references !== undefined) {
     if (
       references === null ||
@@ -38,7 +39,8 @@ export const loadProjectConfig = (
       };
     }
 
-    const libraries = (references as { readonly libraries?: unknown }).libraries;
+    const libraries = (references as { readonly libraries?: unknown })
+      .libraries;
     if (
       libraries !== undefined &&
       (!Array.isArray(libraries) ||

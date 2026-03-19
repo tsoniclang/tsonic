@@ -331,5 +331,4 @@ describe("Expression Emission", () => {
     expect(result).to.include("next()");
     expect(result).to.not.include("new object[0]");
   });
-
 });

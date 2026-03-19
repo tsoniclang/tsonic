@@ -8,7 +8,10 @@ import {
 } from "../namespace-planning-helpers.js";
 import type { ModuleContainerEntry } from "../types.js";
 import type { NamespacePlanBuilder } from "./state.js";
-import { registerFunctionExport, registerVariableExport } from "./value-exports.js";
+import {
+  registerFunctionExport,
+  registerVariableExport,
+} from "./value-exports.js";
 
 export const collectModuleSymbols = (
   builder: NamespacePlanBuilder,
@@ -48,7 +51,8 @@ export const collectModuleSymbols = (
       if (symbol.declaringNamespace !== builder.namespace) {
         registerCrossNamespaceReexport({
           namespace: builder.namespace,
-          crossNamespaceReexportsGrouped: builder.crossNamespaceReexportsGrouped,
+          crossNamespaceReexportsGrouped:
+            builder.crossNamespaceReexportsGrouped,
           declaringNamespace: symbol.declaringNamespace,
           exportName: symbol.exportName,
           localName: symbol.localName,
@@ -59,7 +63,8 @@ export const collectModuleSymbols = (
         });
         registerCrossNamespaceTypeDeclaration({
           namespace: builder.namespace,
-          crossNamespaceTypeDeclarations: builder.crossNamespaceTypeDeclarations,
+          crossNamespaceTypeDeclarations:
+            builder.crossNamespaceTypeDeclarations,
           seenCrossNamespaceTypeDeclarationKeys:
             builder.seenCrossNamespaceTypeDeclarationKeys,
           symbol,
@@ -84,7 +89,8 @@ export const collectModuleSymbols = (
       if (symbol.declaringNamespace !== builder.namespace) {
         registerCrossNamespaceReexport({
           namespace: builder.namespace,
-          crossNamespaceReexportsGrouped: builder.crossNamespaceReexportsGrouped,
+          crossNamespaceReexportsGrouped:
+            builder.crossNamespaceReexportsGrouped,
           declaringNamespace: symbol.declaringNamespace,
           exportName: symbol.exportName,
           localName: symbol.localName,
@@ -122,7 +128,8 @@ export const collectModuleSymbols = (
       if (symbol.declaringNamespace !== builder.namespace) {
         registerCrossNamespaceReexport({
           namespace: builder.namespace,
-          crossNamespaceReexportsGrouped: builder.crossNamespaceReexportsGrouped,
+          crossNamespaceReexportsGrouped:
+            builder.crossNamespaceReexportsGrouped,
           declaringNamespace: symbol.declaringNamespace,
           exportName: symbol.exportName,
           localName: symbol.localName,

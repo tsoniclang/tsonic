@@ -333,5 +333,4 @@ describe("Expression Emission", () => {
       "global::Tsonic.JSRuntime.String.length((value.As1()))"
     );
   });
-
 });

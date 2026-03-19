@@ -77,11 +77,14 @@ const buildMetaPlans = (
   transitiveDeps: ReadonlyMap<string, ReadonlySet<string>>,
   typesFalsePkgIds: ReadonlySet<string>,
   typesPackageByPkgId: ReadonlyMap<string, string>
-): Result<{
-  readonly metaPlanByLibKey: ReadonlyMap<string, MetaPlan>;
-  readonly claimedByLibKey: ReadonlyMap<string, string>;
-  readonly bindingsDirByLibKey: ReadonlyMap<string, string>;
-}, string> => {
+): Result<
+  {
+    readonly metaPlanByLibKey: ReadonlyMap<string, MetaPlan>;
+    readonly claimedByLibKey: ReadonlyMap<string, string>;
+    readonly bindingsDirByLibKey: ReadonlyMap<string, string>;
+  },
+  string
+> => {
   const rootsSet = new Set<string>(roots);
   const rootReachCount = new Map<string, number>();
   for (const root of roots) {
@@ -192,14 +195,20 @@ export const prepareNugetRestorePlan = (
 
   const targetKey = findTargetKey(assets, targetFramework);
   if (!targetKey) {
-    const available = assets.targets ? Object.keys(assets.targets).join("\n") : "(none)";
+    const available = assets.targets
+      ? Object.keys(assets.targets).join("\n")
+      : "(none)";
     return {
       ok: false,
       error: `No restore target found for ${targetFramework}. Available targets:\n${available}`,
     };
   }
 
-  const packagesByLibKey = collectPackageTargets(assets, targetKey, packageFolder);
+  const packagesByLibKey = collectPackageTargets(
+    assets,
+    targetKey,
+    packageFolder
+  );
   const libKeyByPkgId = new Map<string, string>();
   for (const node of packagesByLibKey.values()) {
     const norm = normalizePkgId(node.packageId);
@@ -218,7 +227,9 @@ export const prepareNugetRestorePlan = (
   }
 
   const roots: string[] = [];
-  for (const pkg of packageReferencesAll.filter((candidate) => candidate.types === undefined)) {
+  for (const pkg of packageReferencesAll.filter(
+    (candidate) => candidate.types === undefined
+  )) {
     const root = libKeyByPkgId.get(normalizePkgId(pkg.id));
     if (!root) {
       return {

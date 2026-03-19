@@ -339,5 +339,4 @@ describe("Expression Emission", () => {
 
     expect(() => emitModule(module)).to.throw("ICE: Object spread source");
   });
-
 });

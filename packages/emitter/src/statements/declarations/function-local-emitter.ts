@@ -270,7 +270,9 @@ export const emitFunctionDeclarationAst = (
     ];
   }
 
-  const finalBodyStatements: CSharpStatementAst[] = [...paramDestructuringStmts];
+  const finalBodyStatements: CSharpStatementAst[] = [
+    ...paramDestructuringStmts,
+  ];
 
   if (stmt.isGenerator) {
     finalBodyStatements.push({

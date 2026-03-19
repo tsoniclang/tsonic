@@ -3,11 +3,7 @@ import type {
   PackageReferenceConfig,
   Result,
 } from "../../../types.js";
-import {
-  AIKYA_DIAGNOSTIC,
-  errorWithCode,
-  normalizeId,
-} from "../shared.js";
+import { AIKYA_DIAGNOSTIC, errorWithCode, normalizeId } from "../shared.js";
 import { parseFrameworkReference } from "./dotnet.js";
 import type { AikyaProducer } from "../types.js";
 

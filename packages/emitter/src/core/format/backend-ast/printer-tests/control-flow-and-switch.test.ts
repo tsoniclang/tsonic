@@ -1,4 +1,15 @@
-import { decimalIntegerLiteral, describe, expect, identifierType, it, printExpression, printPattern, printStatement, printType, stringLiteral } from "./helpers.js";
+import {
+  decimalIntegerLiteral,
+  describe,
+  expect,
+  identifierType,
+  it,
+  printExpression,
+  printPattern,
+  printStatement,
+  printType,
+  stringLiteral,
+} from "./helpers.js";
 describe("backend-ast printer", () => {
   it("prints compound structured types without falling back to textual reconstruction", () => {
     expect(
@@ -340,5 +351,4 @@ describe("backend-ast printer", () => {
         "}"
     );
   });
-
 });

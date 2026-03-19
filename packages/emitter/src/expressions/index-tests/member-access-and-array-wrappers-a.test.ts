@@ -1,10 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  emitModule,
-  type IrModule,
-} from "./helpers.js";
+import { describe, it, expect, emitModule, type IrModule } from "./helpers.js";
 
 describe("Expression Emission", () => {
   it("should emit hierarchical member bindings without emitting intermediate objects", () => {
@@ -454,5 +448,4 @@ describe("Expression Emission", () => {
       'global::System.Linq.Enumerable.ToArray(global::Tsonic.JSRuntime.String.split(path, "/"))'
     );
   });
-
 });

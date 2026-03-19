@@ -16,10 +16,7 @@ import {
   registerSourceTypeImportCandidates,
   registerValueExport,
 } from "../namespace-planning-helpers.js";
-import type {
-  ExportedSymbol,
-  ModuleContainerEntry,
-} from "../types.js";
+import type { ExportedSymbol, ModuleContainerEntry } from "../types.js";
 import type { NamespacePlanBuilder } from "./state.js";
 
 export const registerFunctionExport = (opts: {
@@ -118,7 +115,11 @@ export const registerVariableExport = (opts: {
   readonly builder: NamespacePlanBuilder;
   readonly symbol: Pick<
     ExportedSymbol,
-    "exportName" | "localName" | "declaringNamespace" | "declaringClassName" | "declaringFilePath"
+    | "exportName"
+    | "localName"
+    | "declaringNamespace"
+    | "declaringClassName"
+    | "declaringFilePath"
   >;
   readonly declarationModule: IrModule;
   readonly declaration: IrVariableDeclaration;

@@ -1,11 +1,11 @@
 import { posix } from "node:path";
-import type {
-  IrParameter,
-  IrType,
-  IrTypeParameter,
-} from "@tsonic/frontend";
+import type { IrParameter, IrType, IrTypeParameter } from "@tsonic/frontend";
 import * as ts from "typescript";
-import type { AnonymousStructuralAliasInfo, SourceTypeImportBinding, WrapperImport } from "./types.js";
+import type {
+  AnonymousStructuralAliasInfo,
+  SourceTypeImportBinding,
+  WrapperImport,
+} from "./types.js";
 import { moduleNamespacePath } from "./module-paths.js";
 
 export const primitiveImportLine =

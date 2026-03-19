@@ -265,5 +265,4 @@ describe("Union Type Emission", () => {
       "global::Tsonic.Runtime.Union<bool, double, string, DateLike> process()"
     );
   });
-
 });

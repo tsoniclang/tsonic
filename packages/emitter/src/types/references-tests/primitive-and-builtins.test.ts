@@ -1,4 +1,13 @@
-import { baseContext, createModuleWithType, describe, emitModule, emitReferenceType, expect, it, printType } from "./helpers.js";
+import {
+  baseContext,
+  createModuleWithType,
+  describe,
+  emitModule,
+  emitReferenceType,
+  expect,
+  it,
+  printType,
+} from "./helpers.js";
 import type { FrontendTypeBinding } from "./helpers.js";
 describe("Reference Type Emission", () => {
   describe("C# Primitive Types", () => {
@@ -101,5 +110,4 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::Tsonic.JSRuntime.Error x");
     });
   });
-
 });

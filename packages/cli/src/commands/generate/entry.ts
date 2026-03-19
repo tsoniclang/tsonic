@@ -32,5 +32,6 @@ export const findMainEntryInfo = (entryModule: IrModule): EntryInfo | null => {
   return null;
 };
 
-export const hasTopLevelExecutableStatements = (entryModule: IrModule): boolean =>
-  entryModule.body.some(isExecutableStatement);
+export const hasTopLevelExecutableStatements = (
+  entryModule: IrModule
+): boolean => entryModule.body.some(isExecutableStatement);

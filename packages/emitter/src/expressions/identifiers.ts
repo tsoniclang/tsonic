@@ -9,7 +9,10 @@ import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import { stableIdentifierSuffixFromTypeAst } from "../core/format/backend-ast/utils.js";
 import { emitTypedDefaultAst } from "../core/semantic/defaults.js";
-import type { CSharpExpressionAst, CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../core/format/backend-ast/types.js";
 import {
   buildRuntimeSubsetExpressionAst,
   tryEmitCollapsedStorageIdentifier,

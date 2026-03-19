@@ -268,5 +268,4 @@ describe("Expression Emission", () => {
       'new global::Tsonic.JSRuntime.JSArray<string>(items).includes("x")'
     );
   });
-
 });

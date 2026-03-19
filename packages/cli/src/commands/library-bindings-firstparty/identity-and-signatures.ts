@@ -8,7 +8,9 @@ import type { FirstPartyBindingsMethod } from "./types.js";
 import { normalizeTypeReferenceName } from "./portable-types.js";
 import { buildSemanticSignature } from "./semantic-rewrite.js";
 
-export const moduleNamespaceToInternalSpecifier = (namespace: string): string => {
+export const moduleNamespaceToInternalSpecifier = (
+  namespace: string
+): string => {
   const nsPath = namespace.length > 0 ? namespace : "index";
   return `./${nsPath}/internal/index.js`;
 };

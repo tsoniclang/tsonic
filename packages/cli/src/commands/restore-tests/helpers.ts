@@ -11,7 +11,14 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export { copyFileSync, existsSync, mkdirSync, readFileSync, tmpdir, writeFileSync };
+export {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  tmpdir,
+  writeFileSync,
+};
 export { join };
 
 export const repoRoot = resolve(
@@ -23,7 +30,11 @@ export const linkDir = (target: string, linkPath: string): void => {
   symlinkSync(target, linkPath, "dir");
 };
 
-export const run = (cwd: string, command: string, args: readonly string[]): void => {
+export const run = (
+  cwd: string,
+  command: string,
+  args: readonly string[]
+): void => {
   const result = spawnSync(command, args, { cwd, encoding: "utf-8" });
   if (result.status !== 0) {
     const msg = result.stderr || result.stdout || `Exit code ${result.status}`;
@@ -34,7 +45,8 @@ export const run = (cwd: string, command: string, args: readonly string[]): void
 export const writeWorkspacePackageJson = (projectRoot: string): void => {
   writeFileSync(
     join(projectRoot, "package.json"),
-    JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) + "\n",
+    JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
+      "\n",
     "utf-8"
   );
 };
@@ -59,7 +71,10 @@ export const linkStandardBindings = (
   }
 };
 
-export const writeNugetConfig = (projectRoot: string, feedDir: string): void => {
+export const writeNugetConfig = (
+  projectRoot: string,
+  feedDir: string
+): void => {
   const xml = `<?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>

@@ -1,4 +1,14 @@
-import { baseContext, clrTypeNameToTypeAst, createModuleWithType, describe, emitModule, emitReferenceType, expect, it, printType } from "./helpers.js";
+import {
+  baseContext,
+  clrTypeNameToTypeAst,
+  createModuleWithType,
+  describe,
+  emitModule,
+  emitReferenceType,
+  expect,
+  it,
+  printType,
+} from "./helpers.js";
 import type { IrModule } from "./helpers.js";
 describe("Reference Type Emission", () => {
   describe("Pre-resolved CLR Types", () => {
@@ -254,5 +264,4 @@ describe("Reference Type Emission", () => {
       expect(result).not.to.include("global::nodejs.Http.http.IncomingMessage");
     });
   });
-
 });

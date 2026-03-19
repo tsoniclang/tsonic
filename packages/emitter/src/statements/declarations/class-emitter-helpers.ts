@@ -1,14 +1,6 @@
-import {
-  type IrClassMember,
-  type IrType,
-} from "@tsonic/frontend";
-import {
-  EmitterContext,
-  type LocalTypeInfo,
-} from "../../types.js";
-import {
-  identifierExpression,
-} from "../../core/format/backend-ast/builders.js";
+import { type IrClassMember, type IrType } from "@tsonic/frontend";
+import { EmitterContext, type LocalTypeInfo } from "../../types.js";
+import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 import { resolveLocalTypeInfo } from "../../core/semantic/type-resolution.js";
 import type {
   CSharpMemberAst,

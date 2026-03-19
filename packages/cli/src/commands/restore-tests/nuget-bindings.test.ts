@@ -18,7 +18,9 @@ describe("restore command (NuGet bindings)", function () {
   this.timeout(10 * 60 * 1000);
 
   it("skips bindings generation for NuGet packages with 'types: false'", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-nuget-types-false-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-restore-nuget-types-false-")
+    );
     try {
       writeWorkspacePackageJson(dir);
       linkStandardBindings(dir);
@@ -27,7 +29,10 @@ describe("restore command (NuGet bindings)", function () {
       mkdirSync(feedDir, { recursive: true });
       writeNugetConfig(dir, feedDir);
       createNugetPackage(dir, feedDir, { id: "Acme.A", version: "1.0.0" });
-      createNugetPackage(dir, feedDir, { id: "Acme.Tooling", version: "1.0.0" });
+      createNugetPackage(dir, feedDir, {
+        id: "Acme.Tooling",
+        version: "1.0.0",
+      });
 
       writeFileSync(
         join(dir, "tsonic.workspace.json"),
@@ -54,7 +59,9 @@ describe("restore command (NuGet bindings)", function () {
         quiet: true,
       });
       expect(result.ok).to.equal(true);
-      expect(existsSync(join(dir, "node_modules", "acme-a-types"))).to.equal(true);
+      expect(existsSync(join(dir, "node_modules", "acme-a-types"))).to.equal(
+        true
+      );
       expect(
         existsSync(join(dir, "node_modules", "acme-tooling-types"))
       ).to.equal(false);
@@ -157,10 +164,12 @@ describe("restore command (NuGet bindings)", function () {
 
       const metaTypesDir = join(dir, "node_modules", "acme-meta-types");
       expect(existsSync(metaTypesDir)).to.equal(true);
-      expect(existsSync(join(dir, "node_modules", "acme-a-types"))).to.equal(false);
-      expect(existsSync(join(metaTypesDir, "Acme_A", "bindings.json"))).to.equal(
-        true
+      expect(existsSync(join(dir, "node_modules", "acme-a-types"))).to.equal(
+        false
       );
+      expect(
+        existsSync(join(metaTypesDir, "Acme_A", "bindings.json"))
+      ).to.equal(true);
       expect(existsSync(join(metaTypesDir, "Acme_A.js"))).to.equal(true);
       expect(existsSync(join(metaTypesDir, "Acme_A.d.ts"))).to.equal(true);
     } finally {

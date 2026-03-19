@@ -292,7 +292,9 @@ export const printIrType = (type: IrType, ctx: TypePrinterContext): string => {
       const ps = type.parameters
         .map((p, i) => {
           const name =
-            p.pattern.kind === "identifierPattern" ? p.pattern.name : `p${i + 1}`;
+            p.pattern.kind === "identifierPattern"
+              ? p.pattern.name
+              : `p${i + 1}`;
           const t = p.type
             ? printIrType(p.type, { parentPrecedence: 0 })
             : "unknown";

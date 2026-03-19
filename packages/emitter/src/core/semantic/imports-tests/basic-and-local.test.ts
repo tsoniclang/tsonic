@@ -229,5 +229,4 @@ describe("Import Handling", () => {
 
     expect(result).to.include("global::Acme.Math.index.clamp(10, 0, 5)");
   });
-
 });

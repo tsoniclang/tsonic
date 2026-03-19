@@ -1,4 +1,12 @@
-import { baseContext, describe, emitReferenceType, emitTypeAst, expect, it, printType } from "./helpers.js";
+import {
+  baseContext,
+  describe,
+  emitReferenceType,
+  emitTypeAst,
+  expect,
+  it,
+  printType,
+} from "./helpers.js";
 import type { EmitterContext, IrType } from "./helpers.js";
 describe("Reference Type Emission", () => {
   describe("Polymorphic This", () => {
@@ -251,5 +259,4 @@ describe("Reference Type Emission", () => {
       expect(printType(typeAst)).to.equal("object[]");
     });
   });
-
 });

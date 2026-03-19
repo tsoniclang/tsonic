@@ -1,7 +1,4 @@
-import type {
-  TsonicProjectConfig,
-  TsonicWorkspaceConfig,
-} from "../types.js";
+import type { TsonicProjectConfig, TsonicWorkspaceConfig } from "../types.js";
 
 export const WORKSPACE_ROOT = "/workspace";
 export const PROJECT_ROOT = "/workspace/packages/myapp";

@@ -1,9 +1,6 @@
 import { checkDotnetInstalled } from "@tsonic/backend";
 import { dirname, resolve } from "node:path";
-import {
-  findWorkspaceConfig,
-  loadWorkspaceConfig,
-} from "../../config.js";
+import { findWorkspaceConfig, loadWorkspaceConfig } from "../../config.js";
 import { initWorkspace } from "../../commands/init.js";
 import { addFrameworkCommand } from "../../commands/add-framework.js";
 import { addNpmCommand } from "../../commands/add-npm.js";
@@ -87,7 +84,8 @@ export const loadWorkspaceCommandContext = (
   if (!workspaceConfigPath) {
     return {
       code: 3,
-      error: "No tsonic.workspace.json found\nRun 'tsonic init' to initialize a workspace",
+      error:
+        "No tsonic.workspace.json found\nRun 'tsonic init' to initialize a workspace",
     };
   }
 
@@ -99,7 +97,10 @@ export const loadWorkspaceCommandContext = (
 
   let rawWorkspaceConfig = workspaceConfigResult.value;
   if (commandNeedsAikyaOverlay(parsed.command)) {
-    const overlay = applyAikyaWorkspaceOverlay(workspaceRoot, rawWorkspaceConfig);
+    const overlay = applyAikyaWorkspaceOverlay(
+      workspaceRoot,
+      rawWorkspaceConfig
+    );
     if (!overlay.ok) {
       return { code: 1, error: overlay.error };
     }

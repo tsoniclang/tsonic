@@ -1,10 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  emitModule,
-  type IrModule,
-} from "./helpers.js";
+import { describe, it, expect, emitModule, type IrModule } from "./helpers.js";
 
 describe("Expression Emission", () => {
   it("should preserve logical operator grouping with parentheses", () => {
@@ -261,5 +255,4 @@ describe("Expression Emission", () => {
     expect(result).to.include("global::System.String.CompareOrdinal(a, b) > 0");
     expect(result).to.not.include("a > b");
   });
-
 });

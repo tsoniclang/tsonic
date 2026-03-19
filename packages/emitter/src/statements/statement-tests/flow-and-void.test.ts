@@ -407,5 +407,4 @@ describe("Statement Emission", () => {
     const result = emitModule(module);
     expect(result).to.match(/var __tsonic_discard(?:__\d+)? = x;/);
   });
-
 });

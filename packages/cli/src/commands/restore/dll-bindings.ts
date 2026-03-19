@@ -107,7 +107,11 @@ export const restoreDllBindings = ({
   const userDeps = (options.deps ?? []).map((dep) =>
     resolveFromProjectRoot(workspaceRoot, dep)
   );
-  const refDirs = [...runtimes.map((runtime) => runtime.dir), join(workspaceRoot, "libs"), ...userDeps];
+  const refDirs = [
+    ...runtimes.map((runtime) => runtime.dir),
+    join(workspaceRoot, "libs"),
+    ...userDeps,
+  ];
   const closureResult = tsbindgenResolveClosure(
     workspaceRoot,
     tsbindgenDll,
@@ -196,7 +200,10 @@ export const restoreDllBindings = ({
   for (const assembly of nonFramework) {
     const id = identityKey(assembly);
     const deps = (assembly.references ?? [])
-      .map((reference) => `${reference.name}|${reference.publicKeyToken}|${reference.culture}`)
+      .map(
+        (reference) =>
+          `${reference.name}|${reference.publicKeyToken}|${reference.culture}`
+      )
       .filter((depId) => byId.has(depId));
     directDeps.set(id, Array.from(new Set(deps)));
   }
@@ -277,17 +284,28 @@ export const restoreDllBindings = ({
     const outDir = bindingsStoreDir(workspaceRoot, "dll", packageName);
     libDirById.set(id, outDir);
 
-    const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
-      kind: "dll",
-      source: {
-        assemblyName: assembly.name,
-        version: assembly.version,
-        path: `libs/${basename(destPath)}`,
-      },
-    });
+    const pkgJsonResult = ensureGeneratedBindingsPackageJson(
+      outDir,
+      packageName,
+      {
+        kind: "dll",
+        source: {
+          assemblyName: assembly.name,
+          version: assembly.version,
+          path: `libs/${basename(destPath)}`,
+        },
+      }
+    );
     if (!pkgJsonResult.ok) return pkgJsonResult;
 
-    const generateArgs: string[] = ["-a", destPath, "-o", outDir, "--lib", dotnetLib];
+    const generateArgs: string[] = [
+      "-a",
+      destPath,
+      "-o",
+      outDir,
+      "--lib",
+      dotnetLib,
+    ];
     const transitive = Array.from(transitiveDeps.get(id) ?? []);
     for (const depId of transitive) {
       if (!noTypesIds.has(depId)) continue;

@@ -18,8 +18,14 @@ import type {
 } from "../types.js";
 
 export type CollectedAugmentationData = {
-  readonly overridesByInternalIndex: ReadonlyMap<string, readonly MemberOverride[]>;
-  readonly brandOptionalTypesByInternalIndex: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly overridesByInternalIndex: ReadonlyMap<
+    string,
+    readonly MemberOverride[]
+  >;
+  readonly brandOptionalTypesByInternalIndex: ReadonlyMap<
+    string,
+    ReadonlySet<string>
+  >;
   readonly functionSignaturesByFacade: ReadonlyMap<
     string,
     ReadonlyMap<string, readonly SourceFunctionSignatureDef[]>
@@ -86,10 +92,16 @@ export const collectAugmentationData = (opts: {
       brandTargets.add(internalAliasName);
     }
     if (brandTargets.size > 0) {
-      brandOptionalTypesByInternalIndex.set(info.internalIndexDtsPath, brandTargets);
+      brandOptionalTypesByInternalIndex.set(
+        info.internalIndexDtsPath,
+        brandTargets
+      );
     }
 
-    for (const [name, signatures] of sourceIndex.exportedFunctionSignaturesByName) {
+    for (const [
+      name,
+      signatures,
+    ] of sourceIndex.exportedFunctionSignaturesByName) {
       if (signatures.length === 0) continue;
       const byName =
         functionSignaturesByFacade.get(info.facadeDtsPath) ??
@@ -139,7 +151,8 @@ export const collectAugmentationData = (opts: {
       wrappers: MemberOverride["wrappers"],
       emitOptionalPropertySyntax = false
     ): void => {
-      const list = overridesByInternalIndex.get(info.internalIndexDtsPath) ?? [];
+      const list =
+        overridesByInternalIndex.get(info.internalIndexDtsPath) ?? [];
       list.push({
         namespace: sourceModule.namespace,
         className,
@@ -154,7 +167,8 @@ export const collectAugmentationData = (opts: {
     };
 
     for (const className of sourceModule.exportedClassNames) {
-      const memberTypes = sourceIndex.memberTypesByClassAndMember.get(className);
+      const memberTypes =
+        sourceIndex.memberTypesByClassAndMember.get(className);
       if (!memberTypes) continue;
 
       for (const [memberName, sourceMember] of memberTypes) {
@@ -190,7 +204,8 @@ export const collectAugmentationData = (opts: {
     }
 
     for (const interfaceName of sourceModule.exportedInterfaceNames) {
-      const memberTypes = sourceIndex.memberTypesByClassAndMember.get(interfaceName);
+      const memberTypes =
+        sourceIndex.memberTypesByClassAndMember.get(interfaceName);
       if (!memberTypes) continue;
 
       for (const [memberName, sourceMember] of memberTypes) {

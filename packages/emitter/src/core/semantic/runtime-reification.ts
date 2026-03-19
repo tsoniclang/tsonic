@@ -1,8 +1,6 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import {
-  nullLiteral,
-} from "../format/backend-ast/builders.js";
+import { nullLiteral } from "../format/backend-ast/builders.js";
 import {
   sameTypeAstSurface,
   stableConcreteTypeKeyFromAst,

@@ -41,13 +41,12 @@ export const finalizeNamespacePlan = (
       crossNamespaceReexports: finalizeCrossNamespaceReexports(
         builder.crossNamespaceReexportsGrouped
       ),
-      crossNamespaceTypeDeclarations: builder.crossNamespaceTypeDeclarations.sort(
-        (left, right) => {
+      crossNamespaceTypeDeclarations:
+        builder.crossNamespaceTypeDeclarations.sort((left, right) => {
           const leftKey = `${left.exportName}|${left.declaringNamespace}|${left.localName}|${left.kind}`;
           const rightKey = `${right.exportName}|${right.declaringNamespace}|${right.localName}|${right.kind}`;
           return leftKey.localeCompare(rightKey);
-        }
-      ),
+        }),
       sourceAliases: builder.sourceAliasPlans.sort((left, right) =>
         left.declaration.name.localeCompare(right.declaration.name)
       ),

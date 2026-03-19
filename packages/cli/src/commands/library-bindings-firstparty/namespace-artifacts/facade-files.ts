@@ -1,7 +1,5 @@
 import { writeFileSync } from "node:fs";
-import {
-  moduleNamespaceToInternalSpecifier,
-} from "../binding-semantics.js";
+import { moduleNamespaceToInternalSpecifier } from "../binding-semantics.js";
 import {
   normalizeTypeReferenceName,
   primitiveImportLine,

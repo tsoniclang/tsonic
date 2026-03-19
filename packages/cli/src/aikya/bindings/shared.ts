@@ -5,7 +5,10 @@ import type {
   Result,
   TsonicWorkspaceConfig,
 } from "../../types.js";
-import type { ManifestSurfaceMode, NormalizedBindingsManifest } from "./types.js";
+import type {
+  ManifestSurfaceMode,
+  NormalizedBindingsManifest,
+} from "./types.js";
 
 export const AIKYA_DIAGNOSTIC = {
   invalidSchema: "TSN8A01",

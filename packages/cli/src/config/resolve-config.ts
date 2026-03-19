@@ -121,10 +121,11 @@ export const resolveConfig = (
   );
 
   const configLibraries = (workspaceConfig.dotnet?.libraries ?? []).map(
-    (entry: LibraryReferenceConfig) => (typeof entry === "string" ? entry : entry.path)
+    (entry: LibraryReferenceConfig) =>
+      typeof entry === "string" ? entry : entry.path
   );
-  const projectLibraries = (projectConfig.references?.libraries ?? []).map((entry) =>
-    resolve(projectRoot, entry)
+  const projectLibraries = (projectConfig.references?.libraries ?? []).map(
+    (entry) => resolve(projectRoot, entry)
   );
   const cliLibraries = cliOptions.lib ?? [];
   const rawFrameworkReferences = (workspaceConfig.dotnet?.frameworkReferences ??

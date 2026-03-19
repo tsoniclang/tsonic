@@ -388,5 +388,4 @@ describe("Expression Emission", () => {
     expect(result).to.include("char ch = 'x';");
     expect(result).to.include("test(ch.ToString())");
   });
-
 });

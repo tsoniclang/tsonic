@@ -151,5 +151,4 @@ describe("type-resolution", () => {
       expect(isDefinitelyValueType(type)).to.be.true;
     });
   });
-
 });

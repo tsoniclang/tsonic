@@ -174,14 +174,14 @@ const rewriteBindingSemanticTypeInternal = (
         members: type.members,
       };
       caches.types.set(type, rewritten);
-      (rewritten as { members: typeof type.members }).members = type.members.map(
-        (member) =>
+      (rewritten as { members: typeof type.members }).members =
+        type.members.map((member) =>
           rewriteBindingSemanticMemberInternal(
             member,
             localTypeNameRemaps,
             caches
           )
-      );
+        );
       return rewritten;
     }
     case "dictionaryType": {

@@ -238,5 +238,4 @@ describe("Statement Emission", () => {
 
     expect(result).to.include("if (result.Is1())");
   });
-
 });

@@ -1,4 +1,10 @@
-import { describe, emitCSharpFiles, emitModule, expect, it } from "./helpers.js";
+import {
+  describe,
+  emitCSharpFiles,
+  emitModule,
+  expect,
+  it,
+} from "./helpers.js";
 import type { IrModule } from "./helpers.js";
 describe("Reference Type Emission", () => {
   describe("Array Indexing", () => {

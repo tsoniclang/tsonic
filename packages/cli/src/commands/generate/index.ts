@@ -23,10 +23,7 @@ import {
 } from "@tsonic/backend";
 import type { ResolvedConfig, Result } from "../../types.js";
 import { resolveSurfaceCapabilities } from "../../surface/profiles.js";
-import {
-  findMainEntryInfo,
-  hasTopLevelExecutableStatements,
-} from "./entry.js";
+import { findMainEntryInfo, hasTopLevelExecutableStatements } from "./entry.js";
 import {
   collectProjectLibraries,
   dedupePackageReferencesAgainstAssemblyReferences,
@@ -94,7 +91,9 @@ export const generateCommand = (
       };
     }
 
-    const typeLibraries = config.libraries.filter((lib) => !lib.endsWith(".dll"));
+    const typeLibraries = config.libraries.filter(
+      (lib) => !lib.endsWith(".dll")
+    );
     const allTypeRoots = [...typeRoots, ...typeLibraries].map((pathLike) =>
       isAbsolute(pathLike) ? pathLike : resolve(workspaceRoot, pathLike)
     );
@@ -162,15 +161,16 @@ export const generateCommand = (
     }
 
     if (outputType !== "library") {
-      const entryRelative = relative(absoluteSourceRoot, absoluteEntryPoint).replace(
-        /\\/g,
-        "/"
-      );
+      const entryRelative = relative(
+        absoluteSourceRoot,
+        absoluteEntryPoint
+      ).replace(/\\/g, "/");
       const foundEntryModule =
         modules.find((module: IrModule) => module.filePath === entryRelative) ??
         entryModule;
       if (foundEntryModule) {
-        const hasTopLevelCode = hasTopLevelExecutableStatements(foundEntryModule);
+        const hasTopLevelCode =
+          hasTopLevelExecutableStatements(foundEntryModule);
         const mainExport = findMainEntryInfo(foundEntryModule);
         if (mainExport && hasTopLevelCode) {
           return {
@@ -199,7 +199,11 @@ export const generateCommand = (
               "Entry point module must either export main() or contain top-level executable statements.",
           };
         }
-        writeFileSync(join(outputDir, "Program.cs"), generateProgramCs(entryInfo), "utf-8");
+        writeFileSync(
+          join(outputDir, "Program.cs"),
+          generateProgramCs(entryInfo),
+          "utf-8"
+        );
       }
     }
 
@@ -214,7 +218,11 @@ export const generateCommand = (
         ? []
         : [
             ...findRuntimeDlls(outputDir),
-            ...collectProjectLibraries(workspaceRoot, outputDir, config.libraries),
+            ...collectProjectLibraries(
+              workspaceRoot,
+              outputDir,
+              config.libraries
+            ),
           ];
       const effectivePackageReferences =
         dedupePackageReferencesAgainstAssemblyReferences(

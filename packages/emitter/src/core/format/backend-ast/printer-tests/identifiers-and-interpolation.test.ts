@@ -1,4 +1,12 @@
-import { describe, expect, identifierType, it, printCompilationUnit, printExpression, printType } from "./helpers.js";
+import {
+  describe,
+  expect,
+  identifierType,
+  it,
+  printCompilationUnit,
+  printExpression,
+  printType,
+} from "./helpers.js";
 describe("backend-ast printer", () => {
   it("prints type reference expressions structurally", () => {
     expect(
@@ -262,5 +270,4 @@ describe("backend-ast printer", () => {
       })
     ).to.equal('$"count = {value:D4}, raw = {0xFF}"');
   });
-
 });

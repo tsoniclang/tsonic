@@ -342,5 +342,4 @@ describe("Statement Emission", () => {
     // Should NOT include 'await foreach'
     expect(result).to.not.include("await foreach");
   });
-
 });

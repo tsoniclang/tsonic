@@ -43,11 +43,7 @@ export const writeWorkspaceJson = (
 ): void => {
   const targetPath = join(dir, relativePath);
   mkdirSync(dirname(targetPath), { recursive: true });
-  writeFileSync(
-    targetPath,
-    JSON.stringify(value, null, 2) + "\n",
-    "utf-8"
-  );
+  writeFileSync(targetPath, JSON.stringify(value, null, 2) + "\n", "utf-8");
 };
 
 export const linkWorkspaceDependencies = (dir: string): void => {
@@ -63,10 +59,7 @@ export const linkWorkspaceDependencies = (dir: string): void => {
     join(repoRoot, "node_modules/@tsonic/globals"),
     join(dir, "node_modules/@tsonic/globals")
   );
-  linkDir(
-    join(dir, "packages", "core"),
-    join(dir, "node_modules/@acme/core")
-  );
+  linkDir(join(dir, "packages", "core"), join(dir, "node_modules/@acme/core"));
 };
 
 export const runCliBuild = (
@@ -77,11 +70,21 @@ export const runCliBuild = (
   const cliPath = join(repoRoot, "packages/cli/dist/index.js");
   const result = spawnSync(
     "node",
-    [cliPath, "build", "--project", project, "--config", wsConfigPath, "--quiet"],
+    [
+      cliPath,
+      "build",
+      "--project",
+      project,
+      "--config",
+      wsConfigPath,
+      "--quiet",
+    ],
     { cwd: dir, encoding: "utf-8" }
   );
   if (result.status !== 0) {
-    throw new Error(result.stderr || result.stdout || `build failed for ${project}`);
+    throw new Error(
+      result.stderr || result.stdout || `build failed for ${project}`
+    );
   }
 };
 

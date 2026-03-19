@@ -1,4 +1,7 @@
-export { emitBlockStatementAst, emitReturnStatementAst } from "./block-emitters/block-and-return.js";
+export {
+  emitBlockStatementAst,
+  emitReturnStatementAst,
+} from "./block-emitters/block-and-return.js";
 export {
   emitYieldExpressionAst,
   emitYieldStatementAst,

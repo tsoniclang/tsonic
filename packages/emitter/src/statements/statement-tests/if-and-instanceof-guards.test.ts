@@ -259,5 +259,4 @@ describe("Statement Emission", () => {
     );
     expect(result).to.not.include("Uint8ArrayConstructor");
   });
-
 });

@@ -280,5 +280,4 @@ describe("Destructuring Pattern Lowering", () => {
       expect(result).to.include("string name = __obj0.name;");
     });
   });
-
 });

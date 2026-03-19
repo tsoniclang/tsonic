@@ -9,11 +9,11 @@ import {
 import { resolveSurfaceCapabilities } from "../../surface/profiles.js";
 import type { ResolvedConfig, Result } from "../../types.js";
 import { indexFacadeFiles } from "./facade-patches.js";
+import { normalizeModuleFileKey, renderDiagnostics } from "./shared.js";
 import {
-  normalizeModuleFileKey,
-  renderDiagnostics,
-} from "./shared.js";
-import { discoverSourceModuleInfos, renderExportedTypeAlias } from "./source-modules.js";
+  discoverSourceModuleInfos,
+  renderExportedTypeAlias,
+} from "./source-modules.js";
 import type { ModuleSourceIndex } from "./types.js";
 import {
   ensureFacade,
@@ -85,7 +85,9 @@ export const augmentLibraryBindingsFromSource = (
   }
 
   const irModules = graphResult?.ok ? graphResult.value.modules : [];
-  const entryModule = graphResult?.ok ? graphResult.value.entryModule : undefined;
+  const entryModule = graphResult?.ok
+    ? graphResult.value.entryModule
+    : undefined;
   const facadesByNamespace = new Map(indexFacadeFiles(bindingsOutDir));
   const modulesByFile = new Map<string, IrModule>();
   for (const m of irModules) {
@@ -111,7 +113,11 @@ export const augmentLibraryBindingsFromSource = (
       const exportedAliases = m.body.filter(isExportedTypeAlias);
       if (exportedAliases.length === 0) continue;
 
-      const info = ensureFacade(facadesByNamespace, bindingsOutDir, m.namespace);
+      const info = ensureFacade(
+        facadesByNamespace,
+        bindingsOutDir,
+        m.namespace
+      );
 
       const internalIndexDts = existsSync(info.internalIndexDtsPath)
         ? readFileSync(info.internalIndexDtsPath, "utf-8")

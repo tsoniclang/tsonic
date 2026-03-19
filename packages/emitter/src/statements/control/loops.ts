@@ -13,9 +13,7 @@ import {
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { deriveForOfElementType } from "../../core/semantic/iteration-types.js";
-import {
-  emitBooleanConditionAst,
-} from "../../core/semantic/boolean-context.js";
+import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
 import {
   allocateLocalName,
   registerLocalName,

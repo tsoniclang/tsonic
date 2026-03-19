@@ -384,5 +384,4 @@ describe("Statement Emission", () => {
     expect(result).to.include("if (s.Is2())");
     expect(result).to.include('if ((s.As3()).kind == "c")');
   });
-
 });

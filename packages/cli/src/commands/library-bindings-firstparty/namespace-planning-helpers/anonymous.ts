@@ -60,7 +60,8 @@ export const registerAnonymousHelperClass = (
 
   const shape = renderPortableType(
     { kind: "objectType", members },
-    declaration.typeParameters?.map((typeParameter) => typeParameter.name) ?? [],
+    declaration.typeParameters?.map((typeParameter) => typeParameter.name) ??
+      [],
     new Map(),
     new Map()
   );

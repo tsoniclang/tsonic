@@ -1,16 +1,9 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import {
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { augmentLibraryBindingsFromSource } from "../../library-bindings-augment.js";
-import {
-  createResolvedConfig,
-  withBindingsWorkspace,
-} from "./helpers.js";
+import { createResolvedConfig, withBindingsWorkspace } from "./helpers.js";
 
 describe("library-bindings-augment", function () {
   this.timeout(30000);

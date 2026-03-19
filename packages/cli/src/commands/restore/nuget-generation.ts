@@ -30,7 +30,8 @@ const appendCommonRefDirs = (
   options: AddCommandOptions
 ): void => {
   for (const runtime of runtimes) generateArgs.push("--ref-dir", runtime.dir);
-  for (const compileDir of compileDirs) generateArgs.push("--ref-dir", compileDir);
+  for (const compileDir of compileDirs)
+    generateArgs.push("--ref-dir", compileDir);
   for (const dep of options.deps ?? []) {
     generateArgs.push("--ref-dir", resolveFromProjectRoot(workspaceRoot, dep));
   }
@@ -70,7 +71,10 @@ export const generateNugetBindings = ({
     const node = plan.packagesByLibKey.get(libKey);
     if (!node) continue;
 
-    if (plan.claimedByLibKey.has(libKey) && !plan.metaPlanByLibKey.has(libKey)) {
+    if (
+      plan.claimedByLibKey.has(libKey) &&
+      !plan.metaPlanByLibKey.has(libKey)
+    ) {
       continue;
     }
 
@@ -175,10 +179,14 @@ export const generateNugetBindings = ({
     }
 
     bindingsDirByLibKey.set(libKey, defaultOutDir);
-    const pkgJsonResult = ensureGeneratedBindingsPackageJson(defaultOutDir, packageName, {
-      kind: "nuget",
-      source: { packageId: node.packageId, version: node.version },
-    });
+    const pkgJsonResult = ensureGeneratedBindingsPackageJson(
+      defaultOutDir,
+      packageName,
+      {
+        kind: "nuget",
+        source: { packageId: node.packageId, version: node.version },
+      }
+    );
     if (!pkgJsonResult.ok) return pkgJsonResult;
 
     const generateArgs: string[] = [

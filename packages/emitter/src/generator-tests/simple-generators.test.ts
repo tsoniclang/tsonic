@@ -190,5 +190,4 @@ describe("Generator Emission", () => {
       "public static async global::System.Collections.Generic.IAsyncEnumerable<asyncCounter_exchange> asyncCounter()"
     );
   });
-
 });

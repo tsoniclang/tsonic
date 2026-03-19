@@ -94,7 +94,10 @@ export const setupMaximusWorkspace = (dir: string): Result<string, string> => {
   runCliBuild(dir, wsConfigPath, "core");
   runCliBuild(dir, wsConfigPath, "app");
 
-  return { ok: true, value: join(dir, "packages", "core", "dist", "tsonic", "bindings") };
+  return {
+    ok: true,
+    value: join(dir, "packages", "core", "dist", "tsonic", "bindings"),
+  };
 };
 
 const coreTypesSource = [

@@ -89,7 +89,9 @@ const validateMsbuildProperties = (
     };
   }
 
-  for (const [key, entryValue] of Object.entries(value as Record<string, unknown>)) {
+  for (const [key, entryValue] of Object.entries(
+    value as Record<string, unknown>
+  )) {
     if (!MSBUILD_PROPERTY_NAME_RE.test(key)) {
       return {
         ok: false,
@@ -214,7 +216,8 @@ export const loadWorkspaceConfig = (
   const typeRoots = dotnet.typeRoots;
   if (
     typeRoots !== undefined &&
-    (!Array.isArray(typeRoots) || typeRoots.some((entry) => typeof entry !== "string"))
+    (!Array.isArray(typeRoots) ||
+      typeRoots.some((entry) => typeof entry !== "string"))
   ) {
     return {
       ok: false,

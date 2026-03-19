@@ -40,7 +40,11 @@ describe("add npm (Aikya manifests)", function () {
             runtimePackages: ["@tsonic/dotnet"],
           },
           typing: { bindingsRoot: "tsonic/bindings" },
-          producer: { tool: "tsonic", version: "0.0.70", mode: "aikya-firstparty" },
+          producer: {
+            tool: "tsonic",
+            version: "0.0.70",
+            mode: "aikya-firstparty",
+          },
         },
       });
 
@@ -167,7 +171,9 @@ describe("add npm (Aikya manifests)", function () {
         skipInstallIfPresent: true,
       });
       expect(result.ok).to.equal(true);
-      expect(result.ok ? result.value.packageName : "").to.equal("acme-bindings");
+      expect(result.ok ? result.value.packageName : "").to.equal(
+        "acme-bindings"
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -205,7 +211,9 @@ describe("add npm (Aikya manifests)", function () {
         skipInstallIfPresent: true,
       });
       expect(result.ok).to.equal(true);
-      expect(result.ok ? result.value.packageName : "").to.equal("acme-bindings");
+      expect(result.ok ? result.value.packageName : "").to.equal(
+        "acme-bindings"
+      );
       expect(readWorkspaceConfig(dir).dotnet.packageReferences).to.deep.equal([
         { id: "Acme.Runtime", version: "1.0.0" },
       ]);

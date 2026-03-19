@@ -403,5 +403,4 @@ describe("Statement Emission", () => {
     expect(result).to.include('if ((s.As3()).kind == "c")');
     expect(result).to.not.include("s.Match(");
   });
-
 });

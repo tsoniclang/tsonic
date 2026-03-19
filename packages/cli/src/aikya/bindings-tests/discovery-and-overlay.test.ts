@@ -281,6 +281,4 @@ describe("aikya bindings", function () {
       { id: "Tsonic.Nodejs", version: "10.0.0" },
     ]);
   });
-
-
 });

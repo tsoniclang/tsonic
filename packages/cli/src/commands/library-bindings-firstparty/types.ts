@@ -11,9 +11,7 @@ import type {
   IrTypeAliasDeclaration,
 } from "@tsonic/frontend";
 import * as ts from "typescript";
-import type {
-  SourceFunctionSignatureSurface as SourceFunctionSignatureDef,
-} from "../../aikya/source-function-surfaces.js";
+import type { SourceFunctionSignatureSurface as SourceFunctionSignatureDef } from "../../aikya/source-function-surfaces.js";
 
 export type FirstPartyBindingsMethod = {
   readonly stableId: string;
@@ -258,7 +256,11 @@ export type ModuleSourceIndex = {
   >;
 };
 
-export type InternalHelperTypeKind = "class" | "interface" | "enum" | "typeAlias";
+export type InternalHelperTypeKind =
+  | "class"
+  | "interface"
+  | "enum"
+  | "typeAlias";
 
 export type InternalHelperTypeDeclaration = {
   readonly key: string;

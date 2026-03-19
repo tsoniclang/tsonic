@@ -4,7 +4,11 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addNpmCommand } from "../add-npm.js";
-import { readWorkspaceConfig, writeLocalNpmPackage, writeWorkspaceConfig } from "./helpers.js";
+import {
+  readWorkspaceConfig,
+  writeLocalNpmPackage,
+  writeWorkspaceConfig,
+} from "./helpers.js";
 
 describe("add npm (transitive Aikya)", function () {
   this.timeout(3 * 60 * 1000);
@@ -25,7 +29,11 @@ describe("add npm (transitive Aikya)", function () {
             nugetPackages: [{ id: "Acme.Child.Runtime", version: "1.0.0" }],
           },
           typing: { bindingsRoot: "tsonic/bindings" },
-          producer: { tool: "tsonic", version: "0.0.70", mode: "aikya-firstparty" },
+          producer: {
+            tool: "tsonic",
+            version: "0.0.70",
+            mode: "aikya-firstparty",
+          },
         },
       });
       writeLocalNpmPackage(dir, "local/acme-parent", {
@@ -41,7 +49,11 @@ describe("add npm (transitive Aikya)", function () {
             nugetPackages: [{ id: "Acme.Parent.Runtime", version: "1.0.0" }],
           },
           typing: { bindingsRoot: "tsonic/bindings" },
-          producer: { tool: "tsonic", version: "0.0.70", mode: "aikya-firstparty" },
+          producer: {
+            tool: "tsonic",
+            version: "0.0.70",
+            mode: "aikya-firstparty",
+          },
         },
       });
 

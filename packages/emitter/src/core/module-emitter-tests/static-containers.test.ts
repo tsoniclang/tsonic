@@ -279,5 +279,4 @@ describe("Module Generation", () => {
     const result = emitModule(module);
     expect(result).to.include("internal static readonly string[] items");
   });
-
 });

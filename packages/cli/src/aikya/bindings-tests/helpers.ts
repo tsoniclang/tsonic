@@ -16,7 +16,10 @@ export const writeJson = (path: string, value: unknown): void => {
   writeFileSync(path, JSON.stringify(value, null, 2) + "\n", "utf-8");
 };
 
-export const packageDir = (workspaceRoot: string, packageName: string): string => {
+export const packageDir = (
+  workspaceRoot: string,
+  packageName: string
+): string => {
   if (packageName.startsWith("@")) {
     const [scope, name] = packageName.split("/");
     if (!scope || !name) {

@@ -112,7 +112,10 @@ describe("restore command (runtime and local DLLs)", function () {
       writeWorkspacePackageJson(dir);
       linkStandardBindings(dir, ["@tsonic/tsbindgen"]);
 
-      const runtimeDll = join(repoRoot, "packages/cli/runtime/Tsonic.Runtime.dll");
+      const runtimeDll = join(
+        repoRoot,
+        "packages/cli/runtime/Tsonic.Runtime.dll"
+      );
       writeFileSync(
         join(dir, "csharp", "TestLib.csproj"),
         `<Project Sdk="Microsoft.NET.Sdk">
@@ -169,7 +172,9 @@ describe("restore command (runtime and local DLLs)", function () {
         quiet: true,
       });
       expect(result.ok).to.equal(true);
-      expect(existsSync(join(dir, "node_modules", "test-lib-types"))).to.equal(true);
+      expect(existsSync(join(dir, "node_modules", "test-lib-types"))).to.equal(
+        true
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

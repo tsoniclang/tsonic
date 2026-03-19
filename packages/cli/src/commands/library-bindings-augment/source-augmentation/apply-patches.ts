@@ -12,11 +12,17 @@ export const applyAugmentationData = (
   data: CollectedAugmentationData
 ): Result<void, string> => {
   for (const [internalIndex, overrides] of data.overridesByInternalIndex) {
-    const result = patchInternalIndexWithMemberOverrides(internalIndex, overrides);
+    const result = patchInternalIndexWithMemberOverrides(
+      internalIndex,
+      overrides
+    );
     if (!result.ok) return result;
   }
 
-  for (const [internalIndex, typeNames] of data.brandOptionalTypesByInternalIndex) {
+  for (const [
+    internalIndex,
+    typeNames,
+  ] of data.brandOptionalTypesByInternalIndex) {
     const result = patchInternalIndexBrandMarkersOptional(
       internalIndex,
       Array.from(typeNames.values())
@@ -24,7 +30,10 @@ export const applyAugmentationData = (
     if (!result.ok) return result;
   }
 
-  for (const [facadePath, signaturesByName] of data.functionSignaturesByFacade) {
+  for (const [
+    facadePath,
+    signaturesByName,
+  ] of data.functionSignaturesByFacade) {
     const result = patchFacadeWithSourceFunctionSignatures(
       facadePath,
       signaturesByName
@@ -32,7 +41,10 @@ export const applyAugmentationData = (
     if (!result.ok) return result;
   }
 
-  for (const [facadePath, importsByLocalName] of data.sourceTypeImportsByFacade) {
+  for (const [
+    facadePath,
+    importsByLocalName,
+  ] of data.sourceTypeImportsByFacade) {
     const result = ensureSourceTypeImportsForFacade(
       facadePath,
       importsByLocalName

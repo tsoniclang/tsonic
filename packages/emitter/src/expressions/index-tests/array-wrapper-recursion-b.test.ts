@@ -388,5 +388,4 @@ describe("Expression Emission", () => {
       "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
     );
   });
-
 });

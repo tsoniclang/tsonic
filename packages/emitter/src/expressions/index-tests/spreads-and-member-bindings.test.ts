@@ -1,10 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  emitModule,
-  type IrModule,
-} from "./helpers.js";
+import { describe, it, expect, emitModule, type IrModule } from "./helpers.js";
 
 describe("Expression Emission", () => {
   it("should emit spread arguments without an invalid params call-site modifier", () => {
@@ -445,5 +439,4 @@ describe("Expression Emission", () => {
     );
     expect(result).not.to.include("value.toString()");
   });
-
 });

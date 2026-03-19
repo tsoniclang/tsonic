@@ -256,6 +256,5 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("state.email");
       expect(csharp).not.to.include("state.is_bot");
     });
-
   });
 });

@@ -1,9 +1,5 @@
 import { spawnSync } from "node:child_process";
-import {
-  mkdirSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "chai";

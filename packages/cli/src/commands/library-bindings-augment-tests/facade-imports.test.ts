@@ -219,5 +219,4 @@ describe("library-bindings-augment", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
 });

@@ -1,4 +1,8 @@
-import { identifierExpression, identifierType, stringLiteral } from "../format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  identifierType,
+  stringLiteral,
+} from "../format/backend-ast/builders.js";
 import {
   getIdentifierTypeName,
   sameTypeAstSurface,

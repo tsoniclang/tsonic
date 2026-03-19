@@ -1,4 +1,4 @@
-import { existsSync, } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   findProjectConfig,
@@ -96,13 +96,15 @@ const restoreDependenciesIfNeeded = (
   const hasPackageRefs =
     (rawWorkspaceConfig.dotnet?.packageReferences?.length ?? 0) > 0 ||
     (includeTestDeps ? (testDotnet.packageReferences?.length ?? 0) > 0 : false);
-  const hasDllLibs = (rawWorkspaceConfig.dotnet?.libraries ?? []).some((entry) => {
-    const pathLike = typeof entry === "string" ? entry : entry.path;
-    const normalized = pathLike.replace(/\\/g, "/").toLowerCase();
-    if (!normalized.endsWith(".dll")) return false;
-    if (isBuiltInRuntimeDllPath(pathLike)) return false;
-    return normalized.startsWith("libs/") || normalized.startsWith("./libs/");
-  });
+  const hasDllLibs = (rawWorkspaceConfig.dotnet?.libraries ?? []).some(
+    (entry) => {
+      const pathLike = typeof entry === "string" ? entry : entry.path;
+      const normalized = pathLike.replace(/\\/g, "/").toLowerCase();
+      if (!normalized.endsWith(".dll")) return false;
+      if (isBuiltInRuntimeDllPath(pathLike)) return false;
+      return normalized.startsWith("libs/") || normalized.startsWith("./libs/");
+    }
+  );
 
   if (!hasFrameworkRefs && !hasPackageRefs && !hasDllLibs) {
     return { ok: true, value: rawWorkspaceConfig };
@@ -149,9 +151,15 @@ export const resolveProjectCommandConfig = (
   );
   if (!restoredWorkspace.ok) return restoredWorkspace;
 
-  const projectConfigPathResult = resolveProjectConfigPath(parsed, workspaceRoot);
+  const projectConfigPathResult = resolveProjectConfigPath(
+    parsed,
+    workspaceRoot
+  );
   if (!projectConfigPathResult.ok) {
-    return { ok: false, error: { code: 1, error: projectConfigPathResult.error } };
+    return {
+      ok: false,
+      error: { code: 1, error: projectConfigPathResult.error },
+    };
   }
 
   const projectConfigPath = projectConfigPathResult.value;

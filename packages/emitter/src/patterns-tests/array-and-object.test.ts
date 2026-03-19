@@ -398,5 +398,4 @@ describe("Destructuring Pattern Lowering", () => {
       expect(result).to.include("string value = __obj1.inner;");
     });
   });
-
 });

@@ -471,5 +471,4 @@ describe("Expression Emission", () => {
       "new global::System.Collections.Generic.List<long>(dict.Values).ToArray()"
     );
   });
-
 });

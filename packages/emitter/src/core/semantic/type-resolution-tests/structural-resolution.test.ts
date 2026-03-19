@@ -427,5 +427,4 @@ describe("type-resolution", () => {
       ).to.equal(undefined);
     });
   });
-
 });

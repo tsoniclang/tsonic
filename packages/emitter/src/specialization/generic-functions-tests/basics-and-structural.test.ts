@@ -374,5 +374,4 @@ describe("Generic Functions (spec/15 §3-5)", () => {
     expect(result).to.include("T? value");
     expect(result).to.include("T? wrapValue");
   });
-
 });

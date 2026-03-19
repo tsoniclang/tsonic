@@ -54,7 +54,10 @@ export const registerInternalHelperTypeClosure = (opts: {
   readonly sourceIndex: ModuleSourceIndex | undefined;
   readonly referencedNames: ReadonlySet<string>;
   readonly modulesByFileKey: ReadonlyMap<string, IrModule>;
-  readonly internalHelperTypeRemapsByModuleKey: Map<string, Map<string, string>>;
+  readonly internalHelperTypeRemapsByModuleKey: Map<
+    string,
+    Map<string, string>
+  >;
   readonly internalHelperTypeDeclarationsByKey: Map<
     string,
     InternalHelperTypeDeclaration
@@ -96,7 +99,10 @@ export const registerInternalHelperTypeClosure = (opts: {
 
     const key = `${moduleFileKey}::${localName}`;
     if (!remaps.has(localName)) {
-      remaps.set(localName, getInternalHelperTypeName(moduleFileKey, localName));
+      remaps.set(
+        localName,
+        getInternalHelperTypeName(moduleFileKey, localName)
+      );
     }
     if (opts.internalHelperTypeDeclarationsByKey.has(key)) {
       return { ok: true, value: undefined };
@@ -203,7 +209,10 @@ export const registerValueExport = (opts: {
     const functionType = resolveFunctionTypeFromValueDeclarator(declarator);
     if (functionType) {
       return stableSerializeBindingSemanticValue(
-        buildSemanticSignatureFromFunctionType(functionType, localTypeNameRemaps)
+        buildSemanticSignatureFromFunctionType(
+          functionType,
+          localTypeNameRemaps
+        )
       );
     }
 
@@ -375,7 +384,10 @@ export const registerFacadeLocalTypeReferenceImports = (opts: {
   readonly sourceIndexByFileKey: ReadonlyMap<string, ModuleSourceIndex>;
   readonly modulesByFileKey: ReadonlyMap<string, IrModule>;
   readonly facadeTypeImportByAlias: Map<string, SourceTypeImportBinding>;
-  readonly internalHelperTypeRemapsByModuleKey: Map<string, Map<string, string>>;
+  readonly internalHelperTypeRemapsByModuleKey: Map<
+    string,
+    Map<string, string>
+  >;
   readonly internalHelperTypeDeclarationsByKey: Map<
     string,
     InternalHelperTypeDeclaration
@@ -403,8 +415,10 @@ export const registerFacadeLocalTypeReferenceImports = (opts: {
     sourceIndex: opts.sourceIndex,
     referencedNames,
     modulesByFileKey: opts.modulesByFileKey,
-    internalHelperTypeRemapsByModuleKey: opts.internalHelperTypeRemapsByModuleKey,
-    internalHelperTypeDeclarationsByKey: opts.internalHelperTypeDeclarationsByKey,
+    internalHelperTypeRemapsByModuleKey:
+      opts.internalHelperTypeRemapsByModuleKey,
+    internalHelperTypeDeclarationsByKey:
+      opts.internalHelperTypeDeclarationsByKey,
   });
   if (!helperTypeRemaps.ok) return helperTypeRemaps;
   if (!opts.sourceIndex) return helperTypeRemaps;

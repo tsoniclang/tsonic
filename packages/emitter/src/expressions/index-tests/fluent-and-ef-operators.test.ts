@@ -1,10 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  emitModule,
-  type IrModule,
-} from "./helpers.js";
+import { describe, it, expect, emitModule, type IrModule } from "./helpers.js";
 
 describe("Expression Emission", () => {
   it("should emit fluent LINQ extension method calls (required for EF query precompilation)", () => {
@@ -377,5 +371,4 @@ describe("Expression Emission", () => {
     expect(result).to.include("xs.ToArray()");
     expect(result).not.to.include(".ToList().ToArray()");
   });
-
 });

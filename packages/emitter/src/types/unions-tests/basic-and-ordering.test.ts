@@ -292,5 +292,4 @@ describe("Union Type Emission", () => {
     expect(forwardUnion).to.not.equal(undefined);
     expect(reversedUnion).to.equal(forwardUnion);
   });
-
 });

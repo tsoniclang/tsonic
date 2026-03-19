@@ -20,7 +20,11 @@ import {
   type IrType,
   type TypeBinding as FrontendTypeBinding,
 } from "@tsonic/frontend";
-import type { EmitterContext, LocalTypeInfo, EmitterOptions } from "../../../types.js";
+import type {
+  EmitterContext,
+  LocalTypeInfo,
+  EmitterOptions,
+} from "../../../types.js";
 
 export {
   describe,
@@ -40,4 +44,11 @@ export {
   narrowTypeByTypeofTag,
   findUnionMemberIndex,
 };
-export type { EmitterContext, EmitterOptions, FrontendTypeBinding, IrInterfaceMember, IrType, LocalTypeInfo };
+export type {
+  EmitterContext,
+  EmitterOptions,
+  FrontendTypeBinding,
+  IrInterfaceMember,
+  IrType,
+  LocalTypeInfo,
+};

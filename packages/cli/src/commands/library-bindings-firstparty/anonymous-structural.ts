@@ -12,10 +12,7 @@ import {
   renderPortableType,
   renderReferenceType,
 } from "./portable-types.js";
-import type {
-  AnonymousStructuralAliasInfo,
-  NamespacePlan,
-} from "./types.js";
+import type { AnonymousStructuralAliasInfo, NamespacePlan } from "./types.js";
 
 export const isGeneratedStructuralHelperName = (name: string): boolean =>
   name.startsWith("__Anon_") || /__\d+$/.test(name);

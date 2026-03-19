@@ -10,11 +10,7 @@ import {
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  buildTestTimeoutMs,
-  linkDir,
-  repoRoot,
-} from "./helpers.js";
+import { buildTestTimeoutMs, linkDir, repoRoot } from "./helpers.js";
 
 describe("build command (library bindings)", function () {
   this.timeout(buildTestTimeoutMs);
@@ -477,6 +473,4 @@ describe("build command (library bindings)", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
-
 });

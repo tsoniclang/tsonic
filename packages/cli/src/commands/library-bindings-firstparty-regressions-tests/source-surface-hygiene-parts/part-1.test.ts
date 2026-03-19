@@ -1,27 +1,15 @@
-import {
-  describe,
-  it
-} from "mocha";
-import {
-  expect
-} from "chai";
+import { describe, it } from "mocha";
+import { expect } from "chai";
 import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
-  writeFileSync
+  writeFileSync,
 } from "node:fs";
-import {
-  tmpdir
-} from "node:os";
-import {
-  join
-} from "node:path";
-import {
-  runLibraryBuild,
-  writeLibraryScaffold
-} from "../test-helpers.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runLibraryBuild, writeLibraryScaffold } from "../test-helpers.js";
 
 describe("library bindings first-party regressions", function () {
   this.timeout(10 * 60 * 1000);
@@ -295,5 +283,4 @@ describe("library bindings first-party regressions", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
 });

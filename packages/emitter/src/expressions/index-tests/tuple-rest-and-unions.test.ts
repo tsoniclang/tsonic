@@ -1,10 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  emitModule,
-  type IrModule,
-} from "./helpers.js";
+import { describe, it, expect, emitModule, type IrModule } from "./helpers.js";
 
 describe("Expression Emission", () => {
   it("should preserve contextual char typing for ternary single-character literals", () => {
@@ -183,5 +177,4 @@ describe("Expression Emission", () => {
     expect(result).to.include("next(5)");
     expect(result).to.not.include("new object[] { 5 }");
   });
-
 });

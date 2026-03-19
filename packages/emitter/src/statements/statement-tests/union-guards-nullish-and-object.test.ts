@@ -271,5 +271,4 @@ describe("Statement Emission", () => {
     expect(result).to.include("((global::System.Object)(value)) == null");
     expect(result).to.not.include("value == null");
   });
-
 });

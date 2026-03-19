@@ -68,7 +68,9 @@ describe("restore command (explicit DLL types mappings)", function () {
   });
 
   it("fails fast when a DLL has a 'types' mapping but the package is missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-dll-types-missing-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-restore-dll-types-missing-")
+    );
     try {
       writeWorkspacePackageJson(dir);
       buildSimpleDll(dir, "Acme.Test", "Acme.Test");

@@ -319,5 +319,4 @@ describe("Statement Emission", () => {
     );
     expect(result).not.to.include("return await new");
   });
-
 });

@@ -131,5 +131,4 @@ describe("type-resolution", () => {
       expect(containsTypeParameter(recursive)).to.equal(true);
     });
   });
-
 });

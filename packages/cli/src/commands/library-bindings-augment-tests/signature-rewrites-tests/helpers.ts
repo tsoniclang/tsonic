@@ -35,11 +35,7 @@ export const writeInternalFacade = (opts: {
   );
   mkdirSync(internalDir, { recursive: true });
   const internalIndex = join(internalDir, "index.d.ts");
-  writeFileSync(
-    internalIndex,
-    opts.internalLines.join("\n") + "\n",
-    "utf-8"
-  );
+  writeFileSync(internalIndex, opts.internalLines.join("\n") + "\n", "utf-8");
 
   const facadePath = join(opts.bindingsOutDir, "TestApp.d.ts");
   writeFileSync(facadePath, opts.facadeLines.join("\n") + "\n", "utf-8");

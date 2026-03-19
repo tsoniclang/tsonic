@@ -162,5 +162,4 @@ describe("type-resolution", () => {
       expect(selected?.kind).to.equal("dictionaryType");
     });
   });
-
 });

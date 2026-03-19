@@ -171,5 +171,4 @@ describe("aikya bindings", function () {
     expect(merged.ok).to.equal(false);
     expect(merged.ok ? "" : merged.error).to.match(/^TSN8A03:/);
   });
-
 });

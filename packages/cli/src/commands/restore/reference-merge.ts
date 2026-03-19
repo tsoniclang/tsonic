@@ -41,8 +41,7 @@ export const mergeFrameworkReferences = (
       };
     }
 
-    const mergedTypes =
-      existingTypes !== undefined ? existingTypes : nextTypes;
+    const mergedTypes = existingTypes !== undefined ? existingTypes : nextTypes;
     byId.set(
       key,
       mergedTypes === undefined

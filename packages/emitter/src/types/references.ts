@@ -4,9 +4,7 @@
  * All types are emitted with global:: prefix for unambiguous resolution.
  */
 
-import {
-  IrType,
-} from "@tsonic/frontend";
+import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitTypeAst } from "./emitter.js";

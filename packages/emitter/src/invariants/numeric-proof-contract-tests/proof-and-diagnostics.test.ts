@@ -11,7 +11,10 @@ import {
   IrStatement,
   runNumericProofPass,
 } from "@tsonic/frontend";
-import { createModuleWithAccess, createModuleWithIdentifierIndex } from "./helpers.js";
+import {
+  createModuleWithAccess,
+  createModuleWithIdentifierIndex,
+} from "./helpers.js";
 
 describe("Numeric Proof Contract (Behavioral)", () => {
   describe("clrIndexer access (requires Int32 proof)", () => {
@@ -295,5 +298,4 @@ describe("Numeric Proof Contract (Behavioral)", () => {
   // ============================================================================
   // EMITTER CONTRACT: ICE when proof marker missing
   // ============================================================================
-
 });

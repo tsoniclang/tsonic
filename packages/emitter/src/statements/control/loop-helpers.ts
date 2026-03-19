@@ -1,8 +1,6 @@
 import { IrExpression, IrStatement } from "@tsonic/frontend";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import type {
-  CSharpStatementAst,
-} from "../../core/format/backend-ast/types.js";
+import type { CSharpStatementAst } from "../../core/format/backend-ast/types.js";
 import { type EmitExprAstFn } from "../../core/semantic/boolean-context.js";
 
 export type CanonicalIntLoop = {
@@ -102,4 +100,5 @@ export const wrapInBlock = (
   return { kind: "blockStatement", statements: [...stmts] };
 };
 
-export const emitExprAstCb: EmitExprAstFn = (e, ctx) => emitExpressionAst(e, ctx);
+export const emitExprAstCb: EmitExprAstFn = (e, ctx) =>
+  emitExpressionAst(e, ctx);

@@ -110,5 +110,4 @@ describe("type-resolution", () => {
       expect(recursiveArray.elementType).to.equal(substituted);
     });
   });
-
 });

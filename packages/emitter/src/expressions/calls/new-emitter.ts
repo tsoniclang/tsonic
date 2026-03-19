@@ -11,7 +11,10 @@ import {
 } from "../identifiers.js";
 import { isLValue, getPassingModifierFromCast } from "./call-analysis.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
-import { identifierType, withTypeArguments } from "../../core/format/backend-ast/builders.js";
+import {
+  identifierType,
+  withTypeArguments,
+} from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,

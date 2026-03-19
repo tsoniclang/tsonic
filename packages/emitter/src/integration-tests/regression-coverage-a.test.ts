@@ -197,6 +197,5 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("return unwrapInt(postIdRaw.Value);");
       expect(csharp).not.to.include("((int)(object)postIdRaw).Value");
     });
-
   });
 });

@@ -1,10 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  emitModule,
-  type IrModule,
-} from "./helpers.js";
+import { describe, it, expect, emitModule, type IrModule } from "./helpers.js";
 
 describe("Expression Emission", () => {
   it("should infer arrow function return type from inferredType", () => {
@@ -379,5 +373,4 @@ describe("Expression Emission", () => {
     expect(result).to.include("'Q' == 'Q'");
     expect(result).not.to.include('(char)"Q"');
   });
-
 });

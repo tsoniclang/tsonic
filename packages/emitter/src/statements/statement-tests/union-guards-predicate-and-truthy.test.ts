@@ -309,5 +309,4 @@ describe("Statement Emission", () => {
     expect(result).to.include("return (result.As1()).data;");
     expect(result).to.not.include("result.Match(");
   });
-
 });
