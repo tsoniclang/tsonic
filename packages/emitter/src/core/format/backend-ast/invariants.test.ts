@@ -75,30 +75,30 @@ describe("backend-ast architecture invariants", () => {
     expect(printerImportFiles).to.deep.equal([
       "core/format/backend-ast/index.ts",
       "core/format/module-emitter/assembly.ts",
-      "emitter.ts",
-      "expressions/index-tests/helpers.ts",
       "generated-files.ts",
-      "types/references-tests/helpers.ts",
     ]);
   });
 
   it("limits free-form text payloads to lexical leaf nodes and trivia only", () => {
-    const typesFile = readFileSync(
-      join(emitterRoot, "core/format/backend-ast/types.ts"),
-      "utf8"
-    );
+    const typeDefinitionFiles = [
+      join(emitterRoot, "core/format/backend-ast/types/expression-ast.ts"),
+      join(emitterRoot, "core/format/backend-ast/types/compilation-unit-ast.ts"),
+    ];
+    const typeDefinitionText = typeDefinitionFiles
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
 
     const textFieldMatches = [
-      ...typesFile.matchAll(/readonly text: string;/g),
+      ...typeDefinitionText.matchAll(/readonly text: string;/g),
     ].map((match) => match[0]);
 
     expect(textFieldMatches).to.have.length(2);
-    expect(typesFile).to.include(
+    expect(typeDefinitionText).to.include(
       "export type CSharpInterpolatedStringPartText = {"
     );
-    expect(typesFile).to.include(
+    expect(typeDefinitionText).to.include(
       "export type CSharpSingleLineCommentTriviaAst = {"
     );
-    expect(typesFile).to.not.include("literalExpression");
+    expect(typeDefinitionText).to.not.include("literalExpression");
   });
 });

@@ -3,6 +3,7 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 import type { EmitterContext } from "../types.js";
 
 export type UpcastFn = (
@@ -30,8 +31,5 @@ export type StructuralPropertyInfo = {
 export const buildDelegateType = (
   parameterTypes: readonly CSharpTypeAst[],
   returnType: CSharpTypeAst
-): CSharpTypeAst => ({
-  kind: "identifierType",
-  name: "global::System.Func",
-  typeArguments: [...parameterTypes, returnType],
-});
+): CSharpTypeAst =>
+  identifierType("global::System.Func", [...parameterTypes, returnType]);
