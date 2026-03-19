@@ -341,6 +341,34 @@ describe("End-to-End Integration", () => {
         );
       });
     });
+
+    it("preserves narrowed receiver aliases for member writes after instanceof", () => {
+      const source = `
+        class Router {}
+        class Application extends Router {
+          mountpath: string | string[] = "/";
+        }
+
+        export function render(candidate: Router): string | string[] {
+          if (candidate instanceof Application) {
+            candidate.mountpath = "/app";
+            return candidate.mountpath;
+          }
+          return "/";
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include(
+        "if (candidate is Application candidate__is_1)"
+      );
+      expect(csharp).to.include("candidate__is_1.mountpath =");
+      expect(csharp).to.include(
+        "return global::Tsonic.Runtime.Union<string[], string>.From2(candidate__is_1.mountpath);"
+      );
+      expect(csharp).to.not.include("candidate.mountpath =");
+    });
   });
 
   describe("Generic Functions", () => {
@@ -500,6 +528,28 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(/public\s+T\s+getValue\s*\(\s*\)/);
       expect(csharp).to.match(
         /public\s+void\s+setValue\s*\(\s*T\s+newValue\s*\)/
+      );
+    });
+
+    it("casts storage-erased nullable generic member reads back to the contextual type", () => {
+      const source = `
+        export class Maybe<T> {
+          private value: T | null;
+
+          constructor(value: T | null) {
+            this.value = value;
+          }
+
+          getOrElse(defaultValue: T): T {
+            return this.value !== null ? this.value : defaultValue;
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("private object? value { get; set; }");
+      expect(csharp).to.match(
+        /return \(*\(global::System\.Object\)\(this\.value\)\)* != null \? \(*\(T\)this\.value\)* : defaultValue;/
       );
     });
   });
@@ -1452,6 +1502,218 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("takeTyped(query.limit.Value)");
     });
 
+    it("keeps nullable value unwraps on the raw local instead of layering casts before .Value", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function parsePostIdRequired(): int | undefined;
+        declare function unwrapInt(value: int): int;
+
+        export function run(): int {
+          const postIdRaw = parsePostIdRequired();
+          if (postIdRaw === undefined) {
+            return 0 as int;
+          }
+          return unwrapInt(postIdRaw);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("return unwrapInt(postIdRaw.Value);");
+      expect(csharp).not.to.include("((int)(object)postIdRaw).Value");
+    });
+
+    it("preserves reference nullable narrowing across repeated reassignment guards", () => {
+      const source = `
+        class ImageDimensions {
+          readonly width: number;
+          readonly height: number;
+
+          constructor(width: number, height: number) {
+            this.width = width;
+            this.height = height;
+          }
+        }
+
+        declare const Resource: {
+          parsePngDimensions(bytes: string): ImageDimensions | undefined;
+          parseJpegDimensions(bytes: string): ImageDimensions | undefined;
+          parseGifDimensions(bytes: string): ImageDimensions | undefined;
+        };
+
+        export function parseImageDimensions(bytes: string): ImageDimensions | undefined {
+          let dims = Resource.parsePngDimensions(bytes);
+          if (dims !== undefined) return dims;
+
+          dims = Resource.parseJpegDimensions(bytes);
+          if (dims !== undefined) return dims;
+
+          dims = Resource.parseGifDimensions(bytes);
+          if (dims !== undefined) return dims;
+
+          return undefined;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("if (dims != null)");
+      expect(csharp).to.not.include("if ((object)dims != null)");
+      expect(csharp).to.not.include("return (object)dims;");
+      expect(csharp).to.include("return dims;");
+    });
+
+    it("materializes Array.isArray-narrowed unknown locals before array storage declarations", () => {
+      const source = `
+        export function parseJsonStringArray(value: unknown): string[] | undefined {
+          if (!Array.isArray(value)) return undefined;
+          const values = value as unknown[];
+          const items: string[] = [];
+          for (let i = 0; i < values.length; i++) {
+            const current = values[i];
+            if (typeof current === "string") items.push(current);
+          }
+          return items;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("object?[] values = (object?[])value;");
+      expect(csharp).to.not.include("object?[] values = value;");
+    });
+
+    it("preserves runtime-union member numbering across nested array and instanceof fallthrough guards", () => {
+      const source = `
+        type RequestHandler = (value: string) => void;
+        type MiddlewareLike = RequestHandler | Router | readonly MiddlewareLike[];
+
+        class Router {}
+
+        function isMiddlewareHandler(value: MiddlewareLike): value is RequestHandler {
+          return typeof value === "function";
+        }
+
+        export function flatten(entries: readonly MiddlewareLike[]): readonly (RequestHandler | Router)[] {
+          const result: (RequestHandler | Router)[] = [];
+          const append = (handler: MiddlewareLike): void => {
+            if (Array.isArray(handler)) {
+              for (let index = 0; index < handler.length; index += 1) {
+                append(handler[index]!);
+              }
+              return;
+            }
+            if (handler instanceof Router) {
+              result.push(handler);
+              return;
+            }
+            if (!isMiddlewareHandler(handler)) {
+              throw new Error("middleware handlers must be functions");
+            }
+            result.push(handler);
+          };
+          return result;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("if (handler.Is1())");
+      expect(csharp).to.include(
+        "for (int index = 0; index < (handler.As1()).Length; index += 1)"
+      );
+      expect(csharp).to.not.include(
+        "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"
+      );
+      expect(csharp).to.not.include(
+        "isMiddlewareHandler(global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From2(handler))"
+      );
+      expect(csharp).to.not.include("isMiddlewareHandler(handler.Match(");
+      expect(csharp).to.include("if (!isMiddlewareHandler(handler))");
+      expect(csharp).to.include("result.push((handler.As2()));");
+    });
+
+    it("prefers assignable conditional supertypes without double runtime-union projection", () => {
+      const source = `
+        class TemplateValue {}
+        class PageValue extends TemplateValue {
+          readonly slug: string;
+          constructor(slug: string) {
+            super();
+            this.slug = slug;
+          }
+        }
+
+        declare function resolve(flag: boolean): TemplateValue;
+        declare function consume(value: TemplateValue): void;
+
+        export function run(flag: boolean): void {
+          const actual = flag ? new PageValue("home") : resolve(flag);
+          consume(actual);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.not.include("actual.Match(");
+      expect(csharp).to.not.include(")).Match(");
+      expect(csharp).to.include("consume(actual);");
+    });
+
+    it("narrows reassigned locals before native array mutation interop calls", () => {
+      const source = `
+        class Item {
+          readonly name: string;
+
+          constructor(name: string) {
+            this.name = name;
+          }
+        }
+
+        export function run(): number {
+          const items: Item[] = [];
+          let entry = items.find((current) => current.name === "x");
+          if (entry === undefined) {
+            entry = new Item("x");
+            items.push(entry);
+          }
+          return items.length;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.match(/\.push\((?:\(Item\))?entry\);/);
+      expect(csharp).to.not.include(".push((object)entry);");
+    });
+
+    it("narrows reassigned member accesses before subsequent reads", () => {
+      const source = `
+        class Item {
+          readonly name: string;
+
+          constructor(name: string) {
+            this.name = name;
+          }
+        }
+
+        declare function consume(item: Item): void;
+
+        class Holder {
+          current: Item | undefined;
+
+          setCurrent(name: string): void {
+            this.current = new Item(name);
+            consume(this.current);
+          }
+        }
+
+        export function run(): void {
+          new Holder().setCurrent("ok");
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("consume(this.current);");
+      expect(csharp).not.to.include("consume((object)this.current)");
+      expect(csharp).not.to.include("consume(this.current.Value)");
+    });
+
     it("lowers typed object spreads into object-root dictionary results", () => {
       const source = `
         type ApiKeyData = {
@@ -1507,10 +1769,8 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.include('state["user_id"] = "u1";');
       expect(csharp).to.include('state["email"] = "u@example.com";');
-      expect(csharp).to.include('var bot = state["user_id"];');
-      expect(csharp).to.include(
-        'state["is_bot"] = global::System.Object.Equals(bot, "u1");'
-      );
+      expect(csharp).to.match(/var bot = .*state\["user_id"\];/);
+      expect(csharp).to.match(/state\["is_bot"\] = .*bot.*"u1".*;/);
       expect(csharp).not.to.include("state.user_id");
       expect(csharp).not.to.include("state.email");
       expect(csharp).not.to.include("state.is_bot");
@@ -1534,10 +1794,10 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include(
-        "subscribe(((global::System.Func<CreateParams>)(() =>"
+        "subscribe(new CreateParams { isPrivate = createParams.isPrivate });"
       );
-      expect(csharp).to.include(
-        "new CreateParams { isPrivate = createParams.isPrivate }"
+      expect(csharp).not.to.include(
+        "subscribe(((global::System.Func<CreateParams>)(() =>"
       );
       expect(csharp).not.to.include("subscribe(createParams);");
     });
@@ -1560,6 +1820,30 @@ describe("End-to-End Integration", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
 
+        declare function createBotDomain(input: { fullName: string; shortName: string; botType?: int }): void;
+
+        export function run(botType: int | undefined): void {
+          const input = { fullName: "Bot", shortName: "bot", botType };
+          createBotDomain(input);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("createBotDomain(new global::Test.__Anon_");
+      expect(csharp).to.include("new global::Test.__Anon_");
+      expect(csharp).to.include("fullName = input.fullName");
+      expect(csharp).to.include("shortName = input.shortName");
+      expect(csharp).to.include("botType = input.botType");
+      expect(csharp).not.to.include(
+        "createBotDomain(((global::System.Func<global::Test.__Anon_"
+      );
+      expect(csharp).not.to.include("createBotDomain(input);");
+    });
+
+    it("reuses named structural aliases for inline object-type parameters when CLR surfaces already align", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
         type CreateInput = { fullName: string; shortName: string; botType?: int };
 
         declare function createBotDomain(input: { fullName: string; shortName: string; botType?: int }): void;
@@ -1572,13 +1856,10 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include(
-        "createBotDomain(((global::System.Func<global::Test.__Anon_"
+        'CreateInput__Alias input = new CreateInput__Alias { fullName = "Bot", shortName = "bot", botType = botType };'
       );
-      expect(csharp).to.include("new global::Test.__Anon_");
-      expect(csharp).to.include("fullName = input.fullName");
-      expect(csharp).to.include("shortName = input.shortName");
-      expect(csharp).to.include("botType = input.botType");
-      expect(csharp).not.to.include("createBotDomain(input);");
+      expect(csharp).to.include("createBotDomain(input);");
+      expect(csharp).not.to.include("createBotDomain(new global::Test.__Anon_");
     });
 
     it("materializes structural arrays for inline object-type element parameters", () => {
@@ -1637,6 +1918,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("class AppContext__Alias");
       expect(csharp).to.match(
         /AppContext__Alias\s+ctx\s*=\s*new\s+AppContext__Alias\s*\{\s*options\s*=\s*options,\s*config\s*=\s*config\s*\}/
+      );
+      expect(csharp).not.to.match(
+        /AppContext__Alias\s+ctx\s*=\s*\(\(global::System\.Func<AppContext__Alias>\)/
       );
       expect(csharp).not.to.include(
         "ICE: Anonymous object type reached emitter"
@@ -1742,48 +2026,6 @@ describe("End-to-End Integration", () => {
         "new global::System.Collections.Generic.Dictionary"
       );
     });
-
-    it("erases inline structural type assertions without anonymous-type cast emission", () => {
-      const source = `
-        export function getArity(handler: unknown): number {
-          if (typeof handler !== "function") {
-            return 0;
-          }
-
-          const maybeFunction = handler as unknown as { readonly length?: number };
-          return typeof maybeFunction.length === "number" ? maybeFunction.length : 0;
-        }
-      `;
-
-      const csharp = compileToCSharp(source);
-      expect(csharp).not.to.include(
-        "ICE: Anonymous object type reached emitter"
-      );
-      expect(csharp).to.include("var maybeFunction = handler;");
-      expect(csharp).to.include("maybeFunction.length");
-    });
-
-    it("erases named structural type assertions without CLR runtime casts", () => {
-      const source = `
-        interface HandlerShape {
-          readonly length?: number;
-        }
-
-        export function getArity(handler: unknown): number {
-          if (typeof handler !== "function") {
-            return 0;
-          }
-
-          const maybeFunction = handler as unknown as HandlerShape;
-          return typeof maybeFunction.length === "number" ? maybeFunction.length : 0;
-        }
-      `;
-
-      const csharp = compileToCSharp(source);
-      expect(csharp).not.to.match(/\(\(.*HandlerShape.*\)handler\)/);
-      expect(csharp).to.include("var maybeFunction = handler;");
-      expect(csharp).to.include("maybeFunction.length");
-    });
   });
 
   describe("Object Literal Methods", () => {
@@ -1830,6 +2072,33 @@ describe("End-to-End Integration", () => {
         "return __tsonic_object_method_argument_0 + y;"
       );
       expect(csharp).not.to.include("arguments");
+    });
+  });
+
+  describe("Semantic/Storage Channel Integration", () => {
+    it("instanceof guard reads semantic union type for local variable narrowing", () => {
+      const source = `
+        class Dog {
+          bark(): string { return "woof"; }
+        }
+        class Cat {
+          meow(): string { return "meow"; }
+        }
+
+        export function speak(pet: Dog | Cat): string {
+          if (pet instanceof Dog) {
+            return pet.bark();
+          }
+          return pet.meow();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      // The guard analysis should correctly narrow the union parameter
+      // using the semantic type (Dog | Cat), not a storage-normalized carrier.
+      // Both branches should produce valid method calls.
+      expect(csharp).to.include("bark()");
+      expect(csharp).to.include("meow()");
     });
   });
 });

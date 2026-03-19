@@ -3,11 +3,7 @@
  * Returns CSharpStatementAst nodes.
  */
 
-import {
-  IrStatement,
-  IrExpression,
-  normalizedUnionType,
-} from "@tsonic/frontend";
+import { IrStatement, IrExpression } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitStatementAst } from "../../statement-emitter.js";
@@ -16,6 +12,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
+import { deriveForOfElementType } from "../../core/semantic/iteration-types.js";
 import {
   emitBooleanConditionAst,
   type EmitExprAstFn,
@@ -24,6 +21,10 @@ import {
   allocateLocalName,
   registerLocalName,
 } from "../../core/format/local-names.js";
+import {
+  registerForOfElementSymbolTypes,
+  registerForInKeyTypes,
+} from "../../core/semantic/symbol-types.js";
 import { decimalIntegerLiteral } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
@@ -162,91 +163,6 @@ const wrapInBlock = (
 /** Standard emitExpressionAst adapter for emitBooleanConditionAst callback. */
 const emitExprAstCb: EmitExprAstFn = (e, ctx) => emitExpressionAst(e, ctx);
 
-const normalizeForIteration = (
-  type: IrExpression["inferredType"],
-  context: EmitterContext
-): IrExpression["inferredType"] => {
-  if (!type) return type;
-
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (resolved.kind !== "unionType") {
-    return resolved;
-  }
-
-  const preferred = resolved.types.find(
-    (part) => part.kind === "referenceType"
-  );
-  return preferred
-    ? resolveTypeAlias(stripNullish(preferred), context)
-    : resolved;
-};
-
-const deriveTupleIterationElementType = (
-  elementTypes: readonly (IrExpression["inferredType"] | undefined)[]
-): IrExpression["inferredType"] | undefined => {
-  const concrete = elementTypes.filter(
-    (element): element is NonNullable<typeof element> => element !== undefined
-  );
-
-  if (concrete.length === 0) return undefined;
-  if (concrete.length === 1) return concrete[0];
-  return normalizedUnionType(concrete);
-};
-
-const deriveForOfElementType = (
-  type: IrExpression["inferredType"],
-  context: EmitterContext
-): IrExpression["inferredType"] | undefined => {
-  const normalized = normalizeForIteration(type, context);
-  if (!normalized) return undefined;
-
-  if (normalized.kind === "arrayType") {
-    return normalized.elementType;
-  }
-
-  if (normalized.kind === "tupleType") {
-    return deriveTupleIterationElementType(normalized.elementTypes);
-  }
-
-  if (normalized.kind === "primitiveType" && normalized.name === "string") {
-    return { kind: "primitiveType", name: "string" };
-  }
-
-  if (
-    normalized.kind === "referenceType" &&
-    normalized.typeArguments &&
-    normalized.typeArguments.length > 0
-  ) {
-    const [firstTypeArg, secondTypeArg] = normalized.typeArguments;
-    switch (normalized.name) {
-      case "Array":
-      case "ReadonlyArray":
-      case "Iterable":
-      case "IterableIterator":
-      case "Iterator":
-      case "AsyncIterable":
-      case "AsyncIterableIterator":
-      case "Generator":
-      case "AsyncGenerator":
-      case "Set":
-      case "ReadonlySet":
-        return firstTypeArg;
-      case "Map":
-      case "ReadonlyMap":
-        return firstTypeArg && secondTypeArg
-          ? {
-              kind: "tupleType",
-              elementTypes: [firstTypeArg, secondTypeArg],
-            }
-          : undefined;
-      default:
-        return undefined;
-    }
-  }
-
-  return undefined;
-};
-
 /**
  * Emit a while statement as AST
  */
@@ -284,6 +200,8 @@ export const emitForStatementAst = (
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const outerNameMap = context.localNameMap;
+  const outerSemanticTypes = context.localSemanticTypes;
+  const outerValueTypes = context.localValueTypes;
   let currentContext: EmitterContext = {
     ...context,
     localNameMap: new Map(outerNameMap ?? []),
@@ -402,7 +320,15 @@ export const emitForStatementAst = (
     body: wrapInBlock(bodyStmts),
   };
 
-  return [[forStmt], { ...finalBodyContext, localNameMap: outerNameMap }];
+  return [
+    [forStmt],
+    {
+      ...finalBodyContext,
+      localNameMap: outerNameMap,
+      localSemanticTypes: outerSemanticTypes,
+      localValueTypes: outerValueTypes,
+    },
+  ];
 };
 
 /**
@@ -420,10 +346,17 @@ export const emitForOfStatementAst = (
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
   const outerNameMap = exprContext.localNameMap;
+  const outerSemanticTypes = exprContext.localSemanticTypes;
+  const outerValueTypes = exprContext.localValueTypes;
   let loopContext: EmitterContext = {
     ...exprContext,
     localNameMap: new Map(outerNameMap ?? []),
   };
+
+  const semanticElementType = deriveForOfElementType(
+    stmt.expression.inferredType,
+    loopContext
+  );
 
   if (stmt.variable.kind === "identifierPattern") {
     // Simple identifier: for (const x of items) -> foreach (var x in items)
@@ -433,6 +366,11 @@ export const emitForOfStatementAst = (
       originalName,
       alloc.emittedName,
       alloc.context
+    );
+    loopContext = registerForOfElementSymbolTypes(
+      originalName,
+      stmt.expression.inferredType,
+      loopContext
     );
     const varName = alloc.emittedName;
     const [bodyStmts, bodyContext] = emitStatementAst(stmt.body, loopContext);
@@ -446,7 +384,15 @@ export const emitForOfStatementAst = (
       body: wrapInBlock(bodyStmts),
     };
 
-    return [[foreachStmt], { ...bodyContext, localNameMap: outerNameMap }];
+    return [
+      [foreachStmt],
+      {
+        ...bodyContext,
+        localNameMap: outerNameMap,
+        localSemanticTypes: outerSemanticTypes,
+        localValueTypes: outerValueTypes,
+      },
+    ];
   }
 
   // Complex pattern: for (const [a, b] of items) or for (const {x, y} of items)
@@ -456,10 +402,7 @@ export const emitForOfStatementAst = (
   loopContext = tempAlloc.context;
 
   // Get element type from the expression's inferred type
-  const elementType = deriveForOfElementType(
-    stmt.expression.inferredType,
-    loopContext
-  );
+  const elementType = semanticElementType;
 
   // Lower the pattern to destructuring statements (AST)
   const lowerResult = lowerPatternAst(
@@ -496,7 +439,15 @@ export const emitForOfStatementAst = (
     body: bodyAst,
   };
 
-  return [[foreachStmt], { ...bodyContext, localNameMap: outerNameMap }];
+  return [
+    [foreachStmt],
+    {
+      ...bodyContext,
+      localNameMap: outerNameMap,
+      localSemanticTypes: outerSemanticTypes,
+      localValueTypes: outerValueTypes,
+    },
+  ];
 };
 
 /**
@@ -513,6 +464,8 @@ export const emitForInStatementAst = (
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
   const outerNameMap = exprContext.localNameMap;
+  const outerSemanticTypes = exprContext.localSemanticTypes;
+  const outerValueTypes = exprContext.localValueTypes;
   let loopContext: EmitterContext = {
     ...exprContext,
     localNameMap: new Map(outerNameMap ?? []),
@@ -543,6 +496,7 @@ export const emitForInStatementAst = (
     alloc.emittedName,
     alloc.context
   );
+  loopContext = registerForInKeyTypes(originalName, loopContext);
   const varName = alloc.emittedName;
 
   // Iterate over .Keys: (expr).Keys
@@ -566,5 +520,13 @@ export const emitForInStatementAst = (
     body: wrapInBlock(bodyStmts),
   };
 
-  return [[foreachStmt], { ...bodyContext, localNameMap: outerNameMap }];
+  return [
+    [foreachStmt],
+    {
+      ...bodyContext,
+      localNameMap: outerNameMap,
+      localSemanticTypes: outerSemanticTypes,
+      localValueTypes: outerValueTypes,
+    },
+  ];
 };

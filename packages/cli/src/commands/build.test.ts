@@ -673,8 +673,8 @@ describe("build command (native library port regressions)", function () {
           "}",
           "",
           "export function main(): void {",
-          '  console.log(appendHeader(\"value\"));',
-          '  console.log(appendHeader([\"a\", \"b\"]));',
+          '  console.log(appendHeader("value"));',
+          '  console.log(appendHeader(["a", "b"]));',
           "}",
         ].join("\n"),
         "utf-8"
@@ -1637,7 +1637,7 @@ describe("build command (native library port regressions)", function () {
           "}",
           "",
           "export function main(): string {",
-          '  return readFirst({ title: \"hello\" });',
+          '  return readFirst({ title: "hello" });',
           "}",
         ].join("\n"),
         "utf-8"
@@ -1771,12 +1771,19 @@ describe("build command (native library port regressions)", function () {
       expect(result.ok).to.equal(true);
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.include("global::Tsonic.JSRuntime.Object.entries(root)");
-      expect(tree).to.not.include(
-        "Object.entries((global::System.Collections.Generic.Dictionary<string, object?>)root)"
+      expect(tree).to.match(
+        /global::Tsonic\.JSRuntime\.Object\.entries\([^\n]*root\)/
       );
-      expect(tree).to.include("((double)value).toString()");
-      expect(tree).to.include("((string)value).toUpperCase()");
+      expect(tree).to.not.include(
+        "(global::System.Collections.Generic.Dictionary<string, object?>)root"
+      );
+      expect(tree).to.not.include("global::System.Linq.Enumerable");
+      expect(tree).to.include(
+        "global::Tsonic.JSRuntime.Number.toString((double)value)"
+      );
+      expect(tree).to.include(
+        "global::Tsonic.JSRuntime.String.toUpperCase((string)value)"
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -3184,8 +3191,8 @@ describe("build command (native library port regressions)", function () {
           "declare const console: Console;",
           "",
           "export function main(): void {",
-          '  console.error(\"bad\");',
-          '  console.log(\"ok\");',
+          '  console.error("bad");',
+          '  console.log("ok");',
           "}",
         ].join("\n"),
         "utf-8"
@@ -4431,6 +4438,18 @@ describe("build command (native library port regressions)", function () {
       expect(tree).to.include(
         "return global::System.Threading.Tasks.Task.CompletedTask;"
       );
+
+      // Semantic alias preservation: the mountedAt ternary must preserve
+      // PathSpec as a named alias in the Union carrier. The full-module
+      // context (with typeAliasIndex/moduleMap) must NOT cause PathSpec
+      // to be expanded into its runtime members.
+      //
+      // Correct shape:   Union<string, PathSpec>
+      // Broken shape:    Union<object?[], object, string, RegExp>
+      expect(tree).to.not.include("Union<object?[], object, string, RegExp>");
+      // mountedAt must not trigger over-materialized Match(...) tree
+      // from premature alias expansion.
+      expect(tree).to.not.match(/mountedAt\.Match\(/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -4530,6 +4549,333 @@ describe("build command (native library port regressions)", function () {
         throw new Error(result.error);
       }
       expect(result.ok).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds source-package callback-or-dictionary flows with contextual object literals", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-renderlike-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const sourcePackageRoot = join(dir, "node_modules/@demo/renderlike");
+      mkdirSync(join(sourcePackageRoot, "tsonic"), { recursive: true });
+      mkdirSync(join(sourcePackageRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(sourcePackageRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@demo/renderlike",
+            version: "1.0.0",
+            type: "module",
+            exports: {
+              ".": "./src/index.ts",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(sourcePackageRoot, "src/index.ts"),
+        [
+          "export type TemplateCallback = (error: unknown, html: string) => void;",
+          "export type TemplateEngine = (view: string, locals: Record<string, unknown>, callback: TemplateCallback) => void;",
+          "export type CookieOptions = { sameSite?: string | boolean };",
+          "",
+          "export function renderCookie(options?: CookieOptions): string[] {",
+          "  const segments: string[] = [];",
+          '  if (typeof options?.sameSite === "string" && options.sameSite.length > 0) {',
+          "    segments.push(`SameSite=${options.sameSite}`);",
+          "  } else if (options?.sameSite === true) {",
+          '    segments.push("SameSite=Strict");',
+          "  }",
+          "  return segments;",
+          "}",
+          "",
+          "export class App {",
+          "  readonly locals: Record<string, unknown> = {};",
+          "  readonly engines: Record<string, TemplateEngine> = {};",
+          "",
+          "  engine(name: string, fn: TemplateEngine): this {",
+          "    this.engines[name] = fn;",
+          "    return this;",
+          "  }",
+          "",
+          "  resolveEngine(view: string): TemplateEngine | undefined {",
+          '    const index = view.lastIndexOf(".");',
+          '    const ext = index >= 0 ? view.slice(index + 1) : "";',
+          "    return this.engines[ext];",
+          "  }",
+          "",
+          "  render(",
+          "    view: string,",
+          "    localsOrCallback?: Record<string, unknown> | TemplateCallback,",
+          "    maybeCallback?: TemplateCallback",
+          "  ): void {",
+          '    const locals = typeof localsOrCallback === "function" || localsOrCallback === undefined ? this.locals : localsOrCallback;',
+          '    const callback = typeof localsOrCallback === "function" ? localsOrCallback : maybeCallback;',
+          '    if (!callback) throw new Error("missing callback");',
+          "    const engine = this.resolveEngine(view);",
+          "    if (!engine) {",
+          "      callback(undefined, `<rendered:${view}>`);",
+          "      return;",
+          "    }",
+          "    engine(view, locals, callback);",
+          "  }",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'import { App, renderCookie } from "@demo/renderlike";',
+          "",
+          "export function main(): void {",
+          "  const app = new App();",
+          '  app.engine("tpl", (_view, locals, callback) => {',
+          '    callback(undefined, "hello " + locals["name"]);',
+          "  });",
+          '  app.render("home.tpl", { name: "world" }, (_error, html) => {',
+          '    if (html !== "hello world") throw new Error("bad render");',
+          "  });",
+          '  const cookie = renderCookie({ sameSite: "Lax" });',
+          '  if (cookie[0] !== "SameSite=Lax") throw new Error("bad cookie");',
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.include('["name"] = "world"');
+      expect(tree).to.not.include('{ name = "world" }');
+      expect(tree).to.not.include("localsOrCallback == null");
+      expect(tree).to.not.include("callback.Match(");
+      expect(tree).to.not.include("locals.Match(");
+      expect(tree).to.include('push($"SameSite={(options?.sameSite.As2())}")');
+      expect(tree).to.not.include('push($"SameSite={options?.sameSite}")');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds recursive middleware unions without degrading non-recursive handler arrays to object[]", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-middlewarelike-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          "type RequestHandler = (value: string) => void;",
+          "type MiddlewareParam = RequestHandler | readonly MiddlewareParam[];",
+          "type MiddlewareLike = MiddlewareParam | Router | readonly MiddlewareLike[];",
+          "",
+          "class Router {}",
+          "class Application extends Router {",
+          '  mountpath: string | string[] = "/";',
+          "}",
+          "",
+          "function flattenMiddlewareEntries(",
+          "  handlers: readonly MiddlewareLike[]",
+          "): Array<RequestHandler | Router> {",
+          "  const result: Array<RequestHandler | Router> = [];",
+          "  const append = (handler: MiddlewareLike): void => {",
+          "    if (handler == null) return;",
+          "    if (Array.isArray(handler)) {",
+          "      const items = handler as readonly MiddlewareLike[];",
+          "      for (let index = 0; index < items.length; index += 1) {",
+          "        append(items[index]!);",
+          "      }",
+          "      return;",
+          "    }",
+          "    result.push(handler);",
+          "  };",
+          "  for (const handler of handlers) append(handler);",
+          "  return result;",
+          "}",
+          "",
+          "export function run(input: readonly MiddlewareLike[]): number {",
+          "  const flattened = flattenMiddlewareEntries(input);",
+          "  let applications = 0;",
+          "  for (let index = 0; index < flattened.length; index += 1) {",
+          "    const candidate = flattened[index]!;",
+          "    if (candidate instanceof Application) {",
+          '      candidate.mountpath = "/app";',
+          "      applications += 1;",
+          "    }",
+          "  }",
+          "  return applications;",
+          "}",
+          "",
+          "export function main(): number {",
+          "  const app = new Application();",
+          "  return run([[(value: string) => { void value; }, [app]]]);",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.not.include("object[] result");
+      expect(tree).to.not.include("handler == null");
+      expect(tree).to.not.include("candidate is Application");
+      expect(tree).to.include("Is2()");
+      expect(tree).to.include(
+        "Application candidate__is_1 = (Application)candidate.As2();"
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -4670,6 +5016,577 @@ describe("build command (native library port regressions)", function () {
         throw new Error(result.error);
       }
       expect(result.ok).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds source-package array property length access without raw direct member access", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-array-length-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const sourcePackageRoot = join(dir, "node_modules/@demo/pkg");
+      mkdirSync(join(sourcePackageRoot, "tsonic"), { recursive: true });
+      mkdirSync(join(sourcePackageRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(sourcePackageRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@demo/pkg",
+            version: "1.0.0",
+            type: "module",
+            exports: {
+              ".": "./src/index.ts",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(sourcePackageRoot, "src/index.ts"),
+        [
+          "export class ProcessModule {",
+          '  #argv: string[] = ["node", "app"];',
+          "  public get argv(): string[] {",
+          "    return this.#argv;",
+          "  }",
+          "  public set argv(value: string[] | undefined) {",
+          "    this.#argv = value ?? [];",
+          "  }",
+          "}",
+          "export const process = new ProcessModule();",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'import { process } from "@demo/pkg";',
+          "export function main(): void {",
+          '  if (process.argv.length !== 2) throw new Error("bad argv length");',
+          "  const original = process.argv;",
+          "  process.argv = undefined;",
+          '  if (process.argv.length !== 0) throw new Error("bad empty argv length");',
+          "  process.argv = original;",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.include(
+        "new global::Tsonic.JSRuntime.JSArray<string>(global::App._._._.node_modules.demo.pkg.index.process.argv).length"
+      );
+      expect(tree).to.not.include(
+        "global::App._._._.node_modules.demo.pkg.index.process.argv.length"
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds specialized generic array element locals without out-of-scope casts", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-build-generic-array-element-local-")
+    );
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'import { List } from "@tsonic/dotnet/System.Collections.Generic.js";',
+          'import type { int } from "@tsonic/core/types.js";',
+          "",
+          "class Item {",
+          "  readonly name: string;",
+          "  constructor(name: string) {",
+          "    this.name = name;",
+          "  }",
+          "}",
+          "",
+          "class GenericArrayValue<T> {",
+          "  readonly value: List<T>;",
+          "  constructor(value: List<T>) {",
+          "    this.value = value;",
+          "  }",
+          "}",
+          "",
+          "class ItemArrayValue extends GenericArrayValue<Item> {}",
+          "",
+          "export const firstLength = (value: ItemArrayValue): int => {",
+          "  const items = value.value.ToArray();",
+          "  if (items.length === 0) return 0 as int;",
+          "  const item = items[0]!;",
+          "  return item.name.length;",
+          "};",
+          "",
+          "export function main(): void {}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.not.include("(T)items[0]");
+      expect(tree).to.not.include("(T)items[i]");
+      expect(tree).to.include("var item = items[0];");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects JavaScript function.length inspection in NativeAOT builds", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-function-length-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          "export function getArity(handler: unknown): number {",
+          '  if (typeof handler !== "function") return 0;',
+          "  const maybeFunction = handler as unknown as { readonly length?: number };",
+          '  return typeof maybeFunction.length === "number" ? maybeFunction.length : 0;',
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      expect(result.ok).to.equal(false);
+      if (result.ok) {
+        throw new Error("Expected build to fail with TSN5001");
+      }
+      expect(result.error).to.include("TSN5001");
+      expect(result.error).to.include("function.length is not supported");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds native-port callable unions without storage re-adaptation drift", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-build-callable-unions-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'type NextControl = "route" | "router" | string | null | undefined;',
+          "type NextFunction = (value?: NextControl) => void | Promise<void>;",
+          "interface Request { readonly path: string; }",
+          "interface Response { send(text: string): void; }",
+          "interface RequestHandler {",
+          "  (req: Request, res: Response, next: NextFunction): unknown | Promise<unknown>;",
+          "}",
+          "interface ErrorRequestHandler {",
+          "  (error: unknown, req: Request, res: Response, next: NextFunction): unknown | Promise<unknown>;",
+          "}",
+          "type MiddlewareHandler = RequestHandler | ErrorRequestHandler;",
+          "type MiddlewareParam = MiddlewareHandler | readonly MiddlewareParam[];",
+          "type MiddlewareLike = MiddlewareParam | Router | readonly MiddlewareLike[];",
+          "interface RouteLayer {",
+          "  readonly middleware: boolean;",
+          "  readonly handlers: MiddlewareHandler[];",
+          "}",
+          "",
+          "class Router {}",
+          "class TestResponse implements Response {",
+          "  send(_text: string): void {}",
+          "}",
+          "",
+          "function flattenRouteHandlers(",
+          "  handlers: readonly RequestHandler[]",
+          "): RequestHandler[] {",
+          "  return [...handlers];",
+          "}",
+          "",
+          "function isMiddlewareHandler(handler: unknown): handler is MiddlewareHandler {",
+          '  return typeof handler === "function";',
+          "}",
+          "",
+          "function isErrorHandler(",
+          "  handler: MiddlewareHandler,",
+          "  treatAsError: boolean",
+          "): handler is ErrorRequestHandler {",
+          "  return treatAsError;",
+          "}",
+          "",
+          "function flattenMiddlewareEntries(",
+          "  handlers: readonly MiddlewareLike[]",
+          "): Array<MiddlewareHandler | Router> {",
+          "  const result: Array<MiddlewareHandler | Router> = [];",
+          "  const append = (handler: MiddlewareLike): void => {",
+          "    if (handler == null) return;",
+          "    if (Array.isArray(handler)) {",
+          "      const items = handler as readonly MiddlewareLike[];",
+          "      for (let index = 0; index < items.length; index += 1) {",
+          "        append(items[index]!);",
+          "      }",
+          "      return;",
+          "    }",
+          "    if (handler instanceof Router) {",
+          "      result.push(handler);",
+          "      return;",
+          "    }",
+          "    if (!isMiddlewareHandler(handler)) {",
+          '      throw new Error("middleware handlers must be functions");',
+          "    }",
+          "    result.push(handler);",
+          "  };",
+          "  for (const handler of handlers) append(handler);",
+          "  return result;",
+          "}",
+          "",
+          "async function invokeHandlers(",
+          "  handlers: unknown[],",
+          "  request: Request,",
+          "  response: Response,",
+          "  currentError: unknown",
+          "): Promise<NextControl> {",
+          "  let error = currentError;",
+          "  for (const handler of handlers) {",
+          "    let nextCalled = false;",
+          "    let control: NextControl = undefined;",
+          "    const next = async (value?: NextControl): Promise<void> => {",
+          "      nextCalled = true;",
+          "      control = value;",
+          "    };",
+          "    if (!isMiddlewareHandler(handler)) {",
+          "      continue;",
+          "    }",
+          "    if (error === undefined) {",
+          "      if (isErrorHandler(handler, false)) {",
+          "        continue;",
+          "      }",
+          "      await handler(request, response, next);",
+          "    } else {",
+          "      if (!isErrorHandler(handler, true)) {",
+          "        continue;",
+          "      }",
+          "      await handler(error, request, response, next);",
+          "    }",
+          '    if (nextCalled && typeof control === "string" && control !== "") {',
+          "      return control;",
+          "    }",
+          "  }",
+          "  return undefined;",
+          "}",
+          "",
+          "export function buildLayer(handlers: readonly RequestHandler[]): RouteLayer {",
+          "  return {",
+          "    middleware: false,",
+          "    handlers: flattenRouteHandlers(handlers),",
+          "  };",
+          "}",
+          "",
+          "export async function main(): Promise<number> {",
+          "  const handler: RequestHandler = async (_req, res, next) => {",
+          '    res.send("ok");',
+          '    await next("route");',
+          "  };",
+          "  const errorHandler: ErrorRequestHandler = async (_error, _req, res, next) => {",
+          '    res.send("bad");',
+          '    await next("router");',
+          "  };",
+          "  const layers = flattenMiddlewareEntries([[handler], [errorHandler]]);",
+          "  const built = buildLayer([handler]);",
+          '  const request: Request = { path: "/" };',
+          "  const response = new TestResponse();",
+          "  await invokeHandlers([handler], request, response, undefined);",
+          '  await invokeHandlers([errorHandler], request, response, "boom");',
+          "  return layers.length + built.handlers.length;",
+          "}",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "App",
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const result = buildCommand(config);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
+      const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
+      expect(tree).to.not.include("control.Match(");
+      expect(tree).to.not.match(
+        /Enumerable\.ToArray<global::Tsonic\.Runtime\.Union<.*>>\(global::System\.Linq\.Enumerable\.Select<global::System\.Func<.*>\(global::System\.Linq\.Enumerable\.ToArray<global::Tsonic\.Runtime\.Union/
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -444,6 +444,54 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.true;
     });
 
+    it("should allow known builtin PromiseLike", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "PromiseLike",
+        typeArguments: [{ kind: "primitiveType", name: "string" }],
+      });
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+    });
+
+    it("should allow known builtin ReadonlyArray", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "ReadonlyArray",
+        typeArguments: [{ kind: "primitiveType", name: "number" }],
+      });
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+    });
+
+    it("should allow compiler-synthesized ArrayLike", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "ArrayLike",
+        typeArguments: [{ kind: "primitiveType", name: "number" }],
+      });
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+    });
+
+    it("should allow known builtin AsyncIterable", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "AsyncIterable",
+        typeArguments: [{ kind: "primitiveType", name: "string" }],
+      });
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+    });
+
     it("should allow C# primitive int", () => {
       const module = createModuleWithType({
         kind: "referenceType",

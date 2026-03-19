@@ -8,26 +8,41 @@ import {
   stripNullish,
 } from "./type-resolution.js";
 
-export const getAcceptedParameterType = (
-  parameterType: IrType | undefined,
-  isOptional: boolean
-): IrType | undefined => {
-  if (!parameterType) {
-    return undefined;
-  }
-
-  if (!isOptional) {
-    return parameterType;
+const addUndefinedBranch = (type: IrType): IrType => {
+  if (
+    type.kind === "unionType" &&
+    type.types.some(
+      (member) => member.kind === "primitiveType" && member.name === "undefined"
+    )
+  ) {
+    return type;
   }
 
   return {
     kind: "unionType",
-    types: [
-      parameterType,
-      { kind: "primitiveType", name: "undefined" },
-    ],
+    types: [type, { kind: "primitiveType", name: "undefined" }],
   };
 };
+
+export const getAcceptedSurfaceType = (
+  type: IrType | undefined,
+  isOptional: boolean
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  if (!isOptional) {
+    return type;
+  }
+
+  return addUndefinedBranch(type);
+};
+
+export const getAcceptedParameterType = (
+  parameterType: IrType | undefined,
+  isOptional: boolean
+): IrType | undefined => getAcceptedSurfaceType(parameterType, isOptional);
 
 const getSingleNonNullishMember = (type: IrType): IrType | undefined => {
   if (type.kind !== "unionType") {

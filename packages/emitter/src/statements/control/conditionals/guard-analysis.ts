@@ -7,11 +7,7 @@
  */
 
 import { IrExpression, IrStatement, IrType } from "@tsonic/frontend";
-import {
-  EmitterContext,
-  LocalTypeInfo,
-  NarrowedBinding,
-} from "../../../types.js";
+import { EmitterContext, NarrowedBinding } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { emitTypeAst } from "../../../type-emitter.js";
@@ -26,10 +22,15 @@ import {
   getPropertyType,
   isDefinitelyValueType,
 } from "../../../core/semantic/type-resolution.js";
+import { matchesExpectedEmissionType } from "../../../core/semantic/expected-type-matching.js";
 import {
-  buildRuntimeUnionFrame,
-  findRuntimeUnionMemberIndex,
+  findExactRuntimeUnionMemberIndices,
+  findRuntimeUnionInstanceofMemberIndices,
 } from "../../../core/semantic/runtime-unions.js";
+import {
+  resolveNarrowedUnionMembers,
+  type NarrowedUnionMembers,
+} from "../../../core/semantic/narrowed-union-resolution.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
 import {
@@ -37,6 +38,11 @@ import {
   makeNarrowedLocalName,
 } from "../../../core/semantic/narrowing-keys.js";
 import { normalizeInstanceofTargetType } from "../../../core/semantic/instanceof-targets.js";
+import { unwrapTransparentNarrowingTarget } from "../../../core/semantic/transparent-expressions.js";
+import {
+  resolveLocalTypesForReference,
+  tryGetLiteralSet,
+} from "../../../core/semantic/guard-primitives.js";
 
 /**
  * Information extracted from a type predicate guard call.
@@ -162,11 +168,7 @@ export type PropertyTruthinessGuardInfo = {
   readonly narrowedMap: Map<string, NarrowedBinding>;
 };
 
-export type RuntimeUnionFrame = {
-  readonly members: readonly IrType[];
-  readonly candidateMemberNs: readonly number[];
-  readonly runtimeUnionArity: number;
-};
+export type RuntimeUnionFrame = NarrowedUnionMembers;
 
 /**
  * Information extracted from a nullable guard condition.
@@ -232,75 +234,6 @@ const getGuardPropertyType = (
   return undefined;
 };
 
-/**
- * Resolve a reference type's LocalTypeInfo map (possibly from a different module).
- *
- * This is required for airplane-grade narrowing features that depend on member *types*
- * (not just member names), e.g. discriminant literal equality checks.
- */
-const resolveLocalTypesForReference = (
-  type: Extract<IrType, { kind: "referenceType" }>,
-  context: EmitterContext
-): ReadonlyMap<string, LocalTypeInfo> | undefined => {
-  const lookupName = type.name.includes(".")
-    ? (type.name.split(".").pop() ?? type.name)
-    : type.name;
-
-  if (context.localTypes?.has(lookupName)) {
-    return context.localTypes;
-  }
-
-  const moduleMap = context.options.moduleMap;
-  if (!moduleMap) return undefined;
-
-  const matches: {
-    readonly namespace: string;
-    readonly localTypes: ReadonlyMap<string, LocalTypeInfo>;
-  }[] = [];
-  for (const m of moduleMap.values()) {
-    if (!m.localTypes) continue;
-    if (m.localTypes.has(lookupName)) {
-      matches.push({
-        namespace: m.namespace,
-        localTypes: m.localTypes,
-      });
-    }
-  }
-
-  if (matches.length === 0) return undefined;
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  if (matches.length === 1) return matches[0]!.localTypes;
-
-  // Disambiguate by CLR FQN when available.
-  const fqn =
-    type.resolvedClrType ?? (type.name.includes(".") ? type.name : undefined);
-  if (fqn && fqn.includes(".")) {
-    const lastDot = fqn.lastIndexOf(".");
-    const ns = fqn.slice(0, lastDot);
-    const filtered = matches.filter((m) => m.namespace === ns);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    if (filtered.length === 1) return filtered[0]!.localTypes;
-  }
-
-  // Ambiguous: refuse to guess.
-  return undefined;
-};
-
-const unwrapTransparentNarrowingTarget = (
-  expr: IrExpression
-):
-  | Extract<IrExpression, { kind: "identifier" | "memberAccess" }>
-  | undefined => {
-  let current: IrExpression = expr;
-  while (current.kind === "typeAssertion" || current.kind === "asinterface") {
-    current = current.expression;
-  }
-
-  return current.kind === "identifier" || current.kind === "memberAccess"
-    ? current
-    : undefined;
-};
-
 const extractTransparentIdentifierTarget = (
   expr: IrExpression
 ): Extract<IrExpression, { kind: "identifier" }> | undefined => {
@@ -341,115 +274,7 @@ const extractTransparentMemberAccessTarget = (
   return { access: access as PlainMemberAccessTarget, receiver };
 };
 
-/**
- * Extract the set of allowed discriminant literal values from a type.
- *
- * Airplane-grade rule:
- * - The discriminant property must be typed as a literal or a union of literals.
- * - If it includes any non-literal members (including null/undefined), we refuse to treat
- *   it as a discriminant for equality-guard narrowing.
- */
-const tryGetLiteralSet = (
-  type: IrType,
-  context: EmitterContext
-): ReadonlySet<string | number | boolean> | undefined => {
-  const resolved = resolveTypeAlias(type, context);
-
-  if (resolved.kind === "literalType") {
-    return new Set([resolved.value]);
-  }
-
-  if (resolved.kind === "unionType") {
-    const out = new Set<string | number | boolean>();
-    for (const t of resolved.types) {
-      const r = resolveTypeAlias(t, context);
-      if (r.kind !== "literalType") return undefined;
-      out.add(r.value);
-    }
-    return out;
-  }
-
-  return undefined;
-};
-
-export const resolveRuntimeUnionFrame = (
-  originalName: string,
-  unionSourceType: IrType,
-  context: EmitterContext
-): RuntimeUnionFrame | undefined => {
-  const narrowed = context.narrowedBindings?.get(originalName);
-  if (
-    narrowed?.kind === "runtimeSubset" &&
-    narrowed.sourceMembers &&
-    narrowed.sourceCandidateMemberNs &&
-    narrowed.sourceMembers.length === narrowed.sourceCandidateMemberNs.length
-  ) {
-    const allowedMemberNs = new Set(narrowed.runtimeMemberNs);
-    const narrowedMembers = narrowed.sourceMembers.filter((_, index) =>
-      allowedMemberNs.has(
-        narrowed.sourceCandidateMemberNs?.[index] ?? index + 1
-      )
-    );
-    const narrowedCandidateMemberNs = narrowed.sourceCandidateMemberNs.filter(
-      (memberN) => allowedMemberNs.has(memberN)
-    );
-
-    if (
-      narrowedMembers.length === 0 ||
-      narrowedMembers.length !== narrowedCandidateMemberNs.length
-    ) {
-      return undefined;
-    }
-
-    return {
-      members: narrowedMembers,
-      candidateMemberNs: narrowedCandidateMemberNs,
-      runtimeUnionArity: narrowed.runtimeUnionArity,
-    };
-  }
-
-  const runtimeSourceType =
-    narrowed?.kind === "runtimeSubset"
-      ? (narrowed.sourceType ?? unionSourceType)
-      : unionSourceType;
-  const runtimeFrame = buildRuntimeUnionFrame(runtimeSourceType, context);
-  const members = runtimeFrame?.members;
-  if (!members) return undefined;
-  const candidateMemberNs = members.map((_, index) => index + 1);
-
-  if (!narrowed) {
-    return {
-      members,
-      candidateMemberNs,
-      runtimeUnionArity: runtimeFrame.runtimeUnionArity,
-    };
-  }
-
-  if (narrowed.kind !== "runtimeSubset") {
-    return undefined;
-  }
-
-  const allowedMemberNs = new Set(narrowed.runtimeMemberNs);
-  const narrowedMembers = members.filter((_, index) =>
-    allowedMemberNs.has(index + 1)
-  );
-  const narrowedCandidateMemberNs = candidateMemberNs.filter((memberN) =>
-    allowedMemberNs.has(memberN)
-  );
-
-  if (
-    narrowedMembers.length === 0 ||
-    narrowedMembers.length !== narrowedCandidateMemberNs.length
-  ) {
-    return undefined;
-  }
-
-  return {
-    members: narrowedMembers,
-    candidateMemberNs: narrowedCandidateMemberNs,
-    runtimeUnionArity: runtimeFrame.runtimeUnionArity,
-  };
-};
+export const resolveRuntimeUnionFrame = resolveNarrowedUnionMembers;
 
 const stripGlobalPrefix = (name: string): string =>
   name.startsWith("global::") ? name.slice("global::".length) : name;
@@ -467,6 +292,22 @@ const buildRenameNarrowedMap = (
     type: memberType,
   });
   return narrowedMap;
+};
+
+const withoutNarrowedBinding = (
+  context: EmitterContext,
+  bindingKey: string
+): EmitterContext => {
+  if (!context.narrowedBindings?.has(bindingKey)) {
+    return context;
+  }
+
+  const narrowedBindings = new Map(context.narrowedBindings);
+  narrowedBindings.delete(bindingKey);
+  return {
+    ...context,
+    narrowedBindings,
+  };
 };
 
 const isDefinitelyTruthyLiteral = (
@@ -918,7 +759,12 @@ export const tryResolveInGuard = (
  *   // x is now narrowed in the remainder of the block (2-member unions only)
  */
 export const isDefinitelyTerminating = (stmt: IrStatement): boolean => {
-  if (stmt.kind === "returnStatement" || stmt.kind === "throwStatement") {
+  if (
+    stmt.kind === "returnStatement" ||
+    stmt.kind === "throwStatement" ||
+    stmt.kind === "breakStatement" ||
+    stmt.kind === "continueStatement"
+  ) {
     return true;
   }
   if (stmt.kind === "blockStatement") {
@@ -966,11 +812,13 @@ export const tryResolvePredicateGuard = (
   );
   if (!frame) return undefined;
 
-  const idx = findRuntimeUnionMemberIndex(
+  const matchingIndices = findExactRuntimeUnionMemberIndices(
     frame.members,
     narrowing.targetType,
     context
   );
+  if (matchingIndices.length !== 1) return undefined;
+  const idx = matchingIndices[0];
   if (idx === undefined) return undefined;
 
   const memberN = frame.candidateMemberNs[idx] ?? idx + 1;
@@ -980,10 +828,35 @@ export const tryResolvePredicateGuard = (
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
   const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
-  const [argAst] = emitExpressionAst(arg, {
-    ...context,
-    narrowedBindings: undefined,
-  });
+  const currentSubsetBinding = context.narrowedBindings?.get(originalName);
+  const rawContext = currentSubsetBinding
+    ? withoutNarrowedBinding(context, originalName)
+    : context;
+  const rawReceiverType =
+    target.kind === "identifier"
+      ? (rawContext.localSemanticTypes?.get(target.name) ??
+        target.inferredType ??
+        arg.inferredType)
+      : (target.inferredType ?? arg.inferredType);
+  const rawReceiverExpectedType =
+    currentSubsetBinding?.sourceType ??
+    (currentSubsetBinding?.kind === "runtimeSubset"
+      ? (currentSubsetBinding.type ?? unionSourceType)
+      : undefined) ??
+    unionSourceType;
+  const useRawReceiverAst =
+    currentSubsetBinding?.kind === "runtimeSubset" &&
+    !!rawReceiverType &&
+    matchesExpectedEmissionType(
+      rawReceiverType,
+      rawReceiverExpectedType,
+      rawContext
+    );
+  const [argAst] = useRawReceiverAst
+    ? target.kind === "identifier"
+      ? emitIdentifier(target, rawContext)
+      : emitExpressionAst(target, rawContext)
+    : emitExpressionAst(arg, context);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const narrowedMap = buildRenameNarrowedMap(
     originalName,
@@ -1082,18 +955,21 @@ export const tryResolveInstanceofGuard = (
   });
 
   const unionSourceType = target.inferredType ?? condition.left.inferredType;
+  const currentType =
+    context.narrowedBindings?.get(originalName)?.type ?? unionSourceType;
   const runtimeUnionFrame =
-    unionSourceType && inferredRhsType
-      ? resolveRuntimeUnionFrame(originalName, unionSourceType, context)
+    currentType && inferredRhsType
+      ? resolveRuntimeUnionFrame(originalName, currentType, context)
       : undefined;
-  const runtimeMatchIndex =
+  const runtimeMatchIndices =
     runtimeUnionFrame && inferredRhsType
-      ? findRuntimeUnionMemberIndex(
+      ? findRuntimeUnionInstanceofMemberIndices(
           runtimeUnionFrame.members,
           inferredRhsType,
           context
         )
       : undefined;
+  const runtimeMatchIndex = runtimeMatchIndices?.[0];
   const memberN =
     runtimeUnionFrame && runtimeMatchIndex !== undefined
       ? (runtimeUnionFrame.candidateMemberNs[runtimeMatchIndex] ??
@@ -1168,18 +1044,10 @@ export const tryResolveSimpleNullableGuard = (
     | undefined;
   let key: string | undefined;
 
-  if (
-    isNullOrUndefined(condition.right) &&
-    (condition.left.kind === "identifier" ||
-      condition.left.kind === "memberAccess")
-  ) {
-    operand = condition.left;
-  } else if (
-    isNullOrUndefined(condition.left) &&
-    (condition.right.kind === "identifier" ||
-      condition.right.kind === "memberAccess")
-  ) {
-    operand = condition.right;
+  if (isNullOrUndefined(condition.right)) {
+    operand = unwrapTransparentNarrowingTarget(condition.left);
+  } else if (isNullOrUndefined(condition.left)) {
+    operand = unwrapTransparentNarrowingTarget(condition.right);
   }
 
   if (!operand) return undefined;

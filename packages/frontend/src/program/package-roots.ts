@@ -2,16 +2,30 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 
+const packageNameCache = new Map<string, string>();
+const installedPackageRootCache = new Map<string, string>();
+const workspacePackageIndexCache = new Map<
+  string,
+  ReadonlyMap<string, string>
+>();
+
 const readPackageName = (pkgJsonPath: string): string | undefined => {
   if (!fs.existsSync(pkgJsonPath)) return undefined;
+  const normalizedPath = path.resolve(pkgJsonPath);
+  const cached = packageNameCache.get(normalizedPath);
+  if (cached !== undefined) return cached;
   try {
     const parsed = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8")) as {
       readonly name?: unknown;
     };
-    return typeof parsed.name === "string" ? parsed.name : undefined;
+    if (typeof parsed.name === "string") {
+      packageNameCache.set(normalizedPath, parsed.name);
+      return parsed.name;
+    }
   } catch {
     return undefined;
   }
+  return undefined;
 };
 
 const sortVersionDirs = (dirs: readonly string[]): readonly string[] => {
@@ -39,36 +53,49 @@ const tryResolveInstalledPackage = (
   packageRoot: string,
   packageName: string
 ): string | undefined => {
+  const cacheKey = `${path.resolve(packageRoot)}::${packageName}`;
+  const cached = installedPackageRootCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
   try {
     const req = createRequire(path.join(packageRoot, "package.json"));
     const pkgJsonPath = req.resolve(`${packageName}/package.json`);
-    return path.dirname(pkgJsonPath);
+    const resolvedRoot = path.dirname(pkgJsonPath);
+    installedPackageRootCache.set(cacheKey, resolvedRoot);
+    return resolvedRoot;
   } catch {
     return undefined;
   }
 };
 
-const tryResolveSiblingWorkspacePackage = (
-  packageRoot: string,
-  packageName: string
-): string | undefined => {
-  const repoRoot = getRepoRoot(packageRoot);
-  const workspaceRoot = path.dirname(repoRoot);
-
-  if (!fs.existsSync(workspaceRoot)) {
-    return undefined;
+const buildWorkspacePackageIndex = (
+  workspaceRoot: string
+): ReadonlyMap<string, string> => {
+  const normalizedWorkspaceRoot = path.resolve(workspaceRoot);
+  const cached = workspacePackageIndexCache.get(normalizedWorkspaceRoot);
+  if (cached !== undefined) {
+    return cached;
   }
 
-  const entries = fs.readdirSync(workspaceRoot, { withFileTypes: true });
+  const packageIndex = new Map<string, string>();
+  if (!fs.existsSync(normalizedWorkspaceRoot)) {
+    workspacePackageIndexCache.set(normalizedWorkspaceRoot, packageIndex);
+    return packageIndex;
+  }
+
+  const entries = fs.readdirSync(normalizedWorkspaceRoot, {
+    withFileTypes: true,
+  });
   for (const entry of entries) {
     if (!entry.isDirectory()) {
       continue;
     }
 
-    const siblingRoot = path.join(workspaceRoot, entry.name);
+    const siblingRoot = path.join(normalizedWorkspaceRoot, entry.name);
     const siblingName = readPackageName(path.join(siblingRoot, "package.json"));
-    if (siblingName === packageName) {
-      return siblingRoot;
+    if (siblingName) {
+      packageIndex.set(siblingName, siblingRoot);
     }
 
     const versionsRoot = path.join(siblingRoot, "versions");
@@ -88,13 +115,23 @@ const tryResolveSiblingWorkspacePackage = (
       const candidateName = readPackageName(
         path.join(candidateRoot, "package.json")
       );
-      if (candidateName === packageName) {
-        return candidateRoot;
+      if (candidateName && !packageIndex.has(candidateName)) {
+        packageIndex.set(candidateName, candidateRoot);
       }
     }
   }
 
-  return undefined;
+  workspacePackageIndexCache.set(normalizedWorkspaceRoot, packageIndex);
+  return packageIndex;
+};
+
+const tryResolveSiblingWorkspacePackage = (
+  packageRoot: string,
+  packageName: string
+): string | undefined => {
+  const repoRoot = getRepoRoot(packageRoot);
+  const workspaceRoot = path.dirname(repoRoot);
+  return buildWorkspacePackageIndex(workspaceRoot).get(packageName);
 };
 
 export type DependencyPackageRootPreference =

@@ -13,6 +13,8 @@ import type {
   IrExpression,
   IrInterfaceMember,
   IrInterfaceDeclaration,
+  IrMethodDeclaration,
+  IrOverloadFamilyMember,
   IrModule,
   IrParameter,
   IrStatement,
@@ -25,6 +27,12 @@ import * as ts from "typescript";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import type { ResolvedConfig, Result } from "../types.js";
 import { overlayDependencyBindings } from "./library-bindings-augment.js";
+import {
+  appendSourceFunctionSignature,
+  renderSourceFunctionParametersText,
+  selectPreferredSourceFunctionSignature,
+  type SourceFunctionSignatureSurface as SourceFunctionSignatureDef,
+} from "../aikya/source-function-surfaces.js";
 
 type FirstPartyBindingsMethod = {
   readonly stableId: string;
@@ -35,6 +43,7 @@ type FirstPartyBindingsMethod = {
     readonly parameters: readonly IrParameter[];
     readonly returnType?: IrType;
   };
+  readonly overloadFamily?: IrOverloadFamilyMember;
   readonly emitScope?: string;
   readonly provenance?: string;
   readonly arity: number;
@@ -236,16 +245,6 @@ type SourceMemberTypeDef = {
 type SourceAnonymousTypeLiteralDef = {
   readonly typeText: string;
   readonly members: ReadonlyMap<string, SourceMemberTypeDef>;
-};
-
-type SourceFunctionSignatureDef = {
-  readonly typeParametersText: string;
-  readonly typeParameterCount: number;
-  readonly parameters: readonly {
-    readonly prefixText: string;
-    readonly typeText: string;
-  }[];
-  readonly returnTypeText: string;
 };
 
 type SourceValueTypeDef = {
@@ -1078,22 +1077,6 @@ const rewriteSourceTypeText = (
   return printer.printNode(ts.EmitHint.Unspecified, transformed, sourceFile);
 };
 
-const selectPreferredSourceFunctionSignature = (opts: {
-  readonly declaration: Extract<IrStatement, { kind: "functionDeclaration" }>;
-  readonly sourceSignatures: readonly SourceFunctionSignatureDef[];
-}): SourceFunctionSignatureDef | undefined => {
-  const targetTypeParameterCount = opts.declaration.typeParameters?.length ?? 0;
-  const targetParameterCount = opts.declaration.parameters.length;
-
-  const exact = opts.sourceSignatures.find((signature) => {
-    return (
-      signature.parameters.length === targetParameterCount &&
-      signature.typeParameterCount === targetTypeParameterCount
-    );
-  });
-  return exact ?? opts.sourceSignatures[0];
-};
-
 const renderSourceFunctionSignature = (opts: {
   readonly declaration: Extract<IrStatement, { kind: "functionDeclaration" }>;
   readonly sourceSignatures: readonly SourceFunctionSignatureDef[];
@@ -1110,21 +1093,22 @@ const renderSourceFunctionSignature = (opts: {
     }
   | undefined => {
   const sourceSignature = selectPreferredSourceFunctionSignature({
-    declaration: opts.declaration,
+    targetTypeParameterCount: opts.declaration.typeParameters?.length ?? 0,
+    targetParameterCount: opts.declaration.parameters.length,
     sourceSignatures: opts.sourceSignatures,
   });
   if (!sourceSignature) return undefined;
 
-  const parametersText = sourceSignature.parameters
-    .map(
-      (parameter) =>
-        `${parameter.prefixText}${rewriteSourceTypeText(
-          parameter.typeText,
-          opts.localTypeNameRemaps,
-          opts.anonymousStructuralAliases
-        )}`
-    )
-    .join(", ");
+  const parametersText = renderSourceFunctionParametersText({
+    parameters: sourceSignature.parameters.map((parameter) => ({
+      prefixText: parameter.prefixText,
+      typeText: rewriteSourceTypeText(
+        parameter.typeText,
+        opts.localTypeNameRemaps,
+        opts.anonymousStructuralAliases
+      ),
+    })),
+  });
 
   return {
     typeParametersText: sourceSignature.typeParametersText,
@@ -1163,16 +1147,16 @@ const renderSourceFunctionType = (opts: {
 }): string | undefined => {
   const sourceSignature = opts.sourceSignatures[0];
   if (!sourceSignature) return undefined;
-  const parametersText = sourceSignature.parameters
-    .map(
-      (parameter) =>
-        `${parameter.prefixText}${rewriteSourceTypeText(
-          parameter.typeText,
-          opts.localTypeNameRemaps,
-          opts.anonymousStructuralAliases
-        )}`
-    )
-    .join(", ");
+  const parametersText = renderSourceFunctionParametersText({
+    parameters: sourceSignature.parameters.map((parameter) => ({
+      prefixText: parameter.prefixText,
+      typeText: rewriteSourceTypeText(
+        parameter.typeText,
+        opts.localTypeNameRemaps,
+        opts.anonymousStructuralAliases
+      ),
+    })),
+  });
   return `${sourceSignature.typeParametersText}(${parametersText}) => ${rewriteSourceTypeText(
     sourceSignature.returnTypeText,
     opts.localTypeNameRemaps,
@@ -1749,7 +1733,10 @@ const finalizeCrossNamespaceReexports = (
     jsValueStatements.push(statement);
     for (const spec of unique) {
       const aliasParts = spec.split(/\s+as\s+/);
-      valueExportNames.add(aliasParts.length === 2 ? aliasParts[1]! : spec);
+      const aliasName = aliasParts[1];
+      valueExportNames.add(
+        aliasParts.length === 2 && aliasName ? aliasName : spec
+      );
     }
   }
 
@@ -2049,9 +2036,11 @@ const buildModuleSourceIndex = (
     name: string,
     signature: SourceFunctionSignatureDef
   ): void => {
-    const signatures = exportedFunctionSignaturesByName.get(name) ?? [];
-    signatures.push(signature);
-    exportedFunctionSignaturesByName.set(name, signatures);
+    appendSourceFunctionSignature(
+      exportedFunctionSignaturesByName,
+      name,
+      signature
+    );
   };
 
   const registerAnonymousTypeLiteralsInTypeNode = (
@@ -2512,10 +2501,11 @@ type BindingSemanticRewriteCaches = {
   readonly members: WeakMap<object, IrInterfaceMember>;
 };
 
-const createBindingSemanticRewriteCaches = (): BindingSemanticRewriteCaches => ({
-  types: new WeakMap<object, IrType>(),
-  members: new WeakMap<object, IrInterfaceMember>(),
-});
+const createBindingSemanticRewriteCaches =
+  (): BindingSemanticRewriteCaches => ({
+    types: new WeakMap<object, IrType>(),
+    members: new WeakMap<object, IrInterfaceMember>(),
+  });
 
 const rewriteBindingSemanticParameterInternal = (
   parameter: IrParameter,
@@ -2561,8 +2551,12 @@ const rewriteBindingSemanticMemberInternal = (
   caches.members.set(member, rewritten);
   (rewritten as { parameters: typeof member.parameters }).parameters =
     member.parameters.map((parameter) =>
-    rewriteBindingSemanticParameterInternal(parameter, localTypeNameRemaps, caches)
-  );
+      rewriteBindingSemanticParameterInternal(
+        parameter,
+        localTypeNameRemaps,
+        caches
+      )
+    );
   (rewritten as { returnType: typeof member.returnType }).returnType =
     rewriteBindingSemanticTypeInternal(
       member.returnType,
@@ -2603,7 +2597,11 @@ const rewriteBindingSemanticTypeInternal = (
       (
         rewritten as { structuralMembers?: typeof type.structuralMembers }
       ).structuralMembers = type.structuralMembers?.map((member) =>
-        rewriteBindingSemanticMemberInternal(member, localTypeNameRemaps, caches)
+        rewriteBindingSemanticMemberInternal(
+          member,
+          localTypeNameRemaps,
+          caches
+        )
       );
       return rewritten;
     }
@@ -2629,12 +2627,12 @@ const rewriteBindingSemanticTypeInternal = (
       caches.types.set(type, rewritten);
       (rewritten as { elementTypes: typeof type.elementTypes }).elementTypes =
         type.elementTypes.map((elementType) =>
-        rewriteBindingSemanticTypeInternal(
-          elementType,
-          localTypeNameRemaps,
-          caches
-        )
-      ) as readonly IrType[];
+          rewriteBindingSemanticTypeInternal(
+            elementType,
+            localTypeNameRemaps,
+            caches
+          )
+        ) as readonly IrType[];
       return rewritten;
     }
     case "functionType": {
@@ -2646,12 +2644,12 @@ const rewriteBindingSemanticTypeInternal = (
       caches.types.set(type, rewritten);
       (rewritten as { parameters: typeof type.parameters }).parameters =
         type.parameters.map((parameter) =>
-        rewriteBindingSemanticParameterInternal(
-          parameter,
-          localTypeNameRemaps,
-          caches
-        )
-      );
+          rewriteBindingSemanticParameterInternal(
+            parameter,
+            localTypeNameRemaps,
+            caches
+          )
+        );
       (rewritten as { returnType: typeof type.returnType }).returnType =
         rewriteBindingSemanticTypeInternal(
           type.returnType,
@@ -2666,9 +2664,14 @@ const rewriteBindingSemanticTypeInternal = (
         members: type.members,
       };
       caches.types.set(type, rewritten);
-      (rewritten as { members: typeof type.members }).members = type.members.map((member) =>
-        rewriteBindingSemanticMemberInternal(member, localTypeNameRemaps, caches)
-      );
+      (rewritten as { members: typeof type.members }).members =
+        type.members.map((member) =>
+          rewriteBindingSemanticMemberInternal(
+            member,
+            localTypeNameRemaps,
+            caches
+          )
+        );
       return rewritten;
     }
     case "dictionaryType": {
@@ -2699,12 +2702,13 @@ const rewriteBindingSemanticTypeInternal = (
         types: type.types,
       };
       caches.types.set(type, rewritten);
-      (rewritten as { types: typeof type.types }).types = type.types.map((candidate) =>
-        rewriteBindingSemanticTypeInternal(
-          candidate,
-          localTypeNameRemaps,
-          caches
-        )
+      (rewritten as { types: typeof type.types }).types = type.types.map(
+        (candidate) =>
+          rewriteBindingSemanticTypeInternal(
+            candidate,
+            localTypeNameRemaps,
+            caches
+          )
       ) as readonly IrType[];
       return rewritten;
     }
@@ -2732,7 +2736,6 @@ const rewriteBindingSemanticParameter = (
     localTypeNameRemaps,
     createBindingSemanticRewriteCaches()
   );
-
 
 const buildSemanticSignature = (opts: {
   readonly typeParameters: readonly IrTypeParameter[] | undefined;
@@ -2868,7 +2871,11 @@ const reattachBindingClrIdentitiesInternal = (
       (
         rewritten as { structuralMembers?: typeof type.structuralMembers }
       ).structuralMembers = type.structuralMembers?.map((member) =>
-        reattachBindingClrIdentityMemberInternal(member, clrNamesByAlias, caches)
+        reattachBindingClrIdentityMemberInternal(
+          member,
+          clrNamesByAlias,
+          caches
+        )
       );
       return rewritten;
     }
@@ -2933,14 +2940,14 @@ const reattachBindingClrIdentitiesInternal = (
         members: type.members,
       };
       caches.types.set(type, rewritten);
-      (rewritten as { members: typeof type.members }).members = type.members.map(
-        (member) =>
+      (rewritten as { members: typeof type.members }).members =
+        type.members.map((member) =>
           reattachBindingClrIdentityMemberInternal(
             member,
             clrNamesByAlias,
             caches
           )
-      );
+        );
       return rewritten;
     }
     case "dictionaryType": {
@@ -3103,9 +3110,7 @@ const isIrTypeNode = (value: unknown): value is IrType => {
     case "tupleType":
       return Array.isArray(candidate.elementTypes);
     case "functionType":
-      return (
-        Array.isArray(candidate.parameters) && "returnType" in candidate
-      );
+      return Array.isArray(candidate.parameters) && "returnType" in candidate;
     case "objectType":
       return Array.isArray(candidate.members);
     case "dictionaryType":
@@ -3164,7 +3169,9 @@ const serializeRecursiveBindingType = (
           : {}),
         ...(type.tupleRestElementType
           ? {
-              tupleRestElementType: serialize(type.tupleRestElementType) as IrType,
+              tupleRestElementType: serialize(
+                type.tupleRestElementType
+              ) as IrType,
             }
           : {}),
       };
@@ -3399,6 +3406,7 @@ const makeMethodBinding = (opts: {
   readonly parameters: readonly IrParameter[];
   readonly returnType: IrType | undefined;
   readonly typeParameters?: readonly IrTypeParameter[];
+  readonly overloadFamily?: IrOverloadFamilyMember;
   readonly arity: number;
   readonly parameterModifiers: readonly {
     readonly index: number;
@@ -3451,6 +3459,7 @@ const makeMethodBinding = (opts: {
       returnType: opts.returnType,
       localTypeNameRemaps: opts.localTypeNameRemaps ?? new Map(),
     }),
+    overloadFamily: opts.overloadFamily,
     arity: opts.arity,
     parameterCount: opts.parameters.length,
     isStatic: opts.isStatic,
@@ -3465,6 +3474,9 @@ const makeMethodBinding = (opts: {
     isExtensionMethod: false,
   };
 };
+
+const isPublicOverloadSurfaceMethod = (member: IrMethodDeclaration): boolean =>
+  member.overloadFamily?.role !== "implementation";
 
 const renderClassInternal = (
   declaration: IrClassDeclaration,
@@ -3529,6 +3541,9 @@ const renderClassInternal = (
 
   for (const member of instanceMembers) {
     if (member.kind === "methodDeclaration") {
+      if (!isPublicOverloadSurfaceMethod(member)) {
+        continue;
+      }
       lines.push(
         `    ${renderMethodSignature(
           member.name,
@@ -3601,6 +3616,9 @@ const renderClassInternal = (
 
   for (const member of staticMembers) {
     if (member.kind === "methodDeclaration") {
+      if (!isPublicOverloadSurfaceMethod(member)) {
+        continue;
+      }
       lines.push(
         `    ${renderMethodSignature(
           member.name,
@@ -3919,9 +3937,9 @@ const renderSourceAliasPlan = (
   );
   return {
     line: `export type ${plan.declaration.name}${sourceTypeParams} = ${
-      shouldPreserveSourceAliasText
+      shouldPreserveSourceAliasText && plan.sourceAlias
         ? rewriteSourceTypeText(
-            plan.sourceAlias!.typeText,
+            plan.sourceAlias.typeText,
             new Map(),
             anonymousStructuralAliases
           )
@@ -4030,6 +4048,9 @@ const buildTypeBindingFromClass = (
     }
 
     if (member.kind === "methodDeclaration") {
+      if (!isPublicOverloadSurfaceMethod(member)) {
+        continue;
+      }
       methods.push(
         makeMethodBinding({
           declaringClrType,
@@ -4038,6 +4059,7 @@ const buildTypeBindingFromClass = (
           parameters: member.parameters,
           returnType: member.returnType,
           typeParameters: member.typeParameters,
+          overloadFamily: member.overloadFamily,
           arity: member.typeParameters?.length ?? 0,
           parameterModifiers: buildParameterModifiers(member.parameters),
           isStatic: member.isStatic,
@@ -4607,11 +4629,7 @@ const collectNamespacePlans = (
         const sourceSignatures = (facade.sourceSignatures ?? [])
           .map(
             (signature) =>
-              `${signature.typeParametersText}(${signature.parameters
-                .map(
-                  (parameter) => `${parameter.prefixText}${parameter.typeText}`
-                )
-                .join(", ")}):${signature.returnTypeText}`
+              `${signature.typeParametersText}(${renderSourceFunctionParametersText(signature)}):${signature.returnTypeText}`
           )
           .sort((left, right) => left.localeCompare(right))
           .join("||");

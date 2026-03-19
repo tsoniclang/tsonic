@@ -128,4 +128,82 @@ describe("narrowed-expression-types", () => {
       elementType: { kind: "primitiveType", name: "string" },
     });
   });
+
+  it("uses assertion target types for explicit type assertions", () => {
+    const expr: IrExpression = {
+      kind: "typeAssertion",
+      expression: {
+        kind: "identifier",
+        name: "value",
+        inferredType: {
+          kind: "unionType",
+          types: [
+            { kind: "primitiveType", name: "string" },
+            { kind: "primitiveType", name: "number" },
+          ],
+        },
+      },
+      targetType: { kind: "primitiveType", name: "string" },
+      inferredType: {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "number" },
+        ],
+      },
+    };
+
+    const result = resolveEffectiveExpressionType(expr, {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+    });
+
+    expect(result).to.deep.equal({ kind: "primitiveType", name: "string" });
+  });
+
+  it("uses target types for explicit interface and default expressions", () => {
+    const context: EmitterContext = {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+    };
+
+    expect(
+      resolveEffectiveExpressionType(
+        {
+          kind: "asinterface",
+          expression: {
+            kind: "identifier",
+            name: "value",
+            inferredType: { kind: "referenceType", name: "Impl" },
+          },
+          targetType: { kind: "referenceType", name: "Contract" },
+          inferredType: { kind: "referenceType", name: "Impl" },
+        },
+        context
+      )
+    ).to.deep.equal({ kind: "referenceType", name: "Contract" });
+
+    expect(
+      resolveEffectiveExpressionType(
+        {
+          kind: "defaultof",
+          targetType: { kind: "primitiveType", name: "int" },
+          inferredType: { kind: "primitiveType", name: "undefined" },
+        },
+        context
+      )
+    ).to.deep.equal({ kind: "primitiveType", name: "int" });
+  });
 });

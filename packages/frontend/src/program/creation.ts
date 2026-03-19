@@ -461,6 +461,13 @@ export const createProgram = (
   };
 
   const packageRootNamespaceCache = new Map<string, string | null>();
+  const packageRootModuleResolutionCache = new Map<
+    string,
+    ts.ResolvedModuleFull | null
+  >();
+  const siblingTsonicPackageRootCache = new Map<string, string | null>();
+  const compilerOwnedTsonicPackageRootCache = new Map<string, string | null>();
+  const projectOwnedDependencyRootCache = new Map<string, string | null>();
   const readPackageRootNamespace = (
     packageRoot: string
   ): string | undefined => {
@@ -522,6 +529,11 @@ export const createProgram = (
     packageRoot: string,
     subpath: string | undefined
   ): ts.ResolvedModuleFull | undefined => {
+    const cacheKey = `${path.resolve(packageRoot)}::${subpath ?? "."}`;
+    const cached = packageRootModuleResolutionCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached ?? undefined;
+    }
     const buildCandidates = (
       candidateSubpath: string | undefined
     ): readonly string[] => {
@@ -588,26 +600,36 @@ export const createProgram = (
             : undefined;
       if (!extension) continue;
 
-      return {
+      const resolvedModule = {
         resolvedFileName: candidate,
         extension,
         isExternalLibraryImport: true,
       };
+      packageRootModuleResolutionCache.set(cacheKey, resolvedModule);
+      return resolvedModule;
     }
 
+    packageRootModuleResolutionCache.set(cacheKey, null);
     return undefined;
   };
 
   const resolveSiblingTsonicPackageRoot = (
     pkgDirName: string
   ): string | undefined => {
+    const cached = siblingTsonicPackageRootCache.get(pkgDirName);
+    if (cached !== undefined) {
+      return cached ?? undefined;
+    }
     const expectedName = `@tsonic/${pkgDirName}`;
     const siblingRepoRoot = path.resolve(path.join(repoRoot, "..", pkgDirName));
 
     const repoPackageName = readPackageName(
       path.join(siblingRepoRoot, "package.json")
     );
-    if (repoPackageName === expectedName) return siblingRepoRoot;
+    if (repoPackageName === expectedName) {
+      siblingTsonicPackageRootCache.set(pkgDirName, siblingRepoRoot);
+      return siblingRepoRoot;
+    }
 
     const versionsRoot = path.join(siblingRepoRoot, "versions");
     if (!fs.existsSync(versionsRoot)) return undefined;
@@ -632,28 +654,42 @@ export const createProgram = (
       const candidateName = readPackageName(
         path.join(candidateRoot, "package.json")
       );
-      if (candidateName === expectedName) return candidateRoot;
+      if (candidateName === expectedName) {
+        siblingTsonicPackageRootCache.set(pkgDirName, candidateRoot);
+        return candidateRoot;
+      }
     }
 
+    siblingTsonicPackageRootCache.set(pkgDirName, null);
     return undefined;
   };
 
   const resolveCompilerOwnedTsonicPackageRoot = (
     pkgDirName: string
   ): string | undefined => {
+    const cached = compilerOwnedTsonicPackageRootCache.get(pkgDirName);
+    if (cached !== undefined) {
+      return cached ?? undefined;
+    }
     const siblingRoot = resolveSiblingTsonicPackageRoot(pkgDirName);
-    if (siblingRoot) return siblingRoot;
+    if (siblingRoot) {
+      compilerOwnedTsonicPackageRootCache.set(pkgDirName, siblingRoot);
+      return siblingRoot;
+    }
 
     // Fall back to compiler-owned installation (keeps stdlib typings coherent)
     try {
       const installedPkgJson = require.resolve(
         `@tsonic/${pkgDirName}/package.json`
       );
-      return path.dirname(installedPkgJson);
+      const resolvedRoot = path.dirname(installedPkgJson);
+      compilerOwnedTsonicPackageRootCache.set(pkgDirName, resolvedRoot);
+      return resolvedRoot;
     } catch {
       // Package not found.
     }
 
+    compilerOwnedTsonicPackageRootCache.set(pkgDirName, null);
     return undefined;
   };
 
@@ -750,6 +786,12 @@ export const createProgram = (
   }
 
   const tsOptions = createCompilerOptions(options);
+  const moduleResolutionCache = ts.createModuleResolutionCache(
+    options.projectRoot,
+    (fileName) =>
+      ts.sys.useCaseSensitiveFileNames ? fileName : fileName.toLowerCase(),
+    tsOptions
+  );
   const projectDeclarationFiles = collectProjectIncludedDeclarationFiles(
     options.projectRoot,
     tsOptions
@@ -962,11 +1004,21 @@ export const createProgram = (
         // coherent with surface declarations that already came from installed
         // package roots.
         if (request) {
-          const projectOwnedRoot = resolveDependencyPackageRoot(
-            options.projectRoot,
-            request.packageName,
-            "installed-first"
+          let projectOwnedRoot = projectOwnedDependencyRootCache.get(
+            request.packageName
           );
+          if (projectOwnedRoot === undefined) {
+            projectOwnedRoot =
+              resolveDependencyPackageRoot(
+                options.projectRoot,
+                request.packageName,
+                "installed-first"
+              ) ?? null;
+            projectOwnedDependencyRootCache.set(
+              request.packageName,
+              projectOwnedRoot
+            );
+          }
           if (projectOwnedRoot) {
             const resolved = resolveModuleFromPackageRoot(
               projectOwnedRoot,
@@ -998,7 +1050,8 @@ export const createProgram = (
           moduleName,
           projectResolveFile,
           tsOptions,
-          host
+          host,
+          moduleResolutionCache
         );
         if (projectResult.resolvedModule) return projectResult.resolvedModule;
 
@@ -1007,7 +1060,8 @@ export const createProgram = (
           moduleName,
           compilerContainingFile,
           tsOptions,
-          host
+          host,
+          moduleResolutionCache
         );
         if (result.resolvedModule) return result.resolvedModule;
 
@@ -1040,7 +1094,8 @@ export const createProgram = (
         moduleName,
         containingFile,
         tsOptions,
-        host
+        host,
+        moduleResolutionCache
       );
       return result.resolvedModule;
     });

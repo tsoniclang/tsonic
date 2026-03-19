@@ -99,8 +99,18 @@ export type ResolvedCall = {
   /** Fully instantiated parameter types (undefined = missing annotation) */
   readonly parameterTypes: readonly (IrType | undefined)[];
 
+  /** Declared/public parameter surface types before call-site argument refinement. */
+  readonly surfaceParameterTypes: readonly (IrType | undefined)[];
+
   /** Explicit rest-parameter metadata from the selected signature. */
   readonly restParameter?: {
+    readonly index: number;
+    readonly arrayType: IrType | undefined;
+    readonly elementType: IrType | undefined;
+  };
+
+  /** Declared/public rest-parameter metadata before call-site argument refinement. */
+  readonly surfaceRestParameter?: {
     readonly index: number;
     readonly arrayType: IrType | undefined;
     readonly elementType: IrType | undefined;
@@ -545,6 +555,7 @@ export const poisonedCall = (
   arity: number,
   diagnostics: readonly Diagnostic[]
 ): ResolvedCall => ({
+  surfaceParameterTypes: Array(arity).fill(unknownType),
   parameterTypes: Array(arity).fill(unknownType),
   parameterModes: Array(arity).fill("value" as const),
   returnType: unknownType,

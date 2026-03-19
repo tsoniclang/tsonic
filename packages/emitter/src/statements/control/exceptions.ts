@@ -10,8 +10,8 @@ import { emitBlockStatementAst } from "../blocks.js";
 import {
   allocateLocalName,
   registerLocalName,
-  registerLocalValueType,
 } from "../../core/format/local-names.js";
+import { registerCatchVariableTypes } from "../../core/semantic/symbol-types.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
   CSharpStatementAst,
@@ -43,6 +43,8 @@ export const emitTryStatementAst = (
         ? stmt.catchClause.parameter.name
         : "ex";
     const outerMap = currentContext.localNameMap;
+    const outerSemanticTypes = currentContext.localSemanticTypes;
+    const outerValueTypes = currentContext.localValueTypes;
     let catchScopeContext: EmitterContext = {
       ...currentContext,
       localNameMap: new Map(outerMap ?? []),
@@ -54,11 +56,7 @@ export const emitTryStatementAst = (
       alloc.emittedName,
       alloc.context
     );
-    catchScopeContext = registerLocalValueType(
-      param,
-      SYSTEM_EXCEPTION_IR_TYPE,
-      catchScopeContext
-    );
+    catchScopeContext = registerCatchVariableTypes(param, catchScopeContext);
 
     const [catchBody, catchContext] = emitBlockStatementAst(
       stmt.catchClause.body,
@@ -69,7 +67,12 @@ export const emitTryStatementAst = (
       identifier: alloc.emittedName,
       body: catchBody,
     });
-    currentContext = { ...catchContext, localNameMap: outerMap };
+    currentContext = {
+      ...catchContext,
+      localNameMap: outerMap,
+      localSemanticTypes: outerSemanticTypes,
+      localValueTypes: outerValueTypes,
+    };
   }
 
   const finallyResult: {

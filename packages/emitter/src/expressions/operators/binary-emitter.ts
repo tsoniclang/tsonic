@@ -17,13 +17,25 @@ import {
   hasDeterministicPropertyMembership,
   isDefinitelyValueType,
 } from "../../core/semantic/type-resolution.js";
-import { buildRuntimeUnionFrame } from "../../core/semantic/runtime-unions.js";
+import { getCanonicalRuntimeUnionMembers } from "../../core/semantic/runtime-unions.js";
+import {
+  willCarryAsRuntimeUnion,
+  isSemanticUnion,
+} from "../../core/semantic/union-semantics.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import { isIntegerType } from "../../core/semantic/index.js";
+import {
+  unwrapTransparentExpression,
+  unwrapTransparentNarrowingTarget,
+} from "../../core/semantic/transparent-expressions.js";
 import {
   isCharTyped,
+  isCharType,
   isStringTyped,
   getSingleCharLiteral,
   isNullishLiteral,
+  getDictionaryComputedAccess,
 } from "./helpers.js";
 import {
   booleanLiteral,
@@ -37,21 +49,121 @@ import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 const getNarrowingTargetKey = (expr: IrExpression): string | undefined => {
-  switch (expr.kind) {
+  const target = unwrapTransparentExpression(expr);
+  switch (target.kind) {
     case "identifier":
-      return expr.name;
+      return target.name;
 
     case "memberAccess": {
-      if (expr.isComputed || typeof expr.property !== "string") {
+      if (target.isComputed || typeof target.property !== "string") {
         return undefined;
       }
-      const parentKey = getNarrowingTargetKey(expr.object);
-      return parentKey ? `${parentKey}.${expr.property}` : undefined;
+      const parentKey = getNarrowingTargetKey(target.object);
+      return parentKey ? `${parentKey}.${target.property}` : undefined;
     }
 
     default:
       return undefined;
   }
+};
+
+const getTransparentComparisonTarget = (expr: IrExpression): IrExpression =>
+  unwrapTransparentNarrowingTarget(expr) ?? unwrapTransparentExpression(expr);
+
+const resolveComparisonOperandType = (
+  expr: IrExpression,
+  context: EmitterContext
+): IrType | undefined => {
+  const target = getTransparentComparisonTarget(expr);
+  if (target.kind === "identifier") {
+    const storageType = context.localValueTypes?.get(target.name);
+    if (storageType) {
+      return storageType;
+    }
+  }
+  return resolveEffectiveExpressionType(target, context) ?? target.inferredType;
+};
+
+const isNumericOperandType = (type: IrType | undefined): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  const widened = widenLiteralComparisonType(type);
+  if (widened?.kind === "primitiveType" && widened.name === "number") {
+    return true;
+  }
+
+  return isIntegerType(widened);
+};
+
+const widenLiteralComparisonType = (
+  type: IrType | undefined
+): IrType | undefined => {
+  if (!type || type.kind !== "literalType") {
+    return type;
+  }
+
+  switch (typeof type.value) {
+    case "boolean":
+      return { kind: "primitiveType", name: "boolean" };
+    case "string":
+      return { kind: "primitiveType", name: "string" };
+    case "number":
+      return { kind: "primitiveType", name: "number" };
+    default:
+      return type;
+  }
+};
+
+const hasRuntimeUnionCarrier = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) {
+    return false;
+  }
+  return willCarryAsRuntimeUnion(stripNullish(type), context);
+};
+
+const chooseComparisonExpectedType = (
+  ownType: IrType | undefined,
+  otherType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (
+    isCharType(ownType) &&
+    otherType?.kind === "literalType" &&
+    typeof otherType.value === "string" &&
+    otherType.value.length === 1
+  ) {
+    return undefined;
+  }
+
+  const widenedOtherType = widenLiteralComparisonType(otherType);
+  if (
+    isCharType(ownType) &&
+    widenedOtherType?.kind === "primitiveType" &&
+    widenedOtherType.name === "string"
+  ) {
+    return undefined;
+  }
+
+  const ownHasRuntimeUnionCarrier = hasRuntimeUnionCarrier(ownType, context);
+  const otherHasRuntimeUnionCarrier = hasRuntimeUnionCarrier(
+    widenedOtherType,
+    context
+  );
+
+  if (!ownHasRuntimeUnionCarrier && otherHasRuntimeUnionCarrier) {
+    return undefined;
+  }
+
+  if (ownHasRuntimeUnionCarrier && !otherHasRuntimeUnionCarrier) {
+    return widenedOtherType;
+  }
+
+  return widenedOtherType;
 };
 
 const buildNullishComparisonContext = (
@@ -126,8 +238,10 @@ export const emitBinary = (
     const [rhsAst, rhsCtx] = emitExpressionAst(expr.right, context);
     const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
 
-    const runtimeFrame = buildRuntimeUnionFrame(rhsType, rhsCtx);
-    const runtimeMembers = runtimeFrame?.members;
+    // Semantic gate: only enter union dispatch if the RHS is semantically a union
+    const runtimeMembers = isSemanticUnion(rhsType, rhsCtx)
+      ? getCanonicalRuntimeUnionMembers(rhsType, rhsCtx)
+      : undefined;
 
     // Union<T1..Tn>: `"error" in auth` → auth.IsN() (where member N has the prop)
     if (runtimeMembers) {
@@ -287,14 +401,26 @@ export const emitBinary = (
     op === ">=";
 
   if (isComparisonOp) {
-    const leftIsChar = isCharTyped(expr.left);
-    const rightIsChar = isCharTyped(expr.right);
+    const charExpectedType: IrType = {
+      kind: "primitiveType",
+      name: "char",
+    };
+    const leftIsChar =
+      isCharTyped(expr.left) ||
+      isCharType(resolveComparisonOperandType(expr.left, context));
+    const rightIsChar =
+      isCharTyped(expr.right) ||
+      isCharType(resolveComparisonOperandType(expr.right, context));
     const leftSingleChar = getSingleCharLiteral(expr.left);
     const rightSingleChar = getSingleCharLiteral(expr.right);
 
     // Case 1: left is char-typed, right is single-char literal → emit right as char
     if (leftIsChar && rightSingleChar !== undefined) {
-      const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+      const [leftAst, leftContext] = emitExpressionAst(
+        expr.left,
+        context,
+        charExpectedType
+      );
       const charLiteralAst = charLiteral(rightSingleChar);
       return [
         {
@@ -309,7 +435,11 @@ export const emitBinary = (
 
     // Case 2: right is char-typed, left is single-char literal → emit left as char
     if (rightIsChar && leftSingleChar !== undefined) {
-      const [rightAst, rightContext] = emitExpressionAst(expr.right, context);
+      const [rightAst, rightContext] = emitExpressionAst(
+        expr.right,
+        context,
+        charExpectedType
+      );
       const charLiteralAst = charLiteral(leftSingleChar);
       return [
         {
@@ -377,6 +507,7 @@ export const emitBinary = (
     // (e.g. `id.Value == null` should stay `id == null`) while preserving
     // unrelated narrowing such as renamed union members.
     const nonNullishExpr = leftIsNullish ? expr.right : expr.left;
+    const nonNullishTarget = getTransparentComparisonTarget(nonNullishExpr);
     const nullishExpr = leftIsNullish ? expr.left : expr.right;
 
     const isUndefinedLiteral =
@@ -388,24 +519,20 @@ export const emitBinary = (
     //
     //   dict[key] === undefined  -> !dict.ContainsKey(key)
     //   dict[key] !== undefined  ->  dict.ContainsKey(key)
-    if (
-      isUndefinedLiteral &&
-      nonNullishExpr.kind === "memberAccess" &&
-      nonNullishExpr.isComputed &&
-      typeof nonNullishExpr.property !== "string" &&
-      (nonNullishExpr.accessKind === "dictionary" ||
-        nonNullishExpr.object.inferredType?.kind === "dictionaryType")
-    ) {
+    const dictionaryTarget = isUndefinedLiteral
+      ? getDictionaryComputedAccess(nonNullishTarget, context)
+      : undefined;
+    if (dictionaryTarget) {
       const nonNullishContext = buildNullishComparisonContext(
-        nonNullishExpr,
+        dictionaryTarget,
         context
       );
       const [dictAst, dictContext] = emitExpressionAst(
-        nonNullishExpr.object,
+        dictionaryTarget.object,
         nonNullishContext
       );
       const [keyAst, keyContext] = emitExpressionAst(
-        nonNullishExpr.property,
+        dictionaryTarget.property,
         dictContext
       );
       const containsAst: CSharpExpressionAst = {
@@ -432,16 +559,21 @@ export const emitBinary = (
     }
 
     const nonNullishContext = buildNullishComparisonContext(
-      nonNullishExpr,
+      nonNullishTarget,
       context
     );
     const [nonNullishAst, resultContext] = emitExpressionAst(
-      nonNullishExpr,
+      nonNullishTarget,
       nonNullishContext
     );
 
-    const inferred = nonNullishExpr.inferredType;
+    const inferred = resolveComparisonOperandType(
+      nonNullishExpr,
+      resultContext
+    );
     const base = inferred ? stripNullish(inferred) : undefined;
+    const hasRuntimeUnionCarrier =
+      base !== undefined && willCarryAsRuntimeUnion(base, resultContext);
     const bareTypeParamName = (() => {
       if (!base) return undefined;
       if (base.kind === "typeParameterType") return base.name;
@@ -471,11 +603,16 @@ export const emitBinary = (
       (typeParamConstraint === "unconstrained" ||
         typeParamConstraint === "struct");
     const needsObjectCastForValueType = isDefiniteNonUnionValueType;
+    const needsObjectCastForRuntimeUnion = hasRuntimeUnionCarrier;
 
     const nullLiteralAst = nullLiteral();
     const nullOp = op === "==" ? "==" : "!=";
 
-    if (needsObjectCastForTypeParam || needsObjectCastForValueType) {
+    if (
+      needsObjectCastForTypeParam ||
+      needsObjectCastForValueType ||
+      needsObjectCastForRuntimeUnion
+    ) {
       // ((global::System.Object)(expr)) == null
       const castExpr: CSharpExpressionAst = {
         kind: "castExpression",
@@ -510,11 +647,13 @@ export const emitBinary = (
     ];
   }
 
-  const leftResolved = expr.left.inferredType
-    ? resolveTypeAlias(stripNullish(expr.left.inferredType), context)
+  const leftResolvedType = resolveComparisonOperandType(expr.left, context);
+  const rightResolvedType = resolveComparisonOperandType(expr.right, context);
+  const leftResolved = leftResolvedType
+    ? resolveTypeAlias(stripNullish(leftResolvedType), context)
     : undefined;
-  const rightResolved = expr.right.inferredType
-    ? resolveTypeAlias(stripNullish(expr.right.inferredType), context)
+  const rightResolved = rightResolvedType
+    ? resolveTypeAlias(stripNullish(rightResolvedType), context)
     : undefined;
   const needsRuntimeEquality =
     (op === "==" || op === "!=") &&
@@ -552,12 +691,36 @@ export const emitBinary = (
     ];
   }
 
+  const isArithmeticOp =
+    op === "+" || op === "-" || op === "*" || op === "/" || op === "%";
   // Standard emission path
   // Emit operands without contextual type propagation
   // Literals will emit using their raw lexeme (42 vs 42.0)
   // Parenthesization is handled by the printer's precedence system
-  const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
-  const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+  const leftExpectedType = isComparisonOp
+    ? chooseComparisonExpectedType(leftResolvedType, rightResolvedType, context)
+    : isArithmeticOp &&
+        expr.left.kind === "conditional" &&
+        isNumericOperandType(rightResolvedType)
+      ? rightResolvedType
+      : undefined;
+  const [leftAst, leftContext] = emitExpressionAst(
+    expr.left,
+    context,
+    leftExpectedType
+  );
+  const rightExpectedType = isComparisonOp
+    ? chooseComparisonExpectedType(rightResolvedType, leftResolvedType, context)
+    : isArithmeticOp &&
+        expr.right.kind === "conditional" &&
+        isNumericOperandType(leftResolvedType)
+      ? leftResolvedType
+      : undefined;
+  const [rightAst, rightContext] = emitExpressionAst(
+    expr.right,
+    leftContext,
+    rightExpectedType
+  );
 
   return [
     {

@@ -23,12 +23,16 @@ import {
   lowerPatternAst,
   lowerPatternToStaticMembersAst,
 } from "../../patterns.js";
-import { getIdentifierTypeName } from "../../core/format/backend-ast/utils.js";
+import {
+  resolveAsInterfaceTargetType,
+  resolveEffectiveVariableInitializerType,
+  resolveInitializerEmissionExpectedType,
+} from "../../core/semantic/variable-type-resolution.js";
 import {
   allocateLocalName,
   registerLocalName,
-  registerLocalValueType,
 } from "../../core/format/local-names.js";
+import { registerVariableSymbolTypes } from "../../core/semantic/symbol-types.js";
 import {
   isDefinitelyValueType,
   isTypeOnlyStructuralTarget,
@@ -36,7 +40,6 @@ import {
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
-import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import {
@@ -177,53 +180,6 @@ const needsExplicitLocalType = (
   }
 
   return false;
-};
-
-/**
- * Resolve a C#-emittable runtime type for `asinterface<T>(x)` locals.
- *
- * `T` may be a type alias or an intersection type (e.g. extension-method overlays).
- * We must pick a nominal/runtime constituent that has a CLR representation.
- */
-const resolveAsInterfaceTargetType = (
-  type: IrType,
-  context: EmitterContext
-): IrType => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-
-  // Unwrap tsbindgen's `ExtensionMethods<TShape>` wrapper (type-only).
-  if (resolved.kind === "referenceType" && resolved.typeArguments?.length) {
-    const importBinding = context.importBindings?.get(resolved.name);
-    const clrName =
-      importBinding?.kind === "type"
-        ? (getIdentifierTypeName(importBinding.typeAst) ?? "")
-        : "";
-    if (clrName.endsWith(".ExtensionMethods")) {
-      const shape = resolved.typeArguments[0];
-      if (shape) return resolveAsInterfaceTargetType(shape, context);
-    }
-  }
-
-  if (resolved.kind === "intersectionType") {
-    for (const part of resolved.types) {
-      const candidate = resolveAsInterfaceTargetType(part, context);
-      if (
-        candidate.kind === "referenceType" &&
-        candidate.name.startsWith("__Ext_")
-      ) {
-        continue;
-      }
-      if (
-        candidate.kind === "objectType" ||
-        candidate.kind === "intersectionType"
-      ) {
-        continue;
-      }
-      return candidate;
-    }
-  }
-
-  return resolved;
 };
 
 const seedLocalNameMapFromParameters = (
@@ -1101,53 +1057,6 @@ const resolveLocalTypeAst = (
   return [{ kind: "varType" }, context];
 };
 
-const resolveLocalStorageType = (
-  decl: {
-    readonly type?: IrType;
-    readonly initializer?: Extract<
-      IrStatement,
-      { kind: "variableDeclaration" }
-    >["declarations"][number]["initializer"];
-  },
-  context: EmitterContext
-): IrType | undefined => {
-  const sourceType =
-    decl.type ??
-    resolveEffectiveVariableInitializerType(decl.initializer, context);
-
-  return normalizeRuntimeStorageType(sourceType, context);
-};
-
-const resolveEffectiveVariableInitializerType = (
-  initializer:
-    | {
-        readonly kind: string;
-        readonly inferredType?: IrType;
-        readonly targetType?: IrType;
-      }
-    | undefined,
-  context: EmitterContext
-): IrType | undefined => {
-  if (!initializer) {
-    return undefined;
-  }
-
-  const expression = initializer as IrExpression;
-
-  if (expression.kind === "typeAssertion") {
-    return expression.targetType;
-  }
-
-  if (expression.kind === "asinterface") {
-    return resolveAsInterfaceTargetType(expression.targetType, context);
-  }
-
-  return (
-    resolveEffectiveExpressionType(expression, context) ??
-    expression.inferredType
-  );
-};
-
 /**
  * Emit a local (non-static) variable declaration as AST.
  *
@@ -1235,9 +1144,9 @@ export const emitVariableDeclarationAst = (
           localName,
           currentContext
         );
-        currentContext = registerLocalValueType(
+        currentContext = registerVariableSymbolTypes(
           originalName,
-          resolveLocalStorageType(decl, currentContext),
+          decl,
           currentContext
         );
 
@@ -1272,21 +1181,16 @@ export const emitVariableDeclarationAst = (
       // Emit initializer (after allocation, before registration - C# scoping)
       let initAst = undefined;
       if (decl.initializer) {
-        const numericInitializer = decl.initializer as
-          | ({ readonly inferredType?: IrType } & { readonly kind: string })
-          | undefined;
         const expectedInitializerType = shouldTreatStructuralAssertionAsErased(
           decl,
           currentContext
         )
           ? undefined
-          : (decl.type ??
-            (decl.initializer.kind === "numericNarrowing"
-              ? numericInitializer?.inferredType
-              : resolveEffectiveVariableInitializerType(
-                  decl.initializer,
-                  currentContext
-                )));
+          : resolveInitializerEmissionExpectedType(
+              decl.type,
+              decl.initializer,
+              currentContext
+            );
         const [exprAst, newContext] = emitExpressionAst(
           decl.initializer,
           currentContext,
@@ -1326,9 +1230,9 @@ export const emitVariableDeclarationAst = (
         localName,
         currentContext
       );
-      currentContext = registerLocalValueType(
+      currentContext = registerVariableSymbolTypes(
         originalName,
-        resolveLocalStorageType(decl, currentContext),
+        decl,
         currentContext
       );
 

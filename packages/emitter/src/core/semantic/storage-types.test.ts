@@ -129,4 +129,108 @@ describe("storage-types", () => {
 
     expect(normalizeRuntimeStorageType(type, context)).to.deep.equal(type);
   });
+
+  for (const [label, type] of [
+    ["unknown", { kind: "unknownType" }],
+    ["any", { kind: "anyType" }],
+    ["object-shape", { kind: "objectType", members: [] }],
+    [
+      "object-reference",
+      {
+        kind: "referenceType",
+        name: "object",
+        resolvedClrType: "System.Object",
+      },
+    ],
+  ] as const satisfies readonly [string, IrType][]) {
+    it(`normalizes ${label} storage to object`, () => {
+      expect(normalizeRuntimeStorageType(type, context)).to.deep.equal({
+        kind: "referenceType",
+        name: "object",
+        resolvedClrType: "System.Object",
+      });
+    });
+  }
+
+  it("erases nullable unconstrained type-parameter storage to object?", () => {
+    const genericContext: EmitterContext = {
+      ...context,
+      typeParamConstraints: new Map([["T", "unconstrained"]]),
+    };
+    const type: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "typeParameterType", name: "T" },
+        { kind: "primitiveType", name: "null" },
+      ],
+    };
+
+    expect(normalizeRuntimeStorageType(type, genericContext)).to.deep.equal({
+      kind: "unionType",
+      types: [
+        {
+          kind: "referenceType",
+          name: "object",
+          resolvedClrType: "System.Object",
+        },
+        { kind: "primitiveType", name: "null" },
+      ],
+    });
+  });
+
+  it("erases bare out-of-scope type-parameter storage to object", () => {
+    expect(
+      normalizeRuntimeStorageType(
+        { kind: "typeParameterType", name: "T" },
+        context
+      )
+    ).to.deep.equal({
+      kind: "referenceType",
+      name: "object",
+      resolvedClrType: "System.Object",
+    });
+  });
+
+  it("preserves in-scope bare type-parameter storage", () => {
+    const genericContext: EmitterContext = {
+      ...context,
+      typeParameters: new Set(["T"]),
+      typeParamConstraints: new Map([["T", "unconstrained"]]),
+    };
+
+    expect(
+      normalizeRuntimeStorageType(
+        { kind: "typeParameterType", name: "T" },
+        genericContext
+      )
+    ).to.deep.equal({
+      kind: "typeParameterType",
+      name: "T",
+    });
+  });
+
+  it("erases out-of-scope type parameters nested in reference types", () => {
+    expect(
+      normalizeRuntimeStorageType(
+        {
+          kind: "referenceType",
+          name: "List",
+          resolvedClrType: "System.Collections.Generic.List",
+          typeArguments: [{ kind: "typeParameterType", name: "T" }],
+        },
+        context
+      )
+    ).to.deep.equal({
+      kind: "referenceType",
+      name: "List",
+      resolvedClrType: "System.Collections.Generic.List",
+      typeArguments: [
+        {
+          kind: "referenceType",
+          name: "object",
+          resolvedClrType: "System.Object",
+        },
+      ],
+    });
+  });
 });

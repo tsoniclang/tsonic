@@ -66,10 +66,22 @@ export const resolveEffectiveExpressionType = (
   expr: IrExpression,
   context: EmitterContext
 ): IrType | undefined => {
+  if (expr.kind === "typeAssertion" || expr.kind === "asinterface") {
+    return expr.targetType;
+  }
+
+  if (expr.kind === "trycast") {
+    return expr.targetType;
+  }
+
+  if (expr.kind === "defaultof") {
+    return expr.targetType;
+  }
+
   const baseType = expr.inferredType;
-  const storageType =
+  const registeredSemanticType =
     expr.kind === "identifier"
-      ? context.localValueTypes?.get(expr.name)
+      ? context.localSemanticTypes?.get(expr.name)
       : undefined;
   if (!context.narrowedBindings) {
     if (
@@ -90,7 +102,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return storageType ?? baseType;
+    return registeredSemanticType ?? baseType;
   }
 
   const narrowKey =
@@ -119,7 +131,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return storageType ?? baseType;
+    return registeredSemanticType ?? baseType;
   }
 
   const narrowed = context.narrowedBindings.get(narrowKey);
@@ -142,7 +154,7 @@ export const resolveEffectiveExpressionType = (
         return narrowedPropertyType;
       }
     }
-    return storageType ?? baseType;
+    return registeredSemanticType ?? baseType;
   }
 
   if (
@@ -150,7 +162,8 @@ export const resolveEffectiveExpressionType = (
     narrowed.kind === "expr" ||
     narrowed.kind === "runtimeSubset"
   ) {
-    const sourceType = narrowed.sourceType ?? storageType ?? baseType;
+    const sourceType =
+      narrowed.sourceType ?? registeredSemanticType ?? baseType;
     const resolvedSource =
       narrowed.kind === "expr"
         ? tryResolveRuntimeUnionMemberType(
@@ -188,5 +201,5 @@ export const resolveEffectiveExpressionType = (
     }
   }
 
-  return storageType ?? baseType;
+  return registeredSemanticType ?? baseType;
 };

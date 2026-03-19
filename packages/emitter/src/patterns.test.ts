@@ -1437,4 +1437,270 @@ describe("Destructuring Pattern Lowering", () => {
       expect(result).to.include("double y = __arr0[1];");
     });
   });
+
+  describe("Shared Semantic Infrastructure", () => {
+    // Helper to create a reference type with structural members
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const refTypeWithMembers = (name: string, members: any[]): IrType =>
+      ({
+        kind: "referenceType",
+        name,
+        resolvedClrType: name,
+        structuralMembers: members,
+      }) as IrType;
+
+    it("should register typed declaration for object-rest local binding", () => {
+      const restMembers = [
+        {
+          kind: "propertySignature" as const,
+          name: "extra",
+          type: stringType,
+          isOptional: false,
+          isReadonly: false,
+        },
+      ];
+
+      const fullMembers = [
+        {
+          kind: "propertySignature" as const,
+          name: "id",
+          type: numberType,
+          isOptional: false,
+          isReadonly: false,
+        },
+        ...restMembers,
+      ];
+
+      // The synthesized rest shape type must be declared in the module
+      // (the frontend normally creates this).
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "TestApp",
+        className: "test",
+        isStaticContainer: false,
+        imports: [],
+        body: [
+          {
+            kind: "interfaceDeclaration",
+            name: "__RestShape0",
+            members: restMembers,
+            extends: [],
+            typeParameters: [],
+            isExported: false,
+            isStruct: false,
+          },
+          {
+            kind: "functionDeclaration",
+            name: "testFunc",
+            parameters: [],
+            returnType: { kind: "voidType" },
+            body: {
+              kind: "blockStatement",
+              statements: [
+                {
+                  kind: "variableDeclaration",
+                  declarationKind: "const",
+                  declarations: [
+                    {
+                      kind: "variableDeclarator",
+                      name: {
+                        kind: "objectPattern",
+                        properties: [
+                          {
+                            kind: "property" as const,
+                            key: "id",
+                            value: {
+                              kind: "identifierPattern",
+                              name: "id",
+                            },
+                            shorthand: true,
+                          },
+                          {
+                            kind: "rest" as const,
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "rest",
+                            },
+                            restShapeMembers: restMembers,
+                            restSynthTypeName: "__RestShape0",
+                          },
+                        ],
+                      },
+                      type: refTypeWithMembers("FullObj", fullMembers),
+                      initializer: { kind: "identifier", name: "obj" },
+                    },
+                  ],
+                  isExported: false,
+                },
+              ],
+            },
+            isExported: true,
+            isAsync: false,
+            isGenerator: false,
+          },
+        ],
+        exports: [],
+      };
+
+      const result = emitModule(module);
+
+      // rest binding should get a typed declaration, not var
+      expect(result).to.include("__RestShape0 rest");
+      // id should still get its type
+      expect(result).to.include("double id");
+    });
+
+    it("should resolve array element type through alias", () => {
+      // type Names = string[];  →  const [first] = names;
+      const aliasType: IrType = {
+        kind: "referenceType",
+        name: "Names",
+      };
+
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "TestApp",
+        className: "test",
+        isStaticContainer: false,
+        imports: [],
+        body: [
+          {
+            kind: "typeAliasDeclaration",
+            name: "Names",
+            typeParameters: [],
+            type: arrayType(stringType),
+            isExported: false,
+            isStruct: false,
+          },
+          {
+            kind: "functionDeclaration",
+            name: "testFunc",
+            parameters: [],
+            returnType: { kind: "voidType" },
+            body: {
+              kind: "blockStatement",
+              statements: [
+                {
+                  kind: "variableDeclaration",
+                  declarationKind: "const",
+                  declarations: [
+                    {
+                      kind: "variableDeclarator",
+                      name: {
+                        kind: "arrayPattern",
+                        elements: [
+                          {
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "first",
+                            },
+                            isRest: false,
+                          },
+                        ],
+                      },
+                      type: aliasType,
+                      initializer: { kind: "identifier", name: "names" },
+                    },
+                  ],
+                  isExported: false,
+                },
+              ],
+            },
+            isExported: true,
+            isAsync: false,
+            isGenerator: false,
+          },
+        ],
+        exports: [],
+      };
+
+      const result = emitModule(module);
+
+      // element type should resolve through the alias to string
+      expect(result).to.include("string first");
+    });
+
+    it("should resolve property type through shared getPropertyType with structural members", () => {
+      const members = [
+        {
+          kind: "propertySignature" as const,
+          name: "label",
+          type: stringType,
+          isOptional: false,
+          isReadonly: false,
+        },
+      ];
+
+      const module = createModule([
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: {
+                kind: "objectPattern",
+                properties: [
+                  {
+                    kind: "property" as const,
+                    key: "label",
+                    value: { kind: "identifierPattern", name: "label" },
+                    shorthand: true,
+                  },
+                ],
+              },
+              type: refTypeWithMembers("Widget", members),
+              initializer: { kind: "identifier", name: "widget" },
+            },
+          ],
+          isExported: false,
+        },
+      ]);
+
+      const result = emitModule(module);
+
+      // property type resolved through shared getPropertyType with structural members
+      expect(result).to.include("string label");
+    });
+
+    it("should lower single-element tuple via ValueTuple member access, not array indexer", () => {
+      // const [only]: [string] = tuple;  →  string only = __tuple0.Item1;
+      const tupleType: IrType = {
+        kind: "tupleType",
+        elementTypes: [stringType],
+      };
+
+      const module = createModule([
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: {
+                kind: "arrayPattern",
+                elements: [
+                  {
+                    pattern: { kind: "identifierPattern", name: "only" },
+                    isRest: false,
+                  },
+                ],
+              },
+              type: tupleType,
+              initializer: { kind: "identifier", name: "tuple" },
+            },
+          ],
+          isExported: false,
+        },
+      ]);
+
+      const result = emitModule(module);
+
+      // Must use ValueTuple member access, not array indexer
+      expect(result).to.include("__tuple0.Item1");
+      expect(result).to.not.include("[0]");
+    });
+  });
 });

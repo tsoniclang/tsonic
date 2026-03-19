@@ -24,8 +24,7 @@ import {
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { identifierType } from "../../../core/format/backend-ast/builders.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
-import { registerLocalValueType } from "../../../core/format/local-names.js";
-import { normalizeRuntimeStorageType } from "../../../core/semantic/storage-types.js";
+import { registerParameterTypes } from "../../../core/semantic/symbol-types.js";
 import { emitCSharpName } from "../../../naming-policy.js";
 import type {
   CSharpMemberAst,
@@ -55,9 +54,9 @@ const seedLocalNameMapFromParameters = (
       const emitted = escapeCSharpIdentifier(p.pattern.name);
       map.set(p.pattern.name, emitted);
       used.add(emitted);
-      currentContext = registerLocalValueType(
+      currentContext = registerParameterTypes(
         p.pattern.name,
-        normalizeRuntimeStorageType(p.type, currentContext),
+        p.type,
         currentContext
       );
     }
@@ -82,6 +81,7 @@ export const emitMethodMember = (
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
     localNameMap: context.localNameMap,
+    localSemanticTypes: context.localSemanticTypes,
     localValueTypes: context.localValueTypes,
     usedLocalNames: context.usedLocalNames,
   };

@@ -12,12 +12,18 @@ import { createProgramContext } from "./program-context.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { IrIdentifierExpression } from "./types.js";
+import type { DeclId } from "./type-system/types.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
 import { extractTypeName } from "./converters/expressions/access/member-resolution.js";
 import { resolveHierarchicalBinding } from "./converters/expressions/access/binding-resolution.js";
 
 describe("Binding Resolution in IR", () => {
+  const createTestDeclId = (id: number): DeclId => ({
+    __brand: "DeclId",
+    id,
+  });
+
   const createTestProgram = (
     source: string,
     bindings?: BindingRegistry,
@@ -312,7 +318,7 @@ describe("Binding Resolution in IR", () => {
           inferredType: { kind: "referenceType", name: "Console" },
           resolvedClrType: "Tsonic.JSRuntime.console",
           resolvedAssembly: "Tsonic.JSRuntime",
-        } as any,
+        } satisfies IrIdentifierExpression,
         "error",
         ctx
       );
@@ -360,7 +366,7 @@ describe("Binding Resolution in IR", () => {
           inferredType: { kind: "referenceType", name: "Array" },
           resolvedClrType: "Tsonic.JSRuntime.JSArray`1",
           resolvedAssembly: "Tsonic.JSRuntime",
-        } as any,
+        } satisfies IrIdentifierExpression,
         "isArray",
         ctx
       );
@@ -405,11 +411,11 @@ describe("Binding Resolution in IR", () => {
         {
           kind: "identifier",
           name: "Array",
-          declId: "ambient:Array" as any,
+          declId: createTestDeclId(1),
           inferredType: { kind: "referenceType", name: "Array" },
           resolvedClrType: "Tsonic.JSRuntime.JSArray`1",
           resolvedAssembly: "Tsonic.JSRuntime",
-        } as any,
+        } satisfies IrIdentifierExpression,
         "from",
         ctx
       );
@@ -466,9 +472,9 @@ describe("Binding Resolution in IR", () => {
         {
           kind: "identifier",
           name: "console",
-          declId: "ambient:console" as any,
+          declId: createTestDeclId(2),
           inferredType: { kind: "referenceType", name: "Console" },
-        } as any,
+        } satisfies IrIdentifierExpression,
         "error",
         ctx
       );
@@ -516,7 +522,7 @@ describe("Binding Resolution in IR", () => {
         {
           kind: "identifier",
           name: "process",
-          declId: "local:process" as any,
+          declId: createTestDeclId(3),
           inferredType: {
             kind: "unionType",
             types: [
@@ -524,7 +530,7 @@ describe("Binding Resolution in IR", () => {
               { kind: "referenceType", name: "Process" },
             ],
           },
-        } as any,
+        } satisfies IrIdentifierExpression,
         "ExitCode",
         ctx
       );

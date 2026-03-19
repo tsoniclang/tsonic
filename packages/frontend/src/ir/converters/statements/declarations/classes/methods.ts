@@ -13,6 +13,7 @@ import {
   IrStatement,
   IrType,
 } from "../../../../types.js";
+import { normalizedUnionType } from "../../../../types/type-ops.js";
 import { convertBlockStatement } from "../../control.js";
 import {
   hasStaticModifier,
@@ -379,13 +380,37 @@ const specializeExpression = (
         left: specializeExpression(expr.left, paramTypesByDeclId),
         right: specializeExpression(expr.right, paramTypesByDeclId),
       };
-    case "conditional":
+    case "conditional": {
+      const condition = specializeExpression(
+        expr.condition,
+        paramTypesByDeclId
+      );
+      const whenTrue = specializeExpression(expr.whenTrue, paramTypesByDeclId);
+      const whenFalse = specializeExpression(
+        expr.whenFalse,
+        paramTypesByDeclId
+      );
+
+      const inferredType = (() => {
+        const trueType = whenTrue.inferredType;
+        const falseType = whenFalse.inferredType;
+
+        if (!trueType) return falseType;
+        if (!falseType) return trueType;
+        if (typesEqualForIsType(trueType, falseType)) {
+          return trueType;
+        }
+        return normalizedUnionType([trueType, falseType]);
+      })();
+
       return {
         ...expr,
-        condition: specializeExpression(expr.condition, paramTypesByDeclId),
-        whenTrue: specializeExpression(expr.whenTrue, paramTypesByDeclId),
-        whenFalse: specializeExpression(expr.whenFalse, paramTypesByDeclId),
+        condition,
+        whenTrue,
+        whenFalse,
+        inferredType,
       };
+    }
     case "assignment":
       return {
         ...expr,
@@ -984,6 +1009,32 @@ const OVERLOAD_IMPL_PREFIX = "__tsonic_overload_impl_";
 const getOverloadImplementationName = (memberName: string): string =>
   `${OVERLOAD_IMPL_PREFIX}${memberName}`;
 
+const buildPublicOverloadFamilyMember = (
+  memberName: string,
+  signatureIndex: number,
+  publicSignatureCount: number,
+  implementationName?: string
+): NonNullable<IrMethodDeclaration["overloadFamily"]> => ({
+  ownerKind: "method",
+  publicName: memberName,
+  role: "publicOverload",
+  publicSignatureIndex: signatureIndex,
+  publicSignatureCount,
+  implementationName,
+});
+
+const buildImplementationOverloadFamilyMember = (
+  memberName: string,
+  publicSignatureCount: number,
+  implementationName: string
+): NonNullable<IrMethodDeclaration["overloadFamily"]> => ({
+  ownerKind: "method",
+  publicName: memberName,
+  role: "implementation",
+  publicSignatureCount,
+  implementationName,
+});
+
 const getIdentifierPatternName = (parameter: IrParameter): string => {
   if (parameter.pattern.kind !== "identifierPattern") {
     throw new Error(
@@ -1112,17 +1163,16 @@ const buildWrapperRestElementOrUndefinedExpression = (
           inferredType: targetType,
         } satisfies IrExpression)
       : elementExpression;
+  const whenTrueType = whenTrueExpression.inferredType;
+  const fallbackType = fallbackExpression.inferredType;
   const inferredType =
     targetType ??
-    (whenTrueExpression.inferredType
+    (whenTrueType && fallbackType
       ? ({
           kind: "unionType",
-          types: [
-            whenTrueExpression.inferredType,
-            fallbackExpression.inferredType!,
-          ],
+          types: [whenTrueType, fallbackType],
         } satisfies IrType)
-      : whenTrueExpression.inferredType);
+      : (whenTrueType ?? fallbackType));
 
   const conditionalExpr: IrExpression = {
     kind: "conditional",
@@ -1156,45 +1206,22 @@ const buildWrapperRestElementOrUndefinedExpression = (
 
 const buildWrapperRestSliceSpread = (
   parameter: IrParameter,
-  startIndex: number,
-  targetType: IrType | undefined
+  startIndex: number
 ): IrSpreadExpression => ({
   kind: "spread",
-  expression:
-    targetType &&
-    parameter.type &&
-    !typesEqualForIsType(parameter.type, targetType)
-      ? {
-          kind: "typeAssertion",
-          expression: {
-            kind: "call",
-            callee: {
-              kind: "memberAccess",
-              object: buildWrapperRestIdentifier(parameter),
-              property: "slice",
-              isComputed: false,
-              isOptional: false,
-            },
-            arguments: [numericIndexLiteral(startIndex)],
-            isOptional: false,
-            inferredType: parameter.type,
-          },
-          targetType,
-          inferredType: targetType,
-        }
-      : {
-          kind: "call",
-          callee: {
-            kind: "memberAccess",
-            object: buildWrapperRestIdentifier(parameter),
-            property: "slice",
-            isComputed: false,
-            isOptional: false,
-          },
-          arguments: [numericIndexLiteral(startIndex)],
-          isOptional: false,
-          inferredType: parameter.type,
-        },
+  expression: {
+    kind: "call",
+    callee: {
+      kind: "memberAccess",
+      object: buildWrapperRestIdentifier(parameter),
+      property: "slice",
+      isComputed: false,
+      isOptional: false,
+    },
+    arguments: [numericIndexLiteral(startIndex)],
+    isOptional: false,
+    inferredType: parameter.type,
+  },
 });
 
 const coerceForwardedArgumentToTargetType = (
@@ -1241,11 +1268,7 @@ const buildForwardedCallArguments = (
         const restStartIndex =
           helperIndex >= wrapperRestIndex ? helperIndex - wrapperRestIndex : 0;
         forwardedArgs.push(
-          buildWrapperRestSliceSpread(
-            wrapperRestParameter,
-            restStartIndex,
-            helperParameter.type
-          )
+          buildWrapperRestSliceSpread(wrapperRestParameter, restStartIndex)
         );
       } else if (helperIndex < wrapperParameters.length) {
         const wrapperParameter = wrapperParameters[helperIndex];
@@ -1590,6 +1613,11 @@ export const convertMethodOverloadGroup = (
     const helperMethod: IrMethodDeclaration = {
       ...implMethod,
       name: helperName,
+      overloadFamily: buildImplementationOverloadFamilyMember(
+        memberName,
+        sigs.length,
+        helperName
+      ),
       body: implMethod.body
         ? (adaptReturnStatements(
             implMethod.body,
@@ -1603,7 +1631,7 @@ export const convertMethodOverloadGroup = (
     };
 
     const wrappers: IrMethodDeclaration[] = [];
-    for (const sig of sigs) {
+    for (const [signatureIndex, sig] of sigs.entries()) {
       const sigParams = convertParameters(sig.parameters, ctx);
       const returnType = sig.type
         ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(sig.type))
@@ -1646,6 +1674,12 @@ export const convertMethodOverloadGroup = (
           returnType,
           (sig.typeParameters ?? []).map((tp) => tp.name.text)
         ),
+        overloadFamily: buildPublicOverloadFamilyMember(
+          memberName,
+          signatureIndex,
+          sigs.length,
+          helperName
+        ),
         isStatic,
         isAsync: false,
         isGenerator: false,
@@ -1660,7 +1694,7 @@ export const convertMethodOverloadGroup = (
 
   // Convert each signature into a concrete method emission.
   const out: IrMethodDeclaration[] = [];
-  for (const sig of sigs) {
+  for (const [signatureIndex, sig] of sigs.entries()) {
     const sigParams = convertParameters(sig.parameters, ctx);
     const returnType = sig.type
       ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(sig.type))
@@ -1736,6 +1770,11 @@ export const convertMethodOverloadGroup = (
       parameters,
       returnType,
       body: adapted,
+      overloadFamily: buildPublicOverloadFamilyMember(
+        memberName,
+        signatureIndex,
+        sigs.length
+      ),
       isStatic,
       isAsync,
       isGenerator,

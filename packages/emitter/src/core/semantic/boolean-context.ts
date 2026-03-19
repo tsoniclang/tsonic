@@ -21,7 +21,8 @@ import {
   splitRuntimeNullishUnionMembers,
   substituteTypeArgs,
 } from "./type-resolution.js";
-import { buildRuntimeUnionFrame } from "./runtime-unions.js";
+import { applyLogicalOperandNarrowing } from "./condition-branch-narrowing.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 import {
   booleanLiteral,
   charLiteral,
@@ -603,8 +604,8 @@ const emitUnionTruthinessConditionAst = (
   }
 
   // 2-8 unions use runtime Union<T1..Tn>. We must inspect the active variant.
-  const runtimeFrame = buildRuntimeUnionFrame(unionType, context);
-  if (runtimeFrame) {
+  const runtimeMembers = getCanonicalRuntimeUnionMembers(unionType, context);
+  if (runtimeMembers) {
     const nextId = (context.tempVarId ?? 0) + 1;
     const ctxWithId: EmitterContext = {
       ...context,
@@ -620,9 +621,9 @@ const emitUnionTruthinessConditionAst = (
     let chainCtx = alloc.context;
     const branchAsts: CSharpExpressionAst[] = [];
 
-    for (let i = 0; i < runtimeFrame.members.length; i++) {
+    for (let i = 0; i < runtimeMembers.length; i++) {
       const memberN = i + 1;
-      const memberType = runtimeFrame.members[i];
+      const memberType = runtimeMembers[i];
       if (!memberType || isRuntimeNullishType(memberType)) {
         branchAsts.push(booleanLiteral(false));
         continue;
@@ -938,11 +939,23 @@ export const emitBooleanConditionAst = (
       emitExprAst,
       context
     );
+    const rightBaseContext = applyLogicalOperandNarrowing(
+      expr.left,
+      expr.operator,
+      leftCtx,
+      emitExprAst
+    );
     const [rightAst, rightCtx] = emitBooleanConditionAst(
       expr.right,
       emitExprAst,
-      leftCtx
+      rightBaseContext
     );
+    const finalContext: EmitterContext = {
+      ...rightCtx,
+      tempVarId: Math.max(leftCtx.tempVarId ?? 0, rightCtx.tempVarId ?? 0),
+      usings: new Set([...(leftCtx.usings ?? []), ...(rightCtx.usings ?? [])]),
+      narrowedBindings: leftCtx.narrowedBindings,
+    };
 
     return [
       {
@@ -951,7 +964,7 @@ export const emitBooleanConditionAst = (
         left: leftAst,
         right: rightAst,
       },
-      rightCtx,
+      finalContext,
     ];
   }
 

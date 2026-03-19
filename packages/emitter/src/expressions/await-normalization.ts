@@ -4,9 +4,10 @@ import { emitTypeAst } from "../type-emitter.js";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import { splitRuntimeNullishUnionMembers } from "../core/semantic/type-resolution.js";
 import {
-  buildRuntimeUnionLayout,
+  emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
 } from "../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionFactoryCallAst } from "../core/semantic/runtime-union-projection.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -32,23 +33,6 @@ const buildTaskFromResultExpression = (
   arguments: [exprAst],
 });
 
-const buildUnionFactoryCallAst = (
-  unionTypeAst: CSharpTypeAst,
-  memberIndex: number,
-  valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "typeReferenceExpression",
-      type: unionTypeAst,
-    },
-    memberName: `From${memberIndex}`,
-  },
-  arguments: [valueAst],
-});
-
 const requiresExplicitTaskFromResultType = (
   exprAst: CSharpExpressionAst
 ): boolean =>
@@ -63,7 +47,11 @@ const buildDefaultTaskAst = (
     return [buildCompletedTaskAst(), context];
   }
 
-  const [resultTypeAst, nextContext] = emitTypeAst(resultType, context);
+  const [resultTypeAst, , nextContext] = emitRuntimeCarrierTypeAst(
+    resultType,
+    context,
+    emitTypeAst
+  );
   return [
     buildTaskFromResultExpression(
       {
@@ -152,16 +140,8 @@ const buildPromotedAwaitResultValueAst = (
     return [valueAst, undefined, context];
   }
 
-  const [resultTypeAst, resultTypeContext] = emitTypeAst(resultType, context);
-  if (resultType.kind !== "unionType") {
-    return [valueAst, resultTypeAst, resultTypeContext];
-  }
-
-  const [runtimeLayout, layoutContext] = buildRuntimeUnionLayout(
-    resultType,
-    resultTypeContext,
-    emitTypeAst
-  );
+  const [resultTypeAst, runtimeLayout, resultTypeContext] =
+    emitRuntimeCarrierTypeAst(resultType, context, emitTypeAst);
   if (!runtimeLayout) {
     return [valueAst, resultTypeAst, resultTypeContext];
   }
@@ -169,16 +149,20 @@ const buildPromotedAwaitResultValueAst = (
   const runtimeMemberIndex = findRuntimeUnionMemberIndex(
     runtimeLayout.members,
     valueType,
-    layoutContext
+    resultTypeContext
   );
   if (runtimeMemberIndex === undefined) {
-    return [valueAst, resultTypeAst, layoutContext];
+    return [valueAst, resultTypeAst, resultTypeContext];
   }
 
   return [
-    buildUnionFactoryCallAst(resultTypeAst, runtimeMemberIndex + 1, valueAst),
+    buildRuntimeUnionFactoryCallAst(
+      resultTypeAst,
+      runtimeMemberIndex + 1,
+      valueAst
+    ),
     resultTypeAst,
-    layoutContext,
+    resultTypeContext,
   ];
 };
 
@@ -194,9 +178,15 @@ export const emitNormalizedAwaitTaskAst = (
     const explicitResultType = requiresExplicitTaskFromResultType(valueAst)
       ? (resultType ?? valueType)
       : undefined;
-    const [resultTypeAst, resultTypeContext] = explicitResultType
-      ? emitTypeAst(explicitResultType, currentContext)
-      : [undefined, currentContext];
+    let resultTypeAst: CSharpTypeAst | undefined;
+    let resultTypeContext = currentContext;
+    if (explicitResultType) {
+      [resultTypeAst, , resultTypeContext] = emitRuntimeCarrierTypeAst(
+        explicitResultType,
+        currentContext,
+        emitTypeAst
+      );
+    }
 
     return [
       buildTaskFromResultExpression(valueAst, resultTypeAst),
@@ -413,9 +403,15 @@ export const emitNormalizedAwaitTaskAst = (
   }
 
   const needsExplicitResultType = requiresExplicitTaskFromResultType(valueAst);
-  const [resultTypeAst, resultTypeContext] = needsExplicitResultType
-    ? emitTypeAst(resultType, currentContext)
-    : [undefined, currentContext];
+  let resultTypeAst: CSharpTypeAst | undefined;
+  let resultTypeContext = currentContext;
+  if (needsExplicitResultType) {
+    [resultTypeAst, , resultTypeContext] = emitRuntimeCarrierTypeAst(
+      resultType,
+      currentContext,
+      emitTypeAst
+    );
+  }
 
   return [
     buildTaskFromResultExpression(valueAst, resultTypeAst),

@@ -1903,9 +1903,14 @@ export const typeOfMemberId = (
 
       return (
         (normalizedReceiver === "Array" &&
-          normalizedDeclaring === "ReadonlyArray") ||
+          (normalizedDeclaring === "ReadonlyArray" ||
+            normalizedDeclaring === "ArrayLike")) ||
         (normalizedReceiver === "ReadonlyArray" &&
-          normalizedDeclaring === "Array")
+          (normalizedDeclaring === "Array" ||
+            normalizedDeclaring === "ArrayLike")) ||
+        (normalizedReceiver === "ArrayLike" &&
+          (normalizedDeclaring === "Array" ||
+            normalizedDeclaring === "ReadonlyArray"))
       );
     };
 

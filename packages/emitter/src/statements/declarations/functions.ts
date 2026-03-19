@@ -21,11 +21,8 @@ import {
 } from "../../generator-wrapper.js";
 import { emitAttributes } from "../../core/format/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
-import {
-  allocateLocalName,
-  registerLocalValueType,
-} from "../../core/format/local-names.js";
-import { normalizeRuntimeStorageType } from "../../core/semantic/storage-types.js";
+import { allocateLocalName } from "../../core/format/local-names.js";
+import { registerParameterTypes } from "../../core/semantic/symbol-types.js";
 import {
   identifierType,
   nullableType,
@@ -58,9 +55,9 @@ const seedLocalNameMapFromParameters = (
       const emitted = escapeCSharpIdentifier(p.pattern.name);
       map.set(p.pattern.name, emitted);
       used.add(emitted);
-      currentContext = registerLocalValueType(
+      currentContext = registerParameterTypes(
         p.pattern.name,
-        normalizeRuntimeStorageType(p.type, currentContext),
+        p.type,
         currentContext
       );
     }
@@ -83,6 +80,7 @@ const restoreFunctionScopeContext = (
     readonly narrowedBindings: EmitterContext["narrowedBindings"];
     readonly voidResolveNames: EmitterContext["voidResolveNames"];
     readonly localNameMap: EmitterContext["localNameMap"];
+    readonly localSemanticTypes: EmitterContext["localSemanticTypes"];
     readonly localValueTypes: EmitterContext["localValueTypes"];
     readonly usedLocalNames: EmitterContext["usedLocalNames"];
   }
@@ -94,6 +92,7 @@ const restoreFunctionScopeContext = (
   isStatic: outerContext.isStatic,
   isAsync: outerContext.isAsync,
   className: outerContext.className,
+  localSemanticTypes: outerContext.localSemanticTypes,
   localValueTypes: outerContext.localValueTypes,
 });
 
@@ -115,6 +114,7 @@ export const emitFunctionDeclaration = (
     narrowedBindings: context.narrowedBindings,
     voidResolveNames: context.voidResolveNames,
     localNameMap: context.localNameMap,
+    localSemanticTypes: context.localSemanticTypes,
     localValueTypes: context.localValueTypes,
     usedLocalNames: context.usedLocalNames,
   };
@@ -596,6 +596,7 @@ export const emitFunctionDeclarationAst = (
     narrowedBindings: context.narrowedBindings,
     voidResolveNames: context.voidResolveNames,
     localNameMap: context.localNameMap,
+    localSemanticTypes: context.localSemanticTypes,
     localValueTypes: context.localValueTypes,
     usedLocalNames: context.usedLocalNames,
   };

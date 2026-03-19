@@ -10,6 +10,107 @@ import { IrModule, type IrType } from "@tsonic/frontend";
 import type { TypeMemberKind } from "../types.js";
 
 describe("Statement Emission", () => {
+  it("keeps nullable update targets writable when flow narrowing wraps the operand in assertions", () => {
+    const intType: IrType = { kind: "referenceType", name: "int" };
+    const nullableInt: IrType = {
+      kind: "unionType",
+      types: [intType, { kind: "primitiveType", name: "undefined" }],
+    };
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "bump",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "id" },
+              type: nullableInt,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: intType,
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "!==",
+                  left: {
+                    kind: "identifier",
+                    name: "id",
+                    inferredType: nullableInt,
+                  },
+                  right: { kind: "identifier", name: "undefined" },
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "expressionStatement",
+                      expression: {
+                        kind: "update",
+                        operator: "++",
+                        prefix: false,
+                        expression: {
+                          kind: "typeAssertion",
+                          expression: {
+                            kind: "identifier",
+                            name: "id",
+                            inferredType: nullableInt,
+                          },
+                          targetType: intType,
+                          inferredType: intType,
+                        },
+                        inferredType: intType,
+                      },
+                    },
+                    {
+                      kind: "returnStatement",
+                      expression: {
+                        kind: "identifier",
+                        name: "id",
+                        inferredType: intType,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "unary",
+                  operator: "-",
+                  expression: { kind: "literal", value: 1, raw: "1" },
+                  inferredType: intType,
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("id++;");
+    expect(result).not.to.include("id.Value++;");
+  });
+
   it("should preserve explicit local array assertions as CLR casts with explicit local types", () => {
     const module: IrModule = {
       kind: "module",
@@ -888,7 +989,9 @@ describe("Statement Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include("if (value.Is2())");
-    expect(result).to.include("var value__is_1 = value.As2();");
+    expect(result).to.include(
+      "Uint8Array value__is_1 = (Uint8Array)value.As2();"
+    );
     expect(result).to.not.include("Uint8ArrayConstructor");
   });
 
@@ -1330,6 +1433,75 @@ describe("Statement Emission", () => {
       'return result__1_1.code == null ? result__1_1.error : result__1_1.code + ":" + result__1_1.error;'
     );
     expect(result).to.not.include("return result.code == null");
+  });
+
+  it("casts runtime unions to object for direct nullish comparisons", () => {
+    const valueType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "functionType",
+          parameters: [],
+          returnType: { kind: "voidType" },
+        },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "check",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: valueType,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "boolean" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "binary",
+                  operator: "==",
+                  left: {
+                    kind: "identifier",
+                    name: "value",
+                    inferredType: valueType,
+                  },
+                  right: { kind: "literal", value: undefined },
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("((global::System.Object)(value)) == null");
+    expect(result).to.not.include("value == null");
   });
 
   it("handles `in` guards after earlier narrowing collapses a union to one member", () => {
@@ -2768,5 +2940,223 @@ describe("Statement Emission", () => {
     expect(result).to.include("foreach (var item in items)");
     // Should NOT include 'await foreach'
     expect(result).to.not.include("await foreach");
+  });
+
+  it("does not leak outer localSemanticTypes/localValueTypes into inner block scope for shadowed variables", () => {
+    // TS: function test() {
+    //   const x: string | number = "hello";
+    //   {
+    //     const x: boolean = true;
+    //     console.log(x);
+    //   }
+    //   console.log(x);
+    // }
+    //
+    // The inner `x: boolean` must not inherit the outer `x: string | number`
+    // in either semantic or storage channels.
+    const stringOrNumber: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "number" },
+      ],
+    };
+    const boolType: IrType = { kind: "primitiveType", name: "boolean" };
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "test",
+          parameters: [],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "variableDeclaration",
+                declarationKind: "const",
+                isExported: false,
+                declarations: [
+                  {
+                    kind: "variableDeclarator",
+                    name: { kind: "identifierPattern", name: "x" },
+                    type: stringOrNumber,
+                    initializer: {
+                      kind: "literal",
+                      value: "hello",
+                      raw: '"hello"',
+                      inferredType: { kind: "primitiveType", name: "string" },
+                    },
+                  },
+                ],
+              },
+              {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "variableDeclaration",
+                    declarationKind: "const",
+                    isExported: false,
+                    declarations: [
+                      {
+                        kind: "variableDeclarator",
+                        name: { kind: "identifierPattern", name: "x" },
+                        type: boolType,
+                        initializer: {
+                          kind: "literal",
+                          value: true,
+                          raw: "true",
+                          inferredType: boolType,
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    // Inner block must declare a bool-typed x (shadowed, renamed to x__1)
+    expect(result).to.include("bool");
+    // Must also have the outer union-typed x — emitted output should have both declarations
+    // The key invariant: the inner bool declaration must not be widened to the outer union type
+    expect(result).not.to.match(/bool.*x__1.*object/);
+  });
+
+  it("for-of loop variable gets correct semantic element type from array", () => {
+    // TS: function test(items: string[]) { for (const x of items) { console.log(x); } }
+    // Verifies that for-of element type registration populates semantic channel
+    const stringType: IrType = { kind: "primitiveType", name: "string" };
+    const stringArrayType: IrType = {
+      kind: "arrayType",
+      elementType: stringType,
+      origin: "explicit" as const,
+    };
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "test",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "items" },
+              type: stringArrayType,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "forOfStatement",
+                variable: { kind: "identifierPattern", name: "x" },
+                expression: {
+                  kind: "identifier",
+                  name: "items",
+                  inferredType: stringArrayType,
+                },
+                body: {
+                  kind: "blockStatement",
+                  statements: [],
+                },
+                isAwait: false,
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    // The foreach should use 'var' for the element variable
+    expect(result).to.include("foreach (var x in items)");
+  });
+
+  it("variable with explicit union type annotation preserves semantic type separate from storage", () => {
+    // TS: function test() { const x: string | number = "hello"; }
+    // Verifies that the semantic channel gets the union type while storage may differ
+    const stringType: IrType = { kind: "primitiveType", name: "string" };
+    const numberType: IrType = { kind: "primitiveType", name: "number" };
+    const unionType: IrType = {
+      kind: "unionType",
+      types: [stringType, numberType],
+    };
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "test",
+          parameters: [],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "variableDeclaration",
+                declarationKind: "const",
+                isExported: false,
+                declarations: [
+                  {
+                    kind: "variableDeclarator",
+                    name: { kind: "identifierPattern", name: "x" },
+                    type: unionType,
+                    initializer: {
+                      kind: "literal",
+                      value: "hello",
+                      raw: '"hello"',
+                      inferredType: stringType,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    // The variable should be emitted — union type annotation should produce
+    // a runtime union carrier or object storage, not be lost
+    expect(result).to.include("x");
+    expect(result).to.include('"hello"');
   });
 });

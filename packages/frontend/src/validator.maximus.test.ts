@@ -1544,6 +1544,24 @@ describe("Maximus Validation Coverage", () => {
           void read;
         `,
       },
+      {
+        name: "anonymous object callback properties keep builtin PromiseLike resolvable",
+        source: `
+          type AppHandlers = {
+            readonly handleHealth: (ctx: number) => PromiseLike<void>;
+            readonly handleMetrics: (ctx: number) => PromiseLike<void>;
+          };
+
+          function createAppHandlers(): AppHandlers {
+            return {
+              handleHealth: async (_ctx: number): PromiseLike<void> => {},
+              handleMetrics: async (_ctx: number): PromiseLike<void> => {},
+            };
+          }
+
+          void createAppHandlers;
+        `,
+      },
     ];
 
     for (const c of allowCases) {

@@ -22,6 +22,7 @@ import {
   containsTypeParameter,
   typesEqual,
 } from "../../types/ir-substitution.js";
+import { stableIrTypeKey } from "../../types/type-ops.js";
 import { getSourceSpan, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { checkSynthesisEligibility } from "../anonymous-synthesis.js";
@@ -348,6 +349,114 @@ const getPropertyExpectedType = (
   return undefined;
 };
 
+const selectObjectLiteralContextualType = (
+  expectedType: IrType | undefined,
+  literalKeys: readonly string[],
+  ctx: ProgramContext
+): IrType | undefined => {
+  if (!expectedType || literalKeys.length === 0) {
+    return expectedType;
+  }
+
+  type Candidate = {
+    readonly type: IrType;
+    readonly kind: "dictionary" | "object";
+    readonly propertyCount: number;
+  };
+
+  const candidates: Candidate[] = [];
+  const seen = new Set<string>();
+
+  const collectObjectPropertyNames = (type: IrType): readonly string[] => {
+    if (type.kind === "objectType") {
+      return type.members
+        .filter(
+          (
+            member
+          ): member is Extract<typeof member, { kind: "propertySignature" }> =>
+            member.kind === "propertySignature"
+        )
+        .map((member) => member.name);
+    }
+
+    if (type.kind === "referenceType") {
+      if (type.structuralMembers?.length) {
+        return type.structuralMembers
+          .filter(
+            (
+              member
+            ): member is Extract<
+              typeof member,
+              { kind: "propertySignature" }
+            > => member.kind === "propertySignature"
+          )
+          .map((member) => member.name);
+      }
+    }
+
+    return [];
+  };
+
+  for (const candidate of ctx.typeSystem
+    .collectNarrowingCandidates(expectedType)
+    .filter(
+      (member): member is IrType => !!member && !isNullishPrimitive(member)
+    )) {
+    const candidateKey = stableIrTypeKey(candidate);
+    if (seen.has(candidateKey)) {
+      continue;
+    }
+    seen.add(candidateKey);
+
+    if (candidate.kind === "dictionaryType") {
+      candidates.push({
+        type: candidate,
+        kind: "dictionary",
+        propertyCount: Number.POSITIVE_INFINITY,
+      });
+      continue;
+    }
+
+    if (candidate.kind !== "objectType" && candidate.kind !== "referenceType") {
+      continue;
+    }
+
+    if (
+      literalKeys.every(
+        (key) => getPropertyExpectedType(key, candidate, ctx) !== undefined
+      )
+    ) {
+      candidates.push({
+        type: candidate,
+        kind: "object",
+        propertyCount: collectObjectPropertyNames(candidate).length,
+      });
+    }
+  }
+
+  if (candidates.length === 0) {
+    return expectedType;
+  }
+
+  candidates.sort((left, right) => {
+    if (left.kind !== right.kind) {
+      return left.kind === "object" ? -1 : 1;
+    }
+
+    if (left.kind === "object" && right.kind === "object") {
+      if (left.propertyCount !== right.propertyCount) {
+        return left.propertyCount - right.propertyCount;
+      }
+    }
+
+    return stableIrTypeKey(left.type).localeCompare(
+      stableIrTypeKey(right.type)
+    );
+  });
+
+  return candidates[0]?.type ?? expectedType;
+};
+
 const unwrapDeterministicKeyExpression = (
   expr: ts.Expression
 ): ts.Expression => {
@@ -496,17 +605,23 @@ const normalizeExpectedFunctionType = (
   ctx: ProgramContext
 ): IrFunctionType | undefined => {
   if (!expectedType) return undefined;
-  const candidates = ctx.typeSystem
-    .collectExpectedReturnCandidates(expectedType)
+  const candidateMap = new Map<string, IrFunctionType>();
+  for (const member of ctx.typeSystem
+    .collectNarrowingCandidates(expectedType)
     .filter(
-      (member): member is IrType => !!member && !isNullishPrimitive(member)
-    )
-    .map((member) => {
-      if (member.kind === "functionType") return member;
-      return ctx.typeSystem.delegateToFunctionType(member);
-    })
-    .filter((member): member is IrFunctionType => member !== undefined);
-
+      (candidate): candidate is IrType =>
+        !!candidate && !isNullishPrimitive(candidate)
+    )) {
+    const normalized =
+      member.kind === "functionType"
+        ? member
+        : ctx.typeSystem.delegateToFunctionType(member);
+    if (!normalized || containsTypeParameter(normalized)) {
+      continue;
+    }
+    candidateMap.set(stableIrTypeKey(normalized), normalized);
+  }
+  const candidates = [...candidateMap.values()];
   return candidates.length === 1 ? candidates[0] : undefined;
 };
 
@@ -516,17 +631,112 @@ const normalizeExpectedArrayType = (
 ): Extract<IrType, { kind: "arrayType" }> | undefined => {
   if (!expectedType) return undefined;
 
-  const candidates = ctx.typeSystem
-    .collectExpectedReturnCandidates(expectedType)
-    .filter(
-      (member): member is IrType => !!member && !isNullishPrimitive(member)
-    )
-    .filter(
-      (member): member is Extract<IrType, { kind: "arrayType" }> =>
-        member.kind === "arrayType" && !containsTypeParameter(member)
-    );
+  const matchesRecursiveElementTarget = (
+    left: IrType,
+    right: IrType
+  ): boolean => {
+    if (ctx.typeSystem.typesEqual(left, right)) {
+      return true;
+    }
 
-  return candidates.length === 1 ? candidates[0] : undefined;
+    if (
+      left.kind === "referenceType" &&
+      right.kind === "referenceType" &&
+      left.name === right.name &&
+      (left.typeArguments?.length ?? 0) === (right.typeArguments?.length ?? 0)
+    ) {
+      const leftArgs = left.typeArguments ?? [];
+      const rightArgs = right.typeArguments ?? [];
+      return leftArgs.every((arg, index) => {
+        const rightArg = rightArgs[index];
+        return !!rightArg && matchesRecursiveElementTarget(arg, rightArg);
+      });
+    }
+
+    return false;
+  };
+
+  const normalizeCandidate = (
+    member: IrType
+  ): Extract<IrType, { kind: "arrayType" }> | undefined => {
+    if (containsTypeParameter(member)) return undefined;
+
+    if (member.kind === "arrayType") {
+      return member;
+    }
+
+    if (
+      member.kind === "referenceType" &&
+      member.typeArguments &&
+      member.typeArguments.length > 0
+    ) {
+      const simpleName = member.name.split(".").pop() ?? member.name;
+      switch (simpleName) {
+        case "Array":
+        case "ReadonlyArray":
+        case "Iterable":
+        case "IterableIterator":
+        case "Iterator":
+        case "AsyncIterable":
+        case "AsyncIterableIterator":
+        case "Generator":
+        case "AsyncGenerator":
+        case "Set":
+        case "ReadonlySet":
+        case "JSArray":
+        case "IEnumerable":
+        case "IReadOnlyList":
+        case "List": {
+          const elementType = member.typeArguments[0];
+          return elementType
+            ? {
+                kind: "arrayType",
+                elementType,
+              }
+            : undefined;
+        }
+        default:
+          return undefined;
+      }
+    }
+
+    return undefined;
+  };
+
+  const candidateMap = new Map<
+    string,
+    Extract<IrType, { kind: "arrayType" }>
+  >();
+  for (const member of ctx.typeSystem
+    .collectNarrowingCandidates(expectedType)
+    .filter(
+      (candidate): candidate is IrType =>
+        !!candidate && !isNullishPrimitive(candidate)
+    )) {
+    const normalized = normalizeCandidate(member);
+    if (!normalized) continue;
+    candidateMap.set(stableIrTypeKey(normalized), normalized);
+  }
+
+  const candidates = [...candidateMap.values()];
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  const selfRecursiveCandidates = candidates.filter((candidate) =>
+    matchesRecursiveElementTarget(candidate.elementType, expectedType)
+  );
+  if (selfRecursiveCandidates.length === 1) {
+    return selfRecursiveCandidates[0];
+  }
+
+  const widestCandidates = candidates.filter((candidate) =>
+    candidates.every((other) =>
+      ctx.typeSystem.isAssignableTo(other.elementType, candidate.elementType)
+    )
+  );
+
+  return widestCandidates.length === 1 ? widestCandidates[0] : undefined;
 };
 
 const getExpectedFunctionParameterTypes = (
@@ -888,6 +1098,26 @@ export const convertObjectLiteral = (
   // 1) expectedType threaded from the parent converter (return, assignment, parameter, etc.)
   // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
   const contextualCandidateRaw = expectedType ?? getContextualType(node, ctx);
+  const literalKeys = node.properties
+    .map((prop) => {
+      if (ts.isPropertyAssignment(prop)) {
+        return resolveObjectLiteralMemberKey(prop.name, ctx).keyName;
+      }
+      if (ts.isShorthandPropertyAssignment(prop)) {
+        return prop.name.text;
+      }
+      if (ts.isMethodDeclaration(prop)) {
+        return resolveObjectLiteralMemberKey(prop.name, ctx).keyName;
+      }
+      if (
+        ts.isGetAccessorDeclaration(prop) ||
+        ts.isSetAccessorDeclaration(prop)
+      ) {
+        return resolveObjectLiteralMemberKey(prop.name, ctx).keyName;
+      }
+      return undefined;
+    })
+    .filter((key): key is string => key !== undefined);
 
   // Type parameters are NOT valid instantiation targets for object literals.
   //
@@ -903,7 +1133,11 @@ export const convertObjectLiteral = (
   const contextualCandidate =
     contextualCandidateRaw?.kind === "typeParameterType"
       ? undefined
-      : contextualCandidateRaw;
+      : selectObjectLiteralContextualType(
+          contextualCandidateRaw,
+          literalKeys,
+          ctx
+        );
 
   // `object`/`any`/`unknown` are not valid nominal instantiation targets for object literals.
   //

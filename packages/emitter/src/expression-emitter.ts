@@ -8,6 +8,7 @@
 import {
   IrExpression,
   IrType,
+  IrPropertyDeclaration,
   IrNumericNarrowingExpression,
   IrTypeAssertionExpression,
   IrAsInterfaceExpression,
@@ -28,12 +29,23 @@ import {
   getAllPropertySignatures,
   resolveLocalTypeInfo,
   isTypeOnlyStructuralTarget,
+  isDefinitelyValueType,
+  splitRuntimeNullishUnionMembers,
 } from "./core/semantic/type-resolution.js";
 import {
   buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
+  emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
 } from "./core/semantic/runtime-unions.js";
+import { isSemanticUnion } from "./core/semantic/union-semantics.js";
+import { matchesExpectedEmissionType } from "./core/semantic/expected-type-matching.js";
 import { resolveEffectiveExpressionType } from "./core/semantic/narrowed-expression-types.js";
+import {
+  buildRuntimeUnionFactoryCallAst,
+  buildInvalidRuntimeUnionCastExpression,
+  tryBuildRuntimeUnionProjectionToLayoutAst,
+} from "./core/semantic/runtime-union-projection.js";
 import type {
   CSharpExpressionAst,
   CSharpStatementAst,
@@ -41,7 +53,10 @@ import type {
 } from "./core/format/backend-ast/types.js";
 import {
   getIdentifierTypeName,
+  getIdentifierTypeLeafName,
+  sameTypeAstSurface,
   stableTypeKeyFromAst,
+  stripNullableTypeAst,
 } from "./core/format/backend-ast/utils.js";
 import {
   identifierExpression,
@@ -50,6 +65,15 @@ import {
   stringLiteral,
 } from "./core/format/backend-ast/builders.js";
 import { allocateLocalName } from "./core/format/local-names.js";
+import { getAcceptedSurfaceType } from "./core/semantic/defaults.js";
+import {
+  resolveComparableType,
+  unwrapComparableType,
+} from "./core/semantic/comparable-types.js";
+import { resolveDirectValueSurfaceType } from "./core/semantic/direct-value-surfaces.js";
+import { areIrTypesEquivalent } from "./core/semantic/type-equivalence.js";
+import { unwrapTransparentExpression } from "./core/semantic/transparent-expressions.js";
+import { resolveRuntimeMaterializationTargetType } from "./core/semantic/runtime-materialization-targets.js";
 import { emitCSharpName } from "./naming-policy.js";
 
 // Import expression emitters from specialized modules
@@ -83,6 +107,28 @@ type StructuralPropertyInfo = {
   readonly name: string;
   readonly type: IrType;
   readonly isOptional: boolean;
+};
+
+const stripUndefinedFromSurfaceType = (type: IrType): IrType => {
+  if (type.kind !== "unionType") {
+    return type;
+  }
+
+  const remaining = type.types.filter(
+    (member) =>
+      !(member.kind === "primitiveType" && member.name === "undefined")
+  );
+
+  if (remaining.length === 1 && remaining[0]) {
+    return remaining[0];
+  }
+
+  return remaining.length === type.types.length
+    ? type
+    : {
+        kind: "unionType",
+        types: remaining,
+      };
 };
 
 const hasNullishBranch = (type: IrType | undefined): boolean => {
@@ -142,10 +188,13 @@ const collectLocalStructuralProperties = (
       for (const member of info.members) {
         if (member.kind !== "propertyDeclaration") continue;
         if (!member.type) return undefined;
+        const isOptional = hasNullishBranch(member.type);
         props.push({
           name: member.name,
-          type: member.type,
-          isOptional: false,
+          type: isOptional
+            ? stripUndefinedFromSurfaceType(member.type)
+            : member.type,
+          isOptional,
         });
       }
       return props;
@@ -534,18 +583,13 @@ const resolveAnonymousStructuralReferenceType = (
       if (info.kind !== "class" || !typeName.startsWith("__Anon_")) continue;
       const candidateProps = info.members
         .filter(
-          (
-            member
-          ): member is Extract<
-            typeof member,
-            { kind: "propertyDeclaration"; name: string }
-          > =>
+          (member): member is IrPropertyDeclaration & { type: IrType } =>
             member.kind === "propertyDeclaration" && member.type !== undefined
         )
         .map((member) => ({
           name: member.name,
           isOptional: false,
-          typeKey: stableIrTypeKey(member.type!),
+          typeKey: stableIrTypeKey(member.type),
         }))
         .sort((left, right) => left.name.localeCompare(right.name));
       if (
@@ -657,6 +701,23 @@ const resolveAnonymousStructuralReferenceType = (
   }
 
   return undefined;
+};
+
+const canPreferAnonymousStructuralTarget = (type: IrType): boolean => {
+  const stripped = stripNullish(type);
+  if (stripped.kind !== "referenceType") {
+    return true;
+  }
+
+  const simpleName = stripped.name.split(".").pop() ?? stripped.name;
+  const clrSimpleName = stripped.resolvedClrType?.split(".").pop();
+  const isCompilerGeneratedCarrier = (name: string | undefined): boolean =>
+    !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
+
+  return (
+    isCompilerGeneratedCarrier(simpleName) ||
+    isCompilerGeneratedCarrier(clrSimpleName)
+  );
 };
 
 const getNominalReferenceIdentity = (
@@ -774,12 +835,9 @@ const getArrayElementType = (
   return undefined;
 };
 
-const unwrapNullableTypeAst = (type: CSharpTypeAst): CSharpTypeAst =>
-  type.kind === "nullableType" ? type.underlyingType : type;
-
 const isObjectLikeTypeAst = (type: CSharpTypeAst | undefined): boolean => {
   if (!type) return false;
-  const concrete = unwrapNullableTypeAst(type);
+  const concrete = stripNullableTypeAst(type);
   if (concrete.kind === "predefinedType") {
     return concrete.keyword === "object";
   }
@@ -821,10 +879,11 @@ const tryAdaptStructuralExpressionAst = (
     return [emittedAst, context];
   }
 
-  const anonymousStructuralTarget = resolveAnonymousStructuralReferenceType(
-    expectedType,
-    context
-  );
+  const anonymousStructuralTarget = canPreferAnonymousStructuralTarget(
+    expectedType
+  )
+    ? resolveAnonymousStructuralReferenceType(expectedType, context)
+    : undefined;
   const targetStructuralType =
     anonymousStructuralTarget ?? resolvedExpectedType;
   const targetEmissionType =
@@ -871,6 +930,15 @@ const tryAdaptStructuralExpressionAst = (
         ? targetTypeAst.underlyingType
         : targetTypeAst;
 
+    if (
+      emittedAst.kind === "objectCreationExpression" &&
+      (sameTypeAstSurface(emittedAst.type, safeTargetTypeAst) ||
+        getIdentifierTypeLeafName(emittedAst.type) ===
+          getIdentifierTypeLeafName(safeTargetTypeAst))
+    ) {
+      return [emittedAst, currentContext];
+    }
+
     const sourcePropMap = new Map(sourceProps.map((prop) => [prop.name, prop]));
 
     const buildInitializer = (
@@ -888,12 +956,16 @@ const tryAdaptStructuralExpressionAst = (
             prop.name,
             currentInitContext
           );
+          const acceptedTargetType = getAcceptedSurfaceType(
+            prop.type,
+            prop.isOptional
+          );
           const [adaptedValueAst, adaptedValueContext] =
             tryAdaptStructuralExpressionAst(
               sourceAccess,
               sourceProp?.type,
               currentInitContext,
-              prop.type
+              acceptedTargetType
             ) ?? [sourceAccess, currentInitContext];
           currentInitContext = adaptedValueContext;
 
@@ -1035,25 +1107,62 @@ const tryAdaptStructuralExpressionAst = (
   const targetElementType = getArrayElementType(expectedType, context);
   const sourceElementType = getArrayElementType(sourceType, context);
   if (targetElementType && sourceElementType) {
+    if (
+      matchesExpectedEmissionType(sourceElementType, targetElementType, context)
+    ) {
+      return [emittedAst, context];
+    }
+
     const item = allocateLocalName("__item", context);
     let currentContext = item.context;
     const itemIdentifier: CSharpExpressionAst = {
       kind: "identifierExpression",
       identifier: item.emittedName,
     };
-    const [adaptedElementAst, adaptedContext] = tryAdaptStructuralExpressionAst(
+    const structuralElementAdaptation = tryAdaptStructuralExpressionAst(
       itemIdentifier,
       sourceElementType,
       currentContext,
       targetElementType
-    ) ?? [undefined, currentContext];
-    currentContext = adaptedContext;
-    if (adaptedElementAst !== undefined) {
+    );
+    const upcastElementAdaptation =
+      structuralElementAdaptation ??
+      maybeUpcastExpressionToExpectedTypeAst(
+        itemIdentifier,
+        sourceElementType,
+        currentContext,
+        targetElementType,
+        new Set<string>()
+      );
+    const adaptedElementAst =
+      structuralElementAdaptation?.[0] ?? upcastElementAdaptation?.[0];
+    currentContext =
+      structuralElementAdaptation?.[1] ??
+      upcastElementAdaptation?.[1] ??
+      currentContext;
+    const needsElementAdaptation =
+      adaptedElementAst !== undefined && adaptedElementAst !== itemIdentifier;
+    if (needsElementAdaptation) {
+      const [sourceElementTypeAst, , sourceElementTypeContext] =
+        emitRuntimeCarrierTypeAst(
+          sourceElementType,
+          currentContext,
+          emitTypeAst
+        );
+      currentContext = sourceElementTypeContext;
+      const [targetElementTypeAst, , targetElementTypeContext] =
+        emitRuntimeCarrierTypeAst(
+          targetElementType,
+          currentContext,
+          emitTypeAst
+        );
+      currentContext = targetElementTypeContext;
       const selectAst: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: {
           ...identifierExpression("global::System.Linq.Enumerable.Select"),
         },
+        typeArguments: [sourceElementTypeAst, targetElementTypeAst],
         arguments: [
           emittedAst,
           {
@@ -1069,11 +1178,22 @@ const tryAdaptStructuralExpressionAst = (
         expression: {
           ...identifierExpression("global::System.Linq.Enumerable.ToArray"),
         },
+        typeArguments: [targetElementTypeAst],
         arguments: [selectAst],
+      };
+      const [targetArrayTypeAst, targetArrayTypeContext] = emitTypeAst(
+        expectedType,
+        currentContext
+      );
+      currentContext = targetArrayTypeContext;
+      const materializedArrayAst: CSharpExpressionAst = {
+        kind: "castExpression",
+        type: targetArrayTypeAst,
+        expression: toArrayAst,
       };
 
       if (!hasNullishBranch(sourceType)) {
-        return [toArrayAst, currentContext];
+        return [materializedArrayAst, currentContext];
       }
 
       if (isDirectlyReusableExpression(emittedAst)) {
@@ -1087,7 +1207,7 @@ const tryAdaptStructuralExpressionAst = (
               right: nullLiteral(),
             },
             whenTrue: { kind: "defaultExpression" },
-            whenFalse: toArrayAst,
+            whenFalse: materializedArrayAst,
           },
           currentContext,
         ];
@@ -1309,15 +1429,30 @@ const maybeCastNullishTypeParamAst = (
 ): [CSharpExpressionAst, EmitterContext] => {
   if (!expectedType) return [ast, context];
   const actualType = resolveEffectiveExpressionType(expr, context);
-  if (!actualType) return [ast, context];
+  const narrowKey =
+    expr.kind === "identifier"
+      ? expr.name
+      : expr.kind === "memberAccess"
+        ? getMemberAccessNarrowKey(expr)
+        : undefined;
+  const narrowedSourceType =
+    narrowKey && context.narrowedBindings
+      ? context.narrowedBindings.get(narrowKey)?.sourceType
+      : undefined;
+  const sourceStorageType =
+    narrowedSourceType ?? expr.inferredType ?? actualType;
+  if (!actualType && !sourceStorageType) return [ast, context];
 
   const expectedTypeParam = getBareTypeParameterName(expectedType, context);
   if (!expectedTypeParam) return [ast, context];
 
-  const unionTypeParam = getUnconstrainedNullishTypeParamName(
-    actualType,
-    context
-  );
+  const unionTypeParam =
+    (actualType
+      ? getUnconstrainedNullishTypeParamName(actualType, context)
+      : undefined) ??
+    (sourceStorageType
+      ? getUnconstrainedNullishTypeParamName(sourceStorageType, context)
+      : undefined);
   if (!unionTypeParam) return [ast, context];
   if (unionTypeParam !== expectedTypeParam) return [ast, context];
 
@@ -1449,49 +1584,6 @@ const maybeUnwrapNullableValueTypeAst = (
   ];
 };
 
-const normalizeComparableType = (
-  type: IrType,
-  context: EmitterContext
-): IrType => {
-  const stripped = stripNullish(type);
-  if (
-    stripped.kind === "referenceType" &&
-    (stripped.name === "out" ||
-      stripped.name === "ref" ||
-      stripped.name === "In" ||
-      stripped.name === "inref") &&
-    stripped.typeArguments &&
-    stripped.typeArguments.length === 1
-  ) {
-    const innerType = stripped.typeArguments[0];
-    if (innerType) {
-      return resolveTypeAlias(stripNullish(innerType), context);
-    }
-  }
-
-  return resolveTypeAlias(stripped, context);
-};
-
-const unwrapEmissionComparableType = (type: IrType): IrType => {
-  const stripped = stripNullish(type);
-  if (
-    stripped.kind === "referenceType" &&
-    (stripped.name === "out" ||
-      stripped.name === "ref" ||
-      stripped.name === "In" ||
-      stripped.name === "inref") &&
-    stripped.typeArguments &&
-    stripped.typeArguments.length === 1
-  ) {
-    const innerType = stripped.typeArguments[0];
-    if (innerType) {
-      return unwrapEmissionComparableType(innerType);
-    }
-  }
-
-  return stripped;
-};
-
 const isSafelyEmittableTypeForExactComparison = (
   type: IrType,
   context: EmitterContext,
@@ -1583,15 +1675,18 @@ const getSafeExactComparisonTargetType = (
   type: IrType,
   context: EmitterContext
 ): IrType | undefined => {
+  if (isSafelyEmittableTypeForExactComparison(type, context)) {
+    return type;
+  }
+
   const stripped = stripNullish(type);
   if (isSafelyEmittableTypeForExactComparison(stripped, context)) {
     return stripped;
   }
 
-  const anonymousStructuralTarget = resolveAnonymousStructuralReferenceType(
-    type,
-    context
-  );
+  const anonymousStructuralTarget = canPreferAnonymousStructuralTarget(type)
+    ? resolveAnonymousStructuralReferenceType(type, context)
+    : undefined;
   if (
     anonymousStructuralTarget &&
     isSafelyEmittableTypeForExactComparison(anonymousStructuralTarget, context)
@@ -1599,7 +1694,7 @@ const getSafeExactComparisonTargetType = (
     return anonymousStructuralTarget;
   }
 
-  const normalized = normalizeComparableType(type, context);
+  const normalized = resolveComparableType(type, context);
   if (isSafelyEmittableTypeForExactComparison(normalized, context)) {
     return normalized;
   }
@@ -1607,170 +1702,62 @@ const getSafeExactComparisonTargetType = (
   return undefined;
 };
 
-const areIrTypesEquivalent = (
-  left: IrType,
-  right: IrType,
-  context: EmitterContext,
-  visited: WeakMap<object, WeakSet<object>> = new WeakMap()
+const tryEmitExactComparisonTargetAst = (
+  type: IrType,
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] | undefined => {
+  const candidates: IrType[] = [];
+  const seen = new Set<string>();
+
+  const pushCandidate = (candidate: IrType | undefined): void => {
+    if (!candidate) {
+      return;
+    }
+    const key = stableIrTypeKey(candidate);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    candidates.push(candidate);
+  };
+
+  pushCandidate(getSafeExactComparisonTargetType(type, context));
+  pushCandidate(resolveComparableType(type, context));
+
+  for (const candidate of candidates) {
+    try {
+      return emitTypeAst(candidate, context);
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+};
+
+const canUseImplicitOptionalSurfaceConversion = (
+  actualType: IrType,
+  expectedType: IrType,
+  context: EmitterContext
 ): boolean => {
-  const seenRight = visited.get(left);
-  if (seenRight?.has(right)) {
-    return true;
-  }
-  if (seenRight) {
-    seenRight.add(right);
-  } else {
-    visited.set(left, new WeakSet([right]));
+  if (!hasNullishBranch(expectedType)) {
+    return false;
   }
 
-  const a = normalizeComparableType(left, context);
-  const b = normalizeComparableType(right, context);
+  const normalizedActualBase = resolveComparableType(
+    stripNullish(actualType),
+    context
+  );
+  const normalizedExpectedBase = resolveComparableType(
+    stripNullish(expectedType),
+    context
+  );
 
-  if (a.kind !== b.kind) return false;
-
-  switch (a.kind) {
-    case "primitiveType":
-      return a.name === (b as typeof a).name;
-    case "literalType":
-      return a.value === (b as typeof a).value;
-    case "referenceType": {
-      const rb = b as typeof a;
-      if (a.name !== rb.name) return false;
-      const aArgs = a.typeArguments ?? [];
-      const bArgs = rb.typeArguments ?? [];
-      if (aArgs.length !== bArgs.length) return false;
-      for (let i = 0; i < aArgs.length; i++) {
-        const aa = aArgs[i];
-        const bb = bArgs[i];
-        if (!aa || !bb || !areIrTypesEquivalent(aa, bb, context)) return false;
-      }
-      return true;
-    }
-    case "arrayType":
-      return areIrTypesEquivalent(
-        a.elementType,
-        (b as typeof a).elementType,
-        context,
-        visited
-      );
-    case "dictionaryType":
-      return (
-        areIrTypesEquivalent(
-          a.keyType,
-          (b as typeof a).keyType,
-          context,
-          visited
-        ) &&
-        areIrTypesEquivalent(
-          a.valueType,
-          (b as typeof a).valueType,
-          context,
-          visited
-        )
-      );
-    case "tupleType": {
-      const rb = b as typeof a;
-      if (a.elementTypes.length !== rb.elementTypes.length) return false;
-      for (let i = 0; i < a.elementTypes.length; i++) {
-        const ae = a.elementTypes[i];
-        const be = rb.elementTypes[i];
-        if (!ae || !be || !areIrTypesEquivalent(ae, be, context, visited))
-          return false;
-      }
-      return true;
-    }
-    case "functionType": {
-      const rb = b as typeof a;
-      if (a.parameters.length !== rb.parameters.length) return false;
-      for (let i = 0; i < a.parameters.length; i++) {
-        const ap = a.parameters[i];
-        const bp = rb.parameters[i];
-        if (!ap || !bp) return false;
-        if (!ap.type && !bp.type) continue;
-        if (!ap.type || !bp.type) return false;
-        if (!areIrTypesEquivalent(ap.type, bp.type, context, visited))
-          return false;
-      }
-      return areIrTypesEquivalent(
-        a.returnType,
-        rb.returnType,
-        context,
-        visited
-      );
-    }
-    case "unionType":
-    case "intersectionType": {
-      const rb = b as typeof a;
-      if (a.types.length !== rb.types.length) return false;
-      const used = new Set<number>();
-      for (const at of a.types) {
-        if (!at) return false;
-        let matched = false;
-        for (let i = 0; i < rb.types.length; i++) {
-          if (used.has(i)) continue;
-          const bt = rb.types[i];
-          if (!bt) continue;
-          if (areIrTypesEquivalent(at, bt, context, visited)) {
-            used.add(i);
-            matched = true;
-            break;
-          }
-        }
-        if (!matched) return false;
-      }
-      return true;
-    }
-    case "typeParameterType":
-      return a.name === (b as typeof a).name;
-    case "voidType":
-    case "anyType":
-    case "unknownType":
-    case "neverType":
-      return true;
-    case "objectType": {
-      const rb = b as typeof a;
-      if (a.members.length !== rb.members.length) return false;
-      for (let i = 0; i < a.members.length; i++) {
-        const am = a.members[i];
-        const bm = rb.members[i];
-        if (!am || !bm || am.kind !== bm.kind) return false;
-        if (
-          am.kind === "propertySignature" &&
-          bm.kind === "propertySignature"
-        ) {
-          if (am.name !== bm.name) return false;
-          if (!areIrTypesEquivalent(am.type, bm.type, context, visited))
-            return false;
-          continue;
-        }
-        if (am.kind === "methodSignature" && bm.kind === "methodSignature") {
-          if (am.name !== bm.name) return false;
-          if (am.parameters.length !== bm.parameters.length) return false;
-          for (let j = 0; j < am.parameters.length; j++) {
-            const ap = am.parameters[j];
-            const bp = bm.parameters[j];
-            if (!ap || !bp) return false;
-            if (!ap.type || !bp.type) return false;
-            if (!areIrTypesEquivalent(ap.type, bp.type, context, visited))
-              return false;
-          }
-          if (!am.returnType || !bm.returnType) return false;
-          if (
-            !areIrTypesEquivalent(
-              am.returnType,
-              bm.returnType,
-              context,
-              visited
-            )
-          )
-            return false;
-          continue;
-        }
-        return false;
-      }
-      return true;
-    }
-  }
+  return areIrTypesEquivalent(
+    normalizedActualBase,
+    normalizedExpectedBase,
+    context
+  );
 };
 
 const maybeUpcastDictionaryUnionValueAst = (
@@ -1782,8 +1769,8 @@ const maybeUpcastDictionaryUnionValueAst = (
   const actualType = resolveEffectiveExpressionType(expr, context);
   if (!expectedType || !actualType) return [ast, context];
 
-  const expected = normalizeComparableType(expectedType, context);
-  const actual = normalizeComparableType(actualType, context);
+  const expected = resolveComparableType(expectedType, context);
+  const actual = resolveComparableType(actualType, context);
   if (expected.kind !== "dictionaryType" || actual.kind !== "dictionaryType") {
     return [ast, context];
   }
@@ -1792,10 +1779,10 @@ const maybeUpcastDictionaryUnionValueAst = (
     return [ast, context];
   }
 
-  const expectedValue = normalizeComparableType(expected.valueType, context);
+  const expectedValue = resolveComparableType(expected.valueType, context);
   if (expectedValue.kind !== "unionType") return [ast, context];
 
-  const actualValue = normalizeComparableType(actual.valueType, context);
+  const actualValue = resolveComparableType(actual.valueType, context);
   if (areIrTypesEquivalent(expectedValue, actualValue, context)) {
     return [ast, context];
   }
@@ -1830,24 +1817,15 @@ const maybeUpcastDictionaryUnionValueAst = (
     kind: "lambdaExpression",
     isAsync: false,
     parameters: [{ name: kvpId }],
-    body: {
-      kind: "invocationExpression",
-      expression: {
+    body: buildRuntimeUnionFactoryCallAst(
+      unionValueTypeAst,
+      runtimeMemberIndex + 1,
+      {
         kind: "memberAccessExpression",
-        expression: {
-          kind: "typeReferenceExpression",
-          type: unionValueTypeAst,
-        },
-        memberName: `From${runtimeMemberIndex + 1}`,
-      },
-      arguments: [
-        {
-          kind: "memberAccessExpression",
-          expression: { kind: "identifierExpression", identifier: kvpId },
-          memberName: "Value",
-        },
-      ],
-    },
+        expression: { kind: "identifierExpression", identifier: kvpId },
+        memberName: "Value",
+      }
+    ),
   };
 
   const converted: CSharpExpressionAst = {
@@ -1865,50 +1843,6 @@ const maybeUpcastDictionaryUnionValueAst = (
   return [converted, ctx1];
 };
 
-const buildUnionFactoryCallAst = (
-  unionTypeAst: CSharpTypeAst,
-  memberIndex: number,
-  valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "typeReferenceExpression",
-      type: unionTypeAst,
-    },
-    memberName: `From${memberIndex}`,
-  },
-  arguments: [valueAst],
-});
-
-const buildInvalidRuntimeUnionCastExpression = (
-  actualType: IrType,
-  expectedType: IrType
-): CSharpExpressionAst => ({
-  kind: "throwExpression",
-  expression: {
-    kind: "objectCreationExpression",
-    type: identifierType("global::System.InvalidCastException"),
-    arguments: [
-      stringLiteral(
-        `Cannot cast runtime union ${stableIrTypeKey(
-          actualType
-        )} to ${stableIrTypeKey(expectedType)}`
-      ),
-    ],
-  },
-});
-
-const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
-  const name = getIdentifierTypeName(type);
-  return (
-    name === "global::Tsonic.Runtime.Union" ||
-    name === "Tsonic.Runtime.Union" ||
-    name === "Union"
-  );
-};
-
 const maybeWidenRuntimeUnionExpressionAst = (
   ast: CSharpExpressionAst,
   actualType: IrType,
@@ -1924,7 +1858,6 @@ const maybeWidenRuntimeUnionExpressionAst = (
   if (!actualLayout) {
     return undefined;
   }
-
   const [expectedLayout, expectedLayoutContext] = buildRuntimeUnionLayout(
     expectedType,
     actualLayoutContext,
@@ -1934,96 +1867,25 @@ const maybeWidenRuntimeUnionExpressionAst = (
     return undefined;
   }
 
-  const [actualTypeAst, actualTypeContext] = emitTypeAst(
-    actualType,
-    expectedLayoutContext
-  );
-  const concreteActualTypeAst = unwrapNullableTypeAst(actualTypeAst);
-  if (!isRuntimeUnionTypeAst(concreteActualTypeAst)) {
-    return undefined;
-  }
-
-  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
-    expectedType,
-    actualTypeContext
-  );
-  const concreteExpectedTypeAst = unwrapNullableTypeAst(expectedTypeAst);
-  if (!isRuntimeUnionTypeAst(concreteExpectedTypeAst)) {
-    return undefined;
-  }
-
-  const lambdaArgs: CSharpExpressionAst[] = [];
-  let currentContext = expectedTypeContext;
-  const expectedMemberIndexByAstKey = new Map<string, number>();
-  for (
-    let index = 0;
-    index < expectedLayout.memberTypeAsts.length;
-    index += 1
-  ) {
-    const memberTypeAst = expectedLayout.memberTypeAsts[index];
-    if (!memberTypeAst) continue;
-    expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
-  }
-
-  for (let index = 0; index < actualLayout.members.length; index += 1) {
-    const actualMember = actualLayout.members[index];
-    if (!actualMember) continue;
-
-    const actualMemberTypeAst = actualLayout.memberTypeAsts[index];
-    const expectedMemberIndex =
-      (actualMemberTypeAst
-        ? expectedMemberIndexByAstKey.get(
-            stableTypeKeyFromAst(actualMemberTypeAst)
-          )
-        : undefined) ??
-      findRuntimeUnionMemberIndex(
-        expectedLayout.members,
-        actualMember,
-        currentContext
-      );
-    if (expectedMemberIndex === undefined) {
-      return undefined;
-    }
-
-    const parameterName = `__tsonic_union_member_${index + 1}`;
-    const parameterExpr: CSharpExpressionAst = {
-      kind: "identifierExpression",
-      identifier: parameterName,
-    };
-
-    const nested = maybeUpcastExpressionToExpectedTypeAst(
-      parameterExpr,
+  return tryBuildRuntimeUnionProjectionToLayoutAst({
+    valueAst: ast,
+    sourceLayout: actualLayout,
+    targetLayout: expectedLayout,
+    context: expectedLayoutContext,
+    buildMappedMemberValue: ({
       actualMember,
-      currentContext,
-      expectedLayout.members[expectedMemberIndex],
-      visited
-    ) ?? [parameterExpr, currentContext];
-
-    lambdaArgs.push({
-      kind: "lambdaExpression",
-      isAsync: false,
-      parameters: [{ name: parameterName }],
-      body: buildUnionFactoryCallAst(
-        concreteExpectedTypeAst,
-        expectedMemberIndex + 1,
-        nested[0]
-      ),
-    });
-    currentContext = nested[1];
-  }
-
-  return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "memberAccessExpression",
-        expression: ast,
-        memberName: "Match",
-      },
-      arguments: lambdaArgs,
-    },
-    currentContext,
-  ];
+      parameterExpr,
+      targetMember,
+      context: nextContext,
+    }) =>
+      maybeUpcastExpressionToExpectedTypeAst(
+        parameterExpr,
+        actualMember,
+        nextContext,
+        targetMember,
+        visited
+      ) ?? [parameterExpr, nextContext],
+  });
 };
 
 const maybeNarrowRuntimeUnionExpressionAst = (
@@ -2033,6 +1895,17 @@ const maybeNarrowRuntimeUnionExpressionAst = (
   expectedType: IrType,
   visited: ReadonlySet<string>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
+  // Semantic gate: only project via Match() when both the actual and
+  // expected types are semantic unions (explicit unionType in IR).
+  // Alias references like MiddlewareLike must not be treated as unions
+  // here — they are single semantic types, even if they alias a union.
+  if (
+    !isSemanticUnion(actualType, context) ||
+    !isSemanticUnion(expectedType, context)
+  ) {
+    return undefined;
+  }
+
   const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
     actualType,
     context,
@@ -2051,107 +1924,27 @@ const maybeNarrowRuntimeUnionExpressionAst = (
     return undefined;
   }
 
-  const [actualTypeAst, actualTypeContext] = emitTypeAst(
-    actualType,
-    expectedLayoutContext
-  );
-  const concreteActualTypeAst = unwrapNullableTypeAst(actualTypeAst);
-  if (!isRuntimeUnionTypeAst(concreteActualTypeAst)) {
-    return undefined;
-  }
-
-  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
-    expectedType,
-    actualTypeContext
-  );
-  const concreteExpectedTypeAst = unwrapNullableTypeAst(expectedTypeAst);
-  if (!isRuntimeUnionTypeAst(concreteExpectedTypeAst)) {
-    return undefined;
-  }
-
-  const expectedMemberIndexByAstKey = new Map<string, number>();
-  for (
-    let index = 0;
-    index < expectedLayout.memberTypeAsts.length;
-    index += 1
-  ) {
-    const memberTypeAst = expectedLayout.memberTypeAsts[index];
-    if (!memberTypeAst) continue;
-    expectedMemberIndexByAstKey.set(stableTypeKeyFromAst(memberTypeAst), index);
-  }
-
-  const lambdaArgs: CSharpExpressionAst[] = [];
-  let currentContext = expectedTypeContext;
-
-  for (let index = 0; index < actualLayout.members.length; index += 1) {
-    const actualMember = actualLayout.members[index];
-    if (!actualMember) continue;
-
-    const actualMemberTypeAst = actualLayout.memberTypeAsts[index];
-    const expectedMemberIndex =
-      (actualMemberTypeAst
-        ? expectedMemberIndexByAstKey.get(
-            stableTypeKeyFromAst(actualMemberTypeAst)
-          )
-        : undefined) ??
-      findRuntimeUnionMemberIndex(
-        expectedLayout.members,
-        actualMember,
-        currentContext
-      );
-
-    const parameterName = `__tsonic_union_member_${index + 1}`;
-    const parameterExpr: CSharpExpressionAst = {
-      kind: "identifierExpression",
-      identifier: parameterName,
-    };
-
-    if (expectedMemberIndex === undefined) {
-      lambdaArgs.push({
-        kind: "lambdaExpression",
-        isAsync: false,
-        parameters: [{ name: parameterName }],
-        body: buildInvalidRuntimeUnionCastExpression(
-          actualMember,
-          expectedType
-        ),
-      });
-      continue;
-    }
-
-    const nested = maybeUpcastExpressionToExpectedTypeAst(
-      parameterExpr,
+  return tryBuildRuntimeUnionProjectionToLayoutAst({
+    valueAst: ast,
+    sourceLayout: actualLayout,
+    targetLayout: expectedLayout,
+    context: expectedLayoutContext,
+    buildMappedMemberValue: ({
       actualMember,
-      currentContext,
-      expectedLayout.members[expectedMemberIndex],
-      visited
-    ) ?? [parameterExpr, currentContext];
-
-    lambdaArgs.push({
-      kind: "lambdaExpression",
-      isAsync: false,
-      parameters: [{ name: parameterName }],
-      body: buildUnionFactoryCallAst(
-        concreteExpectedTypeAst,
-        expectedMemberIndex + 1,
-        nested[0]
-      ),
-    });
-    currentContext = nested[1];
-  }
-
-  return [
-    {
-      kind: "invocationExpression",
-      expression: {
-        kind: "memberAccessExpression",
-        expression: ast,
-        memberName: "Match",
-      },
-      arguments: lambdaArgs,
-    },
-    currentContext,
-  ];
+      parameterExpr,
+      targetMember,
+      context: nextContext,
+    }) =>
+      maybeUpcastExpressionToExpectedTypeAst(
+        parameterExpr,
+        actualMember,
+        nextContext,
+        targetMember,
+        visited
+      ) ?? [parameterExpr, nextContext],
+    buildUnmappedMemberBody: ({ actualMember }) =>
+      buildInvalidRuntimeUnionCastExpression(actualMember, expectedType),
+  });
 };
 
 const maybeProjectRuntimeUnionMemberExpressionAst = (
@@ -2161,7 +1954,7 @@ const maybeProjectRuntimeUnionMemberExpressionAst = (
   expectedType: IrType,
   visited: ReadonlySet<string>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  const normalizedExpected = normalizeComparableType(expectedType, context);
+  const normalizedExpected = resolveComparableType(expectedType, context);
   if (normalizedExpected.kind === "unionType") {
     return undefined;
   }
@@ -2175,14 +1968,7 @@ const maybeProjectRuntimeUnionMemberExpressionAst = (
     return undefined;
   }
 
-  const [actualTypeAst, actualTypeContext] = emitTypeAst(
-    actualType,
-    actualLayoutContext
-  );
-  const concreteActualTypeAst = unwrapNullableTypeAst(actualTypeAst);
-  if (!isRuntimeUnionTypeAst(concreteActualTypeAst)) {
-    return undefined;
-  }
+  const actualTypeContext = actualLayoutContext;
 
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = actualTypeContext;
@@ -2256,10 +2042,74 @@ const maybeUpcastExpressionToExpectedTypeAst = (
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (!actualType || !expectedType) return undefined;
 
-  const emissionActualType = unwrapEmissionComparableType(actualType);
-  const emissionExpectedType = unwrapEmissionComparableType(expectedType);
-  const normalizedActualType = normalizeComparableType(actualType, context);
-  const normalizedExpectedType = normalizeComparableType(expectedType, context);
+  const exactComparisonTargetAst = tryEmitExactComparisonTargetAst(
+    expectedType,
+    context
+  );
+  if (
+    exactComparisonTargetAst &&
+    (isExactExpressionToType(
+      ast,
+      stripNullableTypeAst(exactComparisonTargetAst[0])
+    ) ||
+      isExactArrayCreationToType(ast, exactComparisonTargetAst[0]) ||
+      isExactNullableValueAccessToType(ast, actualType, expectedType, context))
+  ) {
+    return [ast, exactComparisonTargetAst[1]];
+  }
+
+  const directValueSurfaceType = resolveDirectValueSurfaceType(ast, context);
+  const preferredActualType = (() => {
+    if (!directValueSurfaceType) {
+      return actualType;
+    }
+
+    const [directLayout, directLayoutContext] = buildRuntimeUnionLayout(
+      directValueSurfaceType,
+      context,
+      emitTypeAst
+    );
+    const [actualLayout] = buildRuntimeUnionLayout(
+      actualType,
+      directLayoutContext,
+      emitTypeAst
+    );
+
+    const layoutsDiffer = (() => {
+      if (!directLayout && !actualLayout) {
+        return false;
+      }
+      if (!directLayout || !actualLayout) {
+        return true;
+      }
+      if (
+        directLayout.memberTypeAsts.length !==
+        actualLayout.memberTypeAsts.length
+      ) {
+        return true;
+      }
+      return directLayout.memberTypeAsts.some((memberTypeAst, index) => {
+        const other = actualLayout.memberTypeAsts[index];
+        return !other || !sameTypeAstSurface(memberTypeAst, other);
+      });
+    })();
+
+    if (layoutsDiffer) {
+      return directValueSurfaceType;
+    }
+
+    return !areIrTypesEquivalent(directValueSurfaceType, actualType, context)
+      ? directValueSurfaceType
+      : actualType;
+  })();
+
+  const emissionActualType = unwrapComparableType(preferredActualType);
+  const emissionExpectedType = unwrapComparableType(expectedType);
+  const normalizedActualType = resolveComparableType(
+    preferredActualType,
+    context
+  );
+  const normalizedExpectedType = resolveComparableType(expectedType, context);
 
   const runtimeUnionLayoutsDiffer = (() => {
     const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
@@ -2298,10 +2148,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
       if (!actualMemberAst || !expectedMemberAst) {
         return true;
       }
-      if (
-        stableTypeKeyFromAst(actualMemberAst) !==
-        stableTypeKeyFromAst(expectedMemberAst)
-      ) {
+      if (!sameTypeAstSurface(actualMemberAst, expectedMemberAst)) {
         return true;
       }
       const actualMember = actualLayout.members[index];
@@ -2311,8 +2158,8 @@ const maybeUpcastExpressionToExpectedTypeAst = (
       }
       if (
         !areIrTypesEquivalent(
-          normalizeComparableType(actualMember, expectedLayoutContext),
-          normalizeComparableType(expectedMember, expectedLayoutContext),
+          resolveComparableType(actualMember, expectedLayoutContext),
+          resolveComparableType(expectedMember, expectedLayoutContext),
           expectedLayoutContext
         )
       ) {
@@ -2322,6 +2169,16 @@ const maybeUpcastExpressionToExpectedTypeAst = (
 
     return false;
   })();
+
+  const adapted = tryAdaptStructuralExpressionAst(
+    ast,
+    emissionActualType,
+    context,
+    emissionExpectedType
+  );
+  if (adapted) {
+    return adapted;
+  }
 
   if (
     areIrTypesEquivalent(
@@ -2334,18 +2191,23 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     return [ast, context];
   }
 
-  const exactComparisonTargetType = getSafeExactComparisonTargetType(
-    expectedType,
-    context
-  );
-  if (exactComparisonTargetType) {
-    const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
-      exactComparisonTargetType,
+  if (
+    !runtimeUnionLayoutsDiffer &&
+    canUseImplicitOptionalSurfaceConversion(
+      emissionActualType,
+      expectedType,
       context
+    )
+  ) {
+    return [ast, context];
+  }
+
+  if (exactComparisonTargetAst) {
+    const concreteExpectedTypeAst = stripNullableTypeAst(
+      exactComparisonTargetAst[0]
     );
-    const concreteExpectedTypeAst = unwrapNullableTypeAst(expectedTypeAst);
     if (isExactExpressionToType(ast, concreteExpectedTypeAst)) {
-      return [ast, expectedTypeContext];
+      return [ast, exactComparisonTargetAst[1]];
     }
   }
 
@@ -2356,16 +2218,6 @@ const maybeUpcastExpressionToExpectedTypeAst = (
   }
   const nextVisited = new Set(visited);
   nextVisited.add(visitKey);
-
-  const adapted = tryAdaptStructuralExpressionAst(
-    ast,
-    emissionActualType,
-    context,
-    emissionExpectedType
-  );
-  if (adapted) {
-    return adapted;
-  }
 
   const projectedUnion = maybeProjectRuntimeUnionMemberExpressionAst(
     ast,
@@ -2416,7 +2268,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     layoutContext
   );
   const actualTypeKey = stableTypeKeyFromAst(actualTypeAst);
-  const normalizedActual = normalizeComparableType(
+  const normalizedActual = resolveComparableType(
     emissionActualType,
     actualTypeContext
   );
@@ -2432,7 +2284,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     const member = runtimeLayout.members[index];
     if (
       member &&
-      stableIrTypeKey(normalizeComparableType(member, actualTypeContext)) ===
+      stableIrTypeKey(resolveComparableType(member, actualTypeContext)) ===
         actualSemanticKey
     ) {
       preferredIndices.add(index);
@@ -2472,20 +2324,15 @@ const maybeUpcastExpressionToExpectedTypeAst = (
     );
     if (!nested) continue;
 
-    const [unionTypeAst, unionTypeContext] = emitTypeAst(
-      expectedType,
-      nested[1]
-    );
-    const concreteUnionTypeAst =
-      unionTypeAst.kind === "nullableType"
-        ? unionTypeAst.underlyingType
-        : unionTypeAst;
-    if (!isRuntimeUnionTypeAst(concreteUnionTypeAst)) {
-      return [nested[0], unionTypeContext];
-    }
+    const unionTypeContext = nested[1];
+    const concreteUnionTypeAst = buildRuntimeUnionTypeAst(runtimeLayout);
 
     return [
-      buildUnionFactoryCallAst(concreteUnionTypeAst, index + 1, nested[0]),
+      buildRuntimeUnionFactoryCallAst(
+        concreteUnionTypeAst,
+        index + 1,
+        nested[0]
+      ),
       unionTypeContext,
     ];
   }
@@ -2550,12 +2397,58 @@ const maybeConvertCharToStringAst = (
   ];
 };
 
+const resolveDirectStorageExpressionType = (
+  expr: IrExpression,
+  ast: CSharpExpressionAst,
+  context: EmitterContext
+): IrType | undefined => {
+  if (expr.kind !== "identifier" || ast.kind !== "identifierExpression") {
+    return undefined;
+  }
+
+  const remappedLocal = context.localNameMap?.get(expr.name) ?? expr.name;
+  if (ast.identifier !== remappedLocal) {
+    return undefined;
+  }
+
+  const narrowed = context.narrowedBindings?.get(expr.name);
+  if (
+    narrowed?.kind === "expr" &&
+    narrowed.storageExprAst?.kind === "identifierExpression" &&
+    narrowed.storageExprAst.identifier === remappedLocal &&
+    narrowed.sourceType
+  ) {
+    return narrowed.sourceType;
+  }
+
+  if (narrowed?.kind === "runtimeSubset" && narrowed.sourceType) {
+    return narrowed.sourceType;
+  }
+
+  return context.localValueTypes?.get(expr.name);
+};
+
 const isExactCastToType = (
   ast: CSharpExpressionAst,
   targetType: CSharpTypeAst
 ): boolean =>
-  ast.kind === "castExpression" &&
-  stableTypeKeyFromAst(ast.type) === stableTypeKeyFromAst(targetType);
+  ast.kind === "castExpression" && sameTypeAstSurface(ast.type, targetType);
+
+const isExactArrayCreationToType = (
+  ast: CSharpExpressionAst,
+  targetType: CSharpTypeAst
+): boolean => {
+  if (ast.kind !== "arrayCreationExpression") {
+    return false;
+  }
+
+  const concreteTargetType = stripNullableTypeAst(targetType);
+  return (
+    concreteTargetType.kind === "arrayType" &&
+    concreteTargetType.rank === 1 &&
+    sameTypeAstSurface(ast.elementType, concreteTargetType.elementType)
+  );
+};
 
 const isExactRuntimeUnionFactoryCallToType = (
   ast: CSharpExpressionAst,
@@ -2577,10 +2470,7 @@ const isExactRuntimeUnionFactoryCallToType = (
     return false;
   }
 
-  return (
-    stableTypeKeyFromAst(ast.expression.expression.type) ===
-    stableTypeKeyFromAst(targetType)
-  );
+  return sameTypeAstSurface(ast.expression.expression.type, targetType);
 };
 
 const isExactDefaultExpressionToType = (
@@ -2589,7 +2479,7 @@ const isExactDefaultExpressionToType = (
 ): boolean =>
   ast.kind === "defaultExpression" &&
   ast.type !== undefined &&
-  stableTypeKeyFromAst(ast.type) === stableTypeKeyFromAst(targetType);
+  sameTypeAstSurface(ast.type, targetType);
 
 const isThrowExpressionToType = (ast: CSharpExpressionAst): boolean =>
   ast.kind === "throwExpression";
@@ -2632,16 +2522,58 @@ const isExactConditionalExpressionToType = (
   isExactExpressionToType(ast.whenTrue, targetType) &&
   isExactExpressionToType(ast.whenFalse, targetType);
 
+const isExactNullableValueAccessToType = (
+  ast: CSharpExpressionAst,
+  actualType: IrType,
+  expectedType: IrType,
+  context: EmitterContext
+): boolean => {
+  if (ast.kind !== "memberAccessExpression" || ast.memberName !== "Value") {
+    return false;
+  }
+
+  const splitActual = splitRuntimeNullishUnionMembers(actualType);
+  if (
+    !splitActual?.hasRuntimeNullish ||
+    splitActual.nonNullishMembers.length !== 1
+  ) {
+    return false;
+  }
+
+  const [baseMember] = splitActual.nonNullishMembers;
+  if (!baseMember) {
+    return false;
+  }
+
+  const resolvedBase = resolveTypeAlias(stripNullish(baseMember), context);
+  const resolvedExpected = resolveTypeAlias(
+    stripNullish(expectedType),
+    context
+  );
+  return (
+    isDefinitelyValueType(resolvedExpected) &&
+    stableIrTypeKey(resolvedBase) === stableIrTypeKey(resolvedExpected)
+  );
+};
+
 const isExactExpressionToType = (
   ast: CSharpExpressionAst,
   targetType: CSharpTypeAst
 ): boolean =>
   isThrowExpressionToType(ast) ||
+  isExactObjectCreationToType(ast, targetType) ||
   isExactCastToType(ast, targetType) ||
   isExactRuntimeUnionFactoryCallToType(ast, targetType) ||
   isExactDefaultExpressionToType(ast, targetType) ||
   isExactRuntimeUnionMatchToType(ast, targetType) ||
   isExactConditionalExpressionToType(ast, targetType);
+
+const isExactObjectCreationToType = (
+  ast: CSharpExpressionAst,
+  targetType: CSharpTypeAst
+): boolean =>
+  ast.kind === "objectCreationExpression" &&
+  sameTypeAstSurface(ast.type, targetType);
 
 const getNarrowedBindingForExpression = (
   expr: IrExpression,
@@ -2659,6 +2591,32 @@ const getNarrowedBindingForExpression = (
         : undefined;
 
   return narrowKey ? context.narrowedBindings.get(narrowKey) : undefined;
+};
+
+const withoutNarrowedBinding = (
+  expr: IrExpression,
+  context: EmitterContext
+): EmitterContext => {
+  if (!context.narrowedBindings) {
+    return context;
+  }
+
+  const narrowKey =
+    expr.kind === "identifier"
+      ? expr.name
+      : expr.kind === "memberAccess"
+        ? getMemberAccessNarrowKey(expr)
+        : undefined;
+  if (!narrowKey || !context.narrowedBindings.has(narrowKey)) {
+    return context;
+  }
+
+  const narrowedBindings = new Map(context.narrowedBindings);
+  narrowedBindings.delete(narrowKey);
+  return {
+    ...context,
+    narrowedBindings,
+  };
 };
 
 /**
@@ -2705,8 +2663,25 @@ const emitNumericNarrowing = (
  */
 const emitTypeAssertion = (
   expr: IrTypeAssertionExpression,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const isTransparentFlowAssertion = (() => {
+    const inner = expr.expression;
+    if (inner.kind !== "identifier" && inner.kind !== "memberAccess") {
+      return false;
+    }
+    if (!expr.sourceSpan || !inner.sourceSpan) {
+      return false;
+    }
+    return (
+      expr.sourceSpan.file === inner.sourceSpan.file &&
+      expr.sourceSpan.line === inner.sourceSpan.line &&
+      expr.sourceSpan.column === inner.sourceSpan.column &&
+      expr.sourceSpan.length === inner.sourceSpan.length
+    );
+  })();
+
   const resolveLocalTypeAliases = (target: IrType): IrType => {
     if (target.kind === "referenceType" && context.localTypes) {
       const typeInfo = context.localTypes.get(target.name);
@@ -2757,80 +2732,51 @@ const emitTypeAssertion = (
   };
 
   if (shouldEraseTypeAssertion(expr.targetType)) {
-    return emitExpressionAst(expr.expression, context);
+    return emitExpressionAst(expr.expression, context, expectedType);
   }
 
+  if (isTransparentFlowAssertion) {
+    return emitExpressionAst(expr.expression, context, expectedType);
+  }
+
+  const runtimeEmissionTarget = resolveRuntimeMaterializationTargetType(
+    expr.targetType,
+    context
+  );
+  const rawSourceContext =
+    expr.expression.kind === "identifier" ||
+    expr.expression.kind === "memberAccess"
+      ? withoutNarrowedBinding(expr.expression, context)
+      : context;
+  const innerExpectedType =
+    expr.expression.kind === "identifier" ||
+    expr.expression.kind === "memberAccess"
+      ? undefined
+      : runtimeEmissionTarget;
   const [innerAst, ctx1] = emitExpressionAst(
     expr.expression,
-    context,
-    expr.targetType
+    rawSourceContext,
+    innerExpectedType
   );
-
-  const resolveRuntimeCastTarget = (
-    target: IrType,
-    ctx: EmitterContext
-  ): IrType => {
-    if (target.kind === "referenceType" && ctx.localTypes) {
-      const typeInfo = ctx.localTypes.get(target.name);
-      if (typeInfo?.kind === "typeAlias") {
-        if (typeInfo.type.kind !== "objectType") {
-          const substituted =
-            target.typeArguments && target.typeArguments.length > 0
-              ? substituteTypeArgs(
-                  typeInfo.type,
-                  typeInfo.typeParameters,
-                  target.typeArguments
-                )
-              : typeInfo.type;
-          return resolveRuntimeCastTarget(substituted, ctx);
-        }
-        return target;
-      }
-    }
-
-    if (target.kind === "referenceType" && target.typeArguments?.length) {
-      const importBinding = ctx.importBindings?.get(target.name);
-      const clrName =
-        importBinding?.kind === "type"
-          ? (getIdentifierTypeName(importBinding.typeAst) ?? "")
-          : "";
-      if (clrName.endsWith(".ExtensionMethods")) {
-        const shape = target.typeArguments[0];
-        if (shape) return resolveRuntimeCastTarget(shape, ctx);
-      }
-    }
-
-    if (target.kind === "intersectionType") {
-      for (const part of target.types) {
-        const resolved = resolveRuntimeCastTarget(part, ctx);
-        if (
-          resolved.kind !== "intersectionType" &&
-          resolved.kind !== "objectType"
-        ) {
-          return resolved;
-        }
-      }
-      const fallback = target.types[0];
-      return fallback ? resolveRuntimeCastTarget(fallback, ctx) : target;
-    }
-
-    return target;
-  };
-
-  const runtimeTarget = resolveRuntimeCastTarget(expr.targetType, ctx1);
+  const runtimeTarget = resolveRuntimeMaterializationTargetType(
+    expr.targetType,
+    ctx1
+  );
+  const transparentSourceExpression = unwrapTransparentExpression(
+    expr.expression
+  );
   const sourceExpressionType =
-    expr.expression.kind === "identifier"
-      ? (ctx1.localValueTypes?.get(expr.expression.name) ??
-        expr.expression.inferredType)
-      : expr.expression.inferredType;
-  const [sourceRuntimeUnionLayout, sourceLayoutContext] = sourceExpressionType
-    ? buildRuntimeUnionLayout(sourceExpressionType, ctx1, emitTypeAst)
-    : [undefined, ctx1];
-  const [runtimeTargetUnionLayout] = buildRuntimeUnionLayout(
-    runtimeTarget,
-    sourceLayoutContext,
-    emitTypeAst
-  );
+    transparentSourceExpression.kind === "identifier"
+      ? (ctx1.localSemanticTypes?.get(transparentSourceExpression.name) ??
+        transparentSourceExpression.inferredType)
+      : transparentSourceExpression.inferredType;
+  const isSourceUnion = sourceExpressionType
+    ? isSemanticUnion(sourceExpressionType, ctx1)
+    : false;
+  const [sourceRuntimeUnionLayout, sourceLayoutContext] =
+    isSourceUnion && sourceExpressionType
+      ? buildRuntimeUnionLayout(sourceExpressionType, ctx1, emitTypeAst)
+      : [undefined, ctx1];
   const narrowedBinding = getNarrowedBindingForExpression(
     expr.expression,
     sourceLayoutContext
@@ -2839,6 +2785,15 @@ const emitTypeAssertion = (
     sourceRuntimeUnionLayout && narrowedBinding?.kind === "runtimeSubset"
       ? sourceExpressionType
       : resolveEffectiveExpressionType(expr.expression, sourceLayoutContext);
+  const [
+    runtimeTargetTypeAst,
+    runtimeTargetUnionLayout,
+    runtimeTargetTypeContext,
+  ] = emitRuntimeCarrierTypeAst(
+    runtimeTarget,
+    sourceLayoutContext,
+    emitTypeAst
+  );
   const mustPreserveNominalCast =
     isSuperMemberCallExpression(expr.expression) ||
     isPolymorphicThisType(runtimeTarget);
@@ -2848,18 +2803,23 @@ const emitTypeAssertion = (
     !runtimeTargetUnionLayout &&
     !areIrTypesEquivalent(sourceExpressionType, runtimeTarget, ctx1);
 
+  if (
+    isExactExpressionToType(
+      innerAst,
+      stripNullableTypeAst(runtimeTargetTypeAst)
+    )
+  ) {
+    return [innerAst, runtimeTargetTypeContext];
+  }
+
   if (mustPreserveNominalCast || mustPreserveFlowStorageCast) {
-    const [typeAst, ctx2] = emitTypeAst(runtimeTarget, sourceLayoutContext);
-    if (isExactExpressionToType(innerAst, unwrapNullableTypeAst(typeAst))) {
-      return [innerAst, ctx2];
-    }
     return [
       {
         kind: "castExpression",
-        type: typeAst,
+        type: runtimeTargetTypeAst,
         expression: innerAst,
       },
-      ctx2,
+      runtimeTargetTypeContext,
     ];
   }
 
@@ -2893,17 +2853,13 @@ const emitTypeAssertion = (
     }
   }
 
-  const [typeAst, ctx2] = emitTypeAst(runtimeTarget, sourceLayoutContext);
-  if (isExactExpressionToType(innerAst, unwrapNullableTypeAst(typeAst))) {
-    return [innerAst, ctx2];
-  }
   return [
     {
       kind: "castExpression",
-      type: typeAst,
+      type: runtimeTargetTypeAst,
       expression: innerAst,
     },
-    ctx2,
+    runtimeTargetTypeContext,
   ];
 };
 
@@ -3089,7 +3045,7 @@ export const emitExpressionAst = (
         return emitAsInterface(expr, context, expectedType);
 
       case "typeAssertion":
-        return emitTypeAssertion(expr, context);
+        return emitTypeAssertion(expr, context, expectedType);
 
       case "trycast":
         return emitTryCast(expr, context);
@@ -3119,7 +3075,9 @@ export const emitExpressionAst = (
     newContext,
     expectedType
   );
-  const actualExprType = resolveEffectiveExpressionType(expr, castedContext);
+  const actualExprType =
+    resolveDirectStorageExpressionType(expr, castedAst, castedContext) ??
+    resolveEffectiveExpressionType(expr, castedContext);
   const [dictUpcastAst, dictUpcastContext] = maybeUpcastDictionaryUnionValueAst(
     expr,
     castedAst,
@@ -3133,10 +3091,14 @@ export const emitExpressionAst = (
       dictUpcastContext,
       expectedType
     ) ?? [dictUpcastAst, dictUpcastContext];
+  const adjustedExprType =
+    unionAdjustedAst !== dictUpcastAst && expectedType
+      ? expectedType
+      : actualExprType;
   const [materializedAst, materializedContext] =
     tryAdaptStructuralExpressionAst(
       unionAdjustedAst,
-      actualExprType,
+      adjustedExprType,
       unionAdjustedContext,
       expectedType
     ) ?? [unionAdjustedAst, unionAdjustedContext];

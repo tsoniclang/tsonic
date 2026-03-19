@@ -302,13 +302,7 @@ const lambdaHasExpectedTypeContext = (
   // Case 6: Lambda is an array element where the array has a type
   // e.g., const ops: Operation[] = [(a, b) => a + b]
   if (ts.isArrayLiteralExpression(parent)) {
-    const arrayParent = parent.parent;
-    if (ts.isVariableDeclaration(arrayParent) && arrayParent.type) {
-      return true;
-    }
-    if (ts.isCallExpression(arrayParent) || ts.isNewExpression(arrayParent)) {
-      return true;
-    }
+    return arrayLiteralHasContextualType(parent);
   }
 
   // Case 7: Lambda is the expression body of another arrow function
@@ -329,6 +323,48 @@ const lambdaHasExpectedTypeContext = (
         return true;
       }
     }
+  }
+
+  return false;
+};
+
+const arrayLiteralHasContextualType = (
+  node: ts.ArrayLiteralExpression
+): boolean => {
+  const parent = node.parent;
+
+  if (ts.isVariableDeclaration(parent) && parent.type) {
+    return true;
+  }
+
+  if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) {
+    return true;
+  }
+
+  if (ts.isReturnStatement(parent)) {
+    const containingFunction = findContainingFunction(parent);
+    if (containingFunction && containingFunction.type) {
+      return true;
+    }
+  }
+
+  if (ts.isArrayLiteralExpression(parent)) {
+    return arrayLiteralHasContextualType(parent);
+  }
+
+  if (
+    ts.isPropertyAssignment(parent) &&
+    ts.isObjectLiteralExpression(parent.parent)
+  ) {
+    return objectLiteralHasContextualType(parent.parent);
+  }
+
+  if (ts.isAsExpression(parent) && parent.type) {
+    return true;
+  }
+
+  if (ts.isSatisfiesExpression(parent) && parent.type) {
+    return true;
   }
 
   return false;
@@ -410,13 +446,7 @@ const objectLiteralHasContextualType = (
   // Case 6: Object is an array element where the array has a type
   // e.g., const users: User[] = [{ name: "Alice" }]
   if (ts.isArrayLiteralExpression(parent)) {
-    const arrayParent = parent.parent;
-    if (ts.isVariableDeclaration(arrayParent) && arrayParent.type) {
-      return true;
-    }
-    if (ts.isCallExpression(arrayParent) || ts.isNewExpression(arrayParent)) {
-      return true;
-    }
+    return arrayLiteralHasContextualType(parent);
   }
 
   // Case 7: Object is in an as-expression (type assertion)

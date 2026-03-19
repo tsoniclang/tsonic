@@ -18,7 +18,10 @@ export type AccessPathTarget =
 
 const unwrapExpr = (expr: ts.Expression): ts.Expression => {
   let current = expr;
-  while (ts.isParenthesizedExpression(current)) {
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
     current = current.expression;
   }
   return current;
@@ -86,7 +89,10 @@ export const getAccessPathTarget = (
     };
   }
 
-  if (ts.isPropertyAccessExpression(candidate)) {
+  if (
+    ts.isPropertyAccessExpression(candidate) ||
+    ts.isPropertyAccessChain(candidate)
+  ) {
     const base = getAccessPathTarget(candidate.expression, ctx);
     if (!base) return undefined;
     return {
@@ -96,7 +102,10 @@ export const getAccessPathTarget = (
     };
   }
 
-  if (ts.isElementAccessExpression(candidate)) {
+  if (
+    ts.isElementAccessExpression(candidate) ||
+    ts.isElementAccessChain(candidate)
+  ) {
     const base = getAccessPathTarget(candidate.expression, ctx);
     if (!base || !candidate.argumentExpression) return undefined;
     const propertyName = getStringLiteralText(candidate.argumentExpression);
@@ -156,6 +165,10 @@ export const getCurrentTypeForAccessPath = (
   }
 
   for (let index = 0; index < target.segments.length; index += 1) {
+    const segment = target.segments[index];
+    if (segment === undefined) {
+      return undefined;
+    }
     const pathKey = getAccessPathKey({
       ...target,
       segments: target.segments.slice(0, index + 1),
@@ -169,7 +182,7 @@ export const getCurrentTypeForAccessPath = (
     if (!currentType) return undefined;
     const memberType = ctx.typeSystem.typeOfMember(currentType, {
       kind: "byName",
-      name: target.segments[index]!,
+      name: segment,
     });
     if (memberType.kind === "unknownType") {
       return undefined;

@@ -666,6 +666,7 @@ export class BindingRegistry {
             alias: method.clrName,
             signature: method.normalizedSignature,
             semanticSignature: method.semanticSignature,
+            overloadFamily: method.overloadFamily,
             parameterCount: method.parameterCount,
             binding: {
               assembly: method.declaringAssemblyName,

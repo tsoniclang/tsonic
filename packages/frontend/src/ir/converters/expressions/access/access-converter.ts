@@ -19,6 +19,7 @@ import {
   getCurrentTypeForAccessExpression,
   hasAccessPathNarrowing,
 } from "../../access-paths.js";
+import { shouldWrapExpressionWithAssertion } from "../../assertion-wrapping.js";
 import {
   resolveHierarchicalBinding,
   resolveHierarchicalBindingFromMemberId,
@@ -122,13 +123,11 @@ export const convertMemberExpression = (
       hasAccessPathNarrowing(node, ctx) || currentReceiverType !== undefined
         ? getCurrentTypeForAccessExpression(node, ctx)
         : undefined;
-    const declaredType =
-      narrowedAccessType ??
-      getDeclaredPropertyType(
-        node,
-        currentReceiverType ?? object.inferredType,
-        ctx
-      );
+    const declaredType = getDeclaredPropertyType(
+      node,
+      currentReceiverType ?? object.inferredType,
+      ctx
+    );
 
     // Hierarchical bindings: namespace.type is a static type reference, not a runtime
     // value. When this pattern is present in the binding manifest, avoid poisoning the
@@ -163,16 +162,32 @@ export const convertMemberExpression = (
           : { kind: "unknownType" as const };
     const allowUnknownInferredType = declaredType?.kind === "unknownType";
 
-    return {
+    const baseMemberAccess: IrExpression = {
       kind: "memberAccess",
       object,
       property: propertyName,
       isComputed: false,
       isOptional,
-      inferredType: propertyInferredType,
+      inferredType: declaredType ?? propertyInferredType,
       allowUnknownInferredType,
       sourceSpan,
       memberBinding,
+    };
+    if (
+      narrowedAccessType &&
+      shouldWrapExpressionWithAssertion(ctx, declaredType, narrowedAccessType)
+    ) {
+      return {
+        kind: "typeAssertion",
+        expression: baseMemberAccess,
+        targetType: narrowedAccessType,
+        inferredType: narrowedAccessType,
+        sourceSpan,
+      };
+    }
+    return {
+      ...baseMemberAccess,
+      inferredType: propertyInferredType,
     };
   } else {
     const objectMethodArgumentCapture =
@@ -209,6 +224,10 @@ export const convertMemberExpression = (
       object.inferredType !== undefined &&
       computedAccessKind !== "dictionary"
     ) {
+      const currentAccessType =
+        hasAccessPathNarrowing(node, ctx) || object.inferredType !== undefined
+          ? getCurrentTypeForAccessExpression(node, ctx)
+          : undefined;
       const declaredType = ctx.typeSystem.typeOfMember(object.inferredType, {
         kind: "byName",
         name: deterministicPropertyName,
@@ -219,7 +238,7 @@ export const convertMemberExpression = (
           deterministicPropertyName,
           ctx
         );
-        return {
+        const baseMemberAccess: IrExpression = {
           kind: "memberAccess",
           object,
           property: deterministicPropertyName,
@@ -229,6 +248,23 @@ export const convertMemberExpression = (
           sourceSpan,
           memberBinding,
         };
+        if (
+          currentAccessType &&
+          shouldWrapExpressionWithAssertion(
+            ctx,
+            declaredType,
+            currentAccessType
+          )
+        ) {
+          return {
+            kind: "typeAssertion",
+            expression: baseMemberAccess,
+            targetType: currentAccessType,
+            inferredType: currentAccessType,
+            sourceSpan,
+          };
+        }
+        return baseMemberAccess;
       }
     }
 
@@ -242,24 +278,50 @@ export const convertMemberExpression = (
         ? computedAccessKind
         : classifyComputedAccess(objectType, ctx);
 
+    const narrowedAccessType =
+      hasAccessPathNarrowing(node, ctx) || objectType !== undefined
+        ? getCurrentTypeForAccessExpression(node, ctx)
+        : undefined;
+
     // Derive element type from object type
-    const elementType = deriveElementType(objectType, ctx);
+    const elementType =
+      narrowedAccessType ?? deriveElementType(objectType, ctx);
     const allowUnknownInferredType =
       elementType?.kind === "unknownType" &&
       accessKind !== "unknown" &&
       objectType !== undefined &&
       objectType.kind !== "unknownType";
 
-    return {
+    const baseElementAccess: IrExpression = {
       kind: "memberAccess",
       object,
       property: convertExpression(node.argumentExpression, ctx, undefined),
       isComputed: true,
       isOptional,
-      inferredType: elementType,
+      inferredType: deriveElementType(objectType, ctx),
       allowUnknownInferredType,
       sourceSpan,
       accessKind,
+    };
+    if (
+      narrowedAccessType &&
+      shouldWrapExpressionWithAssertion(
+        ctx,
+        deriveElementType(objectType, ctx),
+        narrowedAccessType
+      )
+    ) {
+      return {
+        kind: "typeAssertion",
+        expression: baseElementAccess,
+        targetType: narrowedAccessType,
+        inferredType: narrowedAccessType,
+        sourceSpan,
+      };
+    }
+    return {
+      ...baseElementAccess,
+      inferredType: elementType,
     };
   }
 };

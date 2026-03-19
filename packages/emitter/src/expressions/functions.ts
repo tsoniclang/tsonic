@@ -20,19 +20,16 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
+import { unwrapParameterModifierType } from "../core/semantic/parameter-modifier-types.js";
 import {
-  buildRuntimeUnionLayout,
+  emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
 } from "../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionFactoryCallAst } from "../core/semantic/runtime-union-projection.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
-import {
-  getIdentifierTypeName,
-  stableTypeKeyFromAst,
-} from "../core/format/backend-ast/utils.js";
-import {
-  allocateLocalName,
-  registerLocalValueType,
-} from "../core/format/local-names.js";
+import { stableTypeKeyFromAst } from "../core/format/backend-ast/utils.js";
+import { allocateLocalName } from "../core/format/local-names.js";
+import { registerParameterTypes } from "../core/semantic/symbol-types.js";
 import type {
   CSharpBlockStatementAst,
   CSharpExpressionAst,
@@ -61,7 +58,7 @@ const seedLocalNameMapFromParameters = (
       continue;
     map.set(p.parameter.pattern.name, p.emittedName);
     used.add(p.emittedName);
-    currentContext = registerLocalValueType(
+    currentContext = registerParameterTypes(
       p.parameter.pattern.name,
       p.parameter.type,
       currentContext
@@ -180,32 +177,6 @@ const buildTaskRunInvocationAst = (
   ],
 });
 
-const wrapInUnionReturnMemberAst = (
-  unionTypeAst: CSharpTypeAst,
-  memberIndex: number,
-  valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: {
-    kind: "memberAccessExpression",
-    expression: {
-      kind: "typeReferenceExpression",
-      type: unionTypeAst,
-    },
-    memberName: `From${memberIndex}`,
-  },
-  arguments: [valueAst],
-});
-
-const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
-  const name = getIdentifierTypeName(type);
-  return (
-    name === "global::Tsonic.Runtime.Union" ||
-    name === "Tsonic.Runtime.Union" ||
-    name === "Union"
-  );
-};
-
 const emitAsyncUnionReturningLambdaBodyAst = (
   parameters: readonly EmittedLambdaParameter[],
   body: Extract<
@@ -282,31 +253,47 @@ const emitAsyncUnionReturningLambdaBodyAst = (
     const discardLocal = isVoidAwaitedReturn
       ? allocateLocalName("__tsonic_discard", currentContext)
       : undefined;
+    const discardName = discardLocal?.emittedName;
+    if (
+      isVoidAwaitedReturn &&
+      !isNoopVoidExpression &&
+      discardName === undefined
+    ) {
+      throw new Error("Missing discard local for awaited void expression");
+    }
     currentContext = discardLocal?.context ?? currentContext;
-    taskBody = {
-      kind: "blockStatement",
-      statements: isVoidAwaitedReturn
-        ? isNoopVoidExpression
-          ? []
-          : [
-              {
-                kind: "localDeclarationStatement",
-                modifiers: [],
-                type: identifierType("var"),
-                declarators: [
-                  {
-                    name: discardLocal!.emittedName,
-                    initializer: exprAst,
-                  },
-                ],
-              },
-            ]
-        : [
+    let awaitedStatements: readonly CSharpStatementAst[];
+    if (!isVoidAwaitedReturn) {
+      awaitedStatements = [
+        {
+          kind: "returnStatement",
+          expression: exprAst,
+        },
+      ];
+    } else if (isNoopVoidExpression) {
+      awaitedStatements = [];
+    } else {
+      const requiredDiscardName = discardName;
+      if (requiredDiscardName === undefined) {
+        throw new Error("Missing discard local for awaited void expression");
+      }
+      awaitedStatements = [
+        {
+          kind: "localDeclarationStatement",
+          modifiers: [],
+          type: identifierType("var"),
+          declarators: [
             {
-              kind: "returnStatement",
-              expression: exprAst,
+              name: requiredDiscardName,
+              initializer: exprAst,
             },
           ],
+        },
+      ];
+    }
+    taskBody = {
+      kind: "blockStatement",
+      statements: awaitedStatements,
     };
   }
 
@@ -317,27 +304,23 @@ const emitAsyncUnionReturningLambdaBodyAst = (
       : awaitedReturnTypeAst;
 
   const taskInvocationAst = buildTaskRunInvocationAst(taskBody, resultTypeAst);
-  const [unionTypeAst, unionTypeContext] = emitTypeAst(
-    unionPlan.unionReturnType,
-    currentContext
-  );
+  const [unionTypeAst, runtimeLayout, unionTypeContext] =
+    emitRuntimeCarrierTypeAst(
+      unionPlan.unionReturnType,
+      currentContext,
+      emitTypeAst
+    );
   const concreteUnionTypeAst =
     unionTypeAst.kind === "nullableType"
       ? unionTypeAst.underlyingType
       : unionTypeAst;
 
-  if (!isRuntimeUnionTypeAst(concreteUnionTypeAst)) {
+  if (!runtimeLayout) {
     return [taskInvocationAst, unionTypeContext];
   }
-
-  const [runtimeLayout, runtimeLayoutContext] = buildRuntimeUnionLayout(
-    unionPlan.unionReturnType,
-    unionTypeContext,
-    emitTypeAst
-  );
   const [awaitableMemberTypeAst, awaitableMemberTypeContext] = emitTypeAst(
     unionPlan.awaitableMemberType,
-    runtimeLayoutContext
+    unionTypeContext
   );
   const awaitableMemberTypeKey = stableTypeKeyFromAst(awaitableMemberTypeAst);
   const awaitableMemberIndex =
@@ -361,7 +344,7 @@ const emitAsyncUnionReturningLambdaBodyAst = (
     return [taskInvocationAst, awaitableMemberTypeContext];
   }
 
-  const wrappedTaskAst = wrapInUnionReturnMemberAst(
+  const wrappedTaskAst = buildRuntimeUnionFactoryCallAst(
     concreteUnionTypeAst,
     resolvedAwaitableMemberIndex + 1,
     taskInvocationAst
@@ -384,27 +367,6 @@ const emitAsyncUnionReturningLambdaBodyAst = (
     },
     awaitableMemberTypeContext,
   ];
-};
-
-/**
- * Unwrap ref/out/in wrapper types (e.g., ref<T> -> T)
- */
-const unwrapParameterModifierType = (type: IrType): IrType | null => {
-  if (type.kind !== "referenceType") {
-    return null;
-  }
-
-  const name = type.name;
-  if (
-    (name === "out" || name === "ref" || name === "In") &&
-    type.typeArguments &&
-    type.typeArguments.length === 1
-  ) {
-    const innerType = type.typeArguments[0];
-    return innerType ?? null;
-  }
-
-  return null;
 };
 
 const isTypeParameterLike = (

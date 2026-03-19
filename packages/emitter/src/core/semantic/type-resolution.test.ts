@@ -14,6 +14,7 @@ import {
   substituteTypeArgs,
   getPropertyType,
   getArrayLikeElementType,
+  selectObjectLiteralUnionMember,
   selectUnionMemberForObjectLiteral,
   normalizeStructuralEmissionType,
   resolveStructuralReferenceType,
@@ -21,6 +22,7 @@ import {
   isDefinitelyValueType,
   isTypeOnlyStructuralTarget,
   narrowTypeByTypeofTag,
+  findUnionMemberIndex,
 } from "./type-resolution.js";
 import { EmitterContext, LocalTypeInfo, EmitterOptions } from "../../types.js";
 
@@ -988,6 +990,59 @@ describe("type-resolution", () => {
         elementType: { kind: "primitiveType", name: "string" },
       });
     });
+
+    it("prefers registry-substituted type over structural members", () => {
+      // A reference type may carry both registry info (with type-arg substitution)
+      // and structuralMembers (without substitution). The registry path must win
+      // so that generic substitution is applied correctly.
+      //
+      // interface Box<T> { value: T }
+      // Box<string> with structuralMembers: [{ value: number }]
+      // → getPropertyType should return string (from registry), not number (from structural)
+      const members: IrInterfaceMember[] = [
+        {
+          kind: "propertySignature",
+          name: "value",
+          type: { kind: "typeParameterType", name: "T" },
+          isOptional: false,
+          isReadonly: false,
+        },
+      ];
+
+      const localTypes = new Map<string, LocalTypeInfo>([
+        [
+          "Box",
+          {
+            kind: "interface",
+            typeParameters: ["T"],
+            members,
+            extends: [],
+          },
+        ],
+      ]);
+
+      const contextualType: IrType = {
+        kind: "referenceType",
+        name: "Box",
+        typeArguments: [{ kind: "primitiveType", name: "string" }],
+        structuralMembers: [
+          {
+            kind: "propertySignature" as const,
+            name: "value",
+            type: { kind: "primitiveType", name: "number" } as IrType,
+            isOptional: false,
+            isReadonly: false,
+          },
+        ],
+      };
+
+      const context = createContext(localTypes);
+      const result = getPropertyType(contextualType, "value", context);
+
+      // Registry path substitutes T → string; structural members say number.
+      // Registry must win.
+      expect(result).to.deep.equal({ kind: "primitiveType", name: "string" });
+    });
   });
 
   describe("getArrayLikeElementType", () => {
@@ -1050,6 +1105,24 @@ describe("type-resolution", () => {
       expect(result).to.deep.equal({
         kind: "primitiveType",
         name: "string",
+      });
+    });
+
+    it("resolves ArrayLike element types through generic references", () => {
+      const context = createContext(new Map());
+
+      const result = getArrayLikeElementType(
+        {
+          kind: "referenceType",
+          name: "ArrayLike",
+          typeArguments: [{ kind: "primitiveType", name: "number" }],
+        },
+        context
+      );
+
+      expect(result).to.deep.equal({
+        kind: "primitiveType",
+        name: "number",
       });
     });
   });
@@ -1149,6 +1222,60 @@ describe("type-resolution", () => {
 
       expect(selected?.kind).to.equal("referenceType");
       expect(selected?.name).to.equal("__Anon_events");
+    });
+
+    it("selects dictionary members from object-or-callback unions", () => {
+      const context: EmitterContext = {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+      };
+
+      const unionType: Extract<IrType, { kind: "unionType" }> = {
+        kind: "unionType",
+        types: [
+          {
+            kind: "dictionaryType",
+            keyType: { kind: "primitiveType", name: "string" },
+            valueType: { kind: "unknownType" },
+          },
+          {
+            kind: "functionType",
+            parameters: [
+              {
+                kind: "parameter",
+                pattern: { kind: "identifierPattern", name: "error" },
+                type: { kind: "unknownType" },
+                isOptional: false,
+                isRest: false,
+                passing: "value",
+              },
+              {
+                kind: "parameter",
+                pattern: { kind: "identifierPattern", name: "html" },
+                type: { kind: "primitiveType", name: "string" },
+                isOptional: false,
+                isRest: false,
+                passing: "value",
+              },
+            ],
+            returnType: { kind: "voidType" },
+          },
+        ],
+      };
+
+      const selected = selectObjectLiteralUnionMember(
+        unionType,
+        ["name"],
+        context
+      );
+
+      expect(selected?.kind).to.equal("dictionaryType");
     });
   });
 
@@ -1253,6 +1380,28 @@ describe("type-resolution", () => {
     it("returns false for reference types without resolvedClrType", () => {
       const type: IrType = { kind: "referenceType", name: "MyClass" };
       expect(isDefinitelyValueType(type)).to.be.false;
+    });
+
+    it("returns true for exact numeric reference aliases without resolvedClrType", () => {
+      for (const name of [
+        "byte",
+        "sbyte",
+        "short",
+        "ushort",
+        "int",
+        "uint",
+        "long",
+        "ulong",
+        "nint",
+        "nuint",
+        "float",
+        "double",
+        "decimal",
+        "char",
+      ] as const) {
+        const type: IrType = { kind: "referenceType", name };
+        expect(isDefinitelyValueType(type), name).to.be.true;
+      }
     });
 
     it("returns true for known CLR value type (System.DateTime)", () => {
@@ -1385,6 +1534,69 @@ describe("type-resolution", () => {
           context
         )
       ).to.equal(true);
+    });
+  });
+
+  describe("findUnionMemberIndex", () => {
+    const defaultOptions: EmitterOptions = {
+      rootNamespace: "Test",
+      indent: 4,
+    };
+
+    const createContext = (
+      localTypes: ReadonlyMap<string, LocalTypeInfo>
+    ): EmitterContext => ({
+      indentLevel: 0,
+      options: defaultOptions,
+      isStatic: false,
+      isAsync: false,
+      localTypes,
+      usings: new Set<string>(),
+    });
+
+    it("matches recursive union aliases without stack overflow", () => {
+      const middlewareLikeRef: IrType = {
+        kind: "referenceType",
+        name: "MiddlewareLike",
+      };
+      const middlewareHandlerType: IrType = {
+        kind: "functionType",
+        parameters: [],
+        returnType: { kind: "voidType" },
+      };
+      const context = createContext(
+        new Map([
+          [
+            "MiddlewareLike",
+            {
+              kind: "typeAlias",
+              typeParameters: [],
+              type: {
+                kind: "unionType",
+                types: [
+                  middlewareHandlerType,
+                  { kind: "referenceType", name: "Router" },
+                  {
+                    kind: "arrayType",
+                    elementType: middlewareLikeRef,
+                  },
+                ],
+              },
+            },
+          ],
+        ])
+      );
+
+      const result = findUnionMemberIndex(
+        {
+          kind: "unionType",
+          types: [middlewareLikeRef, { kind: "primitiveType", name: "string" }],
+        },
+        middlewareLikeRef,
+        context
+      );
+
+      expect(result).to.equal(1);
     });
   });
 });

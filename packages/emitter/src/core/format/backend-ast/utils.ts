@@ -262,6 +262,20 @@ export const stableTypeKeyFromAst = (type: CSharpTypeAst): string => {
   }
 };
 
+export const stableConcreteTypeKeyFromAst = (type: CSharpTypeAst): string =>
+  stableTypeKeyFromAst(stripNullableTypeAst(type));
+
+export const sameTypeAstSurface = (
+  left: CSharpTypeAst,
+  right: CSharpTypeAst
+): boolean => stableTypeKeyFromAst(left) === stableTypeKeyFromAst(right);
+
+export const sameConcreteTypeAstSurface = (
+  left: CSharpTypeAst,
+  right: CSharpTypeAst
+): boolean =>
+  stableConcreteTypeKeyFromAst(left) === stableConcreteTypeKeyFromAst(right);
+
 export const stableIdentifierSuffixFromTypeAst = (
   type: CSharpTypeAst
 ): string => {

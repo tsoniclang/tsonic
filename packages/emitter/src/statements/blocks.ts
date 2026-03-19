@@ -13,6 +13,7 @@ import { emitStatementAst } from "../statement-emitter.js";
 import { lowerPatternAst } from "../patterns.js";
 import { allocateLocalName } from "../core/format/local-names.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
+import { applyAssignmentStatementNarrowing } from "../core/semantic/assignment-flow.js";
 import { withScoped } from "../emitter-types/context.js";
 import type {
   CSharpStatementAst,
@@ -72,11 +73,13 @@ export const emitBlockStatementAst = (
   context: EmitterContext
 ): [CSharpBlockStatementAst, EmitterContext] => {
   const outerNameMap = context.localNameMap;
+  const outerSemanticTypes = context.localSemanticTypes;
   const outerValueTypes = context.localValueTypes;
   return withScoped(
     context,
     {
       localNameMap: new Map(outerNameMap ?? []),
+      localSemanticTypes: new Map(outerSemanticTypes ?? []),
       localValueTypes: new Map(outerValueTypes ?? []),
     },
     (scopedContext) => {
@@ -520,7 +523,12 @@ export const emitExpressionStatementAst = (
   }
 
   const [exprAst, newContext] = emitExpressionAst(stmt.expression, context);
-  return [[{ kind: "expressionStatement", expression: exprAst }], newContext];
+  const flowContext = applyAssignmentStatementNarrowing(
+    stmt.expression,
+    newContext,
+    emitExpressionAst
+  );
+  return [[{ kind: "expressionStatement", expression: exprAst }], flowContext];
 };
 
 /**

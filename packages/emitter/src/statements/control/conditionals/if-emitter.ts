@@ -38,6 +38,8 @@ import {
   toBooleanConditionAst,
   type EmitExprAstFn,
 } from "../../../core/semantic/boolean-context.js";
+import { applyConditionBranchNarrowing } from "../../../core/semantic/condition-branch-narrowing.js";
+import { unwrapTransparentNarrowingTarget } from "../../../core/semantic/transparent-expressions.js";
 import {
   tryResolvePredicateGuard,
   tryResolveInstanceofGuard,
@@ -54,12 +56,46 @@ import { withScoped } from "../../../emitter-types/context.js";
 /** Standard emitExpressionAst adapter for emitBooleanConditionAst callback. */
 const emitExprAstCb: EmitExprAstFn = (e, ctx) => emitExpressionAst(e, ctx);
 
+const mergeBranchContextMeta = (
+  preferred: EmitterContext,
+  alternate: EmitterContext
+): EmitterContext => ({
+  ...preferred,
+  tempVarId: Math.max(preferred.tempVarId ?? 0, alternate.tempVarId ?? 0),
+  usings: new Set([...(preferred.usings ?? []), ...(alternate.usings ?? [])]),
+});
+
+const resetBranchFlowState = (
+  base: EmitterContext,
+  branchContext: EmitterContext
+): EmitterContext =>
+  mergeBranchContextMeta(
+    {
+      ...base,
+      narrowedBindings: base.narrowedBindings,
+    },
+    branchContext
+  );
+
 const toReceiverAst = (
   receiver: string | CSharpExpressionAst
 ): CSharpExpressionAst =>
   typeof receiver === "string"
     ? { kind: "identifierExpression", identifier: receiver }
     : receiver;
+
+const buildExprBinding = (
+  exprAst: CSharpExpressionAst,
+  type: IrType | undefined,
+  sourceType: IrType | undefined,
+  storageExprAst?: CSharpExpressionAst
+): Extract<NarrowedBinding, { kind: "expr" }> => ({
+  kind: "expr",
+  exprAst,
+  storageExprAst,
+  type,
+  sourceType,
+});
 
 /**
  * Build AST for a union narrowing expression: (escapedOrig.AsN())
@@ -94,7 +130,9 @@ const buildComplementNarrowedBinding = (
   candidateMemberNs: readonly number[],
   candidateMembers: readonly import("@tsonic/frontend").IrType[],
   selectedMemberN: number,
-  sourceType?: import("@tsonic/frontend").IrType
+  sourceType?: import("@tsonic/frontend").IrType,
+  sourceMembers?: readonly import("@tsonic/frontend").IrType[],
+  sourceCandidateMemberNs?: readonly number[]
 ): NarrowedBinding | undefined => {
   const remainingPairs = candidateMemberNs.flatMap((runtimeMemberN, index) => {
     if (runtimeMemberN === selectedMemberN) {
@@ -117,20 +155,22 @@ const buildComplementNarrowedBinding = (
     const remaining = remainingPairs[0];
     if (!remaining) return undefined;
 
-    return {
-      kind: "expr",
-      exprAst: buildUnionNarrowAst(receiver, remaining.runtimeMemberN),
-      type: remaining.memberType,
+    return buildExprBinding(
+      buildUnionNarrowAst(receiver, remaining.runtimeMemberN),
+      remaining.memberType,
       sourceType,
-    };
+      toReceiverAst(receiver)
+    );
   }
 
   return {
     kind: "runtimeSubset",
     runtimeMemberNs: remainingPairs.map((pair) => pair.runtimeMemberN),
     runtimeUnionArity,
-    sourceMembers: [...candidateMembers],
-    sourceCandidateMemberNs: [...candidateMemberNs],
+    sourceMembers: [...(sourceMembers ?? candidateMembers)],
+    sourceCandidateMemberNs: [
+      ...(sourceCandidateMemberNs ?? candidateMemberNs),
+    ],
     type: buildSubsetUnionType(remainingPairs.map((pair) => pair.memberType)),
     sourceType,
   };
@@ -219,15 +259,19 @@ const applyExprFallthroughNarrowing = (
     finalContext
   );
   const fallthroughBindings = new Map(baseContext.narrowedBindings ?? []);
-  fallthroughBindings.set(originalName, {
-    kind: "expr",
-    exprAst: {
-      kind: "castExpression",
-      type: narrowedTypeAst,
-      expression: exprAst,
-    },
-    type: narrowedType,
-  });
+  fallthroughBindings.set(
+    originalName,
+    buildExprBinding(
+      {
+        kind: "castExpression",
+        type: narrowedTypeAst,
+        expression: exprAst,
+      },
+      narrowedType,
+      undefined,
+      exprAst
+    )
+  );
 
   return {
     ...narrowedTypeCtx,
@@ -250,21 +294,6 @@ const withoutNarrowedBinding = (
     ...context,
     narrowedBindings,
   };
-};
-
-const unwrapTransparentNarrowingTarget = (
-  expr: IrExpression
-):
-  | Extract<IrExpression, { kind: "identifier" | "memberAccess" }>
-  | undefined => {
-  let current: IrExpression = expr;
-  while (current.kind === "typeAssertion" || current.kind === "asinterface") {
-    current = current.expression;
-  }
-
-  return current.kind === "identifier" || current.kind === "memberAccess"
-    ? current
-    : undefined;
 };
 
 const tryExtractArrayIsArrayGuard = (
@@ -350,13 +379,31 @@ const withComplementNarrowing = (
   const existingBinding = baseContext.narrowedBindings?.get(originalName);
   const sourceType =
     existingBinding?.sourceType ?? buildSubsetUnionType(candidateMembers);
+  const sourceMembers =
+    existingBinding?.kind === "runtimeSubset" &&
+    existingBinding.sourceMembers &&
+    existingBinding.sourceCandidateMemberNs &&
+    existingBinding.sourceMembers.length ===
+      existingBinding.sourceCandidateMemberNs.length
+      ? existingBinding.sourceMembers
+      : undefined;
+  const sourceCandidateMemberNs =
+    existingBinding?.kind === "runtimeSubset" &&
+    existingBinding.sourceMembers &&
+    existingBinding.sourceCandidateMemberNs &&
+    existingBinding.sourceMembers.length ===
+      existingBinding.sourceCandidateMemberNs.length
+      ? existingBinding.sourceCandidateMemberNs
+      : undefined;
   const binding = buildComplementNarrowedBinding(
     receiver,
     runtimeUnionArity,
     candidateMemberNs,
     candidateMembers,
     selectedMemberN,
-    sourceType
+    sourceType,
+    sourceMembers,
+    sourceCandidateMemberNs
   );
 
   if (!binding) {
@@ -377,12 +424,15 @@ const withRuntimeUnionMemberNarrowing = (
   baseContext: EmitterContext
 ): EmitterContext => {
   const narrowedBindings = new Map(baseContext.narrowedBindings ?? []);
-  narrowedBindings.set(originalName, {
-    kind: "expr",
-    exprAst: buildUnionNarrowAst(receiver, memberN),
-    type: memberType,
-    sourceType,
-  });
+  narrowedBindings.set(
+    originalName,
+    buildExprBinding(
+      buildUnionNarrowAst(receiver, memberN),
+      memberType,
+      sourceType,
+      toReceiverAst(receiver)
+    )
+  );
   return { ...baseContext, narrowedBindings };
 };
 
@@ -406,11 +456,13 @@ const emitForcedBlockWithPreambleAst = (
   bodyCtx: EmitterContext
 ): [CSharpBlockStatementAst, EmitterContext] => {
   const outerNameMap = bodyCtx.localNameMap;
+  const outerSemanticTypes = bodyCtx.localSemanticTypes;
   const outerValueTypes = bodyCtx.localValueTypes;
   return withScoped(
     bodyCtx,
     {
       localNameMap: new Map(outerNameMap ?? []),
+      localSemanticTypes: new Map(outerSemanticTypes ?? []),
       localValueTypes: new Map(outerValueTypes ?? []),
     },
     (scopedContext) => {
@@ -449,23 +501,39 @@ const emitForcedBlockWithPreambleAst = (
 const buildCastLocalDecl = (
   varName: string,
   receiver: string | CSharpExpressionAst,
-  memberN: number
+  memberN: number,
+  narrowedTypeAst?: CSharpTypeAst
 ): CSharpStatementAst => ({
   kind: "localDeclarationStatement",
   modifiers: [],
-  type: { kind: "varType" },
+  type: narrowedTypeAst ?? { kind: "varType" },
   declarators: [
     {
       name: varName,
-      initializer: {
-        kind: "invocationExpression",
-        expression: {
-          kind: "memberAccessExpression",
-          expression: toReceiverAst(receiver),
-          memberName: `As${memberN}`,
-        },
-        arguments: [],
-      },
+      initializer:
+        narrowedTypeAst === undefined
+          ? {
+              kind: "invocationExpression",
+              expression: {
+                kind: "memberAccessExpression",
+                expression: toReceiverAst(receiver),
+                memberName: `As${memberN}`,
+              },
+              arguments: [],
+            }
+          : {
+              kind: "castExpression",
+              type: narrowedTypeAst,
+              expression: {
+                kind: "invocationExpression",
+                expression: {
+                  kind: "memberAccessExpression",
+                  expression: toReceiverAst(receiver),
+                  memberName: `As${memberN}`,
+                },
+                arguments: [],
+              },
+            },
     },
   ],
 });
@@ -673,12 +741,15 @@ const applyTypeofGuardRefinements = (
         runtimeUnionFrame.members[matchingRuntimeMemberIndex] ?? narrowedType;
 
       if (refinement.matchTag) {
-        nextBindings.set(refinement.bindingKey, {
-          kind: "expr",
-          exprAst: buildUnionNarrowAst(rawTargetAst, memberN),
-          type: memberType,
-          sourceType: currentType,
-        });
+        nextBindings.set(
+          refinement.bindingKey,
+          buildExprBinding(
+            buildUnionNarrowAst(rawTargetAst, memberN),
+            memberType,
+            currentType,
+            rawTargetAst
+          )
+        );
         currentContext = {
           ...rawTargetContext,
           narrowedBindings: nextBindings,
@@ -708,15 +779,19 @@ const applyTypeofGuardRefinements = (
       narrowedType,
       rawTargetContext
     );
-    nextBindings.set(refinement.bindingKey, {
-      kind: "expr",
-      exprAst: {
-        kind: "castExpression",
-        type: narrowedTypeAst,
-        expression: rawTargetAst,
-      },
-      type: narrowedType,
-    });
+    nextBindings.set(
+      refinement.bindingKey,
+      buildExprBinding(
+        {
+          kind: "castExpression",
+          type: narrowedTypeAst,
+          expression: rawTargetAst,
+        },
+        narrowedType,
+        undefined,
+        rawTargetAst
+      )
+    );
     currentContext = {
       ...nextContext,
       narrowedBindings: nextBindings,
@@ -1259,15 +1334,19 @@ export const emitIfStatementAst = (
       // Post-if narrowing for early-exit patterns
       if (isDefinitelyTerminating(stmt.thenStatement)) {
         const narrowedBindings = new Map(finalContext.narrowedBindings ?? []);
-        narrowedBindings.set(originalName, {
-          kind: "expr",
-          exprAst: buildUnionNarrowAst(escapedOrig, memberN),
-          type: candidateMembers[
-            candidateMemberNs.findIndex(
-              (runtimeMemberN) => runtimeMemberN === memberN
-            )
-          ],
-        });
+        narrowedBindings.set(
+          originalName,
+          buildExprBinding(
+            buildUnionNarrowAst(escapedOrig, memberN),
+            candidateMembers[
+              candidateMemberNs.findIndex(
+                (runtimeMemberN) => runtimeMemberN === memberN
+              )
+            ],
+            undefined,
+            toReceiverAst(escapedOrig)
+          )
+        );
         finalContext = { ...finalContext, narrowedBindings };
         return [
           [
@@ -1318,7 +1397,7 @@ export const emitIfStatementAst = (
     let thenCtxAfter: EmitterContext;
     if (memberN && runtimeUnionArity && candidateMemberNs && candidateMembers) {
       const [thenBlock, thenBlockCtx] = emitForcedBlockWithPreambleAst(
-        [buildCastLocalDecl(escapedNarrow, receiverAst, memberN)],
+        [buildCastLocalDecl(escapedNarrow, receiverAst, memberN, rhsTypeAst)],
         stmt.thenStatement,
         {
           ...ctxAfterRhs,
@@ -1352,37 +1431,69 @@ export const emitIfStatementAst = (
     }
 
     if (!stmt.elseStatement && isDefinitelyTerminating(stmt.thenStatement)) {
+      const fallthroughBaseContext: EmitterContext = {
+        ...finalContext,
+        narrowedBindings: ctxAfterRhs.narrowedBindings,
+      };
+      const instanceofSourceType =
+        stmt.condition.kind === "binary"
+          ? stmt.condition.left.inferredType
+          : undefined;
+      const fallthroughSourceType =
+        fallthroughBaseContext.narrowedBindings?.get(
+          instanceofGuard.originalName
+        )?.sourceType ??
+        fallthroughBaseContext.narrowedBindings?.get(
+          instanceofGuard.originalName
+        )?.type ??
+        instanceofSourceType;
+      const fallthroughRuntimeFrame =
+        fallthroughSourceType &&
+        resolveRuntimeUnionFrame(
+          instanceofGuard.originalName,
+          fallthroughSourceType,
+          fallthroughBaseContext
+        );
       if (
-        memberN &&
-        runtimeUnionArity &&
-        candidateMemberNs &&
-        candidateMembers
+        memberN !== undefined &&
+        fallthroughRuntimeFrame &&
+        fallthroughRuntimeFrame.candidateMemberNs.includes(memberN)
       ) {
         finalContext = withComplementNarrowing(
           instanceofGuard.originalName,
           receiverAst,
-          runtimeUnionArity,
-          candidateMemberNs,
-          candidateMembers,
+          fallthroughRuntimeFrame.runtimeUnionArity,
+          fallthroughRuntimeFrame.candidateMemberNs,
+          fallthroughRuntimeFrame.members,
           memberN,
-          finalContext
+          fallthroughBaseContext
         );
       } else {
-        const complementType = narrowTypeByNotAssignableTarget(
-          stmt.condition.kind === "binary"
-            ? stmt.condition.left.inferredType
-            : undefined,
-          instanceofGuard.targetType,
-          ctxAfterRhs
+        const fallthroughContext = applyConditionBranchNarrowing(
+          stmt.condition,
+          "falsy",
+          fallthroughBaseContext,
+          emitExprAstCb
         );
-        if (complementType) {
-          finalContext = applyExprFallthroughNarrowing(
-            instanceofGuard.originalName,
-            { kind: "identifierExpression", identifier: escapedOrig },
-            complementType,
-            ctxAfterRhs,
-            finalContext
+        if (fallthroughContext) {
+          finalContext = fallthroughContext;
+        } else {
+          const complementType = narrowTypeByNotAssignableTarget(
+            stmt.condition.kind === "binary"
+              ? stmt.condition.left.inferredType
+              : undefined,
+            instanceofGuard.targetType,
+            ctxAfterRhs
           );
+          if (complementType) {
+            finalContext = applyExprFallthroughNarrowing(
+              instanceofGuard.originalName,
+              { kind: "identifierExpression", identifier: escapedOrig },
+              complementType,
+              ctxAfterRhs,
+              finalContext
+            );
+          }
         }
       }
     }
@@ -1531,15 +1642,19 @@ export const emitIfStatementAst = (
         narrowedType,
         condCtxAfterCond
       );
-      narrowedMap.set(arrayIsArrayGuard.originalName, {
-        kind: "expr",
-        exprAst: {
-          kind: "castExpression",
-          type: narrowedTypeAst,
-          expression: rawTargetAst,
-        },
-        type: narrowedType,
-      });
+      narrowedMap.set(
+        arrayIsArrayGuard.originalName,
+        buildExprBinding(
+          {
+            kind: "castExpression",
+            type: narrowedTypeAst,
+            expression: rawTargetAst,
+          },
+          narrowedType,
+          undefined,
+          rawTargetAst
+        )
+      );
 
       const [condAst, condCtxAfterCondAst] = emitBooleanConditionAst(
         stmt.condition,
@@ -1753,7 +1868,7 @@ export const emitIfStatementAst = (
       let thenCtxAfter: EmitterContext;
       if (memberN !== undefined) {
         const [thenBlock, thenBlockCtx] = emitForcedBlockWithPreambleAst(
-          [buildCastLocalDecl(escapedNarrow, receiverAst, memberN)],
+          [buildCastLocalDecl(escapedNarrow, receiverAst, memberN, rhsTypeAst)],
           stmt.elseStatement,
           {
             ...ctxAfterRhs,
@@ -1989,15 +2104,19 @@ export const emitIfStatementAst = (
 
     // Create narrowed binding: id → id.Value
     const narrowedMap = new Map(context.narrowedBindings ?? []);
-    narrowedMap.set(key, {
-      kind: "expr",
-      exprAst: {
-        kind: "memberAccessExpression",
-        expression: idAst,
-        memberName: "Value",
-      },
-      type: strippedType,
-    });
+    narrowedMap.set(
+      key,
+      buildExprBinding(
+        {
+          kind: "memberAccessExpression",
+          expression: idAst,
+          memberName: "Value",
+        },
+        strippedType,
+        undefined,
+        idAst
+      )
+    );
 
     // Soundness: In compound conditions (A && B), we must NOT apply "else" narrowing.
     const isAndCondition =
@@ -2151,21 +2270,58 @@ export const emitIfStatementAst = (
     context
   );
 
+  const thenCtx = applyConditionBranchNarrowing(
+    stmt.condition,
+    "truthy",
+    condCtxAfterCond,
+    emitExprAstCb
+  );
   const [thenStmts, thenContext] = emitStatementAst(
     stmt.thenStatement,
-    condCtxAfterCond
+    thenCtx
   );
-
-  let finalContext = thenContext;
+  const thenTerminates = isDefinitelyTerminating(stmt.thenStatement);
+  const basePostConditionContext = resetBranchFlowState(
+    condCtxAfterCond,
+    thenContext
+  );
+  let finalContext: EmitterContext = thenTerminates
+    ? applyConditionBranchNarrowing(
+        stmt.condition,
+        "falsy",
+        basePostConditionContext,
+        emitExprAstCb
+      )
+    : basePostConditionContext;
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
+    const elseEntryContext = applyConditionBranchNarrowing(
+      stmt.condition,
+      "falsy",
+      {
+        ...basePostConditionContext,
+        narrowedBindings: condCtxAfterCond.narrowedBindings,
+      },
+      emitExprAstCb
+    );
     const [elseStmts, elseContext] = emitStatementAst(
       stmt.elseStatement,
-      finalContext
+      elseEntryContext
     );
     elseStmt = wrapInBlock(elseStmts);
-    finalContext = elseContext;
+    const elseTerminates = isDefinitelyTerminating(stmt.elseStatement);
+
+    if (thenTerminates && !elseTerminates) {
+      finalContext = mergeBranchContextMeta(elseContext, thenContext);
+    } else if (!thenTerminates && elseTerminates) {
+      finalContext = mergeBranchContextMeta(thenContext, elseContext);
+    } else {
+      finalContext = mergeBranchContextMeta(
+        resetBranchFlowState(condCtxAfterCond, elseContext),
+        thenContext
+      );
+    }
   }
 
   return [

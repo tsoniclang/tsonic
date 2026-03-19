@@ -1815,8 +1815,15 @@ export const tryResolveCallFromUnifiedCatalog = (
     }
 
     return {
+      surfaceParameterTypes: workingParams,
       parameterTypes: workingParams,
       restParameter: buildResolvedRestParameter(
+        signature.parameters.map((parameter) => ({
+          isRest: parameter.isRest,
+        })),
+        workingParams
+      ),
+      surfaceRestParameter: buildResolvedRestParameter(
         signature.parameters.map((parameter) => ({
           isRest: parameter.isRest,
         })),
@@ -2350,6 +2357,15 @@ export const resolveCall = (
     restParameter: buildResolvedRestParameter(
       rawSig.parameterFlags,
       workingParams
+    ),
+    surfaceRestParameter: buildResolvedRestParameter(
+      rawSig.parameterFlags,
+      workingParams
+    ),
+    surfaceParameterTypes: expandParameterTypesForArguments(
+      rawSig.parameterFlags,
+      workingParams,
+      argumentCount
     ),
     parameterTypes: refineResolvedParameterTypesForArguments(
       state,

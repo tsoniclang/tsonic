@@ -254,6 +254,7 @@ export type NarrowedBinding =
   | {
       readonly kind: "expr";
       readonly exprAst: CSharpExpressionAst;
+      readonly storageExprAst?: CSharpExpressionAst;
       readonly type?: IrType;
       readonly sourceType?: IrType;
     }
@@ -353,6 +354,11 @@ export type EmitterContext = {
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
   readonly localNameMap?: ReadonlyMap<string, string>;
+  /** Semantic (frontend IR) types for locals/parameters — alias names,
+   *  union structure, and type-parameter shapes preserved exactly as authored.
+   *  Used for narrowing analysis, guard analysis, and effective-type resolution.
+   *  Populated alongside localValueTypes by registerLocalSymbolTypes. */
+  readonly localSemanticTypes?: ReadonlyMap<string, IrType>;
   /** Scoped runtime storage types for locals/parameters when they differ from frontend IR narrowing. */
   readonly localValueTypes?: ReadonlyMap<string, IrType>;
   /** Module-level bindings that require mutable storage because JS array writes reassign them. */
