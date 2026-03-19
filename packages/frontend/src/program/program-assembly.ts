@@ -5,7 +5,6 @@
 
 import * as ts from "typescript";
 import * as path from "node:path";
-import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { Result, ok, error } from "../types/result.js";
@@ -28,20 +27,15 @@ import {
 } from "../types/diagnostic.js";
 import { resolveDependencyPackageRoot } from "./package-roots.js";
 import {
-  CORE_GLOBALS_DECLARATIONS,
-  JS_SURFACE_GLOBAL_AUGMENTATIONS,
-  scanForDeclarationFiles,
-  collectProjectIncludedDeclarationFiles,
-  createCompilerOptions,
 } from "./core-declarations.js";
 import {
-  readPackageName,
   parseTsonicModuleRequest,
-  createReadPackageRootNamespace,
-  createResolveModuleFromPackageRoot,
   createResolveSiblingTsonicPackageRoot,
   createResolveCompilerOwnedTsonicPackageRoot,
+  createReadPackageRootNamespace,
+  createResolveModuleFromPackageRoot,
 } from "./module-resolution.js";
+import { discoverProgramInputs } from "./program-input-discovery.js";
 
 /**
  * Create a Tsonic program from TypeScript source files
@@ -73,7 +67,6 @@ export const createProgram = (
   const surfaceCapabilities = resolveSurfaceCapabilities(surface, {
     projectRoot: options.projectRoot,
   });
-  const absolutePaths = filePaths.map((fp) => path.resolve(fp));
   const compilerContainingFile = fileURLToPath(import.meta.url);
   // creation.ts lives at: <repoRoot>/packages/frontend/src/program/creation.ts
   // repoRoot is 4 levels up from this file's directory.
@@ -110,145 +103,25 @@ export const createProgram = (
       require
     );
 
-  // Get declaration files from type roots.
-  const userTypeRoots = options.typeRoots ?? [];
-  const requestedTypeRoots = Array.from(
-    new Set<string>([
-      ...userTypeRoots,
-      ...surfaceCapabilities.requiredTypeRoots,
-    ])
+  const {
+    absolutePaths,
+    typeRoots,
+    authoritativeTsonicPackageRoots,
+    namespaceIndexFiles,
+    virtualDeclarationSources,
+    allFiles,
+    tsOptions,
+  } = discoverProgramInputs(
+    filePaths,
+    options,
+    surfaceCapabilities,
+    (pkgDirName) => resolveCompilerOwnedTsonicPackageRoot(pkgDirName) ?? null
   );
-  const resolvedRequestedTypeRoots = requestedTypeRoots.map((typeRoot) => {
-    const absoluteRoot = path.isAbsolute(typeRoot)
-      ? typeRoot
-      : path.resolve(options.projectRoot, typeRoot);
-
-    // Prefer the project's installed package graph when the requested type root
-    // already exists there. This keeps source-package imports and type roots on
-    // one coherent package graph during selftests / local npm-packed validation.
-    //
-    // Fall back to compiler-owned packages only when the project does not have
-    // the package installed at the requested path.
-    const match = typeRoot.match(
-      /(?:^|[/\\\\])node_modules[/\\\\]@tsonic[/\\\\]([^/\\\\]+)[/\\\\]?$/
-    );
-    if (match) {
-      const pkgDirName = match[1];
-      if (pkgDirName) {
-        if (fs.existsSync(absoluteRoot)) return absoluteRoot;
-
-        const projectOwned = resolveDependencyPackageRoot(
-          options.projectRoot,
-          `@tsonic/${pkgDirName}`,
-          "installed-first"
-        );
-        if (projectOwned) return projectOwned;
-
-        const compilerOwned = resolveCompilerOwnedTsonicPackageRoot(pkgDirName);
-        if (compilerOwned) return compilerOwned;
-      }
-    }
-
-    if (fs.existsSync(absoluteRoot)) return absoluteRoot;
-    return absoluteRoot;
-  });
-  const typeRoots = resolvedRequestedTypeRoots;
-  const authoritativeTsonicPackageRoots = new Map<string, string>();
-  for (const typeRoot of typeRoots) {
-    const packageName = readPackageName(path.join(typeRoot, "package.json"));
-    if (packageName?.startsWith("@tsonic/")) {
-      authoritativeTsonicPackageRoots.set(packageName, typeRoot);
-    }
-  }
-
-  // Debug log typeRoots
-  if (options.verbose && typeRoots.length > 0) {
-    console.log(`TypeRoots: ${typeRoots.join(", ")}`);
-  }
-
-  const declarationFiles: string[] = [];
-
-  for (const typeRoot of typeRoots) {
-    const absoluteRoot = path.resolve(typeRoot);
-    declarationFiles.push(...scanForDeclarationFiles(absoluteRoot));
-  }
-
-  // Add the main index.d.ts files for .NET namespaces directly to the file list
-  const namespaceIndexFiles: string[] = [];
-  for (const typeRoot of typeRoots) {
-    const absoluteRoot = path.resolve(typeRoot);
-    if (options.verbose) {
-      console.log(
-        `Checking typeRoot: ${absoluteRoot}, exists: ${fs.existsSync(absoluteRoot)}`
-      );
-    }
-    if (fs.existsSync(absoluteRoot)) {
-      const entries = fs.readdirSync(absoluteRoot, { withFileTypes: true });
-      for (const entry of entries) {
-        if (
-          entry.isDirectory() &&
-          !entry.name.startsWith("_") &&
-          !entry.name.startsWith("internal")
-        ) {
-          const indexPath = path.join(absoluteRoot, entry.name, "index.d.ts");
-          if (fs.existsSync(indexPath)) {
-            namespaceIndexFiles.push(indexPath);
-            if (options.verbose) {
-              console.log(`  Found namespace: ${entry.name} -> ${indexPath}`);
-            }
-          }
-        }
-      }
-    }
-  }
-
-  const tsOptions = createCompilerOptions(options);
   const moduleResolutionCache = ts.createModuleResolutionCache(
     options.projectRoot,
     (fileName) =>
       ts.sys.useCaseSensitiveFileNames ? fileName : fileName.toLowerCase(),
     tsOptions
-  );
-  const projectDeclarationFiles = collectProjectIncludedDeclarationFiles(
-    options.projectRoot,
-    tsOptions
-  );
-
-  const coreGlobalsVirtualPath = path.join(
-    options.projectRoot,
-    ".tsonic",
-    "__core_globals__.d.ts"
-  );
-  const jsSurfaceAugmentationsVirtualPath = path.join(
-    options.projectRoot,
-    ".tsonic",
-    "__js_surface_globals__.d.ts"
-  );
-  const isJsSurfaceCompilation =
-    surfaceCapabilities.resolvedModes.includes("@tsonic/js");
-  const virtualDeclarationSources = new Map<string, string>([
-    [path.resolve(coreGlobalsVirtualPath), CORE_GLOBALS_DECLARATIONS],
-    ...(isJsSurfaceCompilation
-      ? [
-          [
-            path.resolve(jsSurfaceAugmentationsVirtualPath),
-            JS_SURFACE_GLOBAL_AUGMENTATIONS,
-          ] as const,
-        ]
-      : []),
-  ]);
-  const virtualDeclarationFiles = Array.from(virtualDeclarationSources.keys());
-
-  // Combine source files, declaration files, namespace index files, and
-  // compiler-owned virtual declarations.
-  const allFiles = Array.from(
-    new Set([
-      ...absolutePaths,
-      ...projectDeclarationFiles,
-      ...declarationFiles,
-      ...namespaceIndexFiles,
-      ...virtualDeclarationFiles,
-    ])
   );
 
   // Create custom compiler host with virtual .NET module declarations
