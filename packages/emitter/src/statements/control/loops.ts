@@ -3,7 +3,7 @@
  * Returns CSharpStatementAst nodes.
  */
 
-import { IrStatement, IrExpression } from "@tsonic/frontend";
+import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitStatementAst } from "../../statement-emitter.js";
@@ -15,7 +15,6 @@ import {
 import { deriveForOfElementType } from "../../core/semantic/iteration-types.js";
 import {
   emitBooleanConditionAst,
-  type EmitExprAstFn,
 } from "../../core/semantic/boolean-context.js";
 import {
   allocateLocalName,
@@ -31,137 +30,11 @@ import type {
   CSharpExpressionAst,
   CSharpLocalDeclarationStatementAst,
 } from "../../core/format/backend-ast/types.js";
-
-/**
- * Information about a canonical integer loop counter.
- * Canonical form: `for (let i = 0; i < n; i++)`
- */
-type CanonicalIntLoop = {
-  readonly varName: string;
-  readonly initialValue: number;
-};
-
-/**
- * Detect if a for-loop has a canonical integer loop counter pattern.
- *
- * Canonical patterns:
- * - Initializer: `let i = 0` (or any integer literal)
- * - Update: `i++`, `++i`, `i += 1`, `i = i + 1`
- *
- * Returns the variable name and initial value if canonical, undefined otherwise.
- */
-const detectCanonicalIntLoop = (
-  stmt: Extract<IrStatement, { kind: "forStatement" }>
-): CanonicalIntLoop | undefined => {
-  const { initializer, update } = stmt;
-
-  // Check initializer: must be `let varName = <integer literal>`
-  if (!initializer || initializer.kind !== "variableDeclaration") {
-    return undefined;
-  }
-
-  if (initializer.declarationKind !== "let") {
-    return undefined;
-  }
-
-  if (initializer.declarations.length !== 1) {
-    return undefined;
-  }
-
-  const decl = initializer.declarations[0];
-  if (!decl || decl.name.kind !== "identifierPattern") {
-    return undefined;
-  }
-
-  const varName = decl.name.name;
-
-  // Check initializer value: must be an integer literal
-  const declInit = decl.initializer;
-  if (!declInit || declInit.kind !== "literal") {
-    return undefined;
-  }
-
-  const initValue = declInit.value;
-  if (typeof initValue !== "number" || !Number.isInteger(initValue)) {
-    return undefined;
-  }
-
-  // Check update: must be i++, ++i, i += 1, or i = i + 1
-  if (!update) {
-    return undefined;
-  }
-
-  if (!isIntegerIncrement(update, varName)) {
-    return undefined;
-  }
-
-  return { varName, initialValue: initValue };
-};
-
-/**
- * Check if an expression is an integer increment of a variable.
- * Matches: i++, ++i, i += 1, i = i + 1
- */
-const isIntegerIncrement = (expr: IrExpression, varName: string): boolean => {
-  // i++ or ++i
-  if (expr.kind === "update") {
-    if (expr.operator !== "++") {
-      return false;
-    }
-    if (expr.expression.kind !== "identifier") {
-      return false;
-    }
-    return expr.expression.name === varName;
-  }
-
-  // i += 1 or i = i + 1
-  if (expr.kind === "assignment") {
-    if (expr.left.kind !== "identifier" || expr.left.name !== varName) {
-      return false;
-    }
-
-    // i += 1
-    if (expr.operator === "+=") {
-      if (expr.right.kind !== "literal") {
-        return false;
-      }
-      return expr.right.value === 1;
-    }
-
-    // i = i + 1
-    if (expr.operator === "=") {
-      if (expr.right.kind !== "binary" || expr.right.operator !== "+") {
-        return false;
-      }
-      const binExpr = expr.right;
-      // Check i + 1 or 1 + i
-      const isVarPlusOne =
-        binExpr.left.kind === "identifier" &&
-        binExpr.left.name === varName &&
-        binExpr.right.kind === "literal" &&
-        binExpr.right.value === 1;
-      const isOnePlusVar =
-        binExpr.left.kind === "literal" &&
-        binExpr.left.value === 1 &&
-        binExpr.right.kind === "identifier" &&
-        binExpr.right.name === varName;
-      return isVarPlusOne || isOnePlusVar;
-    }
-  }
-
-  return false;
-};
-
-/** Helper: wrap multiple statements in a block, pass through single statements. */
-const wrapInBlock = (
-  stmts: readonly CSharpStatementAst[]
-): CSharpStatementAst => {
-  if (stmts.length === 1 && stmts[0]) return stmts[0];
-  return { kind: "blockStatement", statements: [...stmts] };
-};
-
-/** Standard emitExpressionAst adapter for emitBooleanConditionAst callback. */
-const emitExprAstCb: EmitExprAstFn = (e, ctx) => emitExpressionAst(e, ctx);
+import {
+  detectCanonicalIntLoop,
+  wrapInBlock,
+  emitExprAstCb,
+} from "./loop-helpers.js";
 
 /**
  * Emit a while statement as AST
