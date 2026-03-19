@@ -18,8 +18,11 @@ import { getOrCreateBehavioralObjectTypeName } from "./anon-type-declaration-syn
 export type { LoweringContext } from "./anon-type-lower-types.js";
 import type { LoweringContext } from "./anon-type-lower-types.js";
 import {
-  lowerType, lowerParameter, lowerTypeParameter,
-  lowerInterfaceMember, lowerPattern,
+  lowerType,
+  lowerParameter,
+  lowerTypeParameter,
+  lowerInterfaceMember,
+  lowerPattern,
 } from "./anon-type-lower-types.js";
 
 /** Lower an expression */
