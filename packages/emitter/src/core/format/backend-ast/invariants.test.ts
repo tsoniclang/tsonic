@@ -77,6 +77,7 @@ describe("backend-ast architecture invariants", () => {
       "core/format/module-emitter/assembly.ts",
       "emitter.ts",
       "expressions/index-tests/helpers.ts",
+      "generated-files.ts",
       "types/references-tests/helpers.ts",
     ]);
   });

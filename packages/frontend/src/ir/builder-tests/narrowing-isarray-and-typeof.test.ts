@@ -7,7 +7,10 @@ import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
 import {
   IrClassDeclaration,
+  IrExpressionStatement,
+  IrFunctionDeclaration,
   IrMethodDeclaration,
+  IrVariableDeclaration,
 } from "../types.js";
 import { createFilesystemTestProgram } from "./_test-helpers.js";
 
