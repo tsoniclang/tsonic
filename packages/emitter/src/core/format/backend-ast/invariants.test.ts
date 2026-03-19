@@ -24,8 +24,13 @@ const walkTsFiles = (dir: string): string[] => {
   return files;
 };
 
+const isTestSupportFile = (file: string): boolean =>
+  /(?:^|\/)[^/]+-(?:tests|parts)\//.test(relative(emitterRoot, file));
+
 const productionFiles = (): string[] =>
-  walkTsFiles(emitterRoot).filter((file) => !file.endsWith(".test.ts"));
+  walkTsFiles(emitterRoot).filter(
+    (file) => !file.endsWith(".test.ts") && !isTestSupportFile(file)
+  );
 
 describe("backend-ast architecture invariants", () => {
   it("does not reintroduce raw text bridge nodes or text-to-AST adapters", () => {
