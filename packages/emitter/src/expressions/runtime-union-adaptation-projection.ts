@@ -7,21 +7,15 @@
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
-import {
-  buildRuntimeUnionLayout,
-} from "../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
 import { isSemanticUnion } from "../core/semantic/union-semantics.js";
 import {
   buildInvalidRuntimeUnionCastExpression,
   tryBuildRuntimeUnionProjectionToLayoutAst,
 } from "../core/semantic/runtime-union-projection.js";
-import {
-  resolveComparableType,
-} from "../core/semantic/comparable-types.js";
+import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
-import type {
-  CSharpExpressionAst,
-} from "../core/format/backend-ast/types.js";
+import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import { maybeUpcastExpressionToExpectedTypeAst } from "./runtime-union-adaptation-upcast.js";
 
 export const maybeWidenRuntimeUnionExpressionAst = (

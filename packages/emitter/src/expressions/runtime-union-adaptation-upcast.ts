@@ -14,9 +14,7 @@ import {
   findRuntimeUnionMemberIndex,
 } from "../core/semantic/runtime-unions.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
-import {
-  buildRuntimeUnionFactoryCallAst,
-} from "../core/semantic/runtime-union-projection.js";
+import { buildRuntimeUnionFactoryCallAst } from "../core/semantic/runtime-union-projection.js";
 import {
   resolveComparableType,
   unwrapComparableType,

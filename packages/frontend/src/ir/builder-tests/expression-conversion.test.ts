@@ -9,18 +9,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
-import {
-  IrFunctionDeclaration,
-  IrVariableDeclaration,
-} from "../types.js";
+import { IrFunctionDeclaration, IrVariableDeclaration } from "../types.js";
 import { DotnetMetadataRegistry } from "../../dotnet-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
 import { createClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
-import {
-  createTestProgram,
-  createProgramContext,
-} from "./_test-helpers.js";
+import { createTestProgram, createProgramContext } from "./_test-helpers.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);

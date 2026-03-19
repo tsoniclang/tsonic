@@ -15,7 +15,10 @@ import {
   IrVariableDeclarator,
 } from "../types.js";
 
-import type { RestTypeSynthesisResult, SynthesisContext } from "./rest-type-synthesis-helpers.js";
+import type {
+  RestTypeSynthesisResult,
+  SynthesisContext,
+} from "./rest-type-synthesis-helpers.js";
 import {
   createContext,
   extractMembers,

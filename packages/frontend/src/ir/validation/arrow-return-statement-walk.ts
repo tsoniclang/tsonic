@@ -210,7 +210,9 @@ export const processStatement = (stmt: IrStatement): IrStatement => {
 /**
  * Process a block statement
  */
-export const processBlockStatement = (block: IrBlockStatement): IrBlockStatement => ({
+export const processBlockStatement = (
+  block: IrBlockStatement
+): IrBlockStatement => ({
   ...block,
   statements: block.statements.map(processStatement),
 });

@@ -7,11 +7,7 @@
  */
 
 import type { IrType } from "../../../types/index.js";
-import type {
-  TypeId,
-  NominalEntry,
-  MemberEntry,
-} from "./types.js";
+import type { TypeId, NominalEntry, MemberEntry } from "./types.js";
 import { makeMethodSignatureKey } from "./clr-type-parser.js";
 import { extractHeritageFromTsBindgenDts } from "./clr-heritage-extraction.js";
 

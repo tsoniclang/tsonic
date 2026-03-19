@@ -5,10 +5,7 @@
  * producing CSharpStatementAst and CSharpExpressionAst nodes.
  */
 
-import {
-  IrPattern,
-  IrType,
-} from "@tsonic/frontend";
+import { IrPattern, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../emitter-types/index.js";
 import { emitTypeAst } from "../types/emitter.js";
 import {

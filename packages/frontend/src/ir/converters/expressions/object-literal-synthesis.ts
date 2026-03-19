@@ -15,9 +15,7 @@ import {
   IrExpression,
   IrStatement,
 } from "../../types.js";
-import {
-  typesEqual,
-} from "../../types/ir-substitution.js";
+import { typesEqual } from "../../types/ir-substitution.js";
 import type { ProgramContext } from "../../program-context.js";
 import { convertAccessorProperty } from "../statements/declarations/classes/properties.js";
 

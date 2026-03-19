@@ -6,11 +6,7 @@
  * prelude generation for lambda expressions.
  */
 
-import {
-  IrExpression,
-  IrParameter,
-  IrType,
-} from "@tsonic/frontend";
+import { IrExpression, IrParameter, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";

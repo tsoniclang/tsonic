@@ -14,9 +14,7 @@ import {
   resolveArrayLikeReceiverType,
   resolveStructuralReferenceType,
 } from "../core/semantic/type-resolution.js";
-import {
-  identifierType,
-} from "../core/format/backend-ast/builders.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 import { stripNullableTypeAst } from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import { getCanonicalRuntimeUnionMembers } from "../core/semantic/runtime-unions.js";
@@ -29,7 +27,10 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
-import { isObjectTypeAst, isPlainObjectIrType } from "./access-resolution-types.js";
+import {
+  isObjectTypeAst,
+  isPlainObjectIrType,
+} from "./access-resolution-types.js";
 
 const looksLikeTypeParameterName = (name: string): boolean =>
   /^T($|[A-Z0-9_])/.test(name);

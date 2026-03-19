@@ -15,9 +15,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
-import {
-  extractCalleeNameFromAst,
-} from "../core/format/backend-ast/utils.js";
+import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   hasInt32Proof,

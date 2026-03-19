@@ -5,11 +5,7 @@
  * structural carriers, and object type reference creation/reuse logic.
  */
 
-import type {
-  IrType,
-  IrObjectType,
-  IrReferenceType,
-} from "../types.js";
+import type { IrType, IrObjectType, IrReferenceType } from "../types.js";
 
 import {
   collectTypeParameterNames,

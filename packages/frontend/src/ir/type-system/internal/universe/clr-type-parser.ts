@@ -10,7 +10,10 @@
  * FACADE: re-exports from clr-type-string-parsing and dts-type-node-conversion.
  */
 
-export { parseClrTypeString, splitTypeArguments } from "./clr-type-string-parsing.js";
+export {
+  parseClrTypeString,
+  splitTypeArguments,
+} from "./clr-type-string-parsing.js";
 
 export {
   INSTANCE_SUFFIX,

@@ -16,7 +16,10 @@ import type {
   NominalLookupResult,
 } from "./type-system-state.js";
 
-import type { TypeAuthority, TypeSystemConfig } from "./type-system-types-api.js";
+import type {
+  TypeAuthority,
+  TypeSystemConfig,
+} from "./type-system-types-api.js";
 
 // Import split module functions
 import {

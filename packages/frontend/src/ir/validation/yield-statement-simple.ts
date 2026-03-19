@@ -342,9 +342,7 @@ export const processIfStatement = (
   }
   return {
     ...stmt,
-    thenStatement: flattenStatement(
-      processStatement(stmt.thenStatement, ctx)
-    ),
+    thenStatement: flattenStatement(processStatement(stmt.thenStatement, ctx)),
     elseStatement: stmt.elseStatement
       ? flattenStatement(processStatement(stmt.elseStatement, ctx))
       : undefined,
@@ -374,9 +372,7 @@ export const processWhileStatement = (
         body: flattenStatement(processStatement(stmt.body, ctx)),
       };
     }
-    const transformedBody = flattenStatement(
-      processStatement(stmt.body, ctx)
-    );
+    const transformedBody = flattenStatement(processStatement(stmt.body, ctx));
     const bodyStatements: IrStatement[] = [
       ...loweredCondition.prelude,
       {

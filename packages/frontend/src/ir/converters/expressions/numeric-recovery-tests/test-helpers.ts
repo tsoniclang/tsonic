@@ -146,7 +146,9 @@ export const findExpression = (
   return undefined;
 };
 
-export const unwrapTransparentExpression = (expr: IrExpression): IrExpression => {
+export const unwrapTransparentExpression = (
+  expr: IrExpression
+): IrExpression => {
   let current = expr;
   while (
     current.kind === "typeAssertion" ||

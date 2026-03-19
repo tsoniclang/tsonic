@@ -6,10 +6,7 @@
  * - narrowing-resolvers-equality.ts  : equality-literal, instanceof narrowing
  */
 
-export type {
-  BoundDecl,
-  TypeNarrowing,
-} from "./narrowing-resolvers-typeof.js";
+export type { BoundDecl, TypeNarrowing } from "./narrowing-resolvers-typeof.js";
 
 export {
   unwrapExpr,

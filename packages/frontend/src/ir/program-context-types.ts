@@ -167,8 +167,7 @@ export const findPackageRootForFile = (
   packageRootCache: Map<string, string | undefined>
 ): string | undefined => {
   const normalized = fileName.replace(/\\/g, "/");
-  if (packageRootCache.has(normalized))
-    return packageRootCache.get(normalized);
+  if (packageRootCache.has(normalized)) return packageRootCache.get(normalized);
 
   const resolvedFileName = path.resolve(fileName);
   const searchFloor = resolvedFileName.startsWith(
@@ -276,10 +275,7 @@ export const isTsonicClrPackage = (
   if (info.name?.startsWith("@tsonic/")) return true;
   if (info.keywords.includes("tsonic")) return true;
   if (
-    Object.prototype.hasOwnProperty.call(
-      info.peerDependencies,
-      "@tsonic/core"
-    )
+    Object.prototype.hasOwnProperty.call(info.peerDependencies, "@tsonic/core")
   ) {
     return true;
   }

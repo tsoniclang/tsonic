@@ -12,10 +12,7 @@
  * DAG position: depends on type-system-state + type-system-relations
  */
 
-import type {
-  IrType,
-  IrPropertySignature,
-} from "../types/index.js";
+import type { IrType, IrPropertySignature } from "../types/index.js";
 import { unknownType, neverType, voidType } from "./types.js";
 import type { TypeSystemState, Site } from "./type-system-state.js";
 import { emitDiagnostic, isNullishPrimitive } from "./type-system-state.js";

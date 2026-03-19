@@ -149,7 +149,9 @@ export const visitExpression = (
     case "arrowFunction": {
       pushScope(
         scopes,
-        expr.parameters.flatMap((param: IrParameter) => collectPatternNames(param.pattern))
+        expr.parameters.flatMap((param: IrParameter) =>
+          collectPatternNames(param.pattern)
+        )
       );
       if (expr.body.kind === "blockStatement") {
         visitStatementFn(

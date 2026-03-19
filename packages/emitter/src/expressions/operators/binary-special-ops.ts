@@ -15,9 +15,7 @@ import {
   hasDeterministicPropertyMembership,
 } from "../../core/semantic/type-resolution.js";
 import { getCanonicalRuntimeUnionMembers } from "../../core/semantic/runtime-unions.js";
-import {
-  isSemanticUnion,
-} from "../../core/semantic/union-semantics.js";
+import { isSemanticUnion } from "../../core/semantic/union-semantics.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
 import {
   booleanLiteral,
@@ -185,10 +183,7 @@ export const emitInstanceof = (
     });
     rightContext = nextContext;
   } else {
-    const [rightAst, nextContext] = emitExpressionAst(
-      expr.right,
-      leftContext
-    );
+    const [rightAst, nextContext] = emitExpressionAst(expr.right, leftContext);
     rightText = extractCalleeNameFromAst(rightAst);
     rightContext = nextContext;
   }

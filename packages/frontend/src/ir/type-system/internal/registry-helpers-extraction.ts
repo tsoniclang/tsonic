@@ -7,9 +7,7 @@
  */
 
 import * as ts from "typescript";
-import type {
-  IrType,
-} from "../../types/index.js";
+import type { IrType } from "../../types/index.js";
 import { normalizeToClrName } from "./universe/alias-table.js";
 import { tryResolveDeterministicPropertyName } from "../../syntax/property-names.js";
 import { getNamespaceFromPath } from "../../../resolver/namespace.js";

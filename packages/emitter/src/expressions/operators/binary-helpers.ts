@@ -8,23 +8,19 @@
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import {
-  stripNullish,
-} from "../../core/semantic/type-resolution.js";
-import {
-  willCarryAsRuntimeUnion,
-} from "../../core/semantic/union-semantics.js";
+import { stripNullish } from "../../core/semantic/type-resolution.js";
+import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { isIntegerType } from "../../core/semantic/index.js";
 import {
   unwrapTransparentExpression,
   unwrapTransparentNarrowingTarget,
 } from "../../core/semantic/transparent-expressions.js";
-import {
-  isCharType,
-} from "./helpers.js";
+import { isCharType } from "./helpers.js";
 
-export const getNarrowingTargetKey = (expr: IrExpression): string | undefined => {
+export const getNarrowingTargetKey = (
+  expr: IrExpression
+): string | undefined => {
   const target = unwrapTransparentExpression(expr);
   switch (target.kind) {
     case "identifier":
@@ -43,7 +39,9 @@ export const getNarrowingTargetKey = (expr: IrExpression): string | undefined =>
   }
 };
 
-export const getTransparentComparisonTarget = (expr: IrExpression): IrExpression =>
+export const getTransparentComparisonTarget = (
+  expr: IrExpression
+): IrExpression =>
   unwrapTransparentNarrowingTarget(expr) ?? unwrapTransparentExpression(expr);
 
 export const resolveComparisonOperandType = (

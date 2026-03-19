@@ -1,17 +1,9 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  runLibraryBuild,
-  writeLibraryScaffold,
-} from "../test-helpers.js";
+import { runLibraryBuild, writeLibraryScaffold } from "../test-helpers.js";
 
 describe("library bindings first-party regressions (alias markers)", function () {
   this.timeout(10 * 60 * 1000);

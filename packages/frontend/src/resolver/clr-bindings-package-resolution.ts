@@ -193,8 +193,7 @@ export const extractNamespace = (
       "namespace" in parsed &&
       typeof (parsed as Record<string, unknown>).namespace === "string"
     ) {
-      const namespace = (parsed as Record<string, unknown>)
-        .namespace as string;
+      const namespace = (parsed as Record<string, unknown>).namespace as string;
       namespaceCache.set(bindingsPath, namespace);
       return namespace;
     }

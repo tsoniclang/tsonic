@@ -4,7 +4,11 @@
  * Handles yield lowering for for/forOf/forIn/switch/try/return/throw
  * statements.
  */
-import { IrStatement, IrBlockStatement, IrVariableDeclarator } from "../types.js";
+import {
+  IrStatement,
+  IrBlockStatement,
+  IrVariableDeclarator,
+} from "../types.js";
 import {
   type LoweringContext,
   containsYield,
@@ -38,8 +42,7 @@ export const processForStatement = (
     if (
       initializer.kind === "assignment" &&
       initializer.operator === "=" &&
-      ((initializer.right.kind === "yield" &&
-        !initializer.right.delegate) ||
+      ((initializer.right.kind === "yield" && !initializer.right.delegate) ||
         (initializer.left.kind === "memberAccess" &&
           containsYield(initializer.left)))
     ) {
@@ -64,12 +67,15 @@ export const processForStatement = (
           initializer.right.sourceSpan
         );
       } else if (initializer.left.kind === "memberAccess") {
-        const loweredMemberAssignment =
-          lowerMemberAccessAssignmentWithYields(initializer, ctx, {
+        const loweredMemberAssignment = lowerMemberAccessAssignmentWithYields(
+          initializer,
+          ctx,
+          {
             object: "for loop initializer target object",
             property: "for loop initializer target property",
             right: "for loop initializer value",
-          });
+          }
+        );
         if (!loweredMemberAssignment) {
           emitUnsupportedYieldDiagnostic(
             ctx,
@@ -77,9 +83,7 @@ export const processForStatement = (
             initializer.right.sourceSpan
           );
         } else {
-          leadingStatements.push(
-            ...loweredMemberAssignment.leadingStatements
-          );
+          leadingStatements.push(...loweredMemberAssignment.leadingStatements);
           leadingStatements.push({
             kind: "expressionStatement",
             expression: loweredMemberAssignment.loweredAssignment,
@@ -94,47 +98,46 @@ export const processForStatement = (
         );
       }
     } else if (initializer.kind === "variableDeclaration") {
-      const transformedDecls = initializer.declarations.map((decl: IrVariableDeclarator) => {
-        if (!decl.initializer || !containsYield(decl.initializer)) {
-          return decl;
-        }
+      const transformedDecls = initializer.declarations.map(
+        (decl: IrVariableDeclarator) => {
+          if (!decl.initializer || !containsYield(decl.initializer)) {
+            return decl;
+          }
 
-        if (
-          decl.initializer.kind === "yield" &&
-          !decl.initializer.delegate
-        ) {
-          const tempName = allocateYieldTempName(ctx);
-          leadingStatements.push(
-            createYieldStatement(
-              decl.initializer,
-              { kind: "identifierPattern", name: tempName },
-              decl.type ?? decl.initializer.inferredType
-            )
+          if (decl.initializer.kind === "yield" && !decl.initializer.delegate) {
+            const tempName = allocateYieldTempName(ctx);
+            leadingStatements.push(
+              createYieldStatement(
+                decl.initializer,
+                { kind: "identifierPattern", name: tempName },
+                decl.type ?? decl.initializer.inferredType
+              )
+            );
+            return {
+              ...decl,
+              initializer: {
+                kind: "identifier",
+                name: tempName,
+              } as const,
+            };
+          }
+
+          const loweredInitializer = lowerExpressionWithYields(
+            decl.initializer,
+            ctx,
+            "for loop initializer",
+            decl.type ?? decl.initializer.inferredType
           );
+          if (!loweredInitializer) {
+            return decl;
+          }
+          leadingStatements.push(...loweredInitializer.prelude);
           return {
             ...decl,
-            initializer: {
-              kind: "identifier",
-              name: tempName,
-            } as const,
+            initializer: loweredInitializer.expression,
           };
         }
-
-        const loweredInitializer = lowerExpressionWithYields(
-          decl.initializer,
-          ctx,
-          "for loop initializer",
-          decl.type ?? decl.initializer.inferredType
-        );
-        if (!loweredInitializer) {
-          return decl;
-        }
-        leadingStatements.push(...loweredInitializer.prelude);
-        return {
-          ...decl,
-          initializer: loweredInitializer.expression,
-        };
-      });
+      );
       initializer = {
         ...initializer,
         declarations: transformedDecls,
@@ -161,9 +164,7 @@ export const processForStatement = (
       ? lowerExpressionWithYields(stmt.update, ctx, "for loop update")
       : undefined;
 
-  const transformedBody = flattenStatement(
-    processStatement(stmt.body, ctx)
-  );
+  const transformedBody = flattenStatement(processStatement(stmt.body, ctx));
   if (!loweredCondition && !loweredUpdate) {
     const transformedFor: IrStatement = {
       ...stmt,

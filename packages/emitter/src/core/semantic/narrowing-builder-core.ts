@@ -8,9 +8,7 @@
 
 import { IrExpression, IrType, normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext, NarrowedBinding } from "../../types.js";
-import type {
-  CSharpExpressionAst,
-} from "../format/backend-ast/types.js";
+import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { identifierExpression } from "../format/backend-ast/builders.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { nullLiteral } from "../format/backend-ast/builders.js";

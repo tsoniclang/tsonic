@@ -6,11 +6,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  IrType,
-  IrObjectType,
-  IrPropertySignature,
-} from "../../../types.js";
+import { IrType, IrObjectType, IrPropertySignature } from "../../../types.js";
 import type { Binding } from "../../../binding/index.js";
 import {
   isTypeParameterNode,

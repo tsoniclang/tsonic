@@ -17,9 +17,7 @@ import {
   getStructuralMembersCache,
   getTypeAliasBodyCache,
 } from "./references-normalize.js";
-import {
-  shouldExtractFromDeclaration,
-} from "./references-structural-bindings.js";
+import { shouldExtractFromDeclaration } from "./references-structural-bindings.js";
 
 /**
  * Extract structural members from type declarations (AST-based).

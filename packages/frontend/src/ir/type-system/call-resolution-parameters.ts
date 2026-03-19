@@ -11,19 +11,14 @@
  * DAG position: depends on type-system-state
  */
 
-import type {
-  IrType,
-  IrReferenceType,
-} from "../types/index.js";
+import type { IrType, IrReferenceType } from "../types/index.js";
 import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
 import { stableIrTypeKey, unwrapAsyncWrapperType } from "../types/type-ops.js";
 import type { TypeSystemState } from "./type-system-state.js";
-import {
-  resolveTypeIdByName,
-} from "./type-system-state.js";
+import { resolveTypeIdByName } from "./type-system-state.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Parameter expansion helpers — Rest/optional parameter type expansion

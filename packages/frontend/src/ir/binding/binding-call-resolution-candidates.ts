@@ -9,9 +9,7 @@
 import ts from "typescript";
 import type { SignatureId } from "../type-system/types.js";
 import type { BindingContext } from "./binding-registry.js";
-import {
-  getOrCreateSignatureId,
-} from "./binding-registry.js";
+import { getOrCreateSignatureId } from "./binding-registry.js";
 import {
   extractParameterNodes,
   convertTypeParameterDeclarations,

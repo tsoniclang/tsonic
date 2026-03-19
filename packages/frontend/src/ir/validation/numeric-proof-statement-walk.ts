@@ -9,10 +9,7 @@
  */
 
 import { Diagnostic } from "../../types/diagnostic.js";
-import {
-  IrModule,
-  IrStatement,
-} from "../types.js";
+import { IrModule, IrStatement } from "../types.js";
 import {
   type ProofContext,
   cloneProofContext,
@@ -47,8 +44,10 @@ const processStatement = <T extends IrStatement>(
   stmt: T,
   ctx: ProofContext
 ): T => {
-  const processExpr = (expr: Parameters<typeof processExpression>[0], c: ProofContext) =>
-    processExpression(expr, c, processStatement);
+  const processExpr = (
+    expr: Parameters<typeof processExpression>[0],
+    c: ProofContext
+  ) => processExpression(expr, c, processStatement);
 
   switch (stmt.kind) {
     case "variableDeclaration": {
@@ -279,8 +278,10 @@ const processModule = (module: IrModule): NumericProofResult => {
     provenParameters: new Map(),
   };
 
-  const processExpr = (expr: Parameters<typeof processExpression>[0], c: ProofContext) =>
-    processExpression(expr, c, processStatement);
+  const processExpr = (
+    expr: Parameters<typeof processExpression>[0],
+    c: ProofContext
+  ) => processExpression(expr, c, processStatement);
 
   const processedBody = module.body.map((stmt) => processStatement(stmt, ctx));
 

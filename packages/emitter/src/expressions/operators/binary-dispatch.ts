@@ -19,9 +19,7 @@ import {
   stripNullish,
   isDefinitelyValueType,
 } from "../../core/semantic/type-resolution.js";
-import {
-  willCarryAsRuntimeUnion,
-} from "../../core/semantic/union-semantics.js";
+import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import {
   isCharTyped,
   isCharType,

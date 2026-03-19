@@ -292,9 +292,7 @@ export const createProgramContext = (
         : undefined,
     resolveConstructorSignature: (node: unknown) =>
       ts.isNewExpression(node as ts.Node)
-        ? program.binding.resolveConstructorSignature(
-            node as ts.NewExpression
-          )
+        ? program.binding.resolveConstructorSignature(node as ts.NewExpression)
         : undefined,
     checker: program.checker,
     tsCompilerOptions: program.program.getCompilerOptions(),

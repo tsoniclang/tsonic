@@ -7,10 +7,7 @@
  * Used by numeric-proof-proving.ts and numeric-proof-walk.ts.
  */
 
-import {
-  createDiagnostic,
-  SourceLocation,
-} from "../../types/diagnostic.js";
+import { createDiagnostic, SourceLocation } from "../../types/diagnostic.js";
 import {
   IrExpression,
   IrType,

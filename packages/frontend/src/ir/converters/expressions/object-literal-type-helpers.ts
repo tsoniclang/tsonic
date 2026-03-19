@@ -10,9 +10,7 @@ import {
   IrExpression,
   IrParameter,
 } from "../../types.js";
-import {
-  containsTypeParameter,
-} from "../../types/ir-substitution.js";
+import { containsTypeParameter } from "../../types/ir-substitution.js";
 import { stableIrTypeKey } from "../../types/type-ops.js";
 import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";

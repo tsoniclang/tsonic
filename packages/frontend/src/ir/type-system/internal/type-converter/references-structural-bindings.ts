@@ -11,9 +11,7 @@ import * as ts from "typescript";
 import type { DeclId } from "../../../type-system/types.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
-import {
-  getTypeAliasRecursionCache,
-} from "./references-normalize.js";
+import { getTypeAliasRecursionCache } from "./references-normalize.js";
 
 /**
  * Check whether a declaration file is a Tsonic-generated bindings artifact.

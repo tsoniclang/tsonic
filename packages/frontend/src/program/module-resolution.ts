@@ -98,10 +98,7 @@ export const parseTsonicModuleRequest = (
  * Resolve a module from a package root by trying candidate file paths.
  */
 export const createResolveModuleFromPackageRoot = (
-  packageRootModuleResolutionCache: Map<
-    string,
-    ts.ResolvedModuleFull | null
-  >,
+  packageRootModuleResolutionCache: Map<string, ts.ResolvedModuleFull | null>,
   readPackageRootNamespace: (packageRoot: string) => string | undefined
 ): ((
   packageRoot: string,

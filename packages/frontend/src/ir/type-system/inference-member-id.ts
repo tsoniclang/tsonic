@@ -24,12 +24,8 @@ import {
 import { unknownType } from "./types.js";
 import type { MemberId } from "./types.js";
 import type { TypeSystemState, Site } from "./type-system-state.js";
-import {
-  normalizeToNominal,
-} from "./type-system-state.js";
-import {
-  convertTypeNode,
-} from "./type-system-call-resolution.js";
+import { normalizeToNominal } from "./type-system-state.js";
+import { convertTypeNode } from "./type-system-call-resolution.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 import {
   buildFunctionTypeFromSignatureShape,

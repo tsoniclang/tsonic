@@ -56,7 +56,10 @@ export const MAX_CONDITIONAL_UTILITY_RECURSION = 16;
  * @param binding - The Binding layer for symbol resolution
  * @returns The resolved TypeNode, or the original if not a resolvable alias
  */
-export const resolveTypeAlias = (node: ts.TypeNode, binding: Binding): ts.TypeNode => {
+export const resolveTypeAlias = (
+  node: ts.TypeNode,
+  binding: Binding
+): ts.TypeNode => {
   // Only type references can be aliases
   if (!ts.isTypeReferenceNode(node)) return node;
   if (!ts.isIdentifier(node.typeName)) return node;
@@ -102,7 +105,9 @@ export const unwrapParens = (node: ts.TypeNode): ts.TypeNode => {
   return current;
 };
 
-export const flattenUnionTypeNodes = (node: ts.TypeNode): readonly ts.TypeNode[] => {
+export const flattenUnionTypeNodes = (
+  node: ts.TypeNode
+): readonly ts.TypeNode[] => {
   const unwrapped = unwrapParens(node);
   if (!ts.isUnionTypeNode(unwrapped)) return [unwrapped];
 
@@ -346,7 +351,11 @@ export const expandConditionalUtilityTypeInternal = (
       return expandAwaitedFromExtract(firstArg, binding, convertType);
 
     case "ConstructorParameters":
-      return expandConstructorParametersFromExtract(firstArg, binding, convertType);
+      return expandConstructorParametersFromExtract(
+        firstArg,
+        binding,
+        convertType
+      );
 
     case "InstanceType":
       return expandInstanceTypeFromExtract(firstArg, binding, convertType);

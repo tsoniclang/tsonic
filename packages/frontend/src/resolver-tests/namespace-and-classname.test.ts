@@ -4,10 +4,7 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import {
-  getNamespaceFromPath,
-  getClassNameFromPath,
-} from "../resolver.js";
+import { getNamespaceFromPath, getClassNameFromPath } from "../resolver.js";
 
 describe("Module Resolver", () => {
   describe("getNamespaceFromPath", () => {

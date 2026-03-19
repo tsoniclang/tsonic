@@ -16,10 +16,7 @@ import {
   splitRuntimeNullishUnionMembers,
 } from "./type-resolution.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
-import {
-  booleanLiteral,
-  nullLiteral,
-} from "../format/backend-ast/builders.js";
+import { booleanLiteral, nullLiteral } from "../format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import {
   emitRuntimeTruthinessConditionAst,

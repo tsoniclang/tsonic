@@ -365,7 +365,10 @@ export const findPropertyInMembers = (
   return undefined;
 };
 
-export const withOptionalUndefined = (type: IrType, isOptional: boolean): IrType => {
+export const withOptionalUndefined = (
+  type: IrType,
+  isOptional: boolean
+): IrType => {
   if (!isOptional) return type;
   if (
     type.kind === "unionType" &&

@@ -400,18 +400,19 @@ export const specializeExpression = (
     case "array":
       return {
         ...expr,
-        elements: expr.elements.map((e: IrExpression | IrSpreadExpression | undefined) =>
-          e
-            ? e.kind === "spread"
-              ? {
-                  ...e,
-                  expression: specializeExpression(
-                    e.expression,
-                    paramTypesByDeclId
-                  ),
-                }
-              : specializeExpression(e, paramTypesByDeclId)
-            : undefined
+        elements: expr.elements.map(
+          (e: IrExpression | IrSpreadExpression | undefined) =>
+            e
+              ? e.kind === "spread"
+                ? {
+                    ...e,
+                    expression: specializeExpression(
+                      e.expression,
+                      paramTypesByDeclId
+                    ),
+                  }
+                : specializeExpression(e, paramTypesByDeclId)
+              : undefined
         ),
       };
     case "object":

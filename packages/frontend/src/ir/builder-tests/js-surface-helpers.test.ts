@@ -8,14 +8,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
-import {
-  IrFunctionDeclaration,
-  IrVariableDeclaration,
-} from "../types.js";
-import {
-  createProgram,
-  createProgramContext,
-} from "./_test-helpers.js";
+import { IrFunctionDeclaration, IrVariableDeclaration } from "../types.js";
+import { createProgram, createProgramContext } from "./_test-helpers.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);

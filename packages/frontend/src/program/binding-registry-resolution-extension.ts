@@ -7,10 +7,7 @@
  * Split from binding-registry-resolution.ts for file-size compliance (< 500 LOC).
  */
 
-import type {
-  ParameterModifier,
-  MemberBinding,
-} from "./binding-types.js";
+import type { ParameterModifier, MemberBinding } from "./binding-types.js";
 import type { RegistryState } from "./binding-registry-resolution-member.js";
 import {
   splitSignatureTypeList,

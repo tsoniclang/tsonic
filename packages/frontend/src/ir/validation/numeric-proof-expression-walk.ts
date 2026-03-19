@@ -35,7 +35,11 @@ export const processExpression = (
 ): IrExpression => {
   switch (expr.kind) {
     case "numericNarrowing": {
-      const processedInner = processExpression(expr.expression, ctx, processStmt);
+      const processedInner = processExpression(
+        expr.expression,
+        ctx,
+        processStmt
+      );
       const proof = proveNarrowing(
         { ...expr, expression: processedInner },
         ctx
@@ -339,7 +343,9 @@ export const processExpression = (
       return {
         ...expr,
         callee: processExpression(expr.callee, ctx, processStmt),
-        arguments: expr.arguments.map((a: IrExpression) => processExpression(a, ctx, processStmt)),
+        arguments: expr.arguments.map((a: IrExpression) =>
+          processExpression(a, ctx, processStmt)
+        ),
         dynamicImportNamespace: expr.dynamicImportNamespace
           ? (processExpression(
               expr.dynamicImportNamespace,
@@ -353,7 +359,9 @@ export const processExpression = (
       return {
         ...expr,
         callee: processExpression(expr.callee, ctx, processStmt),
-        arguments: expr.arguments.map((a: IrExpression) => processExpression(a, ctx, processStmt)),
+        arguments: expr.arguments.map((a: IrExpression) =>
+          processExpression(a, ctx, processStmt)
+        ),
       };
 
     case "stackalloc":
@@ -368,7 +376,9 @@ export const processExpression = (
     case "templateLiteral":
       return {
         ...expr,
-        expressions: expr.expressions.map((e: IrExpression) => processExpression(e, ctx, processStmt)),
+        expressions: expr.expressions.map((e: IrExpression) =>
+          processExpression(e, ctx, processStmt)
+        ),
       };
 
     case "arrowFunction": {

@@ -270,4 +270,3 @@ export const isStaticTypeReference = (
 
   return true;
 };
-

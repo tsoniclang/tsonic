@@ -434,6 +434,5 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
-
   });
 });

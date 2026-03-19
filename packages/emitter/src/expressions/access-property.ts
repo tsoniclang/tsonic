@@ -23,12 +23,8 @@ import {
   resolveArrayLikeReceiverType,
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
-import {
-  identifierType,
-} from "../core/format/backend-ast/builders.js";
-import {
-  stripNullableTypeAst,
-} from "../core/format/backend-ast/utils.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
+import { stripNullableTypeAst } from "../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   type MemberAccessUsage,
@@ -127,10 +123,7 @@ export const emitPropertyAccess = (
         prop === "Keys"
           ? resolvedObjectType.keyType
           : resolvedObjectType.valueType;
-      const [elementTypeAst, ctxAfterType] = emitTypeAst(
-        elementType,
-        context
-      );
+      const [elementTypeAst, ctxAfterType] = emitTypeAst(elementType, context);
 
       const listTypeAst = identifierType(
         "global::System.Collections.Generic.List",

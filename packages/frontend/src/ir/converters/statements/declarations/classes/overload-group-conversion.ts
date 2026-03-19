@@ -24,9 +24,7 @@ import {
 import { detectOverride } from "./override-detection.js";
 import { getClassMemberName } from "./member-names.js";
 import { convertMethod } from "./method-declaration.js";
-import {
-  specializeStatement,
-} from "./overload-specialization.js";
+import { specializeStatement } from "./overload-specialization.js";
 import {
   assertNoIsTypeCalls,
   assertNoMissingParamRefs,

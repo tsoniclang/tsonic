@@ -12,9 +12,7 @@ import type {
 } from "../../types/index.js";
 import { stableIrTypeKey } from "../../types/type-ops.js";
 import { tryResolveDeterministicPropertyName } from "../../syntax/property-names.js";
-import type {
-  ConvertTypeFn,
-} from "./type-registry.js";
+import type { ConvertTypeFn } from "./type-registry.js";
 
 const stableTypeKey = (type: IrType): string => stableIrTypeKey(type);
 

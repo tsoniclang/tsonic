@@ -14,16 +14,12 @@ import {
 } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import {
-  resolveEffectiveVariableInitializerType,
-} from "../../core/semantic/variable-type-resolution.js";
+import { resolveEffectiveVariableInitializerType } from "../../core/semantic/variable-type-resolution.js";
 import {
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
-import type {
-  CSharpTypeAst,
-} from "../../core/format/backend-ast/types.js";
+import type { CSharpTypeAst } from "../../core/format/backend-ast/types.js";
 import type { NumericKind } from "@tsonic/frontend";
 import {
   canEmitTypeExplicitly,

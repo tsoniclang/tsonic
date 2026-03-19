@@ -5,10 +5,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
-import {
-  IrFunctionDeclaration,
-  IrVariableDeclaration,
-} from "../types.js";
+import { IrFunctionDeclaration, IrVariableDeclaration } from "../types.js";
 import { createTestProgram } from "./_test-helpers.js";
 
 describe("IR Builder", function () {

@@ -9,11 +9,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  IrType,
-  IrObjectType,
-  IrInterfaceMember,
-} from "../../../types.js";
+import { IrType, IrObjectType, IrInterfaceMember } from "../../../types.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 
 /**

@@ -11,11 +11,7 @@ import * as fs from "fs";
 import * as ts from "typescript";
 import type { IrType } from "../../../types/index.js";
 import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
-import type {
-  TypeId,
-  NominalEntry,
-  HeritageEdge,
-} from "./types.js";
+import type { TypeId, NominalEntry, HeritageEdge } from "./types.js";
 import {
   dtsTypeNodeToIrType,
   makeMethodSignatureKey,

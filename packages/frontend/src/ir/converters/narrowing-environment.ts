@@ -7,10 +7,7 @@
 
 import type { ProgramContext } from "../program-context.js";
 import type { IrType } from "../types.js";
-import {
-  getAccessPathKey,
-  type AccessPathTarget,
-} from "./access-paths.js";
+import { getAccessPathKey, type AccessPathTarget } from "./access-paths.js";
 import { type TypeNarrowing } from "./narrowing-resolvers.js";
 
 export const withAppliedNarrowings = (

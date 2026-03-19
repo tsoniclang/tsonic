@@ -9,9 +9,7 @@
 import { IrClassMember, IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
-import {
-  getPropertyType,
-} from "../core/semantic/type-resolution.js";
+import { getPropertyType } from "../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../core/format/local-names.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";

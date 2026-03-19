@@ -5,10 +5,7 @@
  * comparison logic and the normalizeStructuralEmissionType deep walker.
  */
 
-import type {
-  IrType,
-  IrPropertyDeclaration,
-} from "@tsonic/frontend";
+import type { IrType, IrPropertyDeclaration } from "@tsonic/frontend";
 import { stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { LocalTypeInfo } from "../../emitter-types/core.js";

@@ -7,11 +7,7 @@
  */
 
 import { createHash } from "crypto";
-import type {
-  IrType,
-  IrObjectType,
-  IrReferenceType,
-} from "../types.js";
+import type { IrType, IrObjectType, IrReferenceType } from "../types.js";
 
 export type SerializeState = {
   readonly seen: WeakMap<object, number>;

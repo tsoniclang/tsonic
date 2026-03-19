@@ -17,10 +17,7 @@ import type {
   TypePredicateResult,
   Site,
 } from "./type-system-state.js";
-import {
-  emitDiagnostic,
-  addUndefinedToType,
-} from "./type-system-state.js";
+import { emitDiagnostic, addUndefinedToType } from "./type-system-state.js";
 import { convertTypeNode } from "./call-resolution-utilities.js";
 
 // ─────────────────────────────────────────────────────────────────────────

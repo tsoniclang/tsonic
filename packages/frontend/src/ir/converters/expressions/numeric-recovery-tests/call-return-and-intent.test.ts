@@ -8,10 +8,7 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import {
-  compileWithGlobals,
-  findExpression,
-} from "./test-helpers.js";
+import { compileWithGlobals, findExpression } from "./test-helpers.js";
 import type { IrMemberExpression } from "./test-helpers.js";
 
 describe("Declaration-Based Numeric Intent Recovery", function () {

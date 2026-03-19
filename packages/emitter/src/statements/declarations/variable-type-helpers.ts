@@ -17,9 +17,7 @@ import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { resolveBehavioralObjectLiteralType } from "../../expressions/collections.js";
-import {
-  resolveAsInterfaceTargetType,
-} from "../../core/semantic/variable-type-resolution.js";
+import { resolveAsInterfaceTargetType } from "../../core/semantic/variable-type-resolution.js";
 import {
   isDefinitelyValueType,
   isTypeOnlyStructuralTarget,

@@ -19,9 +19,7 @@ import {
   needsIntCast,
   isInstanceMemberAccess,
 } from "./call-analysis.js";
-import {
-  sameTypeAstSurface,
-} from "../../core/format/backend-ast/utils.js";
+import { sameTypeAstSurface } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -166,16 +164,18 @@ export const tryEmitExtensionMethodCall = (
       typeArguments: typeArgAsts.length > 0 ? typeArgAsts : undefined,
     };
 
-    const callAst: CSharpExpressionAst =
-      shouldNormalizeArrayLikeInteropResult(expr.inferredType, expectedType)
-        ? {
-            kind: "invocationExpression",
-            expression: identifierExpression(
-              "global::System.Linq.Enumerable.ToArray"
-            ),
-            arguments: [invocation],
-          }
-        : invocation;
+    const callAst: CSharpExpressionAst = shouldNormalizeArrayLikeInteropResult(
+      expr.inferredType,
+      expectedType
+    )
+      ? {
+          kind: "invocationExpression",
+          expression: identifierExpression(
+            "global::System.Linq.Enumerable.ToArray"
+          ),
+          arguments: [invocation],
+        }
+      : invocation;
 
     return [
       wrapIntCast(needsIntCast(expr, binding.member), callAst),
@@ -213,10 +213,7 @@ export const tryEmitExtensionMethodCall = (
   currentContext = argContext;
 
   // Prepend receiver as first argument (static extension call)
-  const allArgAsts: readonly CSharpExpressionAst[] = [
-    receiverAst,
-    ...argAsts,
-  ];
+  const allArgAsts: readonly CSharpExpressionAst[] = [receiverAst, ...argAsts];
 
   const invocation: CSharpExpressionAst = {
     kind: "invocationExpression",

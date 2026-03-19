@@ -9,10 +9,7 @@
  * - isCompilerGeneratedStructuralCarrierType: Detect compiler-generated carriers
  */
 
-import type {
-  IrType,
-  IrPropertySignature,
-} from "@tsonic/frontend";
+import type { IrType, IrPropertySignature } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { LocalTypeInfo } from "../../emitter-types/core.js";
 import { resolveTypeAlias, stripNullish } from "./nullish-value-helpers.js";

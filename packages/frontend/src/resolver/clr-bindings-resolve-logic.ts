@@ -10,7 +10,10 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 
-import type { ResolvedClrImport, ParsedSpecifier } from "./clr-bindings-resolver.js";
+import type {
+  ResolvedClrImport,
+  ParsedSpecifier,
+} from "./clr-bindings-resolver.js";
 import {
   resolvePkgRoot,
   hasBindings,

@@ -6,11 +6,7 @@
  * file-size compliance.
  */
 
-import {
-  IrBlockStatement,
-  IrStatement,
-  IrType,
-} from "../../../../types.js";
+import { IrBlockStatement, IrStatement, IrType } from "../../../../types.js";
 import { specializeExpression } from "./overload-specialization-expressions.js";
 
 export const specializeStatement = (

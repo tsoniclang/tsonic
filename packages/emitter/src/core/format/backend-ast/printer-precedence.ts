@@ -5,12 +5,12 @@
  * parenthesization logic, and the C# type printer.
  */
 
-import type {
-  CSharpTypeAst,
-  CSharpExpressionAst,
-} from "./types.js";
+import type { CSharpTypeAst, CSharpExpressionAst } from "./types.js";
 
-import { escapeIdentifier, escapeQualifiedName } from "./printer-identifiers.js";
+import {
+  escapeIdentifier,
+  escapeQualifiedName,
+} from "./printer-identifiers.js";
 
 // ============================================================
 // Operator precedence for parenthesization

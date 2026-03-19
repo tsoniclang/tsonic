@@ -8,10 +8,7 @@
  * Used by numeric-proof-proving.ts and numeric-proof-walk.ts.
  */
 
-import {
-  Diagnostic,
-  SourceLocation,
-} from "../../types/diagnostic.js";
+import { Diagnostic, SourceLocation } from "../../types/diagnostic.js";
 import {
   IrExpression,
   NumericKind,

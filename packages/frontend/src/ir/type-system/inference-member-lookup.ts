@@ -9,13 +9,8 @@
  *               type-system-state, type-system-relations, type-system-call-resolution
  */
 
-import type {
-  IrType,
-  IrInterfaceMember,
-} from "../types/index.js";
-import {
-  substituteIrType as irSubstitute,
-} from "../types/ir-substitution.js";
+import type { IrType, IrInterfaceMember } from "../types/index.js";
+import { substituteIrType as irSubstitute } from "../types/ir-substitution.js";
 import { unknownType } from "./types.js";
 import type { TypeSystemState, Site, MemberRef } from "./type-system-state.js";
 import {
@@ -25,9 +20,7 @@ import {
   makeMemberCacheKey,
 } from "./type-system-state.js";
 import { typesEqual } from "./type-system-relations.js";
-import {
-  attachTypeIds,
-} from "./type-system-call-resolution.js";
+import { attachTypeIds } from "./type-system-call-resolution.js";
 import {
   buildFunctionTypeFromSignatureShape,
   buildCallableOverloadFamilyType,

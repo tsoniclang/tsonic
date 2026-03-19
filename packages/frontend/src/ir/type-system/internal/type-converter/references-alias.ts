@@ -49,11 +49,7 @@ export const handleTypeAliasDeclaration = (
   const convertFunctionAliasBody = (
     functionTypeNode: ts.FunctionTypeNode
   ): IrType => {
-    const fnType = convertFunctionType(
-      functionTypeNode,
-      binding,
-      convertType
-    );
+    const fnType = convertFunctionType(functionTypeNode, binding, convertType);
 
     const aliasTypeParams = (declNode.typeParameters ?? []).map(
       (tp) => tp.name.text
@@ -95,9 +91,7 @@ export const handleTypeAliasDeclaration = (
     // CLR delegate types are NOMINAL in C#.
     if (declNode.getSourceFile().isDeclarationFile) {
       if (
-        isTsonicBindingsDeclarationFile(
-          declNode.getSourceFile().fileName
-        ) &&
+        isTsonicBindingsDeclarationFile(declNode.getSourceFile().fileName) &&
         !declInfo.valueDeclNode
       ) {
         return convertFunctionAliasBody(declNode.type);
@@ -199,9 +193,7 @@ export const handleTypeAliasDeclaration = (
         return {
           kind: "referenceType",
           name: found,
-          typeArguments: node.typeArguments.map((t) =>
-            convertType(t, binding)
-          ),
+          typeArguments: node.typeArguments.map((t) => convertType(t, binding)),
         };
       }
     }

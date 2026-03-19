@@ -13,7 +13,10 @@ import {
   IrClassDeclaration,
   IrFunctionDeclaration,
 } from "../../types.js";
-import { type CollectedAttributes, collectModuleAttributes } from "./marker-collection.js";
+import {
+  type CollectedAttributes,
+  collectModuleAttributes,
+} from "./marker-collection.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // RESULT TYPE

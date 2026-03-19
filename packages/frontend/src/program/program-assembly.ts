@@ -99,11 +99,10 @@ export const createProgram = (
     packageRootModuleResolutionCache,
     readPkgRootNamespace
   );
-  const resolveSiblingTsonicPackageRoot =
-    createResolveSiblingTsonicPackageRoot(
-      siblingTsonicPackageRootCache,
-      repoRoot
-    );
+  const resolveSiblingTsonicPackageRoot = createResolveSiblingTsonicPackageRoot(
+    siblingTsonicPackageRootCache,
+    repoRoot
+  );
   const resolveCompilerOwnedTsonicPackageRoot =
     createResolveCompilerOwnedTsonicPackageRoot(
       compilerOwnedTsonicPackageRootCache,
