@@ -1,11 +1,13 @@
 /**
  * Binding Registry - runtime registry of all loaded bindings
  * Supports simple (global/module) and hierarchical (namespace/type/member) formats
+ *
+ * This file is a thin facade. Heavy logic lives in:
+ *   - binding-registry-resolution.ts  (member & extension-method resolution)
+ *   - binding-registry-loading.ts     (addBindings ingestion)
  */
 
-import { tsbindgenClrTypeNameToTsTypeName } from "../tsbindgen/names.js";
 import type {
-  ParameterModifier,
   MemberBinding,
   TypeBinding,
   NamespaceBinding,
@@ -13,10 +15,20 @@ import type {
   TsbindgenExport,
   BindingFile,
 } from "./binding-types.js";
+import type { RegistryState } from "./binding-registry-resolution.js";
 import {
-  isFullBindingManifest,
-  isTsbindgenBindingFile,
-} from "./binding-types.js";
+  resolveLookupAlias,
+  resolveMemberOverloads,
+  resolveExtensionMethod,
+  resolveExtensionMethodByKey,
+  isTypeOrSubtype,
+} from "./binding-registry-resolution.js";
+import { makeClrMemberKey } from "./binding-registry-loading.js";
+import { addBindingsToState } from "./binding-registry-loading.js";
+
+// ---------------------------------------------------------------------------
+// Simple-binding helpers (used by getEmitterTypeMap and external callers)
+// ---------------------------------------------------------------------------
 
 export const simpleBindingContributesTypeIdentity = (
   descriptor: SimpleBindingDescriptor
@@ -44,20 +56,13 @@ const getSimpleBindingConstructorAlias = (
   return `${alias}${SIMPLE_BINDING_CONSTRUCTOR_SUFFIX}`;
 };
 
-const getSimpleBindingConstructorBaseAlias = (
-  alias: string
-): string | undefined =>
-  alias.endsWith(SIMPLE_BINDING_CONSTRUCTOR_SUFFIX)
-    ? alias.slice(0, -SIMPLE_BINDING_CONSTRUCTOR_SUFFIX.length)
-    : undefined;
-
 const getSimpleBindingIdentityClrType = (
   descriptor: SimpleBindingDescriptor
 ): string => descriptor.staticType ?? descriptor.type;
 
-const getSimpleBindingMemberOwnerClrType = (
-  descriptor: SimpleBindingDescriptor
-): string => descriptor.type;
+// ---------------------------------------------------------------------------
+// BindingRegistry class (facade)
+// ---------------------------------------------------------------------------
 
 /**
  * Registry of all loaded bindings
@@ -89,236 +94,6 @@ export class BindingRegistry {
   private readonly tsBaseTypes = new Map<string, string>();
   private readonly clrTypeNames = new Set<string>();
 
-  private getMemberLookupOwnerAliases(typeAlias: string): readonly string[] {
-    const aliases: string[] = [];
-    const seen = new Set<string>();
-    const push = (alias: string | undefined): void => {
-      if (!alias || seen.has(alias)) return;
-      seen.add(alias);
-      aliases.push(alias);
-    };
-
-    push(typeAlias);
-
-    if (typeAlias.endsWith("$protected")) {
-      push(typeAlias.slice(0, -"$protected".length));
-    }
-
-    const mappedAlias = this.resolveSimpleBindingMemberOwnerAlias(typeAlias);
-    push(mappedAlias);
-    if (mappedAlias?.endsWith("$protected")) {
-      push(mappedAlias.slice(0, -"$protected".length));
-    }
-
-    return aliases;
-  }
-
-  private resolveUniqueCaseInsensitiveMemberAlias(
-    ownerAlias: string,
-    memberAlias: string
-  ): string | undefined {
-    const type = this.types.get(ownerAlias);
-    if (!type) return undefined;
-
-    const target = memberAlias.toLowerCase();
-    const matches = new Set<string>();
-    for (const member of type.members) {
-      if (member.alias.toLowerCase() === target) {
-        matches.add(member.alias);
-      }
-    }
-
-    if (matches.size !== 1) return undefined;
-    return Array.from(matches)[0];
-  }
-
-  private getExactOrUniqueCaseInsensitiveMember<T>(
-    ownerAlias: string,
-    memberAlias: string,
-    lookup: (key: string) => T | undefined,
-    allowCaseInsensitiveFallback = true
-  ): T | undefined {
-    const exact = lookup(`${ownerAlias}.${memberAlias}`);
-    if (exact !== undefined) return exact;
-
-    if (!allowCaseInsensitiveFallback) {
-      return undefined;
-    }
-
-    const resolvedAlias = this.resolveUniqueCaseInsensitiveMemberAlias(
-      ownerAlias,
-      memberAlias
-    );
-    if (!resolvedAlias || resolvedAlias === memberAlias) {
-      return undefined;
-    }
-
-    return lookup(`${ownerAlias}.${resolvedAlias}`);
-  }
-
-  private resolveMemberOverloadsForOwner(
-    ownerAlias: string,
-    memberAlias: string,
-    allowCaseInsensitiveFallback = true,
-    preferredClrOwner?: string
-  ): readonly MemberBinding[] | undefined {
-    const resolved = this.getExactOrUniqueCaseInsensitiveMember(
-      ownerAlias,
-      memberAlias,
-      (key) => {
-        const overloads = this.memberOverloads.get(key);
-        return overloads && overloads.length > 0 ? overloads : undefined;
-      },
-      allowCaseInsensitiveFallback
-    );
-    if (!resolved || resolved.length === 0) return resolved;
-
-    if (preferredClrOwner) {
-      const preferredOwnerMatches = resolved.filter(
-        (binding) => binding.binding.type === preferredClrOwner
-      );
-      if (preferredOwnerMatches.length > 0) {
-        return preferredOwnerMatches;
-      }
-    }
-
-    const ownerClrTypes = this.clrTypeNamesByAlias.get(ownerAlias);
-    if (!ownerClrTypes || ownerClrTypes.size !== 1) {
-      return resolved;
-    }
-
-    const [ownerClrType] = Array.from(ownerClrTypes);
-    if (!ownerClrType) return resolved;
-
-    const directOwnerMatches = resolved.filter((binding) =>
-      ownerClrTypes.has(binding.binding.type)
-    );
-    return directOwnerMatches.length > 0 ? directOwnerMatches : resolved;
-  }
-
-  private resolveMemberOverloadsByHierarchy(
-    ownerAlias: string,
-    memberAlias: string,
-    allowCaseInsensitiveFallback = true,
-    preferredClrOwner?: string
-  ): readonly MemberBinding[] | undefined {
-    const direct = this.resolveMemberOverloadsForOwner(
-      ownerAlias,
-      memberAlias,
-      allowCaseInsensitiveFallback,
-      preferredClrOwner
-    );
-    if (direct && direct.length > 0) {
-      return direct;
-    }
-
-    const getTargetKey = (binding: MemberBinding): string =>
-      `${binding.binding.assembly}:${binding.binding.type}::${binding.binding.member}`;
-
-    const getModifiersKey = (binding: MemberBinding): string => {
-      const modifiers = binding.parameterModifiers ?? [];
-      if (modifiers.length === 0) return "";
-      return [...modifiers]
-        .slice()
-        .sort((a, b) => a.index - b.index)
-        .map((mod) => `${mod.index}:${mod.modifier}`)
-        .join(",");
-    };
-
-    const visited = new Set<string>([ownerAlias]);
-
-    let currentBase = this.getDirectBaseType(ownerAlias);
-    while (currentBase) {
-      if (visited.has(currentBase)) break;
-      visited.add(currentBase);
-
-      const resolved = this.resolveMemberOverloadsForOwner(
-        currentBase,
-        memberAlias,
-        allowCaseInsensitiveFallback,
-        preferredClrOwner
-      );
-      if (resolved && resolved.length > 0) {
-        return resolved;
-      }
-
-      currentBase = this.getDirectBaseType(currentBase);
-    }
-
-    let frontier: string[] = [];
-    const interfaceOwners = [ownerAlias];
-    let baseForInterfaces = this.getDirectBaseType(ownerAlias);
-    while (baseForInterfaces) {
-      interfaceOwners.push(baseForInterfaces);
-      baseForInterfaces = this.getDirectBaseType(baseForInterfaces);
-    }
-
-    for (const candidateOwner of interfaceOwners) {
-      for (const iface of this.getDirectInterfaceSupertypes(candidateOwner)) {
-        if (visited.has(iface)) continue;
-        visited.add(iface);
-        frontier.push(iface);
-      }
-    }
-
-    while (frontier.length > 0) {
-      const nextFrontier: string[] = [];
-      const resolvedAtDepth: (readonly MemberBinding[])[] = [];
-
-      for (const candidateAlias of frontier) {
-        const resolved = this.resolveMemberOverloadsForOwner(
-          candidateAlias,
-          memberAlias,
-          allowCaseInsensitiveFallback,
-          preferredClrOwner
-        );
-        if (resolved && resolved.length > 0) {
-          resolvedAtDepth.push(resolved);
-        }
-
-        for (const superAlias of this.getDirectInterfaceSupertypes(
-          candidateAlias
-        )) {
-          if (visited.has(superAlias)) continue;
-          visited.add(superAlias);
-          nextFrontier.push(superAlias);
-        }
-      }
-
-      if (resolvedAtDepth.length > 0) {
-        const first = resolvedAtDepth[0]?.[0];
-        if (!first) return undefined;
-
-        const targetKey = getTargetKey(first);
-        const modifiersKey = getModifiersKey(first);
-        for (const overloads of resolvedAtDepth) {
-          const current = overloads[0];
-          if (!current) return undefined;
-          if (getTargetKey(current) !== targetKey) {
-            return undefined;
-          }
-          if (getModifiersKey(current) !== modifiersKey) {
-            return undefined;
-          }
-          for (const overload of overloads) {
-            if (getTargetKey(overload) !== targetKey) {
-              return undefined;
-            }
-            if (getModifiersKey(overload) !== modifiersKey) {
-              return undefined;
-            }
-          }
-        }
-
-        return resolvedAtDepth[0];
-      }
-
-      frontier = nextFrontier;
-    }
-
-    return undefined;
-  }
-
   /**
    * Extension method index for instance-style calls.
    *
@@ -334,254 +109,20 @@ export class BindingRegistry {
     Map<string, Map<string, MemberBinding[]>>
   >();
 
-  private getExtensionMethodCandidates(
-    namespaceKey: string,
-    receiverTypeName: string,
-    methodTsName: string
-  ): readonly MemberBinding[] | undefined {
-    return this.extensionMethods
-      .get(namespaceKey)
-      ?.get(receiverTypeName)
-      ?.get(methodTsName);
-  }
-
-  private addSupertype(typeAlias: string, superAlias: string): void {
-    if (!typeAlias || !superAlias) return;
-    if (typeAlias === superAlias) return;
-
-    const set = this.tsSupertypes.get(typeAlias) ?? new Set<string>();
-    set.add(superAlias);
-    this.tsSupertypes.set(typeAlias, set);
-  }
-
-  private getDirectSupertypes(typeAlias: string): readonly string[] {
-    const set = this.tsSupertypes.get(typeAlias);
-    if (!set || set.size === 0) return [];
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }
-
-  private setBaseType(typeAlias: string, baseAlias: string): void {
-    if (!typeAlias || !baseAlias) return;
-    if (typeAlias === baseAlias) return;
-    this.tsBaseTypes.set(typeAlias, baseAlias);
-  }
-
-  private getDirectBaseType(typeAlias: string): string | undefined {
-    return this.tsBaseTypes.get(typeAlias);
-  }
-
-  private getDirectInterfaceSupertypes(typeAlias: string): readonly string[] {
-    const direct = this.getDirectSupertypes(typeAlias);
-    const baseType = this.getDirectBaseType(typeAlias);
-    return baseType
-      ? direct.filter((candidate) => candidate !== baseType)
-      : direct;
-  }
-
-  /**
-   * Resolve an extension method binding target by extension interface name.
-   *
-   * @param extensionInterfaceName - e.g. "__Ext_System_Linq_IEnumerable_1"
-   * @param methodTsName - e.g. "where"
-   */
-  resolveExtensionMethod(
-    extensionInterfaceName: string,
-    methodTsName: string,
-    callArgumentCount?: number
-  ): MemberBinding | undefined {
-    const parsed = this.parseExtensionInterfaceName(extensionInterfaceName);
-    if (!parsed) return undefined;
-
-    return this.resolveExtensionMethodByKey(
-      parsed.namespaceKey,
-      parsed.receiverTypeName,
-      methodTsName,
-      callArgumentCount
-    );
-  }
-
-  /**
-   * Resolve an extension method binding target by explicit (namespaceKey, receiverTypeName).
-   *
-   * Used when extension methods are emitted as method-table members with explicit `this:`
-   * receiver constraints (the declaring interface name no longer encodes the receiver type).
-   */
-  resolveExtensionMethodByKey(
-    namespaceKey: string,
-    receiverTypeName: string,
-    methodTsName: string,
-    callArgumentCount?: number
-  ): MemberBinding | undefined {
-    type ResolveResult =
-      | { readonly kind: "none" }
-      | { readonly kind: "ambiguous" }
-      | { readonly kind: "resolved"; readonly binding: MemberBinding };
-
-    const getParameterCount = (binding: MemberBinding): number | undefined => {
-      if (typeof binding.parameterCount === "number") {
-        return binding.parameterCount;
-      }
-
-      const sig = binding.signature;
-      if (!sig) return undefined;
-      const paramsMatch = sig.match(/\|\(([^)]*)\):/);
-      const paramsStr = paramsMatch?.[1]?.trim();
-      if (!paramsStr) return undefined;
-      return splitSignatureTypeList(paramsStr).length;
+  /** Snapshot of mutable state for use by extracted pure resolution functions. */
+  private get state(): RegistryState {
+    return {
+      types: this.types,
+      memberOverloads: this.memberOverloads,
+      clrTypeNamesByAlias: this.clrTypeNamesByAlias,
+      extensionMethods: this.extensionMethods,
+      tsSupertypes: this.tsSupertypes,
+      tsBaseTypes: this.tsBaseTypes,
+      simpleBindings: this.simpleBindings,
+      simpleBindingsLowercase: this.simpleBindingsLowercase,
+      typeLookupAliasMap: this.typeLookupAliasMap,
+      clrTypeNames: this.clrTypeNames,
     };
-
-    const getModifiersKey = (binding: MemberBinding): string => {
-      const mods = (binding.parameterModifiers ??
-        []) as readonly ParameterModifier[];
-      if (!Array.isArray(mods) || mods.length === 0) return "";
-      return [...mods]
-        .slice()
-        .sort((a, b) => a.index - b.index)
-        .map((m) => `${m.index}:${m.modifier}`)
-        .join(",");
-    };
-
-    const resolveForReceiver = (receiverTypeName: string): ResolveResult => {
-      const candidates = this.getExtensionMethodCandidates(
-        namespaceKey,
-        receiverTypeName,
-        methodTsName
-      );
-      if (!candidates || candidates.length === 0) return { kind: "none" };
-
-      let filteredCandidates: readonly MemberBinding[] = candidates;
-      if (typeof callArgumentCount === "number") {
-        const desiredParamCount = callArgumentCount + 1;
-
-        const exact = candidates.filter(
-          (c) => getParameterCount(c) === desiredParamCount
-        );
-
-        if (exact.length > 0) {
-          filteredCandidates = exact;
-        } else {
-          // Optional-parameter safety: if no exact arity match, choose the smallest
-          // candidate arity that can still accept the provided arguments.
-          const larger = candidates
-            .map((c) => ({ c, count: getParameterCount(c) }))
-            .filter(
-              (x): x is { c: MemberBinding; count: number } =>
-                typeof x.count === "number" && x.count > desiredParamCount
-            );
-
-          if (larger.length === 0) return { kind: "none" };
-
-          const minCount = Math.min(...larger.map((x) => x.count));
-          filteredCandidates = larger
-            .filter((x) => x.count === minCount)
-            .map((x) => x.c);
-        }
-      }
-
-      // If multiple candidates map to different CLR targets, treat as unresolved (unsafe).
-      const first = filteredCandidates[0];
-      if (!first) return { kind: "none" };
-      const firstTarget = `${first.binding.type}::${first.binding.member}`;
-      const firstModsKey = getModifiersKey(first);
-      for (const c of filteredCandidates) {
-        const target = `${c.binding.type}::${c.binding.member}`;
-        if (target !== firstTarget) {
-          return { kind: "ambiguous" };
-        }
-
-        if (getModifiersKey(c) !== firstModsKey) {
-          return { kind: "ambiguous" };
-        }
-      }
-
-      return { kind: "resolved", binding: first };
-    };
-
-    // 1) Exact receiver match.
-    const direct = resolveForReceiver(receiverTypeName);
-    if (direct.kind === "resolved") return direct.binding;
-    if (direct.kind === "ambiguous") return undefined;
-
-    // 2) Airplane-grade fallback: CLR interface/base-type inheritance.
-    // This allows instance-style calls to resolve when TS surface selects a method
-    // declared on a derived type's extension bucket (e.g., IQueryable<T>.ToList)
-    // but the CLR binding is declared on a base interface (e.g., IEnumerable<T>).
-    //
-    // Determinism rules:
-    // - Prefer the closest base match (BFS).
-    // - If multiple matches exist at the same depth with different CLR targets,
-    //   treat as unresolved (unsafe).
-    const visited = new Set<string>([receiverTypeName]);
-    let frontier: readonly string[] = [receiverTypeName];
-
-    for (let depth = 0; depth < 20; depth++) {
-      const next: string[] = [];
-      for (const t of frontier) {
-        for (const sup of this.getDirectSupertypes(t)) {
-          if (visited.has(sup)) continue;
-          visited.add(sup);
-          next.push(sup);
-        }
-      }
-
-      if (next.length === 0) break;
-
-      const resolvedAtDepth: MemberBinding[] = [];
-      let sawAmbiguous = false;
-
-      for (const sup of next) {
-        const res = resolveForReceiver(sup);
-        if (res.kind === "ambiguous") sawAmbiguous = true;
-        if (res.kind === "resolved") resolvedAtDepth.push(res.binding);
-      }
-
-      if (resolvedAtDepth.length > 0 || sawAmbiguous) {
-        // If any ambiguity exists at the closest depth, do not guess.
-        if (sawAmbiguous) return undefined;
-        const first = resolvedAtDepth[0];
-        if (!first) return undefined;
-        const target0 = `${first.binding.type}::${first.binding.member}`;
-        const mods0 = getModifiersKey(first);
-        for (const b of resolvedAtDepth) {
-          const target = `${b.binding.type}::${b.binding.member}`;
-          if (target !== target0) return undefined;
-          if (getModifiersKey(b) !== mods0) return undefined;
-        }
-        return first;
-      }
-
-      frontier = next;
-    }
-
-    return undefined;
-  }
-
-  private parseExtensionInterfaceName(
-    extensionInterfaceName: string
-  ):
-    | { readonly namespaceKey: string; readonly receiverTypeName: string }
-    | undefined {
-    if (!extensionInterfaceName.startsWith("__Ext_")) return undefined;
-    const rest = extensionInterfaceName.slice("__Ext_".length);
-
-    // Find the longest namespaceKey prefix we have indexed.
-    let bestNamespaceKey: string | undefined;
-    for (const namespaceKey of this.extensionMethods.keys()) {
-      if (rest.startsWith(`${namespaceKey}_`)) {
-        if (
-          !bestNamespaceKey ||
-          namespaceKey.length > bestNamespaceKey.length
-        ) {
-          bestNamespaceKey = namespaceKey;
-        }
-      }
-    }
-    if (!bestNamespaceKey) return undefined;
-
-    const receiverTypeName = rest.slice(bestNamespaceKey.length + 1);
-    if (!receiverTypeName) return undefined;
-
-    return { namespaceKey: bestNamespaceKey, receiverTypeName };
   }
 
   /**
@@ -589,292 +130,27 @@ export class BindingRegistry {
    * Supports simple, full, and tsbindgen formats
    */
   addBindings(_filePath: string, manifest: BindingFile): void {
-    // Airplane-grade: a given bindings file must be loaded exactly once per
-    // ProgramContext. Some converters perform on-demand bindings.json loading
-    // based on Binding-resolved MemberIds; without this guard, overload sets
-    // can silently duplicate and become ambiguous.
-    if (this.loadedBindingFiles.has(_filePath)) return;
-    this.loadedBindingFiles.add(_filePath);
-
-    const addMemberOverload = (key: string, member: MemberBinding): void => {
-      const existing = this.memberOverloads.get(key) ?? [];
-      existing.push(member);
-      this.memberOverloads.set(key, existing);
-    };
-
-    const addClrMemberOverload = (member: MemberBinding): void => {
-      if (member.kind !== "method") return;
-
-      const clrTargetKey = makeClrMemberKey(
-        member.binding.assembly,
-        member.binding.type,
-        member.binding.member
-      );
-      const existing = this.clrMemberOverloads.get(clrTargetKey) ?? [];
-      existing.push(member);
-      this.clrMemberOverloads.set(clrTargetKey, existing);
-    };
-
-    const recordClrTypeAlias = (alias: string, clrName: string): void => {
-      const names = this.clrTypeNamesByAlias.get(alias) ?? new Set<string>();
-      names.add(clrName);
-      this.clrTypeNamesByAlias.set(alias, names);
-    };
-
-    if (isFullBindingManifest(manifest)) {
-      // Full format: hierarchical namespace/type/member structure
-      // Index by alias (TS identifier) for quick lookup
-      for (const ns of manifest.namespaces) {
-        this.namespaces.set(ns.alias, ns);
-
-        // Index types for quick lookup by TS alias
-        for (const type of ns.types) {
-          this.clrTypeNames.add(type.name);
-          this.types.set(type.alias, type);
-
-          // Index members for quick lookup (keyed by "typeAlias.memberAlias")
-          for (const member of type.members) {
-            const key = `${type.alias}.${member.alias}`;
-            this.members.set(key, member);
-            addMemberOverload(key, member);
-            addClrMemberOverload(member);
-          }
-        }
-      }
-    } else if (isTsbindgenBindingFile(manifest)) {
-      // tsbindgen format: convert to internal format
-      const namespaceTypes: TypeBinding[] = [];
-      const derivedAliasCounts = new Map<string, number>();
-
-      for (const tsbType of manifest.types) {
-        const derivedAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
-        derivedAliasCounts.set(
-          derivedAlias,
-          (derivedAliasCounts.get(derivedAlias) ?? 0) + 1
-        );
-      }
-
-      for (const tsbType of manifest.types) {
-        // Create members from methods, properties, and fields
-        const members: MemberBinding[] = [];
-
-        for (const method of tsbType.methods) {
-          const memberBinding: MemberBinding = {
-            kind: "method",
-            name: method.clrName,
-            // No naming policy: TS member names are the CLR names as authored.
-            alias: method.clrName,
-            signature: method.normalizedSignature,
-            semanticSignature: method.semanticSignature,
-            overloadFamily: method.overloadFamily,
-            parameterCount: method.parameterCount,
-            binding: {
-              assembly: method.declaringAssemblyName,
-              type: method.declaringClrType,
-              // member = clrName (what C# emits, e.g., "Add")
-              member: method.clrName,
-            },
-            // Include parameter modifiers for ref/out/in parameters
-            parameterModifiers: method.parameterModifiers,
-            isExtensionMethod: method.isExtensionMethod ?? false,
-            emitSemantics: method.emitSemantics,
-          };
-
-          members.push(memberBinding);
-
-          addClrMemberOverload(memberBinding);
-
-          // Index extension methods by (declaring namespace, receiver type, method name).
-          if (method.isExtensionMethod && method.normalizedSignature) {
-            const receiverTypeName = extractExtensionReceiverType(
-              method.normalizedSignature
-            );
-            const namespaceKey = extractNamespaceKey(method.declaringClrType);
-            if (receiverTypeName && namespaceKey) {
-              const nsMap =
-                this.extensionMethods.get(namespaceKey) ??
-                new Map<string, Map<string, MemberBinding[]>>();
-              if (!this.extensionMethods.has(namespaceKey)) {
-                this.extensionMethods.set(namespaceKey, nsMap);
-              }
-
-              const receiverMap =
-                nsMap.get(receiverTypeName) ??
-                new Map<string, MemberBinding[]>();
-              if (!nsMap.has(receiverTypeName)) {
-                nsMap.set(receiverTypeName, receiverMap);
-              }
-
-              const list = receiverMap.get(memberBinding.alias) ?? [];
-              list.push(memberBinding);
-              receiverMap.set(memberBinding.alias, list);
-            }
-          }
-        }
-
-        for (const prop of tsbType.properties) {
-          members.push({
-            kind: "property",
-            signature: prop.normalizedSignature,
-            semanticType: prop.semanticType,
-            semanticOptional: prop.semanticOptional,
-            name: prop.clrName,
-            alias: prop.clrName,
-            binding: {
-              assembly: prop.declaringAssemblyName,
-              type: prop.declaringClrType,
-              member: prop.clrName,
-            },
-          });
-        }
-
-        for (const field of tsbType.fields) {
-          // Fields are treated as properties for binding purposes
-          members.push({
-            kind: "property",
-            signature: field.normalizedSignature,
-            semanticType: field.semanticType,
-            semanticOptional: field.semanticOptional,
-            name: field.clrName,
-            alias: field.clrName,
-            binding: {
-              assembly: field.declaringAssemblyName,
-              type: field.declaringClrType,
-              member: field.clrName,
-            },
-          });
-        }
-
-        const derivedAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
-        const tsAlias = tsbType.alias ?? derivedAlias;
-        const uniqueDerivedAlias =
-          (derivedAliasCounts.get(derivedAlias) ?? 0) === 1;
-
-        // Record CLR inheritance relationships (base type + interfaces) so extension-method
-        // binding lookup can follow the CLR graph deterministically.
-        const baseAlias = tsbType.baseType?.clrName
-          ? tsbindgenClrTypeNameToTsTypeName(tsbType.baseType.clrName)
-          : undefined;
-        if (baseAlias) {
-          this.setBaseType(tsAlias, baseAlias);
-          this.addSupertype(tsAlias, baseAlias);
-        }
-
-        for (const iface of tsbType.interfaces ?? []) {
-          if (!iface?.clrName) continue;
-          const ifaceAlias = tsbindgenClrTypeNameToTsTypeName(iface.clrName);
-          this.addSupertype(tsAlias, ifaceAlias);
-        }
-
-        const kindFromBindings = (() => {
-          switch (tsbType.kind) {
-            case "Interface":
-              return "interface" as const;
-            case "Struct":
-              return "struct" as const;
-            case "Enum":
-              return "enum" as const;
-            case "Class":
-            default:
-              return "class" as const;
-          }
-        })();
-
-        // Create TypeBinding - TS alias is derived deterministically from CLR name.
-        const typeBinding: TypeBinding = {
-          name: tsbType.clrName,
-          alias: tsAlias,
-          kind: kindFromBindings,
-          members,
-        };
-        this.clrTypeNames.add(tsbType.clrName);
-        this.typeLookupAliasMap.set(tsbType.clrName, typeBinding.alias);
-        if (!typeBinding.alias.includes(".")) {
-          this.typeLookupAliasMap.set(
-            `${manifest.namespace}.${typeBinding.alias}`,
-            typeBinding.alias
-          );
-        }
-        namespaceTypes.push(typeBinding);
-
-        // Index the type by its TS name.
-        this.types.set(typeBinding.alias, typeBinding);
-        recordClrTypeAlias(typeBinding.alias, typeBinding.name);
-
-        if (uniqueDerivedAlias && derivedAlias !== typeBinding.alias) {
-          this.types.set(derivedAlias, typeBinding);
-          this.typeLookupAliasMap.set(derivedAlias, typeBinding.alias);
-          recordClrTypeAlias(derivedAlias, typeBinding.name);
-        }
-
-        // Also index by simple name if ts alias has arity suffix (e.g., "List_1" -> also index as "List")
-        // This is needed because TS exports both List_1 and List as aliases, and TS code uses List<T>
-        // IMPORTANT: Only set if not already present - non-generic versions should take precedence
-        // (e.g., Action should resolve to System.Action, not System.Action`9)
-        const arityMatch = derivedAlias.match(/^(.+)_(\d+)$/);
-        const simpleAlias = arityMatch ? arityMatch[1] : null;
-        if (
-          simpleAlias &&
-          simpleAlias !== typeBinding.alias &&
-          !this.types.has(simpleAlias)
-        ) {
-          this.types.set(simpleAlias, typeBinding);
-        }
-        if (simpleAlias && simpleAlias !== typeBinding.alias) {
-          recordClrTypeAlias(simpleAlias, typeBinding.name);
-        }
-
-        // Index members for direct lookup.
-        for (const member of members) {
-          // Key by canonical TS alias.
-          const tsKey = `${typeBinding.alias}.${member.alias}`;
-          this.members.set(tsKey, member);
-          addMemberOverload(tsKey, member);
-
-          // Also key by the derived/simple alias when it is uniquely owned.
-          if (uniqueDerivedAlias && derivedAlias !== typeBinding.alias) {
-            const derivedKey = `${derivedAlias}.${member.alias}`;
-            this.members.set(derivedKey, member);
-            addMemberOverload(derivedKey, member);
-          }
-
-          // Also key by simple alias if applicable (e.g., "List.Add")
-          if (simpleAlias) {
-            const simpleKey = `${simpleAlias}.${member.alias}`;
-            this.members.set(simpleKey, member);
-            addMemberOverload(simpleKey, member);
-          }
-        }
-      }
-
-      // Optional flattened named exports.
-      // These are stable value exports for CLR namespace facade modules and are
-      // resolved by Tsonic during import binding (so `import { x }` maps to
-      // `global::<DeclaringType>.<member>` in C#).
-      if (manifest.exports) {
-        const nsExports =
-          this.tsbindgenExports.get(manifest.namespace) ??
-          new Map<string, TsbindgenExport>();
-
-        for (const [exportName, exp] of Object.entries(manifest.exports)) {
-          nsExports.set(exportName, exp);
-        }
-
-        this.tsbindgenExports.set(manifest.namespace, nsExports);
-      }
-
-      this.namespaces.set(manifest.namespace, {
-        name: manifest.namespace,
-        alias: manifest.namespace,
-        types: namespaceTypes,
-      });
-    } else {
-      // Simple format: global/module bindings
-      for (const [name, descriptor] of Object.entries(manifest.bindings)) {
-        this.simpleBindings.set(name, descriptor);
-        this.simpleBindingsLowercase.set(name.toLowerCase(), descriptor);
-      }
-    }
+    addBindingsToState(
+      {
+        loadedBindingFiles: this.loadedBindingFiles,
+        simpleBindings: this.simpleBindings,
+        simpleBindingsLowercase: this.simpleBindingsLowercase,
+        namespaces: this.namespaces,
+        types: this.types,
+        typeLookupAliasMap: this.typeLookupAliasMap,
+        members: this.members,
+        memberOverloads: this.memberOverloads,
+        clrMemberOverloads: this.clrMemberOverloads,
+        clrTypeNamesByAlias: this.clrTypeNamesByAlias,
+        extensionMethods: this.extensionMethods,
+        tsbindgenExports: this.tsbindgenExports,
+        tsSupertypes: this.tsSupertypes,
+        tsBaseTypes: this.tsBaseTypes,
+        clrTypeNames: this.clrTypeNames,
+      },
+      _filePath,
+      manifest
+    );
   }
 
   /**
@@ -910,7 +186,7 @@ export class BindingRegistry {
    * Look up a type binding by TS alias
    */
   getType(tsAlias: string): TypeBinding | undefined {
-    return this.types.get(this.resolveLookupAlias(tsAlias));
+    return this.types.get(resolveLookupAlias(this.state, tsAlias));
   }
 
   /**
@@ -941,23 +217,13 @@ export class BindingRegistry {
     allowCaseInsensitiveFallback = true,
     preferredClrOwner?: string
   ): readonly MemberBinding[] | undefined {
-    const resolvedPreferredClrOwner =
-      preferredClrOwner ??
-      (this.clrTypeNames.has(typeAlias) ? typeAlias : undefined);
-    const normalizedTypeAlias = this.resolveLookupAlias(typeAlias);
-    for (const ownerAlias of this.getMemberLookupOwnerAliases(
-      normalizedTypeAlias
-    )) {
-      const match = this.resolveMemberOverloadsByHierarchy(
-        ownerAlias,
-        memberAlias,
-        allowCaseInsensitiveFallback,
-        resolvedPreferredClrOwner
-      );
-      if (match && match.length > 0) return match;
-    }
-
-    return undefined;
+    return resolveMemberOverloads(
+      this.state,
+      typeAlias,
+      memberAlias,
+      allowCaseInsensitiveFallback,
+      preferredClrOwner
+    );
   }
 
   /**
@@ -972,6 +238,46 @@ export class BindingRegistry {
   ): readonly MemberBinding[] | undefined {
     return this.clrMemberOverloads.get(
       makeClrMemberKey(assembly, clrType, clrMember)
+    );
+  }
+
+  /**
+   * Resolve an extension method binding target by extension interface name.
+   *
+   * @param extensionInterfaceName - e.g. "__Ext_System_Linq_IEnumerable_1"
+   * @param methodTsName - e.g. "where"
+   */
+  resolveExtensionMethod(
+    extensionInterfaceName: string,
+    methodTsName: string,
+    callArgumentCount?: number
+  ): MemberBinding | undefined {
+    return resolveExtensionMethod(
+      this.state,
+      extensionInterfaceName,
+      methodTsName,
+      callArgumentCount
+    );
+  }
+
+  /**
+   * Resolve an extension method binding target by explicit (namespaceKey, receiverTypeName).
+   *
+   * Used when extension methods are emitted as method-table members with explicit `this:`
+   * receiver constraints (the declaring interface name no longer encodes the receiver type).
+   */
+  resolveExtensionMethodByKey(
+    namespaceKey: string,
+    receiverTypeName: string,
+    methodTsName: string,
+    callArgumentCount?: number
+  ): MemberBinding | undefined {
+    return resolveExtensionMethodByKey(
+      this.state,
+      namespaceKey,
+      receiverTypeName,
+      methodTsName,
+      callArgumentCount
     );
   }
 
@@ -993,38 +299,7 @@ export class BindingRegistry {
   }
 
   isTypeOrSubtype(typeAlias: string, superAlias: string): boolean {
-    const normalizedTypeAlias = this.resolveLookupAlias(typeAlias);
-    const normalizedSuperAlias = this.resolveLookupAlias(superAlias);
-
-    if (normalizedTypeAlias === normalizedSuperAlias) {
-      return true;
-    }
-
-    const visited = new Set<string>([normalizedTypeAlias]);
-    let frontier = this.getDirectSupertypes(normalizedTypeAlias);
-    for (const candidate of frontier) {
-      if (candidate === normalizedSuperAlias) {
-        return true;
-      }
-      visited.add(candidate);
-    }
-
-    while (frontier.length > 0) {
-      const nextFrontier: string[] = [];
-      for (const candidate of frontier) {
-        for (const parent of this.getDirectSupertypes(candidate)) {
-          if (visited.has(parent)) continue;
-          if (parent === normalizedSuperAlias) {
-            return true;
-          }
-          visited.add(parent);
-          nextFrontier.push(parent);
-        }
-      }
-      frontier = nextFrontier;
-    }
-
-    return false;
+    return isTypeOrSubtype(this.state, typeAlias, superAlias);
   }
 
   /**
@@ -1108,108 +383,4 @@ export class BindingRegistry {
     this.tsBaseTypes.clear();
     this.clrTypeNames.clear();
   }
-
-  private resolveLookupAlias(typeAlias: string): string {
-    return this.typeLookupAliasMap.get(typeAlias) ?? typeAlias;
-  }
-
-  private resolveSimpleBindingMemberOwnerAlias(
-    typeAlias: string
-  ): string | undefined {
-    const directDescriptor =
-      this.simpleBindings.get(typeAlias) ??
-      this.simpleBindingsLowercase.get(typeAlias.toLowerCase());
-    const descriptor =
-      directDescriptor ??
-      (() => {
-        const baseAlias = getSimpleBindingConstructorBaseAlias(typeAlias);
-        if (!baseAlias) return undefined;
-        const baseDescriptor =
-          this.simpleBindings.get(baseAlias) ??
-          this.simpleBindingsLowercase.get(baseAlias.toLowerCase());
-        if (!baseDescriptor) return undefined;
-        return simpleBindingContributesTypeIdentity(baseDescriptor)
-          ? baseDescriptor
-          : undefined;
-      })();
-    if (!descriptor) return undefined;
-    const mapped = tsbindgenClrTypeNameToTsTypeName(
-      getSimpleBindingMemberOwnerClrType(descriptor)
-    );
-    if (!mapped || mapped === typeAlias) return undefined;
-    return mapped;
-  }
 }
-
-const makeClrMemberKey = (
-  assembly: string,
-  clrType: string,
-  clrMember: string
-): string => `${assembly}:${clrType}::${clrMember}`;
-
-/**
- * Extract CLR namespace key ('.' → '_') from a full CLR type name.
- * Example: "System.Linq.Enumerable" → "System_Linq"
- */
-const extractNamespaceKey = (clrType: string): string | undefined => {
-  const lastDot = clrType.lastIndexOf(".");
-  if (lastDot <= 0) return undefined;
-  return clrType.slice(0, lastDot).replace(/\./g, "_");
-};
-
-/**
- * Extract the extension receiver TS type name from a tsbindgen normalized signature.
- *
- * Format: "Name|(ParamTypes):ReturnType|static=true"
- * Example: "Where|(IEnumerable_1,Func_2):IEnumerable_1|static=true"
- *
- * Returns the first parameter type name (stripped of byref suffix and namespace prefix).
- */
-const extractExtensionReceiverType = (
-  normalizedSignature: string
-): string | undefined => {
-  const paramsMatch = normalizedSignature.match(/\|\(([^)]*)\):/);
-  const paramsStr = paramsMatch?.[1]?.trim();
-  if (!paramsStr) return undefined;
-
-  const [first] = splitSignatureTypeList(paramsStr);
-  if (!first) return undefined;
-
-  let receiver = first.trim();
-  if (receiver.endsWith("&")) receiver = receiver.slice(0, -1);
-  if (receiver.endsWith("[]")) receiver = receiver.slice(0, -2);
-  const lastDot = receiver.lastIndexOf(".");
-  if (lastDot >= 0) receiver = receiver.slice(lastDot + 1);
-  return receiver || undefined;
-};
-
-/**
- * Split a comma-delimited type list, respecting nested bracket depth.
- * tsbindgen signatures use CLR-style nested generic brackets in some contexts.
- */
-const splitSignatureTypeList = (str: string): string[] => {
-  const result: string[] = [];
-  let depth = 0;
-  let current = "";
-
-  for (const char of str) {
-    if (char === "[") {
-      depth++;
-      current += char;
-    } else if (char === "]") {
-      depth--;
-      current += char;
-    } else if (char === "," && depth === 0) {
-      result.push(current.trim());
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-
-  if (current.trim()) {
-    result.push(current.trim());
-  }
-
-  return result;
-};
