@@ -1,13 +1,9 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import {
-  identifierExpression,
-  identifierType,
   nullLiteral,
-  stringLiteral,
 } from "../format/backend-ast/builders.js";
 import {
-  getIdentifierTypeName,
   sameTypeAstSurface,
   stableConcreteTypeKeyFromAst,
   stripNullableTypeAst,
@@ -30,6 +26,14 @@ import {
 } from "./runtime-union-projection.js";
 import { resolveDirectValueSurfaceType } from "./direct-value-surfaces.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
+import {
+  boxValueAst,
+  buildArrayShapeCondition,
+  buildInvalidReificationExpression,
+  getRuntimeUnionCastMemberTypeAsts,
+  isRuntimeUnionTypeAst,
+  maybeCastMaterializedValueAst,
+} from "./runtime-reification-helpers.js";
 
 export type EmitTypeAstFn = (
   type: IrType,
@@ -45,94 +49,6 @@ export type RuntimeReificationPlan = {
 export type RuntimeMaterializationSourceFrame = {
   readonly members: readonly IrType[];
   readonly candidateMemberNs?: readonly number[];
-};
-
-const boxValueAst = (valueAst: CSharpExpressionAst): CSharpExpressionAst => {
-  if (
-    valueAst.kind === "castExpression" &&
-    valueAst.type.kind === "predefinedType" &&
-    valueAst.type.keyword === "object"
-  ) {
-    return valueAst;
-  }
-
-  return {
-    kind: "castExpression",
-    type: { kind: "predefinedType", keyword: "object" },
-    expression: valueAst,
-  };
-};
-
-const getRuntimeUnionCastMemberTypeAsts = (
-  valueAst: CSharpExpressionAst
-): readonly CSharpTypeAst[] | undefined => {
-  const unwrappedValueAst =
-    valueAst.kind === "parenthesizedExpression"
-      ? valueAst.expression
-      : valueAst;
-  if (unwrappedValueAst.kind !== "castExpression") {
-    return undefined;
-  }
-
-  const castTypeAst = stripNullableTypeAst(unwrappedValueAst.type);
-  if (!isRuntimeUnionTypeAst(castTypeAst)) {
-    return undefined;
-  }
-
-  if (
-    castTypeAst.kind !== "identifierType" &&
-    castTypeAst.kind !== "qualifiedIdentifierType"
-  ) {
-    return undefined;
-  }
-
-  return castTypeAst.typeArguments?.map(stripNullableTypeAst);
-};
-
-const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
-  const name = getIdentifierTypeName(type);
-  return (
-    name === "global::Tsonic.Runtime.Union" ||
-    name === "Tsonic.Runtime.Union" ||
-    name === "Union"
-  );
-};
-
-const buildArrayShapeCondition = (
-  valueAst: CSharpExpressionAst
-): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: identifierExpression(
-    "global::Tsonic.JSRuntime.JSArrayStatics.isArray"
-  ),
-  arguments: [boxValueAst(valueAst)],
-});
-
-const buildInvalidReificationExpression = (
-  description: string
-): CSharpExpressionAst => ({
-  kind: "throwExpression",
-  expression: {
-    kind: "objectCreationExpression",
-    type: identifierType("global::System.InvalidCastException"),
-    arguments: [stringLiteral(description)],
-  },
-});
-
-const maybeCastMaterializedValueAst = (
-  valueAst: CSharpExpressionAst,
-  actualTypeAst: CSharpTypeAst | undefined,
-  targetTypeAst: CSharpTypeAst
-): CSharpExpressionAst => {
-  if (actualTypeAst && sameTypeAstSurface(actualTypeAst, targetTypeAst)) {
-    return valueAst;
-  }
-
-  return {
-    kind: "castExpression",
-    type: targetTypeAst,
-    expression: valueAst,
-  };
 };
 
 export const tryBuildRuntimeMaterializationAst = (
