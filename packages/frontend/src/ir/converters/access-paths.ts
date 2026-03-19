@@ -165,6 +165,10 @@ export const getCurrentTypeForAccessPath = (
   }
 
   for (let index = 0; index < target.segments.length; index += 1) {
+    const segment = target.segments[index];
+    if (segment === undefined) {
+      return undefined;
+    }
     const pathKey = getAccessPathKey({
       ...target,
       segments: target.segments.slice(0, index + 1),
@@ -178,7 +182,7 @@ export const getCurrentTypeForAccessPath = (
     if (!currentType) return undefined;
     const memberType = ctx.typeSystem.typeOfMember(currentType, {
       kind: "byName",
-      name: target.segments[index]!,
+      name: segment,
     });
     if (memberType.kind === "unknownType") {
       return undefined;

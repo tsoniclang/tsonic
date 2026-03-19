@@ -1,8 +1,6 @@
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import type {
-  CSharpExpressionAst,
-} from "../format/backend-ast/types.js";
+import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { sameTypeAstSurface } from "../format/backend-ast/utils.js";
 import type { EmitTypeAstFn } from "./runtime-reification.js";
 import {

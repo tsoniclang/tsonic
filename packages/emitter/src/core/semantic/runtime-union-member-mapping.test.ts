@@ -23,9 +23,7 @@ describe("runtime-union-member-mapping", () => {
 
     expect(indexByAstKey.get("predefined:string")).to.equal(0);
     expect(
-      indexByAstKey.get(
-        "qualifiedIdentifier:global::Tsonic.JSRuntime.RegExp"
-      )
+      indexByAstKey.get("qualifiedIdentifier:global::Tsonic.JSRuntime.RegExp")
     ).to.equal(1);
   });
 
@@ -37,10 +35,7 @@ describe("runtime-union-member-mapping", () => {
     ]);
 
     const index = findMappedRuntimeUnionMemberIndex({
-      targetMembers: [
-        { kind: "primitiveType", name: "string" },
-        regExpType,
-      ],
+      targetMembers: [{ kind: "primitiveType", name: "string" }, regExpType],
       targetMemberIndexByAstKey: indexByAstKey,
       actualMember: {
         kind: "referenceType",
@@ -62,10 +57,7 @@ describe("runtime-union-member-mapping", () => {
     ]);
 
     const index = findMappedRuntimeUnionMemberIndex({
-      targetMembers: [
-        { kind: "primitiveType", name: "string" },
-        regExpType,
-      ],
+      targetMembers: [{ kind: "primitiveType", name: "string" }, regExpType],
       targetMemberIndexByAstKey: indexByAstKey,
       actualMember: regExpType,
       context,

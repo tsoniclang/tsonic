@@ -8,6 +8,7 @@
 import {
   IrExpression,
   IrType,
+  IrPropertyDeclaration,
   IrNumericNarrowingExpression,
   IrTypeAssertionExpression,
   IrAsInterfaceExpression,
@@ -582,18 +583,13 @@ const resolveAnonymousStructuralReferenceType = (
       if (info.kind !== "class" || !typeName.startsWith("__Anon_")) continue;
       const candidateProps = info.members
         .filter(
-          (
-            member
-          ): member is Extract<
-            typeof member,
-            { kind: "propertyDeclaration"; name: string }
-          > =>
+          (member): member is IrPropertyDeclaration & { type: IrType } =>
             member.kind === "propertyDeclaration" && member.type !== undefined
         )
         .map((member) => ({
           name: member.name,
           isOptional: false,
-          typeKey: stableIrTypeKey(member.type!),
+          typeKey: stableIrTypeKey(member.type),
         }))
         .sort((left, right) => left.name.localeCompare(right.name));
       if (
@@ -2152,9 +2148,7 @@ const maybeUpcastExpressionToExpectedTypeAst = (
       if (!actualMemberAst || !expectedMemberAst) {
         return true;
       }
-      if (
-        !sameTypeAstSurface(actualMemberAst, expectedMemberAst)
-      ) {
+      if (!sameTypeAstSurface(actualMemberAst, expectedMemberAst)) {
         return true;
       }
       const actualMember = actualLayout.members[index];
@@ -2438,8 +2432,7 @@ const isExactCastToType = (
   ast: CSharpExpressionAst,
   targetType: CSharpTypeAst
 ): boolean =>
-  ast.kind === "castExpression" &&
-  sameTypeAstSurface(ast.type, targetType);
+  ast.kind === "castExpression" && sameTypeAstSurface(ast.type, targetType);
 
 const isExactArrayCreationToType = (
   ast: CSharpExpressionAst,
@@ -2477,9 +2470,7 @@ const isExactRuntimeUnionFactoryCallToType = (
     return false;
   }
 
-  return (
-    sameTypeAstSurface(ast.expression.expression.type, targetType)
-  );
+  return sameTypeAstSurface(ast.expression.expression.type, targetType);
 };
 
 const isExactDefaultExpressionToType = (
@@ -2782,9 +2773,10 @@ const emitTypeAssertion = (
   const isSourceUnion = sourceExpressionType
     ? isSemanticUnion(sourceExpressionType, ctx1)
     : false;
-  const [sourceRuntimeUnionLayout, sourceLayoutContext] = isSourceUnion
-    ? buildRuntimeUnionLayout(sourceExpressionType!, ctx1, emitTypeAst)
-    : [undefined, ctx1];
+  const [sourceRuntimeUnionLayout, sourceLayoutContext] =
+    isSourceUnion && sourceExpressionType
+      ? buildRuntimeUnionLayout(sourceExpressionType, ctx1, emitTypeAst)
+      : [undefined, ctx1];
   const narrowedBinding = getNarrowedBindingForExpression(
     expr.expression,
     sourceLayoutContext

@@ -1733,7 +1733,10 @@ const finalizeCrossNamespaceReexports = (
     jsValueStatements.push(statement);
     for (const spec of unique) {
       const aliasParts = spec.split(/\s+as\s+/);
-      valueExportNames.add(aliasParts.length === 2 ? aliasParts[1]! : spec);
+      const aliasName = aliasParts[1];
+      valueExportNames.add(
+        aliasParts.length === 2 && aliasName ? aliasName : spec
+      );
     }
   }
 
@@ -3934,9 +3937,9 @@ const renderSourceAliasPlan = (
   );
   return {
     line: `export type ${plan.declaration.name}${sourceTypeParams} = ${
-      shouldPreserveSourceAliasText
+      shouldPreserveSourceAliasText && plan.sourceAlias
         ? rewriteSourceTypeText(
-            plan.sourceAlias!.typeText,
+            plan.sourceAlias.typeText,
             new Map(),
             anonymousStructuralAliases
           )

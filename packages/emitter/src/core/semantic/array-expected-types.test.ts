@@ -9,7 +9,10 @@ import {
 } from "./array-expected-types.js";
 
 describe("array-expected-types", () => {
-  const context = createContext({ rootNamespace: "Test", surface: "@tsonic/js" });
+  const context = createContext({
+    rootNamespace: "Test",
+    surface: "@tsonic/js",
+  });
 
   it("selects the sole array-like union member for array literal context", () => {
     const expectedType: IrType = {
@@ -24,11 +27,13 @@ describe("array-expected-types", () => {
       ],
     };
 
-    expect(resolveArrayLiteralContextType(expectedType, context)).to.deep.equal({
-      kind: "referenceType",
-      name: "ReadonlyArray",
-      typeArguments: [{ kind: "primitiveType", name: "number" }],
-    });
+    expect(resolveArrayLiteralContextType(expectedType, context)).to.deep.equal(
+      {
+        kind: "referenceType",
+        name: "ReadonlyArray",
+        typeArguments: [{ kind: "primitiveType", name: "number" }],
+      }
+    );
   });
 
   it("erases recursive runtime-union array elements to object arrays", () => {

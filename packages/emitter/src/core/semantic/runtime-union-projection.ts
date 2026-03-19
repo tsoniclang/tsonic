@@ -5,9 +5,7 @@ import {
   identifierType,
   stringLiteral,
 } from "../format/backend-ast/builders.js";
-import type {
-  CSharpExpressionAst,
-} from "../format/backend-ast/types.js";
+import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import {
   buildRuntimeUnionTypeAst,
   type RuntimeUnionLayout,
@@ -205,8 +203,5 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
     currentContext = mappedValue[1];
   }
 
-  return [
-    buildRuntimeUnionMatchAst(opts.valueAst, lambdaArgs),
-    currentContext,
-  ];
+  return [buildRuntimeUnionMatchAst(opts.valueAst, lambdaArgs), currentContext];
 };

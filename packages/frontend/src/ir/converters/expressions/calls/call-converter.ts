@@ -139,7 +139,12 @@ const compareCallableScores = (
   right: readonly [number, number, number, number]
 ): number => {
   for (let index = 0; index < left.length; index += 1) {
-    const delta = left[index]! - right[index]!;
+    const leftScore = left[index];
+    const rightScore = right[index];
+    if (leftScore === undefined || rightScore === undefined) {
+      continue;
+    }
+    const delta = leftScore - rightScore;
     if (delta !== 0) return delta;
   }
   return 0;

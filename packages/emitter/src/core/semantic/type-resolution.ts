@@ -13,14 +13,26 @@
 
 import type {
   IrType,
+  IrArrayType,
   IrInterfaceMember,
+  IrDictionaryType,
+  IrFunctionType,
+  IrIntersectionType,
+  IrObjectType,
   IrClassMember,
   IrPropertyDeclaration,
   IrPropertySignature, // NEW: needed for union-member matching
+  IrReferenceType,
+  IrTupleType,
+  IrUnionType,
   TypeBinding as FrontendTypeBinding,
 } from "@tsonic/frontend";
 import { normalizedUnionType, stableIrTypeKey } from "@tsonic/frontend";
 import type { LocalTypeInfo, EmitterContext } from "../../types.js";
+
+type Mutable<T> = {
+  -readonly [K in keyof T]: T[K];
+};
 
 /**
  * Check if a type contains any type parameter.
@@ -166,92 +178,92 @@ const substituteType = (
     case "referenceType": {
       // Recurse into type arguments
       if (type.typeArguments) {
-        const clone = {
+        const clone: Mutable<IrReferenceType> = {
           ...type,
           typeArguments: [],
-        } as any;
+        };
         visited.set(type, clone);
         clone.typeArguments = type.typeArguments.map((arg) =>
           substituteType(arg, mapping, visited)
         );
-        return clone as IrType;
+        return clone;
       }
       return type;
     }
 
     case "arrayType": {
-      const clone = {
+      const clone: Mutable<IrArrayType> = {
         ...type,
         elementType: type.elementType,
-      } as any;
+      };
       visited.set(type, clone);
       clone.elementType = substituteType(type.elementType, mapping, visited);
-      return clone as IrType;
+      return clone;
     }
 
     case "dictionaryType": {
-      const clone = {
+      const clone: Mutable<IrDictionaryType> = {
         ...type,
         keyType: type.keyType,
         valueType: type.valueType,
-      } as any;
+      };
       visited.set(type, clone);
       clone.keyType = substituteType(type.keyType, mapping, visited);
       clone.valueType = substituteType(type.valueType, mapping, visited);
-      return clone as IrType;
+      return clone;
     }
 
     case "unionType": {
-      const clone = {
+      const clone: Mutable<IrUnionType> = {
         ...type,
         types: [],
-      } as any;
+      };
       visited.set(type, clone);
       clone.types = type.types.map((t) => substituteType(t, mapping, visited));
-      return clone as IrType;
+      return clone;
     }
 
     case "tupleType": {
-      const clone = {
+      const clone: Mutable<IrTupleType> = {
         ...type,
         elementTypes: [],
-      } as any;
+      };
       visited.set(type, clone);
       clone.elementTypes = type.elementTypes.map((t) =>
         substituteType(t, mapping, visited)
       );
-      return clone as IrType;
+      return clone;
     }
 
     case "intersectionType": {
-      const clone = {
+      const clone: Mutable<IrIntersectionType> = {
         ...type,
         types: [],
-      } as any;
+      };
       visited.set(type, clone);
       clone.types = type.types.map((t) => substituteType(t, mapping, visited));
-      return clone as IrType;
+      return clone;
     }
 
     case "functionType": {
-      const clone = {
+      const clone: Mutable<IrFunctionType> = {
         ...type,
         returnType: type.returnType,
         parameters: [],
-      } as any;
+      };
       visited.set(type, clone);
       clone.returnType = substituteType(type.returnType, mapping, visited);
       clone.parameters = type.parameters.map((p) =>
         p.type ? { ...p, type: substituteType(p.type, mapping, visited) } : p
       );
-      return clone as IrType;
+      return clone;
     }
 
     case "objectType": {
-      const clone = {
+      const clone: Mutable<IrObjectType> = {
         ...type,
         members: [],
-      } as any;
+      };
       visited.set(type, clone);
       clone.members = type.members.map((m) => {
         if (m.kind === "propertySignature") {
@@ -996,7 +1008,7 @@ const getLocalTypeInfoStructuralShape = (
       }
 
       const propertyMembers = info.members.filter(
-        (member): member is IrPropertyDeclaration =>
+        (member): member is IrPropertyDeclaration & { type: IrType } =>
           member.kind === "propertyDeclaration" && member.type !== undefined
       );
 
@@ -1004,7 +1016,7 @@ const getLocalTypeInfoStructuralShape = (
         propertyMembers.map((member) => ({
           name: member.name,
           isOptional: false,
-          typeKey: stableIrTypeKey(member.type!),
+          typeKey: stableIrTypeKey(member.type),
         }))
       );
     }

@@ -124,10 +124,7 @@ const maybeCastMaterializedValueAst = (
   actualTypeAst: CSharpTypeAst | undefined,
   targetTypeAst: CSharpTypeAst
 ): CSharpExpressionAst => {
-  if (
-    actualTypeAst &&
-    sameTypeAstSurface(actualTypeAst, targetTypeAst)
-  ) {
+  if (actualTypeAst && sameTypeAstSurface(actualTypeAst, targetTypeAst)) {
     return valueAst;
   }
 
@@ -236,8 +233,9 @@ export const tryBuildRuntimeMaterializationAst = (
     }
   }
   const concreteTargetTypeAst = stripNullableTypeAst(targetTypeAst);
-  const concreteTargetTypeKey =
-    stableConcreteTypeKeyFromAst(concreteTargetTypeAst);
+  const concreteTargetTypeKey = stableConcreteTypeKeyFromAst(
+    concreteTargetTypeAst
+  );
   const sourceSurfaceMemberTypeAsts =
     getRuntimeUnionCastMemberTypeAsts(valueAst);
   const matchingSourceIndices = sourceLayout.members.flatMap((member, index) =>
@@ -453,29 +451,43 @@ export const tryBuildRuntimeReificationPlan = (
       return undefined;
     }
 
-    let conditionAst = cases[0]!.condition;
+    const firstCase = cases[0];
+    const lastCase = cases[cases.length - 1];
+    if (!firstCase || !lastCase) {
+      return undefined;
+    }
+
+    let conditionAst = firstCase.condition;
     let valueExpression = buildInvalidReificationExpression(
       "Unreachable runtime union reification path"
     );
-    let finalContext = cases[cases.length - 1]!.context;
+    let finalContext = lastCase.context;
 
     for (let index = 1; index < cases.length; index += 1) {
+      const currentCase = cases[index];
+      if (!currentCase) {
+        continue;
+      }
       conditionAst = {
         kind: "binaryExpression",
         operatorToken: "||",
         left: conditionAst,
-        right: cases[index]!.condition,
+        right: currentCase.condition,
       };
     }
 
     for (let index = cases.length - 1; index >= 0; index -= 1) {
+      const currentCase = cases[index];
+      if (!currentCase) {
+        continue;
+      }
       valueExpression = {
         kind: "conditionalExpression",
-        condition: cases[index]!.condition,
-        whenTrue: cases[index]!.value,
+        condition: currentCase.condition,
+        whenTrue: currentCase.value,
         whenFalse: valueExpression,
       };
-      finalContext = cases[index]!.context;
+      finalContext = currentCase.context;
     }
 
     return {

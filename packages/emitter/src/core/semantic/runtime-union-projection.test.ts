@@ -2,7 +2,10 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrType } from "@tsonic/frontend";
 import { createContext } from "../../emitter-types/context.js";
-import { identifierExpression, identifierType } from "../format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  identifierType,
+} from "../format/backend-ast/builders.js";
 import type { RuntimeUnionLayout } from "./runtime-unions.js";
 import { tryBuildRuntimeUnionProjectionToLayoutAst } from "./runtime-union-projection.js";
 
@@ -65,9 +68,9 @@ describe("runtime-union-projection", () => {
             kind: "invocationExpression",
             expression: {
               kind: "memberAccessExpression",
-                expression: {
-                  kind: "typeReferenceExpression",
-                  type: identifierType("global::Tsonic.Runtime.Union", [
+              expression: {
+                kind: "typeReferenceExpression",
+                type: identifierType("global::Tsonic.Runtime.Union", [
                   {
                     kind: "arrayType",
                     rank: 1,
@@ -90,9 +93,9 @@ describe("runtime-union-projection", () => {
             kind: "invocationExpression",
             expression: {
               kind: "memberAccessExpression",
-                expression: {
-                  kind: "typeReferenceExpression",
-                  type: identifierType("global::Tsonic.Runtime.Union", [
+              expression: {
+                kind: "typeReferenceExpression",
+                type: identifierType("global::Tsonic.Runtime.Union", [
                   {
                     kind: "arrayType",
                     rank: 1,

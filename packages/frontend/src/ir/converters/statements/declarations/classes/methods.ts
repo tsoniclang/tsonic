@@ -1163,17 +1163,16 @@ const buildWrapperRestElementOrUndefinedExpression = (
           inferredType: targetType,
         } satisfies IrExpression)
       : elementExpression;
+  const whenTrueType = whenTrueExpression.inferredType;
+  const fallbackType = fallbackExpression.inferredType;
   const inferredType =
     targetType ??
-    (whenTrueExpression.inferredType
+    (whenTrueType && fallbackType
       ? ({
           kind: "unionType",
-          types: [
-            whenTrueExpression.inferredType,
-            fallbackExpression.inferredType!,
-          ],
+          types: [whenTrueType, fallbackType],
         } satisfies IrType)
-      : whenTrueExpression.inferredType);
+      : (whenTrueType ?? fallbackType));
 
   const conditionalExpr: IrExpression = {
     kind: "conditional",

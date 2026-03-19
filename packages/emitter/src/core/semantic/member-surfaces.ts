@@ -1,8 +1,6 @@
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import type {
-  TypeMemberKind,
-} from "../../emitter-types/core.js";
+import type { TypeMemberKind } from "../../emitter-types/core.js";
 import { getIdentifierTypeName } from "../format/backend-ast/utils.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 
@@ -44,7 +42,9 @@ export const lookupLocalTypeMemberKind = (
 
   if (local.kind === "typeAlias") {
     if (local.type.kind !== "objectType") return undefined;
-    const found = local.type.members.find((member) => member.name === memberName);
+    const found = local.type.members.find(
+      (member) => member.name === memberName
+    );
     if (!found) return undefined;
     return found.kind === "methodSignature" ? "method" : "property";
   }
@@ -133,7 +133,11 @@ export const resolveTypeMemberKind = (
       : undefined;
   }
 
-  const localKind = lookupLocalTypeMemberKind(resolved.name, memberName, context);
+  const localKind = lookupLocalTypeMemberKind(
+    resolved.name,
+    memberName,
+    context
+  );
   if (localKind) {
     return localKind;
   }
@@ -149,9 +153,7 @@ export const resolveTypeMemberKind = (
     }
   }
 
-  return resolveTypeMemberIndexMap(
-    resolved,
-    context,
-    receiverBindingName
-  )?.get(memberName);
+  return resolveTypeMemberIndexMap(resolved, context, receiverBindingName)?.get(
+    memberName
+  );
 };

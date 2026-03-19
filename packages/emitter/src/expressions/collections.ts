@@ -316,16 +316,21 @@ export const emitArray = (
         continue;
       }
 
-      const elementExpr = shouldCoerceArrayLiteralElementToExpectedType(
-        element,
-        expectedElementType,
-        currentContext
-      )
+      const coercedExpectedElementType =
+        expectedElementType !== undefined &&
+        shouldCoerceArrayLiteralElementToExpectedType(
+          element,
+          expectedElementType,
+          currentContext
+        )
+          ? expectedElementType
+          : undefined;
+      const elementExpr = coercedExpectedElementType
         ? ({
             kind: "typeAssertion",
             expression: element,
-            targetType: expectedElementType!,
-            inferredType: expectedElementType!,
+            targetType: coercedExpectedElementType,
+            inferredType: coercedExpectedElementType,
           } satisfies IrExpression)
         : element;
       const [elemAst, newContext] = emitExpressionAst(
@@ -395,16 +400,21 @@ export const emitArray = (
       // Sparse array hole
       elementAsts.push({ kind: "defaultExpression" });
     } else {
-      const elementExpr = shouldCoerceArrayLiteralElementToExpectedType(
-        element,
-        expectedElementType,
-        currentContext
-      )
+      const coercedExpectedElementType =
+        expectedElementType !== undefined &&
+        shouldCoerceArrayLiteralElementToExpectedType(
+          element,
+          expectedElementType,
+          currentContext
+        )
+          ? expectedElementType
+          : undefined;
+      const elementExpr = coercedExpectedElementType
         ? ({
             kind: "typeAssertion",
             expression: element,
-            targetType: expectedElementType!,
-            inferredType: expectedElementType!,
+            targetType: coercedExpectedElementType,
+            inferredType: coercedExpectedElementType,
           } satisfies IrExpression)
         : element;
       const [elemAst, newContext] = emitExpressionAst(

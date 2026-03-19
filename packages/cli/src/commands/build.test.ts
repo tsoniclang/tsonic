@@ -673,8 +673,8 @@ describe("build command (native library port regressions)", function () {
           "}",
           "",
           "export function main(): void {",
-          '  console.log(appendHeader(\"value\"));',
-          '  console.log(appendHeader([\"a\", \"b\"]));',
+          '  console.log(appendHeader("value"));',
+          '  console.log(appendHeader(["a", "b"]));',
           "}",
         ].join("\n"),
         "utf-8"
@@ -1637,7 +1637,7 @@ describe("build command (native library port regressions)", function () {
           "}",
           "",
           "export function main(): string {",
-          '  return readFirst({ title: \"hello\" });',
+          '  return readFirst({ title: "hello" });',
           "}",
         ].join("\n"),
         "utf-8"
@@ -3191,8 +3191,8 @@ describe("build command (native library port regressions)", function () {
           "declare const console: Console;",
           "",
           "export function main(): void {",
-          '  console.error(\"bad\");',
-          '  console.log(\"ok\");',
+          '  console.error("bad");',
+          '  console.log("ok");',
           "}",
         ].join("\n"),
         "utf-8"
@@ -4651,7 +4651,7 @@ describe("build command (native library port regressions)", function () {
           "  ): void {",
           '    const locals = typeof localsOrCallback === "function" || localsOrCallback === undefined ? this.locals : localsOrCallback;',
           '    const callback = typeof localsOrCallback === "function" ? localsOrCallback : maybeCallback;',
-          '    if (!callback) throw new Error(\"missing callback\");',
+          '    if (!callback) throw new Error("missing callback");',
           "    const engine = this.resolveEngine(view);",
           "    if (!engine) {",
           "      callback(undefined, `<rendered:${view}>`);",
@@ -5585,7 +5585,7 @@ describe("build command (native library port regressions)", function () {
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       expect(tree).to.not.include("control.Match(");
       expect(tree).to.not.match(
-        /Enumerable\.ToArray<global::Tsonic\.Runtime\.Union<.*>\>\(global::System\.Linq\.Enumerable\.Select<global::System\.Func<.*>\(global::System\.Linq\.Enumerable\.ToArray<global::Tsonic\.Runtime\.Union/
+        /Enumerable\.ToArray<global::Tsonic\.Runtime\.Union<.*>>\(global::System\.Linq\.Enumerable\.Select<global::System\.Func<.*>\(global::System\.Linq\.Enumerable\.ToArray<global::Tsonic\.Runtime\.Union/
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

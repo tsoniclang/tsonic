@@ -253,31 +253,47 @@ const emitAsyncUnionReturningLambdaBodyAst = (
     const discardLocal = isVoidAwaitedReturn
       ? allocateLocalName("__tsonic_discard", currentContext)
       : undefined;
+    const discardName = discardLocal?.emittedName;
+    if (
+      isVoidAwaitedReturn &&
+      !isNoopVoidExpression &&
+      discardName === undefined
+    ) {
+      throw new Error("Missing discard local for awaited void expression");
+    }
     currentContext = discardLocal?.context ?? currentContext;
-    taskBody = {
-      kind: "blockStatement",
-      statements: isVoidAwaitedReturn
-        ? isNoopVoidExpression
-          ? []
-          : [
-              {
-                kind: "localDeclarationStatement",
-                modifiers: [],
-                type: identifierType("var"),
-                declarators: [
-                  {
-                    name: discardLocal!.emittedName,
-                    initializer: exprAst,
-                  },
-                ],
-              },
-            ]
-        : [
+    let awaitedStatements: readonly CSharpStatementAst[];
+    if (!isVoidAwaitedReturn) {
+      awaitedStatements = [
+        {
+          kind: "returnStatement",
+          expression: exprAst,
+        },
+      ];
+    } else if (isNoopVoidExpression) {
+      awaitedStatements = [];
+    } else {
+      const requiredDiscardName = discardName;
+      if (requiredDiscardName === undefined) {
+        throw new Error("Missing discard local for awaited void expression");
+      }
+      awaitedStatements = [
+        {
+          kind: "localDeclarationStatement",
+          modifiers: [],
+          type: identifierType("var"),
+          declarators: [
             {
-              kind: "returnStatement",
-              expression: exprAst,
+              name: requiredDiscardName,
+              initializer: exprAst,
             },
           ],
+        },
+      ];
+    }
+    taskBody = {
+      kind: "blockStatement",
+      statements: awaitedStatements,
     };
   }
 

@@ -779,7 +779,9 @@ describe("library bindings first-party regressions", function () {
         "utf-8"
       );
       expect(internal).to.include("parse(text: string): string;");
-      expect(internal).to.include("parse(text: string, radix: number): string;");
+      expect(internal).to.include(
+        "parse(text: string, radix: number): string;"
+      );
       expect(internal).to.not.include("__tsonic_overload_impl_parse");
 
       const bindings = JSON.parse(
@@ -820,13 +822,19 @@ describe("library bindings first-party regressions", function () {
 
       const methods = parserType?.methods ?? [];
       expect(
-        methods.some((method) => method.clrName === "__tsonic_overload_impl_parse")
+        methods.some(
+          (method) => method.clrName === "__tsonic_overload_impl_parse"
+        )
       ).to.equal(false);
 
-      const parseMethods = methods.filter((method) => method.clrName === "parse");
+      const parseMethods = methods.filter(
+        (method) => method.clrName === "parse"
+      );
       expect(parseMethods).to.have.length(2);
       expect(
-        parseMethods.map((method) => method.overloadFamily?.publicSignatureIndex)
+        parseMethods.map(
+          (method) => method.overloadFamily?.publicSignatureIndex
+        )
       ).to.deep.equal([0, 1]);
       for (const method of parseMethods) {
         expect(method.overloadFamily).to.deep.equal({

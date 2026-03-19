@@ -18,9 +18,7 @@ const mkRef = (name: string, resolvedClrType?: string): IrType => ({
   resolvedClrType,
 });
 
-const withContext = (
-  patch: Partial<EmitterContext>
-): EmitterContext => ({
+const withContext = (patch: Partial<EmitterContext>): EmitterContext => ({
   ...createContext({ rootNamespace: "Test" }),
   ...patch,
 });
@@ -126,10 +124,7 @@ describe("member-surfaces", () => {
       options: {
         rootNamespace: "Test",
         typeMemberIndex: new Map([
-          [
-            "Acme.Http.Router",
-            new Map([["use", "method"]]),
-          ],
+          ["Acme.Http.Router", new Map([["use", "method"]])],
         ]),
       },
     });
