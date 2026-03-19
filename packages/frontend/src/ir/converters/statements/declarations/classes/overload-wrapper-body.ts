@@ -141,6 +141,7 @@ export const createWrapperBody = (
     arguments: forwardedArgs,
     isOptional: false,
     inferredType: implReturnType ?? wrapperReturnType,
+    allowUnknownInferredType: true,
     ...(typeParameterNames.length > 0
       ? {
           typeArguments: typeParameterNames.map(

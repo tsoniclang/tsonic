@@ -204,7 +204,8 @@ export const emitExpressionAst = (
       unionAdjustedAst,
       adjustedExprType,
       unionAdjustedContext,
-      expectedType
+      expectedType,
+      maybeUpcastExpressionToExpectedTypeAst
     ) ?? [unionAdjustedAst, unionAdjustedContext];
   // 6. Char-to-string conversion
   const [stringAdjustedAst, stringAdjustedContext] =

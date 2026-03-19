@@ -283,7 +283,8 @@ export const maybeUpcastExpressionToExpectedTypeAst = (
     ast,
     emissionActualType,
     context,
-    emissionExpectedType
+    emissionExpectedType,
+    maybeUpcastExpressionToExpectedTypeAst
   );
   if (adapted) {
     return adapted;
