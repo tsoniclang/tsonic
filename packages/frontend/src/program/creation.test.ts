@@ -4,10 +4,10 @@
  * Individual topic test files live in ./creation-tests/.
  */
 
-import "./creation-tests/compiler-options.test.js";
-import "./creation-tests/package-resolution.test.js";
-import "./creation-tests/module-bindings.test.js";
-import "./creation-tests/authoritative-type-roots.test.js";
-import "./creation-tests/js-surface-globals.test.js";
-import "./creation-tests/core-type-checking.test.js";
-import "./creation-tests/surface-isolation.test.js";
+import "./creation-tests/compiler-options.suite.js";
+import "./creation-tests/package-resolution.suite.js";
+import "./creation-tests/module-bindings.suite.js";
+import "./creation-tests/authoritative-type-roots.suite.js";
+import "./creation-tests/js-surface-globals.suite.js";
+import "./creation-tests/core-type-checking.suite.js";
+import "./creation-tests/surface-isolation.suite.js";

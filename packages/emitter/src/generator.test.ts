@@ -1,3 +1,3 @@
-import "./generator-tests/simple-generators.test.js";
-import "./generator-tests/bidirectional-core.test.js";
-import "./generator-tests/bidirectional-features.test.js";
+import "./generator-tests/simple-generators.suite.js";
+import "./generator-tests/bidirectional-core.suite.js";
+import "./generator-tests/bidirectional-features.suite.js";

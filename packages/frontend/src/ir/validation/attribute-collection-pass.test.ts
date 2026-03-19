@@ -4,9 +4,9 @@
  * Aggregator – imports split topic modules.
  */
 
-import "./attribute-collection-tests/type-add.test.js";
-import "./attribute-collection-tests/ctor-add.test.js";
-import "./attribute-collection-tests/method-selector.test.js";
-import "./attribute-collection-tests/prop-selector.test.js";
-import "./attribute-collection-tests/function-and-misc.test.js";
-import "./attribute-collection-tests/error-cases.test.js";
+import "./attribute-collection-tests/type-add.suite.js";
+import "./attribute-collection-tests/ctor-add.suite.js";
+import "./attribute-collection-tests/method-selector.suite.js";
+import "./attribute-collection-tests/prop-selector.suite.js";
+import "./attribute-collection-tests/function-and-misc.suite.js";
+import "./attribute-collection-tests/error-cases.suite.js";

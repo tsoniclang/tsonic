@@ -1,3 +1,3 @@
-import "./restore-tests/runtime-dlls.test.js";
-import "./restore-tests/external-types.test.js";
-import "./restore-tests/nuget-bindings.test.js";
+import "./restore-tests/runtime-dlls.suite.js";
+import "./restore-tests/external-types.suite.js";
+import "./restore-tests/nuget-bindings.suite.js";

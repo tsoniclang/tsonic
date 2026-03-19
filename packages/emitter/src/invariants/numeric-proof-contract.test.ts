@@ -1,2 +1,2 @@
-import "./numeric-proof-contract-tests/proof-and-diagnostics.test.js";
-import "./numeric-proof-contract-tests/emitter-and-annotations.test.js";
+import "./numeric-proof-contract-tests/proof-and-diagnostics.suite.js";
+import "./numeric-proof-contract-tests/emitter-and-annotations.suite.js";
