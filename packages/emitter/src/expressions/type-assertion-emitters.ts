@@ -38,11 +38,7 @@ import {
   getIdentifierTypeName,
 } from "../core/format/backend-ast/utils.js";
 import { stringLiteral } from "../core/format/backend-ast/builders.js";
-import {
-  maybeNarrowRuntimeUnionExpressionAst,
-  maybeUpcastExpressionToExpectedTypeAst,
-} from "./runtime-union-adaptation.js";
-import { tryAdaptStructuralExpressionAst } from "./structural-adaptation.js";
+import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
 
 // ---------------------------------------------------------------------------
@@ -323,34 +319,14 @@ export const emitTypeAssertion = (
     ];
   }
 
-  const adaptedUnionAst =
-    maybeUpcastExpressionToExpectedTypeAst(
-      innerAst,
-      actualExpressionType,
-      sourceLayoutContext,
-      runtimeTarget
-    ) ??
-    tryAdaptStructuralExpressionAst(
-      innerAst,
-      actualExpressionType,
-      sourceLayoutContext,
-      runtimeTarget
-    );
+  const adaptedUnionAst = adaptValueToExpectedTypeAst({
+    valueAst: innerAst,
+    actualType: actualExpressionType,
+    context: sourceLayoutContext,
+    expectedType: runtimeTarget,
+  });
   if (adaptedUnionAst) {
     return adaptedUnionAst;
-  }
-
-  if (actualExpressionType) {
-    const narrowedUnionAst = maybeNarrowRuntimeUnionExpressionAst(
-      innerAst,
-      actualExpressionType,
-      sourceLayoutContext,
-      runtimeTarget,
-      new Set<string>()
-    );
-    if (narrowedUnionAst) {
-      return narrowedUnionAst;
-    }
   }
 
   return [
