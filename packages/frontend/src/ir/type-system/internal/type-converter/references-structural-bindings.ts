@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import * as ts from "typescript";
 import type { DeclId } from "../../../type-system/types.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
+import { extractRawDotnetBindingTypes } from "../../../../program/dotnet-binding-payload.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 import { getTypeAliasRecursionCache } from "./references-normalize.js";
 
@@ -121,28 +122,7 @@ const buildBindingAliasClrIdentityMap = (
 
   try {
     const raw = JSON.parse(readFileSync(bindingsPath, "utf-8")) as unknown;
-    const types =
-      raw &&
-      typeof raw === "object" &&
-      Array.isArray((raw as { readonly types?: unknown }).types)
-        ? (raw as { readonly types: readonly unknown[] }).types
-        : raw &&
-            typeof raw === "object" &&
-            (raw as { readonly dotnet?: unknown }).dotnet !== null &&
-            typeof (raw as { readonly dotnet?: unknown }).dotnet === "object" &&
-            Array.isArray(
-              (
-                raw as {
-                  readonly dotnet: { readonly types?: unknown };
-                }
-              ).dotnet.types
-            )
-          ? (
-              raw as {
-                readonly dotnet: { readonly types: readonly unknown[] };
-              }
-            ).dotnet.types
-          : undefined;
+    const types = extractRawDotnetBindingTypes(raw);
     if (types) {
       for (const type of types) {
         if (!type || typeof type !== "object") continue;

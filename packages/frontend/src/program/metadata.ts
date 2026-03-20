@@ -9,7 +9,7 @@ import {
   TsbindgenBindingsFile,
 } from "../dotnet-metadata.js";
 import type { BindingFile } from "./binding-types.js";
-import { getTsbindgenPayload } from "./binding-types.js";
+import { getDotnetBindingPayload } from "./dotnet-binding-payload.js";
 import { resolveDependencyPackageRoot } from "./package-roots.js";
 
 /**
@@ -61,12 +61,12 @@ const loadMetadataFromPackage = (
     try {
       const content = fs.readFileSync(bindingsPath, "utf-8");
       const parsed = JSON.parse(content) as unknown;
-      const tsbindgenPayload = getTsbindgenPayload(parsed as BindingFile);
-      if (tsbindgenPayload) {
+      const dotnetPayload = getDotnetBindingPayload(parsed as BindingFile);
+      if (dotnetPayload) {
         discoveredClrBindingsInPackage = true;
         registry.loadBindingsFile(
           bindingsPath,
-          tsbindgenPayload as TsbindgenBindingsFile
+          dotnetPayload as TsbindgenBindingsFile
         );
       }
     } catch (err) {

@@ -32,10 +32,16 @@ export type {
 export {
   isFullBindingManifest,
   isTsbindgenBindingFile,
-  isFirstPartyBindingsFileV2,
-  getTsbindgenPayload,
   validateBindingFile,
 } from "./binding-types.js";
+
+export {
+  isFirstPartyBindingsFileV2,
+  getDotnetBindingPayload,
+  extractRawDotnetBindingsPayload,
+  extractRawDotnetBindingTypes,
+  extractRawDotnetAssemblyName,
+} from "./dotnet-binding-payload.js";
 
 // ── Registry ───────────────────────────────────────────────────────────────
 export { BindingRegistry } from "./binding-registry.js";

@@ -15,7 +15,8 @@ import type {
   TsbindgenExport,
   BindingFile,
 } from "./binding-types.js";
-import { isFullBindingManifest, getTsbindgenPayload } from "./binding-types.js";
+import { isFullBindingManifest } from "./binding-types.js";
+import { getDotnetBindingPayload } from "./dotnet-binding-payload.js";
 
 // ---------------------------------------------------------------------------
 // MutableRegistryState – writable view into BindingRegistry maps
@@ -215,8 +216,8 @@ export const addBindingsToState = (
       }
     }
   } else {
-    const tsbindgenManifest = getTsbindgenPayload(manifest);
-    if (!tsbindgenManifest) {
+    const dotnetPayload = getDotnetBindingPayload(manifest);
+    if (!dotnetPayload) {
       if (!("bindings" in manifest)) {
         return;
       }
@@ -228,12 +229,12 @@ export const addBindingsToState = (
       return;
     }
 
-    const manifestNamespace = tsbindgenManifest.namespace;
+    const manifestNamespace = dotnetPayload.namespace;
     // tsbindgen format: convert to internal format
     const namespaceTypes: TypeBinding[] = [];
     const derivedAliasCounts = new Map<string, number>();
 
-    for (const tsbType of tsbindgenManifest.types) {
+    for (const tsbType of dotnetPayload.types) {
       const derivedAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
       derivedAliasCounts.set(
         derivedAlias,
@@ -241,7 +242,7 @@ export const addBindingsToState = (
       );
     }
 
-    for (const tsbType of tsbindgenManifest.types) {
+    for (const tsbType of dotnetPayload.types) {
       // Create members from methods, properties, and fields
       const members: MemberBinding[] = [];
 
@@ -437,13 +438,13 @@ export const addBindingsToState = (
     // These are stable value exports for CLR namespace facade modules and are
     // resolved by Tsonic during import binding (so `import { x }` maps to
     // `global::<DeclaringType>.<member>` in C#).
-    if (tsbindgenManifest.exports) {
+    if (dotnetPayload.exports) {
       const nsExports =
         state.tsbindgenExports.get(manifestNamespace) ??
         new Map<string, TsbindgenExport>();
 
       for (const [exportName, exp] of Object.entries(
-        tsbindgenManifest.exports
+        dotnetPayload.exports
       )) {
         nsExports.set(exportName, exp);
       }

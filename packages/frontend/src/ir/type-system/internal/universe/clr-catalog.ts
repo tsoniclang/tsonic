@@ -22,6 +22,7 @@ import type {
   MemberEntry,
   RawBindingsPayload,
 } from "./types.js";
+import { extractRawDotnetBindingsPayload } from "../../../../program/dotnet-binding-payload.js";
 import {
   convertRawType,
   enrichAssemblyEntriesFromTsBindgenDts,
@@ -138,40 +139,6 @@ const findBindingsFiles = (packagePath: string): string[] => {
   return bindingsFiles;
 };
 
-const extractRawClrBindingsPayload = (
-  value: unknown
-): RawBindingsPayload | undefined => {
-  if (typeof value !== "object" || value === null) return undefined;
-  const candidate = value as {
-    readonly namespace?: unknown;
-    readonly types?: unknown;
-    readonly dotnet?: {
-      readonly types?: unknown;
-    };
-  };
-  if (typeof candidate.namespace !== "string") {
-    return undefined;
-  }
-  if (Array.isArray(candidate.types)) {
-    return {
-      namespace: candidate.namespace,
-      types: candidate.types,
-    };
-  }
-  if (
-    candidate.dotnet !== undefined &&
-    typeof candidate.dotnet === "object" &&
-    candidate.dotnet !== null &&
-    Array.isArray(candidate.dotnet.types)
-  ) {
-    return {
-      namespace: candidate.namespace,
-      types: candidate.dotnet.types,
-    };
-  }
-  return undefined;
-};
-
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN LOADER FUNCTION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -215,7 +182,9 @@ export const loadClrCatalog = (
 
         const content = fs.readFileSync(bindingsPath, "utf-8");
         const parsed = JSON.parse(content) as unknown;
-        const bindings = extractRawClrBindingsPayload(parsed);
+        const bindings = extractRawDotnetBindingsPayload(parsed) as
+          | RawBindingsPayload
+          | undefined;
         if (!bindings) {
           continue;
         }
@@ -277,7 +246,9 @@ export const loadSinglePackageBindings = (
 
   const content = fs.readFileSync(bindingsPath, "utf-8");
   const parsed = JSON.parse(content) as unknown;
-  const bindings = extractRawClrBindingsPayload(parsed);
+  const bindings = extractRawDotnetBindingsPayload(parsed) as
+    | RawBindingsPayload
+    | undefined;
   if (!bindings) {
     throw new Error(
       `Expected CLR bindings with 'namespace' and either 'types' or 'dotnet.types' at ${bindingsPath}`

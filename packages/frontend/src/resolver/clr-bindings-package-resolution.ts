@@ -9,34 +9,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-
-const extractBindingsTypes = (
-  parsed: unknown
-): readonly Record<string, unknown>[] | undefined => {
-  if (parsed === null || typeof parsed !== "object") {
-    return undefined;
-  }
-  const record = parsed as Record<string, unknown>;
-  if (Array.isArray(record.types)) {
-    return record.types.filter(
-      (entry): entry is Record<string, unknown> =>
-        entry !== null && typeof entry === "object" && !Array.isArray(entry)
-    );
-  }
-  const dotnet = record.dotnet;
-  if (
-    dotnet !== null &&
-    typeof dotnet === "object" &&
-    !Array.isArray(dotnet) &&
-    Array.isArray((dotnet as { readonly types?: unknown }).types)
-  ) {
-    return (dotnet as { readonly types: unknown[] }).types.filter(
-      (entry): entry is Record<string, unknown> =>
-        entry !== null && typeof entry === "object" && !Array.isArray(entry)
-    );
-  }
-  return undefined;
-};
+import { extractRawDotnetAssemblyName } from "../program/dotnet-binding-payload.js";
 
 /**
  * Resolve package root directory using Node resolution.
@@ -252,14 +225,10 @@ export const extractAssembly = (
     const content = readFileSync(bindingsPath, "utf-8");
     const parsed = JSON.parse(content) as unknown;
 
-    const types = extractBindingsTypes(parsed);
-    if (types) {
-      const [firstType] = types;
-      if (firstType && typeof firstType.assemblyName === "string") {
-        const assembly = firstType.assemblyName;
-        assemblyCache.set(bindingsPath, assembly);
-        return assembly;
-      }
+    const assembly = extractRawDotnetAssemblyName(parsed);
+    if (assembly) {
+      assemblyCache.set(bindingsPath, assembly);
+      return assembly;
     }
 
     // No assembly found, cache null

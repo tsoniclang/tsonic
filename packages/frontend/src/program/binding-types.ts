@@ -374,34 +374,6 @@ export const isTsbindgenBindingFile = (
   );
 };
 
-export const isFirstPartyBindingsFileV2 = (
-  manifest: BindingFile
-): manifest is FirstPartyBindingsFileV2 => {
-  return (
-    "namespace" in manifest &&
-    "dotnet" in manifest &&
-    typeof manifest.dotnet === "object" &&
-    manifest.dotnet !== null &&
-    Array.isArray(manifest.dotnet.types)
-  );
-};
-
-export const getTsbindgenPayload = (
-  manifest: BindingFile
-): TsbindgenBindingFile | undefined => {
-  if (isTsbindgenBindingFile(manifest)) {
-    return manifest;
-  }
-  if (isFirstPartyBindingsFileV2(manifest)) {
-    return {
-      namespace: manifest.namespace,
-      types: manifest.dotnet.types,
-      exports: manifest.dotnet.exports,
-    };
-  }
-  return undefined;
-};
-
 /**
  * Validate that a parsed JSON object is a valid binding file format.
  * Returns an error message if invalid, undefined if valid.
