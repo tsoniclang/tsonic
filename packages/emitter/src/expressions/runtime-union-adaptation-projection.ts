@@ -16,7 +16,7 @@ import {
 import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
-import { maybeUpcastExpressionToExpectedTypeAst } from "./runtime-union-adaptation-upcast.js";
+import { maybeAdaptRuntimeUnionExpressionAst } from "./runtime-union-adaptation-upcast.js";
 
 export const maybeWidenRuntimeUnionExpressionAst = (
   ast: CSharpExpressionAst,
@@ -53,7 +53,7 @@ export const maybeWidenRuntimeUnionExpressionAst = (
       targetMember,
       context: nextContext,
     }) =>
-      maybeUpcastExpressionToExpectedTypeAst(
+      maybeAdaptRuntimeUnionExpressionAst(
         parameterExpr,
         actualMember,
         nextContext,
@@ -110,7 +110,7 @@ export const maybeNarrowRuntimeUnionExpressionAst = (
       targetMember,
       context: nextContext,
     }) =>
-      maybeUpcastExpressionToExpectedTypeAst(
+      maybeAdaptRuntimeUnionExpressionAst(
         parameterExpr,
         actualMember,
         nextContext,
@@ -168,7 +168,7 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       body = parameterExpr;
       sawMatch = true;
     } else {
-      const nested = maybeUpcastExpressionToExpectedTypeAst(
+      const nested = maybeAdaptRuntimeUnionExpressionAst(
         parameterExpr,
         actualMember,
         currentContext,

@@ -9,10 +9,10 @@ import {
 } from "./post-emission-adaptation.js";
 import {
   maybeNarrowRuntimeUnionExpressionAst,
-  maybeUpcastDictionaryUnionValueAst,
-  maybeUpcastExpressionToExpectedTypeAst,
-  resolveDirectStorageExpressionType,
+  maybeAdaptDictionaryUnionValueAst,
+  maybeAdaptRuntimeUnionExpressionAst,
 } from "./runtime-union-adaptation.js";
+import { resolveDirectStorageExpressionType } from "./direct-storage-types.js";
 import { tryAdaptStructuralExpressionAst } from "./structural-adaptation.js";
 
 export const adaptValueToExpectedTypeAst = (opts: {
@@ -36,7 +36,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
     return undefined;
   }
 
-  const unionAdjusted = maybeUpcastExpressionToExpectedTypeAst(
+  const unionAdjusted = maybeAdaptRuntimeUnionExpressionAst(
     valueAst,
     actualType,
     context,
@@ -53,7 +53,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
     structuralSourceType,
     unionAdjustedContext,
     expectedType,
-    maybeUpcastExpressionToExpectedTypeAst
+    maybeAdaptRuntimeUnionExpressionAst
   );
   if (structuralAdjusted) {
     return structuralAdjusted;
@@ -94,7 +94,7 @@ export const adaptEmittedExpressionAst = (opts: {
     resolveEffectiveExpressionType(expr, castedContext);
 
   const [dictionaryAdjustedAst, dictionaryAdjustedContext] =
-    maybeUpcastDictionaryUnionValueAst(
+    maybeAdaptDictionaryUnionValueAst(
       expr,
       castedAst,
       castedContext,
