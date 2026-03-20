@@ -129,13 +129,20 @@ grep -E "(failing|Error|FAIL)" .tests/test.log
 ```bash
 # DON'T run tests without saving output
 npm test 2>&1 | tail -10  # Output is LOST if interrupted!
+
+# DON'T pipe test output through grep inline
+npm run test:emitter 2>&1 | grep -A 5 "1 failing"  # Output is LOST!
+
+# DON'T re-run tests just to see output you already captured
+npm run test:emitter  # WRONG if you already have the log!
 ```
 
 **Why this matters:**
 
-- Tests take 30+ seconds to run
+- Tests take 30+ seconds to run (some take minutes)
 - If the command is interrupted, ALL output is lost
 - You cannot re-run quickly to see what failed
+- **ALWAYS save to log first, THEN analyze the log separately**
 - The `.tests/` directory is gitignored, safe for logs
 
 ### FUNCTIONAL PROGRAMMING ONLY

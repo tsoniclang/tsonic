@@ -8,25 +8,16 @@ import {
   type IrClassMember,
   type IrType,
 } from "@tsonic/frontend";
-import {
-  EmitterContext,
-  indent,
-  withClassName,
-  type LocalTypeInfo,
-} from "../../types.js";
+import { EmitterContext, indent, withClassName } from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { emitAttributes } from "../../core/format/attributes.js";
-import {
-  identifierExpression,
-  identifierType,
-} from "../../core/format/backend-ast/builders.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import { substituteType } from "../../specialization/substitution.js";
 import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { resolveCompatibleImplementedInterfaces } from "../../core/semantic/implicit-interfaces.js";
-import { resolveLocalTypeInfo } from "../../core/semantic/type-resolution.js";
 import { generateExplicitInterfaceBridgeMembers } from "./interface-bridges.js";
 import type {
   CSharpAttributeAst,
@@ -35,133 +26,12 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
-
-const emitsAsCSharpInterface = (
-  localInfo: LocalTypeInfo | undefined
-): boolean =>
-  !!localInfo &&
-  localInfo.kind === "interface" &&
-  localInfo.members.some((member) => member.kind === "methodSignature");
-
-const isInterfaceReference = (
-  ref: Extract<IrType, { kind: "referenceType" }>,
-  context: EmitterContext
-): boolean => {
-  const localInfo = resolveLocalTypeInfo(ref, context)?.info;
-  if (emitsAsCSharpInterface(localInfo)) {
-    return true;
-  }
-
-  const candidates = new Set<string>();
-  const add = (value: string | undefined): void => {
-    if (value) {
-      candidates.add(value);
-    }
-  };
-
-  add(ref.name);
-  add(ref.resolvedClrType);
-  add(ref.typeId?.tsName);
-  add(ref.typeId?.clrName);
-  for (const value of [...candidates]) {
-    if (!value.includes(".")) continue;
-    add(value.split(".").pop());
-  }
-
-  for (const candidate of candidates) {
-    const binding = context.bindingsRegistry?.get(candidate);
-    if (binding?.kind === "interface") {
-      return true;
-    }
-  }
-
-  return false;
-};
-
-const irNodeUsesInstanceContext = (
-  value: unknown,
-  visited: WeakSet<object> = new WeakSet<object>()
-): boolean => {
-  if (value == null) return false;
-
-  if (Array.isArray(value)) {
-    return value.some((item) => irNodeUsesInstanceContext(item, visited));
-  }
-
-  if (typeof value !== "object") {
-    return false;
-  }
-
-  if (visited.has(value)) {
-    return false;
-  }
-  visited.add(value);
-
-  const candidate = value as { kind?: unknown; name?: unknown };
-  if (candidate.kind === "this") {
-    return true;
-  }
-  if (candidate.kind === "identifier" && candidate.name === "super") {
-    return true;
-  }
-
-  for (const child of Object.values(value as Record<string, unknown>)) {
-    if (irNodeUsesInstanceContext(child, visited)) {
-      return true;
-    }
-  }
-
-  return false;
-};
-
-const shouldHoistInstanceInitializer = (
-  member: IrClassMember
-): member is Extract<IrClassMember, { kind: "propertyDeclaration" }> =>
-  member.kind === "propertyDeclaration" &&
-  !member.isStatic &&
-  member.initializer !== undefined &&
-  irNodeUsesInstanceContext(member.initializer);
-
-const stripMemberInitializer = (
-  memberAst: CSharpMemberAst
-): CSharpMemberAst => {
-  if (
-    memberAst.kind !== "fieldDeclaration" &&
-    memberAst.kind !== "propertyDeclaration"
-  ) {
-    return memberAst;
-  }
-
-  return {
-    ...memberAst,
-    initializer: undefined,
-  };
-};
-
-const buildHoistedInitializerStatement = (
-  memberAst: Extract<
-    CSharpMemberAst,
-    { kind: "fieldDeclaration" | "propertyDeclaration" }
-  >
-): CSharpStatementAst | undefined => {
-  if (!memberAst.initializer) {
-    return undefined;
-  }
-
-  return {
-    kind: "expressionStatement",
-    expression: {
-      kind: "assignmentExpression",
-      operatorToken: "=",
-      left: {
-        kind: "memberAccessExpression",
-        expression: identifierExpression("this"),
-        memberName: memberAst.name,
-      },
-      right: memberAst.initializer,
-    },
-  };
-};
+import {
+  buildHoistedInitializerStatement,
+  isInterfaceReference,
+  shouldHoistInstanceInitializer,
+  stripMemberInitializer,
+} from "./class-emitter-helpers.js";
 
 /**
  * Emit a class declaration as CSharpTypeDeclarationAst[].

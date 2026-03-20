@@ -1,0 +1,298 @@
+/**
+ * Core narrowing builder types and utilities.
+ *
+ * Provides foundational types (BranchTruthiness, EmitExprAstFn, RuntimeUnionFrame),
+ * simple AST builders for union narrowing, binding management helpers,
+ * nullish guard construction/stripping, and type-narrowing predicates.
+ */
+
+import { IrExpression, IrType, normalizedUnionType } from "@tsonic/frontend";
+import type { EmitterContext, NarrowedBinding } from "../../types.js";
+import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
+import { identifierExpression } from "../format/backend-ast/builders.js";
+import { emitTypeAst } from "../../type-emitter.js";
+import { nullLiteral } from "../format/backend-ast/builders.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import {
+  stripNullish,
+  resolveTypeAlias,
+  unionMemberMatchesTarget,
+} from "./type-resolution.js";
+import {
+  resolveNarrowedUnionMembers,
+  type NarrowedUnionMembers,
+} from "./narrowed-union-resolution.js";
+import {
+  RuntimeMaterializationSourceFrame,
+  tryBuildRuntimeMaterializationAst,
+} from "./runtime-reification.js";
+
+export type BranchTruthiness = "truthy" | "falsy";
+
+export type EmitExprAstFn = (
+  expr: IrExpression,
+  context: EmitterContext
+) => [CSharpExpressionAst, EmitterContext];
+
+export type RuntimeUnionFrame = NarrowedUnionMembers;
+
+export const toReceiverAst = (
+  receiver: string | CSharpExpressionAst
+): CSharpExpressionAst =>
+  typeof receiver === "string"
+    ? { kind: "identifierExpression", identifier: receiver }
+    : receiver;
+
+export const buildUnionNarrowAst = (
+  receiver: string | CSharpExpressionAst,
+  memberN: number
+): CSharpExpressionAst => ({
+  kind: "parenthesizedExpression",
+  expression: {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: toReceiverAst(receiver),
+      memberName: `As${memberN}`,
+    },
+    arguments: [],
+  },
+});
+
+export const buildSubsetUnionType = (
+  members: readonly IrType[]
+): IrType | undefined => {
+  if (members.length === 0) return undefined;
+  if (members.length === 1) return members[0];
+  return normalizedUnionType(members);
+};
+
+export const withoutNarrowedBinding = (
+  context: EmitterContext,
+  bindingKey: string
+): EmitterContext => {
+  if (!context.narrowedBindings?.has(bindingKey)) {
+    return context;
+  }
+
+  const narrowedBindings = new Map(context.narrowedBindings);
+  narrowedBindings.delete(bindingKey);
+
+  return {
+    ...context,
+    narrowedBindings,
+  };
+};
+
+export const applyBinding = (
+  bindingKey: string,
+  binding: NarrowedBinding,
+  context: EmitterContext
+): EmitterContext => {
+  const narrowedBindings = new Map(context.narrowedBindings ?? []);
+  narrowedBindings.set(bindingKey, binding);
+  return {
+    ...context,
+    narrowedBindings,
+  };
+};
+
+export const buildExprBinding = (
+  exprAst: CSharpExpressionAst,
+  type: IrType | undefined,
+  sourceType: IrType | undefined,
+  storageExprAst?: CSharpExpressionAst
+): Extract<NarrowedBinding, { kind: "expr" }> => ({
+  kind: "expr",
+  exprAst,
+  storageExprAst,
+  type,
+  sourceType,
+});
+
+export const buildRuntimeSubsetExpressionAst = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  narrowed: Extract<NarrowedBinding, { kind: "runtimeSubset" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const sourceType = narrowed.sourceType ?? expr.inferredType;
+  const subsetType = narrowed.type;
+  if (!sourceType || !subsetType) {
+    return undefined;
+  }
+
+  const sourceFrame: RuntimeMaterializationSourceFrame | undefined =
+    narrowed.sourceMembers &&
+    narrowed.sourceCandidateMemberNs &&
+    narrowed.sourceMembers.length === narrowed.sourceCandidateMemberNs.length
+      ? {
+          members: narrowed.sourceMembers,
+          candidateMemberNs: narrowed.sourceCandidateMemberNs,
+        }
+      : undefined;
+
+  return tryBuildRuntimeMaterializationAst(
+    identifierExpression(escapeCSharpIdentifier(expr.name)),
+    sourceType,
+    subsetType,
+    context,
+    emitTypeAst,
+    new Set(narrowed.runtimeMemberNs),
+    sourceFrame
+  );
+};
+
+export const buildConditionalNullishGuardAst = (
+  sourceAst: CSharpExpressionAst,
+  whenNonNull: CSharpExpressionAst,
+  targetType: IrType,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const [targetTypeAst, nextContext] = emitTypeAst(
+    stripNullish(targetType),
+    context
+  );
+  return [
+    {
+      kind: "conditionalExpression",
+      condition: {
+        kind: "binaryExpression",
+        operatorToken: "==",
+        left: {
+          kind: "castExpression",
+          type: { kind: "predefinedType", keyword: "object" },
+          expression: sourceAst,
+        },
+        right: nullLiteral(),
+      },
+      whenTrue: {
+        kind: "defaultExpression",
+        type: targetTypeAst,
+      },
+      whenFalse: whenNonNull,
+    },
+    nextContext,
+  ];
+};
+
+export const tryStripConditionalNullishGuardAst = (
+  exprAst: CSharpExpressionAst
+): CSharpExpressionAst | undefined => {
+  if (exprAst.kind !== "conditionalExpression") {
+    return undefined;
+  }
+
+  const condition = exprAst.condition;
+  if (
+    condition.kind !== "binaryExpression" ||
+    condition.operatorToken !== "=="
+  ) {
+    return undefined;
+  }
+
+  if (
+    condition.left.kind !== "castExpression" ||
+    condition.left.type.kind !== "predefinedType" ||
+    condition.left.type.keyword !== "object"
+  ) {
+    return undefined;
+  }
+
+  if (condition.right.kind !== "nullLiteralExpression") {
+    return undefined;
+  }
+
+  if (exprAst.whenTrue.kind !== "defaultExpression") {
+    return undefined;
+  }
+
+  return exprAst.whenFalse;
+};
+
+export const isArrayLikeNarrowingCandidate = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "arrayType" || resolved.kind === "tupleType") {
+    return true;
+  }
+  if (
+    resolved.kind === "referenceType" &&
+    (resolved.name === "Array" ||
+      resolved.name === "ReadonlyArray" ||
+      resolved.name === "JSArray")
+  ) {
+    return true;
+  }
+  return false;
+};
+
+export const narrowTypeByArrayShape = (
+  currentType: IrType | undefined,
+  wantArray: boolean,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!currentType) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(currentType), context);
+  if (resolved.kind === "unionType") {
+    const kept = resolved.types.filter((member): member is IrType => {
+      if (!member) return false;
+      const isArrayLike = isArrayLikeNarrowingCandidate(member, context);
+      return wantArray ? isArrayLike : !isArrayLike;
+    });
+    if (kept.length === 0) return undefined;
+    if (kept.length === 1) return kept[0];
+    return normalizedUnionType(kept);
+  }
+
+  return isArrayLikeNarrowingCandidate(currentType, context) === wantArray
+    ? currentType
+    : undefined;
+};
+
+export const narrowTypeByNotAssignableTarget = (
+  currentType: IrType | undefined,
+  targetType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!currentType || !targetType) return undefined;
+
+  const resolvedCurrent = resolveTypeAlias(stripNullish(currentType), context);
+  const resolvedTarget = resolveTypeAlias(stripNullish(targetType), context);
+
+  if (resolvedCurrent.kind === "unionType") {
+    const kept = resolvedCurrent.types.filter((member): member is IrType => {
+      if (!member) return false;
+      return !unionMemberMatchesTarget(member, resolvedTarget, context);
+    });
+    if (kept.length === 0) return undefined;
+    if (kept.length === 1) return kept[0];
+    return normalizedUnionType(kept);
+  }
+
+  return unionMemberMatchesTarget(resolvedCurrent, resolvedTarget, context)
+    ? undefined
+    : resolvedCurrent;
+};
+
+export const currentNarrowedType = (
+  bindingKey: string,
+  fallbackType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined =>
+  context.narrowedBindings?.get(bindingKey)?.type ?? fallbackType;
+
+export const resolveRuntimeUnionFrame = resolveNarrowedUnionMembers;
+
+export const isNullOrUndefined = (expr: IrExpression): boolean => {
+  if (
+    expr.kind === "literal" &&
+    (expr.value === null || expr.value === undefined)
+  ) {
+    return true;
+  }
+
+  return expr.kind === "identifier" && expr.name === "undefined";
+};
