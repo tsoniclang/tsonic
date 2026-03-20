@@ -372,7 +372,7 @@ describe("build command (library bindings)", function () {
       };
       expect(rootBindings.namespace).to.equal("Test.Lib");
       expect(rootBindings.producer?.tool).to.equal("tsonic");
-      expect(rootBindings.producer?.mode).to.equal("aikya-firstparty");
+      expect(rootBindings.producer?.mode).to.equal("tsonic-firstparty");
       expect(Object.keys(rootBindings.exports ?? {})).to.include("ok");
       expect(Object.keys(rootBindings.exports ?? {})).to.include("err");
       expect(Object.keys(rootBindings.exports ?? {})).to.include("loadConfig");

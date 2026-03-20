@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { TsonicWorkspaceConfig } from "../../types.js";
 export {
-  applyAikyaWorkspaceOverlay,
+  applyPackageManifestWorkspaceOverlay,
   discoverWorkspaceBindingsManifests,
   mergeManifestIntoWorkspaceConfig,
   resolveInstalledPackageBindingsManifest,
@@ -36,7 +36,7 @@ export const writeInstalledPackage = (
   version: string,
   opts: {
     readonly legacyBindings?: unknown;
-    readonly aikyaManifest?: unknown;
+    readonly packageManifest?: unknown;
     readonly surfaceManifest?: unknown;
     readonly bindingsRoot?: string;
     readonly dependencies?: Readonly<Record<string, string>>;
@@ -68,10 +68,10 @@ export const writeInstalledPackage = (
     writeJson(join(pkgRoot, "tsonic.surface.json"), opts.surfaceManifest);
   }
 
-  if (opts.aikyaManifest !== undefined) {
+  if (opts.packageManifest !== undefined) {
     writeJson(
       join(pkgRoot, "tsonic", "package-manifest.json"),
-      opts.aikyaManifest
+      opts.packageManifest
     );
     if (opts.bindingsRoot) {
       mkdirSync(join(pkgRoot, opts.bindingsRoot), { recursive: true });

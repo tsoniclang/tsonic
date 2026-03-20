@@ -11,7 +11,7 @@ import type {
   IrTypeAliasDeclaration,
 } from "@tsonic/frontend";
 import * as ts from "typescript";
-import type { SourceFunctionSignatureSurface as SourceFunctionSignatureDef } from "../../aikya/source-function-surfaces.js";
+import type { SourceFunctionSignatureSurface as SourceFunctionSignatureDef } from "../../package-manifests/source-function-surfaces.js";
 
 export type FirstPartyBindingsMethod = {
   readonly stableId: string;
@@ -121,7 +121,7 @@ export type FirstPartyBindingsFile = {
   readonly exports?: Readonly<Record<string, FirstPartyBindingsExport>>;
   readonly producer: {
     readonly tool: "tsonic";
-    readonly mode: "aikya-firstparty";
+    readonly mode: "tsonic-firstparty";
   };
 };
 

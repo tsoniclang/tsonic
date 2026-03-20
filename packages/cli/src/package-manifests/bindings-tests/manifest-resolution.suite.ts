@@ -9,11 +9,11 @@ import {
   writeInstalledPackage,
 } from "./helpers.js";
 
-describe("aikya bindings", function () {
+describe("package-manifest bindings", function () {
   this.timeout(buildTestTimeoutMs);
 
   it("returns null when package has no bindings manifests", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-none-"));
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-manifest-none-"));
     try {
       const pkgRoot = writeInstalledPackage(dir, "no-bindings", "1.0.0");
       const result = resolveInstalledPackageBindingsManifest(pkgRoot);
@@ -25,7 +25,7 @@ describe("aikya bindings", function () {
   });
 
   it("resolves legacy tsonic.bindings.json manifest", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-legacy-"));
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-manifest-legacy-"));
     try {
       const pkgRoot = writeInstalledPackage(dir, "legacy-bindings", "1.2.3", {
         legacyBindings: {
@@ -52,12 +52,12 @@ describe("aikya bindings", function () {
     }
   });
 
-  it("resolves Aikya package-manifest and overlays runtime nuget mapping", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-v1-"));
+  it("resolves a package manifest and overlays runtime nuget mapping", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-manifest-v1-"));
     try {
       const pkgRoot = writeInstalledPackage(dir, "@acme/node", "2.0.0", {
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "@acme/node",
@@ -73,7 +73,7 @@ describe("aikya bindings", function () {
           producer: {
             tool: "tsonic",
             version: "0.0.70",
-            mode: "aikya-firstparty",
+            mode: "tsonic-firstparty",
           },
         },
       });
@@ -83,7 +83,7 @@ describe("aikya bindings", function () {
       expect(result.ok).to.equal(true);
       const manifest = result.ok ? result.value : null;
       expect(manifest).to.not.equal(null);
-      expect(manifest?.sourceManifest).to.equal("aikya");
+      expect(manifest?.sourceManifest).to.equal("package-manifest");
       expect(manifest?.producer?.tool).to.equal("tsonic");
       expect(manifest?.runtimePackages).to.deep.equal([
         "@acme/node",
@@ -101,11 +101,13 @@ describe("aikya bindings", function () {
   });
 
   it("errors with TSN8A01 when producer.tool is invalid", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-producer-tool-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-producer-tool-")
+    );
     try {
       const pkgRoot = writeInstalledPackage(dir, "bad-producer-tool", "1.0.0", {
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "bad-producer-tool",
@@ -119,7 +121,7 @@ describe("aikya bindings", function () {
           producer: {
             tool: "custom-tool",
             version: "1.0.0",
-            mode: "aikya-firstparty",
+            mode: "tsonic-firstparty",
           },
         },
       });
@@ -134,11 +136,13 @@ describe("aikya bindings", function () {
   });
 
   it("errors with TSN8A01 when producer.mode is invalid", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-producer-mode-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-producer-mode-")
+    );
     try {
       const pkgRoot = writeInstalledPackage(dir, "bad-producer-mode", "1.0.0", {
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "bad-producer-mode",
@@ -167,11 +171,13 @@ describe("aikya bindings", function () {
   });
 
   it("errors with TSN8A01 when npmPackage does not match installed package name", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-package-mismatch-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-package-mismatch-")
+    );
     try {
       const pkgRoot = writeInstalledPackage(dir, "actual-package", "1.0.0", {
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "manifest-package",
@@ -195,11 +201,13 @@ describe("aikya bindings", function () {
   });
 
   it("collects deterministic nugetDependencies across dotnet and testDotnet sections", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-nuget-deps-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-nuget-deps-")
+    );
     try {
       const pkgRoot = writeInstalledPackage(dir, "@acme/deps", "3.1.0", {
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "@acme/deps",
@@ -256,22 +264,29 @@ describe("aikya bindings", function () {
   });
 
   it("errors with TSN8A04 when bindingsRoot path does not exist", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-no-bindings-root-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-no-bindings-root-")
+    );
     try {
-      const pkgRoot = writeInstalledPackage(dir, "bad-aikya", "1.0.0", {
-        aikyaManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "bad-aikya",
-          npmVersion: "1.0.0",
-          runtime: {
-            nugetPackages: [{ id: "Bad.Runtime", version: "1.0.0" }],
+      const pkgRoot = writeInstalledPackage(
+        dir,
+        "bad-package-manifest",
+        "1.0.0",
+        {
+          packageManifest: {
+            schemaVersion: 1,
+            kind: "tsonic-library",
+            npmPackage: "bad-package-manifest",
+            npmVersion: "1.0.0",
+            runtime: {
+              nugetPackages: [{ id: "Bad.Runtime", version: "1.0.0" }],
+            },
+            typing: {
+              bindingsRoot: "tsonic/bindings",
+            },
           },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
-          },
-        },
-      });
+        }
+      );
 
       const result = resolveInstalledPackageBindingsManifest(pkgRoot);
       expect(result.ok).to.equal(false);
@@ -281,12 +296,12 @@ describe("aikya bindings", function () {
     }
   });
 
-  it("errors with TSN8A01 on invalid Aikya schemaVersion", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-schema-"));
+  it("errors with TSN8A01 on invalid package-manifest schemaVersion", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-manifest-schema-"));
     try {
       const pkgRoot = writeInstalledPackage(dir, "bad-schema", "1.0.0", {
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 2,
           kind: "tsonic-library",
           npmPackage: "bad-schema",
@@ -309,7 +324,9 @@ describe("aikya bindings", function () {
   });
 
   it("errors with TSN8A02 when runtime nuget package version is invalid", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-runtime-version-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-runtime-version-")
+    );
     try {
       const pkgRoot = writeInstalledPackage(
         dir,
@@ -317,7 +334,7 @@ describe("aikya bindings", function () {
         "1.0.0",
         {
           bindingsRoot: "tsonic/bindings",
-          aikyaManifest: {
+          packageManifest: {
             schemaVersion: 1,
             kind: "tsonic-library",
             npmPackage: "bad-runtime-version",
@@ -341,11 +358,13 @@ describe("aikya bindings", function () {
   });
 
   it("errors with TSN8A05 when runtime mapping is missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-no-runtime-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-no-runtime-")
+    );
     try {
       const pkgRoot = writeInstalledPackage(dir, "bad-runtime", "1.0.0", {
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "bad-runtime",

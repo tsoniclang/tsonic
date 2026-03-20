@@ -4,7 +4,7 @@ import type {
   PackageReferenceConfig,
   Result,
 } from "../../types.js";
-import { applyAikyaWorkspaceOverlay } from "../../aikya/bindings.js";
+import { applyPackageManifestWorkspaceOverlay } from "../../package-manifests/bindings.js";
 import { loadWorkspaceConfig } from "../../config.js";
 import { resolveNugetConfigFile } from "../../dotnet/nuget-config.js";
 import {
@@ -34,7 +34,10 @@ export const restoreCommand = (
   const nugetConfigResult = resolveNugetConfigFile(workspaceRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;
 
-  const overlay = applyAikyaWorkspaceOverlay(workspaceRoot, configResult.value);
+  const overlay = applyPackageManifestWorkspaceOverlay(
+    workspaceRoot,
+    configResult.value
+  );
   if (!overlay.ok) return overlay;
   const config = overlay.value.config;
 

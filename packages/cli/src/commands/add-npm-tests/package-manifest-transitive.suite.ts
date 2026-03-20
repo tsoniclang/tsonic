@@ -10,17 +10,19 @@ import {
   writeWorkspaceConfig,
 } from "./helpers.js";
 
-describe("add npm (transitive Aikya)", function () {
+describe("add npm (transitive package manifests)", function () {
   this.timeout(3 * 60 * 1000);
 
-  it("resolves transitive Aikya manifests and injects all runtime NuGet references", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-aikya-transitive-"));
+  it("resolves transitive package manifests and injects all runtime NuGet references", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-add-npm-package-manifest-transitive-")
+    );
     try {
       const configPath = writeWorkspaceConfig(dir);
       writeLocalNpmPackage(dir, "local/acme-child", {
         name: "acme-child",
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "acme-child",
@@ -32,7 +34,7 @@ describe("add npm (transitive Aikya)", function () {
           producer: {
             tool: "tsonic",
             version: "0.0.70",
-            mode: "aikya-firstparty",
+            mode: "tsonic-firstparty",
           },
         },
       });
@@ -40,7 +42,7 @@ describe("add npm (transitive Aikya)", function () {
         name: "acme-parent",
         dependencies: { "acme-child": "file:../acme-child" },
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "acme-parent",
@@ -52,7 +54,7 @@ describe("add npm (transitive Aikya)", function () {
           producer: {
             tool: "tsonic",
             version: "0.0.70",
-            mode: "aikya-firstparty",
+            mode: "tsonic-firstparty",
           },
         },
       });
@@ -95,13 +97,15 @@ describe("add npm (transitive Aikya)", function () {
     }
   });
 
-  it("emits TSN8A04 when Aikya manifest bindingsRoot is missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-aikya-root-"));
+  it("emits TSN8A04 when package manifest bindingsRoot is missing", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-add-npm-package-manifest-root-")
+    );
     try {
       const configPath = writeWorkspaceConfig(dir);
       writeLocalNpmPackage(dir, "local/acme-node", {
         name: "@acme/node",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "@acme/node",

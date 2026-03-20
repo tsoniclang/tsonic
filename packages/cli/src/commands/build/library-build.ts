@@ -12,7 +12,7 @@ import type { ResolvedConfig, Result } from "../../types.js";
 import { resolveNugetConfigFile } from "../../dotnet/nuget-config.js";
 import { generateFirstPartyLibraryBindings } from "../library-bindings-firstparty.js";
 import { assertNoOutputAssemblyNameConflicts } from "./assets.js";
-import { writeAikyaPackageManifest } from "./aikya-manifest.js";
+import { writePackageManifest } from "./package-manifest.js";
 import { emitLibraryTypeDeclarations } from "./declarations.js";
 
 const generateLibraryBindings = (
@@ -158,7 +158,7 @@ export const buildLibrary = (
     const declarationResult = emitLibraryTypeDeclarations(config);
     if (!declarationResult.ok) return { ok: false, error: declarationResult.error };
 
-    const manifestResult = writeAikyaPackageManifest(config);
+    const manifestResult = writePackageManifest(config);
     if (!manifestResult.ok) return { ok: false, error: manifestResult.error };
 
     return { ok: true, value: { outputPath: outputDir } };

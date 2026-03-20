@@ -12,7 +12,7 @@ It is intentionally curated rather than a generated dump of every internal code 
 - `TSN5xxx` — numeric proof and backend/runtime generation errors
 - `TSN6xxx` — yield lowering
 - `TSN7xxx` — static/AOT safety and deterministic typing
-- `TSN8Axx` — Aikya/source-package manifest/runtime mapping
+- `TSN8Axx` — package-manifest/source-package manifest/runtime mapping
 - `TSN9xxx` — type universe and missing-core failures
 
 ## Common Active Diagnostics
@@ -101,7 +101,7 @@ const copy = id;
 
 ### `TSN8A01`–`TSN8A05`
 
-Aikya/source-package manifest errors:
+package-manifest/source-package manifest errors:
 
 - invalid schema
 - unresolved runtime mapping

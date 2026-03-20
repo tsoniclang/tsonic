@@ -6,7 +6,7 @@ import type {
   Result,
 } from "../../../types.js";
 import {
-  AIKYA_DIAGNOSTIC,
+  PACKAGE_MANIFEST_DIAGNOSTIC,
   errorWithCode,
   normalizeId,
   readJsonObject,
@@ -21,13 +21,13 @@ import {
   parseRequiredTypeRoots,
 } from "./dotnet.js";
 import {
-  parseAikyaProducer,
+  parsePackageManifestProducer,
   parseRuntimeFrameworkReferences,
   parseRuntimeNugetPackages,
   parseRuntimePackages,
 } from "./runtime.js";
 
-export const resolveFromAikyaManifest = (
+export const resolveFromPackageManifest = (
   packageRoot: string,
   packageName: string,
   packageVersion: string
@@ -35,14 +35,17 @@ export const resolveFromAikyaManifest = (
   const path = join(packageRoot, "tsonic", "package-manifest.json");
   if (!existsSync(path)) return { ok: true, value: null };
 
-  const parsed = readJsonObject(path, AIKYA_DIAGNOSTIC.invalidSchema);
+  const parsed = readJsonObject(
+    path,
+    PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema
+  );
   if (!parsed.ok) return parsed;
   const manifest = parsed.value;
 
   const schemaVersion = manifest.schemaVersion;
   if (schemaVersion !== 1) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `schemaVersion must be 1 at ${path}`
     );
   }
@@ -53,7 +56,7 @@ export const resolveFromAikyaManifest = (
   }
   if (kind !== "tsonic-library") {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `kind must be "tsonic-library" at ${path}`
     );
   }
@@ -61,13 +64,13 @@ export const resolveFromAikyaManifest = (
   const npmPackage = manifest.npmPackage;
   if (typeof npmPackage !== "string" || npmPackage.trim().length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `npmPackage must be a non-empty string at ${path}`
     );
   }
   if (normalizeId(npmPackage) !== normalizeId(packageName)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `npmPackage mismatch in ${path}. Installed: ${packageName}, Manifest: ${npmPackage}`
     );
   }
@@ -75,13 +78,13 @@ export const resolveFromAikyaManifest = (
   const npmVersion = manifest.npmVersion;
   if (typeof npmVersion !== "string" || npmVersion.trim().length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `npmVersion must be a non-empty string at ${path}`
     );
   }
   if (npmVersion.trim() !== packageVersion) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `npmVersion mismatch in ${path}. Installed: ${packageVersion}, Manifest: ${npmVersion}`
     );
   }
@@ -89,7 +92,7 @@ export const resolveFromAikyaManifest = (
   const typing = manifest.typing;
   if (typing === null || typeof typing !== "object" || Array.isArray(typing)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `typing must be an object at ${path}`
     );
   }
@@ -97,14 +100,14 @@ export const resolveFromAikyaManifest = (
     .bindingsRoot;
   if (typeof bindingsRoot !== "string" || bindingsRoot.trim().length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `typing.bindingsRoot must be a non-empty string at ${path}`
     );
   }
   const bindingsRootPath = join(packageRoot, bindingsRoot);
   if (!existsSync(bindingsRootPath)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.missingBindingsRoot,
+      PACKAGE_MANIFEST_DIAGNOSTIC.missingBindingsRoot,
       `typing.bindingsRoot does not exist: ${bindingsRootPath}`
     );
   }
@@ -116,7 +119,7 @@ export const resolveFromAikyaManifest = (
     Array.isArray(runtime)
   ) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.missingRuntimeMapping,
+      PACKAGE_MANIFEST_DIAGNOSTIC.missingRuntimeMapping,
       `runtime must be an object at ${path}`
     );
   }
@@ -135,7 +138,7 @@ export const resolveFromAikyaManifest = (
     (runtime as { readonly runtimePackages?: unknown }).runtimePackages
   );
 
-  const producer = parseAikyaProducer(manifest.producer);
+  const producer = parsePackageManifestProducer(manifest.producer);
   if (!producer.ok) return producer;
   const requiredTypeRoots = parseRequiredTypeRoots(
     manifest.requiredTypeRoots,
@@ -155,7 +158,7 @@ export const resolveFromAikyaManifest = (
   const mergedDotnetPackages = mergePackageReferences(
     (dotnetParsed.value?.packageReferences ?? []) as PackageReferenceConfig[],
     runtimeNuget.value as PackageReferenceConfig[],
-    AIKYA_DIAGNOSTIC.conflictingRuntime
+    PACKAGE_MANIFEST_DIAGNOSTIC.conflictingRuntime
   );
   if (!mergedDotnetPackages.ok) return mergedDotnetPackages;
 
@@ -163,7 +166,7 @@ export const resolveFromAikyaManifest = (
     (dotnetParsed.value?.frameworkReferences ??
       []) as FrameworkReferenceConfig[],
     runtimeFramework.value as FrameworkReferenceConfig[],
-    AIKYA_DIAGNOSTIC.conflictingRuntime
+    PACKAGE_MANIFEST_DIAGNOSTIC.conflictingRuntime
   );
   if (!mergedDotnetFramework.ok) return mergedDotnetFramework;
 
@@ -182,7 +185,7 @@ export const resolveFromAikyaManifest = (
     ok: true,
     value: {
       bindingVersion: 1,
-      sourceManifest: "aikya",
+      sourceManifest: "package-manifest",
       packageName,
       packageVersion,
       surfaceMode: "clr",

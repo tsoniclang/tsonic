@@ -45,7 +45,7 @@ export const writeLocalNpmPackage = (
   pkg: {
     readonly name: string;
     readonly manifest?: unknown;
-    readonly aikyaManifest?: unknown;
+    readonly packageManifest?: unknown;
     readonly bindingsRoot?: string;
     readonly dependencies?: Readonly<Record<string, string>>;
   }
@@ -77,11 +77,11 @@ export const writeLocalNpmPackage = (
     );
   }
 
-  if (pkg.aikyaManifest !== undefined) {
+  if (pkg.packageManifest !== undefined) {
     mkdirSync(join(pkgRoot, "tsonic"), { recursive: true });
     writeFileSync(
       join(pkgRoot, "tsonic", "package-manifest.json"),
-      JSON.stringify(pkg.aikyaManifest, null, 2) + "\n",
+      JSON.stringify(pkg.packageManifest, null, 2) + "\n",
       "utf-8"
     );
   }

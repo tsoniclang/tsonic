@@ -110,7 +110,7 @@ export const writeBindingsManifest = (opts: {
         : undefined,
     producer: {
       tool: "tsonic",
-      mode: "aikya-firstparty",
+      mode: "tsonic-firstparty",
     },
   };
 

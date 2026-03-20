@@ -4,7 +4,7 @@ import { collectDtsText, readRootBindings } from "./helpers.js";
 export const assertMaximusBindings = (bindingsDir: string): void => {
   const rootBindings = readRootBindings(bindingsDir);
   expect(rootBindings.content.producer?.tool).to.equal("tsonic");
-  expect(rootBindings.content.producer?.mode).to.equal("aikya-firstparty");
+  expect(rootBindings.content.producer?.mode).to.equal("tsonic-firstparty");
   expect(Object.keys(rootBindings.content.exports ?? {})).to.include(
     "projectFlags"
   );

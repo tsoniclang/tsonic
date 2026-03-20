@@ -13,7 +13,7 @@ import {
   writeInstalledPackage,
 } from "./helpers.js";
 
-describe("aikya bindings", function () {
+describe("package-manifest bindings", function () {
   this.timeout(buildTestTimeoutMs);
 
   it("suppresses manifest package references when a local dll satisfies the same assembly", () => {
@@ -90,7 +90,9 @@ describe("aikya bindings", function () {
   });
 
   it("rejects requiredTypeRoots that escape the package root", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-type-root-escape-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-type-root-escape-")
+    );
     try {
       const pkgRoot = writeInstalledPackage(dir, "@acme/node", "1.0.0", {
         legacyBindings: {
@@ -112,10 +114,12 @@ describe("aikya bindings", function () {
   });
 
   it("rejects absolute requiredTypeRoots", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-type-root-abs-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-type-root-abs-")
+    );
     try {
       const pkgRoot = writeInstalledPackage(dir, "@acme/node", "1.0.0", {
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "@acme/node",
@@ -144,7 +148,7 @@ describe("aikya bindings", function () {
     const config = baseWorkspaceConfig();
     const manifest: NormalizedBindingsManifest = {
       bindingVersion: 1,
-      sourceManifest: "aikya",
+      sourceManifest: "package-manifest",
       packageName: "acme-conflict",
       packageVersion: "1.0.0",
       surfaceMode: "clr",

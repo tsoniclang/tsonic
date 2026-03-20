@@ -1,5 +1,5 @@
 import type * as ts from "typescript";
-import type { SourceFunctionSignatureSurface as SourceFunctionSignatureDef } from "../../aikya/source-function-surfaces.js";
+import type { SourceFunctionSignatureSurface as SourceFunctionSignatureDef } from "../../package-manifests/source-function-surfaces.js";
 
 export type FacadeInfo = {
   readonly namespace: string;

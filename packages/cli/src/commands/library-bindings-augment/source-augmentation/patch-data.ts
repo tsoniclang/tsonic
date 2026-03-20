@@ -1,6 +1,6 @@
 import * as ts from "typescript";
 import type { Result } from "../../../types.js";
-import type { SourceFunctionSignatureSurface as SourceFunctionSignatureDef } from "../../../aikya/source-function-surfaces.js";
+import type { SourceFunctionSignatureSurface as SourceFunctionSignatureDef } from "../../../package-manifests/source-function-surfaces.js";
 import { collectSourceTypeImportsForSignature } from "../facade-patches.js";
 import { collectExtensionWrapperImportsFromSourceType } from "../source-modules.js";
 import {

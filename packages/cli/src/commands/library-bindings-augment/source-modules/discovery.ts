@@ -3,7 +3,7 @@ import { posix } from "node:path";
 import {
   appendSourceFunctionSignature,
   type SourceFunctionSignatureSurface as SourceFunctionSignatureDef,
-} from "../../../aikya/source-function-surfaces.js";
+} from "../../../package-manifests/source-function-surfaces.js";
 import { getNamespaceFromPath } from "@tsonic/frontend";
 import * as ts from "typescript";
 import type { Result } from "../../../types.js";

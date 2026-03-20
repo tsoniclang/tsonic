@@ -332,7 +332,7 @@ describe("build command (library bindings)", function () {
         types?: Array<{ clrName?: unknown }>;
       };
       expect(rootBindings.producer?.tool).to.equal("tsonic");
-      expect(rootBindings.producer?.mode).to.equal("aikya-firstparty");
+      expect(rootBindings.producer?.mode).to.equal("tsonic-firstparty");
       expect(Object.keys(rootBindings.exports ?? {})).to.include(
         "renderMarkdownDomain"
       );

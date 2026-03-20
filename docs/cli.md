@@ -44,7 +44,7 @@ tsonic add npm @acme/math
 
 Supported package manifest families:
 
-- first-party Aikya/source-package manifests
+- first-party package-manifest/source-package manifests
 - bindings manifests for CLR/runtime packages
 
 ### `tsonic add package <dll> [types]`
@@ -75,7 +75,7 @@ tsonic add nuget Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0 @tsonic/efcore-npg
 
 Adds a `FrameworkReference` to the workspace.
 
-Example:
+Source-package example:
 
 ```bash
 tsonic add framework Microsoft.AspNetCore.App @tsonic/aspnetcore

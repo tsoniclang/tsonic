@@ -15,7 +15,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { resolveConfig } from "../../config.js";
-import { applyAikyaWorkspaceOverlay } from "../../aikya/bindings.js";
+import { applyPackageManifestWorkspaceOverlay } from "../../package-manifests/bindings.js";
 import { generateCommand } from "../generate.js";
 import { buildCommand } from "../build.js";
 
@@ -49,7 +49,10 @@ const resolveEffectiveConfig = (
   projectRoot: string,
   entryFile?: string
 ) => {
-  const overlay = applyAikyaWorkspaceOverlay(workspaceRoot, workspaceConfig);
+  const overlay = applyPackageManifestWorkspaceOverlay(
+    workspaceRoot,
+    workspaceConfig
+  );
   expect(overlay.ok).to.equal(true);
   if (!overlay.ok) {
     throw new Error(overlay.error);
@@ -460,21 +463,21 @@ describe("build command (library bindings ref dirs)", function () {
         "export declare function main(): void;"
       );
 
-      const aikyaManifestPath = join(
+      const packageManifestPath = join(
         projectRoot,
         "dist",
         "tsonic",
         "package-manifest.json"
       );
-      expect(existsSync(aikyaManifestPath)).to.equal(true);
-      const aikyaManifest = JSON.parse(
-        readFileSync(aikyaManifestPath, "utf-8")
+      expect(existsSync(packageManifestPath)).to.equal(true);
+      const packageManifest = JSON.parse(
+        readFileSync(packageManifestPath, "utf-8")
       ) as Record<string, unknown>;
-      expect(aikyaManifest["schemaVersion"]).to.equal(1);
-      expect(aikyaManifest["kind"]).to.equal("tsonic-library");
-      expect(aikyaManifest["npmPackage"]).to.equal("@acme/app-lib");
-      expect(aikyaManifest["npmVersion"]).to.equal("1.2.3");
-      const runtime = aikyaManifest["runtime"] as
+      expect(packageManifest["schemaVersion"]).to.equal(1);
+      expect(packageManifest["kind"]).to.equal("tsonic-library");
+      expect(packageManifest["npmPackage"]).to.equal("@acme/app-lib");
+      expect(packageManifest["npmVersion"]).to.equal("1.2.3");
+      const runtime = packageManifest["runtime"] as
         | {
             nugetPackages: { id: string; version: string }[];
             assemblies: string[];

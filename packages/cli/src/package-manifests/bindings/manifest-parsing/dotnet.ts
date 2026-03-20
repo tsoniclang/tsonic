@@ -4,7 +4,11 @@ import type {
   PackageReferenceConfig,
   Result,
 } from "../../../types.js";
-import { AIKYA_DIAGNOSTIC, errorWithCode, normalizeId } from "../shared.js";
+import {
+  PACKAGE_MANIFEST_DIAGNOSTIC,
+  errorWithCode,
+  normalizeId,
+} from "../shared.js";
 import type { ManifestDotnet, NormalizedNugetDependency } from "../types.js";
 export {
   canonicalizeManifestDotnet,
@@ -22,7 +26,7 @@ const parseFrameworkReference = (
   }
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path} must be a string or { id, types? }`
     );
   }
@@ -30,7 +34,7 @@ const parseFrameworkReference = (
   const types = (value as { readonly types?: unknown }).types;
   if (typeof id !== "string" || id.trim().length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path}.id must be a non-empty string`
     );
   }
@@ -40,7 +44,7 @@ const parseFrameworkReference = (
     (typeof types !== "string" || types.trim().length === 0)
   ) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path}.types must be a non-empty string or false`
     );
   }
@@ -56,7 +60,7 @@ const parsePackageReference = (
 ): Result<PackageReferenceConfig, string> => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path} must be { id, version, types? }`
     );
   }
@@ -65,13 +69,13 @@ const parsePackageReference = (
   const types = (value as { readonly types?: unknown }).types;
   if (typeof id !== "string" || id.trim().length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path}.id must be a non-empty string`
     );
   }
   if (typeof version !== "string" || version.trim().length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path}.version must be a non-empty string`
     );
   }
@@ -81,7 +85,7 @@ const parsePackageReference = (
     (typeof types !== "string" || types.trim().length === 0)
   ) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path}.types must be a non-empty string or false`
     );
   }
@@ -102,7 +106,7 @@ const parseManifestDotnet = (
   if (value === undefined) return { ok: true, value: undefined };
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path} must be an object`
     );
   }
@@ -117,7 +121,7 @@ const parseManifestDotnet = (
   if (raw.frameworkReferences !== undefined) {
     if (!Array.isArray(raw.frameworkReferences)) {
       return errorWithCode(
-        AIKYA_DIAGNOSTIC.invalidSchema,
+        PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
         `${path}.frameworkReferences must be an array`
       );
     }
@@ -136,7 +140,7 @@ const parseManifestDotnet = (
   if (raw.packageReferences !== undefined) {
     if (!Array.isArray(raw.packageReferences)) {
       return errorWithCode(
-        AIKYA_DIAGNOSTIC.invalidSchema,
+        PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
         `${path}.packageReferences must be an array`
       );
     }
@@ -159,7 +163,7 @@ const parseManifestDotnet = (
       Array.isArray(raw.msbuildProperties)
     ) {
       return errorWithCode(
-        AIKYA_DIAGNOSTIC.invalidSchema,
+        PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
         `${path}.msbuildProperties must be an object`
       );
     }
@@ -169,7 +173,7 @@ const parseManifestDotnet = (
     )) {
       if (typeof entryValue !== "string") {
         return errorWithCode(
-          AIKYA_DIAGNOSTIC.invalidSchema,
+          PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
           `${path}.msbuildProperties.${key} must be a string`
         );
       }
@@ -202,13 +206,13 @@ const normalizePackageTypeRoot = (
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path} must be a non-empty string`
     );
   }
   if (isAbsolute(trimmed)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path} must be package-relative, not absolute`
     );
   }
@@ -216,7 +220,7 @@ const normalizePackageTypeRoot = (
   const normalized = normalize(trimmed).replace(/\\/g, "/");
   if (normalized === ".." || normalized.startsWith("../")) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path} must not escape the package root`
     );
   }
@@ -241,7 +245,7 @@ export const parseRequiredTypeRoots = (
   if (value === undefined) return { ok: true, value: [] };
   if (!Array.isArray(value)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `${path} must be an array of package-relative strings`
     );
   }
@@ -250,7 +254,7 @@ export const parseRequiredTypeRoots = (
   for (const [index, entry] of value.entries()) {
     if (typeof entry !== "string") {
       return errorWithCode(
-        AIKYA_DIAGNOSTIC.invalidSchema,
+        PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
         `${path}[${index}] must be a string`
       );
     }
