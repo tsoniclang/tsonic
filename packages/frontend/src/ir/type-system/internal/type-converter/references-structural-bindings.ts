@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import * as ts from "typescript";
 import type { DeclId } from "../../../type-system/types.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
+import { extractRawDotnetBindingTypes } from "../../../../program/dotnet-binding-payload.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 import { getTypeAliasRecursionCache } from "./references-normalize.js";
 
@@ -121,17 +122,14 @@ const buildBindingAliasClrIdentityMap = (
 
   try {
     const raw = JSON.parse(readFileSync(bindingsPath, "utf-8")) as unknown;
-    if (
-      raw &&
-      typeof raw === "object" &&
-      Array.isArray((raw as { readonly types?: unknown }).types)
-    ) {
-      for (const type of (raw as { readonly types: readonly unknown[] })
-        .types) {
+    const types = extractRawDotnetBindingTypes(raw);
+    if (types) {
+      for (const type of types) {
         if (!type || typeof type !== "object") continue;
         const clrName = (type as { readonly clrName?: unknown }).clrName;
-        if (typeof clrName !== "string" || clrName.trim().length === 0)
+        if (typeof clrName !== "string" || clrName.trim().length === 0) {
           continue;
+        }
 
         const tsAlias = tsbindgenClrTypeNameToTsTypeName(clrName);
         const lastDot = clrName.lastIndexOf(".");

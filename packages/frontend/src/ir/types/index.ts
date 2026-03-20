@@ -16,9 +16,6 @@ export type {
   IrStatement,
   IrVariableDeclaration,
   IrVariableDeclarator,
-  IrOverloadOwnerKind,
-  IrOverloadFamilyRole,
-  IrOverloadFamilyMember,
   IrFunctionDeclaration,
   IrClassDeclaration,
   IrClassMember,
@@ -48,6 +45,12 @@ export type {
   IrYieldStatement,
   IrGeneratorReturnStatement,
 } from "./statements.js";
+
+export type {
+  IrOverloadOwnerKind,
+  IrOverloadFamilyRole,
+  IrOverloadFamilyMember,
+} from "./overload-family.js";
 
 // Expression types
 export type {

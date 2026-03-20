@@ -170,4 +170,95 @@ describe("Program Metadata", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("should load CLR metadata from the dotnet payload of first-party bindings v2 manifests", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-metadata-v2-")
+    );
+
+    try {
+      const globalsRoot = path.join(tempDir, "node_modules/@tsonic/globals");
+      const libraryRoot = path.join(tempDir, "node_modules/@tsonic/acme-lib");
+      const bindingsRoot = path.join(libraryRoot, "Acme", "Core");
+
+      fs.mkdirSync(globalsRoot, { recursive: true });
+      fs.mkdirSync(bindingsRoot, { recursive: true });
+
+      fs.writeFileSync(
+        path.join(globalsRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/globals",
+            version: "0.0.0",
+            type: "module",
+            dependencies: {
+              "@tsonic/acme-lib": "0.0.0",
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(globalsRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "clr",
+            extends: [],
+            requiredTypeRoots: ["."],
+            requiredNpmPackages: ["@tsonic/globals", "@tsonic/acme-lib"],
+          },
+          null,
+          2
+        )
+      );
+
+      fs.writeFileSync(
+        path.join(libraryRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/acme-lib", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(bindingsRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            namespace: "Acme.Core",
+            producer: {
+              tool: "tsonic",
+              mode: "tsonic-firstparty",
+            },
+            semanticSurface: {
+              types: [{ alias: "Widget" }],
+              exports: { createWidget: { kind: "functionType" } },
+            },
+            dotnet: {
+              types: [
+                {
+                  clrName: "Acme.Core.Widget",
+                  assemblyName: "Acme.Core",
+                  kind: "Class",
+                  methods: [],
+                  properties: [],
+                  fields: [],
+                },
+              ],
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const metadata = loadDotnetMetadata([globalsRoot]);
+      expect(metadata.getTypeMetadata("Acme.Core.Widget")).to.not.equal(
+        undefined
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

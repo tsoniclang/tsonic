@@ -209,6 +209,25 @@ export type TsbindgenBindingFile = {
   readonly exports?: Readonly<Record<string, TsbindgenExport>>;
 };
 
+export type FirstPartySemanticSurfaceFile = {
+  readonly types: readonly unknown[];
+  readonly exports?: Readonly<Record<string, unknown>>;
+};
+
+export type FirstPartyBindingsFileV2 = {
+  readonly namespace: string;
+  readonly contributingAssemblies?: readonly string[];
+  readonly producer: {
+    readonly tool: "tsonic";
+    readonly mode: "tsonic-firstparty";
+  };
+  readonly semanticSurface: FirstPartySemanticSurfaceFile;
+  readonly dotnet: {
+    readonly types: readonly TsbindgenType[];
+    readonly exports?: Readonly<Record<string, TsbindgenExport>>;
+  };
+};
+
 const isValidEmitCallStyle = (value: unknown): value is EmitCallStyle =>
   value === "receiver" || value === "static";
 
@@ -329,7 +348,8 @@ const validateTsbindgenExport = (
 export type BindingFile =
   | FullBindingManifest
   | SimpleBindingFile
-  | TsbindgenBindingFile;
+  | TsbindgenBindingFile
+  | FirstPartyBindingsFileV2;
 
 /**
  * Type guard to check if a manifest is the full format
@@ -349,7 +369,8 @@ export const isTsbindgenBindingFile = (
   return (
     "namespace" in manifest &&
     "types" in manifest &&
-    !("namespaces" in manifest)
+    !("namespaces" in manifest) &&
+    !("dotnet" in manifest)
   );
 };
 
@@ -366,6 +387,74 @@ export const validateBindingFile = (
   }
 
   const manifest = obj as Record<string, unknown>;
+
+  if ("namespace" in manifest && "dotnet" in manifest) {
+    if (typeof manifest.namespace !== "string") {
+      return `${filePath}: 'namespace' must be a string`;
+    }
+    if (
+      manifest.dotnet === null ||
+      typeof manifest.dotnet !== "object" ||
+      Array.isArray(manifest.dotnet)
+    ) {
+      return `${filePath}: 'dotnet' must be an object`;
+    }
+    const dotnetRecord = manifest.dotnet as Record<string, unknown>;
+    if (!Array.isArray(dotnetRecord.types)) {
+      return `${filePath}: 'dotnet.types' must be an array`;
+    }
+    if (
+      "exports" in dotnetRecord &&
+      dotnetRecord.exports !== undefined &&
+      (dotnetRecord.exports === null ||
+        typeof dotnetRecord.exports !== "object" ||
+        Array.isArray(dotnetRecord.exports))
+    ) {
+      return `${filePath}: 'dotnet.exports' must be an object when present`;
+    }
+    if (
+      !("semanticSurface" in manifest) ||
+      manifest.semanticSurface === null ||
+      typeof manifest.semanticSurface !== "object" ||
+      Array.isArray(manifest.semanticSurface)
+    ) {
+      return `${filePath}: 'semanticSurface' must be an object`;
+    }
+    const semanticSurface = manifest.semanticSurface as Record<string, unknown>;
+    if (!Array.isArray(semanticSurface.types)) {
+      return `${filePath}: 'semanticSurface.types' must be an array`;
+    }
+    if (
+      "exports" in semanticSurface &&
+      semanticSurface.exports !== undefined &&
+      (semanticSurface.exports === null ||
+        typeof semanticSurface.exports !== "object" ||
+        Array.isArray(semanticSurface.exports))
+    ) {
+      return `${filePath}: 'semanticSurface.exports' must be an object when present`;
+    }
+    const producer = manifest.producer;
+    if (
+      producer === null ||
+      typeof producer !== "object" ||
+      Array.isArray(producer)
+    ) {
+      return `${filePath}: 'producer' must be an object`;
+    }
+    const producerRecord = producer as Record<string, unknown>;
+    if (producerRecord.tool !== "tsonic") {
+      return `${filePath}: 'producer.tool' must be "tsonic"`;
+    }
+    if (producerRecord.mode !== "tsonic-firstparty") {
+      return `${filePath}: 'producer.mode' must be "tsonic-firstparty"`;
+    }
+    const normalizedV2: Record<string, unknown> = {
+      namespace: manifest.namespace,
+      types: dotnetRecord.types,
+      exports: dotnetRecord.exports,
+    };
+    return validateBindingFile(normalizedV2, filePath);
+  }
 
   // Check for tsbindgen format
   if ("namespace" in manifest && "types" in manifest) {

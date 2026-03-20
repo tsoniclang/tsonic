@@ -9,7 +9,7 @@ import {
   selectSourceTypeImportsForRenderedText,
 } from "../portable-types.js";
 import {
-  renderSourceFunctionSignature,
+  renderSourceFunctionSignatures,
   renderSourceFunctionType,
   renderSourceValueType,
 } from "../source-type-text.js";
@@ -208,33 +208,38 @@ export const writeNamespaceFacadeFiles = (opts: {
       continue;
     }
     if (valueExport.facade.kind === "function") {
-      const sourceSignature = renderSourceFunctionSignature({
-        declaration: valueExport.facade.declaration,
+      const sourceSignatures = renderSourceFunctionSignatures({
         sourceSignatures: valueExport.facade.sourceSignatures ?? [],
         localTypeNameRemaps: valueExport.facade.localTypeNameRemaps,
         anonymousStructuralAliases: opts.anonymousStructuralAliases,
       });
-      facadeLines.push(
-        sourceSignature
-          ? `export declare function ${valueExport.exportName}${sourceSignature.typeParametersText}(${sourceSignature.parametersText}): ${sourceSignature.returnTypeText};`
-          : `export declare function ${valueExport.exportName}${printTypeParameters(
-              valueExport.facade.declaration.typeParameters
-            )}(${renderUnknownParameters(
-              valueExport.facade.declaration.parameters,
-              valueExport.facade.declaration.typeParameters?.map(
-                (typeParameter) => typeParameter.name
-              ) ?? [],
-              valueExport.facade.localTypeNameRemaps,
-              opts.anonymousStructuralAliases
-            )}): ${renderPortableType(
-              valueExport.facade.declaration.returnType,
-              valueExport.facade.declaration.typeParameters?.map(
-                (typeParameter) => typeParameter.name
-              ) ?? [],
-              valueExport.facade.localTypeNameRemaps,
-              opts.anonymousStructuralAliases
-            )};`
-      );
+      if (sourceSignatures.length > 0) {
+        for (const sourceSignature of sourceSignatures) {
+          facadeLines.push(
+            `export declare function ${valueExport.exportName}${sourceSignature.typeParametersText}(${sourceSignature.parametersText}): ${sourceSignature.returnTypeText};`
+          );
+        }
+      } else {
+        facadeLines.push(
+          `export declare function ${valueExport.exportName}${printTypeParameters(
+            valueExport.facade.declaration.typeParameters
+          )}(${renderUnknownParameters(
+            valueExport.facade.declaration.parameters,
+            valueExport.facade.declaration.typeParameters?.map(
+              (typeParameter) => typeParameter.name
+            ) ?? [],
+            valueExport.facade.localTypeNameRemaps,
+            opts.anonymousStructuralAliases
+          )}): ${renderPortableType(
+            valueExport.facade.declaration.returnType,
+            valueExport.facade.declaration.typeParameters?.map(
+              (typeParameter) => typeParameter.name
+            ) ?? [],
+            valueExport.facade.localTypeNameRemaps,
+            opts.anonymousStructuralAliases
+          )};`
+        );
+      }
       continue;
     }
 

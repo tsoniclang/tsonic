@@ -1,41 +1,11 @@
-import {
-  IrExpression,
-  IrMethodDeclaration,
-  IrParameter,
-  IrType,
-} from "../../../../types.js";
+import { IrExpression, IrParameter, IrType } from "../../../../types.js";
+export {
+  OVERLOAD_IMPL_PREFIX,
+  getOverloadImplementationName,
+  buildPublicOverloadFamilyMember,
+  buildImplementationOverloadFamilyMember,
+} from "../overload-family-builders.js";
 import { typesEqualForIsType } from "./overload-specialization.js";
-
-export const OVERLOAD_IMPL_PREFIX = "__tsonic_overload_impl_";
-
-export const getOverloadImplementationName = (memberName: string): string =>
-  `${OVERLOAD_IMPL_PREFIX}${memberName}`;
-
-export const buildPublicOverloadFamilyMember = (
-  memberName: string,
-  signatureIndex: number,
-  publicSignatureCount: number,
-  implementationName?: string
-): NonNullable<IrMethodDeclaration["overloadFamily"]> => ({
-  ownerKind: "method",
-  publicName: memberName,
-  role: "publicOverload",
-  publicSignatureIndex: signatureIndex,
-  publicSignatureCount,
-  implementationName,
-});
-
-export const buildImplementationOverloadFamilyMember = (
-  memberName: string,
-  publicSignatureCount: number,
-  implementationName: string
-): NonNullable<IrMethodDeclaration["overloadFamily"]> => ({
-  ownerKind: "method",
-  publicName: memberName,
-  role: "implementation",
-  publicSignatureCount,
-  implementationName,
-});
 
 export const getIdentifierPatternName = (parameter: IrParameter): string => {
   if (parameter.pattern.kind !== "identifierPattern") {

@@ -10,7 +10,12 @@ import {
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildTestTimeoutMs, linkDir, repoRoot } from "./helpers.js";
+import {
+  buildTestTimeoutMs,
+  linkDir,
+  readFirstPartyBindingsJson,
+  repoRoot,
+} from "./helpers.js";
 
 describe("build command (library bindings)", function () {
   this.timeout(buildTestTimeoutMs);
@@ -445,14 +450,9 @@ describe("build command (library bindings)", function () {
         join(bindingsRoot, "Test.Lib", "internal", "index.d.ts"),
         "utf-8"
       );
-      const rootBindings = JSON.parse(
-        readFileSync(join(bindingsRoot, "Test.Lib", "bindings.json"), "utf-8")
-      ) as {
-        readonly exports?: Record<
-          string,
-          { readonly kind: "method" | "property" | "field" }
-        >;
-      };
+      const rootBindings = readFirstPartyBindingsJson(
+        join(bindingsRoot, "Test.Lib", "bindings.json")
+      );
 
       expect(facade).to.include("export type { LoadedConfig }");
       expect(facade).to.include(
@@ -468,7 +468,14 @@ describe("build command (library bindings)", function () {
         /export declare function loadSiteConfig\(\):\s*LoadedConfig/
       );
       expect(internal).to.not.match(/interface\s+LoadedConfig\$instance/);
-      expect(rootBindings.exports?.loadSiteConfig?.kind).to.equal("method");
+      expect(rootBindings.dotnet?.exports?.loadSiteConfig).to.deep.include({
+        kind: "method",
+      });
+      expect(
+        rootBindings.semanticSurface?.exports?.loadSiteConfig
+      ).to.deep.include({
+        kind: "function",
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

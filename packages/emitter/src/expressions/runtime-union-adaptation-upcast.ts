@@ -1,7 +1,7 @@
 /**
- * Runtime-union upcast orchestration and dictionary/storage helpers.
- * Handles the main maybeUpcastExpressionToExpectedTypeAst entry point,
- * dictionary union value upcasting, and direct storage expression type resolution.
+ * Runtime-union conversion orchestration and dictionary adaptation helpers.
+ * Handles the main runtime-union adaptation entry point and dictionary
+ * union-value lifting.
  */
 
 import type { IrExpression, IrType } from "@tsonic/frontend";
@@ -59,7 +59,7 @@ const isObjectLikeTypeAst = (type: CSharpTypeAst | undefined): boolean => {
   );
 };
 
-export const maybeUpcastDictionaryUnionValueAst = (
+export const maybeAdaptDictionaryUnionValueAst = (
   expr: IrExpression,
   ast: CSharpExpressionAst,
   context: EmitterContext,
@@ -142,7 +142,7 @@ export const maybeUpcastDictionaryUnionValueAst = (
   return [converted, ctx1];
 };
 
-export const maybeUpcastExpressionToExpectedTypeAst = (
+export const maybeAdaptRuntimeUnionExpressionAst = (
   ast: CSharpExpressionAst,
   actualType: IrType | undefined,
   context: EmitterContext,
@@ -284,7 +284,7 @@ export const maybeUpcastExpressionToExpectedTypeAst = (
     emissionActualType,
     context,
     emissionExpectedType,
-    maybeUpcastExpressionToExpectedTypeAst
+    maybeAdaptRuntimeUnionExpressionAst
   );
   if (adapted) {
     return adapted;
@@ -425,7 +425,7 @@ export const maybeUpcastExpressionToExpectedTypeAst = (
     const member = runtimeLayout.members[index];
     if (!member) continue;
 
-    const nested = maybeUpcastExpressionToExpectedTypeAst(
+    const nested = maybeAdaptRuntimeUnionExpressionAst(
       ast,
       emissionActualType,
       layoutContext,
@@ -448,35 +448,4 @@ export const maybeUpcastExpressionToExpectedTypeAst = (
   }
 
   return undefined;
-};
-
-export const resolveDirectStorageExpressionType = (
-  expr: IrExpression,
-  ast: CSharpExpressionAst,
-  context: EmitterContext
-): IrType | undefined => {
-  if (expr.kind !== "identifier" || ast.kind !== "identifierExpression") {
-    return undefined;
-  }
-
-  const remappedLocal = context.localNameMap?.get(expr.name) ?? expr.name;
-  if (ast.identifier !== remappedLocal) {
-    return undefined;
-  }
-
-  const narrowed = context.narrowedBindings?.get(expr.name);
-  if (
-    narrowed?.kind === "expr" &&
-    narrowed.storageExprAst?.kind === "identifierExpression" &&
-    narrowed.storageExprAst.identifier === remappedLocal &&
-    narrowed.sourceType
-  ) {
-    return narrowed.sourceType;
-  }
-
-  if (narrowed?.kind === "runtimeSubset" && narrowed.sourceType) {
-    return narrowed.sourceType;
-  }
-
-  return context.localValueTypes?.get(expr.name);
 };

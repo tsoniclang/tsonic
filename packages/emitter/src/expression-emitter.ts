@@ -7,7 +7,6 @@
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
-import { resolveEffectiveExpressionType } from "./core/semantic/narrowed-expression-types.js";
 import type { CSharpExpressionAst } from "./core/format/backend-ast/types.js";
 
 // Import expression emitters from specialized modules
@@ -46,17 +45,7 @@ import {
   emitNameOf,
   emitSizeOf,
 } from "./expressions/type-assertion-emitters.js";
-import {
-  maybeCastNullishTypeParamAst,
-  maybeUnwrapNullableValueTypeAst,
-  maybeConvertCharToStringAst,
-} from "./expressions/post-emission-adaptation.js";
-import {
-  maybeUpcastExpressionToExpectedTypeAst,
-  maybeUpcastDictionaryUnionValueAst,
-  resolveDirectStorageExpressionType,
-} from "./expressions/runtime-union-adaptation.js";
-import { tryAdaptStructuralExpressionAst } from "./expressions/structural-adaptation.js";
+import { adaptEmittedExpressionAst } from "./expressions/expected-type-adaptation.js";
 
 /**
  * Emit a C# expression AST from an IR expression.
@@ -167,61 +156,12 @@ export const emitExpressionAst = (
     }
   })();
 
-  // Post-emission adaptation pipeline:
-  // 1. Nullish type-parameter casting
-  const [castedAst, castedContext] = maybeCastNullishTypeParamAst(
+  return adaptEmittedExpressionAst({
     expr,
-    ast,
-    newContext,
-    expectedType
-  );
-  // 2. Resolve actual expression type for adaptation decisions
-  const actualExprType =
-    resolveDirectStorageExpressionType(expr, castedAst, castedContext) ??
-    resolveEffectiveExpressionType(expr, castedContext);
-  // 3. Dictionary union value upcast
-  const [dictUpcastAst, dictUpcastContext] = maybeUpcastDictionaryUnionValueAst(
-    expr,
-    castedAst,
-    castedContext,
-    expectedType
-  );
-  // 4. Runtime-union adaptation (widening/narrowing/projection)
-  const [unionAdjustedAst, unionAdjustedContext] =
-    maybeUpcastExpressionToExpectedTypeAst(
-      dictUpcastAst,
-      actualExprType,
-      dictUpcastContext,
-      expectedType
-    ) ?? [dictUpcastAst, dictUpcastContext];
-  const adjustedExprType =
-    unionAdjustedAst !== dictUpcastAst && expectedType
-      ? expectedType
-      : actualExprType;
-  // 5. Structural adaptation (object initializer materialization)
-  const [materializedAst, materializedContext] =
-    tryAdaptStructuralExpressionAst(
-      unionAdjustedAst,
-      adjustedExprType,
-      unionAdjustedContext,
-      expectedType,
-      maybeUpcastExpressionToExpectedTypeAst
-    ) ?? [unionAdjustedAst, unionAdjustedContext];
-  // 6. Char-to-string conversion
-  const [stringAdjustedAst, stringAdjustedContext] =
-    maybeConvertCharToStringAst(
-      expr,
-      materializedAst,
-      materializedContext,
-      expectedType
-    );
-  // 7. Nullable value-type unwrapping
-  return maybeUnwrapNullableValueTypeAst(
-    expr,
-    stringAdjustedAst,
-    stringAdjustedContext,
-    expectedType
-  );
+    valueAst: ast,
+    context: newContext,
+    expectedType,
+  });
 };
 
 // Re-export commonly used functions from barrel

@@ -119,10 +119,31 @@ export type RawBindingsConstructor = {
   readonly parameterCount: number;
 };
 
-export type RawBindingsFile = {
+export type RawTsbindgenBindingsFile = {
   readonly namespace: string;
   readonly contributingAssemblies?: readonly string[];
   readonly dotnetVersion?: string;
+  readonly types: readonly RawBindingsType[];
+};
+
+export type RawBindingsFileV2 = {
+  readonly namespace: string;
+  readonly contributingAssemblies?: readonly string[];
+  readonly dotnetVersion?: string;
+  readonly semanticSurface: {
+    readonly types: readonly unknown[];
+    readonly exports?: Readonly<Record<string, unknown>>;
+  };
+  readonly dotnet: {
+    readonly types: readonly RawBindingsType[];
+    readonly exports?: Readonly<Record<string, unknown>>;
+  };
+};
+
+export type RawBindingsFile = RawTsbindgenBindingsFile | RawBindingsFileV2;
+
+export type RawBindingsPayload = {
+  readonly namespace: string;
   readonly types: readonly RawBindingsType[];
 };
 

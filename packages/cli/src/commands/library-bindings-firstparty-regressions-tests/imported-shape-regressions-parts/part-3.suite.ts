@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   linkDir,
+  readFirstPartyBindingsJson,
   repoRoot,
   runLibraryBuild,
   runProjectBuild,
@@ -270,28 +271,34 @@ describe("library bindings first-party regressions", function () {
         ),
         "utf-8"
       );
-      const bindings = JSON.parse(bindingsText) as {
-        readonly types?: ReadonlyArray<{
-          readonly clrName?: string;
-          readonly properties?: ReadonlyArray<{
-            readonly clrName?: string;
-            readonly semanticType?: {
-              readonly kind?: string;
-              readonly name?: string;
-            };
-          }>;
-        }>;
-        readonly exports?: Readonly<Record<string, unknown>>;
-      };
+      const bindings = readFirstPartyBindingsJson(
+        join(
+          dir,
+          "packages",
+          "lib",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Test.Lib",
+          "bindings.json"
+        )
+      );
 
       expect(bindingsText).to.not.include("[Circular]");
       expect(
-        bindings.types?.some((type) => type.clrName === "Test.Lib.Node")
+        bindings.dotnet?.types?.some((type) => type.clrName === "Test.Lib.Node")
       ).to.equal(true);
+      const nodeProperties = (bindings.dotnet?.types?.find(
+        (type) => type.clrName === "Test.Lib.Node"
+      )?.properties ?? []) as ReadonlyArray<{
+        readonly clrName?: string;
+        readonly semanticType?: {
+          readonly kind?: string;
+          readonly name?: string;
+        };
+      }>;
       expect(
-        bindings.types
-          ?.find((type) => type.clrName === "Test.Lib.Node")
-          ?.properties?.find((property) => property.clrName === "next")
+        nodeProperties.find((property) => property.clrName === "next")
           ?.semanticType
       ).to.deep.equal({
         kind: "referenceType",
@@ -304,7 +311,8 @@ describe("library bindings first-party regressions", function () {
           tsName: "Node",
         },
       });
-      expect(bindings.exports?.head).to.not.equal(undefined);
+      expect(bindings.dotnet?.exports?.head).to.not.equal(undefined);
+      expect(bindings.semanticSurface?.exports?.head).to.not.equal(undefined);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

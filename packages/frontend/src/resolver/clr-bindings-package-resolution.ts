@@ -9,6 +9,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { extractRawDotnetAssemblyName } from "../program/dotnet-binding-payload.js";
 
 /**
  * Resolve package root directory using Node resolution.
@@ -186,7 +187,6 @@ export const extractNamespace = (
     const content = readFileSync(bindingsPath, "utf-8");
     const parsed = JSON.parse(content) as unknown;
 
-    // Check for tsbindgen format: { namespace: string, types: [...] }
     if (
       parsed !== null &&
       typeof parsed === "object" &&
@@ -225,22 +225,10 @@ export const extractAssembly = (
     const content = readFileSync(bindingsPath, "utf-8");
     const parsed = JSON.parse(content) as unknown;
 
-    // Check for tsbindgen format: { namespace: string, types: [...] }
-    if (
-      parsed !== null &&
-      typeof parsed === "object" &&
-      "types" in parsed &&
-      Array.isArray((parsed as Record<string, unknown>).types)
-    ) {
-      const types = (parsed as Record<string, unknown>).types as unknown[];
-      if (types.length > 0) {
-        const firstType = types[0] as Record<string, unknown>;
-        if (typeof firstType.assemblyName === "string") {
-          const assembly = firstType.assemblyName;
-          assemblyCache.set(bindingsPath, assembly);
-          return assembly;
-        }
-      }
+    const assembly = extractRawDotnetAssemblyName(parsed);
+    if (assembly) {
+      assemblyCache.set(bindingsPath, assembly);
+      return assembly;
     }
 
     // No assembly found, cache null

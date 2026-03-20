@@ -25,6 +25,7 @@ export type {
   TsbindgenType,
   TsbindgenExport,
   TsbindgenBindingFile,
+  FirstPartyBindingsFileV2,
   BindingFile,
 } from "./binding-types.js";
 
@@ -33,6 +34,14 @@ export {
   isTsbindgenBindingFile,
   validateBindingFile,
 } from "./binding-types.js";
+
+export {
+  isFirstPartyBindingsFileV2,
+  getDotnetBindingPayload,
+  extractRawDotnetBindingsPayload,
+  extractRawDotnetBindingTypes,
+  extractRawDotnetAssemblyName,
+} from "./dotnet-binding-payload.js";
 
 // ── Registry ───────────────────────────────────────────────────────────────
 export { BindingRegistry } from "./binding-registry.js";

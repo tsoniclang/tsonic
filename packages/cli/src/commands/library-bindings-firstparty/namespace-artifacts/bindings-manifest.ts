@@ -3,6 +3,10 @@ import {
   reattachBindingClrIdentities,
   serializeBindingsJsonSafe,
 } from "../binding-semantics.js";
+import {
+  buildSemanticExportSurface,
+  buildSemanticTypeSurface,
+} from "../semantic-surface.js";
 import type {
   FirstPartyBindingsExport,
   FirstPartyBindingsFile,
@@ -97,17 +101,35 @@ export const writeBindingsManifest = (opts: {
   const bindings: FirstPartyBindingsFile = {
     namespace: opts.namespace,
     contributingAssemblies: [opts.outputName],
-    types: normalizedTypeBindings.sort((left, right) =>
-      left.clrName.localeCompare(right.clrName)
-    ),
-    exports:
-      normalizedValueBindings && normalizedValueBindings.size > 0
-        ? Object.fromEntries(
-            Array.from(normalizedValueBindings.entries()).sort((left, right) =>
-              left[0].localeCompare(right[0])
+    semanticSurface: {
+      types: normalizedTypeBindings
+        .map(buildSemanticTypeSurface)
+        .sort((left, right) => left.alias.localeCompare(right.alias)),
+      exports:
+        normalizedValueBindings && normalizedValueBindings.size > 0
+          ? Object.fromEntries(
+              Array.from(normalizedValueBindings.entries())
+                .sort((left, right) => left[0].localeCompare(right[0]))
+                .map(([exportName, binding]) => [
+                  exportName,
+                  buildSemanticExportSurface(binding),
+                ])
             )
-          )
-        : undefined,
+          : undefined,
+    },
+    dotnet: {
+      types: normalizedTypeBindings.sort((left, right) =>
+        left.clrName.localeCompare(right.clrName)
+      ),
+      exports:
+        normalizedValueBindings && normalizedValueBindings.size > 0
+          ? Object.fromEntries(
+              Array.from(normalizedValueBindings.entries()).sort(
+                (left, right) => left[0].localeCompare(right[0])
+              )
+            )
+          : undefined,
+    },
     producer: {
       tool: "tsonic",
       mode: "tsonic-firstparty",

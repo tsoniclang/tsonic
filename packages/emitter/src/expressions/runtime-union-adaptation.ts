@@ -9,7 +9,6 @@
 export { maybeNarrowRuntimeUnionExpressionAst } from "./runtime-union-adaptation-projection.js";
 
 export {
-  maybeUpcastDictionaryUnionValueAst,
-  maybeUpcastExpressionToExpectedTypeAst,
-  resolveDirectStorageExpressionType,
+  maybeAdaptDictionaryUnionValueAst,
+  maybeAdaptRuntimeUnionExpressionAst,
 } from "./runtime-union-adaptation-upcast.js";
