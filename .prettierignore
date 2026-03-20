@@ -2,6 +2,8 @@ node_modules
 dist
 build
 coverage
+.tests
+.temp
 .tsonic
 out
 *.cs
