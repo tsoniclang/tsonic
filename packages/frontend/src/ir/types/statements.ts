@@ -11,6 +11,7 @@ import {
   IrInterfaceMember,
 } from "./helpers.js";
 import { IrExpression } from "./expressions.js";
+import type { IrOverloadFamilyMember } from "./overload-family.js";
 
 export type IrStatement =
   | IrVariableDeclaration
@@ -49,30 +50,6 @@ export type IrVariableDeclarator = {
   /** Type from annotation or inferred. Always set for module-level exports (C# requires explicit type). */
   readonly type?: IrType;
   readonly initializer?: IrExpression;
-};
-
-export type IrOverloadOwnerKind = "function" | "method" | "constructor";
-
-export type IrOverloadFamilyRole = "publicOverload" | "implementation";
-
-/**
- * Canonical overload-family metadata for lowered declarations.
- *
- * - Public overload declarations carry `role: "publicOverload"` and retain the
- *   authored public name.
- * - Lowered implementation helpers carry `role: "implementation"` and point
- *   back to the public family they serve.
- *
- * This lets later layers preserve public overload surfaces without reverse-
- * engineering helper names such as `__tsonic_overload_impl_*`.
- */
-export type IrOverloadFamilyMember = {
-  readonly ownerKind: IrOverloadOwnerKind;
-  readonly publicName: string;
-  readonly role: IrOverloadFamilyRole;
-  readonly publicSignatureCount: number;
-  readonly publicSignatureIndex?: number;
-  readonly implementationName?: string;
 };
 
 export type IrFunctionDeclaration = {

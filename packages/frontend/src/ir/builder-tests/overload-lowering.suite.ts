@@ -80,8 +80,11 @@ describe("IR Builder", function () {
         expect(settingsGetter).to.not.equal(undefined);
         expect(settingsGetter?.isOverride).to.equal(undefined);
         expect(settingsGetter?.overloadFamily).to.deep.equal({
+          familyId: "method:instance:get",
+          memberId: "method:instance:get:public:0",
           ownerKind: "method",
           publicName: "get",
+          isStatic: false,
           role: "publicOverload",
           publicSignatureIndex: 0,
           publicSignatureCount: 2,
@@ -95,8 +98,11 @@ describe("IR Builder", function () {
         expect(routeGetter).to.not.equal(undefined);
         expect(routeGetter?.isOverride).to.equal(true);
         expect(routeGetter?.overloadFamily).to.deep.equal({
+          familyId: "method:instance:get",
+          memberId: "method:instance:get:public:1",
           ownerKind: "method",
           publicName: "get",
+          isStatic: false,
           role: "publicOverload",
           publicSignatureIndex: 1,
           publicSignatureCount: 2,
@@ -112,8 +118,11 @@ describe("IR Builder", function () {
         if (!implMethod || implMethod.kind !== "methodDeclaration") return;
         expect(implMethod.accessibility).to.equal("private");
         expect(implMethod.overloadFamily).to.deep.equal({
+          familyId: "method:instance:get",
+          memberId: "method:instance:get:implementation",
           ownerKind: "method",
           publicName: "get",
+          isStatic: false,
           role: "implementation",
           publicSignatureCount: 2,
           implementationName: "__tsonic_overload_impl_get",
@@ -492,6 +501,79 @@ describe("IR Builder", function () {
             (member) => member.name === "handlers"
           )
         ).to.equal(true);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("distinguishes static and instance overload families with different stable ids", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "export class Parser {",
+            "  static parse(text: string): string;",
+            "  static parse(text: number): string;",
+            "  static parse(text: string | number): string {",
+            "    return String(text);",
+            "  }",
+            "",
+            "  parse(text: string): string;",
+            "  parse(text: number): string;",
+            "  parse(text: string | number): string {",
+            "    return String(text);",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const parserClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "Parser"
+        );
+        expect(parserClass).to.not.equal(undefined);
+        if (!parserClass) return;
+
+        const staticParse = parserClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" &&
+            member.name === "parse" &&
+            member.isStatic &&
+            member.parameters[0]?.type?.kind === "primitiveType" &&
+            member.parameters[0].type.name === "string"
+        );
+        const instanceParse = parserClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" &&
+            member.name === "parse" &&
+            !member.isStatic &&
+            member.parameters[0]?.type?.kind === "primitiveType" &&
+            member.parameters[0].type.name === "string"
+        );
+
+        expect(staticParse?.overloadFamily?.familyId).to.equal(
+          "method:static:parse"
+        );
+        expect(staticParse?.overloadFamily?.isStatic).to.equal(true);
+        expect(instanceParse?.overloadFamily?.familyId).to.equal(
+          "method:instance:parse"
+        );
+        expect(instanceParse?.overloadFamily?.isStatic).to.equal(false);
+        expect(staticParse?.overloadFamily?.familyId).to.not.equal(
+          instanceParse?.overloadFamily?.familyId
+        );
       } finally {
         fixture.cleanup();
       }

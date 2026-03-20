@@ -143,6 +143,7 @@ export const convertMethodOverloadGroup = (
       name: helperName,
       overloadFamily: buildImplementationOverloadFamilyMember(
         memberName,
+        isStatic,
         sigs.length,
         helperName
       ),
@@ -204,6 +205,7 @@ export const convertMethodOverloadGroup = (
         ),
         overloadFamily: buildPublicOverloadFamilyMember(
           memberName,
+          isStatic,
           signatureIndex,
           sigs.length,
           helperName
@@ -300,6 +302,7 @@ export const convertMethodOverloadGroup = (
       body: adapted,
       overloadFamily: buildPublicOverloadFamilyMember(
         memberName,
+        isStatic,
         signatureIndex,
         sigs.length
       ),

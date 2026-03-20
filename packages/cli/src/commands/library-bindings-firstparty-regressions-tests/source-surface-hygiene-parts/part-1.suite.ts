@@ -182,8 +182,11 @@ describe("library bindings first-party regressions", function () {
           readonly methods?: ReadonlyArray<{
             readonly clrName?: string;
             readonly overloadFamily?: {
+              readonly familyId?: string;
+              readonly memberId?: string;
               readonly ownerKind?: string;
               readonly publicName?: string;
+              readonly isStatic?: boolean;
               readonly role?: string;
               readonly publicSignatureCount?: number;
               readonly publicSignatureIndex?: number;
@@ -216,8 +219,11 @@ describe("library bindings first-party regressions", function () {
       ).to.deep.equal([0, 1]);
       for (const method of parseMethods) {
         expect(method.overloadFamily).to.deep.equal({
+          familyId: "method:instance:parse",
+          memberId: `method:instance:parse:public:${method.overloadFamily?.publicSignatureIndex}`,
           ownerKind: "method",
           publicName: "parse",
+          isStatic: false,
           role: "publicOverload",
           publicSignatureCount: 2,
           publicSignatureIndex: method.overloadFamily?.publicSignatureIndex,
