@@ -355,11 +355,11 @@ export const validateStaticSafety = (
     // TSN7430: Arrow function escape hatch validation
     // Non-simple arrows must have explicit type annotations
     if (ts.isArrowFunction(node)) {
-        currentCollector = validateArrowEscapeHatch(
-          node,
-          sourceFile,
-          currentCollector
-        );
+      currentCollector = validateArrowEscapeHatch(
+        node,
+        sourceFile,
+        currentCollector
+      );
     }
 
     // Continue visiting children

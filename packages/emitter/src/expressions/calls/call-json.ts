@@ -68,6 +68,31 @@ const isConcreteGlobalJsonParseTarget = (
   return !containsTypeParameter(type);
 };
 
+const isConcreteGlobalJsonStringifySource = (
+  type: IrType | undefined
+): type is IrType => {
+  if (!type) return false;
+  if (
+    type.kind === "unknownType" ||
+    type.kind === "anyType" ||
+    type.kind === "voidType" ||
+    type.kind === "neverType" ||
+    type.kind === "typeParameterType"
+  ) {
+    return false;
+  }
+  if (type.kind === "unionType" || type.kind === "intersectionType") {
+    return false;
+  }
+  if (
+    type.kind === "referenceType" &&
+    (type.name === "object" || type.resolvedClrType === "System.Object")
+  ) {
+    return false;
+  }
+  return !containsTypeParameter(type);
+};
+
 const emitJsRuntimeJsonParseCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext,
@@ -102,6 +127,43 @@ const emitJsRuntimeJsonParseCall = (
       },
       arguments: argAsts,
       typeArguments: [typeArgument],
+    },
+    currentContext,
+  ];
+};
+
+const emitJsRuntimeJsonStringifyCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  let currentContext = context;
+  const argAsts: CSharpExpressionAst[] = [];
+
+  for (const arg of expr.arguments) {
+    if (arg.kind === "spread") {
+      const [spreadAst, ctx] = emitExpressionAst(
+        arg.expression,
+        currentContext
+      );
+      argAsts.push(spreadAst);
+      currentContext = ctx;
+      continue;
+    }
+
+    const [argAst, ctx] = emitExpressionAst(arg, currentContext);
+    argAsts.push(argAst);
+    currentContext = ctx;
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: identifierExpression("global::Tsonic.JSRuntime.JSON"),
+        memberName: "stringify",
+      },
+      arguments: argAsts,
     },
     currentContext,
   ];
@@ -196,6 +258,14 @@ const emitGlobalJsonCall = (
   method: "Serialize" | "Deserialize"
 ): [CSharpExpressionAst, EmitterContext] => {
   if (method === "Serialize") {
+    const firstArg = expr.arguments[0];
+    const sourceType =
+      firstArg && firstArg.kind !== "spread"
+        ? firstArg.inferredType
+        : undefined;
+    if (!isConcreteGlobalJsonStringifySource(sourceType)) {
+      return emitJsRuntimeJsonStringifyCall(expr, context);
+    }
     return emitJsonSerializerCall(expr, context, method);
   }
 

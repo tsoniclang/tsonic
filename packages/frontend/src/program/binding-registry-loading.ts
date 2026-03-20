@@ -443,9 +443,7 @@ export const addBindingsToState = (
         state.tsbindgenExports.get(manifestNamespace) ??
         new Map<string, TsbindgenExport>();
 
-      for (const [exportName, exp] of Object.entries(
-        dotnetPayload.exports
-      )) {
+      for (const [exportName, exp] of Object.entries(dotnetPayload.exports)) {
         nsExports.set(exportName, exp);
       }
 

@@ -71,7 +71,9 @@ export const convertFunctionOverloadGroup = (
     }
     const id = ctx.binding.resolveIdentifier(parameter.name);
     if (!id) {
-      throw new Error(`ICE: could not resolve parameter '${parameter.name.text}'`);
+      throw new Error(
+        `ICE: could not resolve parameter '${parameter.name.text}'`
+      );
     }
     implParamDeclIds.push(id.id);
   }
@@ -101,9 +103,7 @@ export const convertFunctionOverloadGroup = (
     for (let index = 0; index < implParamDeclIds.length; index++) {
       const declId = implParamDeclIds[index] as number;
       const type =
-        index < sigParams.length
-          ? sigParams[index]?.type
-          : undefinedType;
+        index < sigParams.length ? sigParams[index]?.type : undefinedType;
       if (type) {
         paramTypesByDeclId.set(declId, type);
       }
@@ -119,7 +119,11 @@ export const convertFunctionOverloadGroup = (
     }
 
     const missing = new Set<number>();
-    for (let index = sigParams.length; index < implParamDeclIds.length; index++) {
+    for (
+      let index = sigParams.length;
+      index < implParamDeclIds.length;
+      index++
+    ) {
       missing.add(implParamDeclIds[index] as number);
     }
 
@@ -172,7 +176,9 @@ export const convertFunctionOverloadGroup = (
           true,
           implFunction.returnType,
           returnType,
-          (sig.typeParameters ?? []).map((typeParameter) => typeParameter.name.text)
+          (sig.typeParameters ?? []).map(
+            (typeParameter) => typeParameter.name.text
+          )
         ),
         isAsync: false,
         isGenerator: false,
@@ -225,7 +231,11 @@ export const convertFunctionOverloadGroup = (
 
     if (sigParams.length < implParams.length) {
       const missing = new Set<number>();
-      for (let index = sigParams.length; index < implParamDeclIds.length; index++) {
+      for (
+        let index = sigParams.length;
+        index < implParamDeclIds.length;
+        index++
+      ) {
         missing.add(implParamDeclIds[index] as number);
       }
       if (missing.size > 0 && !assertNoMissingParamRefs(specialized, missing)) {

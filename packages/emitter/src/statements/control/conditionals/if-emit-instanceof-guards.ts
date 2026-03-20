@@ -105,46 +105,48 @@ export const tryEmitInstanceofGuard = (
       ...finalContext,
       narrowedBindings: ctxAfterRhs.narrowedBindings,
     };
-    const instanceofSourceType =
-      stmt.condition.kind === "binary"
-        ? stmt.condition.left.inferredType
-        : undefined;
-    const fallthroughSourceType =
-      fallthroughBaseContext.narrowedBindings?.get(instanceofGuard.originalName)
-        ?.sourceType ??
-      fallthroughBaseContext.narrowedBindings?.get(instanceofGuard.originalName)
-        ?.type ??
-      instanceofSourceType;
-    const fallthroughRuntimeFrame =
-      fallthroughSourceType &&
-      resolveRuntimeUnionFrame(
-        instanceofGuard.originalName,
-        fallthroughSourceType,
-        fallthroughBaseContext
-      );
-    if (
-      memberN !== undefined &&
-      fallthroughRuntimeFrame &&
-      fallthroughRuntimeFrame.candidateMemberNs.includes(memberN)
-    ) {
-      finalContext = withComplementNarrowing(
-        instanceofGuard.originalName,
-        receiverAst,
-        fallthroughRuntimeFrame.runtimeUnionArity,
-        fallthroughRuntimeFrame.candidateMemberNs,
-        fallthroughRuntimeFrame.members,
-        memberN,
-        fallthroughBaseContext
-      );
+    const fallthroughContext = applyConditionBranchNarrowing(
+      stmt.condition,
+      "falsy",
+      fallthroughBaseContext,
+      emitExprAstCb
+    );
+    if (fallthroughContext) {
+      finalContext = fallthroughContext;
     } else {
-      const fallthroughContext = applyConditionBranchNarrowing(
-        stmt.condition,
-        "falsy",
-        fallthroughBaseContext,
-        emitExprAstCb
-      );
-      if (fallthroughContext) {
-        finalContext = fallthroughContext;
+      const instanceofSourceType =
+        stmt.condition.kind === "binary"
+          ? stmt.condition.left.inferredType
+          : undefined;
+      const fallthroughSourceType =
+        fallthroughBaseContext.narrowedBindings?.get(
+          instanceofGuard.originalName
+        )?.sourceType ??
+        fallthroughBaseContext.narrowedBindings?.get(
+          instanceofGuard.originalName
+        )?.type ??
+        instanceofSourceType;
+      const fallthroughRuntimeFrame =
+        fallthroughSourceType &&
+        resolveRuntimeUnionFrame(
+          instanceofGuard.originalName,
+          fallthroughSourceType,
+          fallthroughBaseContext
+        );
+      if (
+        memberN !== undefined &&
+        fallthroughRuntimeFrame &&
+        fallthroughRuntimeFrame.candidateMemberNs.includes(memberN)
+      ) {
+        finalContext = withComplementNarrowing(
+          instanceofGuard.originalName,
+          receiverAst,
+          fallthroughRuntimeFrame.runtimeUnionArity,
+          fallthroughRuntimeFrame.candidateMemberNs,
+          fallthroughRuntimeFrame.members,
+          memberN,
+          fallthroughBaseContext
+        );
       } else {
         const complementType = narrowTypeByNotAssignableTarget(
           stmt.condition.kind === "binary"
@@ -292,7 +294,7 @@ export const tryEmitNullableGuard = (
         memberName: "Value",
       },
       strippedType,
-      undefined,
+      targetExpr.inferredType,
       idAst
     )
   );
@@ -348,6 +350,11 @@ export const tryEmitNullableGuard = (
     finalContext = {
       ...elseCtxAfter,
       narrowedBindings: context.narrowedBindings,
+    };
+  } else if (!narrowsInThen && isDefinitelyTerminating(stmt.thenStatement)) {
+    finalContext = {
+      ...finalContext,
+      narrowedBindings: narrowedMap,
     };
   }
 

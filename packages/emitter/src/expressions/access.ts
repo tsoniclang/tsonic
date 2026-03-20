@@ -11,6 +11,7 @@
 import { IrExpression, type IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
+import { emitTypeAst } from "../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -21,7 +22,7 @@ import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import {
-  getCanonicalRuntimeUnionMembers,
+  buildRuntimeUnionLayout,
   getRuntimeUnionReferenceMembers,
   isRuntimeUnionTypeName,
 } from "../core/semantic/runtime-unions.js";
@@ -134,11 +135,11 @@ export const emitMemberAccess = (
             ? runtimeReferenceMembers
             : [];
 
-      const canonicalMembers =
+      const [runtimeLayout] =
         members.length >= 2 && members.length <= 8
-          ? getCanonicalRuntimeUnionMembers(objectType, context)
-          : undefined;
-      const runtimeMembers = canonicalMembers ?? members;
+          ? buildRuntimeUnionLayout(objectType, context, emitTypeAst)
+          : [undefined, context];
+      const runtimeMembers = runtimeLayout?.members ?? members;
       const arity = runtimeMembers.length;
       if (arity >= 2 && arity <= 8) {
         const memberHasProperty = runtimeMembers.map((m) => {
@@ -248,7 +249,14 @@ export const emitMemberAccess = (
   }
 
   if (expr.isComputed) {
-    return emitComputedAccess(expr, objectAst, newContext, expectedType);
+    return emitComputedAccess(
+      expr,
+      objectAst,
+      objectType,
+      newContext,
+      usage,
+      expectedType
+    );
   }
 
   return emitPropertyAccess(

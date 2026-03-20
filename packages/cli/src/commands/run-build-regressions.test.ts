@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCli } from "../cli.js";
+import { getStableCliPath } from "../test-cli-bin.js";
 
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -134,7 +135,7 @@ describe("CLI regressions (run/build)", function () {
         join(dir, "node_modules/@tsonic/globals")
       );
 
-      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+      const cliPath = getStableCliPath(repoRoot);
 
       const run = spawnSync(
         "node",

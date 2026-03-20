@@ -114,7 +114,9 @@ describe("dotnet binding payload boundaries", () => {
     expect(
       extractRawDotnetAssemblyName({
         namespace: "System",
-        types: [{ clrName: "System.String", assemblyName: "System.Private.CoreLib" }],
+        types: [
+          { clrName: "System.String", assemblyName: "System.Private.CoreLib" },
+        ],
       })
     ).to.equal("System.Private.CoreLib");
 

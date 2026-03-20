@@ -43,12 +43,6 @@ export const tryAdaptStructuralCollectionExpressionAst = (
   const targetElementType = getArrayElementType(expectedType, context);
   const sourceElementType = getArrayElementType(sourceType, context);
   if (targetElementType && sourceElementType) {
-    if (
-      matchesExpectedEmissionType(sourceElementType, targetElementType, context)
-    ) {
-      return [emittedAst, context];
-    }
-
     const item = allocateLocalName("__item", context);
     let currentContext = item.context;
     const itemIdentifier: CSharpExpressionAst = {
@@ -81,6 +75,12 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       currentContext;
     const needsElementAdaptation =
       adaptedElementAst !== undefined && adaptedElementAst !== itemIdentifier;
+    if (
+      !needsElementAdaptation &&
+      matchesExpectedEmissionType(sourceElementType, targetElementType, context)
+    ) {
+      return [emittedAst, currentContext];
+    }
     if (needsElementAdaptation) {
       const [sourceElementTypeAst, , sourceElementTypeContext] =
         emitRuntimeCarrierTypeAst(

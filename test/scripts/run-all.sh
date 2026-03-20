@@ -293,7 +293,7 @@ else
     # 2. E2E Dotnet Tests (Parallel)
     # ============================================================
     echo -e "${BLUE}--- Running E2E Dotnet Tests (concurrency: $TEST_CONCURRENCY) ---${NC}" | tee -a "$LOG_FILE"
-    ensure_tsonic_bin
+    stabilize_tsonic_bin
 
     FIXTURES_DIR="$SCRIPT_DIR/../fixtures"
     # Persistent directory for per-fixture results (enables --resume).

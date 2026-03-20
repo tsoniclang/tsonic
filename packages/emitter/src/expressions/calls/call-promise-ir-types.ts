@@ -169,7 +169,9 @@ export const containsPromiseChainArtifact = (
   }
 
   if (type.kind === "unionType" || type.kind === "intersectionType") {
-    return type.types.some((member) => !!member && containsPromiseChainArtifact(member));
+    return type.types.some(
+      (member) => !!member && containsPromiseChainArtifact(member)
+    );
   }
 
   return false;

@@ -28,6 +28,7 @@ import {
   isArrayLikeNarrowingCandidate,
   currentNarrowedType,
   resolveRuntimeUnionFrame,
+  resolveRuntimeSubsetSourceInfo,
   isNullOrUndefined,
   buildRuntimeUnionComplementBinding,
   applyDirectTypeNarrowing,
@@ -246,7 +247,15 @@ export const applyDirectTypeofRefinement = (
       currentType ?? narrowedType,
       narrowedType,
       memberN,
-      rawTargetContext
+      rawTargetContext,
+      currentType
+        ? resolveRuntimeSubsetSourceInfo(
+            directGuard.bindingKey,
+            currentType,
+            runtimeUnionFrame,
+            context
+          )
+        : undefined
     );
     if (complementBinding) {
       return applyBinding(
@@ -378,7 +387,13 @@ export const applyArrayIsArrayRefinement = (
       currentType,
       narrowedType,
       runtimeArrayPair.runtimeMemberN,
-      rawTargetContext
+      rawTargetContext,
+      resolveRuntimeSubsetSourceInfo(
+        direct.bindingKey,
+        currentType,
+        runtimeUnionFrame,
+        context
+      )
     );
     if (complementBinding) {
       return applyBinding(

@@ -54,7 +54,9 @@ export const extractStatements = (
         index
       );
       if (overloadGroup) {
-        statements.push(...convertFunctionOverloadGroup(overloadGroup, currentCtx));
+        statements.push(
+          ...convertFunctionOverloadGroup(overloadGroup, currentCtx)
+        );
         index += overloadGroup.length - 1;
         continue;
       }

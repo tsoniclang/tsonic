@@ -36,6 +36,12 @@ export type EmitExprAstFn = (
 
 export type RuntimeUnionFrame = NarrowedUnionMembers;
 
+export type RuntimeSubsetSourceInfo = {
+  readonly sourceType: IrType;
+  readonly sourceMembers?: readonly IrType[];
+  readonly sourceCandidateMemberNs?: readonly number[];
+};
+
 export const toReceiverAst = (
   receiver: string | CSharpExpressionAst
 ): CSharpExpressionAst =>
@@ -94,6 +100,47 @@ export const applyBinding = (
   return {
     ...context,
     narrowedBindings,
+  };
+};
+
+export const resolveRuntimeSubsetSourceInfo = (
+  bindingKey: string,
+  currentType: IrType,
+  runtimeUnionFrame: RuntimeUnionFrame,
+  context: EmitterContext
+): RuntimeSubsetSourceInfo => {
+  const existingBinding = context.narrowedBindings?.get(bindingKey);
+  if (existingBinding?.kind === "runtimeSubset" && existingBinding.sourceType) {
+    const hasExplicitSourceFrame =
+      existingBinding.sourceMembers &&
+      existingBinding.sourceCandidateMemberNs &&
+      existingBinding.sourceMembers.length ===
+        existingBinding.sourceCandidateMemberNs.length;
+
+    return {
+      sourceType: existingBinding.sourceType,
+      sourceMembers: hasExplicitSourceFrame
+        ? existingBinding.sourceMembers
+        : undefined,
+      sourceCandidateMemberNs: hasExplicitSourceFrame
+        ? existingBinding.sourceCandidateMemberNs
+        : undefined,
+    };
+  }
+
+  const canReuseFrameAsSource =
+    runtimeUnionFrame.runtimeUnionArity === runtimeUnionFrame.members.length &&
+    runtimeUnionFrame.members.length ===
+      runtimeUnionFrame.candidateMemberNs.length;
+
+  return {
+    sourceType: existingBinding?.sourceType ?? currentType,
+    sourceMembers: canReuseFrameAsSource
+      ? runtimeUnionFrame.members
+      : undefined,
+    sourceCandidateMemberNs: canReuseFrameAsSource
+      ? runtimeUnionFrame.candidateMemberNs
+      : undefined,
   };
 };
 

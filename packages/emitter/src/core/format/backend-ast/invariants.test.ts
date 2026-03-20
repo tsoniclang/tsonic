@@ -82,7 +82,10 @@ describe("backend-ast architecture invariants", () => {
   it("limits free-form text payloads to lexical leaf nodes and trivia only", () => {
     const typeDefinitionFiles = [
       join(emitterRoot, "core/format/backend-ast/types/expression-ast.ts"),
-      join(emitterRoot, "core/format/backend-ast/types/compilation-unit-ast.ts"),
+      join(
+        emitterRoot,
+        "core/format/backend-ast/types/compilation-unit-ast.ts"
+      ),
     ];
     const typeDefinitionText = typeDefinitionFiles
       .map((file) => readFileSync(file, "utf8"))

@@ -28,7 +28,11 @@ export const validateExpression = (
 
     case "object":
       if (expr.contextualType) {
-        validateType(expr.contextualType, ctx, "object literal contextual type");
+        validateType(
+          expr.contextualType,
+          ctx,
+          "object literal contextual type"
+        );
       }
       expr.properties.forEach((property) => {
         if (property.kind === "property") {
@@ -43,15 +47,23 @@ export const validateExpression = (
       break;
 
     case "functionExpression":
-      expr.parameters.forEach((parameter) => validatePattern(parameter.pattern, ctx));
-      expr.parameters.forEach((parameter) => validateType(parameter.type, ctx, "function expression parameter"));
+      expr.parameters.forEach((parameter) =>
+        validatePattern(parameter.pattern, ctx)
+      );
+      expr.parameters.forEach((parameter) =>
+        validateType(parameter.type, ctx, "function expression parameter")
+      );
       validateType(expr.returnType, ctx, "function expression return type");
       validateStatement(expr.body, ctx);
       break;
 
     case "arrowFunction":
-      expr.parameters.forEach((parameter) => validatePattern(parameter.pattern, ctx));
-      expr.parameters.forEach((parameter) => validateType(parameter.type, ctx, "arrow function parameter"));
+      expr.parameters.forEach((parameter) =>
+        validatePattern(parameter.pattern, ctx)
+      );
+      expr.parameters.forEach((parameter) =>
+        validateType(parameter.type, ctx, "arrow function parameter")
+      );
       validateType(expr.returnType, ctx, "arrow function return type");
       if (expr.body.kind === "blockStatement") {
         validateStatement(expr.body, ctx);

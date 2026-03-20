@@ -120,6 +120,31 @@ describe("storage-types", () => {
     });
   });
 
+  it("collapses literal-plus-primitive string unions to string storage", () => {
+    expect(
+      normalizeRuntimeStorageType(
+        {
+          kind: "unionType",
+          types: [
+            { kind: "literalType", value: "route" },
+            { kind: "literalType", value: "router" },
+            { kind: "primitiveType", name: "string" },
+            { kind: "primitiveType", name: "null" },
+            { kind: "primitiveType", name: "undefined" },
+          ],
+        },
+        context
+      )
+    ).to.deep.equal({
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "null" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    });
+  });
+
   it("leaves non-union array storage unchanged", () => {
     const type: IrType = {
       kind: "arrayType",

@@ -151,6 +151,59 @@ export const buildComplementNarrowedBinding = (
   };
 };
 
+export const buildComplementNarrowedBindingForMembers = (
+  receiver: string | CSharpExpressionAst,
+  runtimeUnionArity: number,
+  candidateMemberNs: readonly number[],
+  candidateMembers: readonly import("@tsonic/frontend").IrType[],
+  selectedMemberNs: readonly number[],
+  sourceType?: import("@tsonic/frontend").IrType,
+  sourceMembers?: readonly import("@tsonic/frontend").IrType[],
+  sourceCandidateMemberNs?: readonly number[]
+): NarrowedBinding | undefined => {
+  const selectedSet = new Set(selectedMemberNs);
+  const remainingPairs = candidateMemberNs.flatMap((runtimeMemberN, index) => {
+    if (selectedSet.has(runtimeMemberN)) {
+      return [];
+    }
+
+    const memberType = candidateMembers[index];
+    if (!memberType) {
+      return [];
+    }
+
+    return [{ runtimeMemberN, memberType }];
+  });
+
+  if (remainingPairs.length === 0) {
+    return undefined;
+  }
+
+  if (remainingPairs.length === 1) {
+    const remaining = remainingPairs[0];
+    if (!remaining) return undefined;
+
+    return buildExprBinding(
+      buildUnionNarrowAst(receiver, remaining.runtimeMemberN),
+      remaining.memberType,
+      sourceType,
+      toReceiverAst(receiver)
+    );
+  }
+
+  return {
+    kind: "runtimeSubset",
+    runtimeMemberNs: remainingPairs.map((pair) => pair.runtimeMemberN),
+    runtimeUnionArity,
+    sourceMembers: [...(sourceMembers ?? candidateMembers)],
+    sourceCandidateMemberNs: [
+      ...(sourceCandidateMemberNs ?? candidateMemberNs),
+    ],
+    type: buildSubsetUnionType(remainingPairs.map((pair) => pair.memberType)),
+    sourceType,
+  };
+};
+
 export const applyExprFallthroughNarrowing = (
   originalName: string,
   exprAst: CSharpExpressionAst,
@@ -234,6 +287,54 @@ export const withComplementNarrowing = (
     candidateMemberNs,
     candidateMembers,
     selectedMemberN,
+    sourceType,
+    sourceMembers,
+    sourceCandidateMemberNs
+  );
+
+  if (!binding) {
+    return baseContext;
+  }
+
+  const narrowedBindings = new Map(baseContext.narrowedBindings ?? []);
+  narrowedBindings.set(originalName, binding);
+  return { ...baseContext, narrowedBindings };
+};
+
+export const withComplementNarrowingForMembers = (
+  originalName: string,
+  receiver: string | CSharpExpressionAst,
+  runtimeUnionArity: number,
+  candidateMemberNs: readonly number[],
+  candidateMembers: readonly import("@tsonic/frontend").IrType[],
+  selectedMemberNs: readonly number[],
+  baseContext: EmitterContext
+): EmitterContext => {
+  const existingBinding = baseContext.narrowedBindings?.get(originalName);
+  const sourceType =
+    existingBinding?.sourceType ?? buildSubsetUnionType(candidateMembers);
+  const sourceMembers =
+    existingBinding?.kind === "runtimeSubset" &&
+    existingBinding.sourceMembers &&
+    existingBinding.sourceCandidateMemberNs &&
+    existingBinding.sourceMembers.length ===
+      existingBinding.sourceCandidateMemberNs.length
+      ? existingBinding.sourceMembers
+      : undefined;
+  const sourceCandidateMemberNs =
+    existingBinding?.kind === "runtimeSubset" &&
+    existingBinding.sourceMembers &&
+    existingBinding.sourceCandidateMemberNs &&
+    existingBinding.sourceMembers.length ===
+      existingBinding.sourceCandidateMemberNs.length
+      ? existingBinding.sourceCandidateMemberNs
+      : undefined;
+  const binding = buildComplementNarrowedBindingForMembers(
+    receiver,
+    runtimeUnionArity,
+    candidateMemberNs,
+    candidateMembers,
+    selectedMemberNs,
     sourceType,
     sourceMembers,
     sourceCandidateMemberNs
@@ -391,6 +492,35 @@ export const buildIsNCondition = (
   return negate
     ? { kind: "prefixUnaryExpression", operatorToken: "!", operand: isCall }
     : isCall;
+};
+
+export const buildAnyIsNCondition = (
+  receiver: string | CSharpExpressionAst,
+  memberNs: readonly number[],
+  negate: boolean
+): CSharpExpressionAst => {
+  const conditions = memberNs.map((memberN) =>
+    buildIsNCondition(receiver, memberN, false)
+  );
+  const combined = conditions.reduce<CSharpExpressionAst | undefined>(
+    (current, condition) =>
+      current
+        ? {
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "binaryExpression",
+              operatorToken: "||",
+              left: current,
+              right: condition,
+            },
+          }
+        : condition,
+    undefined
+  );
+  const base = combined ?? buildIsNCondition(receiver, 1, false);
+  return negate
+    ? { kind: "prefixUnaryExpression", operatorToken: "!", operand: base }
+    : base;
 };
 
 /**

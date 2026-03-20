@@ -3,9 +3,7 @@ import type { EmitterContext } from "../../types.js";
 import type { CSharpTypeAst } from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
 import { identifierType } from "../format/backend-ast/builders.js";
-import {
-  resolveTypeAlias,
-} from "./type-resolution.js";
+import { resolveTypeAlias } from "./type-resolution.js";
 import {
   EmitTypeAstLike,
   RuntimeUnionFrame,

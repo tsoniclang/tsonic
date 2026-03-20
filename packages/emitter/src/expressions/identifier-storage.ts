@@ -38,15 +38,44 @@ const isBroadStorageTarget = (
   );
 };
 
+const wrapMaterializedTargetAst = (
+  valueAst: CSharpExpressionAst,
+  targetType: IrType,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (
+    valueAst.kind === "castExpression" ||
+    (valueAst.kind === "memberAccessExpression" &&
+      valueAst.memberName === "Value")
+  ) {
+    return [valueAst, context];
+  }
+
+  const [targetTypeAst, nextContext] = emitTypeAst(targetType, context);
+  return [
+    {
+      kind: "castExpression",
+      type: targetTypeAst,
+      expression: valueAst,
+    },
+    nextContext,
+  ];
+};
+
 export const buildRuntimeSubsetExpressionAst = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   narrowed: Extract<NarrowedBinding, { kind: "runtimeSubset" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  targetType: IrType | undefined = narrowed.type
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   const sourceType = narrowed.sourceType ?? expr.inferredType;
-  const subsetType = narrowed.type;
-  if (!sourceType || !subsetType) {
+  if (!sourceType || !targetType) {
     return undefined;
+  }
+
+  const remappedLocal = context.localNameMap?.get(expr.name);
+  if (remappedLocal && isBroadStorageTarget(targetType, context)) {
+    return [identifierExpression(remappedLocal), context];
   }
 
   const sourceFrame: RuntimeMaterializationSourceFrame | undefined =
@@ -59,14 +88,23 @@ export const buildRuntimeSubsetExpressionAst = (
         }
       : undefined;
 
-  return tryBuildRuntimeMaterializationAst(
+  const materialized = tryBuildRuntimeMaterializationAst(
     identifierExpression(escapeCSharpIdentifier(expr.name)),
     sourceType,
-    subsetType,
+    targetType,
     context,
     emitTypeAst,
     new Set(narrowed.runtimeMemberNs),
     sourceFrame
+  );
+  if (!materialized) {
+    return undefined;
+  }
+
+  return wrapMaterializedTargetAst(
+    materialized[0],
+    targetType,
+    materialized[1]
   );
 };
 
@@ -207,10 +245,6 @@ export const tryEmitReifiedStorageIdentifier = (
   }
 
   const effectiveType = resolveEffectiveExpressionType(expr, context);
-  if (!matchesExpectedEmissionType(effectiveType, expectedType, context)) {
-    return undefined;
-  }
-
   return adaptStorageErasedValueAst({
     valueAst: identifierExpression(remappedLocal),
     semanticType: effectiveType,
@@ -229,6 +263,14 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (!narrowed.storageExprAst || !narrowed.type) {
+    return undefined;
+  }
+
+  if (
+    narrowed.exprAst.kind === "memberAccessExpression" &&
+    narrowed.exprAst.memberName === "Value" &&
+    narrowed.exprAst.expression === narrowed.storageExprAst
+  ) {
     return undefined;
   }
 
@@ -267,11 +309,17 @@ export const tryEmitMaterializedNarrowedIdentifier = (
     return undefined;
   }
 
-  return materializeDirectNarrowingAst(
+  const materialized = materializeDirectNarrowingAst(
     narrowed.exprAst,
     effectiveType,
     expectedType,
     context
+  );
+
+  return wrapMaterializedTargetAst(
+    materialized[0],
+    expectedType,
+    materialized[1]
   );
 };
 

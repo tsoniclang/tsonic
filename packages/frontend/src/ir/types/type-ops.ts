@@ -8,12 +8,14 @@ export type IrSpreadTupleShape = {
 
 type StableTypeKeyState = {
   readonly seen: Map<object, number>;
+  readonly keys: Map<object, string>;
   readonly parent?: StableTypeKeyState;
   nextId: number;
 };
 
 const createStableTypeKeyState = (): StableTypeKeyState => ({
   seen: new Map<object, number>(),
+  keys: new Map<object, string>(),
   nextId: 0,
 });
 
@@ -21,6 +23,7 @@ const cloneStableTypeKeyState = (
   state: StableTypeKeyState
 ): StableTypeKeyState => ({
   seen: new Map<object, number>(),
+  keys: state.keys,
   parent: state,
   nextId: state.nextId,
 });
@@ -35,6 +38,18 @@ const findStableTypeNodeId = (
   }
 
   return state.parent ? findStableTypeNodeId(state.parent, node) : undefined;
+};
+
+const findStableTypeKey = (
+  state: StableTypeKeyState,
+  node: object
+): string | undefined => {
+  const local = state.keys.get(node);
+  if (local !== undefined) {
+    return local;
+  }
+
+  return state.parent ? findStableTypeKey(state.parent, node) : undefined;
 };
 
 const beginStableTypeNode = (
@@ -225,11 +240,19 @@ const stableIrTypeKeyImpl = (
   type: IrType,
   state: StableTypeKeyState
 ): string => {
+  const cached = findStableTypeKey(state, type);
+  if (cached !== undefined) {
+    return cached;
+  }
+
   const visit = beginStableTypeNode(state, type);
   if (visit.seenBefore) {
     return `cycle:${visit.id}`;
   }
 
+  state.keys.set(type, `cycle:${visit.id}`);
+
+  let key: string;
   switch (type.kind) {
     case "primitiveType":
     case "literalType":
@@ -238,38 +261,46 @@ const stableIrTypeKeyImpl = (
     case "unknownType":
     case "voidType":
     case "neverType":
-      return primitiveKey(type);
+      key = primitiveKey(type);
+      break;
 
     case "arrayType":
-      return `arr#${visit.id}:${stableIrTypeKeyImpl(type.elementType, state)}:tuple:${(
+      key = `arr#${visit.id}:${stableIrTypeKeyImpl(type.elementType, state)}:tuple:${(
         type.tuplePrefixElementTypes ?? []
       )
         .map((elementType) => stableIrTypeKeyImpl(elementType, state))
         .join(
           ","
         )}:rest:${type.tupleRestElementType ? stableIrTypeKeyImpl(type.tupleRestElementType, state) : "none"}`;
+      break;
 
     case "tupleType":
-      return `tuple#${visit.id}:${type.elementTypes
+      key = `tuple#${visit.id}:${type.elementTypes
         .map((elementType) => stableIrTypeKeyImpl(elementType, state))
         .join(",")}`;
+      break;
 
     case "dictionaryType":
-      return `dict#${visit.id}:${stableIrTypeKeyImpl(type.keyType, state)}=>${stableIrTypeKeyImpl(
+      key = `dict#${visit.id}:${stableIrTypeKeyImpl(type.keyType, state)}=>${stableIrTypeKeyImpl(
         type.valueType,
         state
       )}`;
+      break;
 
     case "referenceType": {
       const args = (type.typeArguments ?? []).map((t) =>
         t ? stableIrTypeKeyImpl(t, state) : "unknown"
       );
-      const members = type.structuralMembers
-        ? sortByStableKey(type.structuralMembers, interfaceMemberKey, state)
-            .map((member) => interfaceMemberKey(member, state))
-            .join("|")
-        : "";
-      return `ref#${visit.id}:${referenceTypeIdentity(type)}:${args.join(",")}:${members}`;
+      const members =
+        type.structuralMembers &&
+        !type.typeId?.stableId &&
+        !type.resolvedClrType
+          ? sortByStableKey(type.structuralMembers, interfaceMemberKey, state)
+              .map((member) => interfaceMemberKey(member, state))
+              .join("|")
+          : "";
+      key = `ref#${visit.id}:${referenceTypeIdentity(type)}:${args.join(",")}:${members}`;
+      break;
     }
 
     case "functionType": {
@@ -277,26 +308,33 @@ const stableIrTypeKeyImpl = (
         .map((parameter) => parameterKey(parameter, state))
         .join("|");
       const returnType = stableIrTypeKeyImpl(type.returnType, state);
-      return `fn#${visit.id}:${params}->${returnType}`;
+      key = `fn#${visit.id}:${params}->${returnType}`;
+      break;
     }
 
     case "objectType": {
       const members = sortByStableKey(type.members, interfaceMemberKey, state)
         .map((member) => interfaceMemberKey(member, state))
         .join("|");
-      return `obj#${visit.id}:${members}`;
+      key = `obj#${visit.id}:${members}`;
+      break;
     }
 
     case "unionType":
-      return `union#${visit.id}:${normalizeTypeList(type.types, state)
+      key = `union#${visit.id}:${normalizeTypeList(type.types, state)
         .map((member) => stableIrTypeKeyImpl(member, state))
         .join("|")}`;
+      break;
 
     case "intersectionType":
-      return `inter#${visit.id}:${normalizeTypeList(type.types, state)
+      key = `inter#${visit.id}:${normalizeTypeList(type.types, state)
         .map((member) => stableIrTypeKeyImpl(member, state))
         .join("|")}`;
+      break;
   }
+
+  state.keys.set(type, key);
+  return key;
 };
 
 export const stableIrTypeKey = (type: IrType): string =>

@@ -4,11 +4,7 @@
  * Circular import with anon-type-lower-statements.ts is intentional and safe:
  * both modules export const functions only used after module initialization.
  */
-import type {
-  IrExpression,
-  IrReferenceType,
-  IrType,
-} from "../types.js";
+import type { IrExpression, IrReferenceType, IrType } from "../types.js";
 import { getOrCreateBehavioralObjectTypeName } from "./anon-type-declaration-synthesis.js";
 import type { LoweringContext } from "./anon-type-lower-types.js";
 import {
@@ -16,7 +12,10 @@ import {
   lowerPattern,
   lowerType,
 } from "./anon-type-lower-types.js";
-import { lowerBlockStatement, lowerClassMember } from "./anon-type-lower-statements.js";
+import {
+  lowerBlockStatement,
+  lowerClassMember,
+} from "./anon-type-lower-statements.js";
 
 export const lowerExpression = (
   expr: IrExpression,
@@ -31,7 +30,11 @@ export const lowerExpression = (
 
       case "identifier": {
         if (!expr.declId || !expr.inferredType) return expr;
-        if (expr.resolvedClrType || expr.resolvedAssembly || expr.importedFrom) {
+        if (
+          expr.resolvedClrType ||
+          expr.resolvedAssembly ||
+          expr.importedFrom
+        ) {
           return expr;
         }
         if (
@@ -150,7 +153,8 @@ export const lowerExpression = (
                 ...expr.inferredType,
                 parameters: loweredParams,
                 returnType:
-                  loweredReturnType ?? lowerType(expr.inferredType.returnType, ctx),
+                  loweredReturnType ??
+                  lowerType(expr.inferredType.returnType, ctx),
               }
             : expr.inferredType;
         return {
@@ -179,7 +183,8 @@ export const lowerExpression = (
                 ...expr.inferredType,
                 parameters: loweredParams,
                 returnType:
-                  loweredReturnType ?? lowerType(expr.inferredType.returnType, ctx),
+                  loweredReturnType ??
+                  lowerType(expr.inferredType.returnType, ctx),
               }
             : expr.inferredType;
         if (expr.body.kind === "blockStatement") {

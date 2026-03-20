@@ -3,7 +3,7 @@
   "description": "tsonic test: generates an MSIL test project and runs dotnet test (xUnit).",
   "postBuild": {
     "commands": [
-      "node ../../../packages/cli/dist/index.js test --project dotnet-test-command --config tsonic.workspace.json"
+      "node \"${TSONIC_BIN:-../../../packages/cli/dist/index.js}\" test --project dotnet-test-command --config tsonic.workspace.json"
     ]
   }
 }

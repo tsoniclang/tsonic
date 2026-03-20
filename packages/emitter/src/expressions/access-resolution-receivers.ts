@@ -17,7 +17,7 @@ import {
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { stripNullableTypeAst } from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
-import { getCanonicalRuntimeUnionMembers } from "../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
 import { tryBuildRuntimeReificationPlan } from "../core/semantic/runtime-reification.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
@@ -317,10 +317,15 @@ const tryResolveEmittedRuntimeUnionMemberTypeAst = (
   const memberN = tryExtractRuntimeUnionMemberN(exprAst);
   if (!memberN) return [undefined, context];
 
-  const members = getCanonicalRuntimeUnionMembers(baseType, context);
-  if (!members) {
+  const [layout, layoutContext] = buildRuntimeUnionLayout(
+    baseType,
+    context,
+    emitTypeAst
+  );
+  if (!layout) {
     return [undefined, context];
   }
+  const members = layout.members;
 
   const memberIndex = memberN - 1;
   if (memberIndex < 0 || memberIndex >= members.length) {
@@ -333,10 +338,10 @@ const tryResolveEmittedRuntimeUnionMemberTypeAst = (
   }
 
   const storageMemberType =
-    normalizeRuntimeStorageType(memberType, context) ?? memberType;
+    normalizeRuntimeStorageType(memberType, layoutContext) ?? memberType;
   return emitTypeAst(
-    normalizeStructuralEmissionType(storageMemberType, context),
-    context
+    normalizeStructuralEmissionType(storageMemberType, layoutContext),
+    layoutContext
   );
 };
 

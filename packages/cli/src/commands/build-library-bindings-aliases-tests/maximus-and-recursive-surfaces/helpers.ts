@@ -10,6 +10,7 @@ import {
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { getStableCliPath } from "../../../test-cli-bin.js";
 import {
   buildTestTimeoutMs,
   linkDir,
@@ -72,7 +73,7 @@ export const runCliBuild = (
   wsConfigPath: string,
   project: "core" | "app"
 ): void => {
-  const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+  const cliPath = getStableCliPath(repoRoot);
   const result = spawnSync(
     "node",
     [

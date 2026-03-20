@@ -16,7 +16,10 @@ import {
   stripNullish,
   getPropertyType,
 } from "../core/semantic/type-resolution.js";
-import { sameTypeAstSurface, getIdentifierTypeLeafName } from "../core/format/backend-ast/utils.js";
+import {
+  sameTypeAstSurface,
+  getIdentifierTypeLeafName,
+} from "../core/format/backend-ast/utils.js";
 import type { EmitterContext } from "../types.js";
 import { hasNullishBranch } from "./exact-comparison.js";
 import {

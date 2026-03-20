@@ -4,9 +4,7 @@ import {
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
 import { computeReceiverSubstitution } from "./call-resolution-signatures.js";
-import {
-  substitutePolymorphicThis,
-} from "./call-resolution-utilities.js";
+import { substitutePolymorphicThis } from "./call-resolution-utilities.js";
 import type {
   RawSignatureInfo,
   ResolvedCall,
@@ -101,12 +99,8 @@ export const applyReceiverSubstitution = (
   effectiveReceiverType: IrType | undefined,
   signature: WorkingSignature
 ): WorkingSignature => {
-  let {
-    workingParams,
-    workingThisParam,
-    workingReturn,
-    workingPredicate,
-  } = signature;
+  let { workingParams, workingThisParam, workingReturn, workingPredicate } =
+    signature;
 
   if (
     effectiveReceiverType &&

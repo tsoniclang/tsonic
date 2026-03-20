@@ -25,6 +25,7 @@ import {
   narrowTypeByNotAssignableTarget,
   currentNarrowedType,
   resolveRuntimeUnionFrame,
+  resolveRuntimeSubsetSourceInfo,
   buildRuntimeUnionComplementBinding,
   applyDirectTypeNarrowing,
 } from "./narrowing-builders.js";
@@ -88,6 +89,7 @@ export const applyInstanceofRefinement = (
       receiverAst: lhsAst,
       targetType: inferredRhsType,
       memberN,
+      runtimeUnionArity: runtimeUnionFrame?.runtimeUnionArity,
       candidateMemberNs: runtimeUnionFrame?.candidateMemberNs,
       candidateMembers: runtimeUnionFrame?.members,
       currentType,
@@ -103,19 +105,27 @@ export const applyInstanceofRefinement = (
       guard.memberN === undefined ||
       !guard.candidateMemberNs ||
       !guard.candidateMembers ||
+      !guard.runtimeUnionArity ||
       !guard.currentType
     ) {
       return undefined;
     }
 
+    const runtimeUnionFrame = {
+      members: guard.candidateMembers,
+      candidateMemberNs: guard.candidateMemberNs,
+      runtimeUnionArity: guard.runtimeUnionArity,
+    };
+    const sourceInfo = resolveRuntimeSubsetSourceInfo(
+      guard.originalName,
+      guard.currentType,
+      runtimeUnionFrame,
+      context
+    );
+
     const complementBinding = buildRuntimeUnionComplementBinding(
       guard.receiverAst,
-      {
-        members: guard.candidateMembers,
-        candidateMemberNs: guard.candidateMemberNs,
-        runtimeUnionArity:
-          guard.candidateMembers.length || guard.candidateMemberNs.length,
-      },
+      runtimeUnionFrame,
       guard.currentType,
       buildSubsetUnionType(
         guard.candidateMembers.filter((_, index) => {
@@ -125,7 +135,8 @@ export const applyInstanceofRefinement = (
         })
       ) ?? { kind: "unknownType" },
       guard.memberN,
-      guard.contextAfter
+      guard.contextAfter,
+      sourceInfo
     );
     if (!complementBinding) {
       return undefined;
@@ -269,7 +280,13 @@ export const applyPredicateCallRefinement = (
         currentType,
         narrowedType,
         selectedMemberN,
-        rawTargetContext
+        rawTargetContext,
+        resolveRuntimeSubsetSourceInfo(
+          bindingKey,
+          currentType,
+          runtimeUnionFrame,
+          context
+        )
       );
       if (complementBinding) {
         return applyBinding(bindingKey, complementBinding, rawTargetContext);
@@ -289,27 +306,47 @@ export const applyPredicateCallRefinement = (
       );
 
       if (branch === "truthy" && matchedMemberNs.length > 0) {
+        const sourceInfo = resolveRuntimeSubsetSourceInfo(
+          bindingKey,
+          currentType,
+          runtimeUnionFrame,
+          context
+        );
         const subsetBinding: NarrowedBinding = {
           kind: "runtimeSubset",
           runtimeMemberNs: matchedMemberNs,
           runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
-          sourceMembers: [...runtimeUnionFrame.members],
-          sourceCandidateMemberNs: [...runtimeUnionFrame.candidateMemberNs],
+          sourceMembers: sourceInfo.sourceMembers
+            ? [...sourceInfo.sourceMembers]
+            : undefined,
+          sourceCandidateMemberNs: sourceInfo.sourceCandidateMemberNs
+            ? [...sourceInfo.sourceCandidateMemberNs]
+            : undefined,
           type: narrowedType,
-          sourceType: currentType,
+          sourceType: sourceInfo.sourceType,
         };
         return applyBinding(bindingKey, subsetBinding, rawTargetContext);
       }
 
       if (branch === "falsy" && complementMemberNs.length > 0) {
+        const sourceInfo = resolveRuntimeSubsetSourceInfo(
+          bindingKey,
+          currentType,
+          runtimeUnionFrame,
+          context
+        );
         const complementBinding: NarrowedBinding = {
           kind: "runtimeSubset",
           runtimeMemberNs: complementMemberNs,
           runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
-          sourceMembers: [...runtimeUnionFrame.members],
-          sourceCandidateMemberNs: [...runtimeUnionFrame.candidateMemberNs],
+          sourceMembers: sourceInfo.sourceMembers
+            ? [...sourceInfo.sourceMembers]
+            : undefined,
+          sourceCandidateMemberNs: sourceInfo.sourceCandidateMemberNs
+            ? [...sourceInfo.sourceCandidateMemberNs]
+            : undefined,
           type: narrowedType,
-          sourceType: currentType,
+          sourceType: sourceInfo.sourceType,
         };
         return applyBinding(bindingKey, complementBinding, rawTargetContext);
       }

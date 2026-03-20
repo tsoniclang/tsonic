@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getStableCliPath } from "../../../test-cli-bin.js";
 import { buildTestTimeoutMs, linkDir, repoRoot } from "../helpers.js";
 
 describe("build command (library bindings)", function () {
@@ -105,7 +106,7 @@ describe("build command (library bindings)", function () {
         join(dir, "node_modules/@tsonic/globals")
       );
 
-      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+      const cliPath = getStableCliPath(repoRoot);
       const result = spawnSync(
         "node",
         [

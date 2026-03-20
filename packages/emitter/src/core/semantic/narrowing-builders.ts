@@ -24,6 +24,7 @@ export {
   narrowTypeByNotAssignableTarget,
   currentNarrowedType,
   resolveRuntimeUnionFrame,
+  resolveRuntimeSubsetSourceInfo,
   isNullOrUndefined,
 } from "./narrowing-builder-core.js";
 

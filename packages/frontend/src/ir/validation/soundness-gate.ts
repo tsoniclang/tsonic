@@ -8,9 +8,7 @@
  * If this pass emits any errors, the emitter must not run.
  */
 
-import {
-  IrModule,
-} from "../types.js";
+import { IrModule } from "../types.js";
 import type {
   SoundnessGateOptions,
   SoundnessValidationResult,

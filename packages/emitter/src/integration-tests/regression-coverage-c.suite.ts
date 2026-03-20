@@ -44,6 +44,66 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include('body["allow_subdomains"] == true');
     });
 
+    it("compares optional runtime-union member reads to literals without Match projections", () => {
+      const source = `
+        interface CookieOptions {
+          sameSite?: string | boolean;
+        }
+
+        export function resolveSameSite(options?: CookieOptions): string {
+          if (typeof options?.sameSite === "string" && options.sameSite.length > 0) {
+            return options.sameSite;
+          }
+
+          if (options?.sameSite === true) {
+            return "Strict";
+          }
+
+          return "None";
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "options?.sameSite is global::Tsonic.Runtime.Union<bool, string> __tsonic_union_compare_1"
+      );
+      expect(csharp).to.include("__tsonic_union_compare_1.Is1()");
+      expect(csharp).to.include("__tsonic_union_compare_1.As1() == true");
+      expect(csharp).not.to.include("options?.sameSite.Match(");
+    });
+
+    it("aligns typeof guards with emitted overload carrier slots when nested aliases include nullish members", () => {
+      const source = `
+        declare class Rx {}
+
+        type PathSpec = string | Rx | readonly PathSpec[] | null | undefined;
+        type RouteHandler = () => void;
+
+        declare class Router {
+          get(path: PathSpec, ...handlers: RouteHandler[]): this;
+        }
+
+        export class Application extends Router {
+          get(name: string): unknown;
+          override get(path: PathSpec, ...handlers: RouteHandler[]): this;
+          override get(nameOrPath: string | PathSpec, ...handlers: RouteHandler[]): unknown {
+            if (handlers.length === 0 && typeof nameOrPath === "string") {
+              return nameOrPath;
+            }
+
+            return super.get(nameOrPath as PathSpec, ...handlers);
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "private object? __tsonic_overload_impl_get(global::Tsonic.Runtime.Union<object?[], string, global::Test.Rx> nameOrPath"
+      );
+      expect(csharp).to.include("handlers.Length == 0 && nameOrPath.Is2()");
+      expect(csharp).not.to.include("handlers.Length == 0 && nameOrPath.Is3()");
+    });
+
     it("materializes structural object arguments for inline object-type parameters", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";

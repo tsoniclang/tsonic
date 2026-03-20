@@ -127,6 +127,18 @@ export const emitIdentifier = (
 
         return [narrowed.exprAst, context];
       } else if (narrowed.kind === "runtimeSubset") {
+        const expectedSubset = expectedType
+          ? buildRuntimeSubsetExpressionAst(
+              expr,
+              narrowed,
+              context,
+              expectedType
+            )
+          : undefined;
+        if (expectedSubset) {
+          return expectedSubset;
+        }
+
         const implicitStorage = tryEmitImplicitRuntimeSubsetStorageIdentifier(
           expr,
           narrowed,

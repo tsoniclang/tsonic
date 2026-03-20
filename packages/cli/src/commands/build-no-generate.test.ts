@@ -19,6 +19,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getStableCliPath } from "../test-cli-bin.js";
 
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -134,7 +135,7 @@ describe("build command (--no-generate)", function () {
         join(dir, "node_modules/@tsonic/globals")
       );
 
-      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+      const cliPath = getStableCliPath(repoRoot);
 
       // 1) Generate C#
       const gen = spawnSync(

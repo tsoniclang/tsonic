@@ -11,16 +11,20 @@
 import { IrExpression, type IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
+import { emitTypeAst } from "../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
 import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 import {
   hasInt32Proof,
   maybeReifyErasedArrayElement,
+  type MemberAccessUsage,
 } from "./access-resolution.js";
+import { buildJsSafeDictionaryReadAst } from "./dictionary-safe-access.js";
 
 /**
  * Emit a computed member access expression as CSharpExpressionAst.
@@ -30,7 +34,9 @@ import {
 export const emitComputedAccess = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
   objectAst: CSharpExpressionAst,
+  objectType: IrType | undefined,
   context: EmitterContext,
+  usage: MemberAccessUsage = "value",
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   const accessKind = expr.accessKind;
@@ -47,18 +53,32 @@ export const emitComputedAccess = (
     indexContext
   );
   const finalContext = { ...contextWithIndex, isArrayIndex: false };
+  const resolvedObjectType = objectType
+    ? resolveTypeAlias(stripNullish(objectType), context)
+    : undefined;
 
   if (accessKind === "dictionary") {
-    if (expr.isOptional) {
+    if (context.options.surface === "@tsonic/js" && usage !== "write") {
+      const fallbackType =
+        expectedType ??
+        expr.inferredType ??
+        (resolvedObjectType?.kind === "dictionaryType"
+          ? resolvedObjectType.valueType
+          : undefined);
+      const [resultTypeAst, typeContext] = fallbackType
+        ? emitTypeAst(fallbackType, finalContext)
+        : [identifierType("object"), finalContext];
       return [
-        {
-          kind: "conditionalElementAccessExpression",
-          expression: objectAst,
-          arguments: [propAst],
-        },
-        finalContext,
+        buildJsSafeDictionaryReadAst(
+          objectAst,
+          propAst,
+          expr.isOptional,
+          resultTypeAst
+        ),
+        typeContext,
       ];
     }
+
     return [
       {
         kind: "elementAccessExpression",
@@ -140,10 +160,12 @@ export const emitComputedAccess = (
     expression: objectAst,
     arguments: [propAst],
   };
-  return maybeReifyErasedArrayElement(
-    accessAst,
-    expr.object,
-    expectedType ?? expr.inferredType,
-    finalContext
-  );
+  return usage === "value"
+    ? maybeReifyErasedArrayElement(
+        accessAst,
+        expr.object,
+        expectedType ?? expr.inferredType,
+        finalContext
+      )
+    : [accessAst, finalContext];
 };

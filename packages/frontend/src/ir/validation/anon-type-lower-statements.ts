@@ -27,7 +27,9 @@ export const lowerBlockStatement = (
   ctx: LoweringContext
 ): IrBlockStatement => ({
   ...stmt,
-  statements: stmt.statements.map((statement) => lowerStatement(statement, ctx)),
+  statements: stmt.statements.map((statement) =>
+    lowerStatement(statement, ctx)
+  ),
 });
 
 export const lowerVariableDeclaration = (
@@ -75,7 +77,9 @@ export const lowerClassMember = (
     case "propertyDeclaration":
       return {
         ...member,
-        type: member.type ? lowerType(member.type, ctx, member.name) : undefined,
+        type: member.type
+          ? lowerType(member.type, ctx, member.name)
+          : undefined,
         initializer: member.initializer
           ? lowerExpression(member.initializer, ctx)
           : undefined,
@@ -132,7 +136,9 @@ export const lowerStatement = (
         typeParameters: stmt.typeParameters?.map((typeParameter) =>
           lowerTypeParameter(typeParameter, ctx)
         ),
-        superClass: stmt.superClass ? lowerType(stmt.superClass, ctx) : undefined,
+        superClass: stmt.superClass
+          ? lowerType(stmt.superClass, ctx)
+          : undefined,
         implements: stmt.implements.map((heritage) => lowerType(heritage, ctx)),
         members: stmt.members.map((member) => lowerClassMember(member, ctx)),
       };
@@ -144,7 +150,9 @@ export const lowerStatement = (
           lowerTypeParameter(typeParameter, ctx)
         ),
         extends: stmt.extends.map((heritage) => lowerType(heritage, ctx)),
-        members: stmt.members.map((member) => lowerInterfaceMember(member, ctx)),
+        members: stmt.members.map((member) =>
+          lowerInterfaceMember(member, ctx)
+        ),
       };
 
     case "enumDeclaration":
@@ -255,7 +263,9 @@ export const lowerStatement = (
             ? lowerVariableDeclaration(stmt.initializer, ctx)
             : lowerExpression(stmt.initializer, ctx)
           : undefined,
-        condition: stmt.condition ? lowerExpression(stmt.condition, ctx) : undefined,
+        condition: stmt.condition
+          ? lowerExpression(stmt.condition, ctx)
+          : undefined,
         update: stmt.update ? lowerExpression(stmt.update, ctx) : undefined,
         body: lowerStatement(stmt.body, ctx),
       };
@@ -282,7 +292,9 @@ export const lowerStatement = (
         expression: lowerExpression(stmt.expression, ctx),
         cases: stmt.cases.map((switchCase) => ({
           ...switchCase,
-          test: switchCase.test ? lowerExpression(switchCase.test, ctx) : undefined,
+          test: switchCase.test
+            ? lowerExpression(switchCase.test, ctx)
+            : undefined,
           statements: switchCase.statements.map((statement) =>
             lowerStatement(statement, ctx)
           ),

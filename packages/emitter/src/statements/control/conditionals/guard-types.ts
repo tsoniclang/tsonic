@@ -39,7 +39,8 @@ export type GuardInfo = {
   readonly originalName: string;
   readonly receiverAst: CSharpExpressionAst;
   readonly targetType: IrType;
-  readonly memberN: number;
+  readonly memberN?: number;
+  readonly memberNs: readonly number[];
   readonly unionArity: number; // Number of currently reachable members
   readonly runtimeUnionArity: number;
   readonly candidateMemberNs: readonly number[];
@@ -48,6 +49,9 @@ export type GuardInfo = {
   readonly narrowedName: string;
   readonly escapedNarrow: string;
   readonly narrowedMap: Map<string, NarrowedBinding>;
+  readonly sourceType?: IrType;
+  readonly sourceMembers?: readonly IrType[];
+  readonly sourceCandidateMemberNs?: readonly number[];
 };
 
 /**

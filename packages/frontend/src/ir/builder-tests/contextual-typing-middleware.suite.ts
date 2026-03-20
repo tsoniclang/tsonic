@@ -329,5 +329,97 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
+
+    it("builds express-like recursive middleware overloads without stable type key overflow", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            'type NextControl = "route" | "router" | string | null | undefined;',
+            "type NextFunction = (value?: NextControl) => void | Promise<void>;",
+            "interface Request { path: string; }",
+            "interface Response { send(text: string): void; }",
+            "interface RequestHandler {",
+            "  (req: Request, res: Response, next: NextFunction): unknown | Promise<unknown>;",
+            "}",
+            "interface ErrorRequestHandler {",
+            "  (error: unknown, req: Request, res: Response, next: NextFunction): unknown | Promise<unknown>;",
+            "}",
+            "type PathSpec = string | RegExp | readonly PathSpec[] | null | undefined;",
+            "type MiddlewareHandler = RequestHandler | ErrorRequestHandler;",
+            "type MiddlewareEntry = MiddlewareHandler | Router;",
+            "type MiddlewareLike = MiddlewareEntry | readonly MiddlewareLike[];",
+            "function isPathSpec(value: PathSpec | MiddlewareEntry): value is PathSpec {",
+            '  return value == null || typeof value === "string" || value instanceof RegExp || Array.isArray(value);',
+            "}",
+            "function flattenMiddlewareEntries(entries: readonly MiddlewareEntry[]): readonly MiddlewareEntry[] {",
+            "  return entries;",
+            "}",
+            "class Router {",
+            "  use(first: PathSpec | MiddlewareEntry, ...rest: MiddlewareEntry[]): this {",
+            '    const mountedAt = isPathSpec(first) ? first : "/";',
+            "    const candidates: readonly MiddlewareEntry[] = isPathSpec(first) ? rest : [first, ...rest];",
+            "    this.addMiddlewareLayer(mountedAt, candidates);",
+            "    return this;",
+            "  }",
+            "  useError(...handlers: readonly ErrorRequestHandler[]): this {",
+            '    this.addErrorMiddlewareLayer("/", handlers);',
+            "    return this;",
+            "  }",
+            "  protected addMiddlewareLayer(path: PathSpec, handlers: readonly MiddlewareEntry[]): void {",
+            "    for (const handler of flattenMiddlewareEntries(handlers)) {",
+            "      if (handler instanceof Router) {",
+            "        this.mountRouter(path, handler);",
+            "        continue;",
+            "      }",
+            "      this.registerHandler(path, handler);",
+            "    }",
+            "  }",
+            "  protected addErrorMiddlewareLayer(path: PathSpec, handlers: readonly ErrorRequestHandler[]): void {",
+            "    for (const handler of handlers) {",
+            "      this.registerErrorHandler(path, handler);",
+            "    }",
+            "  }",
+            "  protected mountRouter(_path: PathSpec, _router: Router): void {}",
+            "  protected registerHandler(_path: PathSpec, _handler: MiddlewareHandler): void {}",
+            "  protected registerErrorHandler(_path: PathSpec, _handler: ErrorRequestHandler): void {}",
+            "}",
+            "class Application extends Router {",
+            "  get(path: PathSpec, ...handlers: readonly RequestHandler[]): this {",
+            "    return this;",
+            "  }",
+            "}",
+            "export async function main(): Promise<void> {",
+            "  const app = new Application();",
+            "  const child = new Application();",
+            '  app.use("/api", child);',
+            "  app.useError(async (_error, _req, res, _next) => {",
+            '    res.send("handled");',
+            "  });",
+            '  app.get("/items/:id",',
+            "    async (_req, _res, next) => {",
+            '      await next("route");',
+            "    },",
+            "    async (_req, res, _next) => {",
+            '      res.send("ok");',
+            "    });",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+      } finally {
+        fixture.cleanup();
+      }
+    });
   });
 });

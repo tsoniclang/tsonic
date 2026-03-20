@@ -1,6 +1,9 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import { nullLiteral } from "../format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  nullLiteral,
+} from "../format/backend-ast/builders.js";
 import {
   sameTypeAstSurface,
   stableConcreteTypeKeyFromAst,
@@ -23,7 +26,11 @@ import {
   tryBuildRuntimeUnionProjectionToLayoutAst,
 } from "./runtime-union-projection.js";
 import { resolveDirectValueSurfaceType } from "./direct-value-surfaces.js";
-import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
+import {
+  getArrayLikeElementType,
+  resolveTypeAlias,
+  stripNullish,
+} from "./type-resolution.js";
 import {
   boxValueAst,
   buildArrayShapeCondition,
@@ -47,6 +54,88 @@ export type RuntimeReificationPlan = {
 export type RuntimeMaterializationSourceFrame = {
   readonly members: readonly IrType[];
   readonly candidateMemberNs?: readonly number[];
+};
+
+const tryBuildArrayElementMaterializationAst = (
+  valueAst: CSharpExpressionAst,
+  sourceType: IrType,
+  expectedType: IrType,
+  context: EmitterContext,
+  emitTypeAst: EmitTypeAstFn
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const sourceElementType = getArrayLikeElementType(sourceType, context);
+  const targetElementType = getArrayLikeElementType(expectedType, context);
+  if (!sourceElementType || !targetElementType) {
+    return undefined;
+  }
+
+  const [sourceElementLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
+    sourceElementType,
+    context,
+    emitTypeAst
+  );
+  if (!sourceElementLayout) {
+    return undefined;
+  }
+
+  const [sourceElementTypeAst, sourceTypeContext] = emitTypeAst(
+    sourceElementType,
+    sourceLayoutContext
+  );
+  const [targetElementTypeAst, targetTypeContext] = emitTypeAst(
+    targetElementType,
+    sourceTypeContext
+  );
+  if (sameTypeAstSurface(sourceElementTypeAst, targetElementTypeAst)) {
+    return undefined;
+  }
+
+  const itemName = "__tsonic_array_item";
+  const itemExpr = identifierExpression(itemName);
+  const materializedElement = tryBuildRuntimeMaterializationAst(
+    itemExpr,
+    sourceElementType,
+    targetElementType,
+    targetTypeContext,
+    emitTypeAst
+  );
+  if (!materializedElement) {
+    return undefined;
+  }
+
+  const selectAst: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: identifierExpression("global::System.Linq.Enumerable.Select"),
+    typeArguments: [sourceElementTypeAst, targetElementTypeAst],
+    arguments: [
+      valueAst,
+      {
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: itemName }],
+        body: materializedElement[0],
+      },
+    ],
+  };
+  const toArrayAst: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: identifierExpression("global::System.Linq.Enumerable.ToArray"),
+    typeArguments: [targetElementTypeAst],
+    arguments: [selectAst],
+  };
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    expectedType,
+    materializedElement[1]
+  );
+
+  return [
+    {
+      kind: "castExpression",
+      type: expectedTypeAst,
+      expression: toArrayAst,
+    },
+    expectedTypeContext,
+  ];
 };
 
 export const tryBuildRuntimeMaterializationAst = (
@@ -150,6 +239,16 @@ export const tryBuildRuntimeMaterializationAst = (
   const concreteTargetTypeKey = stableConcreteTypeKeyFromAst(
     concreteTargetTypeAst
   );
+  const resolvedTarget = resolveTypeAlias(
+    stripNullish(targetType),
+    nextContext
+  );
+  const isBroadObjectTarget =
+    resolvedTarget.kind === "unknownType" ||
+    resolvedTarget.kind === "anyType" ||
+    resolvedTarget.kind === "objectType" ||
+    (resolvedTarget.kind === "referenceType" &&
+      resolvedTarget.name === "object");
   const sourceSurfaceMemberTypeAsts =
     getRuntimeUnionCastMemberTypeAsts(valueAst);
   const matchingSourceIndices = sourceLayout.members.flatMap((member, index) =>
@@ -158,18 +257,19 @@ export const tryBuildRuntimeMaterializationAst = (
       selectedSourceMemberNs.has(
         sourceFrame?.candidateMemberNs?.[index] ?? index + 1
       )) &&
-    ((() => {
-      const sourceMemberTypeAst =
-        sourceSurfaceMemberTypeAsts?.[index] ??
-        sourceLayout.memberTypeAsts[index];
-      if (!sourceMemberTypeAst) {
-        return false;
-      }
-      return (
-        stableConcreteTypeKeyFromAst(sourceMemberTypeAst) ===
-        concreteTargetTypeKey
-      );
-    })() ||
+    (isBroadObjectTarget ||
+      (() => {
+        const sourceMemberTypeAst =
+          sourceSurfaceMemberTypeAsts?.[index] ??
+          sourceLayout.memberTypeAsts[index];
+        if (!sourceMemberTypeAst) {
+          return false;
+        }
+        return (
+          stableConcreteTypeKeyFromAst(sourceMemberTypeAst) ===
+          concreteTargetTypeKey
+        );
+      })() ||
       findRuntimeUnionMemberIndex([member], targetType, nextContext) === 0)
       ? [index]
       : []
@@ -423,6 +523,23 @@ export const tryBuildRuntimeReificationPlan = (
         resolvedExpected.name === "ReadonlyArray" ||
         resolvedExpected.name === "JSArray"))
   ) {
+    if (directValueSurfaceType) {
+      const elementMaterialization = tryBuildArrayElementMaterializationAst(
+        valueAst,
+        directValueSurfaceType,
+        expectedType,
+        typeContext,
+        emitTypeAst
+      );
+      if (elementMaterialization) {
+        return {
+          condition: buildArrayShapeCondition(valueAst),
+          value: elementMaterialization[0],
+          context: elementMaterialization[1],
+        };
+      }
+    }
+
     return {
       condition: buildArrayShapeCondition(valueAst),
       value: {

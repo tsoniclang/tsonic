@@ -1,9 +1,7 @@
 import type { Diagnostic } from "../../types/diagnostic.js";
 import type { IrType } from "../types/index.js";
 import { unknownType } from "./types.js";
-import type {
-  ResolvedCall,
-} from "./type-system-state-call-types.js";
+import type { ResolvedCall } from "./type-system-state-call-types.js";
 
 export const BUILTIN_NOMINALS: Readonly<Record<string, string>> = {
   string: "String",

@@ -130,6 +130,78 @@ describe("JSON NativeAOT registry", () => {
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
   });
 
+  it("routes global JSON.stringify on unknown values through JSRuntime without AOT metadata", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/index.ts",
+      namespace: "MyApp",
+      className: "index",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "stringifyUnknown",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: { kind: "unknownType" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "call",
+                  callee: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "JSON" },
+                    property: "stringify",
+                    isComputed: false,
+                    isOptional: false,
+                  },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "value",
+                      inferredType: { kind: "unknownType" },
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "string" },
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitCSharpFiles([module], {
+      rootNamespace: "MyApp",
+      enableJsonAot: true,
+    });
+    expect(result.ok).to.equal(true);
+    if (!result.ok) return;
+
+    const code = result.files.get("index.cs");
+    expect(code).to.not.equal(undefined);
+    expect(code).to.include("global::Tsonic.JSRuntime.JSON.stringify(value)");
+    expect(code).to.not.include("JsonSerializer.Serialize(value");
+    expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
+  });
+
   it("does not register open generic type parameters (no typeof(global::T))", () => {
     const module: IrModule = {
       kind: "module",
