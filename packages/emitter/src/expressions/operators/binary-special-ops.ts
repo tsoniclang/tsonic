@@ -13,16 +13,273 @@ import {
   resolveTypeAlias,
   stripNullish,
   hasDeterministicPropertyMembership,
+  matchesTypeofTag,
 } from "../../core/semantic/type-resolution.js";
-import { getCanonicalRuntimeUnionMembers } from "../../core/semantic/runtime-unions.js";
-import { isSemanticUnion } from "../../core/semantic/union-semantics.js";
+import {
+  buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
+  getCanonicalRuntimeUnionMembers,
+} from "../../core/semantic/runtime-unions.js";
+import {
+  isSemanticUnion,
+  willCarryAsRuntimeUnion,
+} from "../../core/semantic/union-semantics.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
+import { unwrapTransparentNarrowingTarget } from "../../core/semantic/transparent-expressions.js";
+import { getMemberAccessNarrowKey } from "../../core/semantic/narrowing-keys.js";
+import { currentNarrowedType } from "../../core/semantic/narrowing-builders.js";
+import {
+  resolveIdentifierCarrierStorageType,
+  resolveDirectStorageExpressionAst,
+  resolveDirectStorageExpressionType,
+} from "../direct-storage-types.js";
 import {
   booleanLiteral,
   identifierType,
 } from "../../core/format/backend-ast/builders.js";
-import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
+import {
+  extractCalleeNameFromAst,
+  stableTypeKeyFromAst,
+  stripNullableTypeAst,
+} from "../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+
+const buildRuntimeUnionMemberCheck = (
+  receiver: CSharpExpressionAst,
+  memberNs: readonly number[],
+  negate: boolean
+): CSharpExpressionAst => {
+  if (memberNs.length === 0) {
+    return booleanLiteral(negate);
+  }
+
+  const checks = memberNs.map<CSharpExpressionAst>((memberN) => ({
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: receiver,
+      memberName: `Is${memberN}`,
+    },
+    arguments: [],
+  }));
+
+  const combined = checks.reduce<CSharpExpressionAst | undefined>(
+    (current, check) =>
+      current
+        ? {
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "binaryExpression",
+              operatorToken: "||",
+              left: current,
+              right: check,
+            },
+          }
+        : check,
+    undefined
+  );
+
+  const base = combined ?? booleanLiteral(false);
+  return negate
+    ? { kind: "prefixUnaryExpression", operatorToken: "!", operand: base }
+    : base;
+};
+
+const resolveAlignedRuntimeCarrierMembers = (
+  directStorageType: IrExpression["inferredType"] | undefined,
+  effectiveType: IrExpression["inferredType"],
+  context: EmitterContext
+): [readonly IrExpression["inferredType"][], EmitterContext] | undefined => {
+  if (!effectiveType) {
+    const directLayoutOnly =
+      directStorageType &&
+      willCarryAsRuntimeUnion(directStorageType, context) &&
+      buildRuntimeUnionLayout(directStorageType, context, emitTypeAst)[0];
+    return directLayoutOnly ? [directLayoutOnly.members, context] : undefined;
+  }
+
+  const tryLayout = (
+    type: IrExpression["inferredType"],
+    currentContext: EmitterContext
+  ) => {
+    if (!type || !willCarryAsRuntimeUnion(type, currentContext)) {
+      return undefined;
+    }
+
+    const [layout, layoutContext] = buildRuntimeUnionLayout(
+      type,
+      currentContext,
+      emitTypeAst
+    );
+    return layout ? ([layout, layoutContext] as const) : undefined;
+  };
+
+  const directLayoutResult =
+    directStorageType && tryLayout(directStorageType, context);
+  const effectiveLayoutResult = tryLayout(effectiveType, context);
+
+  if (!directLayoutResult) {
+    return effectiveLayoutResult
+      ? [effectiveLayoutResult[0].members, effectiveLayoutResult[1]]
+      : undefined;
+  }
+
+  const [directLayout, directLayoutContext] = directLayoutResult;
+  const [effectiveSurfaceAst, effectiveSurfaceContext] = emitTypeAst(
+    effectiveType,
+    directLayoutContext
+  );
+  const effectiveSurfaceKey = stableTypeKeyFromAst(
+    stripNullableTypeAst(effectiveSurfaceAst)
+  );
+  const directLayoutKey = stableTypeKeyFromAst(
+    buildRuntimeUnionTypeAst(directLayout)
+  );
+
+  if (directLayoutKey === effectiveSurfaceKey) {
+    return [directLayout.members, effectiveSurfaceContext];
+  }
+
+  if (effectiveLayoutResult) {
+    const [effectiveLayout, effectiveLayoutContext] = effectiveLayoutResult;
+    const effectiveLayoutKey = stableTypeKeyFromAst(
+      buildRuntimeUnionTypeAst(effectiveLayout)
+    );
+    if (effectiveLayoutKey === effectiveSurfaceKey) {
+      return [effectiveLayout.members, effectiveLayoutContext];
+    }
+  }
+
+  return [directLayout.members, effectiveSurfaceContext];
+};
+
+const tryExtractTypeofComparison = (
+  expr: Extract<IrExpression, { kind: "binary" }>
+):
+  | {
+      operand: IrExpression;
+      tag: string;
+      negate: boolean;
+    }
+  | undefined => {
+  if (
+    expr.operator !== "===" &&
+    expr.operator !== "==" &&
+    expr.operator !== "!==" &&
+    expr.operator !== "!="
+  ) {
+    return undefined;
+  }
+
+  const extract = (
+    left: IrExpression,
+    right: IrExpression
+  ): { operand: IrExpression; tag: string } | undefined => {
+    if (left.kind !== "unary" || left.operator !== "typeof") {
+      return undefined;
+    }
+    if (right.kind !== "literal" || typeof right.value !== "string") {
+      return undefined;
+    }
+    return {
+      operand: left.expression,
+      tag: right.value,
+    };
+  };
+
+  const direct =
+    extract(expr.left, expr.right) ?? extract(expr.right, expr.left);
+  if (!direct) {
+    return undefined;
+  }
+
+  return {
+    ...direct,
+    negate: expr.operator === "!==" || expr.operator === "!=",
+  };
+};
+
+/**
+ * Emit a direct `typeof value === "tag"` comparison against a runtime-union
+ * carrier as `value.IsN()` member checks.
+ */
+export const emitTypeofComparison = (
+  expr: Extract<IrExpression, { kind: "binary" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const directGuard = tryExtractTypeofComparison(expr);
+  if (!directGuard) {
+    return undefined;
+  }
+
+  const operandType = directGuard.operand.inferredType;
+  if (!operandType) {
+    return undefined;
+  }
+
+  const target = unwrapTransparentNarrowingTarget(directGuard.operand);
+  if (target?.kind === "memberAccess" && target.isOptional) {
+    return undefined;
+  }
+  const bindingKey =
+    target?.kind === "identifier"
+      ? target.name
+      : target
+        ? getMemberAccessNarrowKey(target)
+        : undefined;
+  const effectiveType =
+    (bindingKey
+      ? currentNarrowedType(
+          bindingKey,
+          target?.inferredType ?? operandType,
+          context
+        )
+      : undefined) ?? operandType;
+
+  const [operandAst, operandContext] = emitExpressionAst(
+    target ?? directGuard.operand,
+    context
+  );
+  const directStorageType =
+    target?.kind === "identifier"
+      ? resolveIdentifierCarrierStorageType(target, operandContext)
+      : resolveDirectStorageExpressionType(
+          target ?? directGuard.operand,
+          operandAst,
+          operandContext
+        );
+  const runtimeCarrierAst =
+    (directStorageType
+      ? resolveDirectStorageExpressionAst(
+          target ?? directGuard.operand,
+          operandContext
+        )
+      : undefined) ?? operandAst;
+  const alignedCarrierMembers = resolveAlignedRuntimeCarrierMembers(
+    directStorageType,
+    effectiveType,
+    operandContext
+  );
+  if (!alignedCarrierMembers) {
+    return undefined;
+  }
+  const [runtimeMembers, layoutContext] = alignedCarrierMembers;
+
+  const matchingMemberNs = runtimeMembers.flatMap((member, index) =>
+    member && matchesTypeofTag(member, directGuard.tag, layoutContext)
+      ? [index + 1]
+      : []
+  );
+
+  return [
+    buildRuntimeUnionMemberCheck(
+      runtimeCarrierAst,
+      matchingMemberNs,
+      directGuard.negate
+    ),
+    operandContext,
+  ];
+};
 
 /**
  * Emit a `"prop" in x` expression — union narrowing or dictionary membership.
@@ -50,6 +307,7 @@ export const emitInOperator = (
   const runtimeMembers = isSemanticUnion(rhsType, rhsCtx)
     ? getCanonicalRuntimeUnionMembers(rhsType, rhsCtx)
     : undefined;
+  const layoutContext = rhsCtx;
 
   // Union<T1..Tn>: `"error" in auth` -> auth.IsN() (where member N has the prop)
   if (runtimeMembers) {
@@ -64,7 +322,7 @@ export const emitInOperator = (
       const hasMember = hasDeterministicPropertyMembership(
         member,
         propName,
-        rhsCtx
+        layoutContext
       );
       if (hasMember === true) {
         matchingMembers.push(i + 1);

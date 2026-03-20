@@ -40,16 +40,26 @@ const sortVersionDirs = (dirs: readonly string[]): readonly string[] => {
   });
 };
 
+const resolveMonorepoRoot = (): string => {
+  const envRoot = process.env.TSONIC_REPO_ROOT?.trim();
+  if (envRoot) {
+    return resolve(envRoot);
+  }
+
+  const here = fileURLToPath(import.meta.url);
+  return resolve(dirname(here), "../../../../../..");
+};
+
 const tryResolveSiblingTsonicPackageRoot = (
   packageName: string
 ): string | undefined => {
   const scoped = packageName.match(/^@tsonic\/([^/]+)$/);
   if (!scoped?.[1]) return undefined;
 
-  const here = fileURLToPath(import.meta.url);
+  const repoRoot = resolveMonorepoRoot();
   const siblingRepoRootCandidates = [
-    resolve(dirname(here), "../../../../../..", scoped[1]),
-    resolve(dirname(here), "../../../../..", scoped[1]),
+    resolve(repoRoot, "..", scoped[1]),
+    resolve(repoRoot, scoped[1]),
   ];
 
   for (const siblingRepoRoot of siblingRepoRootCandidates) {

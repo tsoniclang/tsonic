@@ -30,6 +30,7 @@ import {
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 import {
   type RuntimeUnionFrame,
+  type RuntimeSubsetSourceInfo,
   type EmitExprAstFn,
   buildUnionNarrowAst,
   buildSubsetUnionType,
@@ -49,7 +50,8 @@ export const buildRuntimeUnionComplementBinding = (
   sourceType: IrType,
   narrowedType: IrType,
   selectedMemberN: number,
-  context: EmitterContext
+  context: EmitterContext,
+  sourceInfo?: RuntimeSubsetSourceInfo
 ): NarrowedBinding | undefined => {
   const remainingPairs = runtimeUnionFrame.candidateMemberNs.flatMap(
     (runtimeMemberN, index) => {
@@ -112,10 +114,19 @@ export const buildRuntimeUnionComplementBinding = (
     kind: "runtimeSubset",
     runtimeMemberNs: remainingPairs.map((pair) => pair.runtimeMemberN),
     runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
-    sourceMembers: [...runtimeUnionFrame.members],
-    sourceCandidateMemberNs: [...runtimeUnionFrame.candidateMemberNs],
+    sourceMembers: sourceInfo?.sourceMembers
+      ? [...sourceInfo.sourceMembers]
+      : runtimeUnionFrame.runtimeUnionArity === runtimeUnionFrame.members.length
+        ? [...runtimeUnionFrame.members]
+        : undefined,
+    sourceCandidateMemberNs: sourceInfo?.sourceCandidateMemberNs
+      ? [...sourceInfo.sourceCandidateMemberNs]
+      : runtimeUnionFrame.runtimeUnionArity ===
+          runtimeUnionFrame.candidateMemberNs.length
+        ? [...runtimeUnionFrame.candidateMemberNs]
+        : undefined,
     type: narrowedType,
-    sourceType,
+    sourceType: sourceInfo?.sourceType ?? sourceType,
   };
 };
 

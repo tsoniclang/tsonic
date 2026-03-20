@@ -1,5 +1,5 @@
 const { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } = require("node:fs");
-const { basename, join, relative, resolve } = require("node:path");
+const { basename, dirname, join, relative, resolve } = require("node:path");
 
 const CHECKPOINT_ROOT = process.env.TSONIC_TEST_CHECKPOINT_DIR;
 if (!CHECKPOINT_ROOT) {
@@ -34,6 +34,7 @@ const RESULTS_FILE = join(PKG_DIR, `results.${process.pid}.jsonl`);
 const SEEN_FILE = join(PKG_DIR, `seen.${process.pid}.jsonl`);
 
 function appendJsonl(filePath, obj) {
+  mkdirSync(dirname(filePath), { recursive: true });
   appendFileSync(filePath, `${JSON.stringify(obj)}\n`, "utf8");
 }
 
@@ -99,4 +100,3 @@ exports.mochaHooks = {
     }
   },
 };
-

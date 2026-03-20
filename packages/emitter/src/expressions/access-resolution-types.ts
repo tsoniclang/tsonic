@@ -50,7 +50,7 @@ export const hasInt32Proof = (expr: IrExpression): boolean => {
   return false;
 };
 
-export type MemberAccessUsage = "value" | "call";
+export type MemberAccessUsage = "value" | "call" | "write";
 
 export const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");

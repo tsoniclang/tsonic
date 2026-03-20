@@ -24,6 +24,12 @@ if [ -n "$CHECKPOINT_ROOT" ]; then
   mkdir -p "$TYPECHECK_CACHE_DIR"
 fi
 
+ensure_typecheck_cache_dir() {
+  if [ -n "$TYPECHECK_CACHE_DIR" ]; then
+    mkdir -p "$TYPECHECK_CACHE_DIR"
+  fi
+}
+
 print_help() {
   cat <<EOF
 Usage: ./test/scripts/typecheck-fixtures.sh [--filter <pattern>]
@@ -465,6 +471,7 @@ EOF
     echo "  $fixture_name: PASS"
     passed=$((passed + 1))
     if [ -n "$TYPECHECK_CACHE_DIR" ]; then
+      ensure_typecheck_cache_dir
       tmp="$TYPECHECK_CACHE_DIR/$fixture_name.pass.tmp"
       printf "%s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >"$tmp"
       mv "$tmp" "$TYPECHECK_CACHE_DIR/$fixture_name.pass"
@@ -475,6 +482,7 @@ EOF
     failed=$((failed + 1))
     sed -n '1,200p' "$out_file"
     if [ -n "$TYPECHECK_CACHE_DIR" ]; then
+      ensure_typecheck_cache_dir
       tmp="$TYPECHECK_CACHE_DIR/$fixture_name.fail.tmp"
       printf "%s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >"$tmp"
       mv "$tmp" "$TYPECHECK_CACHE_DIR/$fixture_name.fail"

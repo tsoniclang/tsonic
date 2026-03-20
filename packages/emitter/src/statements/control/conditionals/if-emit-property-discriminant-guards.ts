@@ -7,10 +7,13 @@ import { emitStatementAst } from "../../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { makeNarrowedLocalName } from "../../../core/semantic/narrowing-keys.js";
 import {
+  buildAnyIsNCondition,
   buildExprBinding,
+  buildSubsetUnionType,
   toReceiverAst,
   buildUnionNarrowAst,
   withComplementNarrowing,
+  withComplementNarrowingForMembers,
   wrapInBlock,
   emitForcedBlockWithPreambleAst,
   buildCastLocalDecl,
@@ -407,21 +410,27 @@ export const tryEmitNegatedPredicateGuard = (
     originalName,
     receiverAst,
     memberN,
+    memberNs,
     unionArity,
+    runtimeUnionArity,
     candidateMemberNs,
     candidateMembers,
     ctxWithId,
     escapedNarrow,
     narrowedMap,
+    targetType,
+    sourceType,
+    sourceMembers,
+    sourceCandidateMemberNs,
   } = guard;
 
-  const condAst = buildIsNCondition(receiverAst, memberN, true);
+  const condAst = buildAnyIsNCondition(receiverAst, memberNs, true);
 
   // THEN branch: for 2-member unions narrow to OTHER member
   let thenStmt: CSharpStatementAst;
   let thenCtx: EmitterContext;
 
-  if (unionArity === 2) {
+  if (memberNs.length === 1 && unionArity === 2 && memberN !== undefined) {
     const otherIndex = candidateMemberNs.findIndex(
       (runtimeMemberN) => runtimeMemberN !== memberN
     );
@@ -470,19 +479,50 @@ export const tryEmitNegatedPredicateGuard = (
   } else {
     const [thenStmts, thenCtxAfter] = emitStatementAst(
       stmt.thenStatement,
-      context
+      withComplementNarrowingForMembers(
+        originalName,
+        receiverAst,
+        runtimeUnionArity,
+        candidateMemberNs,
+        candidateMembers,
+        memberNs,
+        context
+      )
     );
     thenStmt = wrapInBlock(thenStmts);
     thenCtx = thenCtxAfter;
   }
 
   // ELSE branch: narrowing applies (to guard's target type)
-  const elseCastStmt = buildCastLocalDecl(escapedNarrow, receiverAst, memberN);
-  const [elseBlock, _elseBodyCtx] = emitForcedBlockWithPreambleAst(
-    [elseCastStmt],
-    stmt.elseStatement,
-    { ...ctxWithId, narrowedBindings: narrowedMap }
-  );
+  const [elseBlock, _elseBodyCtx] =
+    memberN !== undefined
+      ? emitForcedBlockWithPreambleAst(
+          [buildCastLocalDecl(escapedNarrow, receiverAst, memberN)],
+          stmt.elseStatement,
+          { ...ctxWithId, narrowedBindings: narrowedMap }
+        )
+      : (() => {
+          const narrowedBindings = new Map(ctxWithId.narrowedBindings ?? []);
+          narrowedBindings.set(originalName, {
+            kind: "runtimeSubset",
+            runtimeMemberNs: memberNs,
+            runtimeUnionArity,
+            sourceMembers: sourceMembers ? [...sourceMembers] : undefined,
+            sourceCandidateMemberNs: sourceCandidateMemberNs
+              ? [...sourceCandidateMemberNs]
+              : undefined,
+            type: targetType,
+            sourceType: sourceType ?? buildSubsetUnionType(candidateMembers),
+          });
+          const [elseStmts, nextElseCtx] = emitStatementAst(
+            stmt.elseStatement,
+            {
+              ...ctxWithId,
+              narrowedBindings,
+            }
+          );
+          return [wrapInBlock(elseStmts), nextElseCtx] as const;
+        })();
 
   return [
     [

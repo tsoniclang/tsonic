@@ -1,3 +1,22 @@
+ensure_result_parent() {
+    local target_file="$1"
+    mkdir -p "$(dirname "$target_file")"
+}
+
+write_result_file() {
+    local target_file="$1"
+    local value="$2"
+    ensure_result_parent "$target_file"
+    printf '%s\n' "$value" >"$target_file"
+}
+
+append_error_file() {
+    local target_file="$1"
+    local value="$2"
+    ensure_result_parent "$target_file"
+    printf '%s\n' "$value" >>"$target_file"
+}
+
 run_dotnet_test() {
     local fixture_dir="$1"
     local results_dir="$2"
@@ -6,6 +25,9 @@ run_dotnet_test() {
     local result_file="$results_dir/$fixture_name"
     local error_file="$results_dir/${fixture_name}.error"
     local result=""
+
+    ensure_result_parent "$result_file"
+    ensure_result_parent "$error_file"
 
     if [ "$RESUME_MODE" = true ] && [ -f "$result_file" ]; then
         prev=$(cat "$result_file" 2>/dev/null || true)
@@ -43,9 +65,9 @@ run_dotnet_test() {
             fi
 
             sibling="$ROOT_DIR/../$name"
-            echo "FAIL: missing dependency $pkg. Set E2E_NPM_INSTALL=1 to install from npm, or clone the repo at $sibling." >>"$error_file"
+            append_error_file "$error_file" "FAIL: missing dependency $pkg. Set E2E_NPM_INSTALL=1 to install from npm, or clone the repo at $sibling."
             result="FAIL (missing deps)"
-            echo "$result" > "$result_file"
+            write_result_file "$result_file" "$result"
             echo -e "  $fixture_name: \033[0;31m$result\033[0m"
             return
         done <<<"$deps"
@@ -53,10 +75,11 @@ run_dotnet_test() {
 
     build_args=("build" "--project" "$fixture_name" "--config" "tsonic.workspace.json")
 
+    ensure_result_parent "$error_file"
     if node "$TSONIC_BIN" "${build_args[@]}" 2>"$error_file"; then
         run_postbuild_commands "$fixture_dir" "$error_file" || {
             result="FAIL (post-build error)"
-            echo "$result" > "$result_file"
+            write_result_file "$result_file" "$result"
             echo -e "  $fixture_name: \033[0;31m$result\033[0m"
             return
         }
@@ -84,7 +107,7 @@ run_dotnet_test() {
         result="FAIL (build error)"
     fi
 
-    echo "$result" > "$result_file"
+    write_result_file "$result_file" "$result"
     if [[ "$result" == PASS* ]]; then
         echo -e "  $fixture_name: \033[0;32m$result\033[0m"
     else
@@ -113,7 +136,7 @@ run_postbuild_commands() {
     local postbuild_cmds=("${postbuild_items[@]:1}")
     if [ -n "$postbuild_cwd" ]; then
         pushd "$fixture_dir/$postbuild_cwd" >/dev/null || {
-            echo "FAIL: postBuild workingDirectory not found: $postbuild_cwd" >>"$error_file"
+            append_error_file "$error_file" "FAIL: postBuild workingDirectory not found: $postbuild_cwd"
             return 1
         }
     else
@@ -122,7 +145,7 @@ run_postbuild_commands() {
 
     local cmd
     for cmd in "${postbuild_cmds[@]}"; do
-        echo "=== postBuild: $cmd" >>"$error_file"
+        append_error_file "$error_file" "=== postBuild: $cmd"
         if ! bash -lc "$cmd" >>"$error_file" 2>&1; then
             popd >/dev/null
             return 1
@@ -187,11 +210,18 @@ collect_dotnet_fixtures() {
 
 run_dotnet_test_batch() {
     collect_dotnet_fixtures
+    local worker_script="$SCRIPT_DIR/run-all/e2e-worker.sh"
     for fixture_dir in "${DOTNET_FIXTURES[@]}"; do
         while [ "$(jobs -r | wc -l)" -ge "$TEST_CONCURRENCY" ]; do
             sleep 0.1
         done
-        (run_dotnet_test "$fixture_dir" "$RESULTS_DIR") &
+        (
+            ROOT_DIR="$ROOT_DIR" \
+            TSONIC_BIN="$TSONIC_BIN" \
+            RESUME_MODE="$RESUME_MODE" \
+            E2E_NPM_INSTALL="${E2E_NPM_INSTALL:-0}" \
+            bash "$worker_script" dotnet "$fixture_dir" "$RESULTS_DIR"
+        ) &
     done
     wait
 
@@ -227,6 +257,8 @@ run_negative_test() {
     local result_file="$results_dir/neg_$fixture_name"
     local result=""
 
+    ensure_result_parent "$result_file"
+
     if [ "$RESUME_MODE" = true ] && [ -f "$result_file" ]; then
         prev=$(cat "$result_file" 2>/dev/null || true)
         if [[ "$prev" == PASS* ]]; then
@@ -237,7 +269,7 @@ run_negative_test() {
 
     if [ ! -f "$fixture_dir/tsonic.workspace.json" ]; then
         result="FAIL (no config)"
-        echo "$result" > "$result_file"
+        write_result_file "$result_file" "$result"
         echo -e "  $fixture_name: \033[0;31m$result\033[0m"
         return
     fi
@@ -254,7 +286,7 @@ run_negative_test() {
         result="PASS (failed as expected)"
     fi
 
-    echo "$result" > "$result_file"
+    write_result_file "$result_file" "$result"
     if [[ "$result" == PASS* ]]; then
         echo -e "  $fixture_name: \033[0;32m$result\033[0m"
     else
@@ -281,11 +313,18 @@ run_negative_test_batch() {
         return
     fi
 
+    local worker_script="$SCRIPT_DIR/run-all/e2e-worker.sh"
     for fixture_dir in "${NEGATIVE_FIXTURES[@]}"; do
         while [ "$(jobs -r | wc -l)" -ge "$TEST_CONCURRENCY" ]; do
             sleep 0.1
         done
-        (run_negative_test "$fixture_dir" "$RESULTS_DIR") &
+        (
+            ROOT_DIR="$ROOT_DIR" \
+            TSONIC_BIN="$TSONIC_BIN" \
+            RESUME_MODE="$RESUME_MODE" \
+            E2E_NPM_INSTALL="${E2E_NPM_INSTALL:-0}" \
+            bash "$worker_script" negative "$fixture_dir" "$RESULTS_DIR"
+        ) &
     done
     wait
 

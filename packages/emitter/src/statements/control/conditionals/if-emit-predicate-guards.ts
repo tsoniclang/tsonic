@@ -9,9 +9,12 @@ import { EmitterContext } from "../../../types.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
 import { emitStatementAst } from "../../../statement-emitter.js";
 import {
+  buildAnyIsNCondition,
   buildIsNCondition,
   buildCastLocalDecl,
+  buildSubsetUnionType,
   withComplementNarrowing,
+  withComplementNarrowingForMembers,
   wrapInBlock,
   emitForcedBlockWithPreambleAst,
 } from "./branch-context.js";
@@ -41,6 +44,7 @@ export const tryEmitPredicateGuard = (
     originalName,
     receiverAst,
     memberN,
+    memberNs,
     unionArity,
     runtimeUnionArity,
     candidateMemberNs,
@@ -48,21 +52,46 @@ export const tryEmitPredicateGuard = (
     ctxWithId,
     escapedNarrow,
     narrowedMap,
+    targetType,
+    sourceType,
+    sourceMembers,
+    sourceCandidateMemberNs,
   } = guard;
 
-  const condAst = buildIsNCondition(receiverAst, memberN, false);
-  const castStmt = buildCastLocalDecl(escapedNarrow, receiverAst, memberN);
+  const condAst = buildAnyIsNCondition(receiverAst, memberNs, false);
 
-  const thenCtx: EmitterContext = {
-    ...ctxWithId,
-    narrowedBindings: narrowedMap,
-  };
-
-  const [thenBlock, thenBodyCtx] = emitForcedBlockWithPreambleAst(
-    [castStmt],
-    stmt.thenStatement,
-    thenCtx
-  );
+  const [thenBlock, thenBodyCtx] =
+    memberN !== undefined
+      ? emitForcedBlockWithPreambleAst(
+          [buildCastLocalDecl(escapedNarrow, receiverAst, memberN)],
+          stmt.thenStatement,
+          {
+            ...ctxWithId,
+            narrowedBindings: narrowedMap,
+          }
+        )
+      : (() => {
+          const narrowedBindings = new Map(ctxWithId.narrowedBindings ?? []);
+          narrowedBindings.set(originalName, {
+            kind: "runtimeSubset",
+            runtimeMemberNs: memberNs,
+            runtimeUnionArity,
+            sourceMembers: sourceMembers ? [...sourceMembers] : undefined,
+            sourceCandidateMemberNs: sourceCandidateMemberNs
+              ? [...sourceCandidateMemberNs]
+              : undefined,
+            type: targetType,
+            sourceType: sourceType ?? buildSubsetUnionType(candidateMembers),
+          });
+          const [thenStmts, nextThenCtx] = emitStatementAst(
+            stmt.thenStatement,
+            {
+              ...ctxWithId,
+              narrowedBindings,
+            }
+          );
+          return [wrapInBlock(thenStmts), nextThenCtx] as const;
+        })();
 
   let finalContext: EmitterContext = {
     ...thenBodyCtx,
@@ -72,7 +101,7 @@ export const tryEmitPredicateGuard = (
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
     const elseCtxBase =
-      unionArity === 2
+      memberNs.length === 1 && unionArity === 2 && memberN !== undefined
         ? withComplementNarrowing(
             originalName,
             receiverAst,
@@ -82,7 +111,15 @@ export const tryEmitPredicateGuard = (
             memberN,
             finalContext
           )
-        : finalContext;
+        : withComplementNarrowingForMembers(
+            originalName,
+            receiverAst,
+            runtimeUnionArity,
+            candidateMemberNs,
+            candidateMembers,
+            memberNs,
+            finalContext
+          );
     const [elseStmts, elseCtx] = emitStatementAst(
       stmt.elseStatement,
       elseCtxBase
@@ -106,15 +143,26 @@ export const tryEmitPredicateGuard = (
   }
 
   if (isDefinitelyTerminating(stmt.thenStatement)) {
-    finalContext = withComplementNarrowing(
-      originalName,
-      receiverAst,
-      runtimeUnionArity,
-      candidateMemberNs,
-      candidateMembers,
-      memberN,
-      finalContext
-    );
+    finalContext =
+      memberNs.length === 1 && memberN !== undefined
+        ? withComplementNarrowing(
+            originalName,
+            receiverAst,
+            runtimeUnionArity,
+            candidateMemberNs,
+            candidateMembers,
+            memberN,
+            finalContext
+          )
+        : withComplementNarrowingForMembers(
+            originalName,
+            receiverAst,
+            runtimeUnionArity,
+            candidateMemberNs,
+            candidateMembers,
+            memberNs,
+            finalContext
+          );
   }
 
   const ifStmt: CSharpStatementAst = {

@@ -45,6 +45,7 @@ import {
   emitArrayWrapperInteropCall,
   shouldNormalizeUnboundJsArrayWrapperResult,
 } from "./call-array-interop.js";
+import { emitRuntimeUnionArrayIsArrayCall } from "./call-runtime-union-guards.js";
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { tryEmitExtensionMethodCall } from "./call-extension-methods.js";
 
@@ -120,6 +121,14 @@ export const emitCall = (
 
   const promiseChain = emitPromiseThenCatchFinally(expr, context);
   if (promiseChain) return promiseChain;
+
+  const runtimeUnionArrayIsArray = emitRuntimeUnionArrayIsArrayCall(
+    expr,
+    context
+  );
+  if (runtimeUnionArrayIsArray) {
+    return runtimeUnionArrayIsArray;
+  }
 
   // Void promise resolve: emit as zero-arg call when safe.
   const transparentCalleeIdentifier = extractTransparentIdentifier(expr.callee);

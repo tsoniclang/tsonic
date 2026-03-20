@@ -93,6 +93,66 @@ describe("Expression Emission", () => {
     expect(printExpression(result)).to.equal("(object?[])value");
   });
 
+  it("materializes runtime-union array locals when broad object arrays are expected", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+    const middlewareEntryType: IrType = {
+      kind: "unionType",
+      types: [handlerType, routerType],
+    };
+    const middlewareEntryArrayType: IrType = {
+      kind: "arrayType",
+      elementType: middlewareEntryType,
+      origin: "explicit",
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "identifier",
+        name: "rest",
+        inferredType: middlewareEntryArrayType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["rest", "rest"]]),
+        localSemanticTypes: new Map([["rest", middlewareEntryArrayType]]),
+        localValueTypes: new Map([["rest", middlewareEntryArrayType]]),
+      },
+      {
+        kind: "arrayType",
+        elementType: {
+          kind: "referenceType",
+          name: "object",
+          resolvedClrType: "System.Object",
+        },
+        origin: "explicit",
+      }
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.include("global::System.Linq.Enumerable.Select");
+    expect(rendered).to.include("global::System.Linq.Enumerable.ToArray");
+    expect(rendered).to.include("rest");
+    expect(rendered).to.include(".Match(");
+    expect(rendered).to.not.equal("rest");
+  });
+
   it("prefers throwable storage locals over non-throwable narrowed views", () => {
     const [result] = emitExpressionAst(
       {
@@ -153,6 +213,163 @@ describe("Expression Emission", () => {
     );
 
     expect(printExpression(result)).to.equal("e");
+  });
+
+  it("prefers runtime-union carrier guards over narrowed semantic views for Array.isArray", () => {
+    const pathSpecArrayType: IrType = {
+      kind: "arrayType",
+      elementType: { kind: "unknownType" },
+      origin: "explicit",
+    };
+    const pathSpecCarrierType: IrType = {
+      kind: "unionType",
+      types: [
+        pathSpecArrayType,
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "null" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "call",
+        callee: {
+          kind: "memberAccess",
+          object: { kind: "identifier", name: "Array" },
+          property: "isArray",
+          isComputed: false,
+          isOptional: false,
+        },
+        arguments: [
+          {
+            kind: "identifier",
+            name: "pathSpec",
+            inferredType: pathSpecCarrierType,
+          },
+        ],
+        isOptional: false,
+        inferredType: { kind: "primitiveType", name: "boolean" },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["pathSpec", "pathSpec"]]),
+        localValueTypes: new Map([["pathSpec", pathSpecCarrierType]]),
+        narrowedBindings: new Map([
+          [
+            "pathSpec",
+            {
+              kind: "expr",
+              exprAst: {
+                kind: "identifierExpression",
+                identifier: "pathSpec",
+              },
+              storageExprAst: {
+                kind: "identifierExpression",
+                identifier: "pathSpec",
+              },
+              type: pathSpecArrayType,
+              sourceType: pathSpecCarrierType,
+            },
+          ],
+        ]),
+      }
+    );
+
+    expect(printExpression(result)).to.equal("pathSpec.Is1()");
+  });
+
+  it("recovers identifier storage carriers for Array.isArray after narrowed expr bindings", () => {
+    const pathSpecArrayType: IrType = {
+      kind: "arrayType",
+      elementType: { kind: "unknownType" },
+      origin: "explicit",
+    };
+    const pathSpecCarrierType: IrType = {
+      kind: "unionType",
+      types: [
+        pathSpecArrayType,
+        {
+          kind: "referenceType",
+          name: "RegExp",
+          resolvedClrType: "Test.RegExp",
+        },
+      ],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "call",
+        callee: {
+          kind: "memberAccess",
+          object: { kind: "identifier", name: "Array" },
+          property: "isArray",
+          isComputed: false,
+          isOptional: false,
+        },
+        arguments: [
+          {
+            kind: "identifier",
+            name: "pathSpec",
+            inferredType: pathSpecCarrierType,
+          },
+        ],
+        isOptional: false,
+        inferredType: { kind: "primitiveType", name: "boolean" },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["pathSpec", "pathSpec"]]),
+        localValueTypes: new Map([["pathSpec", pathSpecCarrierType]]),
+        narrowedBindings: new Map([
+          [
+            "pathSpec",
+            {
+              kind: "expr",
+              exprAst: {
+                kind: "parenthesizedExpression",
+                expression: {
+                  kind: "invocationExpression",
+                  expression: {
+                    kind: "memberAccessExpression",
+                    expression: {
+                      kind: "identifierExpression",
+                      identifier: "pathSpec",
+                    },
+                    memberName: "As1",
+                  },
+                  arguments: [],
+                },
+              },
+              storageExprAst: {
+                kind: "identifierExpression",
+                identifier: "pathSpec",
+              },
+              type: pathSpecArrayType,
+              sourceType: pathSpecCarrierType,
+            },
+          ],
+        ]),
+      }
+    );
+
+    expect(printExpression(result)).to.equal("pathSpec.Is1()");
   });
 
   it("reifies erased recursive nested-union array elements through outer union arms", () => {

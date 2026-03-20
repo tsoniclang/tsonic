@@ -370,6 +370,107 @@ describe("Expression Emission", () => {
     expect(result).to.not.include('dict["x"] != null');
   });
 
+  it("should lower direct computed dictionary reads to safe lookups on the JS surface", () => {
+    const dictType: IrType = {
+      kind: "dictionaryType",
+      keyType: { kind: "primitiveType", name: "string" },
+      valueType: { kind: "primitiveType", name: "string" },
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "current" },
+              initializer: {
+                kind: "memberAccess",
+                object: {
+                  kind: "identifier",
+                  name: "dict",
+                  inferredType: dictType,
+                },
+                property: {
+                  kind: "identifier",
+                  name: "key",
+                  inferredType: { kind: "primitiveType", name: "string" },
+                },
+                isComputed: true,
+                isOptional: false,
+                accessKind: "dictionary",
+                inferredType: { kind: "primitiveType", name: "string" },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "@tsonic/js" });
+    expect(result).to.include(
+      "__tsonic_dict.ContainsKey(__tsonic_key) ? __tsonic_dict[__tsonic_key] : default"
+    );
+  });
+
+  it("should lower direct dictionary property reads to safe lookups on the JS surface", () => {
+    const dictType: IrType = {
+      kind: "dictionaryType",
+      keyType: { kind: "primitiveType", name: "string" },
+      valueType: { kind: "primitiveType", name: "string" },
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "header" },
+              initializer: {
+                kind: "memberAccess",
+                object: {
+                  kind: "identifier",
+                  name: "headers",
+                  inferredType: dictType,
+                },
+                property: "set-cookie",
+                isComputed: false,
+                isOptional: false,
+                inferredType: { kind: "primitiveType", name: "string" },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "@tsonic/js" });
+    expect(result).to.include(
+      "__tsonic_dict.ContainsKey(__tsonic_key) ? __tsonic_dict[__tsonic_key] : default"
+    );
+  });
+
   it("should lower dictionary.Keys to a materialized key array", () => {
     const dictType: IrType = {
       kind: "dictionaryType",

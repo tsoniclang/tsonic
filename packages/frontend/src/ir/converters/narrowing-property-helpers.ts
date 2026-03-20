@@ -6,7 +6,8 @@ import type { BoundDecl } from "./narrowing-resolvers.js";
 export const getCurrentTypeForDecl = (
   declId: BoundDecl,
   ctx: ProgramContext
-): IrType => ctx.typeEnv?.get(declId.id) ?? ctx.typeSystem.typeOfValueRead(declId);
+): IrType =>
+  ctx.typeEnv?.get(declId.id) ?? ctx.typeSystem.typeOfValueRead(declId);
 
 const getMemberTypeForNarrowing = (
   type: IrType,
@@ -83,7 +84,9 @@ export const narrowTypeByPropertyTruthiness = (
       if (!memberType || memberType.kind !== "literalType") {
         return false;
       }
-      return wantTruthy ? memberType.value === true : memberType.value === false;
+      return wantTruthy
+        ? memberType.value === true
+        : memberType.value === false;
     }
   );
 

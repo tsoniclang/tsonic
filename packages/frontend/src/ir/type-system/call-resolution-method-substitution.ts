@@ -54,7 +54,9 @@ export const resolveMethodTypeSubstitution = (
 
   if (query.receiverType && workingThisParam) {
     const receiverParamForInference =
-      callSubst.size > 0 ? irSubstitute(workingThisParam, callSubst) : workingThisParam;
+      callSubst.size > 0
+        ? irSubstitute(workingThisParam, callSubst)
+        : workingThisParam;
 
     const inferredFromReceiver = inferMethodTypeArgsFromArguments(
       state,
@@ -133,7 +135,9 @@ export const resolveMethodTypeSubstitution = (
 
   if (query.expectedReturnType) {
     const returnForInference =
-      callSubst.size > 0 ? irSubstitute(workingReturn, callSubst) : workingReturn;
+      callSubst.size > 0
+        ? irSubstitute(workingReturn, callSubst)
+        : workingReturn;
     const expectedCandidates = collectExpectedReturnCandidates(
       state,
       query.expectedReturnType

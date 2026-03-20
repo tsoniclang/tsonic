@@ -28,6 +28,35 @@ ensure_tsonic_bin() {
     exit 1
 }
 
+stabilize_tsonic_bin() {
+    ensure_tsonic_bin
+
+    local source_bin="$TSONIC_BIN"
+    local source_dir
+    source_dir="$(cd "$(dirname "$source_bin")" && pwd)"
+    local package_root
+    package_root="$(cd "$source_dir/.." && pwd)"
+    local snapshot_root="$CACHE_DIR/tsonic-cli"
+    local snapshot_dir="$snapshot_root/dist"
+    local snapshot_entry="$snapshot_root/index.js"
+
+    rm -rf "$snapshot_root" 2>/dev/null || true
+    mkdir -p "$snapshot_root"
+    cp "$package_root/package.json" "$snapshot_root/package.json"
+    cp -R "$source_dir" "$snapshot_dir"
+    if [[ -d "$package_root/runtime" ]]; then
+        cp -R "$package_root/runtime" "$snapshot_root/runtime"
+    fi
+
+    cat >"$snapshot_entry" <<EOF
+#!/usr/bin/env node
+process.env.TSONIC_REPO_ROOT ??= ${ROOT_DIR@Q};
+await import("./dist/index.js");
+EOF
+
+    TSONIC_BIN="$snapshot_entry"
+}
+
 resolve_local_tsonic_package_dest() {
     local package_name="$1"
     local dotnet_major="$2"

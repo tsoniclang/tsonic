@@ -26,10 +26,7 @@ import {
   mergePromiseChainResultIrTypes,
   normalizePromiseChainResultIrType,
 } from "./call-promise-ir-types.js";
-import {
-  buildAwait,
-  buildInvocation,
-} from "./call-promise-normalization.js";
+import { buildAwait, buildInvocation } from "./call-promise-normalization.js";
 
 export const emitPromiseThenCatchFinally = (
   expr: Extract<IrExpression, { kind: "call" }>,

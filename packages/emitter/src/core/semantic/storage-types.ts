@@ -240,6 +240,19 @@ export const normalizeRuntimeStorageType = (
     return OBJECT_STORAGE_TYPE;
   }
 
+  if (resolved.kind === "literalType") {
+    switch (typeof resolved.value) {
+      case "string":
+        return { kind: "primitiveType", name: "string" };
+      case "number":
+        return { kind: "primitiveType", name: "number" };
+      case "boolean":
+        return { kind: "primitiveType", name: "boolean" };
+      default:
+        return resolved;
+    }
+  }
+
   if (resolved.kind === "arrayType") {
     const arrayKey = stableIrTypeKey(resolved);
     if (activeArrayKeys.has(arrayKey)) {
@@ -271,6 +284,42 @@ export const normalizeRuntimeStorageType = (
 
   if (resolved.kind === "unionType") {
     const split = splitRuntimeNullishUnionMembers(resolved);
+    if (split) {
+      const normalizedNonNullishMembers = split.nonNullishMembers.map(
+        (member) =>
+          normalizeRuntimeStorageType(member, context, activeArrayKeys) ??
+          member
+      );
+      const dedupedNormalizedNonNullishMembers: IrType[] = [];
+
+      for (const member of normalizedNonNullishMembers) {
+        if (
+          dedupedNormalizedNonNullishMembers.some(
+            (candidate) =>
+              stableIrTypeKey(candidate) === stableIrTypeKey(member)
+          )
+        ) {
+          continue;
+        }
+        dedupedNormalizedNonNullishMembers.push(member);
+      }
+
+      if (dedupedNormalizedNonNullishMembers.length === 1) {
+        const [normalizedSingleMember] = dedupedNormalizedNonNullishMembers;
+        if (!normalizedSingleMember) {
+          return resolved;
+        }
+
+        const nullishMembers = resolved.types.filter(isRuntimeNullishMember);
+        return nullishMembers.length === 0
+          ? normalizedSingleMember
+          : {
+              kind: "unionType",
+              types: [normalizedSingleMember, ...nullishMembers],
+            };
+      }
+    }
+
     if (!split || split.nonNullishMembers.length !== 1) {
       return resolved;
     }

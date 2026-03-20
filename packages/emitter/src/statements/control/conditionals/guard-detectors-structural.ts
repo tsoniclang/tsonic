@@ -12,7 +12,7 @@ import type { CSharpTypeAst } from "../../../core/format/backend-ast/types.js";
 import { hasDeterministicPropertyMembership } from "../../../core/semantic/type-resolution.js";
 import { matchesExpectedEmissionType } from "../../../core/semantic/expected-type-matching.js";
 import {
-  findExactRuntimeUnionMemberIndices,
+  findRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
 } from "../../../core/semantic/runtime-unions.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
@@ -23,6 +23,7 @@ import {
 } from "../../../core/semantic/narrowing-keys.js";
 import { normalizeInstanceofTargetType } from "../../../core/semantic/instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "../../../core/semantic/transparent-expressions.js";
+import { buildSubsetUnionType } from "./branch-context.js";
 import type {
   GuardInfo,
   InstanceofGuardInfo,
@@ -96,7 +97,11 @@ export const tryResolveInGuard = (
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
-  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
+  const narrowedName = makeNarrowedLocalName(
+    originalName,
+    memberN ?? "subset",
+    nextId
+  );
   const escapedOrig = emitRemappedLocalName(originalName, context);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const memberType = members[matchingIndex];
@@ -162,22 +167,33 @@ export const tryResolvePredicateGuard = (
   );
   if (!frame) return undefined;
 
-  const matchingIndices = findExactRuntimeUnionMemberIndices(
+  const matchingIndices = findRuntimeUnionMemberIndices(
     frame.members,
     narrowing.targetType,
     context
   );
-  if (matchingIndices.length !== 1) return undefined;
-  const idx = matchingIndices[0];
-  if (idx === undefined) return undefined;
+  if (matchingIndices.length === 0) return undefined;
 
-  const memberN = frame.candidateMemberNs[idx] ?? idx + 1;
+  const memberNs = matchingIndices
+    .map((index) => frame.candidateMemberNs[index] ?? index + 1)
+    .filter((memberN): memberN is number => memberN !== undefined);
+  if (memberNs.length === 0) return undefined;
+
+  const idx = matchingIndices[0];
+  const memberN =
+    matchingIndices.length === 1 && idx !== undefined
+      ? (frame.candidateMemberNs[idx] ?? idx + 1)
+      : undefined;
   const unionArity = frame.members.length;
 
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
-  const narrowedName = makeNarrowedLocalName(originalName, memberN, nextId);
+  const narrowedName = makeNarrowedLocalName(
+    originalName,
+    memberN ?? "subset",
+    nextId
+  );
   const currentSubsetBinding = context.narrowedBindings?.get(originalName);
   const rawContext = currentSubsetBinding
     ? withoutNarrowedBinding(context, originalName)
@@ -214,12 +230,34 @@ export const tryResolvePredicateGuard = (
     narrowing.targetType,
     ctxWithId
   );
+  const sourceType =
+    currentSubsetBinding?.sourceType ??
+    currentSubsetBinding?.type ??
+    buildSubsetUnionType(frame.members) ??
+    unionSourceType;
+  const hasExplicitSourceFrame =
+    currentSubsetBinding?.kind === "runtimeSubset" &&
+    currentSubsetBinding.sourceMembers &&
+    currentSubsetBinding.sourceCandidateMemberNs &&
+    currentSubsetBinding.sourceMembers.length ===
+      currentSubsetBinding.sourceCandidateMemberNs.length;
+  const sourceMembers = hasExplicitSourceFrame
+    ? currentSubsetBinding.sourceMembers
+    : frame.runtimeUnionArity === frame.members.length
+      ? frame.members
+      : undefined;
+  const sourceCandidateMemberNs = hasExplicitSourceFrame
+    ? currentSubsetBinding.sourceCandidateMemberNs
+    : frame.runtimeUnionArity === frame.candidateMemberNs.length
+      ? frame.candidateMemberNs
+      : undefined;
 
   return {
     originalName,
     receiverAst: argAst,
     targetType: narrowing.targetType,
     memberN,
+    memberNs,
     unionArity,
     runtimeUnionArity: frame.runtimeUnionArity,
     candidateMemberNs: frame.candidateMemberNs,
@@ -228,6 +266,9 @@ export const tryResolvePredicateGuard = (
     narrowedName,
     escapedNarrow,
     narrowedMap,
+    sourceType,
+    sourceMembers,
+    sourceCandidateMemberNs,
   };
 };
 

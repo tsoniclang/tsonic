@@ -52,7 +52,9 @@ export const validateType = (
         break;
 
       case "functionType":
-        type.parameters.forEach((parameter) => validateParameter(parameter, ctx));
+        type.parameters.forEach((parameter) =>
+          validateParameter(parameter, ctx)
+        );
         validateType(type.returnType, ctx, `${typeContext} return type`);
         break;
 
@@ -117,15 +119,21 @@ export const validateType = (
               KNOWN_BUILTINS.has(candidate) ||
               isKnownBuiltinReferenceType(candidate)
           ) ||
-          candidateNames.some((candidate) => ctx.localTypeNames.has(candidate)) ||
+          candidateNames.some((candidate) =>
+            ctx.localTypeNames.has(candidate)
+          ) ||
           candidateNames.some((candidate) =>
             ctx.namespaceLocalTypeNames.has(candidate)
           ) ||
-          candidateNames.some((candidate) => ctx.importedTypeNames.has(candidate)) ||
+          candidateNames.some((candidate) =>
+            ctx.importedTypeNames.has(candidate)
+          ) ||
           candidateNames.some((candidate) =>
             ctx.knownReferenceTypes.has(candidate)
           ) ||
-          candidateNames.some((candidate) => ctx.typeParameterNames.has(candidate));
+          candidateNames.some((candidate) =>
+            ctx.typeParameterNames.has(candidate)
+          );
 
         if (!isResolvable) {
           ctx.diagnostics.push(
@@ -217,8 +225,14 @@ export const validateInterfaceMember = (
       member.typeParameters?.forEach((typeParameter) =>
         validateTypeParameter(typeParameter, ctx)
       );
-      member.parameters.forEach((parameter) => validateParameter(parameter, ctx));
-      validateType(member.returnType, ctx, `method '${member.name}' return type`);
+      member.parameters.forEach((parameter) =>
+        validateParameter(parameter, ctx)
+      );
+      validateType(
+        member.returnType,
+        ctx,
+        `method '${member.name}' return type`
+      );
       break;
   }
 };

@@ -88,17 +88,13 @@ export const resolveCall = (
   let workingReturn = rawSig.returnType;
   let workingPredicate = rawSig.typePredicate;
 
-  ({
-    workingParams,
-    workingThisParam,
-    workingReturn,
-    workingPredicate,
-  } = applyReceiverSubstitution(state, rawSig, effectiveReceiverType, {
-    workingParams,
-    workingThisParam,
-    workingReturn,
-    workingPredicate,
-  }));
+  ({ workingParams, workingThisParam, workingReturn, workingPredicate } =
+    applyReceiverSubstitution(state, rawSig, effectiveReceiverType, {
+      workingParams,
+      workingThisParam,
+      workingReturn,
+      workingPredicate,
+    }));
 
   // 4. Compute call substitution (method type params)
   const methodTypeParams = rawSig.typeParameters;

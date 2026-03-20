@@ -6,10 +6,20 @@
  */
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { extractRawDotnetAssemblyName } from "../program/dotnet-binding-payload.js";
+
+const resolveMonorepoRoot = (): string => {
+  const envRoot = process.env.TSONIC_REPO_ROOT?.trim();
+  if (envRoot) {
+    return resolve(envRoot);
+  }
+
+  const here = fileURLToPath(import.meta.url);
+  return dirname(dirname(dirname(dirname(dirname(here)))));
+};
 
 /**
  * Resolve package root directory using Node resolution.
@@ -60,9 +70,7 @@ export const resolvePkgRoot = (
     const pkgDirName = match[1];
     if (!pkgDirName) return null;
     const expectedName = `@tsonic/${pkgDirName}`;
-    const here = fileURLToPath(import.meta.url);
-    // <repoRoot>/packages/frontend/src/resolver/clr-bindings-package-resolution.ts
-    const repoRoot = dirname(dirname(dirname(dirname(dirname(here)))));
+    const repoRoot = resolveMonorepoRoot();
     const siblingRepoRoot = join(repoRoot, "..", pkgDirName);
 
     const readPackageName = (pkgJsonPath: string): string | null => {

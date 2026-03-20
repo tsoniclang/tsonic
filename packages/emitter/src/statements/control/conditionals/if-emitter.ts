@@ -57,12 +57,6 @@ export const emitIfStatementAst = (
   stmt: Extract<IrStatement, { kind: "ifStatement" }>,
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
-  // Case A: Predicate guard (isUser(account))
-  if (stmt.condition.kind === "call") {
-    const result = tryEmitPredicateGuard(stmt, context);
-    if (result) return result;
-  }
-
   // Case A3: In guard ("error" in auth)
   {
     const result = tryEmitInGuard(stmt, context);
@@ -93,6 +87,12 @@ export const emitIfStatementAst = (
     if (result) return result;
   }
 
+  // Case A: Predicate guard (isUser(account))
+  if (stmt.condition.kind === "call") {
+    const result = tryEmitPredicateGuard(stmt, context);
+    if (result) return result;
+  }
+
   // Case B: Negated predicate guard (!isUser(account))
   {
     const result = tryEmitNegatedPredicateGuard(stmt, context);
@@ -112,7 +112,7 @@ export const emitIfStatementAst = (
 
     if (left.kind === "call") {
       const guard = tryResolvePredicateGuard(left, context);
-      if (guard) {
+      if (guard && guard.memberN !== undefined) {
         const { memberN, ctxWithId, receiverAst, escapedNarrow, narrowedMap } =
           guard;
 

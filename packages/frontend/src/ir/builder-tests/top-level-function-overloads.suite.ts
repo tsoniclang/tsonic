@@ -36,7 +36,8 @@ describe("IR Builder", function () {
 
         const parseFunctions = result.value.body.filter(
           (statement): statement is IrFunctionDeclaration =>
-            statement.kind === "functionDeclaration" && statement.name === "parse"
+            statement.kind === "functionDeclaration" &&
+            statement.name === "parse"
         );
         expect(parseFunctions).to.have.length(2);
 
@@ -69,9 +70,9 @@ describe("IR Builder", function () {
           publicSignatureCount: 2,
           implementationName: "__tsonic_overload_impl_parse",
         });
-        expect(parseFunctions.every((statement) => statement.isExported)).to.equal(
-          true
-        );
+        expect(
+          parseFunctions.every((statement) => statement.isExported)
+        ).to.equal(true);
 
         const helper = result.value.body.find(
           (statement): statement is IrFunctionDeclaration =>

@@ -43,7 +43,12 @@ import {
   chooseComparisonExpectedType,
   buildNullishComparisonContext,
 } from "./binary-helpers.js";
-import { emitInOperator, emitInstanceof } from "./binary-special-ops.js";
+import {
+  emitInOperator,
+  emitInstanceof,
+  emitTypeofComparison,
+} from "./binary-special-ops.js";
+import { emitRuntimeUnionLiteralComparison } from "./binary-runtime-union-comparison.js";
 
 /**
  * Emit a binary operator expression as CSharpExpressionAst
@@ -88,6 +93,19 @@ export const emitBinary = (
   // Handle instanceof operator specially
   if (expr.operator === "instanceof") {
     return emitInstanceof(expr, context);
+  }
+
+  const typeofComparison = emitTypeofComparison(expr, context);
+  if (typeofComparison) {
+    return typeofComparison;
+  }
+
+  const runtimeUnionLiteralComparison = emitRuntimeUnionLiteralComparison(
+    expr,
+    context
+  );
+  if (runtimeUnionLiteralComparison) {
+    return runtimeUnionLiteralComparison;
   }
 
   // CHAR VS STRING COMPARISON FIX:

@@ -1,9 +1,7 @@
 import { IrExpression } from "@tsonic/frontend";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import type {
-  CSharpExpressionAst,
-} from "../../core/format/backend-ast/types.js";
+import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 import type { EmitterContext } from "../../types.js";
 import {

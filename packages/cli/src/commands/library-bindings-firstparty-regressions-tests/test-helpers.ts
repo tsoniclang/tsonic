@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "chai";
+import { getStableCliPath } from "../../test-cli-bin.js";
 
 export const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
@@ -112,7 +113,7 @@ export const writeLibraryScaffold = (
 };
 
 export const runLibraryBuild = (dir: string, wsConfigPath: string): void => {
-  const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+  const cliPath = getStableCliPath(repoRoot);
   const result = spawnSync(
     "node",
     [cliPath, "build", "--project", "lib", "--config", wsConfigPath, "--quiet"],
@@ -126,7 +127,7 @@ export const runProjectBuild = (
   wsConfigPath: string,
   projectName: string
 ): void => {
-  const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+  const cliPath = getStableCliPath(repoRoot);
   const result = spawnSync(
     "node",
     [

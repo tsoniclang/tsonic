@@ -34,6 +34,7 @@ import {
   resolveEmittedReceiverTypeAst,
   emitMemberName,
 } from "./access-resolution.js";
+import { buildJsSafeDictionaryReadAst } from "./dictionary-safe-access.js";
 import {
   tryEmitErasedLengthAccess,
   tryEmitConcreteReceiverLengthAccess,
@@ -164,6 +165,21 @@ export const emitPropertyAccess = (
     }
 
     const keyAst = createStringLiteralExpression(prop);
+    if (context.options.surface === "@tsonic/js" && usage !== "write") {
+      const fallbackType =
+        expectedType ?? expr.inferredType ?? resolvedObjectType.valueType;
+      const [resultTypeAst, typeContext] = emitTypeAst(fallbackType, context);
+      return [
+        buildJsSafeDictionaryReadAst(
+          objectAst,
+          keyAst,
+          expr.isOptional,
+          resultTypeAst
+        ),
+        typeContext,
+      ];
+    }
+
     if (expr.isOptional) {
       return [
         {

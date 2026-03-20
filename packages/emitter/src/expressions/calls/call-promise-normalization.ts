@@ -12,12 +12,8 @@ import {
 } from "../../core/format/backend-ast/builders.js";
 import { emitRuntimeCarrierTypeAst } from "../../core/semantic/runtime-unions.js";
 import type { EmitterContext } from "../../types.js";
-import {
-  buildCompletedTaskAst,
-} from "./call-promise-task-types.js";
-import {
-  isValueTaskLikeIrType,
-} from "./call-promise-ir-types.js";
+import { buildCompletedTaskAst } from "./call-promise-task-types.js";
+import { isValueTaskLikeIrType } from "./call-promise-ir-types.js";
 
 export const buildInvocation = (
   expression: CSharpExpressionAst,
@@ -28,7 +24,9 @@ export const buildInvocation = (
   arguments: args,
 });
 
-export const buildAwait = (expression: CSharpExpressionAst): CSharpExpressionAst => ({
+export const buildAwait = (
+  expression: CSharpExpressionAst
+): CSharpExpressionAst => ({
   kind: "awaitExpression",
   expression,
 });

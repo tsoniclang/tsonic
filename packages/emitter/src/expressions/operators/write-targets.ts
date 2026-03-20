@@ -1,6 +1,7 @@
 import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
+import { emitMemberAccess } from "../access.js";
 import { getMemberAccessNarrowKey } from "../../core/semantic/narrowing-keys.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { unwrapTransparentExpression } from "../../core/semantic/transparent-expressions.js";
@@ -79,10 +80,10 @@ export const emitWritableTargetAst = (
 ): [CSharpExpressionAst, EmitterContext] => {
   const suppressedContext = suppressWriteTargetNarrowing(expr, context);
   const rawTarget = unwrapTransparentExpression(expr);
-  const [targetAst, targetContext] = emitExpressionAst(
-    rawTarget,
-    suppressedContext
-  );
+  const [targetAst, targetContext] =
+    rawTarget.kind === "memberAccess"
+      ? emitMemberAccess(rawTarget, suppressedContext, "write")
+      : emitExpressionAst(rawTarget, suppressedContext);
 
   if (suppressedContext === context) {
     return [targetAst, targetContext];

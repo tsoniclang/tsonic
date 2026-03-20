@@ -14,6 +14,7 @@ export const normalizeInstanceofTargetType = (
     return {
       kind: "referenceType",
       name: type.name.slice(0, -"Constructor".length),
+      resolvedClrType: type.resolvedClrType,
     };
   }
 

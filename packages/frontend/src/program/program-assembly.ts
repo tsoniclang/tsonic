@@ -26,8 +26,7 @@ import {
   createDiagnosticsCollector,
 } from "../types/diagnostic.js";
 import { resolveDependencyPackageRoot } from "./package-roots.js";
-import {
-} from "./core-declarations.js";
+import {} from "./core-declarations.js";
 import {
   parseTsonicModuleRequest,
   createResolveSiblingTsonicPackageRoot,
@@ -36,6 +35,18 @@ import {
   createResolveModuleFromPackageRoot,
 } from "./module-resolution.js";
 import { discoverProgramInputs } from "./program-input-discovery.js";
+
+const resolveMonorepoRoot = (): string => {
+  const envRoot = process.env.TSONIC_REPO_ROOT?.trim();
+  if (envRoot) {
+    return path.resolve(envRoot);
+  }
+
+  const compilerContainingFile = fileURLToPath(import.meta.url);
+  return path.resolve(
+    path.join(path.dirname(compilerContainingFile), "../../../..")
+  );
+};
 
 /**
  * Create a Tsonic program from TypeScript source files
@@ -68,11 +79,7 @@ export const createProgram = (
     projectRoot: options.projectRoot,
   });
   const compilerContainingFile = fileURLToPath(import.meta.url);
-  // creation.ts lives at: <repoRoot>/packages/frontend/src/program/creation.ts
-  // repoRoot is 4 levels up from this file's directory.
-  const repoRoot = path.resolve(
-    path.join(path.dirname(compilerContainingFile), "../../../..")
-  );
+  const repoRoot = resolveMonorepoRoot();
 
   const require = createRequire(import.meta.url);
 

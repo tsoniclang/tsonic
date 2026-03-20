@@ -42,7 +42,9 @@ export const containsVoidTypeAst = (typeAst: CSharpTypeAst): boolean => {
     return containsVoidTypeAst(typeAst.elementType);
   }
   if (typeAst.kind === "tupleType") {
-    return typeAst.elements.some((element) => containsVoidTypeAst(element.type));
+    return typeAst.elements.some((element) =>
+      containsVoidTypeAst(element.type)
+    );
   }
   return false;
 };
@@ -59,7 +61,9 @@ export const getTaskResultType = (
   ) {
     return undefined;
   }
-  return typeAst.typeArguments?.length === 1 ? typeAst.typeArguments[0] : undefined;
+  return typeAst.typeArguments?.length === 1
+    ? typeAst.typeArguments[0]
+    : undefined;
 };
 
 export const buildDelegateType = (

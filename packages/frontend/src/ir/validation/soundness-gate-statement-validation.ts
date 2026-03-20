@@ -55,7 +55,11 @@ export const validateStatement = (
             member.parameters.forEach((parameter) =>
               validateParameter(parameter, ctx)
             );
-            validateType(member.returnType, ctx, `method '${member.name}' return type`);
+            validateType(
+              member.returnType,
+              ctx,
+              `method '${member.name}' return type`
+            );
             if (member.body) {
               validateStatement(member.body, ctx);
             }
@@ -101,7 +105,9 @@ export const validateStatement = (
         validateTypeParameter(typeParameter, ctx)
       );
       if (stmt.type.kind === "objectType") {
-        stmt.type.members.forEach((member) => validateInterfaceMember(member, ctx));
+        stmt.type.members.forEach((member) =>
+          validateInterfaceMember(member, ctx)
+        );
       } else {
         validateType(stmt.type, ctx, `type alias '${stmt.name}'`);
       }

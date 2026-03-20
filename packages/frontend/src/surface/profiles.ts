@@ -103,6 +103,16 @@ const sortVersionDirs = (dirs: readonly string[]): readonly string[] => {
   });
 };
 
+const resolveMonorepoRoot = (): string => {
+  const envRoot = process.env.TSONIC_REPO_ROOT?.trim();
+  if (envRoot) {
+    return resolve(envRoot);
+  }
+
+  const here = fileURLToPath(import.meta.url);
+  return resolve(dirname(here), "../../../../");
+};
+
 const tryResolveSiblingSurfacePackage = (
   candidate: string
 ): ResolvedSurfacePackage | undefined => {
@@ -111,8 +121,7 @@ const tryResolveSiblingSurfacePackage = (
   const pkgDirName = scoped[1];
   if (!pkgDirName) return undefined;
 
-  const here = fileURLToPath(import.meta.url);
-  const repoRoot = resolve(dirname(here), "../../../../");
+  const repoRoot = resolveMonorepoRoot();
   const siblingRepoRoot = resolve(repoRoot, "..", pkgDirName);
 
   const repoPackageName = readPackageName(

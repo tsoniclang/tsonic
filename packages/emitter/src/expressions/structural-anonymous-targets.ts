@@ -1,4 +1,8 @@
-import { IrPropertyDeclaration, IrType, stableIrTypeKey } from "@tsonic/frontend";
+import {
+  IrPropertyDeclaration,
+  IrType,
+  stableIrTypeKey,
+} from "@tsonic/frontend";
 import {
   resolveTypeAlias,
   stripNullish,

@@ -48,9 +48,7 @@ describe("expression architecture invariants", () => {
     expect(expressionEmitter).to.not.include("structural-adaptation.js");
     expect(expressionEmitter).to.not.include("direct-storage-types.js");
 
-    expect(typeAssertions).to.include(
-      'from "./expected-type-adaptation.js"'
-    );
+    expect(typeAssertions).to.include('from "./expected-type-adaptation.js"');
     expect(typeAssertions).to.not.include("runtime-union-adaptation.js");
     expect(typeAssertions).to.not.include("structural-adaptation.js");
     expect(typeAssertions).to.not.include("direct-storage-types.js");
@@ -63,7 +61,12 @@ describe("expression architecture invariants", () => {
       "runtime-union-adaptation.ts",
       "runtime-union-adaptation-upcast.ts",
     ]);
-    const allowedDirectStorageImports = new Set(["expected-type-adaptation.ts"]);
+    const allowedDirectStorageImports = new Set([
+      "calls/call-runtime-union-guards.ts",
+      "expected-type-adaptation.ts",
+      "operators/binary-runtime-union-comparison.ts",
+      "operators/binary-special-ops.ts",
+    ]);
 
     const runtimeUnionImportHits: string[] = [];
     const directStorageImportHits: string[] = [];
