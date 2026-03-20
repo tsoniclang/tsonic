@@ -12,7 +12,12 @@ import {
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildTestTimeoutMs, linkDir, repoRoot } from "../helpers.js";
+import {
+  buildTestTimeoutMs,
+  linkDir,
+  readFirstPartyBindingsJson,
+  repoRoot,
+} from "../helpers.js";
 
 describe("build command (library bindings)", function () {
   this.timeout(buildTestTimeoutMs);
@@ -362,23 +367,32 @@ describe("build command (library bindings)", function () {
 
       const rootBindingsPath = join(bindingsDir, "Test.Lib", "bindings.json");
       expect(existsSync(rootBindingsPath)).to.equal(true);
-      const rootBindings = JSON.parse(
-        readFileSync(rootBindingsPath, "utf-8")
-      ) as {
-        namespace?: unknown;
-        producer?: { tool?: unknown; mode?: unknown };
-        exports?: Record<string, unknown>;
-        types?: Array<{ clrName?: unknown }>;
-      };
+      const rootBindings = readFirstPartyBindingsJson(rootBindingsPath);
       expect(rootBindings.namespace).to.equal("Test.Lib");
       expect(rootBindings.producer?.tool).to.equal("tsonic");
       expect(rootBindings.producer?.mode).to.equal("tsonic-firstparty");
-      expect(Object.keys(rootBindings.exports ?? {})).to.include("ok");
-      expect(Object.keys(rootBindings.exports ?? {})).to.include("err");
-      expect(Object.keys(rootBindings.exports ?? {})).to.include("loadConfig");
+      expect(Object.keys(rootBindings.dotnet?.exports ?? {})).to.include("ok");
+      expect(Object.keys(rootBindings.dotnet?.exports ?? {})).to.include("err");
+      expect(Object.keys(rootBindings.dotnet?.exports ?? {})).to.include(
+        "loadConfig"
+      );
       expect(
-        (rootBindings.types ?? []).some(
+        Object.keys(rootBindings.semanticSurface?.exports ?? {})
+      ).to.include("ok");
+      expect(
+        Object.keys(rootBindings.semanticSurface?.exports ?? {})
+      ).to.include("err");
+      expect(
+        Object.keys(rootBindings.semanticSurface?.exports ?? {})
+      ).to.include("loadConfig");
+      expect(
+        (rootBindings.dotnet?.types ?? []).some(
           (entry) => entry.clrName === "Test.Lib.db.QueryHolder"
+        )
+      ).to.equal(true);
+      expect(
+        (rootBindings.semanticSurface?.types ?? []).some(
+          (entry) => entry.alias === "Test.Lib.db.QueryHolder"
         )
       ).to.equal(true);
 

@@ -33,7 +33,10 @@ export type {
   RawBindingsProperty,
   RawBindingsField,
   RawBindingsConstructor,
+  RawTsbindgenBindingsFile,
+  RawBindingsFileV2,
   RawBindingsFile,
+  RawBindingsPayload,
 } from "./raw-bindings-types.js";
 
 export {

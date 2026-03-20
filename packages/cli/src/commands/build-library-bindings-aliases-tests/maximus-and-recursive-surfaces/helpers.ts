@@ -10,7 +10,12 @@ import {
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { buildTestTimeoutMs, linkDir, repoRoot } from "../helpers.js";
+import {
+  buildTestTimeoutMs,
+  linkDir,
+  readFirstPartyBindingsJson,
+  repoRoot,
+} from "../helpers.js";
 
 export { buildTestTimeoutMs };
 
@@ -112,10 +117,7 @@ export const readRootBindings = (
   bindingsDir: string
 ): {
   readonly path: string;
-  readonly content: {
-    producer?: { tool?: unknown; mode?: unknown };
-    exports?: Record<string, unknown>;
-  };
+  readonly content: ReturnType<typeof readFirstPartyBindingsJson>;
 } => {
   const rootBindingsPath = join(bindingsDir, "Acme.Core", "bindings.json");
   if (!existsSync(rootBindingsPath)) {
@@ -123,9 +125,6 @@ export const readRootBindings = (
   }
   return {
     path: rootBindingsPath,
-    content: JSON.parse(readFileSync(rootBindingsPath, "utf-8")) as {
-      producer?: { tool?: unknown; mode?: unknown };
-      exports?: Record<string, unknown>;
-    },
+    content: readFirstPartyBindingsJson(rootBindingsPath),
   };
 };

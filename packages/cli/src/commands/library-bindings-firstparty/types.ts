@@ -11,6 +11,7 @@ import type {
   IrTypeAliasDeclaration,
 } from "@tsonic/frontend";
 import * as ts from "typescript";
+import type { FirstPartySemanticSurface } from "./semantic-surface.js";
 import type { SourceFunctionSignatureSurface as SourceFunctionSignatureDef } from "../../package-manifests/source-function-surfaces.js";
 
 export type FirstPartyBindingsMethod = {
@@ -117,8 +118,11 @@ export type FirstPartyBindingsExport = {
 export type FirstPartyBindingsFile = {
   readonly namespace: string;
   readonly contributingAssemblies: readonly string[];
-  readonly types: readonly FirstPartyBindingsType[];
-  readonly exports?: Readonly<Record<string, FirstPartyBindingsExport>>;
+  readonly semanticSurface: FirstPartySemanticSurface;
+  readonly dotnet: {
+    readonly types: readonly FirstPartyBindingsType[];
+    readonly exports?: Readonly<Record<string, FirstPartyBindingsExport>>;
+  };
   readonly producer: {
     readonly tool: "tsonic";
     readonly mode: "tsonic-firstparty";

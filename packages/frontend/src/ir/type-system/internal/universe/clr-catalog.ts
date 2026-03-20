@@ -20,7 +20,7 @@ import type {
   TypeId,
   NominalEntry,
   MemberEntry,
-  RawBindingsFile,
+  RawBindingsPayload,
 } from "./types.js";
 import {
   convertRawType,
@@ -138,15 +138,38 @@ const findBindingsFiles = (packagePath: string): string[] => {
   return bindingsFiles;
 };
 
-const isRawClrBindingsFile = (value: unknown): value is RawBindingsFile => {
-  if (typeof value !== "object" || value === null) return false;
+const extractRawClrBindingsPayload = (
+  value: unknown
+): RawBindingsPayload | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
   const candidate = value as {
     readonly namespace?: unknown;
     readonly types?: unknown;
+    readonly dotnet?: {
+      readonly types?: unknown;
+    };
   };
-  return (
-    typeof candidate.namespace === "string" && Array.isArray(candidate.types)
-  );
+  if (typeof candidate.namespace !== "string") {
+    return undefined;
+  }
+  if (Array.isArray(candidate.types)) {
+    return {
+      namespace: candidate.namespace,
+      types: candidate.types,
+    };
+  }
+  if (
+    candidate.dotnet !== undefined &&
+    typeof candidate.dotnet === "object" &&
+    candidate.dotnet !== null &&
+    Array.isArray(candidate.dotnet.types)
+  ) {
+    return {
+      namespace: candidate.namespace,
+      types: candidate.dotnet.types,
+    };
+  }
+  return undefined;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -192,10 +215,10 @@ export const loadClrCatalog = (
 
         const content = fs.readFileSync(bindingsPath, "utf-8");
         const parsed = JSON.parse(content) as unknown;
-        if (!isRawClrBindingsFile(parsed)) {
+        const bindings = extractRawClrBindingsPayload(parsed);
+        if (!bindings) {
           continue;
         }
-        const bindings = parsed;
 
         for (const rawType of bindings.types) {
           const entry = convertRawType(rawType, bindings.namespace);
@@ -254,12 +277,12 @@ export const loadSinglePackageBindings = (
 
   const content = fs.readFileSync(bindingsPath, "utf-8");
   const parsed = JSON.parse(content) as unknown;
-  if (!isRawClrBindingsFile(parsed)) {
+  const bindings = extractRawClrBindingsPayload(parsed);
+  if (!bindings) {
     throw new Error(
-      `Expected tsbindgen CLR bindings with 'namespace' and 'types' at ${bindingsPath}`
+      `Expected CLR bindings with 'namespace' and either 'types' or 'dotnet.types' at ${bindingsPath}`
     );
   }
-  const bindings = parsed;
 
   for (const rawType of bindings.types) {
     const entry = convertRawType(rawType, bindings.namespace);

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "chai";
@@ -142,3 +142,23 @@ export const runProjectBuild = (
   );
   expect(result.status, result.stderr || result.stdout).to.equal(0);
 };
+
+export type GeneratedFirstPartyBindingsJson = {
+  readonly namespace?: unknown;
+  readonly producer?: { readonly tool?: unknown; readonly mode?: unknown };
+  readonly semanticSurface?: {
+    readonly types?: readonly Record<string, unknown>[];
+    readonly exports?: Readonly<Record<string, unknown>>;
+  };
+  readonly dotnet?: {
+    readonly types?: readonly Record<string, unknown>[];
+    readonly exports?: Readonly<Record<string, unknown>>;
+  };
+};
+
+export const readFirstPartyBindingsJson = (
+  bindingsPath: string
+): GeneratedFirstPartyBindingsJson =>
+  JSON.parse(
+    readFileSync(bindingsPath, "utf-8")
+  ) as GeneratedFirstPartyBindingsJson;

@@ -12,7 +12,12 @@ import {
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildTestTimeoutMs, linkDir, repoRoot } from "./helpers.js";
+import {
+  buildTestTimeoutMs,
+  linkDir,
+  readFirstPartyBindingsJson,
+  repoRoot,
+} from "./helpers.js";
 
 describe("build command (library bindings)", function () {
   this.timeout(buildTestTimeoutMs);
@@ -324,21 +329,30 @@ describe("build command (library bindings)", function () {
         "bindings.json"
       );
       expect(existsSync(rootBindingsPath)).to.equal(true);
-      const rootBindings = JSON.parse(
-        readFileSync(rootBindingsPath, "utf-8")
-      ) as {
-        producer?: { tool?: unknown; mode?: unknown };
-        exports?: Record<string, unknown>;
-        types?: Array<{ clrName?: unknown }>;
-      };
+      const rootBindings = readFirstPartyBindingsJson(rootBindingsPath);
       expect(rootBindings.producer?.tool).to.equal("tsonic");
       expect(rootBindings.producer?.mode).to.equal("tsonic-firstparty");
-      expect(Object.keys(rootBindings.exports ?? {})).to.include(
+      expect(Object.keys(rootBindings.dotnet?.exports ?? {})).to.include(
         "renderMarkdownDomain"
       );
-      expect(Object.keys(rootBindings.exports ?? {})).to.include("dispatch");
+      expect(Object.keys(rootBindings.dotnet?.exports ?? {})).to.include(
+        "dispatch"
+      );
       expect(
-        (rootBindings.types ?? []).some((t) => t.clrName === "Acme.Core.Entity")
+        Object.keys(rootBindings.semanticSurface?.exports ?? {})
+      ).to.include("renderMarkdownDomain");
+      expect(
+        Object.keys(rootBindings.semanticSurface?.exports ?? {})
+      ).to.include("dispatch");
+      expect(
+        (rootBindings.dotnet?.types ?? []).some(
+          (t) => t.clrName === "Acme.Core.Entity"
+        )
+      ).to.equal(true);
+      expect(
+        (rootBindings.semanticSurface?.types ?? []).some(
+          (t) => t.alias === "Acme.Core.Entity"
+        )
       ).to.equal(true);
 
       const coreTypesFacade = readFileSync(

@@ -9,7 +9,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runLibraryBuild, writeLibraryScaffold } from "../test-helpers.js";
+import {
+  readFirstPartyBindingsJson,
+  runLibraryBuild,
+  writeLibraryScaffold,
+} from "../test-helpers.js";
 
 describe("library bindings first-party regressions", function () {
   this.timeout(10 * 60 * 1000);
@@ -162,43 +166,40 @@ describe("library bindings first-party regressions", function () {
       );
       expect(internal).to.not.include("__tsonic_overload_impl_parse");
 
-      const bindings = JSON.parse(
-        readFileSync(
-          join(
-            dir,
-            "packages",
-            "lib",
-            "dist",
-            "tsonic",
-            "bindings",
-            "Acme.Overloads",
-            "bindings.json"
-          ),
-          "utf-8"
+      const bindings = readFirstPartyBindingsJson(
+        join(
+          dir,
+          "packages",
+          "lib",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Acme.Overloads",
+          "bindings.json"
         )
-      ) as {
-        readonly types?: ReadonlyArray<{
-          readonly alias?: string;
-          readonly methods?: ReadonlyArray<{
-            readonly clrName?: string;
-            readonly overloadFamily?: {
-              readonly familyId?: string;
-              readonly memberId?: string;
-              readonly ownerKind?: string;
-              readonly publicName?: string;
-              readonly isStatic?: boolean;
-              readonly role?: string;
-              readonly publicSignatureCount?: number;
-              readonly publicSignatureIndex?: number;
-              readonly implementationName?: string;
-            };
-          }>;
-        }>;
-      };
-
-      const parserType = bindings.types?.find(
-        (type) => type.alias === "Acme.Overloads.Parser"
       );
+
+      const parserType = bindings.dotnet?.types?.find(
+        (type) => type.alias === "Acme.Overloads.Parser"
+      ) as
+        | {
+            readonly alias?: string;
+            readonly methods?: ReadonlyArray<{
+              readonly clrName?: string;
+              readonly overloadFamily?: {
+                readonly familyId?: string;
+                readonly memberId?: string;
+                readonly ownerKind?: string;
+                readonly publicName?: string;
+                readonly isStatic?: boolean;
+                readonly role?: string;
+                readonly publicSignatureCount?: number;
+                readonly publicSignatureIndex?: number;
+                readonly implementationName?: string;
+              };
+            }>;
+          }
+        | undefined;
       expect(parserType).to.not.equal(undefined);
 
       const methods = parserType?.methods ?? [];
@@ -230,6 +231,24 @@ describe("library bindings first-party regressions", function () {
           implementationName: "__tsonic_overload_impl_parse",
         });
       }
+
+      const semanticParserType = bindings.semanticSurface?.types?.find(
+        (type) => type.alias === "Acme.Overloads.Parser"
+      ) as
+        | {
+            readonly methods?: ReadonlyArray<{
+              readonly overloadFamily?: {
+                readonly familyId?: string;
+                readonly memberId?: string;
+              };
+            }>;
+          }
+        | undefined;
+      expect(
+        semanticParserType?.methods?.every(
+          (method) => method.overloadFamily !== undefined
+        )
+      ).to.equal(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

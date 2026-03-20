@@ -1,15 +1,14 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { linkDir, repoRoot, runProjectBuild } from "../test-helpers.js";
+import {
+  linkDir,
+  readFirstPartyBindingsJson,
+  repoRoot,
+  runProjectBuild,
+} from "../test-helpers.js";
 
 describe("library bindings first-party regressions", function () {
   this.timeout(10 * 60 * 1000);
@@ -259,39 +258,41 @@ describe("library bindings first-party regressions", function () {
 
       runProjectBuild(dir, wsConfigPath, "channels");
 
-      const topLevelBindings = JSON.parse(
-        readFileSync(
-          join(
-            dir,
-            "packages",
-            "channels",
-            "dist",
-            "tsonic",
-            "bindings",
-            "Acme.Channels",
-            "bindings.json"
-          ),
-          "utf-8"
+      const topLevelBindings = readFirstPartyBindingsJson(
+        join(
+          dir,
+          "packages",
+          "channels",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Acme.Channels",
+          "bindings.json"
         )
-      ) as {
-        readonly types?: ReadonlyArray<{
-          readonly clrName?: string;
-          readonly alias?: string;
-        }>;
-      };
+      );
 
       expect(
-        topLevelBindings.types?.some(
+        topLevelBindings.dotnet?.types?.some(
           (type) =>
             type.clrName === "Acme.Channels.domain.ChannelFolderWithItems" &&
             type.alias === "Acme.Channels.domain.ChannelFolderWithItems"
         )
       ).to.equal(true);
       expect(
-        topLevelBindings.types?.some(
+        topLevelBindings.dotnet?.types?.some(
           (type) =>
             type.clrName === "Acme.Channels.repo.ChannelFolderWithItems" &&
             type.alias === "Acme.Channels.repo.ChannelFolderWithItems"
+        )
+      ).to.equal(true);
+      expect(
+        topLevelBindings.semanticSurface?.types?.some(
+          (type) => type.alias === "Acme.Channels.domain.ChannelFolderWithItems"
+        )
+      ).to.equal(true);
+      expect(
+        topLevelBindings.semanticSurface?.types?.some(
+          (type) => type.alias === "Acme.Channels.repo.ChannelFolderWithItems"
         )
       ).to.equal(true);
 

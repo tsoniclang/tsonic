@@ -9,7 +9,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { linkDir, repoRoot, runProjectBuild } from "../test-helpers.js";
+import {
+  linkDir,
+  readFirstPartyBindingsJson,
+  repoRoot,
+  runProjectBuild,
+} from "../test-helpers.js";
 
 describe("library bindings first-party regressions", function () {
   this.timeout(10 * 60 * 1000);
@@ -258,17 +263,17 @@ describe("library bindings first-party regressions", function () {
         join(bindingsRoot, "Acme.Core.d.ts"),
         "utf-8"
       );
-      const rootBindings = JSON.parse(
-        readFileSync(join(bindingsRoot, "Acme.Core", "bindings.json"), "utf-8")
-      ) as { readonly types: readonly { readonly clrName: string }[] };
+      const rootBindings = readFirstPartyBindingsJson(
+        join(bindingsRoot, "Acme.Core", "bindings.json")
+      );
 
       expect(rootInternal).to.not.include("export interface User$instance");
       expect(rootFacade).to.not.include(
         "export { User } from './Acme.Core/internal/index.js';"
       );
-      expect(rootBindings.types.map((item) => item.clrName)).to.not.include(
-        "Acme.Core.User"
-      );
+      expect(
+        (rootBindings.dotnet?.types ?? []).map((item) => item.clrName)
+      ).to.not.include("Acme.Core.User");
 
       runProjectBuild(dir, wsConfigPath, "app");
     } finally {

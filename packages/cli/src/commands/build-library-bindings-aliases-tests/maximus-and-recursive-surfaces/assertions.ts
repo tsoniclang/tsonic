@@ -5,12 +5,18 @@ export const assertMaximusBindings = (bindingsDir: string): void => {
   const rootBindings = readRootBindings(bindingsDir);
   expect(rootBindings.content.producer?.tool).to.equal("tsonic");
   expect(rootBindings.content.producer?.mode).to.equal("tsonic-firstparty");
-  expect(Object.keys(rootBindings.content.exports ?? {})).to.include(
+  expect(Object.keys(rootBindings.content.dotnet?.exports ?? {})).to.include(
     "projectFlags"
   );
-  expect(Object.keys(rootBindings.content.exports ?? {})).to.include(
+  expect(Object.keys(rootBindings.content.dotnet?.exports ?? {})).to.include(
     "createBox"
   );
+  expect(
+    Object.keys(rootBindings.content.semanticSurface?.exports ?? {})
+  ).to.include("projectFlags");
+  expect(
+    Object.keys(rootBindings.content.semanticSurface?.exports ?? {})
+  ).to.include("createBox");
 
   const allFacadeText = collectDtsText(bindingsDir);
   for (const alias of expectedTypeAliases) {

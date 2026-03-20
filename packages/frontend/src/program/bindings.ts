@@ -25,12 +25,15 @@ export type {
   TsbindgenType,
   TsbindgenExport,
   TsbindgenBindingFile,
+  FirstPartyBindingsFileV2,
   BindingFile,
 } from "./binding-types.js";
 
 export {
   isFullBindingManifest,
   isTsbindgenBindingFile,
+  isFirstPartyBindingsFileV2,
+  getTsbindgenPayload,
   validateBindingFile,
 } from "./binding-types.js";
 

@@ -10,6 +10,34 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
+const extractBindingsTypes = (
+  parsed: unknown
+): readonly Record<string, unknown>[] | undefined => {
+  if (parsed === null || typeof parsed !== "object") {
+    return undefined;
+  }
+  const record = parsed as Record<string, unknown>;
+  if (Array.isArray(record.types)) {
+    return record.types.filter(
+      (entry): entry is Record<string, unknown> =>
+        entry !== null && typeof entry === "object" && !Array.isArray(entry)
+    );
+  }
+  const dotnet = record.dotnet;
+  if (
+    dotnet !== null &&
+    typeof dotnet === "object" &&
+    !Array.isArray(dotnet) &&
+    Array.isArray((dotnet as { readonly types?: unknown }).types)
+  ) {
+    return (dotnet as { readonly types: unknown[] }).types.filter(
+      (entry): entry is Record<string, unknown> =>
+        entry !== null && typeof entry === "object" && !Array.isArray(entry)
+    );
+  }
+  return undefined;
+};
+
 /**
  * Resolve package root directory using Node resolution.
  *
@@ -186,7 +214,6 @@ export const extractNamespace = (
     const content = readFileSync(bindingsPath, "utf-8");
     const parsed = JSON.parse(content) as unknown;
 
-    // Check for tsbindgen format: { namespace: string, types: [...] }
     if (
       parsed !== null &&
       typeof parsed === "object" &&
@@ -225,21 +252,13 @@ export const extractAssembly = (
     const content = readFileSync(bindingsPath, "utf-8");
     const parsed = JSON.parse(content) as unknown;
 
-    // Check for tsbindgen format: { namespace: string, types: [...] }
-    if (
-      parsed !== null &&
-      typeof parsed === "object" &&
-      "types" in parsed &&
-      Array.isArray((parsed as Record<string, unknown>).types)
-    ) {
-      const types = (parsed as Record<string, unknown>).types as unknown[];
-      if (types.length > 0) {
-        const firstType = types[0] as Record<string, unknown>;
-        if (typeof firstType.assemblyName === "string") {
-          const assembly = firstType.assemblyName;
-          assemblyCache.set(bindingsPath, assembly);
-          return assembly;
-        }
+    const types = extractBindingsTypes(parsed);
+    if (types) {
+      const [firstType] = types;
+      if (firstType && typeof firstType.assemblyName === "string") {
+        const assembly = firstType.assemblyName;
+        assemblyCache.set(bindingsPath, assembly);
+        return assembly;
       }
     }
 

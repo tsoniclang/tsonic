@@ -15,10 +15,7 @@ import type {
   TsbindgenExport,
   BindingFile,
 } from "./binding-types.js";
-import {
-  isFullBindingManifest,
-  isTsbindgenBindingFile,
-} from "./binding-types.js";
+import { isFullBindingManifest, getTsbindgenPayload } from "./binding-types.js";
 
 // ---------------------------------------------------------------------------
 // MutableRegistryState – writable view into BindingRegistry maps
@@ -217,12 +214,26 @@ export const addBindingsToState = (
         }
       }
     }
-  } else if (isTsbindgenBindingFile(manifest)) {
+  } else {
+    const tsbindgenManifest = getTsbindgenPayload(manifest);
+    if (!tsbindgenManifest) {
+      if (!("bindings" in manifest)) {
+        return;
+      }
+      // Simple format: global/module bindings
+      for (const [name, descriptor] of Object.entries(manifest.bindings)) {
+        state.simpleBindings.set(name, descriptor);
+        state.simpleBindingsLowercase.set(name.toLowerCase(), descriptor);
+      }
+      return;
+    }
+
+    const manifestNamespace = tsbindgenManifest.namespace;
     // tsbindgen format: convert to internal format
     const namespaceTypes: TypeBinding[] = [];
     const derivedAliasCounts = new Map<string, number>();
 
-    for (const tsbType of manifest.types) {
+    for (const tsbType of tsbindgenManifest.types) {
       const derivedAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
       derivedAliasCounts.set(
         derivedAlias,
@@ -230,7 +241,7 @@ export const addBindingsToState = (
       );
     }
 
-    for (const tsbType of manifest.types) {
+    for (const tsbType of tsbindgenManifest.types) {
       // Create members from methods, properties, and fields
       const members: MemberBinding[] = [];
 
@@ -366,7 +377,7 @@ export const addBindingsToState = (
       state.typeLookupAliasMap.set(tsbType.clrName, typeBinding.alias);
       if (!typeBinding.alias.includes(".")) {
         state.typeLookupAliasMap.set(
-          `${manifest.namespace}.${typeBinding.alias}`,
+          `${manifestNamespace}.${typeBinding.alias}`,
           typeBinding.alias
         );
       }
@@ -426,28 +437,24 @@ export const addBindingsToState = (
     // These are stable value exports for CLR namespace facade modules and are
     // resolved by Tsonic during import binding (so `import { x }` maps to
     // `global::<DeclaringType>.<member>` in C#).
-    if (manifest.exports) {
+    if (tsbindgenManifest.exports) {
       const nsExports =
-        state.tsbindgenExports.get(manifest.namespace) ??
+        state.tsbindgenExports.get(manifestNamespace) ??
         new Map<string, TsbindgenExport>();
 
-      for (const [exportName, exp] of Object.entries(manifest.exports)) {
+      for (const [exportName, exp] of Object.entries(
+        tsbindgenManifest.exports
+      )) {
         nsExports.set(exportName, exp);
       }
 
-      state.tsbindgenExports.set(manifest.namespace, nsExports);
+      state.tsbindgenExports.set(manifestNamespace, nsExports);
     }
 
-    state.namespaces.set(manifest.namespace, {
-      name: manifest.namespace,
-      alias: manifest.namespace,
+    state.namespaces.set(manifestNamespace, {
+      name: manifestNamespace,
+      alias: manifestNamespace,
       types: namespaceTypes,
     });
-  } else {
-    // Simple format: global/module bindings
-    for (const [name, descriptor] of Object.entries(manifest.bindings)) {
-      state.simpleBindings.set(name, descriptor);
-      state.simpleBindingsLowercase.set(name.toLowerCase(), descriptor);
-    }
   }
 };

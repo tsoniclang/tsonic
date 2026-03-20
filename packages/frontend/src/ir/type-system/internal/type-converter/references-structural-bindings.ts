@@ -121,17 +121,35 @@ const buildBindingAliasClrIdentityMap = (
 
   try {
     const raw = JSON.parse(readFileSync(bindingsPath, "utf-8")) as unknown;
-    if (
+    const types =
       raw &&
       typeof raw === "object" &&
       Array.isArray((raw as { readonly types?: unknown }).types)
-    ) {
-      for (const type of (raw as { readonly types: readonly unknown[] })
-        .types) {
+        ? (raw as { readonly types: readonly unknown[] }).types
+        : raw &&
+            typeof raw === "object" &&
+            (raw as { readonly dotnet?: unknown }).dotnet !== null &&
+            typeof (raw as { readonly dotnet?: unknown }).dotnet === "object" &&
+            Array.isArray(
+              (
+                raw as {
+                  readonly dotnet: { readonly types?: unknown };
+                }
+              ).dotnet.types
+            )
+          ? (
+              raw as {
+                readonly dotnet: { readonly types: readonly unknown[] };
+              }
+            ).dotnet.types
+          : undefined;
+    if (types) {
+      for (const type of types) {
         if (!type || typeof type !== "object") continue;
         const clrName = (type as { readonly clrName?: unknown }).clrName;
-        if (typeof clrName !== "string" || clrName.trim().length === 0)
+        if (typeof clrName !== "string" || clrName.trim().length === 0) {
           continue;
+        }
 
         const tsAlias = tsbindgenClrTypeNameToTsTypeName(clrName);
         const lastDot = clrName.lastIndexOf(".");

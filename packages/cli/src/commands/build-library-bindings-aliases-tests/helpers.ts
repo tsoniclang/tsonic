@@ -1,4 +1,4 @@
-import { mkdirSync, symlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,3 +12,23 @@ export const linkDir = (target: string, linkPath: string): void => {
 };
 
 export const buildTestTimeoutMs = 10 * 60 * 1000;
+
+export type GeneratedFirstPartyBindingsJson = {
+  readonly namespace?: unknown;
+  readonly producer?: { readonly tool?: unknown; readonly mode?: unknown };
+  readonly semanticSurface?: {
+    readonly types?: readonly Record<string, unknown>[];
+    readonly exports?: Readonly<Record<string, unknown>>;
+  };
+  readonly dotnet?: {
+    readonly types?: readonly Record<string, unknown>[];
+    readonly exports?: Readonly<Record<string, unknown>>;
+  };
+};
+
+export const readFirstPartyBindingsJson = (
+  bindingsPath: string
+): GeneratedFirstPartyBindingsJson =>
+  JSON.parse(
+    readFileSync(bindingsPath, "utf-8")
+  ) as GeneratedFirstPartyBindingsJson;

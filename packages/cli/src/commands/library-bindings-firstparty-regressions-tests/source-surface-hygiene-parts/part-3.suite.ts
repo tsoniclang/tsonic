@@ -1,11 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runLibraryBuild, writeLibraryScaffold } from "../test-helpers.js";

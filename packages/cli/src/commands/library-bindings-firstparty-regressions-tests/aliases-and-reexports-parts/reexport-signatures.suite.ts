@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   linkDir,
+  readFirstPartyBindingsJson,
   repoRoot,
   runLibraryBuild,
   runProjectBuild,
@@ -305,12 +306,9 @@ describe("library bindings first-party regressions (re-export signatures)", func
         join(bindingsRoot, "Acme.Messages", "internal", "index.d.ts"),
         "utf-8"
       );
-      const rootBindings = JSON.parse(
-        readFileSync(
-          join(bindingsRoot, "Acme.Messages", "bindings.json"),
-          "utf-8"
-        )
-      ) as { readonly types: readonly { readonly clrName: string }[] };
+      const rootBindings = readFirstPartyBindingsJson(
+        join(bindingsRoot, "Acme.Messages", "bindings.json")
+      );
 
       expect(rootInternal).to.include(
         'readonly "__tsonic_binding_alias_Acme.Messages.domain.SendMessageInput"?: never;'
@@ -318,12 +316,15 @@ describe("library bindings first-party regressions (re-export signatures)", func
       expect(rootInternal).to.not.include(
         'readonly "__tsonic_binding_alias_Acme.Messages.SendMessageInput"?: never;'
       );
-      expect(rootBindings.types.map((item) => item.clrName)).to.not.include(
-        "Acme.Messages.SendMessageInput"
-      );
-      expect(rootBindings.types.map((item) => item.clrName)).to.include(
-        "Acme.Messages.domain.SendMessageInput"
-      );
+      expect(
+        (rootBindings.dotnet?.types ?? []).map((item) => item.clrName)
+      ).to.not.include("Acme.Messages.SendMessageInput");
+      expect(
+        (rootBindings.dotnet?.types ?? []).map((item) => item.clrName)
+      ).to.include("Acme.Messages.domain.SendMessageInput");
+      expect(
+        (rootBindings.semanticSurface?.types ?? []).map((item) => item.alias)
+      ).to.include("Acme.Messages.domain.SendMessageInput");
 
       runProjectBuild(dir, wsConfigPath, "app");
 
@@ -362,31 +363,25 @@ describe("library bindings first-party regressions (re-export signatures)", func
 
       runLibraryBuild(dir, wsConfigPath);
 
-      const bindings = JSON.parse(
-        readFileSync(
-          join(
-            dir,
-            "packages",
-            "lib",
-            "dist",
-            "tsonic",
-            "bindings",
-            "Acme.Bool",
-            "bindings.json"
-          ),
-          "utf-8"
+      const bindings = readFirstPartyBindingsJson(
+        join(
+          dir,
+          "packages",
+          "lib",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Acme.Bool",
+          "bindings.json"
         )
-      ) as {
-        readonly types?: ReadonlyArray<{
-          readonly methods?: ReadonlyArray<{
+      );
+
+      const methods = (bindings.dotnet?.types ?? []).flatMap(
+        (type) =>
+          (type.methods ?? []) as ReadonlyArray<{
             readonly clrName?: string;
             readonly normalizedSignature?: string;
-          }>;
-        }>;
-      };
-
-      const methods = (bindings.types ?? []).flatMap(
-        (type) => type.methods ?? []
+          }>
       );
       const onlyTrue = methods.find((method) => method.clrName === "onlyTrue");
       expect(onlyTrue).to.not.equal(undefined);
