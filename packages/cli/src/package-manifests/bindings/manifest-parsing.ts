@@ -3,5 +3,5 @@ export {
   mergeMsbuildProperties,
   mergePackageReferences,
 } from "./manifest-parsing/dotnet.js";
-export { resolveFromAikyaManifest } from "./manifest-parsing/aikya.js";
+export { resolveFromPackageManifest } from "./manifest-parsing/package-manifest.js";
 export { resolveFromLegacyBindingsManifest } from "./manifest-parsing/legacy.js";

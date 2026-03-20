@@ -11,7 +11,7 @@ import type {
 import {
   renderSourceFunctionParametersText,
   type SourceFunctionSignatureSurface as SourceFunctionSignatureDef,
-} from "../../../aikya/source-function-surfaces.js";
+} from "../../../package-manifests/source-function-surfaces.js";
 import type { Result } from "../../../types.js";
 import {
   collectReferencedPortableTypeNames,

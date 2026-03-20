@@ -4,7 +4,7 @@ import {
   renderSourceFunctionParametersText,
   selectPreferredSourceFunctionSignature,
   type SourceFunctionSignatureSurface as SourceFunctionSignatureDef,
-} from "../../aikya/source-function-surfaces.js";
+} from "../../package-manifests/source-function-surfaces.js";
 import type {
   AnonymousStructuralAliasInfo,
   SourceValueTypeDef,

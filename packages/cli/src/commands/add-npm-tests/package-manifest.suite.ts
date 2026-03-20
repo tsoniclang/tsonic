@@ -18,18 +18,18 @@ import {
   writeWorkspaceConfig,
 } from "./helpers.js";
 
-describe("add npm (Aikya manifests)", function () {
+describe("add npm (package manifests)", function () {
   this.timeout(3 * 60 * 1000);
 
-  it("supports Aikya package-manifest and injects runtime NuGet references", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-aikya-"));
+  it("supports package manifests and injects runtime NuGet references", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-package-manifest-"));
     try {
       const configPath = writeWorkspaceConfig(dir);
       const pkgName = "@acme/node";
       writeLocalNpmPackage(dir, "local/acme-node", {
         name: pkgName,
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: pkgName,
@@ -43,7 +43,7 @@ describe("add npm (Aikya manifests)", function () {
           producer: {
             tool: "tsonic",
             version: "0.0.70",
-            mode: "aikya-firstparty",
+            mode: "tsonic-firstparty",
           },
         },
       });
@@ -73,7 +73,7 @@ describe("add npm (Aikya manifests)", function () {
       const normalizedManifest = JSON.parse(
         readFileSync(normalizedManifestPath, "utf-8")
       ) as Record<string, unknown>;
-      expect(normalizedManifest["sourceManifest"]).to.equal("aikya");
+      expect(normalizedManifest["sourceManifest"]).to.equal("package-manifest");
       expect(normalizedManifest["packageName"]).to.equal(pkgName);
       expect(normalizedManifest["bindingsRoot"]).to.equal("tsonic/bindings");
       expect(normalizedManifest["runtimePackages"]).to.deep.equal([
@@ -85,14 +85,14 @@ describe("add npm (Aikya manifests)", function () {
     }
   });
 
-  it("allows installed tsonic source packages without treating them as invalid Aikya manifests", () => {
+  it("allows installed tsonic source packages without treating them as invalid package manifests", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-source-package-"));
     try {
       const configPath = writeWorkspaceConfig(dir, { surface: "@tsonic/js" });
       const pkgName = "@acme/math";
       writeLocalNpmPackage(dir, "local/acme-math", {
         name: pkgName,
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-source-package",
           surfaces: ["@tsonic/js"],

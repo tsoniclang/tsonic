@@ -14,7 +14,7 @@ This guide documents the current `main` behavior of Tsonic V1.
 - `lang-intrinsics.md` — `stackalloc`, `sizeof`, `nameof`, `defaultof`, `trycast`, `asinterface`, modifiers, attributes
 - `numeric-types.md` — `number` vs `int` / `long` / `double` policy
 - `type-system.md` — deterministic typing and current generic rules
-- `bindings.md` — CLR packages, source packages, Aikya manifests
+- `bindings.md` — CLR packages, source packages, package manifests
 - `dotnet-interop.md` — BCL and external CLR interop
 - `build-output.md` — generated layout and output types
 - `diagnostics.md` — diagnostic guide

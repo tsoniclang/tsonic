@@ -9,7 +9,7 @@ import { addNugetCommand } from "../../commands/add-nuget.js";
 import { removeNugetCommand } from "../../commands/remove-nuget.js";
 import { restoreCommand } from "../../commands/restore.js";
 import { updateNugetCommand } from "../../commands/update-nuget.js";
-import { applyAikyaWorkspaceOverlay } from "../../aikya/bindings.js";
+import { applyPackageManifestWorkspaceOverlay } from "../../package-manifests/bindings.js";
 import type { TsonicWorkspaceConfig } from "../../types.js";
 import { VERSION } from "../constants.js";
 import { showHelp } from "../help.js";
@@ -61,7 +61,7 @@ export const ensureDotnetInstalled = (): DispatcherError | null => {
   return { code: 8, error: ".NET SDK not found" };
 };
 
-export const commandNeedsAikyaOverlay = (command: string): boolean =>
+export const commandNeedsPackageManifestOverlay = (command: string): boolean =>
   command === "generate" ||
   command === "build" ||
   command === "run" ||
@@ -96,8 +96,8 @@ export const loadWorkspaceCommandContext = (
   }
 
   let rawWorkspaceConfig = workspaceConfigResult.value;
-  if (commandNeedsAikyaOverlay(parsed.command)) {
-    const overlay = applyAikyaWorkspaceOverlay(
+  if (commandNeedsPackageManifestOverlay(parsed.command)) {
+    const overlay = applyPackageManifestWorkspaceOverlay(
       workspaceRoot,
       rawWorkspaceConfig
     );

@@ -6,7 +6,7 @@
  *   tsonic add npm <packageSpec>
  *
  * Supported manifest contracts (airplane-grade):
- * - `tsonic/package-manifest.json` (Aikya)
+ * - `tsonic/package-manifest.json` (package-manifest)
  * - `tsonic/package-manifest.json` with `kind: "tsonic-source-package"`
  * - `tsonic.bindings.json` (legacy/external)
  */
@@ -28,7 +28,7 @@ import {
   resolveInstalledPackageBindingsManifest,
   type ManifestDotnet,
   type NormalizedBindingsManifest,
-} from "../aikya/bindings.js";
+} from "../package-manifests/bindings.js";
 
 export type AddNpmOptions = AddCommandOptions;
 

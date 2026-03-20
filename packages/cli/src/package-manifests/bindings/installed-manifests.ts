@@ -5,13 +5,13 @@ import type { Result } from "../../types.js";
 import { resolvePackageRoot } from "../../commands/add-common.js";
 import { resolveSurfaceCapabilities } from "../../surface/profiles.js";
 import {
-  AIKYA_DIAGNOSTIC,
+  PACKAGE_MANIFEST_DIAGNOSTIC,
   errorWithCode,
   normalizeId,
   readJsonObject,
 } from "./shared.js";
 import {
-  resolveFromAikyaManifest,
+  resolveFromPackageManifest,
   resolveFromLegacyBindingsManifest,
 } from "./manifest-parsing.js";
 import type { NormalizedBindingsManifest } from "./types.js";
@@ -29,20 +29,20 @@ const readInstalledPackageInfo = (
 
   const parsed = readJsonObject(
     packageJsonPath,
-    AIKYA_DIAGNOSTIC.invalidSchema
+    PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema
   );
   if (!parsed.ok) return parsed;
   const name = parsed.value.name;
   const version = parsed.value.version;
   if (typeof name !== "string" || name.trim().length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `Invalid package.json (missing name): ${packageJsonPath}`
     );
   }
   if (typeof version !== "string" || version.trim().length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `Invalid package.json (missing version): ${packageJsonPath}`
     );
   }
@@ -55,13 +55,13 @@ export const resolveInstalledPackageBindingsManifest = (
   const info = readInstalledPackageInfo(packageRoot);
   if (!info.ok) return info;
 
-  const aikya = resolveFromAikyaManifest(
+  const packageManifest = resolveFromPackageManifest(
     packageRoot,
     info.value.name,
     info.value.version
   );
-  if (!aikya.ok) return aikya;
-  if (aikya.value) return aikya;
+  if (!packageManifest.ok) return packageManifest;
+  if (packageManifest.value) return packageManifest;
 
   return resolveFromLegacyBindingsManifest(
     packageRoot,
@@ -76,13 +76,16 @@ export const hasInstalledSourcePackageManifest = (
   const path = join(packageRoot, "tsonic", "package-manifest.json");
   if (!existsSync(path)) return { ok: true, value: false };
 
-  const parsed = readJsonObject(path, AIKYA_DIAGNOSTIC.invalidSchema);
+  const parsed = readJsonObject(
+    path,
+    PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema
+  );
   if (!parsed.ok) return parsed;
 
   const schemaVersion = parsed.value.schemaVersion;
   if (schemaVersion !== 1) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `schemaVersion must be 1 at ${path}`
     );
   }
@@ -96,7 +99,7 @@ export const hasInstalledSourcePackageManifest = (
   }
 
   return errorWithCode(
-    AIKYA_DIAGNOSTIC.invalidSchema,
+    PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
     `Unsupported kind '${String(kind)}' at ${path}`
   );
 };
@@ -117,7 +120,7 @@ const listWorkspaceDependencyNames = (
   }
   const parsed = readJsonObject(
     packageJsonPath,
-    AIKYA_DIAGNOSTIC.invalidSchema
+    PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema
   );
   if (!parsed.ok) return parsed;
 
@@ -180,7 +183,7 @@ const readInstalledPackageDependencyNames = (
   const packageJsonPath = join(packageRoot, "package.json");
   const parsed = readJsonObject(
     packageJsonPath,
-    AIKYA_DIAGNOSTIC.invalidSchema
+    PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema
   );
   if (!parsed.ok) return parsed;
 
@@ -248,7 +251,7 @@ export const discoverWorkspaceBindingsManifests = (
     if (!resolvedRoot) {
       if (current.rootDependency) {
         return errorWithCode(
-          AIKYA_DIAGNOSTIC.unresolvedRuntime,
+          PACKAGE_MANIFEST_DIAGNOSTIC.unresolvedRuntime,
           `Unable to resolve workspace dependency '${current.dependencyName}' from node_modules.` +
             (rootResolutionError ? `\n${rootResolutionError}` : "")
         );

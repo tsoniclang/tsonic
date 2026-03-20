@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { applyAikyaWorkspaceOverlay } from "../aikya/bindings.js";
+import { applyPackageManifestWorkspaceOverlay } from "../package-manifests/bindings.js";
 import {
   hasResolvedSurfaceProfile,
   resolveSurfaceCapabilities,
@@ -314,7 +314,7 @@ export const initWorkspace = (
     };
 
     if (shouldInstallTypes) {
-      const overlayResult = applyAikyaWorkspaceOverlay(
+      const overlayResult = applyPackageManifestWorkspaceOverlay(
         workspaceRoot,
         workspaceConfig
       );

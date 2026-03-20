@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  applyAikyaWorkspaceOverlay,
+  applyPackageManifestWorkspaceOverlay,
   baseWorkspaceConfig,
   buildTestTimeoutMs,
   discoverWorkspaceBindingsManifests,
@@ -15,11 +15,13 @@ import {
   writeJson,
 } from "./helpers.js";
 
-describe("aikya bindings", function () {
+describe("package-manifest bindings", function () {
   this.timeout(buildTestTimeoutMs);
 
   it("discovers workspace manifests from dependencies and devDependencies", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-discover-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-discover-")
+    );
     try {
       installClrSurfacePackages(dir);
       writeJson(join(dir, "package.json"), {
@@ -30,21 +32,21 @@ describe("aikya bindings", function () {
           "app-no-bindings": "1.0.0",
         },
         devDependencies: {
-          "@acme/aikya": "1.0.0",
+          "@acme/package-manifest-lib": "1.0.0",
           "legacy-types": "1.0.0",
         },
       });
 
       writeInstalledPackage(dir, "app-no-bindings", "1.0.0");
-      writeInstalledPackage(dir, "@acme/aikya", "1.0.0", {
+      writeInstalledPackage(dir, "@acme/package-manifest-lib", "1.0.0", {
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
-          npmPackage: "@acme/aikya",
+          npmPackage: "@acme/package-manifest-lib",
           npmVersion: "1.0.0",
           runtime: {
-            nugetPackages: [{ id: "Acme.Aikya", version: "1.0.0" }],
+            nugetPackages: [{ id: "Acme.PackageManifest", version: "1.0.0" }],
           },
           typing: {
             bindingsRoot: "tsonic/bindings",
@@ -63,7 +65,7 @@ describe("aikya bindings", function () {
       expect(manifests.ok).to.equal(true);
       const values = manifests.ok ? manifests.value : [];
       expect(values.map((x) => x.packageName)).to.deep.equal([
-        "@acme/aikya",
+        "@acme/package-manifest-lib",
         "legacy-types",
       ]);
     } finally {
@@ -73,7 +75,7 @@ describe("aikya bindings", function () {
 
   it("discovers transitive manifests through installed dependency graph", () => {
     const dir = mkdtempSync(
-      join(tmpdir(), "tsonic-aikya-discover-transitive-")
+      join(tmpdir(), "tsonic-package-manifest-discover-transitive-")
     );
     try {
       installClrSurfacePackages(dir);
@@ -93,7 +95,7 @@ describe("aikya bindings", function () {
       });
       writeInstalledPackage(dir, "acme-child", "1.0.0", {
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "acme-child",
@@ -117,7 +119,7 @@ describe("aikya bindings", function () {
   });
 
   it("applies workspace overlay and merges package references", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-overlay-"));
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-manifest-overlay-"));
     try {
       installClrSurfacePackages(dir);
       writeJson(join(dir, "package.json"), {
@@ -138,7 +140,7 @@ describe("aikya bindings", function () {
       });
       writeInstalledPackage(dir, "acme-b", "1.0.0", {
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "acme-b",
@@ -152,7 +154,10 @@ describe("aikya bindings", function () {
         },
       });
 
-      const result = applyAikyaWorkspaceOverlay(dir, baseWorkspaceConfig());
+      const result = applyPackageManifestWorkspaceOverlay(
+        dir,
+        baseWorkspaceConfig()
+      );
       expect(result.ok).to.equal(true);
       const cfg = result.ok ? result.value.config : baseWorkspaceConfig();
       expect(cfg.dotnet?.packageReferences).to.deep.equal([
@@ -166,7 +171,9 @@ describe("aikya bindings", function () {
   });
 
   it("discovers installed custom surface chains even when not listed in workspace package.json", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-surface-chain-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-surface-chain-")
+    );
     try {
       writeJson(join(dir, "package.json"), {
         name: "workspace",
@@ -182,7 +189,7 @@ describe("aikya bindings", function () {
           requiredTypeRoots: ["."],
         },
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "@tsonic/js",
@@ -204,7 +211,7 @@ describe("aikya bindings", function () {
           requiredTypeRoots: ["."],
         },
         bindingsRoot: "tsonic/bindings",
-        aikyaManifest: {
+        packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-library",
           npmPackage: "@acme/surface-node",
@@ -230,7 +237,7 @@ describe("aikya bindings", function () {
         "@tsonic/js",
       ]);
 
-      const result = applyAikyaWorkspaceOverlay(dir, {
+      const result = applyPackageManifestWorkspaceOverlay(dir, {
         ...baseWorkspaceConfig(),
         surface: "@acme/surface-node",
       });

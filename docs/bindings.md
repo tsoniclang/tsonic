@@ -31,9 +31,9 @@ Tsonic uses:
 - bindings metadata
 - runtime/NuGet/package references from manifests
 
-## 2. First-Party Source Packages (Aikya)
+## 2. First-Party Package Manifests and Source Packages
 
-Tsonic-authored libraries can be published as source packages and consumed directly from npm.
+Tsonic-authored libraries and source packages can publish a `tsonic/package-manifest.json` and be consumed directly from npm.
 
 Manifest path:
 
@@ -41,7 +41,7 @@ Manifest path:
 tsonic/package-manifest.json
 ```
 
-Example:
+Source-package example:
 
 ```json
 {
@@ -56,7 +56,7 @@ Example:
 }
 ```
 
-When installed, Tsonic:
+When a source package is installed, Tsonic:
 
 - resolves the package entrypoint
 - validates surface compatibility

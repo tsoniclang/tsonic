@@ -36,7 +36,7 @@ const readProjectPackageMetadata = (
   }
 };
 
-export const writeAikyaPackageManifest = (
+export const writePackageManifest = (
   config: ResolvedConfig
 ): Result<void, string> => {
   const distRoot = join(config.projectRoot, "dist");
@@ -45,7 +45,7 @@ export const writeAikyaPackageManifest = (
     return {
       ok: false,
       error:
-        `Aikya manifest write failed: bindings root is missing at ${bindingsRoot}.\n` +
+        `package manifest write failed: bindings root is missing at ${bindingsRoot}.\n` +
         `Build did not produce library bindings.`,
     };
   }
@@ -87,7 +87,7 @@ export const writeAikyaPackageManifest = (
     producer: {
       tool: "tsonic",
       version: VERSION,
-      mode: "aikya-firstparty",
+      mode: "tsonic-firstparty",
     },
     runtime: {
       nugetPackages: runtimeNugetPackages,
@@ -112,7 +112,7 @@ export const writeAikyaPackageManifest = (
   } catch (error) {
     return {
       ok: false,
-      error: `Failed to write Aikya package manifest: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Failed to write package manifest: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 };

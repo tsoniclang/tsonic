@@ -10,7 +10,7 @@ import type {
   NormalizedBindingsManifest,
 } from "./types.js";
 
-export const AIKYA_DIAGNOSTIC = {
+export const PACKAGE_MANIFEST_DIAGNOSTIC = {
   invalidSchema: "TSN8A01",
   unresolvedRuntime: "TSN8A02",
   conflictingRuntime: "TSN8A03",

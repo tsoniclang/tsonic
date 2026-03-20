@@ -5,7 +5,7 @@ import type {
   TsonicWorkspaceConfig,
 } from "../types.js";
 import {
-  AIKYA_DIAGNOSTIC,
+  PACKAGE_MANIFEST_DIAGNOSTIC,
   manifestIsSatisfiedByLocalLibrary,
 } from "./bindings/shared.js";
 import {
@@ -21,7 +21,7 @@ import {
 import type { NormalizedBindingsManifest } from "./bindings/types.js";
 
 export type {
-  AikyaProducer,
+  PackageManifestProducer,
   ManifestDotnet,
   ManifestSurfaceMode,
   NormalizedBindingsManifest,
@@ -128,7 +128,7 @@ export const mergeManifestIntoWorkspaceConfig = (
   };
 };
 
-export const applyAikyaWorkspaceOverlay = (
+export const applyPackageManifestWorkspaceOverlay = (
   workspaceRoot: string,
   config: TsonicWorkspaceConfig
 ): Result<
@@ -149,7 +149,7 @@ export const applyAikyaWorkspaceOverlay = (
     const merged = mergeManifestIntoWorkspaceConfig(
       current,
       manifest,
-      AIKYA_DIAGNOSTIC.conflictingRuntime
+      PACKAGE_MANIFEST_DIAGNOSTIC.conflictingRuntime
     );
     if (!merged.ok) return merged;
     current = merged.value;

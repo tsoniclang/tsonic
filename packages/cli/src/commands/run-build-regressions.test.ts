@@ -331,8 +331,10 @@ describe("CLI regressions (run/build)", function () {
     }
   });
 
-  it("fails fast with TSN8A02 when an installed Aikya manifest has unresolved runtime mapping", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-aikya-runtime-invalid-"));
+  it("fails fast with TSN8A02 when an installed package manifest has unresolved runtime mapping", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-runtime-invalid-")
+    );
     const rid = detectRid();
     try {
       mkdirSync(join(dir, "packages", "app", "src"), { recursive: true });
@@ -384,11 +386,11 @@ describe("CLI regressions (run/build)", function () {
         JSON.stringify(
           {
             $schema: "https://tsonic.org/schema/v1.json",
-            rootNamespace: "Aikya.BadRuntime",
+            rootNamespace: "PackageManifest.BadRuntime",
             entryPoint: "src/index.ts",
             sourceRoot: "src",
             outputDirectory: "generated",
-            outputName: "aikya-bad-runtime",
+            outputName: "package-manifest-bad-runtime",
             output: {
               nativeAot: false,
               singleFile: false,

@@ -11,10 +11,10 @@ export type ManifestDotnet = {
 
 export type ManifestSurfaceMode = string;
 
-export type AikyaProducer = {
+export type PackageManifestProducer = {
   readonly tool: "tsonic" | "tsbindgen";
   readonly version: string;
-  readonly mode: "aikya-firstparty" | "external-clr";
+  readonly mode: "tsonic-firstparty" | "external-clr";
 };
 
 export type NormalizedNugetDependency = {
@@ -29,7 +29,7 @@ export type NormalizedNugetDependency = {
 
 export type NormalizedBindingsManifest = {
   readonly bindingVersion: 1;
-  readonly sourceManifest: "aikya" | "legacy";
+  readonly sourceManifest: "package-manifest" | "legacy";
   readonly packageName: string;
   readonly packageVersion: string;
   readonly surfaceMode: ManifestSurfaceMode;
@@ -40,7 +40,7 @@ export type NormalizedBindingsManifest = {
   readonly bindingsRoot?: string;
   readonly runtimePackages: readonly string[];
   readonly nugetDependencies: readonly NormalizedNugetDependency[];
-  readonly producer?: AikyaProducer;
+  readonly producer?: PackageManifestProducer;
   readonly dotnet?: ManifestDotnet;
   readonly testDotnet?: ManifestDotnet;
 };

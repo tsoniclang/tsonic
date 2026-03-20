@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveConfig } from "../../../config.js";
-import { applyAikyaWorkspaceOverlay } from "../../../aikya/bindings.js";
+import { applyPackageManifestWorkspaceOverlay } from "../../../package-manifests/bindings.js";
 import { buildCommand } from "../../build.js";
 
 const repoRoot = resolve(
@@ -38,7 +38,10 @@ const resolveEffectiveConfig = (
   projectRoot: string,
   entryFile?: string
 ) => {
-  const overlay = applyAikyaWorkspaceOverlay(workspaceRoot, workspaceConfig);
+  const overlay = applyPackageManifestWorkspaceOverlay(
+    workspaceRoot,
+    workspaceConfig
+  );
   expect(overlay.ok).to.equal(true);
   if (!overlay.ok) {
     throw new Error(overlay.error);

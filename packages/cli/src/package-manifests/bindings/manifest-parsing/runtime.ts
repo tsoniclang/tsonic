@@ -3,17 +3,21 @@ import type {
   PackageReferenceConfig,
   Result,
 } from "../../../types.js";
-import { AIKYA_DIAGNOSTIC, errorWithCode, normalizeId } from "../shared.js";
+import {
+  PACKAGE_MANIFEST_DIAGNOSTIC,
+  errorWithCode,
+  normalizeId,
+} from "../shared.js";
 import { parseFrameworkReference } from "./dotnet.js";
-import type { AikyaProducer } from "../types.js";
+import type { PackageManifestProducer } from "../types.js";
 
-export const parseAikyaProducer = (
+export const parsePackageManifestProducer = (
   value: unknown
-): Result<AikyaProducer | undefined, string> => {
+): Result<PackageManifestProducer | undefined, string> => {
   if (value === undefined) return { ok: true, value: undefined };
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       "producer must be an object"
     );
   }
@@ -22,20 +26,20 @@ export const parseAikyaProducer = (
   const mode = (value as { readonly mode?: unknown }).mode;
   if (tool !== "tsonic" && tool !== "tsbindgen") {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `producer.tool must be "tsonic" or "tsbindgen"`
     );
   }
   if (typeof version !== "string" || version.trim().length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       "producer.version must be a non-empty string"
     );
   }
-  if (mode !== "aikya-firstparty" && mode !== "external-clr") {
+  if (mode !== "tsonic-firstparty" && mode !== "external-clr") {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
-      `producer.mode must be "aikya-firstparty" or "external-clr"`
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
+      `producer.mode must be "tsonic-firstparty" or "external-clr"`
     );
   }
   return {
@@ -53,7 +57,7 @@ export const parseRuntimeNugetPackages = (
 ): Result<readonly PackageReferenceConfig[], string> => {
   if (!Array.isArray(value) || value.length === 0) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.missingRuntimeMapping,
+      PACKAGE_MANIFEST_DIAGNOSTIC.missingRuntimeMapping,
       "runtime.nugetPackages must be a non-empty array"
     );
   }
@@ -62,7 +66,7 @@ export const parseRuntimeNugetPackages = (
   for (const [index, entry] of value.entries()) {
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
       return errorWithCode(
-        AIKYA_DIAGNOSTIC.unresolvedRuntime,
+        PACKAGE_MANIFEST_DIAGNOSTIC.unresolvedRuntime,
         `runtime.nugetPackages[${index}] must be { id, version }`
       );
     }
@@ -70,13 +74,13 @@ export const parseRuntimeNugetPackages = (
     const version = (entry as { readonly version?: unknown }).version;
     if (typeof id !== "string" || id.trim().length === 0) {
       return errorWithCode(
-        AIKYA_DIAGNOSTIC.unresolvedRuntime,
+        PACKAGE_MANIFEST_DIAGNOSTIC.unresolvedRuntime,
         `runtime.nugetPackages[${index}].id must be a non-empty string`
       );
     }
     if (typeof version !== "string" || version.trim().length === 0) {
       return errorWithCode(
-        AIKYA_DIAGNOSTIC.unresolvedRuntime,
+        PACKAGE_MANIFEST_DIAGNOSTIC.unresolvedRuntime,
         `runtime.nugetPackages[${index}].version must be a non-empty string`
       );
     }
@@ -91,7 +95,7 @@ export const parseRuntimeFrameworkReferences = (
   if (value === undefined) return { ok: true, value: [] };
   if (!Array.isArray(value)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       "runtime.frameworkReferences must be an array when present"
     );
   }

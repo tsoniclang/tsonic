@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Result } from "../../../types.js";
 import {
-  AIKYA_DIAGNOSTIC,
+  PACKAGE_MANIFEST_DIAGNOSTIC,
   errorWithCode,
   isSurfaceMode,
   normalizeId,
@@ -28,14 +28,17 @@ export const resolveFromLegacyBindingsManifest = (
   const manifestPath = join(packageRoot, "tsonic.bindings.json");
   if (!existsSync(manifestPath)) return { ok: true, value: null };
 
-  const parsed = readJsonObject(manifestPath, AIKYA_DIAGNOSTIC.invalidSchema);
+  const parsed = readJsonObject(
+    manifestPath,
+    PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema
+  );
   if (!parsed.ok) return parsed;
   const manifest = parsed.value;
 
   const bindingVersion = manifest.bindingVersion;
   if (bindingVersion !== undefined && bindingVersion !== 1) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `Unsupported tsonic.bindings.json bindingVersion: ${String(bindingVersion)}`
     );
   }
@@ -47,7 +50,7 @@ export const resolveFromLegacyBindingsManifest = (
       normalizeId(manifestPackageName) !== normalizeId(packageName)
     ) {
       return errorWithCode(
-        AIKYA_DIAGNOSTIC.invalidSchema,
+        PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
         `tsonic.bindings.json packageName mismatch. Installed: ${packageName}, Manifest: ${String(manifestPackageName)}`
       );
     }
@@ -60,7 +63,7 @@ export const resolveFromLegacyBindingsManifest = (
       manifestPackageVersion !== packageVersion
     ) {
       return errorWithCode(
-        AIKYA_DIAGNOSTIC.invalidSchema,
+        PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
         `tsonic.bindings.json packageVersion mismatch. Installed: ${packageVersion}, Manifest: ${String(manifestPackageVersion)}`
       );
     }
@@ -69,7 +72,7 @@ export const resolveFromLegacyBindingsManifest = (
   const surfaceModeRaw = manifest.surfaceMode;
   if (surfaceModeRaw !== undefined && !isSurfaceMode(surfaceModeRaw)) {
     return errorWithCode(
-      AIKYA_DIAGNOSTIC.invalidSchema,
+      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
       `Invalid tsonic.bindings.json surfaceMode: ${String(surfaceModeRaw)}`
     );
   }

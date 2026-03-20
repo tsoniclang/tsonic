@@ -14,14 +14,14 @@ import { packCommand } from "../../commands/pack.js";
 import { restoreCommand } from "../../commands/restore.js";
 import { runCommand } from "../../commands/run.js";
 import { testCommand } from "../../commands/test.js";
-import { applyAikyaWorkspaceOverlay } from "../../aikya/bindings.js";
+import { applyPackageManifestWorkspaceOverlay } from "../../package-manifests/bindings.js";
 import { isBuiltInRuntimeDllPath } from "../../dotnet/runtime-dlls.js";
 import type {
   ResolvedConfig,
   Result,
   TsonicWorkspaceConfig,
 } from "../../types.js";
-import { commandNeedsAikyaOverlay } from "./workspace-commands.js";
+import { commandNeedsPackageManifestOverlay } from "./workspace-commands.js";
 import type { DispatcherError, ParsedCliArgs } from "./shared.js";
 import {
   mergeUniqueFrameworkReferences,
@@ -126,8 +126,11 @@ const restoreDependenciesIfNeeded = (
   }
 
   let reloadedConfig = reloaded.value;
-  if (commandNeedsAikyaOverlay(parsed.command)) {
-    const overlay = applyAikyaWorkspaceOverlay(workspaceRoot, reloadedConfig);
+  if (commandNeedsPackageManifestOverlay(parsed.command)) {
+    const overlay = applyPackageManifestWorkspaceOverlay(
+      workspaceRoot,
+      reloadedConfig
+    );
     if (!overlay.ok) {
       return { ok: false, error: { code: 1, error: overlay.error } };
     }
