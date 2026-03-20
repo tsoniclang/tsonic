@@ -10,12 +10,14 @@ import {
   convertStatement,
   flattenStatementResult,
 } from "../statement-converter.js";
+import { convertFunctionOverloadGroup } from "../converters/statements/declarations.js";
 import {
   resetSyntheticRegistry,
   getSyntheticDeclarations,
 } from "../converters/anonymous-synthesis.js";
 import type { ProgramContext } from "../program-context.js";
 import { withVariableTypeEnv } from "../converters/type-env.js";
+import { collectTopLevelFunctionOverloadGroup } from "./top-level-function-overloads.js";
 
 /**
  * Extract statements from source file.
@@ -39,13 +41,24 @@ export const extractStatements = (
   const statements: IrStatement[] = [];
   let currentCtx = ctx;
 
-  for (const stmt of sourceFile.statements) {
+  for (let index = 0; index < sourceFile.statements.length; index++) {
+    const stmt = sourceFile.statements[index] as ts.Statement;
     // Skip imports and exports (handled separately)
     if (
       !ts.isImportDeclaration(stmt) &&
       !ts.isExportDeclaration(stmt) &&
       !ts.isExportAssignment(stmt)
     ) {
+      const overloadGroup = collectTopLevelFunctionOverloadGroup(
+        sourceFile.statements,
+        index
+      );
+      if (overloadGroup) {
+        statements.push(...convertFunctionOverloadGroup(overloadGroup, currentCtx));
+        index += overloadGroup.length - 1;
+        continue;
+      }
+
       const converted = convertStatement(stmt, currentCtx, undefined);
       // Flatten result (handles both single statements and arrays)
       statements.push(...flattenStatementResult(converted));

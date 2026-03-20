@@ -19,7 +19,30 @@ export const validateExports = (
   _program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
-  const exportedNames = new Set<string>();
+  const exportedKinds = new Map<string, "function" | "other">();
+
+  const recordExport = (
+    name: string,
+    kind: "function" | "other",
+    node: ts.Node
+  ): void => {
+    const existingKind = exportedKinds.get(name);
+    if (existingKind) {
+      if (!(existingKind === "function" && kind === "function")) {
+        collector = addDiagnostic(
+          collector,
+          createDiagnostic(
+            "TSN1005",
+            "error",
+            `Duplicate export: "${name}"`,
+            getNodeLocation(sourceFile, node)
+          )
+        );
+      }
+      return;
+    }
+    exportedKinds.set(name, kind);
+  };
 
   const visitor = (node: ts.Node): void => {
     if (ts.isExportDeclaration(node) || ts.isExportAssignment(node)) {
@@ -32,19 +55,7 @@ export const validateExports = (
         ts.isNamedExports(node.exportClause)
       ) {
         node.exportClause.elements.forEach((spec) => {
-          const name = spec.name.text;
-          if (exportedNames.has(name)) {
-            collector = addDiagnostic(
-              collector,
-              createDiagnostic(
-                "TSN1005",
-                "error",
-                `Duplicate export: "${name}"`,
-                getNodeLocation(sourceFile, spec)
-              )
-            );
-          }
-          exportedNames.add(name);
+          recordExport(spec.name.text, "other", spec);
         });
       }
     }
@@ -52,19 +63,7 @@ export const validateExports = (
     if (ts.isVariableStatement(node) && hasExportModifier(node)) {
       node.declarationList.declarations.forEach((decl) => {
         if (ts.isIdentifier(decl.name)) {
-          const name = decl.name.text;
-          if (exportedNames.has(name)) {
-            collector = addDiagnostic(
-              collector,
-              createDiagnostic(
-                "TSN1005",
-                "error",
-                `Duplicate export: "${name}"`,
-                getNodeLocation(sourceFile, decl)
-              )
-            );
-          }
-          exportedNames.add(name);
+          recordExport(decl.name.text, "other", decl);
         }
       });
     }
@@ -75,18 +74,11 @@ export const validateExports = (
     ) {
       const name = node.name?.text;
       if (name) {
-        if (exportedNames.has(name)) {
-          collector = addDiagnostic(
-            collector,
-            createDiagnostic(
-              "TSN1005",
-              "error",
-              `Duplicate export: "${name}"`,
-              getNodeLocation(sourceFile, node)
-            )
-          );
-        }
-        exportedNames.add(name);
+        recordExport(
+          name,
+          ts.isFunctionDeclaration(node) ? "function" : "other",
+          node
+        );
       }
     }
 

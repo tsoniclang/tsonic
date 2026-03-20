@@ -258,6 +258,50 @@ export const renderSourceFunctionSignature = (opts: {
   };
 };
 
+export const renderSourceFunctionSignatures = (opts: {
+  readonly sourceSignatures: readonly SourceFunctionSignatureDef[];
+  readonly localTypeNameRemaps: ReadonlyMap<string, string>;
+  readonly anonymousStructuralAliases?: ReadonlyMap<
+    string,
+    AnonymousStructuralAliasInfo
+  >;
+}): readonly {
+  readonly typeParametersText: string;
+  readonly parametersText: string;
+  readonly returnTypeText: string;
+}[] => {
+  const seen = new Set<string>();
+  const rendered = [];
+  for (const sourceSignature of opts.sourceSignatures) {
+    const parametersText = renderSourceFunctionParametersText({
+      parameters: sourceSignature.parameters.map((parameter) => ({
+        prefixText: parameter.prefixText,
+        typeText: rewriteSourceTypeText(
+          parameter.typeText,
+          opts.localTypeNameRemaps,
+          opts.anonymousStructuralAliases
+        ),
+      })),
+    });
+    const signature = {
+      typeParametersText: sourceSignature.typeParametersText,
+      parametersText,
+      returnTypeText: rewriteSourceTypeText(
+        sourceSignature.returnTypeText,
+        opts.localTypeNameRemaps,
+        opts.anonymousStructuralAliases
+      ),
+    };
+    const signatureKey = `${signature.typeParametersText}|${signature.parametersText}|${signature.returnTypeText}`;
+    if (seen.has(signatureKey)) {
+      continue;
+    }
+    seen.add(signatureKey);
+    rendered.push(signature);
+  }
+  return rendered;
+};
+
 export const renderSourceValueType = (
   sourceType: SourceValueTypeDef | undefined,
   localTypeNameRemaps: ReadonlyMap<string, string>,

@@ -1,69 +1,11 @@
-import {
-  IrExpression,
-  IrMethodDeclaration,
-  IrParameter,
-  IrType,
-} from "../../../../types.js";
+import { IrExpression, IrParameter, IrType } from "../../../../types.js";
+export {
+  OVERLOAD_IMPL_PREFIX,
+  getOverloadImplementationName,
+  buildPublicOverloadFamilyMember,
+  buildImplementationOverloadFamilyMember,
+} from "../overload-family-builders.js";
 import { typesEqualForIsType } from "./overload-specialization.js";
-
-export const OVERLOAD_IMPL_PREFIX = "__tsonic_overload_impl_";
-
-export const getOverloadImplementationName = (memberName: string): string =>
-  `${OVERLOAD_IMPL_PREFIX}${memberName}`;
-
-const buildOverloadFamilyId = (
-  ownerKind: "method",
-  memberName: string,
-  isStatic: boolean
-): string => `${ownerKind}:${isStatic ? "static" : "instance"}:${memberName}`;
-
-const buildPublicOverloadMemberId = (
-  familyId: string,
-  signatureIndex: number
-): string => `${familyId}:public:${signatureIndex}`;
-
-const buildImplementationOverloadMemberId = (familyId: string): string =>
-  `${familyId}:implementation`;
-
-export const buildPublicOverloadFamilyMember = (
-  memberName: string,
-  isStatic: boolean,
-  signatureIndex: number,
-  publicSignatureCount: number,
-  implementationName?: string
-): NonNullable<IrMethodDeclaration["overloadFamily"]> => {
-  const familyId = buildOverloadFamilyId("method", memberName, isStatic);
-  return {
-    familyId,
-    memberId: buildPublicOverloadMemberId(familyId, signatureIndex),
-    ownerKind: "method",
-    publicName: memberName,
-    isStatic,
-    role: "publicOverload",
-    publicSignatureIndex: signatureIndex,
-    publicSignatureCount,
-    implementationName,
-  };
-};
-
-export const buildImplementationOverloadFamilyMember = (
-  memberName: string,
-  isStatic: boolean,
-  publicSignatureCount: number,
-  implementationName: string
-): NonNullable<IrMethodDeclaration["overloadFamily"]> => {
-  const familyId = buildOverloadFamilyId("method", memberName, isStatic);
-  return {
-    familyId,
-    memberId: buildImplementationOverloadMemberId(familyId),
-    ownerKind: "method",
-    publicName: memberName,
-    isStatic,
-    role: "implementation",
-    publicSignatureCount,
-    implementationName,
-  };
-};
 
 export const getIdentifierPatternName = (parameter: IrParameter): string => {
   if (parameter.pattern.kind !== "identifierPattern") {

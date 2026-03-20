@@ -141,12 +141,13 @@ export const convertMethodOverloadGroup = (
     const helperMethod: IrMethodDeclaration = {
       ...implMethod,
       name: helperName,
-      overloadFamily: buildImplementationOverloadFamilyMember(
-        memberName,
+      overloadFamily: buildImplementationOverloadFamilyMember({
+        ownerKind: "method",
+        publicName: memberName,
         isStatic,
-        sigs.length,
-        helperName
-      ),
+        publicSignatureCount: sigs.length,
+        implementationName: helperName,
+      }),
       body: implMethod.body
         ? (adaptReturnStatements(
             implMethod.body,
@@ -203,13 +204,14 @@ export const convertMethodOverloadGroup = (
           returnType,
           (sig.typeParameters ?? []).map((tp) => tp.name.text)
         ),
-        overloadFamily: buildPublicOverloadFamilyMember(
-          memberName,
+        overloadFamily: buildPublicOverloadFamilyMember({
+          ownerKind: "method",
+          publicName: memberName,
           isStatic,
           signatureIndex,
-          sigs.length,
-          helperName
-        ),
+          publicSignatureCount: sigs.length,
+          implementationName: helperName,
+        }),
         isStatic,
         isAsync: false,
         isGenerator: false,
@@ -300,12 +302,13 @@ export const convertMethodOverloadGroup = (
       parameters,
       returnType,
       body: adapted,
-      overloadFamily: buildPublicOverloadFamilyMember(
-        memberName,
+      overloadFamily: buildPublicOverloadFamilyMember({
+        ownerKind: "method",
+        publicName: memberName,
         isStatic,
         signatureIndex,
-        sigs.length
-      ),
+        publicSignatureCount: sigs.length,
+      }),
       isStatic,
       isAsync,
       isGenerator,

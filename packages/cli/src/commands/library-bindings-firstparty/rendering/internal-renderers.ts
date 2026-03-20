@@ -15,7 +15,7 @@ import {
   sanitizeForBrand,
 } from "../portable-types.js";
 import {
-  renderSourceFunctionSignature,
+  renderSourceFunctionSignatures,
   renderSourceFunctionType,
   renderSourceValueType,
 } from "../source-type-text.js";
@@ -411,25 +411,28 @@ export const renderContainerInternal = (
   const lines: string[] = [];
   lines.push(`export abstract class ${entry.module.className}$instance {`);
   for (const method of entry.methods) {
-    const sourceSignature = renderSourceFunctionSignature({
-      declaration: method.declaration,
+    const sourceSignatures = renderSourceFunctionSignatures({
       sourceSignatures: method.sourceSignatures,
       localTypeNameRemaps: method.localTypeNameRemaps,
       anonymousStructuralAliases,
     });
+    if (sourceSignatures.length > 0) {
+      for (const sourceSignature of sourceSignatures) {
+        lines.push(
+          `    static ${method.localName}${sourceSignature.typeParametersText}(${sourceSignature.parametersText}): ${sourceSignature.returnTypeText};`
+        );
+      }
+      continue;
+    }
     lines.push(
-      `    static ${
-        sourceSignature
-          ? `${method.localName}${sourceSignature.typeParametersText}(${sourceSignature.parametersText}): ${sourceSignature.returnTypeText};`
-          : renderMethodSignature(
-              method.localName,
-              method.declaration.typeParameters,
-              method.declaration.parameters,
-              method.declaration.returnType,
-              method.localTypeNameRemaps,
-              anonymousStructuralAliases
-            )
-      }`
+      `    static ${renderMethodSignature(
+        method.localName,
+        method.declaration.typeParameters,
+        method.declaration.parameters,
+        method.declaration.returnType,
+        method.localTypeNameRemaps,
+        anonymousStructuralAliases
+      )}`
     );
   }
   for (const variable of entry.variables) {

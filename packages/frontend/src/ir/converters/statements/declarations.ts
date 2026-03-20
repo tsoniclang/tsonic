@@ -9,6 +9,7 @@
 export {
   convertVariableStatement,
   convertFunctionDeclaration,
+  convertFunctionOverloadGroup,
   convertClassDeclaration,
   convertInterfaceDeclaration,
   convertInterfaceMember,

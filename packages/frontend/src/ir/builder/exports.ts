@@ -5,7 +5,7 @@
  */
 
 import * as ts from "typescript";
-import { IrExport } from "../types.js";
+import { IrExport, IrStatement } from "../types.js";
 import {
   convertStatement,
   flattenStatementResult,
@@ -14,6 +14,8 @@ import { convertExpression } from "../expression-converter.js";
 import { hasExportModifier, hasDefaultModifier } from "./helpers.js";
 import type { Binding } from "../binding/index.js";
 import type { ProgramContext } from "../program-context.js";
+import { convertFunctionOverloadGroup } from "../converters/statements/declarations.js";
+import { collectTopLevelFunctionOverloadGroup } from "./top-level-function-overloads.js";
 
 /**
  * Extract export declarations from source file.
@@ -82,7 +84,54 @@ export const extractExportsWithContext = (
 ): readonly IrExport[] => {
   const exports: IrExport[] = [];
 
-  const visitor = (node: ts.Node): void => {
+  const isExportedIrDeclaration = (statement: IrStatement): boolean =>
+    "isExported" in statement && statement.isExported === true;
+
+  for (let index = 0; index < sourceFile.statements.length; index++) {
+    const node = sourceFile.statements[index] as ts.Statement;
+    const overloadGroup = collectTopLevelFunctionOverloadGroup(
+      sourceFile.statements,
+      index
+    );
+    if (overloadGroup) {
+      const hasDefaultExport = overloadGroup.some(hasDefaultModifier);
+      const hasNamedExport = overloadGroup.some(
+        (declaration) =>
+          hasExportModifier(declaration) && !hasDefaultModifier(declaration)
+      );
+      if (hasDefaultExport || hasNamedExport) {
+        const statements = convertFunctionOverloadGroup(overloadGroup, ctx);
+        if (hasDefaultExport) {
+          if (statements.some(isExportedIrDeclaration)) {
+            exports.push({
+              kind: "default",
+              expression: {
+                kind: "identifier",
+                name: "_default",
+              },
+            });
+          }
+        } else {
+          const exportedStatement =
+            statements.find(
+              (statement) =>
+                isExportedIrDeclaration(statement) &&
+                statement.kind === "functionDeclaration" &&
+                statement.overloadFamily?.role === "publicOverload" &&
+                statement.overloadFamily.publicSignatureIndex === 0
+            ) ?? statements.find(isExportedIrDeclaration);
+          if (exportedStatement) {
+            exports.push({
+              kind: "declaration",
+              declaration: exportedStatement,
+            });
+          }
+        }
+      }
+      index += overloadGroup.length - 1;
+      continue;
+    }
+
     if (ts.isExportDeclaration(node)) {
       if (node.exportClause && ts.isNamedExports(node.exportClause)) {
         // Check if this is a re-export (has moduleSpecifier)
@@ -140,9 +189,6 @@ export const extractExportsWithContext = (
         }
       }
     }
-    ts.forEachChild(node, visitor);
-  };
-
-  visitor(sourceFile);
+  }
   return exports;
 };

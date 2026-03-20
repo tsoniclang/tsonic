@@ -20,5 +20,6 @@ import "./builder-tests/private-members-and-instanceof.suite.js";
 import "./builder-tests/promise-callback-typing.suite.js";
 import "./builder-tests/recursive-aliases-and-flow-types.suite.js";
 import "./builder-tests/statement-conversion.suite.js";
+import "./builder-tests/top-level-function-overloads.suite.js";
 import "./builder-tests/type-access-and-records.suite.js";
 import "./builder-tests/typeof-narrowing-and-intrinsics.suite.js";
