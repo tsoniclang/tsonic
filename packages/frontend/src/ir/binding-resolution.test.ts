@@ -1,0 +1,9 @@
+import "./binding-resolution-tests/extension-method-binding.suite.js";
+import "./binding-resolution-tests/extension-method-owner-resolution.suite.js";
+import "./binding-resolution-tests/extension-method-tsbindgen-modifiers.suite.js";
+import "./binding-resolution-tests/extract-type-name.suite.js";
+import "./binding-resolution-tests/global-binding-preferences.suite.js";
+import "./binding-resolution-tests/global-identifier-resolution.suite.js";
+import "./binding-resolution-tests/hierarchical-binding-resolution.suite.js";
+import "./binding-resolution-tests/js-array-member-binding.suite.js";
+import "./binding-resolution-tests/module-import-type-alias-renaming.suite.js";
