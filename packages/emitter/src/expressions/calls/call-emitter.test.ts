@@ -120,4 +120,95 @@ describe("call-emitter", () => {
       'global::nodejs.labels.formatLabel("default")'
     );
   });
+
+  it("recovers semantic receiver parameter types for imported method calls", () => {
+    const numberType = {
+      kind: "primitiveType" as const,
+      name: "number" as const,
+    };
+    const unknownOrUndefinedType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "unknownType" as const },
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
+    };
+    const promisesType = {
+      kind: "referenceType" as const,
+      name: "TimersPromises" as const,
+      resolvedClrType: "global::nodejs.TimersPromises",
+    };
+
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+      clrBindings: new Map([
+        [
+          "TimersPromises",
+          {
+            name: "TimersPromises",
+            alias: "TimersPromises",
+            kind: "class" as const,
+            members: [
+              {
+                kind: "method" as const,
+                name: "setImmediate",
+                alias: "setImmediate",
+                binding: {
+                  assembly: "nodejs",
+                  type: "global::nodejs.TimersPromises",
+                  member: "setImmediate",
+                },
+                semanticSignature: {
+                  parameters: [
+                    {
+                      kind: "parameter" as const,
+                      pattern: {
+                        kind: "identifierPattern" as const,
+                        name: "value",
+                      },
+                      type: unknownOrUndefinedType,
+                      isOptional: true,
+                      isRest: false,
+                      passing: "value" as const,
+                      initializer: undefined,
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      ]),
+    });
+
+    const expr = {
+      kind: "call" as const,
+      callee: {
+        kind: "memberAccess" as const,
+        object: {
+          kind: "identifier" as const,
+          name: "promises",
+          inferredType: promisesType,
+        },
+        property: "setImmediate",
+        isComputed: false,
+        isOptional: false,
+      },
+      arguments: [
+        {
+          kind: "literal" as const,
+          value: 123,
+          inferredType: numberType,
+        },
+      ],
+      isOptional: false,
+      inferredType: { kind: "unknownType" as const },
+    };
+
+    const [ast] = emitCall(expr, context);
+    expect(printExpression(ast)).to.equal(
+      "promises.setImmediate((object)(double)123)"
+    );
+  });
 });

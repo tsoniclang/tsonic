@@ -67,24 +67,6 @@ const isCharExpectedType = (
   );
 };
 
-const expectsErasedObjectSlot = (
-  expectedType: IrType | undefined,
-  context: EmitterContext
-): boolean => {
-  if (!expectedType) return false;
-  if (expectedType.kind === "unknownType" || expectedType.kind === "anyType") {
-    return true;
-  }
-
-  const effective = resolveTypeAlias(stripNullish(expectedType), context);
-  return (
-    effective.kind === "referenceType" &&
-    (effective.name === "object" ||
-      effective.resolvedClrType === "System.Object" ||
-      effective.resolvedClrType === "global::System.Object")
-  );
-};
-
 /**
  * Emit a literal value as CSharpExpressionAst
  *
@@ -152,24 +134,6 @@ export const emitLiteral = (
   if (typeof value === "number") {
     // Get the base literal text from raw lexeme or fallback to String(value)
     const baseLiteral = expr.raw ?? String(value);
-
-    if (
-      context.options.surface === "@tsonic/js" &&
-      expectsErasedObjectSlot(expectedType, context)
-    ) {
-      return [
-        {
-          kind: "castExpression",
-          type: { kind: "predefinedType", keyword: "object" },
-          expression: {
-            kind: "castExpression",
-            type: { kind: "predefinedType", keyword: "double" },
-            expression: parseNumericLiteral(baseLiteral),
-          },
-        },
-        context,
-      ];
-    }
 
     // Add type suffix based on expected type for explicit typing
     // This ensures literals match the declared type (e.g., long[] gets 1L, 2L, 3L)

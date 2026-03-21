@@ -16,7 +16,11 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include('string[] chars = new string[] { "", "" };');
-      expect(csharp).to.include("chars[0] = source[0].ToString();");
+      expect(csharp).to.include(
+        "chars[0] = ((global::System.Func<string, int, string>)"
+      );
+      expect(csharp).to.include("__tsonic_index < __tsonic_string.Length");
+      expect(csharp).to.include("__tsonic_string[__tsonic_index].ToString()");
     });
 
     it("default-initializes explicit locals without initializers", () => {

@@ -19,6 +19,8 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import {
   emitArrayConstructor,
   emitListCollectionInitializer,
@@ -80,7 +82,11 @@ export const emitNew = (
   }
 
   const argAsts: CSharpExpressionAst[] = [];
-  const parameterTypes = expr.parameterTypes ?? [];
+  const surfaceParameterTypes =
+    expr.surfaceParameterTypes && expr.surfaceParameterTypes.length > 0
+      ? expr.surfaceParameterTypes
+      : expr.parameterTypes ?? [];
+  const runtimeParameterTypes = expr.parameterTypes ?? [];
   for (let i = 0; i < expr.arguments.length; i++) {
     const arg = expr.arguments[i];
     if (!arg) continue;
@@ -96,7 +102,39 @@ export const emitNew = (
       });
       currentContext = ctx;
     } else {
-      const expectedType = parameterTypes[i];
+      const expectedType = surfaceParameterTypes[i];
+      const runtimeExpectedType = runtimeParameterTypes[i];
+      const effectiveExpectedType = (() => {
+        if (!runtimeExpectedType) {
+          return expectedType;
+        }
+
+        const actualArgumentType =
+          resolveEffectiveExpressionType(arg, currentContext) ??
+          arg.inferredType;
+
+        if (
+          actualArgumentType &&
+          matchesExpectedEmissionType(
+            actualArgumentType,
+            runtimeExpectedType,
+            currentContext
+          )
+        ) {
+          return runtimeExpectedType;
+        }
+
+        if (
+          runtimeExpectedType.kind === "unknownType" ||
+          runtimeExpectedType.kind === "anyType" ||
+          (runtimeExpectedType.kind === "referenceType" &&
+            runtimeExpectedType.name === "object")
+        ) {
+          return runtimeExpectedType;
+        }
+
+        return expectedType ?? runtimeExpectedType;
+      })();
       const castModifier = getPassingModifierFromCast(arg);
       if (castModifier && isLValue(arg)) {
         const [argAst, ctx] = emitExpressionAst(arg, currentContext);
@@ -110,7 +148,7 @@ export const emitNew = (
         const [argAst, ctx] = emitExpressionAst(
           arg,
           currentContext,
-          expectedType
+          effectiveExpectedType
         );
         const passingMode = expr.argumentPassing?.[i];
         const modifier =

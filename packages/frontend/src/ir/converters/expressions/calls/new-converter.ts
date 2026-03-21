@@ -209,6 +209,8 @@ export const convertNewExpression = (
     kind: "unknownType",
   };
   const parameterTypes = finalResolved?.parameterTypes ?? initialParameterTypes;
+  const surfaceParameterTypes =
+    finalResolved?.surfaceParameterTypes ?? parameterTypes;
   const argumentPassingBase = finalResolved
     ? finalResolved.parameterModes.slice(0, argumentCount)
     : extractArgumentPassing(node, ctx);
@@ -240,7 +242,9 @@ export const convertNewExpression = (
     sourceSpan: getSourceSpan(node),
     argumentPassing,
     parameterTypes,
+    surfaceParameterTypes,
     typeArguments: typeArgumentsForIr,
     requiresSpecialization,
+    surfaceRestParameter: finalResolved?.surfaceRestParameter,
   };
 };

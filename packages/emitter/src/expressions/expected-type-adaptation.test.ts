@@ -96,4 +96,31 @@ describe("expected-type-adaptation", () => {
 
     expect(printExpression(boxedAst)).to.equal("(object)(double)42");
   });
+
+  it("boxes JS numbers when expected type is unknown | undefined", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [boxedAst] = maybeBoxJsNumberAsObjectAst(
+      parseNumericLiteral("42"),
+      {
+        kind: "literal",
+        value: 42,
+        inferredType: { kind: "primitiveType", name: "number" },
+      },
+      { kind: "primitiveType", name: "number" },
+      context,
+      {
+        kind: "unionType",
+        types: [
+          { kind: "unknownType" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      }
+    );
+
+    expect(printExpression(boxedAst)).to.equal("(object)(double)42");
+  });
 });

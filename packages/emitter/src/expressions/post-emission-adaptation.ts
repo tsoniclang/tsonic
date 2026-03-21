@@ -320,6 +320,9 @@ const expectsBoxedObjectIrType = (
   }
 
   const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "unknownType" || resolved.kind === "anyType") {
+    return true;
+  }
   return (
     resolved.kind === "referenceType" &&
     (resolved.name === "object" ||

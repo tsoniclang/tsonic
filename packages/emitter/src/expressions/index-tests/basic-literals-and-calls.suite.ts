@@ -242,7 +242,7 @@ describe("Expression Emission", () => {
     );
   });
 
-  it("should preserve char-typed string indexing while string contexts still use ToString()", () => {
+  it("should preserve char-typed string indexing while string contexts use safe JS-style access", () => {
     const stringIndexExpr: Extract<IrExpression, { kind: "memberAccess" }> = {
       kind: "memberAccess" as const,
       object: {
@@ -302,7 +302,97 @@ describe("Expression Emission", () => {
 
     expect(result).to.include('string source = "abc";');
     expect(result).to.include("char letter = source[0];");
-    expect(result).to.include("string text = source[0].ToString();");
+    expect(result).to.include(
+      "string text = ((global::System.Func<string, int, string>)((string __tsonic_string, int __tsonic_index) =>"
+    );
+    expect(result).to.include("__tsonic_index < __tsonic_string.Length");
+    expect(result).to.include("__tsonic_string[__tsonic_index].ToString()");
+    expect(result).to.not.include("string text = source[0].ToString();");
+  });
+
+  it("boxes numeric literals when constructor arguments flow into optional unknown slots", () => {
+    const assertionErrorType = {
+      kind: "referenceType" as const,
+      name: "AssertionError" as const,
+      resolvedClrType: "MyApp.AssertionError",
+    };
+    const unknownOrUndefinedType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "unknownType" as const },
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "error" },
+              initializer: {
+                kind: "new",
+                callee: {
+                  kind: "identifier",
+                  name: "AssertionError",
+                  inferredType: assertionErrorType,
+                },
+                arguments: [
+                  { kind: "literal", value: "Test message" },
+                  {
+                    kind: "literal",
+                    value: 5,
+                    inferredType: {
+                      kind: "primitiveType",
+                      name: "number",
+                    },
+                  },
+                  {
+                    kind: "literal",
+                    value: 10,
+                    inferredType: {
+                      kind: "primitiveType",
+                      name: "number",
+                    },
+                  },
+                  { kind: "literal", value: "===" },
+                ],
+                inferredType: assertionErrorType,
+                parameterTypes: [
+                  { kind: "primitiveType", name: "string" },
+                  unknownOrUndefinedType,
+                  unknownOrUndefinedType,
+                  { kind: "primitiveType", name: "string" },
+                ],
+                surfaceParameterTypes: [
+                  { kind: "primitiveType", name: "string" },
+                  unknownOrUndefinedType,
+                  unknownOrUndefinedType,
+                  { kind: "primitiveType", name: "string" },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "@tsonic/js" });
+
+    expect(result).to.include('new AssertionError("Test message"');
+    expect(result).to.include("(object)(double)5");
+    expect(result).to.include("(object)(double)10");
   });
 
   it("should convert char identifiers to string when a call argument expects string", () => {

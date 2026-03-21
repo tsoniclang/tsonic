@@ -286,10 +286,27 @@ export const emitCall = (
     expr,
     expr.arguments.length
   );
+  const recoveredSemanticParameterTypes =
+    !parameterTypeOverrides &&
+    (!expr.surfaceParameterTypes || expr.surfaceParameterTypes.length === 0) &&
+    (!expr.parameterTypes || expr.parameterTypes.length === 0)
+      ? recoveredReceiverBinding?.semanticSignature?.parameters.map(
+          (parameter) => parameter.type
+        )
+      : undefined;
+  const exprForArguments =
+    recoveredSemanticParameterTypes &&
+    recoveredSemanticParameterTypes.length > 0 &&
+    (!expr.surfaceParameterTypes || expr.surfaceParameterTypes.length === 0)
+      ? {
+          ...expr,
+          surfaceParameterTypes: recoveredSemanticParameterTypes,
+        }
+      : expr;
 
   const [argAsts, argContext] = emitCallArguments(
-    expr.arguments,
-    expr,
+    exprForArguments.arguments,
+    exprForArguments,
     currentContext,
     parameterTypeOverrides
   );

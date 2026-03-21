@@ -339,5 +339,83 @@ describe("IR Builder", function () {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
+
+    it("threads constructor surface parameter types for unknown-typed arguments", () => {
+      const source = `
+        class AssertionError extends Error {
+          public actual: unknown = undefined;
+          public expected: unknown = undefined;
+          public operator: string = "";
+
+          public constructor(
+            message?: string,
+            actual?: unknown,
+            expected?: unknown,
+            operator: string = ""
+          ) {
+            super(message);
+            this.actual = actual;
+            this.expected = expected;
+            this.operator = operator;
+          }
+        }
+
+        export function create(): AssertionError {
+          return new AssertionError("Test message", 5, 10, "===");
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "create"
+      );
+      expect(fn).to.not.equal(undefined);
+      if (!fn) return;
+
+      const returnStmt = fn.body.statements[0];
+      expect(returnStmt?.kind).to.equal("returnStatement");
+      if (!returnStmt || returnStmt.kind !== "returnStatement") return;
+
+      const ctor = returnStmt.expression;
+      expect(ctor?.kind).to.equal("new");
+      if (!ctor || ctor.kind !== "new") return;
+
+      expect(ctor.parameterTypes?.[1]).to.deep.equal({
+        kind: "unionType",
+        types: [
+          { kind: "unknownType" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      });
+      expect(ctor.surfaceParameterTypes?.[1]).to.deep.equal({
+        kind: "unionType",
+        types: [
+          { kind: "unknownType" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      });
+      expect(ctor.parameterTypes?.[2]).to.deep.equal({
+        kind: "unionType",
+        types: [
+          { kind: "unknownType" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      });
+      expect(ctor.surfaceParameterTypes?.[2]).to.deep.equal({
+        kind: "unionType",
+        types: [
+          { kind: "unknownType" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      });
+    });
   });
 });
