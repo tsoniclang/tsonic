@@ -16,7 +16,7 @@ type ReceiverMemberBinding = NonNullable<
 > & {
   readonly parameterCount?: number;
   readonly semanticSignature?: {
-      readonly parameters: readonly {
+    readonly parameters: readonly {
       readonly type?: IrType;
       readonly isOptional?: boolean;
       readonly initializer?: unknown;

@@ -13,15 +13,19 @@ import {
   RuntimeMaterializationSourceFrame,
   tryBuildRuntimeMaterializationAst,
 } from "../core/semantic/runtime-reification.js";
+import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import {
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
+import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 
-const isBroadStorageTarget = (
+export const isBroadStorageTarget = (
   expectedType: IrType | undefined,
   context: EmitterContext
 ): boolean => {
@@ -279,6 +283,16 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     return undefined;
   }
 
+  if (
+    expectedType &&
+    narrowed.type &&
+    isBroadStorageTarget(expectedType, context) &&
+    willCarryAsRuntimeUnion(storageType, context) &&
+    !willCarryAsRuntimeUnion(narrowed.type, context)
+  ) {
+    return undefined;
+  }
+
   const targetType = expectedType ?? narrowed.type;
   if (!matchesExpectedEmissionType(storageType, targetType, context)) {
     const [sameSurface, nextContext] = matchesEmittedStorageSurface(
@@ -309,6 +323,30 @@ export const tryEmitMaterializedNarrowedIdentifier = (
     return undefined;
   }
 
+  const directMemberType = tryResolveRuntimeUnionMemberType(
+    narrowed.sourceType ?? effectiveType,
+    narrowed.exprAst,
+    context
+  );
+  if (
+    directMemberType &&
+    willCarryAsRuntimeUnion(expectedType, context) &&
+    !willCarryAsRuntimeUnion(directMemberType, context)
+  ) {
+    const [expectedLayout, expectedLayoutContext] = buildRuntimeUnionLayout(
+      expectedType,
+      context,
+      emitTypeAst
+    );
+    if (
+      expectedLayout?.members.some((member) =>
+        matchesExpectedEmissionType(directMemberType, member, context)
+      )
+    ) {
+      return [narrowed.exprAst, expectedLayoutContext];
+    }
+  }
+
   const materialized = materializeDirectNarrowingAst(
     narrowed.exprAst,
     effectiveType,
@@ -336,8 +374,12 @@ const matchesEmittedStorageSurface = (
     return [false, context];
   }
 
-  const strippedActual = stripNullish(actualType);
-  const strippedExpected = stripNullish(expectedType);
+  const strippedActual =
+    resolveStructuralReferenceType(stripNullish(actualType), context) ??
+    stripNullish(actualType);
+  const strippedExpected =
+    resolveStructuralReferenceType(stripNullish(expectedType), context) ??
+    stripNullish(expectedType);
   const [actualTypeAst, actualTypeContext] = emitTypeAst(
     strippedActual,
     context

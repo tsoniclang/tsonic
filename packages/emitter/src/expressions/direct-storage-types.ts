@@ -2,6 +2,7 @@ import type { IrExpression, IrType } from "@tsonic/frontend";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import type { EmitterContext } from "../types.js";
+import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 
 export const resolveDirectStorageExpressionType = (
   expr: IrExpression,
@@ -12,12 +13,13 @@ export const resolveDirectStorageExpressionType = (
     return undefined;
   }
 
+  const storageType = resolveIdentifierCarrierStorageType(expr, context);
   const remappedLocal = context.localNameMap?.get(expr.name) ?? expr.name;
   if (ast.kind !== "identifierExpression" || ast.identifier !== remappedLocal) {
-    return undefined;
+    return tryResolveRuntimeUnionMemberType(storageType, ast, context);
   }
 
-  return resolveIdentifierCarrierStorageType(expr, context);
+  return storageType;
 };
 
 export const resolveIdentifierCarrierStorageType = (

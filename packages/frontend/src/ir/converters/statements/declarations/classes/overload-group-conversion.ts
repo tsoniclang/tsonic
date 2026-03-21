@@ -35,6 +35,8 @@ import {
   buildImplementationOverloadFamilyMember,
   adaptReturnStatements,
   createWrapperBody,
+  needsAsyncReturnStatementAdaptation,
+  needsAsyncWrapperReturnAdaptation,
 } from "./overload-wrapper-helpers.js";
 import type { ProgramContext } from "../../../../program-context.js";
 
@@ -138,9 +140,17 @@ export const convertMethodOverloadGroup = (
     }
 
     const helperName = getOverloadImplementationName(memberName);
+    const helperIsAsync =
+      implMethod.isAsync ||
+      (!!implMethod.body &&
+        needsAsyncReturnStatementAdaptation(
+          implMethod.body,
+          implMethod.returnType
+        ));
     const helperMethod: IrMethodDeclaration = {
       ...implMethod,
       name: helperName,
+      isAsync: helperIsAsync,
       overloadFamily: buildImplementationOverloadFamilyMember({
         ownerKind: "method",
         publicName: memberName,
@@ -151,7 +161,8 @@ export const convertMethodOverloadGroup = (
       body: implMethod.body
         ? (adaptReturnStatements(
             implMethod.body,
-            implMethod.returnType
+            implMethod.returnType,
+            helperIsAsync
           ) as IrBlockStatement)
         : undefined,
       accessibility: "private",
@@ -171,6 +182,10 @@ export const convertMethodOverloadGroup = (
         ...p,
         pattern: (implParams[i] as IrParameter).pattern,
       }));
+      const wrapperIsAsync = needsAsyncWrapperReturnAdaptation(
+        implMethod.returnType,
+        returnType
+      );
 
       const overrideInfo = detectOverride(
         memberName,
@@ -202,7 +217,8 @@ export const convertMethodOverloadGroup = (
           isStatic,
           implMethod.returnType,
           returnType,
-          (sig.typeParameters ?? []).map((tp) => tp.name.text)
+          (sig.typeParameters ?? []).map((tp) => tp.name.text),
+          wrapperIsAsync
         ),
         overloadFamily: buildPublicOverloadFamilyMember({
           ownerKind: "method",
@@ -213,7 +229,7 @@ export const convertMethodOverloadGroup = (
           implementationName: helperName,
         }),
         isStatic,
-        isAsync: false,
+        isAsync: wrapperIsAsync,
         isGenerator: false,
         accessibility,
         isOverride: overrideInfo.isOverride ? true : undefined,
@@ -290,9 +306,17 @@ export const convertMethodOverloadGroup = (
       }
     }
 
+    const specializedIsAsync =
+      isAsync ||
+      needsAsyncReturnStatementAdaptation(
+        specialized as IrBlockStatement,
+        returnType
+      );
+
     const adapted = adaptReturnStatements(
       specialized as IrBlockStatement,
-      returnType
+      returnType,
+      specializedIsAsync
     ) as IrBlockStatement;
 
     out.push({
@@ -310,7 +334,7 @@ export const convertMethodOverloadGroup = (
         publicSignatureCount: sigs.length,
       }),
       isStatic,
-      isAsync,
+      isAsync: specializedIsAsync,
       isGenerator,
       accessibility,
       isOverride: overrideInfo.isOverride ? true : undefined,

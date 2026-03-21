@@ -22,7 +22,10 @@ import {
   substituteTypeArgs,
   isTypeOnlyStructuralTarget,
 } from "../core/semantic/type-resolution.js";
-import { isSemanticUnion } from "../core/semantic/union-semantics.js";
+import {
+  isSemanticUnion,
+  willCarryAsRuntimeUnion,
+} from "../core/semantic/union-semantics.js";
 import {
   buildRuntimeUnionLayout,
   emitRuntimeCarrierTypeAst,
@@ -196,8 +199,7 @@ export const emitTypeAssertion = (
     return target;
   };
 
-  const shouldEraseTypeAssertion = (target: IrType): boolean => {
-    const resolved = resolveLocalTypeAliases(target);
+  const shouldEraseTypeAssertion = (resolved: IrType): boolean => {
 
     if (isTypeOnlyStructuralTarget(resolved, context)) {
       return true;
@@ -231,8 +233,46 @@ export const emitTypeAssertion = (
     return false;
   };
 
-  if (shouldEraseTypeAssertion(expr.targetType)) {
-    return emitExpressionAst(expr.expression, context, expectedType);
+  const resolvedAssertionTarget = resolveLocalTypeAliases(expr.targetType);
+
+  if (
+    (resolvedAssertionTarget.kind === "primitiveType" &&
+      resolvedAssertionTarget.name === "char") ||
+    (resolvedAssertionTarget.kind === "referenceType" &&
+      resolvedAssertionTarget.name === "char")
+  ) {
+    return emitExpressionAst(expr.expression, context, resolvedAssertionTarget);
+  }
+
+  if (shouldEraseTypeAssertion(resolvedAssertionTarget)) {
+    const transparentSourceExpression = unwrapTransparentExpression(
+      expr.expression
+    );
+    const sourceExpressionType =
+      transparentSourceExpression.kind === "identifier"
+        ? (context.localSemanticTypes?.get(transparentSourceExpression.name) ??
+          transparentSourceExpression.inferredType)
+        : transparentSourceExpression.inferredType;
+    const effectiveExpressionType = resolveEffectiveExpressionType(
+      expr.expression,
+      context
+    );
+    const preserveNarrowedRuntimeMember =
+      (resolvedAssertionTarget.kind === "unknownType" ||
+        resolvedAssertionTarget.kind === "anyType" ||
+        resolvedAssertionTarget.kind === "objectType" ||
+        (resolvedAssertionTarget.kind === "referenceType" &&
+          resolvedAssertionTarget.name === "object")) &&
+      !!sourceExpressionType &&
+      !!effectiveExpressionType &&
+      willCarryAsRuntimeUnion(sourceExpressionType, context) &&
+      !willCarryAsRuntimeUnion(effectiveExpressionType, context);
+
+    return emitExpressionAst(
+      expr.expression,
+      context,
+      preserveNarrowedRuntimeMember ? effectiveExpressionType : expectedType
+    );
   }
 
   if (isTransparentFlowAssertion) {
@@ -243,16 +283,27 @@ export const emitTypeAssertion = (
     expr.targetType,
     context
   );
+  const sourceNarrowedBinding =
+    expr.expression.kind === "identifier" || expr.expression.kind === "memberAccess"
+      ? getNarrowedBindingForExpression(expr.expression, context)
+      : undefined;
+  const preserveNarrowedSourceStorage =
+    !!sourceNarrowedBinding &&
+    willCarryAsRuntimeUnion(runtimeEmissionTarget, context);
   const rawSourceContext =
     expr.expression.kind === "identifier" ||
     expr.expression.kind === "memberAccess"
-      ? withoutNarrowedBinding(expr.expression, context)
+      ? preserveNarrowedSourceStorage
+        ? context
+        : withoutNarrowedBinding(expr.expression, context)
       : context;
   const innerExpectedType =
-    expr.expression.kind === "identifier" ||
-    expr.expression.kind === "memberAccess"
-      ? undefined
-      : runtimeEmissionTarget;
+    expr.expression.kind === "array" ||
+    expr.expression.kind === "object" ||
+    expr.expression.kind === "functionExpression" ||
+    expr.expression.kind === "arrowFunction"
+      ? runtimeEmissionTarget
+      : undefined;
   const [innerAst, ctx1] = emitExpressionAst(
     expr.expression,
     rawSourceContext,

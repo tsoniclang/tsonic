@@ -65,6 +65,10 @@ export const typesEqualForIsType = (
       return b.kind === "primitiveType" && a.name === b.name;
     case "typeParameterType":
       return b.kind === "typeParameterType" && a.name === b.name;
+    case "voidType":
+      return b.kind === "voidType";
+    case "neverType":
+      return b.kind === "neverType";
     case "arrayType":
       return (
         b.kind === "arrayType" &&
@@ -72,16 +76,16 @@ export const typesEqualForIsType = (
       );
     case "referenceType": {
       if (b.kind !== "referenceType") return false;
-      const aStable = a.typeId?.stableId ?? a.resolvedClrType;
-      const bStable = b.typeId?.stableId ?? b.resolvedClrType;
-      if (aStable && bStable) return aStable === bStable;
-      if (a.name !== b.name) return false;
       const aArgs = a.typeArguments ?? [];
       const bArgs = b.typeArguments ?? [];
       if (aArgs.length !== bArgs.length) return false;
       for (let i = 0; i < aArgs.length; i++) {
         if (!typesEqualForIsType(aArgs[i], bArgs[i])) return false;
       }
+      const aStable = a.typeId?.stableId ?? a.resolvedClrType;
+      const bStable = b.typeId?.stableId ?? b.resolvedClrType;
+      if (aStable || bStable) return aStable === bStable;
+      if (a.name !== b.name) return false;
       return true;
     }
     default:

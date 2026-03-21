@@ -22,6 +22,7 @@ import {
   collectTypeNarrowingsInTruthyExpr,
   withAppliedNarrowings,
 } from "../flow-narrowing.js";
+import { resolveInstanceofTargetType } from "../narrowing-resolvers-equality.js";
 import {
   NumericKind,
   getBinaryResultKind,
@@ -331,7 +332,18 @@ export const convertBinaryExpression = (
 
   // Regular binary expression
   const leftExpr = convertExpression(node.left, ctx, undefined);
-  const rightExpr = convertExpression(node.right, ctx, undefined);
+  const convertedRightExpr = convertExpression(node.right, ctx, undefined);
+  const instanceofTargetType =
+    operator === "instanceof"
+      ? resolveInstanceofTargetType(node.right, ctx)
+      : undefined;
+  const rightExpr: IrExpression =
+    instanceofTargetType !== undefined
+      ? ({
+          ...convertedRightExpr,
+          inferredType: instanceofTargetType,
+        } as IrExpression)
+      : convertedRightExpr;
 
   return {
     kind: "binary",

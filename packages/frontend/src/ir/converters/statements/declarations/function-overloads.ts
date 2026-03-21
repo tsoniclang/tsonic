@@ -21,6 +21,8 @@ import {
   buildPublicOverloadFamilyMember,
   createWrapperBody,
   getOverloadImplementationName,
+  needsAsyncReturnStatementAdaptation,
+  needsAsyncWrapperReturnAdaptation,
   specializeStatement,
 } from "./overload-lowering.js";
 
@@ -138,10 +140,17 @@ export const convertFunctionOverloadGroup = (
     }
 
     const helperName = getOverloadImplementationName(memberName);
+    const helperIsAsync =
+      implFunction.isAsync ||
+      needsAsyncReturnStatementAdaptation(
+        implFunction.body,
+        implFunction.returnType
+      );
     const helperFunction: IrFunctionDeclaration = {
       ...implFunction,
       name: helperName,
       isExported: false,
+      isAsync: helperIsAsync,
       overloadFamily: buildImplementationOverloadFamilyMember({
         ownerKind: "function",
         publicName: memberName,
@@ -151,7 +160,8 @@ export const convertFunctionOverloadGroup = (
       }),
       body: adaptReturnStatements(
         implFunction.body,
-        implFunction.returnType
+        implFunction.returnType,
+        helperIsAsync
       ) as IrBlockStatement,
     };
 
@@ -162,6 +172,10 @@ export const convertFunctionOverloadGroup = (
         ...parameter,
         pattern: (implParams[index] as IrParameter).pattern,
       }));
+      const wrapperIsAsync = needsAsyncWrapperReturnAdaptation(
+        implFunction.returnType,
+        returnType
+      );
 
       return {
         kind: "functionDeclaration",
@@ -178,9 +192,10 @@ export const convertFunctionOverloadGroup = (
           returnType,
           (sig.typeParameters ?? []).map(
             (typeParameter) => typeParameter.name.text
-          )
+          ),
+          wrapperIsAsync
         ),
-        isAsync: false,
+        isAsync: wrapperIsAsync,
         isGenerator: false,
         isExported,
         overloadFamily: buildPublicOverloadFamilyMember({
@@ -245,6 +260,13 @@ export const convertFunctionOverloadGroup = (
       }
     }
 
+    const specializedIsAsync =
+      isAsync ||
+      needsAsyncReturnStatementAdaptation(
+        specialized as IrBlockStatement,
+        returnType
+      );
+
     specializedFunctions.push({
       kind: "functionDeclaration",
       name: memberName,
@@ -253,9 +275,10 @@ export const convertFunctionOverloadGroup = (
       returnType,
       body: adaptReturnStatements(
         specialized as IrBlockStatement,
-        returnType
+        returnType,
+        specializedIsAsync
       ) as IrBlockStatement,
-      isAsync,
+      isAsync: specializedIsAsync,
       isGenerator,
       isExported,
       overloadFamily: buildPublicOverloadFamilyMember({

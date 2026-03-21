@@ -85,7 +85,7 @@ export const emitNew = (
   const surfaceParameterTypes =
     expr.surfaceParameterTypes && expr.surfaceParameterTypes.length > 0
       ? expr.surfaceParameterTypes
-      : expr.parameterTypes ?? [];
+      : (expr.parameterTypes ?? []);
   const runtimeParameterTypes = expr.parameterTypes ?? [];
   for (let i = 0; i < expr.arguments.length; i++) {
     const arg = expr.arguments[i];

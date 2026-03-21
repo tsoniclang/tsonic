@@ -78,6 +78,7 @@ export const buildRuntimeUnionComplementBinding = (
   if (remainingPairs.length === 1) {
     const remaining = remainingPairs[0];
     if (!remaining) return undefined;
+    const carrierSourceType = sourceInfo?.sourceType ?? sourceType;
 
     const narrowedExpr = buildUnionNarrowAst(
       receiver,
@@ -87,7 +88,7 @@ export const buildRuntimeUnionComplementBinding = (
       return buildExprBinding(
         narrowedExpr,
         narrowedType,
-        sourceType,
+        carrierSourceType,
         toReceiverAst(receiver)
       );
     }
@@ -101,7 +102,7 @@ export const buildRuntimeUnionComplementBinding = (
     return buildExprBinding(
       nullAwareExpr,
       narrowedType,
-      sourceType,
+      carrierSourceType,
       toReceiverAst(receiver)
     );
   }
@@ -278,20 +279,35 @@ export const applyDirectTypeNarrowing = (
     targetExpr,
     withoutNarrowedBinding(context, bindingKey)
   );
-  const [carrierAst, carrierContext] = (() => {
+  const [carrierAst, carrierContext, carrierType] = (() => {
     if (!existingBinding) {
-      return [rawTargetAst, rawTargetContext] as const;
+      return [
+        rawTargetAst,
+        rawTargetContext,
+        currentType ?? targetExpr.inferredType,
+      ] as const;
     }
 
     if (existingBinding.kind === "rename") {
       return [
         identifierExpression(escapeCSharpIdentifier(existingBinding.name)),
         context,
+        existingBinding.type ??
+          existingBinding.sourceType ??
+          currentType ??
+          targetExpr.inferredType,
       ] as const;
     }
 
     if (existingBinding.kind === "expr") {
-      return [existingBinding.exprAst, context] as const;
+      return [
+        existingBinding.exprAst,
+        context,
+        existingBinding.type ??
+          existingBinding.sourceType ??
+          currentType ??
+          targetExpr.inferredType,
+      ] as const;
     }
 
     if (
@@ -304,22 +320,35 @@ export const applyDirectTypeNarrowing = (
         context
       );
       if (subsetAst) {
-        return subsetAst;
+        return [
+          subsetAst[0],
+          subsetAst[1],
+          existingBinding.type ??
+            existingBinding.sourceType ??
+            currentType ??
+            targetExpr.inferredType,
+        ] as const;
       }
     }
 
-    return [rawTargetAst, rawTargetContext] as const;
+    return [
+      rawTargetAst,
+      rawTargetContext,
+      currentType ?? targetExpr.inferredType,
+    ] as const;
   })();
 
   const runtimeUnionFrame = currentType
     ? resolveRuntimeUnionFrame(bindingKey, currentType, context)
     : undefined;
+  const carrierSourceType =
+    carrierType ?? currentType ?? targetExpr.inferredType;
 
   if (runtimeUnionFrame && currentType) {
     const subsetBinding = buildRuntimeUnionSubsetBinding(
       carrierAst,
       runtimeUnionFrame,
-      currentType,
+      carrierSourceType ?? currentType,
       narrowedType,
       carrierContext
     );
@@ -332,7 +361,7 @@ export const applyDirectTypeNarrowing = (
   const [materializedExprAst, materializedContext] =
     materializeDirectNarrowingAst(
       carrierAst,
-      currentType,
+      carrierSourceType,
       narrowedType,
       carrierContext
     );
@@ -342,7 +371,7 @@ export const applyDirectTypeNarrowing = (
     buildExprBinding(
       materializedExprAst,
       narrowedType,
-      currentType,
+      carrierSourceType,
       carrierAst
     ),
     materializedContext

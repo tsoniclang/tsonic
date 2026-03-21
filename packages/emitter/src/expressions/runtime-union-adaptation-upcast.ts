@@ -14,6 +14,7 @@ import {
   findRuntimeUnionMemberIndex,
 } from "../core/semantic/runtime-unions.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import { buildRuntimeUnionFactoryCallAst } from "../core/semantic/runtime-union-projection.js";
 import {
   resolveComparableType,
@@ -151,6 +152,9 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (!actualType || !expectedType) return undefined;
 
+  const extractedMemberType =
+    tryResolveRuntimeUnionMemberType(actualType, ast, context) ?? actualType;
+
   const exactComparisonTargetAst = tryEmitExactComparisonTargetAst(
     expectedType,
     context
@@ -170,7 +174,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   const directValueSurfaceType = resolveDirectValueSurfaceType(ast, context);
   const preferredActualType = (() => {
     if (!directValueSurfaceType) {
-      return actualType;
+      return extractedMemberType;
     }
 
     const [directLayout, directLayoutContext] = buildRuntimeUnionLayout(
@@ -179,7 +183,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       emitTypeAst
     );
     const [actualLayout] = buildRuntimeUnionLayout(
-      actualType,
+      extractedMemberType,
       directLayoutContext,
       emitTypeAst
     );
@@ -207,7 +211,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       return directValueSurfaceType;
     }
 
-    return actualType;
+    return extractedMemberType;
   })();
 
   const emissionActualType = unwrapComparableType(preferredActualType);
