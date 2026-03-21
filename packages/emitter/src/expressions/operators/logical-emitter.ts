@@ -2,10 +2,14 @@
  * Logical operator expression emitter (&&, ||, ??)
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import { isDefinitelyValueType } from "../../core/semantic/type-resolution.js";
+import {
+  isDefinitelyValueType,
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
 import { isBooleanType } from "./helpers.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
@@ -41,6 +45,154 @@ const preservesNullableValueFallback = (ast: CSharpExpressionAst): boolean => {
     default:
       return false;
   }
+};
+
+const hasUnionMember = (
+  type: IrType | undefined,
+  predicate: (member: IrType) => boolean
+): boolean => {
+  if (!type) {
+    return false;
+  }
+  if (type.kind !== "unionType") {
+    return predicate(type);
+  }
+  return type.types.some(predicate);
+};
+
+const isRepeatableExpressionAst = (ast: CSharpExpressionAst): boolean => {
+  switch (ast.kind) {
+    case "identifierExpression":
+    case "qualifiedIdentifierExpression":
+    case "typeReferenceExpression":
+    case "nullLiteralExpression":
+    case "booleanLiteralExpression":
+    case "stringLiteralExpression":
+    case "charLiteralExpression":
+    case "numericLiteralExpression":
+      return true;
+    case "memberAccessExpression":
+      return isRepeatableExpressionAst(ast.expression);
+    case "elementAccessExpression":
+      return (
+        isRepeatableExpressionAst(ast.expression) &&
+        ast.arguments.every(isRepeatableExpressionAst)
+      );
+    case "parenthesizedExpression":
+    case "castExpression":
+    case "asExpression":
+    case "suppressNullableWarningExpression":
+      return isRepeatableExpressionAst(ast.expression);
+    default:
+      return false;
+  }
+};
+
+const getMapValueType = (
+  receiverType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!receiverType) {
+    return undefined;
+  }
+  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
+  if (resolved.kind !== "referenceType" || resolved.name !== "Map") {
+    return undefined;
+  }
+  return resolved.typeArguments?.[1];
+};
+
+const isUndefinedPrimitive = (type: IrType): boolean =>
+  type.kind === "primitiveType" && type.name === "undefined";
+
+const isNullPrimitive = (type: IrType): boolean =>
+  type.kind === "primitiveType" && type.name === "null";
+
+const tryEmitMapGetUndefinedFallback = (
+  expr: Extract<IrExpression, { kind: "logical" }>,
+  leftAst: CSharpExpressionAst,
+  rightAst: CSharpExpressionAst,
+  rightContext: EmitterContext,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (expr.operator !== "??" || expr.left.kind !== "call") {
+    return undefined;
+  }
+
+  const callee = expr.left.callee;
+  if (
+    callee.kind !== "memberAccess" ||
+    callee.isComputed ||
+    callee.isOptional ||
+    callee.property !== "get"
+  ) {
+    return undefined;
+  }
+
+  if (
+    expr.left.arguments.length !== 1 ||
+    (typeof expr.left.arguments[0] === "object" &&
+      "kind" in expr.left.arguments[0] &&
+      expr.left.arguments[0].kind === "spread")
+  ) {
+    return undefined;
+  }
+
+  if (
+    !hasUnionMember(expr.left.inferredType, isUndefinedPrimitive) ||
+    hasUnionMember(expr.left.inferredType, isNullPrimitive)
+  ) {
+    return undefined;
+  }
+
+  const mapValueType = getMapValueType(callee.object.inferredType, context);
+  if (
+    !mapValueType ||
+    hasUnionMember(mapValueType, isUndefinedPrimitive) ||
+    hasUnionMember(mapValueType, isNullPrimitive) ||
+    !isDefinitelyValueType(stripNullish(mapValueType))
+  ) {
+    return undefined;
+  }
+
+  if (
+    leftAst.kind !== "invocationExpression" ||
+    leftAst.expression.kind !== "memberAccessExpression" ||
+    leftAst.expression.memberName !== "get" ||
+    leftAst.arguments.length !== 1
+  ) {
+    return undefined;
+  }
+
+  const receiverAst = leftAst.expression.expression;
+  const argumentAst = leftAst.arguments[0];
+  if (!argumentAst) {
+    return undefined;
+  }
+  if (
+    !isRepeatableExpressionAst(receiverAst) ||
+    !isRepeatableExpressionAst(argumentAst)
+  ) {
+    return undefined;
+  }
+
+  return [
+    {
+      kind: "conditionalExpression",
+      condition: {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: receiverAst,
+          memberName: "has",
+        },
+        arguments: [argumentAst],
+      },
+      whenTrue: leftAst,
+      whenFalse: rightAst,
+    },
+    rightContext,
+  ];
 };
 
 /**
@@ -84,7 +236,26 @@ export const emitLogical = (
     }
   }
 
-  const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+  const rightExpectedType =
+    operator === "??"
+      ? (expr.inferredType ?? expr.left.inferredType)
+      : undefined;
+  const [rightAst, rightContext] = emitExpressionAst(
+    expr.right,
+    leftContext,
+    rightExpectedType
+  );
+
+  const mapGetFallback = tryEmitMapGetUndefinedFallback(
+    expr,
+    leftAst,
+    rightAst,
+    rightContext,
+    context
+  );
+  if (mapGetFallback) {
+    return mapGetFallback;
+  }
 
   return [
     {

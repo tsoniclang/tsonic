@@ -119,6 +119,20 @@ export const processStatement = (
             processStatementWithReturnType(member.body, member.returnType, ctx);
           }
         }
+        if (member.kind === "constructorDeclaration") {
+          for (const param of member.parameters) {
+            if (param.initializer && param.type) {
+              validateExpression(
+                param.initializer,
+                param.type,
+                ctx,
+                "in default parameter"
+              );
+            } else if (param.initializer) {
+              scanExpressionForCalls(param.initializer, ctx);
+            }
+          }
+        }
         if (member.kind === "propertyDeclaration" && member.initializer) {
           validateExpression(
             member.initializer,

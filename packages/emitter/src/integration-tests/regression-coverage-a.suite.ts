@@ -197,5 +197,69 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("return unwrapInt(postIdRaw.Value);");
       expect(csharp).not.to.include("((int)(object)postIdRaw).Value");
     });
+
+    it("omits fabricated nullable defaults for direct calls with authored default parameters", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        class DelayBox {
+          wait(delay: int = 1 as int): int {
+            return delay;
+          }
+        }
+
+        function readDelay(delay: int = 0 as int): int {
+          return delay;
+        }
+
+        export function run(): int {
+          return new DelayBox().wait() + readDelay();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("return new DelayBox().wait() + readDelay();");
+      expect(csharp).not.to.include("wait(default(int?))");
+      expect(csharp).not.to.include("readDelay(default(int?))");
+    });
+
+    it("lowers async generator class methods without raw AsyncGenerator return types", () => {
+      const source = `
+        export class TimersPromises {
+          public async *setInterval(
+            value?: string
+          ): AsyncGenerator<string, void, unknown> {
+            while (true) {
+              yield value ?? "tick";
+            }
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).not.to.include(
+        "Task<global::AsyncGenerator<string, object, object>>"
+      );
+      expect(csharp).to.include(
+        "public sealed class TimersPromises__setInterval_exchange"
+      );
+      expect(csharp).to.include(
+        "var exchange = new TimersPromises__setInterval_exchange()"
+      );
+      expect(csharp).to.include("yield return exchange;");
+    });
+
+    it("contextualizes numeric nullish fallbacks to the result type", () => {
+      const csharp = compileToCSharp(`
+        declare function readCount(): number | undefined;
+
+        export function run(): number {
+          return (readCount() ?? 0) + 1;
+        }
+      `);
+
+      expect(csharp).to.match(/\?\?\s*(?:0|0d|\(double\)0)/);
+      expect(csharp).to.match(/\+\s*(?:1|1d|\(double\)1)/);
+    });
   });
 });

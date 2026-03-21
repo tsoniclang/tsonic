@@ -353,6 +353,7 @@ const createImportBinding = (
           kind: "value",
           clrName: valueContainerFqn,
           member: emitCSharpName(resolvedExportName, bucket, context),
+          valueKind,
         },
       };
     }
@@ -371,6 +372,8 @@ const createImportBinding = (
       importBinding: {
         kind: "namespace",
         clrName: valueContainerFqn,
+        memberKinds: exportedValueKinds,
+        moduleObject: true,
       },
     };
   }
@@ -400,6 +403,7 @@ const createModuleImportBinding = (
       importBinding: {
         kind: "namespace",
         clrName: moduleClrType,
+        moduleObject: true,
       },
     };
   }
@@ -410,6 +414,7 @@ const createModuleImportBinding = (
       importBinding: {
         kind: "namespace",
         clrName: moduleClrType,
+        moduleObject: true,
       },
     };
   }
@@ -454,6 +459,7 @@ const createModuleImportBinding = (
         kind: "value",
         clrName: moduleClrType,
         member: spec.name,
+        moduleObject: true,
       },
     };
   }

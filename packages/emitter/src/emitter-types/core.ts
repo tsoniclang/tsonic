@@ -203,12 +203,20 @@ export type ImportBinding =
       readonly clrName: string;
       /** Member name inside the container (e.g. "createUser") */
       readonly member: string;
+      /** Original exported value category when known (function vs variable/function-value). */
+      readonly valueKind?: ValueSymbolKind;
+      /** True when this value comes from a module-object/source-surface export. */
+      readonly moduleObject?: boolean;
     }
   | {
       /** Namespace/module-object import (import * as x / canonical module object) */
       readonly kind: "namespace";
       /** Fully-qualified CLR container/type name */
       readonly clrName: string;
+      /** Exported value categories for namespace members when known. */
+      readonly memberKinds?: ReadonlyMap<string, ValueSymbolKind>;
+      /** True when this namespace represents a module-object/source-surface container. */
+      readonly moduleObject?: boolean;
     };
 
 /**

@@ -36,6 +36,24 @@ type GeneratorTypeArgs = {
   readonly newContext: EmitterContext;
 };
 
+export type GeneratorLike = Pick<
+  IrFunctionDeclaration,
+  "name" | "returnType" | "isGenerator" | "isAsync" | "overloadFamily"
+>;
+
+export const getGeneratorHelperBaseName = (
+  generator: GeneratorLike,
+  context: EmitterContext,
+  ownerName?: string
+): string => {
+  const scopedName = generator.overloadFamily?.memberId ?? generator.name;
+  return getCSharpName(
+    ownerName ? `${ownerName}__${scopedName}` : scopedName,
+    "methods",
+    context
+  );
+};
+
 const objectTypeAst: CSharpTypeAst = {
   kind: "predefinedType",
   keyword: "object",
@@ -112,14 +130,14 @@ export const extractGeneratorTypeArgs = (
  * Generate wrapper class declaration for a generator function.
  */
 export const generateWrapperClass = (
-  func: IrFunctionDeclaration,
-  context: EmitterContext
+  func: GeneratorLike,
+  context: EmitterContext,
+  helperBaseName = getGeneratorHelperBaseName(func, context)
 ): [CSharpTypeDeclarationAst, EmitterContext] => {
   let currentContext = context;
 
-  const csharpBaseName = getCSharpName(func.name, "methods", context);
-  const wrapperName = `${csharpBaseName}_Generator`;
-  const exchangeName = `${csharpBaseName}_exchange`;
+  const wrapperName = `${helperBaseName}_Generator`;
+  const exchangeName = `${helperBaseName}_exchange`;
   const nextMethodName = emitCSharpName("next", "methods", context);
   const returnMethodName = emitCSharpName("return", "methods", context);
   const throwMethodName = emitCSharpName("throw", "methods", context);
@@ -237,9 +255,7 @@ export const generateWrapperClass = (
  * Check if a generator function needs bidirectional support
  * (i.e., has TNext type parameter that isn't undefined)
  */
-export const needsBidirectionalSupport = (
-  func: IrFunctionDeclaration
-): boolean => {
+export const needsBidirectionalSupport = (func: GeneratorLike): boolean => {
   if (!func.isGenerator) return false;
 
   if (func.returnType?.kind === "referenceType") {
@@ -264,9 +280,7 @@ export const needsBidirectionalSupport = (
 /**
  * Check if a generator function has a return type (TReturn is not void/undefined)
  */
-export const hasGeneratorReturnType = (
-  func: IrFunctionDeclaration
-): boolean => {
+export const hasGeneratorReturnType = (func: GeneratorLike): boolean => {
   if (!func.isGenerator) return false;
 
   if (func.returnType?.kind === "referenceType") {

@@ -18,6 +18,7 @@ import {
   inferNumericKind,
 } from "./numeric-proof-analysis.js";
 import { processExpression } from "./numeric-proof-expression-walk.js";
+import type { IrParameter } from "../types.js";
 
 /**
  * Result of numeric proof validation
@@ -48,6 +49,36 @@ const processStatement = <T extends IrStatement>(
     expr: Parameters<typeof processExpression>[0],
     c: ProofContext
   ) => processExpression(expr, c, processStatement);
+
+  const processParameters = (
+    parameters: readonly IrParameter[]
+  ): [readonly IrParameter[], ProofContext] => {
+    const paramCtx: ProofContext = {
+      ...ctx,
+      provenParameters: new Map(ctx.provenParameters),
+      provenVariables: new Map(ctx.provenVariables),
+    };
+
+    const processedParameters = parameters.map((param) => {
+      const processedParam: IrParameter = {
+        ...param,
+        initializer: param.initializer
+          ? processExpr(param.initializer, paramCtx)
+          : undefined,
+      };
+
+      if (param.pattern.kind === "identifierPattern") {
+        const numericKind = getNumericKindFromType(param.type);
+        if (numericKind !== undefined) {
+          paramCtx.provenParameters.set(param.pattern.name, numericKind);
+        }
+      }
+
+      return processedParam;
+    });
+
+    return [processedParameters, paramCtx];
+  };
 
   switch (stmt.kind) {
     case "variableDeclaration": {
@@ -96,21 +127,10 @@ const processStatement = <T extends IrStatement>(
     }
 
     case "functionDeclaration": {
-      const paramCtx: ProofContext = {
-        ...ctx,
-        provenParameters: new Map(ctx.provenParameters),
-        provenVariables: new Map(ctx.provenVariables),
-      };
-      for (const param of stmt.parameters) {
-        if (param.pattern.kind === "identifierPattern") {
-          const numericKind = getNumericKindFromType(param.type);
-          if (numericKind !== undefined) {
-            paramCtx.provenParameters.set(param.pattern.name, numericKind);
-          }
-        }
-      }
+      const [parameters, paramCtx] = processParameters(stmt.parameters);
       return {
         ...stmt,
+        parameters,
         body: processStatement(stmt.body, paramCtx),
       } as T;
     }
@@ -118,26 +138,23 @@ const processStatement = <T extends IrStatement>(
     case "classDeclaration": {
       const processedMembers = stmt.members.map((m) => {
         if (m.kind === "methodDeclaration" && m.body) {
-          const methodCtx: ProofContext = {
-            ...ctx,
-            provenParameters: new Map(ctx.provenParameters),
-            provenVariables: new Map(ctx.provenVariables),
+          const [parameters, methodCtx] = processParameters(m.parameters);
+          return {
+            ...m,
+            parameters,
+            body: processStatement(m.body, methodCtx),
           };
-          for (const param of m.parameters) {
-            if (param.pattern.kind === "identifierPattern") {
-              const numericKind = getNumericKindFromType(param.type);
-              if (numericKind !== undefined) {
-                methodCtx.provenParameters.set(param.pattern.name, numericKind);
-              }
-            }
-          }
-          return { ...m, body: processStatement(m.body, methodCtx) };
         }
         if (m.kind === "propertyDeclaration" && m.initializer) {
           return { ...m, initializer: processExpr(m.initializer, ctx) };
         }
         if (m.kind === "constructorDeclaration" && m.body) {
-          return { ...m, body: processStatement(m.body, ctx) };
+          const [parameters, ctorCtx] = processParameters(m.parameters);
+          return {
+            ...m,
+            parameters,
+            body: processStatement(m.body, ctorCtx),
+          };
         }
         return m;
       });

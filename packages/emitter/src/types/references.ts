@@ -252,7 +252,11 @@ export const emitReferenceType = (
     ];
   }
 
-  if (name === "AsyncIterable" || name === "AsyncIterableIterator") {
+  if (
+    name === "AsyncIterable" ||
+    name === "AsyncIterableIterator" ||
+    name === "AsyncGenerator"
+  ) {
     const elementType = typeArguments?.[0] ?? { kind: "unknownType" };
     const [elementTypeAst, newContext] = emitTypeAst(elementType, context);
     return [

@@ -33,6 +33,12 @@ const computeArrayElementType = (
 ): IrType | undefined => {
   const mergeElementTypes = (types: readonly IrType[]): IrType | undefined => {
     if (types.length === 0) return undefined;
+    if (types.some((type) => type.kind === "anyType")) {
+      return { kind: "anyType" };
+    }
+    if (types.some((type) => type.kind === "unknownType")) {
+      return { kind: "unknownType" };
+    }
     const first = types[0];
     if (first && types.every((t) => typesEqual(t, first))) {
       return first;
@@ -196,7 +202,7 @@ const computeArrayElementType = (
   const knownTypes: IrType[] = [];
   for (const elem of regularElements) {
     const t = elem.inferredType;
-    if (!t || t.kind === "unknownType") {
+    if (!t) {
       return fallbackType;
     }
     knownTypes.push(t);

@@ -142,6 +142,48 @@ describe("End-to-End Integration", () => {
         /consume\(\(object\?\[\] __unused_args\)\s*=>\s*\{\s*\}\)/
       );
     });
+
+    it("emits static arrow fields with default parameter initializers through custom delegates", () => {
+      const source = `
+        export const formatLabel = (label: string = "default"): string => label;
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /delegate\s+string\s+formatLabel__Delegate\s*\(\s*string\s+label\s*=\s*"default"\s*\)/
+      );
+      expect(csharp).to.match(
+        /private\s+static\s+string\s+formatLabel__Impl\s*\(\s*string\s+label\s*=\s*"default"\s*\)/
+      );
+      expect(csharp).to.not.include(
+        "ICE: Arrow function values with default parameter initializers are not supported"
+      );
+    });
+
+    it("omits non-constant defaults from static arrow signatures and synthesizes omitted call arguments", () => {
+      const source = `
+        export const formatLabel = (
+          parts: readonly string[] = []
+        ): string => parts.length === 0 ? "empty" : parts[0];
+
+        export function run(): string {
+          return formatLabel();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.not.match(
+        /formatLabel__Delegate\s*\([^)]*=\s*(?:global::System\.Array\.Empty|new\s+string)/
+      );
+      expect(csharp).to.not.match(
+        /formatLabel__Impl\s*\([^)]*=\s*(?:global::System\.Array\.Empty|new\s+string)/
+      );
+      expect(csharp).to.match(
+        /return formatLabel\((?:global::System\.Array\.Empty<string>\(\)|new string\[\] \{ \}|new string\[0\])\);/
+      );
+    });
   });
 
   describe("Narrowed Member Truthiness", () => {

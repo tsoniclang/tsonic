@@ -232,6 +232,24 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("?? 0");
     });
 
+    it("keeps unknown spread-array conditionals on object arrays instead of numeric unions", () => {
+      const csharp = compileToCSharp(`
+        declare function inspect(value: unknown): string;
+
+        export function format(
+          message?: unknown,
+          optionalParams: readonly unknown[] = []
+        ): string {
+          const values =
+            message === undefined ? [...optionalParams] : [message, ...optionalParams];
+          return values.map((value) => inspect(value)).join(" ");
+        }
+      `);
+
+      expect(csharp).not.to.include("Union<double[], object?[]>");
+      expect(csharp).not.to.include("(double)message");
+    });
+
     it("avoids identity Match projections for identical optional union passthrough calls", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";

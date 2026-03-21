@@ -24,8 +24,16 @@ import {
 } from "./call-arguments-helpers.js";
 
 const getFunctionValueSignature = (
-  expr: Extract<IrExpression, { kind: "call" }>
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
 ): Extract<IrType, { kind: "functionType" }> | undefined => {
+  if (expr.callee.kind === "identifier") {
+    const symbolType = context.valueSymbols?.get(expr.callee.name)?.type;
+    if (symbolType?.kind === "functionType") {
+      return symbolType;
+    }
+  }
+
   const calleeType = expr.callee.inferredType;
   if (!calleeType || calleeType.kind !== "functionType") return undefined;
 
@@ -205,7 +213,18 @@ const emitFunctionValueCallArguments = (
       continue;
     }
 
-    if (parameter.isOptional || parameter.initializer) {
+    if (parameter.initializer) {
+      const [defaultAst, defaultCtx] = emitExpressionAst(
+        parameter.initializer,
+        currentContext,
+        parameter.type
+      );
+      argAsts.push(defaultAst);
+      currentContext = defaultCtx;
+      continue;
+    }
+
+    if (parameter.isOptional) {
       let defaultType: CSharpTypeAst | undefined;
       if (parameter.type) {
         const [emittedType, typeCtx] = emitTypeAst(
@@ -213,12 +232,11 @@ const emitFunctionValueCallArguments = (
           currentContext
         );
         currentContext = typeCtx;
-        defaultType =
-          parameter.isOptional || parameter.initializer
-            ? emittedType.kind === "nullableType"
-              ? emittedType
-              : { kind: "nullableType", underlyingType: emittedType }
-            : emittedType;
+        defaultType = parameter.isOptional
+          ? emittedType.kind === "nullableType"
+            ? emittedType
+            : { kind: "nullableType", underlyingType: emittedType }
+          : emittedType;
       }
       argAsts.push({ kind: "defaultExpression", type: defaultType });
     }
@@ -293,13 +311,43 @@ const emitCallArguments = (
   context: EmitterContext,
   parameterTypeOverrides?: readonly (IrType | undefined)[]
 ): [readonly CSharpExpressionAst[], EmitterContext] => {
-  const functionValueSignature = getFunctionValueSignature(expr);
+  const functionValueSignature = getFunctionValueSignature(expr, context);
+  const identifierImportBinding =
+    expr.callee.kind === "identifier"
+      ? context.importBindings?.get(expr.callee.name)
+      : undefined;
+  const memberObjectImportBinding =
+    expr.callee.kind === "memberAccess" &&
+    expr.callee.object.kind === "identifier"
+      ? context.importBindings?.get(expr.callee.object.name)
+      : undefined;
+  const importedFunctionValueTarget =
+    functionValueSignature &&
+    ((expr.callee.kind === "identifier" &&
+      identifierImportBinding?.kind === "value" &&
+      (identifierImportBinding.valueKind === "variable" ||
+        identifierImportBinding.moduleObject === true)) ||
+      (expr.callee.kind === "memberAccess" &&
+        !expr.callee.isComputed &&
+        typeof expr.callee.property === "string" &&
+        memberObjectImportBinding?.kind === "namespace" &&
+        (memberObjectImportBinding.memberKinds?.get(expr.callee.property) ===
+          "variable" ||
+          memberObjectImportBinding.moduleObject === true)));
+  const directCallableTarget =
+    (expr.callee.kind === "identifier" &&
+      (context.importBindings?.get(expr.callee.name)?.kind === "value" ||
+        context.valueSymbols?.get(expr.callee.name)?.kind === "function")) ||
+    (expr.callee.kind === "memberAccess" &&
+      !expr.callee.isComputed &&
+      typeof expr.callee.property === "string");
   const valueSymbolSignature =
     expr.callee.kind === "identifier"
       ? context.valueSymbols?.get(expr.callee.name)?.type
       : undefined;
   if (
     functionValueSignature &&
+    (!directCallableTarget || importedFunctionValueTarget) &&
     functionValueSignature.parameters.some(
       (parameter) =>
         parameter?.isRest ||
