@@ -1,3 +1,3 @@
-import "./features-tests/promise-chaining.suite.js";
-import "./features-tests/tsn2001-unsupported-syntax.suite.js";
-import "./features-tests/tsn5001-function-length.suite.js";
+import "./features-cases/promise-chaining.test.js";
+import "./features-cases/tsn2001-unsupported-syntax.test.js";
+import "./features-cases/tsn5001-function-length.test.js";

@@ -141,10 +141,9 @@ export const emitIdentifier = (
                 expectedType,
                 context
               )));
-        const preferredSubsetTargetType =
-          shouldPreferNarrowedSubsetTarget
-            ? narrowed.type
-            : expectedType;
+        const preferredSubsetTargetType = shouldPreferNarrowedSubsetTarget
+          ? narrowed.type
+          : expectedType;
         const expectedSubset = expectedType
           ? buildRuntimeSubsetExpressionAst(
               expr,

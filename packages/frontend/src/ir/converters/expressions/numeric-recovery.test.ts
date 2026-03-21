@@ -1,3 +1,3 @@
-import "./numeric-recovery-tests/call-return-and-intent.suite.js";
-import "./numeric-recovery-tests/e2e-integration.suite.js";
-import "./numeric-recovery-tests/property-access-recovery.suite.js";
+import "./numeric-recovery-cases/call-return-and-intent.test.js";
+import "./numeric-recovery-cases/e2e-integration.test.js";
+import "./numeric-recovery-cases/property-access-recovery.test.js";

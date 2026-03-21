@@ -107,9 +107,11 @@ export const needsAsyncReturnStatementAdaptation = (
           ))
       );
     case "returnStatement":
-      return !!stmt.expression &&
+      return (
+        !!stmt.expression &&
         stmt.expression.kind !== "await" &&
-        returnExpressionNeedsAsyncAwait(stmt.expression, targetReturnType);
+        returnExpressionNeedsAsyncAwait(stmt.expression, targetReturnType)
+      );
     default:
       return false;
   }
@@ -207,7 +209,8 @@ export const adaptReturnStatements = (
       }
 
       const sourceExpression =
-        isAsync && returnExpressionNeedsAsyncAwait(stmt.expression, targetReturnType)
+        isAsync &&
+        returnExpressionNeedsAsyncAwait(stmt.expression, targetReturnType)
           ? ({
               kind: "await",
               expression: stmt.expression,
@@ -317,7 +320,8 @@ export const createWrapperBody = (
   const hasReturnValue =
     wrapperIsAsync && awaitableReturnAdaptation
       ? awaitableReturnAdaptation.kind !== "voidType"
-      : wrapperReturnType !== undefined && wrapperReturnType.kind !== "voidType";
+      : wrapperReturnType !== undefined &&
+        wrapperReturnType.kind !== "voidType";
 
   return {
     kind: "blockStatement",

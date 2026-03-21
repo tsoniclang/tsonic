@@ -107,4 +107,3 @@ for (const scenario of scenarios) {
 }
 
 console.log(`Updated ${updated} golden expected files.`);
-

@@ -22,8 +22,8 @@
     "build": "npm run clean && tsc -b && chmod +x dist/index.js",
     "clean": "rm -rf dist *.tsbuildinfo",
     "pretest": "npm run build",
-    "test": "mocha --require ../../test/mocha/checkpoint.cjs --parallel 'dist/**/*.test.js'",
-    "test:watch": "mocha --require ../../test/mocha/checkpoint.cjs 'dist/**/*.test.js' --watch"
+    "test": "mocha --require ../../test/mocha/checkpoint.cjs --parallel --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js'",
+    "test:watch": "mocha --require ../../test/mocha/checkpoint.cjs --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js' --watch"
   },
   "dependencies": {
     "@tsonic/backend": "0.0.74",

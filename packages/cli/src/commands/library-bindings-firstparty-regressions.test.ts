@@ -1,8 +1,8 @@
-import "./library-bindings-firstparty-regressions-tests/aliases-and-reexports-parts/alias-markers.suite.js";
-import "./library-bindings-firstparty-regressions-tests/aliases-and-reexports-parts/reexport-signatures.suite.js";
-import "./library-bindings-firstparty-regressions-tests/anonymous-structural-surfaces.suite.js";
-import "./library-bindings-firstparty-regressions-tests/canonical-identity-and-augmentations.suite.js";
-import "./library-bindings-firstparty-regressions-tests/contextual-typing.suite.js";
-import "./library-bindings-firstparty-regressions-tests/imported-shape-regressions.suite.js";
-import "./library-bindings-firstparty-regressions-tests/namespace-and-overload-surfaces.suite.js";
-import "./library-bindings-firstparty-regressions-tests/source-surface-hygiene.suite.js";
+import "./library-bindings-firstparty-regressions-cases/aliases-and-reexports-cases/alias-markers.test.js";
+import "./library-bindings-firstparty-regressions-cases/aliases-and-reexports-cases/reexport-signatures.test.js";
+import "./library-bindings-firstparty-regressions-cases/anonymous-structural-surfaces.test.js";
+import "./library-bindings-firstparty-regressions-cases/canonical-identity-and-augmentations.test.js";
+import "./library-bindings-firstparty-regressions-cases/contextual-typing.test.js";
+import "./library-bindings-firstparty-regressions-cases/imported-shape-regressions.test.js";
+import "./library-bindings-firstparty-regressions-cases/namespace-and-overload-surfaces.test.js";
+import "./library-bindings-firstparty-regressions-cases/source-surface-hygiene.test.js";

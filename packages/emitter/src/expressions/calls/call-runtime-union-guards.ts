@@ -2,9 +2,7 @@ import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import {
-  buildRuntimeUnionLayout,
-} from "../../core/semantic/runtime-unions.js";
+import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
 import {
   currentNarrowedType,
   isArrayLikeNarrowingCandidate,

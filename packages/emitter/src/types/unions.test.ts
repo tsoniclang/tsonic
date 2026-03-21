@@ -1,3 +1,3 @@
-import "./unions-tests/basic-and-ordering.suite.js";
-import "./unions-tests/multi-surface.suite.js";
-import "./unions-tests/large-and-fallback.suite.js";
+import "./unions-cases/basic-and-ordering.test.js";
+import "./unions-cases/multi-surface.test.js";
+import "./unions-cases/large-and-fallback.test.js";

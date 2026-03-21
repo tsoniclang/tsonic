@@ -1,2 +1,2 @@
-import "./generic-functions-tests/basics-and-structural.suite.js";
-import "./generic-functions-tests/class-and-interface-constraints.suite.js";
+import "./generic-functions-cases/basics-and-structural.test.js";
+import "./generic-functions-cases/class-and-interface-constraints.test.js";

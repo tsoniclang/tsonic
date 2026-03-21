@@ -1,8 +1,8 @@
-import "./integration-tests/arrow-and-generics-a.suite.js";
-import "./integration-tests/arrow-and-generics-b.suite.js";
-import "./integration-tests/full-module-and-promises.suite.js";
-import "./integration-tests/await-and-intrinsics.suite.js";
-import "./integration-tests/regression-coverage-a.suite.js";
-import "./integration-tests/regression-coverage-b.suite.js";
-import "./integration-tests/regression-coverage-c.suite.js";
-import "./integration-tests/object-literals-and-channels.suite.js";
+import "./integration-cases/arrow-and-generics-a.test.js";
+import "./integration-cases/arrow-and-generics-b.test.js";
+import "./integration-cases/full-module-and-promises.test.js";
+import "./integration-cases/await-and-intrinsics.test.js";
+import "./integration-cases/regression-coverage-a.test.js";
+import "./integration-cases/regression-coverage-b.test.js";
+import "./integration-cases/regression-coverage-c.test.js";
+import "./integration-cases/object-literals-and-channels.test.js";
