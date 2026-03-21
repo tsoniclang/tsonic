@@ -24,8 +24,16 @@ import {
 } from "./call-arguments-helpers.js";
 
 const getFunctionValueSignature = (
-  expr: Extract<IrExpression, { kind: "call" }>
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
 ): Extract<IrType, { kind: "functionType" }> | undefined => {
+  if (expr.callee.kind === "identifier") {
+    const symbolType = context.valueSymbols?.get(expr.callee.name)?.type;
+    if (symbolType?.kind === "functionType") {
+      return symbolType;
+    }
+  }
+
   const calleeType = expr.callee.inferredType;
   if (!calleeType || calleeType.kind !== "functionType") return undefined;
 
@@ -186,7 +194,10 @@ const emitFunctionValueCallArguments = (
       const [argAst, argCtx] = emitExpressionAst(
         arg,
         currentContext,
-        normalizeCallArgumentExpectedType(
+        resolveCallArgumentExpectedType(
+          expr,
+          arg,
+          i,
           getAcceptedParameterType(parameter?.type, !!parameter?.isOptional),
           currentContext
         )
@@ -202,7 +213,18 @@ const emitFunctionValueCallArguments = (
       continue;
     }
 
-    if (parameter.isOptional || parameter.initializer) {
+    if (parameter.initializer) {
+      const [defaultAst, defaultCtx] = emitExpressionAst(
+        parameter.initializer,
+        currentContext,
+        parameter.type
+      );
+      argAsts.push(defaultAst);
+      currentContext = defaultCtx;
+      continue;
+    }
+
+    if (parameter.isOptional) {
       let defaultType: CSharpTypeAst | undefined;
       if (parameter.type) {
         const [emittedType, typeCtx] = emitTypeAst(
@@ -210,18 +232,73 @@ const emitFunctionValueCallArguments = (
           currentContext
         );
         currentContext = typeCtx;
-        defaultType =
-          parameter.isOptional || parameter.initializer
-            ? emittedType.kind === "nullableType"
-              ? emittedType
-              : { kind: "nullableType", underlyingType: emittedType }
-            : emittedType;
+        defaultType = parameter.isOptional
+          ? emittedType.kind === "nullableType"
+            ? emittedType
+            : { kind: "nullableType", underlyingType: emittedType }
+          : emittedType;
       }
       argAsts.push({ kind: "defaultExpression", type: defaultType });
     }
   }
 
   return [argAsts, currentContext];
+};
+
+const shouldPreferZeroArgJsTimerCallback = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  arg: IrExpression,
+  argIndex: number,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): expectedType is Extract<IrType, { kind: "functionType" }> => {
+  if (context.options.surface !== "@tsonic/js") return false;
+  if (argIndex !== 0) return false;
+  if (arg.kind !== "arrowFunction" && arg.kind !== "functionExpression") {
+    return false;
+  }
+  if (arg.parameters.length !== 0) return false;
+  if (expectedType?.kind !== "functionType") return false;
+  if (expectedType.parameters.length !== 1) return false;
+  if (!expectedType.parameters[0]?.isRest) return false;
+  if (expr.arguments.length > 2) return false;
+  if (expr.callee.kind !== "identifier") return false;
+
+  return (
+    expr.callee.csharpName === "Timers.setInterval" ||
+    expr.callee.csharpName === "Timers.setTimeout"
+  );
+};
+
+const resolveCallArgumentExpectedType = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  arg: IrExpression,
+  argIndex: number,
+  parameterType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  const expectedType = normalizeCallArgumentExpectedType(
+    parameterType,
+    context
+  );
+
+  if (
+    shouldPreferZeroArgJsTimerCallback(
+      expr,
+      arg,
+      argIndex,
+      expectedType,
+      context
+    )
+  ) {
+    return {
+      kind: "functionType",
+      parameters: [],
+      returnType: expectedType.returnType,
+    };
+  }
+
+  return expectedType;
 };
 
 /**
@@ -234,13 +311,43 @@ const emitCallArguments = (
   context: EmitterContext,
   parameterTypeOverrides?: readonly (IrType | undefined)[]
 ): [readonly CSharpExpressionAst[], EmitterContext] => {
-  const functionValueSignature = getFunctionValueSignature(expr);
+  const functionValueSignature = getFunctionValueSignature(expr, context);
+  const identifierImportBinding =
+    expr.callee.kind === "identifier"
+      ? context.importBindings?.get(expr.callee.name)
+      : undefined;
+  const memberObjectImportBinding =
+    expr.callee.kind === "memberAccess" &&
+    expr.callee.object.kind === "identifier"
+      ? context.importBindings?.get(expr.callee.object.name)
+      : undefined;
+  const importedFunctionValueTarget =
+    functionValueSignature &&
+    ((expr.callee.kind === "identifier" &&
+      identifierImportBinding?.kind === "value" &&
+      (identifierImportBinding.valueKind === "variable" ||
+        identifierImportBinding.moduleObject === true)) ||
+      (expr.callee.kind === "memberAccess" &&
+        !expr.callee.isComputed &&
+        typeof expr.callee.property === "string" &&
+        memberObjectImportBinding?.kind === "namespace" &&
+        (memberObjectImportBinding.memberKinds?.get(expr.callee.property) ===
+          "variable" ||
+          memberObjectImportBinding.moduleObject === true)));
+  const directCallableTarget =
+    (expr.callee.kind === "identifier" &&
+      (context.importBindings?.get(expr.callee.name)?.kind === "value" ||
+        context.valueSymbols?.get(expr.callee.name)?.kind === "function")) ||
+    (expr.callee.kind === "memberAccess" &&
+      !expr.callee.isComputed &&
+      typeof expr.callee.property === "string");
   const valueSymbolSignature =
     expr.callee.kind === "identifier"
       ? context.valueSymbols?.get(expr.callee.name)?.type
       : undefined;
   if (
     functionValueSignature &&
+    (!directCallableTarget || importedFunctionValueTarget) &&
     functionValueSignature.parameters.some(
       (parameter) =>
         parameter?.isRest ||
@@ -314,17 +421,29 @@ const emitCallArguments = (
     const expectedType =
       restInfo && i >= restInfo.index
         ? restInfo.elementType
-        : normalizeCallArgumentExpectedType(parameterTypes[i], currentContext);
+        : resolveCallArgumentExpectedType(
+            expr,
+            arg,
+            i,
+            parameterTypes[i],
+            currentContext
+          );
 
     const runtimeParameterType =
       parameterTypeOverrides && parameterTypeOverrides.length > 0
         ? parameterTypeOverrides[i]
         : expr.parameterTypes?.[i];
     const effectiveExpectedType = (() => {
-      const normalizedRuntime = normalizeCallArgumentExpectedType(
-        runtimeParameterType,
-        currentContext
-      );
+      const normalizedRuntime =
+        runtimeParameterType === undefined
+          ? undefined
+          : resolveCallArgumentExpectedType(
+              expr,
+              arg,
+              i,
+              runtimeParameterType,
+              currentContext
+            );
       if (!normalizedRuntime) {
         return expectedType;
       }

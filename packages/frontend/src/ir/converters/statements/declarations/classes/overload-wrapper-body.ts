@@ -5,14 +5,127 @@ import {
   IrStatement,
   IrType,
 } from "../../../../types.js";
+import { getAwaitedIrType } from "../../../../types.js";
 import { buildForwardedCallArguments } from "./overload-wrapper-forwarding.js";
 import { substitutePolymorphicReturn } from "./overload-wrapper-family.js";
+import { typesEqualForIsType } from "./overload-specialization.js";
+
+const resolveEffectiveReturnType = (
+  targetReturnType: IrType | undefined,
+  isAsync: boolean
+): IrType | undefined => {
+  if (!targetReturnType) {
+    return undefined;
+  }
+
+  if (!isAsync) {
+    return targetReturnType;
+  }
+
+  return getAwaitedIrType(targetReturnType) ?? targetReturnType;
+};
+
+export const needsAsyncWrapperReturnAdaptation = (
+  implReturnType: IrType | undefined,
+  wrapperReturnType: IrType | undefined
+): boolean => {
+  if (!implReturnType || !wrapperReturnType) {
+    return false;
+  }
+
+  const awaitedImpl = getAwaitedIrType(implReturnType);
+  const awaitedWrapper = getAwaitedIrType(wrapperReturnType);
+  if (!awaitedImpl || !awaitedWrapper) {
+    return false;
+  }
+
+  return !typesEqualForIsType(awaitedImpl, awaitedWrapper);
+};
+
+const returnExpressionNeedsAsyncAwait = (
+  expression: IrExpression,
+  targetReturnType: IrType | undefined
+): boolean => {
+  const awaitedTarget = targetReturnType
+    ? getAwaitedIrType(targetReturnType)
+    : undefined;
+  const awaitedActual = expression.inferredType
+    ? getAwaitedIrType(expression.inferredType)
+    : undefined;
+
+  if (!awaitedTarget || !awaitedActual) {
+    return false;
+  }
+
+  return !typesEqualForIsType(awaitedActual, awaitedTarget);
+};
+
+export const needsAsyncReturnStatementAdaptation = (
+  stmt: IrStatement,
+  targetReturnType: IrType | undefined
+): boolean => {
+  switch (stmt.kind) {
+    case "blockStatement":
+      return stmt.statements.some((inner) =>
+        needsAsyncReturnStatementAdaptation(inner, targetReturnType)
+      );
+    case "ifStatement":
+      return (
+        needsAsyncReturnStatementAdaptation(
+          stmt.thenStatement,
+          targetReturnType
+        ) ||
+        (!!stmt.elseStatement &&
+          needsAsyncReturnStatementAdaptation(
+            stmt.elseStatement,
+            targetReturnType
+          ))
+      );
+    case "whileStatement":
+    case "forStatement":
+    case "forOfStatement":
+    case "forInStatement":
+      return needsAsyncReturnStatementAdaptation(stmt.body, targetReturnType);
+    case "switchStatement":
+      return stmt.cases.some((switchCase) =>
+        switchCase.statements.some((inner) =>
+          needsAsyncReturnStatementAdaptation(inner, targetReturnType)
+        )
+      );
+    case "tryStatement":
+      return (
+        needsAsyncReturnStatementAdaptation(stmt.tryBlock, targetReturnType) ||
+        (!!stmt.catchClause &&
+          needsAsyncReturnStatementAdaptation(
+            stmt.catchClause.body,
+            targetReturnType
+          )) ||
+        (!!stmt.finallyBlock &&
+          needsAsyncReturnStatementAdaptation(
+            stmt.finallyBlock,
+            targetReturnType
+          ))
+      );
+    case "returnStatement":
+      return !!stmt.expression &&
+        stmt.expression.kind !== "await" &&
+        returnExpressionNeedsAsyncAwait(stmt.expression, targetReturnType);
+    default:
+      return false;
+  }
+};
 
 export const adaptReturnStatements = (
   stmt: IrStatement,
-  targetReturnType: IrType | undefined
+  targetReturnType: IrType | undefined,
+  isAsync = false
 ): IrStatement => {
-  if (!targetReturnType || targetReturnType.kind === "voidType") {
+  const effectiveReturnType = resolveEffectiveReturnType(
+    targetReturnType,
+    isAsync
+  );
+
+  if (!effectiveReturnType || effectiveReturnType.kind === "voidType") {
     return stmt;
   }
 
@@ -21,7 +134,7 @@ export const adaptReturnStatements = (
       return {
         ...stmt,
         statements: stmt.statements.map((inner) =>
-          adaptReturnStatements(inner, targetReturnType)
+          adaptReturnStatements(inner, targetReturnType, isAsync)
         ),
       };
     case "ifStatement":
@@ -29,27 +142,28 @@ export const adaptReturnStatements = (
         ...stmt,
         thenStatement: adaptReturnStatements(
           stmt.thenStatement,
-          targetReturnType
+          targetReturnType,
+          isAsync
         ),
         elseStatement: stmt.elseStatement
-          ? adaptReturnStatements(stmt.elseStatement, targetReturnType)
+          ? adaptReturnStatements(stmt.elseStatement, targetReturnType, isAsync)
           : undefined,
       };
     case "whileStatement":
       return {
         ...stmt,
-        body: adaptReturnStatements(stmt.body, targetReturnType),
+        body: adaptReturnStatements(stmt.body, targetReturnType, isAsync),
       };
     case "forStatement":
       return {
         ...stmt,
-        body: adaptReturnStatements(stmt.body, targetReturnType),
+        body: adaptReturnStatements(stmt.body, targetReturnType, isAsync),
       };
     case "forOfStatement":
     case "forInStatement":
       return {
         ...stmt,
-        body: adaptReturnStatements(stmt.body, targetReturnType),
+        body: adaptReturnStatements(stmt.body, targetReturnType, isAsync),
       };
     case "switchStatement":
       return {
@@ -57,7 +171,7 @@ export const adaptReturnStatements = (
         cases: stmt.cases.map((switchCase) => ({
           ...switchCase,
           statements: switchCase.statements.map((inner) =>
-            adaptReturnStatements(inner, targetReturnType)
+            adaptReturnStatements(inner, targetReturnType, isAsync)
           ),
         })),
       };
@@ -66,35 +180,49 @@ export const adaptReturnStatements = (
         ...stmt,
         tryBlock: adaptReturnStatements(
           stmt.tryBlock,
-          targetReturnType
+          targetReturnType,
+          isAsync
         ) as IrBlockStatement,
         catchClause: stmt.catchClause
           ? {
               ...stmt.catchClause,
               body: adaptReturnStatements(
                 stmt.catchClause.body,
-                targetReturnType
+                targetReturnType,
+                isAsync
               ) as IrBlockStatement,
             }
           : undefined,
         finallyBlock: stmt.finallyBlock
           ? (adaptReturnStatements(
               stmt.finallyBlock,
-              targetReturnType
+              targetReturnType,
+              isAsync
             ) as IrBlockStatement)
           : undefined,
       };
     case "returnStatement":
-      return stmt.expression
-        ? {
-            ...stmt,
-            expression: substitutePolymorphicReturn(
-              stmt.expression,
-              stmt.expression.inferredType,
-              targetReturnType
-            ),
-          }
-        : stmt;
+      if (!stmt.expression) {
+        return stmt;
+      }
+
+      const sourceExpression =
+        isAsync && returnExpressionNeedsAsyncAwait(stmt.expression, targetReturnType)
+          ? ({
+              kind: "await",
+              expression: stmt.expression,
+              inferredType: getAwaitedIrType(stmt.expression.inferredType!),
+            } satisfies IrExpression)
+          : stmt.expression;
+
+      return {
+        ...stmt,
+        expression: substitutePolymorphicReturn(
+          sourceExpression,
+          sourceExpression.inferredType,
+          effectiveReturnType
+        ),
+      };
     case "functionDeclaration":
     case "classDeclaration":
     case "interfaceDeclaration":
@@ -113,7 +241,8 @@ export const createWrapperBody = (
   isStatic: boolean,
   implReturnType: IrType | undefined,
   wrapperReturnType: IrType | undefined,
-  typeParameterNames: readonly string[]
+  typeParameterNames: readonly string[],
+  wrapperIsAsync = false
 ): IrBlockStatement => {
   const forwardedArgs = buildForwardedCallArguments(
     parameters,
@@ -157,8 +286,38 @@ export const createWrapperBody = (
     argumentPassing: helperParameters.map((parameter) => parameter.passing),
   };
 
+  const awaitableReturnAdaptation =
+    wrapperIsAsync && wrapperReturnType
+      ? getAwaitedIrType(wrapperReturnType)
+      : undefined;
+  const implAwaitedReturnType =
+    wrapperIsAsync && implReturnType
+      ? getAwaitedIrType(implReturnType)
+      : undefined;
+  const awaitedReturnExpression =
+    wrapperIsAsync && awaitableReturnAdaptation
+      ? ({
+          kind: "await",
+          expression: callExpr,
+          inferredType: implAwaitedReturnType ?? awaitableReturnAdaptation,
+        } satisfies IrExpression)
+      : undefined;
+  const wrappedReturnExpression =
+    wrapperIsAsync && awaitableReturnAdaptation
+      ? substitutePolymorphicReturn(
+          awaitedReturnExpression!,
+          implAwaitedReturnType,
+          awaitableReturnAdaptation
+        )
+      : substitutePolymorphicReturn(
+          callExpr,
+          implReturnType,
+          wrapperReturnType
+        );
   const hasReturnValue =
-    wrapperReturnType !== undefined && wrapperReturnType.kind !== "voidType";
+    wrapperIsAsync && awaitableReturnAdaptation
+      ? awaitableReturnAdaptation.kind !== "voidType"
+      : wrapperReturnType !== undefined && wrapperReturnType.kind !== "voidType";
 
   return {
     kind: "blockStatement",
@@ -166,17 +325,13 @@ export const createWrapperBody = (
       ? [
           {
             kind: "returnStatement",
-            expression: substitutePolymorphicReturn(
-              callExpr,
-              implReturnType,
-              wrapperReturnType
-            ),
+            expression: wrappedReturnExpression,
           },
         ]
       : [
           {
             kind: "expressionStatement",
-            expression: callExpr,
+            expression: awaitedReturnExpression ?? callExpr,
           },
         ],
   };

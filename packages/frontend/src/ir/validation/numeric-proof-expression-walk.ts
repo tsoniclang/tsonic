@@ -23,6 +23,7 @@ import {
 } from "./numeric-proof-analysis.js";
 import { proveNarrowing } from "./numeric-proof-proving.js";
 import type { StatementProcessor } from "./numeric-proof-statement-walk.js";
+import type { IrParameter } from "../types.js";
 
 /**
  * Process an expression, proving numeric narrowings and returning
@@ -33,6 +34,36 @@ export const processExpression = (
   ctx: ProofContext,
   processStmt: StatementProcessor
 ): IrExpression => {
+  const processParameters = (
+    parameters: readonly IrParameter[]
+  ): [readonly IrParameter[], ProofContext] => {
+    const paramCtx: ProofContext = {
+      ...ctx,
+      provenParameters: new Map(ctx.provenParameters),
+      provenVariables: new Map(ctx.provenVariables),
+    };
+
+    const processedParameters = parameters.map((param) => {
+      const processedParam: IrParameter = {
+        ...param,
+        initializer: param.initializer
+          ? processExpression(param.initializer, paramCtx, processStmt)
+          : undefined,
+      };
+
+      if (param.pattern.kind === "identifierPattern") {
+        const numericKind = getNumericKindFromType(param.type);
+        if (numericKind !== undefined) {
+          paramCtx.provenParameters.set(param.pattern.name, numericKind);
+        }
+      }
+
+      return processedParam;
+    });
+
+    return [processedParameters, paramCtx];
+  };
+
   switch (expr.kind) {
     case "numericNarrowing": {
       const processedInner = processExpression(
@@ -382,22 +413,10 @@ export const processExpression = (
       };
 
     case "arrowFunction": {
-      // Create context with arrow function parameters proven
-      const arrowCtx: ProofContext = {
-        ...ctx,
-        provenParameters: new Map(ctx.provenParameters),
-        provenVariables: new Map(ctx.provenVariables),
-      };
-      for (const param of expr.parameters) {
-        if (param.pattern.kind === "identifierPattern") {
-          const numericKind = getNumericKindFromType(param.type);
-          if (numericKind !== undefined) {
-            arrowCtx.provenParameters.set(param.pattern.name, numericKind);
-          }
-        }
-      }
+      const [parameters, arrowCtx] = processParameters(expr.parameters);
       return {
         ...expr,
+        parameters,
         body:
           expr.body.kind === "blockStatement"
             ? processStmt(expr.body, arrowCtx)
@@ -406,22 +425,10 @@ export const processExpression = (
     }
 
     case "functionExpression": {
-      // Create context with function expression parameters proven
-      const funcCtx: ProofContext = {
-        ...ctx,
-        provenParameters: new Map(ctx.provenParameters),
-        provenVariables: new Map(ctx.provenVariables),
-      };
-      for (const param of expr.parameters) {
-        if (param.pattern.kind === "identifierPattern") {
-          const numericKind = getNumericKindFromType(param.type);
-          if (numericKind !== undefined) {
-            funcCtx.provenParameters.set(param.pattern.name, numericKind);
-          }
-        }
-      }
+      const [parameters, funcCtx] = processParameters(expr.parameters);
       return {
         ...expr,
+        parameters,
         body: processStmt(expr.body, funcCtx),
       };
     }

@@ -2,7 +2,9 @@ import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import { buildRuntimeUnionLayout } from "../../core/semantic/runtime-unions.js";
+import {
+  buildRuntimeUnionLayout,
+} from "../../core/semantic/runtime-unions.js";
 import {
   currentNarrowedType,
   isArrayLikeNarrowingCandidate,
@@ -10,7 +12,11 @@ import {
 import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
 import { unwrapTransparentNarrowingTarget } from "../../core/semantic/transparent-expressions.js";
 import { getMemberAccessNarrowKey } from "../../core/semantic/narrowing-keys.js";
-import { booleanLiteral } from "../../core/format/backend-ast/builders.js";
+import {
+  booleanLiteral,
+  identifierType,
+  nullLiteral,
+} from "../../core/format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import {
   resolveIdentifierCarrierStorageType,
@@ -18,7 +24,7 @@ import {
   resolveDirectStorageExpressionType,
 } from "../direct-storage-types.js";
 
-const buildRuntimeUnionMemberCheck = (
+const buildRuntimeUnionMemberOrChain = (
   receiver: CSharpExpressionAst,
   memberNs: readonly number[]
 ): CSharpExpressionAst => {
@@ -53,6 +59,43 @@ const buildRuntimeUnionMemberCheck = (
       undefined
     ) ?? booleanLiteral(false)
   );
+};
+
+const buildRuntimeUnionMemberCheck = (opts: {
+  readonly receiver: CSharpExpressionAst;
+  readonly memberNs: readonly number[];
+  readonly context: EmitterContext;
+}): [CSharpExpressionAst, EmitterContext] => {
+  const { receiver, memberNs, context } = opts;
+
+  if (memberNs.length === 0) {
+    return [booleanLiteral(false), context];
+  }
+
+  return [
+    {
+      kind: "binaryExpression",
+      operatorToken: "&&",
+      left: {
+        kind: "binaryExpression",
+        operatorToken: "!=",
+        left: {
+          kind: "parenthesizedExpression",
+          expression: {
+            kind: "castExpression",
+            type: identifierType("global::System.Object"),
+            expression: {
+              kind: "parenthesizedExpression",
+              expression: receiver,
+            },
+          },
+        },
+        right: nullLiteral(),
+      },
+      right: buildRuntimeUnionMemberOrChain(receiver, memberNs),
+    },
+    context,
+  ];
 };
 
 export const emitRuntimeUnionArrayIsArrayCall = (
@@ -110,7 +153,8 @@ export const emitRuntimeUnionArrayIsArrayCall = (
   );
   const directStorageType =
     target?.kind === "identifier"
-      ? resolveIdentifierCarrierStorageType(target, argumentContext)
+      ? (argumentContext.localValueTypes?.get(target.name) ??
+        resolveIdentifierCarrierStorageType(target, argumentContext))
       : resolveDirectStorageExpressionType(
           target ?? argument,
           argumentAst,
@@ -147,8 +191,9 @@ export const emitRuntimeUnionArrayIsArrayCall = (
       : []
   );
 
-  return [
-    buildRuntimeUnionMemberCheck(runtimeCarrierAst, matchingMemberNs),
-    argumentContext,
-  ];
+  return buildRuntimeUnionMemberCheck({
+    receiver: runtimeCarrierAst,
+    memberNs: matchingMemberNs,
+    context: layoutContext,
+  });
 };

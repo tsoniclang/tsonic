@@ -100,8 +100,8 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "private object? __tsonic_overload_impl_get(global::Tsonic.Runtime.Union<object?[], string, global::Test.Rx> nameOrPath"
       );
-      expect(csharp).to.include("handlers.Length == 0 && nameOrPath.Is2()");
-      expect(csharp).not.to.include("handlers.Length == 0 && nameOrPath.Is3()");
+      expect(csharp).to.include("nameOrPath.Is2()");
+      expect(csharp).not.to.include("nameOrPath.Is3()");
     });
 
     it("materializes structural object arguments for inline object-type parameters", () => {
@@ -213,6 +213,452 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "ICE: Anonymous object type reached emitter"
       );
+    });
+
+    it("reuses structural alias carrier members in typeof checks over boolean unions", () => {
+      const csharp = compileToCSharp(`
+        import type { int } from "@tsonic/core/types.js";
+
+        type MkdirOptions = {
+          readonly recursive?: boolean;
+          readonly mode?: int;
+        };
+
+        export function isRecursive(options?: boolean | MkdirOptions): boolean {
+          if (options === undefined) {
+            return false;
+          }
+
+          if (typeof options === "boolean") {
+            return options;
+          }
+
+          return options.recursive === true;
+        }
+      `);
+
+      expect(csharp).to.include("class MkdirOptions__Alias");
+      expect(csharp).to.include("((global::System.Object)(options)) != null");
+      expect(csharp).to.include("options.Is1()");
+      expect(csharp).not.to.include(
+        "ICE: Anonymous object type reached emitter"
+      );
+    });
+
+    it("normalizes imported clr constructor values in instanceof checks", () => {
+      const csharp = compileToCSharp(`
+        import { FileNotFoundException } from "@tsonic/dotnet/System.IO.js";
+
+        export function isMissing(error: unknown): boolean {
+          return error instanceof FileNotFoundException;
+        }
+      `);
+
+      expect(csharp).to.include("is global::System.IO.FileNotFoundException");
+      expect(csharp).not.to.include(
+        "ICE: Anonymous object type reached emitter"
+      );
+    });
+
+    it("await-adapts async overload wrappers before narrowing promise unions", () => {
+      const csharp = compileToCSharp(`
+        export async function readValue(flag: boolean): Promise<boolean>;
+        export async function readValue(flag: boolean, encoding: string): Promise<string>;
+        export async function readValue(flag: boolean, encoding?: string): Promise<boolean | string> {
+          if (encoding === undefined) {
+            return flag;
+          }
+
+          return encoding;
+        }
+      `);
+
+      expect(csharp).to.include(
+        "public static async global::System.Threading.Tasks.Task<bool> readValue(bool flag)"
+      );
+      expect(csharp).to.include(
+        "await __tsonic_overload_impl_readValue(flag, default(string))).Match("
+      );
+      expect(csharp).not.to.include(
+        ".Match(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2).Match("
+      );
+    });
+
+    it("projects awaited array-or-string overload wrappers exactly once", () => {
+      const csharp = compileToCSharp(`
+        import type { byte } from "@tsonic/core/types.js";
+
+        declare function implBytes(path: string): Promise<byte[]>;
+        declare function implText(path: string, encoding: string): Promise<string>;
+
+        export function readFile(path: string): Promise<byte[]>;
+        export function readFile(path: string, encoding: string): Promise<string>;
+        export async function readFile(
+          path: string,
+          encoding?: string
+        ): Promise<byte[] | string> {
+          if (encoding === undefined) {
+            return await implBytes(path);
+          }
+
+          return await implText(path, encoding);
+        }
+      `);
+
+      expect(csharp).to.include(
+        "return (await __tsonic_overload_impl_readFile(path, default(string))).Match("
+      );
+      expect(csharp).to.not.include(
+        "__tsonic_union_member_2 => throw new global::System.InvalidCastException(\"Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none\")).Match("
+      );
+    });
+
+    it("null-checks optional typeof runtime-union guards before member tests", () => {
+      const csharp = compileToCSharp(`
+        import type { int } from "@tsonic/core/types.js";
+
+        type MkdirOptions = {
+          readonly recursive?: boolean;
+          readonly mode?: int;
+        };
+
+        export function pickRecursive(options?: boolean | MkdirOptions): boolean {
+          const recursive =
+            typeof options === "boolean" ? options : options?.recursive ?? false;
+          return recursive;
+        }
+      `);
+
+      expect(csharp).to.include("((global::System.Object)(options)) != null");
+      expect(csharp).to.include("options.Is1()");
+    });
+
+    it("awaits async void overload wrappers without discard locals", () => {
+      const csharp = compileToCSharp(`
+        declare function implDefault(path: string): Promise<void>;
+        declare function implRecursive(path: string, recursive: boolean): Promise<void>;
+
+        export function mkdir(path: string): Promise<void>;
+        export function mkdir(path: string, recursive: boolean): Promise<void>;
+        export async function mkdir(
+          path: string,
+          recursive?: boolean
+        ): Promise<void> {
+          if (recursive === undefined) {
+            return await implDefault(path);
+          }
+
+          return await implRecursive(path, recursive);
+        }
+      `);
+
+      expect(csharp).to.include(
+        "return __tsonic_overload_impl_mkdir(path, default(bool));"
+      );
+      expect(csharp).to.not.include("__tsonic_discard");
+    });
+
+    it("promotes helper overload methods when promise unions require awaited adaptation", () => {
+      const csharp = compileToCSharp(`
+        import type { byte } from "@tsonic/core/types.js";
+
+        declare function implBytes(path: string): Promise<byte[]>;
+        declare function implText(path: string, encoding: string): Promise<string>;
+
+        export function readFile(path: string): Promise<byte[]>;
+        export function readFile(path: string, encoding: string): Promise<string>;
+        export async function readFile(
+          path: string,
+          encoding?: string
+        ): Promise<byte[] | string> {
+          if (encoding === undefined) {
+            return await implBytes(path);
+          }
+
+          return await implText(path, encoding);
+        }
+
+        export class FsPromises {
+          public readFile(path: string): Promise<byte[]>;
+          public readFile(path: string, encoding: string): Promise<string>;
+          public readFile(
+            path: string,
+            encoding?: string
+          ): Promise<string | byte[]> {
+            if (encoding === undefined) {
+              return readFile(path);
+            }
+
+            return readFile(path, encoding);
+          }
+        }
+      `);
+
+      expect(csharp).to.include(
+        "private async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.Union<byte[], string>> __tsonic_overload_impl_readFile"
+      );
+      expect(csharp).to.include(
+        "return global::Tsonic.Runtime.Union<byte[], string>.From1(await test.readFile(path));"
+      );
+      expect(csharp).to.not.include(
+        "(global::System.Threading.Tasks.Task<global::Tsonic.Runtime.Union<byte[], string>>)test.readFile(path)"
+      );
+    });
+
+    it("narrows sync overload wrappers exactly once for array-or-string unions", () => {
+      const csharp = compileToCSharp(`
+        import type { byte } from "@tsonic/core/types.js";
+
+        declare function implBytes(path: string): byte[];
+        declare function implText(path: string, encoding: string): string;
+
+        export function readFileSync(path: string): byte[];
+        export function readFileSync(path: string, encoding: string): string;
+        export function readFileSync(
+          path: string,
+          encoding?: string
+        ): byte[] | string {
+          if (encoding === undefined) {
+            return implBytes(path);
+          }
+
+          return implText(path, encoding);
+        }
+
+        export class FsModuleNamespace {
+          public readFileSync(path: string): byte[];
+          public readFileSync(path: string, encoding: string): string;
+          public readFileSync(
+            path: string,
+            encoding?: string
+          ): byte[] | string {
+            if (encoding === undefined) {
+              return readFileSync(path);
+            }
+
+            return readFileSync(path, encoding);
+          }
+        }
+      `);
+
+      expect(csharp).to.include(
+        "return __tsonic_overload_impl_readFileSync(path, default(string)).Match("
+      );
+      expect(csharp).to.not.include(
+        "__tsonic_union_member_2 => throw new global::System.InvalidCastException(\"Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none\")).Match("
+      );
+      expect(csharp).to.include(
+        "return this.__tsonic_overload_impl_readFileSync(path, default(string)).Match("
+      );
+    });
+
+    it("null-checks optional Array.isArray runtime-union guards before member tests", () => {
+      const csharp = compileToCSharp(`
+        export function hasArray(values?: string[] | number): boolean {
+          return Array.isArray(values);
+        }
+      `);
+
+      expect(csharp).to.include("((global::System.Object)(values)) != null");
+      expect(csharp).to.include("values.Is1()");
+    });
+
+    it("preserves ?? fallbacks after JS-surface optional array-wrapper length lowering", () => {
+      const source = `
+        export function run(values?: string[]): number {
+          return values?.length ?? 0;
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include(
+        "new global::Tsonic.JSRuntime.JSArray<string>(values).length"
+      );
+      expect(csharp).to.include("?? 0");
+    });
+
+    it("keeps unknown spread-array conditionals on object arrays instead of numeric unions", () => {
+      const csharp = compileToCSharp(`
+        declare function inspect(value: unknown): string;
+
+        export function format(
+          message?: unknown,
+          optionalParams: readonly unknown[] = []
+        ): string {
+          const values =
+            message === undefined ? [...optionalParams] : [message, ...optionalParams];
+          return values.map((value) => inspect(value)).join(" ");
+        }
+      `);
+
+      expect(csharp).not.to.include("Union<double[], object?[]>");
+      expect(csharp).not.to.include("(double)message");
+    });
+
+    it("avoids identity Match projections for identical optional union passthrough calls", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        function normalizeSignal(signal?: int | string): string {
+          return signal === undefined ? "SIGTERM" : typeof signal === "string" ? signal : "n";
+        }
+
+        export function run(signal?: int | string): string {
+          return normalizeSignal(signal);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("return normalizeSignal(signal);");
+      expect(csharp).not.to.include("signal.Match(");
+    });
+
+    it("widens narrowed runtime-subset handlers without re-matching extracted members", () => {
+      const csharp = compileToCSharp(`
+        type RequestHandler = (request: string) => void;
+        type ErrorRequestHandler = (error: unknown, request: string) => void;
+
+        class Router {}
+
+        type MiddlewareLike = RequestHandler | Router;
+        type LayerHandler = RequestHandler | ErrorRequestHandler;
+
+        declare function accept(handlers: LayerHandler[]): void;
+
+        export function run(handlers: MiddlewareLike[]): void {
+          for (const handler of handlers) {
+            if (handler instanceof Router) {
+              continue;
+            }
+
+            accept([handler]);
+          }
+        }
+      `);
+
+      expect(csharp).to.include("From1((handler.As1()))");
+      expect(csharp).not.to.include("(handler.As1()).Match(");
+    });
+
+    it("preserves original carrier slot numbering across chained guard refinements", () => {
+      const csharp = compileToCSharp(
+        `
+          type RequestHandler = (value: string) => void;
+          type MiddlewareLike = RequestHandler | Router | readonly MiddlewareLike[];
+
+          class Router {}
+
+          declare function accept(value: RequestHandler | Router): void;
+
+          function isMiddlewareHandler(value: MiddlewareLike): value is RequestHandler {
+            return typeof value === "function";
+          }
+
+          export function run(handler: MiddlewareLike): void {
+            if (Array.isArray(handler)) {
+              return;
+            }
+
+            if (handler instanceof Router) {
+              return;
+            }
+
+            if (!isMiddlewareHandler(handler)) {
+              throw new Error("bad");
+            }
+
+            accept(handler);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "accept(global::Tsonic.Runtime.Union<global::System.Action<string>, Router>.From1((handler.As2())))"
+      );
+      expect(csharp).not.to.include(
+        "accept(global::Tsonic.Runtime.Union<global::System.Action<string>, Router>.From2((handler.As2())))"
+      );
+    });
+
+    it("invokes narrowed handler assertions without matching extracted delegate members", () => {
+      const csharp = compileToCSharp(`
+        type RequestHandler = (request: string) => void;
+        type ErrorRequestHandler = (error: unknown, request: string) => void;
+        type MiddlewareHandler = RequestHandler | ErrorRequestHandler;
+
+        export function run(
+          handlers: MiddlewareHandler[],
+          currentError?: unknown
+        ): void {
+          const entry = handlers[0]!;
+          if (currentError === undefined) {
+            (entry as RequestHandler)("ok");
+            return;
+          }
+
+          (entry as ErrorRequestHandler)(currentError, "ok");
+        }
+      `);
+
+      expect(csharp).not.to.include("(entry.As1()).Match(");
+      expect(csharp).not.to.include("(entry.As2()).Match(");
+    });
+
+    it("preserves runtime carrier slot numbers in typeof string guards over aliased unions", () => {
+      const csharp = compileToCSharp(`
+        import { FileInfo } from "@tsonic/dotnet/System.IO.js";
+
+        type PathSpec = string | FileInfo | readonly PathSpec[];
+
+        export function read(pathOrName: string | PathSpec): string | undefined {
+          if (typeof pathOrName === "string") {
+            return pathOrName;
+          }
+
+          return undefined;
+        }
+      `);
+
+      expect(csharp).to.include("pathOrName.Is2()");
+      expect(csharp).not.to.include("pathOrName.Is3()");
+      expect(csharp).to.include("pathOrName.As2()");
+    });
+
+    it("returns narrowed string members from overload implementations with broad return types", () => {
+      const csharp = compileToCSharp(`
+        import { FileInfo } from "@tsonic/dotnet/System.IO.js";
+
+        type RouteHandler = () => void;
+
+        class Router {
+          get(path: PathSpec, ...handlers: RouteHandler[]): this {
+            return this;
+          }
+        }
+
+        type PathSpec = string | FileInfo | readonly PathSpec[];
+
+        class Application extends Router {
+          get(name: string): unknown;
+          override get(path: PathSpec, ...handlers: RouteHandler[]): this;
+          override get(nameOrPath: string | PathSpec, ...handlers: RouteHandler[]): unknown {
+            if (handlers.length === 0 && typeof nameOrPath === "string") {
+              return nameOrPath;
+            }
+
+            return super.get(nameOrPath as PathSpec, ...handlers);
+          }
+        }
+      `);
+
+      expect(csharp).to.include("nameOrPath.Is2()");
+      expect(csharp).to.include("nameOrPath.As2()");
+      expect(csharp).not.to.include("return nameOrPath;");
     });
 
     it("materializes inline object-type elements through generic List<T>.Add", () => {

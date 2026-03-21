@@ -1,10 +1,14 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { createContext } from "../emitter-types/context.js";
-import { identifierExpression } from "../core/format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  parseNumericLiteral,
+} from "../core/format/backend-ast/builders.js";
 import { printExpression } from "../core/format/backend-ast/printer.js";
 import type { IrType } from "@tsonic/frontend";
 import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
+import { maybeBoxJsNumberAsObjectAst } from "./post-emission-adaptation.js";
 
 describe("expected-type-adaptation", () => {
   it("uses the shared planner for runtime-union narrowing", () => {
@@ -70,5 +74,53 @@ describe("expected-type-adaptation", () => {
 
     expect(result).to.not.equal(undefined);
     expect(printExpression(result![0])).to.include("first.Match(");
+  });
+
+  it("boxes JS numbers as doubles when adapting into unknown/object slots", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [boxedAst] = maybeBoxJsNumberAsObjectAst(
+      parseNumericLiteral("42"),
+      {
+        kind: "literal",
+        value: 42,
+        inferredType: { kind: "primitiveType", name: "number" },
+      },
+      { kind: "primitiveType", name: "number" },
+      context,
+      { kind: "unknownType" }
+    );
+
+    expect(printExpression(boxedAst)).to.equal("(object)(double)42");
+  });
+
+  it("boxes JS numbers when expected type is unknown | undefined", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [boxedAst] = maybeBoxJsNumberAsObjectAst(
+      parseNumericLiteral("42"),
+      {
+        kind: "literal",
+        value: 42,
+        inferredType: { kind: "primitiveType", name: "number" },
+      },
+      { kind: "primitiveType", name: "number" },
+      context,
+      {
+        kind: "unionType",
+        types: [
+          { kind: "unknownType" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      }
+    );
+
+    expect(printExpression(boxedAst)).to.equal("(object)(double)42");
   });
 });

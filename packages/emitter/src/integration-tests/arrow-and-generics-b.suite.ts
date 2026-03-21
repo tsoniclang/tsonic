@@ -62,6 +62,58 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("new Promise(");
     });
 
+    it("normalizes Promise executor resolve callbacks to the promised value type", () => {
+      const source = `
+        interface PromiseLike<T> {
+          then<TResult1 = T, TResult2 = never>(
+            onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+          ): PromiseLike<TResult1 | TResult2>;
+        }
+
+        declare class Promise<T> {
+          constructor(
+            executor: (
+              resolve: (value: T | PromiseLike<T>) => void,
+              reject: (reason?: unknown) => void
+            ) => void
+          );
+        }
+
+        export function once(): Promise<unknown[]> {
+          return new Promise<unknown[]>((resolve) => {
+            resolve([]);
+          });
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("Action<object?[]> __tsonic_resolve");
+      expect(csharp).to.match(
+        /\(global::System\.Action<object\?\[]>\s+resolve,\s*global::System\.Action<object\?>\s+__unused_reject\)\s*=>/
+      );
+      expect(csharp).not.to.include(
+        "Action<global::Tsonic.Runtime.Union<object?[], global::System.Threading.Tasks.Task>> resolve"
+      );
+    });
+
+    it("lowers expression-bodied void callbacks as statements when the body is already void", () => {
+      const source = `
+        declare function take(action: () => void): void;
+        declare function chdir(path: string): void;
+
+        export function run(): void {
+          take(() => chdir("tmp"));
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include('chdir("tmp")');
+      expect(csharp).not.to.include("__tsonic_discard");
+    });
+
     it("should infer types for generic method callbacks", () => {
       const source = `
         // Custom generic class with map method (valid in dotnet mode)

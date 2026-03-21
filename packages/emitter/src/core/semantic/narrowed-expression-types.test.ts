@@ -1,7 +1,10 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrExpression, IrType } from "@tsonic/frontend";
-import { resolveEffectiveExpressionType } from "./narrowed-expression-types.js";
+import {
+  resolveEffectiveExpressionType,
+  tryResolveRuntimeUnionMemberType,
+} from "./narrowed-expression-types.js";
 import type { EmitterContext, LocalTypeInfo } from "../../types.js";
 
 describe("narrowed-expression-types", () => {
@@ -205,5 +208,82 @@ describe("narrowed-expression-types", () => {
         context
       )
     ).to.deep.equal({ kind: "primitiveType", name: "int" });
+  });
+
+  it("maps runtime union AsN members using canonical runtime layout order", () => {
+    const requestHandlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: {
+            kind: "identifierPattern",
+            name: "value",
+          },
+          type: { kind: "primitiveType", name: "string" },
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "voidType" },
+    };
+    const routerType: IrType = { kind: "referenceType", name: "Router" };
+    const recursiveArrayType: IrType = {
+      kind: "arrayType",
+      elementType: { kind: "unknownType" },
+    };
+    const middlewareLikeType: IrType = {
+      kind: "unionType",
+      types: [requestHandlerType, routerType, recursiveArrayType],
+    };
+    const context: EmitterContext = {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+    };
+
+    expect(
+      tryResolveRuntimeUnionMemberType(
+        middlewareLikeType,
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: {
+              kind: "identifierExpression",
+              identifier: "handler",
+            },
+            memberName: "As2",
+          },
+          arguments: [],
+        },
+        context
+      )
+    ).to.deep.equal(requestHandlerType);
+
+    expect(
+      tryResolveRuntimeUnionMemberType(
+        middlewareLikeType,
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: {
+              kind: "identifierExpression",
+              identifier: "handler",
+            },
+            memberName: "As3",
+          },
+          arguments: [],
+        },
+        context
+      )
+    ).to.deep.equal(routerType);
   });
 });

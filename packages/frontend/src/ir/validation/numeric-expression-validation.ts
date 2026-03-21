@@ -8,7 +8,7 @@
  */
 
 import { createDiagnostic } from "../../types/diagnostic.js";
-import { IrExpression, IrType } from "../types.js";
+import { IrExpression, IrParameter, IrType } from "../types.js";
 import {
   classifyNumericExpr,
   getExpectedNumericKind,
@@ -202,6 +202,16 @@ export const scanExpressionForCalls = (
   expr: IrExpression,
   ctx: CoercionContext
 ): void => {
+  const scanParameterInitializers = (
+    parameters: readonly IrParameter[]
+  ): void => {
+    parameters.forEach((param) => {
+      if (param.initializer) {
+        scanExpressionForCalls(param.initializer, ctx);
+      }
+    });
+  };
+
   switch (expr.kind) {
     case "call": {
       // Validate call arguments against parameter types
@@ -293,10 +303,15 @@ export const scanExpressionForCalls = (
       break;
 
     case "arrowFunction":
+      scanParameterInitializers(expr.parameters);
       // Arrow function body can be expression or block
       if ("kind" in expr.body && expr.body.kind !== "blockStatement") {
         scanExpressionForCalls(expr.body as IrExpression, ctx);
       }
+      break;
+
+    case "functionExpression":
+      scanParameterInitializers(expr.parameters);
       break;
 
     case "new":

@@ -94,10 +94,20 @@ export const collectStaticContainerValueSymbols = (
     }
     if (member.kind === "variableDeclaration") {
       for (const decl of member.declarations) {
+        const functionType =
+          decl.initializer &&
+          (decl.initializer.kind === "arrowFunction" ||
+            decl.initializer.kind === "functionExpression") &&
+          decl.initializer.inferredType?.kind === "functionType"
+            ? decl.initializer.inferredType
+            : decl.type?.kind === "functionType"
+              ? decl.type
+              : undefined;
         for (const name of collectPatternIdentifiers(decl.name)) {
           valueSymbols.set(name, {
             kind: "variable",
             csharpName: getCSharpName(name, "fields", context),
+            type: functionType,
           });
         }
       }

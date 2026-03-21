@@ -191,6 +191,127 @@ describe("Numeric Proof Invariants", () => {
       expect(result.diagnostics).to.have.length(0);
     });
 
+    it("proves numeric narrowings in arrow default parameter initializers", () => {
+      const arrow: IrExpression = {
+        kind: "arrowFunction",
+        parameters: [
+          {
+            kind: "parameter",
+            pattern: { kind: "identifierPattern", name: "delay" },
+            type: { kind: "primitiveType", name: "int" },
+            initializer: narrowTo(numLiteral(1), "Int32"),
+            isOptional: false,
+            isRest: false,
+            passing: "value",
+          },
+        ],
+        body: ident("delay"),
+        isAsync: false,
+        inferredType: {
+          kind: "functionType",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "delay" },
+              type: { kind: "primitiveType", name: "int" },
+              initializer: narrowTo(numLiteral(1), "Int32"),
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "int" },
+        },
+      };
+
+      const module = createModule([createVarDecl("timerFactory", arrow)]);
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const processedArrow = (
+        result.modules[0]?.body[0] as unknown as {
+          declarations: readonly [
+            {
+              initializer: {
+                kind: "arrowFunction";
+                parameters: readonly [{ initializer?: IrExpression }];
+              };
+            },
+          ];
+        }
+      ).declarations[0].initializer;
+      const initializer = processedArrow.parameters[0]?.initializer;
+      expect(initializer?.kind).to.equal("numericNarrowing");
+      if (initializer?.kind === "numericNarrowing") {
+        expect(initializer.proof?.kind).to.equal("Int32");
+      }
+    });
+
+    it("proves numeric narrowings in function-expression default parameter initializers", () => {
+      const fn: IrExpression = {
+        kind: "functionExpression",
+        parameters: [
+          {
+            kind: "parameter",
+            pattern: { kind: "identifierPattern", name: "delay" },
+            type: { kind: "primitiveType", name: "int" },
+            initializer: narrowTo(numLiteral(0), "Int32"),
+            isOptional: false,
+            isRest: false,
+            passing: "value",
+          },
+        ],
+        returnType: { kind: "primitiveType", name: "int" },
+        body: block([
+          {
+            kind: "returnStatement",
+            expression: ident("delay"),
+          },
+        ]),
+        isAsync: false,
+        isGenerator: false,
+        inferredType: {
+          kind: "functionType",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "delay" },
+              type: { kind: "primitiveType", name: "int" },
+              initializer: narrowTo(numLiteral(0), "Int32"),
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "int" },
+        },
+      };
+
+      const module = createModule([createVarDecl("timerFactory", fn)]);
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const processedFn = (
+        result.modules[0]?.body[0] as unknown as {
+          declarations: readonly [
+            {
+              initializer: {
+                kind: "functionExpression";
+                parameters: readonly [{ initializer?: IrExpression }];
+              };
+            },
+          ];
+        }
+      ).declarations[0].initializer;
+      const initializer = processedFn.parameters[0]?.initializer;
+      expect(initializer?.kind).to.equal("numericNarrowing");
+      if (initializer?.kind === "numericNarrowing") {
+        expect(initializer.proof?.kind).to.equal("Int32");
+      }
+    });
+
     it("proves Int32 narrowing inside a guarded integer range branch", () => {
       const guardedCondition = logicalExpr(
         "&&",

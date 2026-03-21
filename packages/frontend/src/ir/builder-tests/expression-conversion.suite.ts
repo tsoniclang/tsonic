@@ -88,6 +88,49 @@ describe("IR Builder", function () {
       }
     });
 
+    it("preserves unknown array element types through conditional spread arrays", () => {
+      const source = `
+        function inspect(value: unknown): string {
+          return "";
+        }
+
+        function format(message?: unknown, optionalParams: readonly unknown[] = []): string {
+          const values =
+            message === undefined ? [...optionalParams] : [message, ...optionalParams];
+          return values.map((value) => inspect(value)).join(" ");
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "format"
+        );
+        expect(fn).to.not.equal(undefined);
+        const valuesDecl = fn?.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "values"
+            )
+        );
+        const valuesInit = valuesDecl?.declarations[0]?.initializer;
+        expect(valuesInit?.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: { kind: "unknownType" },
+        });
+      }
+    });
+
     it("should lower bare import.meta to an object literal with deterministic fields", () => {
       const source = `
         declare global {

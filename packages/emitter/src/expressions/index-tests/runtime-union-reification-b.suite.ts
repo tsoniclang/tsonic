@@ -284,7 +284,9 @@ describe("Expression Emission", () => {
       }
     );
 
-    expect(printExpression(result)).to.equal("pathSpec.Is1()");
+    expect(printExpression(result)).to.equal(
+      "((global::System.Object)(pathSpec)) != null && pathSpec.Is1()"
+    );
   });
 
   it("recovers identifier storage carriers for Array.isArray after narrowed expr bindings", () => {
@@ -369,7 +371,9 @@ describe("Expression Emission", () => {
       }
     );
 
-    expect(printExpression(result)).to.equal("pathSpec.Is1()");
+    expect(printExpression(result)).to.equal(
+      "((global::System.Object)(pathSpec)) != null && pathSpec.Is1()"
+    );
   });
 
   it("reifies erased recursive nested-union array elements through outer union arms", () => {

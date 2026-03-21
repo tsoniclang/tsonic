@@ -371,7 +371,7 @@ describe("Statement Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("if (value.Is3())");
+    expect(result).to.include("value.Is3()");
     expect(result).to.include(".Is1())");
     expect(result).to.not.include("@typeof(value)");
     expect(result).to.not.include("JSArrayStatics.isArray(");
@@ -645,7 +645,7 @@ describe("Statement Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("if (pathSpec.Is1())");
+    expect(result).to.include(".Is1())");
     expect(result).to.not.include("JSArrayStatics.isArray(pathSpec)");
   });
 });

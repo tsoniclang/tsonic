@@ -15,6 +15,7 @@ import type {
 } from "../core/format/backend-ast/types.js";
 import {
   buildRuntimeSubsetExpressionAst,
+  isBroadStorageTarget,
   tryEmitCollapsedStorageIdentifier,
   tryEmitImplicitNarrowedStorageIdentifier,
   tryEmitImplicitRuntimeSubsetStorageIdentifier,
@@ -23,6 +24,8 @@ import {
   tryEmitStorageCompatibleIdentifier,
   tryEmitStorageCompatibleNarrowedIdentifier,
 } from "./identifier-storage.js";
+import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
+import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 
 /**
  * Emit an identifier as CSharpExpressionAst
@@ -127,12 +130,27 @@ export const emitIdentifier = (
 
         return [narrowed.exprAst, context];
       } else if (narrowed.kind === "runtimeSubset") {
+        const shouldPreferNarrowedSubsetTarget =
+          !!narrowed.type &&
+          !!expectedType &&
+          (isBroadStorageTarget(expectedType, context) ||
+            (willCarryAsRuntimeUnion(expectedType, context) &&
+              !willCarryAsRuntimeUnion(narrowed.type, context) &&
+              matchesExpectedEmissionType(
+                narrowed.type,
+                expectedType,
+                context
+              )));
+        const preferredSubsetTargetType =
+          shouldPreferNarrowedSubsetTarget
+            ? narrowed.type
+            : expectedType;
         const expectedSubset = expectedType
           ? buildRuntimeSubsetExpressionAst(
               expr,
               narrowed,
               context,
-              expectedType
+              preferredSubsetTargetType
             )
           : undefined;
         if (expectedSubset) {

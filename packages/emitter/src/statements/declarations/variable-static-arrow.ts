@@ -21,11 +21,51 @@ import {
   identifierType,
 } from "../../core/format/backend-ast/builders.js";
 import type {
+  CSharpExpressionAst,
   CSharpTypeAst,
   CSharpMemberAst,
   CSharpParameterAst,
+  CSharpStatementAst,
 } from "../../core/format/backend-ast/types.js";
 import { shouldEmitReadonlyStaticField } from "./variable-type-resolution.js";
+
+const isCSharpOptionalParameterDefaultAst = (
+  expr: CSharpExpressionAst
+): boolean => {
+  switch (expr.kind) {
+    case "nullLiteralExpression":
+    case "booleanLiteralExpression":
+    case "stringLiteralExpression":
+    case "charLiteralExpression":
+    case "numericLiteralExpression":
+    case "defaultExpression":
+      return true;
+    case "parenthesizedExpression":
+      return isCSharpOptionalParameterDefaultAst(expr.expression);
+    case "prefixUnaryExpression":
+      return isCSharpOptionalParameterDefaultAst(expr.operand);
+    case "castExpression":
+      return isCSharpOptionalParameterDefaultAst(expr.expression);
+    default:
+      return false;
+  }
+};
+
+const supportsNullCoalescingParameterDefault = (
+  typeAst: CSharpTypeAst
+): boolean => {
+  switch (typeAst.kind) {
+    case "arrayType":
+    case "nullableType":
+    case "identifierType":
+    case "qualifiedIdentifierType":
+      return true;
+    case "predefinedType":
+      return typeAst.keyword === "string" || typeAst.keyword === "object";
+    default:
+      return false;
+  }
+};
 
 export const getAsyncBodyReturnType = (
   isAsync: boolean,
@@ -215,17 +255,16 @@ export const emitStaticArrowFieldMembers = (
   const needsOptionalArgs = arrowFunc.parameters.some(
     (p) => p.isOptional || !!p.initializer
   );
+  const runtimeDefaultInitializers: Array<{
+    readonly paramName: string;
+    readonly typeAst: CSharpTypeAst;
+    readonly initializer: CSharpExpressionAst;
+  }> = [];
 
   let fieldTypeAst: CSharpTypeAst;
 
   if (needsOptionalArgs) {
     // Custom delegate type for optional parameters
-    const hasInitializer = arrowFunc.parameters.some((p) => !!p.initializer);
-    if (hasInitializer) {
-      throw new Error(
-        "ICE: Arrow function values with default parameter initializers are not supported. Use a named function declaration instead."
-      );
-    }
     if (decl.name.kind !== "identifierPattern") {
       throw new Error(
         "ICE: Arrow function value with optional params must use an identifier binding."
@@ -237,6 +276,7 @@ export const emitStaticArrowFieldMembers = (
 
     // Build delegate parameter ASTs
     const delegateParams: CSharpParameterAst[] = [];
+    let delegateCtx = currentContext;
     for (let i = 0; i < arrowFunc.parameters.length; i++) {
       const param = arrowFunc.parameters[i];
       if (!param?.type) continue;
@@ -250,16 +290,32 @@ export const emitStaticArrowFieldMembers = (
         param.pattern.kind === "identifierPattern"
           ? escapeCSharpIdentifier(param.pattern.name)
           : `p${i}`;
+      let defaultValue: CSharpExpressionAst | undefined;
+      if (param.initializer) {
+        const [ast, nextCtx] = emitExpressionAst(
+          param.initializer,
+          delegateCtx,
+          param.type
+        );
+        if (isCSharpOptionalParameterDefaultAst(ast)) {
+          defaultValue = ast;
+        } else {
+          defaultValue = { kind: "defaultExpression" };
+        }
+        delegateCtx = nextCtx;
+      } else if (param.isOptional) {
+        defaultValue = { kind: "defaultExpression" };
+      }
       delegateParams.push({
         name: paramName,
-        type: param.isOptional
-          ? { kind: "nullableType", underlyingType: pTypeAst }
-          : pTypeAst,
-        defaultValue: param.isOptional
-          ? { kind: "defaultExpression" }
-          : undefined,
+        type:
+          param.isOptional && !param.initializer
+            ? { kind: "nullableType", underlyingType: pTypeAst }
+            : pTypeAst,
+        defaultValue,
       });
     }
+    currentContext = delegateCtx;
 
     members.push({
       kind: "delegateDeclaration",
@@ -324,12 +380,31 @@ export const emitStaticArrowFieldMembers = (
         : `p${i}`;
     methodParams.push({
       name: paramName,
-      type: param.isOptional
-        ? { kind: "nullableType", underlyingType: mTypeAst }
-        : mTypeAst,
-      defaultValue: param.isOptional
-        ? { kind: "defaultExpression" }
-        : undefined,
+      type:
+        param.isOptional && !param.initializer
+          ? { kind: "nullableType", underlyingType: mTypeAst }
+          : mTypeAst,
+      defaultValue: param.initializer
+        ? (() => {
+            const [ast, nextCtx] = emitExpressionAst(
+              param.initializer,
+              paramCtx,
+              param.type
+            );
+            paramCtx = nextCtx;
+            if (isCSharpOptionalParameterDefaultAst(ast)) {
+              return ast;
+            }
+            runtimeDefaultInitializers.push({
+              paramName,
+              typeAst: mTypeAst,
+              initializer: ast,
+            });
+            return { kind: "defaultExpression" };
+          })()
+        : param.isOptional
+          ? { kind: "defaultExpression" }
+          : undefined,
     });
   }
 
@@ -378,6 +453,32 @@ export const emitStaticArrowFieldMembers = (
   const bodyAst = bodyResult[0];
   paramCtx = bodyResult[1];
 
+  const normalizedBodyStatements: CSharpStatementAst[] = [];
+  for (const runtimeDefault of runtimeDefaultInitializers) {
+    if (!supportsNullCoalescingParameterDefault(runtimeDefault.typeAst)) {
+      continue;
+    }
+    normalizedBodyStatements.push({
+      kind: "expressionStatement",
+      expression: {
+        kind: "assignmentExpression",
+        operatorToken: "??=",
+        left: {
+          kind: "identifierExpression",
+          identifier: runtimeDefault.paramName,
+        },
+        right: runtimeDefault.initializer,
+      },
+    });
+  }
+  const finalBodyAst =
+    normalizedBodyStatements.length === 0
+      ? bodyAst
+      : {
+          kind: "blockStatement" as const,
+          statements: [...normalizedBodyStatements, ...bodyAst.statements],
+        };
+
   members.push({
     kind: "methodDeclaration",
     attributes: [],
@@ -385,7 +486,7 @@ export const emitStaticArrowFieldMembers = (
     returnType: returnTypeAst,
     name: implName,
     parameters: methodParams,
-    body: bodyAst,
+    body: finalBodyAst,
   });
 
   return [

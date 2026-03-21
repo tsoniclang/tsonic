@@ -17,7 +17,6 @@ import {
 } from "../../core/semantic/type-resolution.js";
 import {
   buildRuntimeUnionLayout,
-  buildRuntimeUnionTypeAst,
   getCanonicalRuntimeUnionMembers,
 } from "../../core/semantic/runtime-unions.js";
 import {
@@ -36,21 +35,22 @@ import {
 import {
   booleanLiteral,
   identifierType,
+  nullLiteral,
 } from "../../core/format/backend-ast/builders.js";
 import {
   extractCalleeNameFromAst,
-  stableTypeKeyFromAst,
-  stripNullableTypeAst,
 } from "../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+type RuntimeUnionLayout = NonNullable<
+  ReturnType<typeof buildRuntimeUnionLayout>[0]
+>;
 
-const buildRuntimeUnionMemberCheck = (
+const buildRuntimeUnionMemberOrChain = (
   receiver: CSharpExpressionAst,
-  memberNs: readonly number[],
-  negate: boolean
+  memberNs: readonly number[]
 ): CSharpExpressionAst => {
   if (memberNs.length === 0) {
-    return booleanLiteral(negate);
+    return booleanLiteral(false);
   }
 
   const checks = memberNs.map<CSharpExpressionAst>((memberN) => ({
@@ -79,25 +79,14 @@ const buildRuntimeUnionMemberCheck = (
     undefined
   );
 
-  const base = combined ?? booleanLiteral(false);
-  return negate
-    ? { kind: "prefixUnaryExpression", operatorToken: "!", operand: base }
-    : base;
+  return combined ?? booleanLiteral(false);
 };
 
 const resolveAlignedRuntimeCarrierMembers = (
   directStorageType: IrExpression["inferredType"] | undefined,
   effectiveType: IrExpression["inferredType"],
   context: EmitterContext
-): [readonly IrExpression["inferredType"][], EmitterContext] | undefined => {
-  if (!effectiveType) {
-    const directLayoutOnly =
-      directStorageType &&
-      willCarryAsRuntimeUnion(directStorageType, context) &&
-      buildRuntimeUnionLayout(directStorageType, context, emitTypeAst)[0];
-    return directLayoutOnly ? [directLayoutOnly.members, context] : undefined;
-  }
-
+): [RuntimeUnionLayout, EmitterContext] | undefined => {
   const tryLayout = (
     type: IrExpression["inferredType"],
     currentContext: EmitterContext
@@ -114,43 +103,77 @@ const resolveAlignedRuntimeCarrierMembers = (
     return layout ? ([layout, layoutContext] as const) : undefined;
   };
 
-  const directLayoutResult =
-    directStorageType && tryLayout(directStorageType, context);
-  const effectiveLayoutResult = tryLayout(effectiveType, context);
-
-  if (!directLayoutResult) {
-    return effectiveLayoutResult
-      ? [effectiveLayoutResult[0].members, effectiveLayoutResult[1]]
+  if (directStorageType) {
+    const effectiveLayoutResult = effectiveType
+      ? tryLayout(effectiveType, context)
       : undefined;
-  }
+    if (effectiveLayoutResult) {
+      return [effectiveLayoutResult[0], effectiveLayoutResult[1]];
+    }
 
-  const [directLayout, directLayoutContext] = directLayoutResult;
-  const [effectiveSurfaceAst, effectiveSurfaceContext] = emitTypeAst(
-    effectiveType,
-    directLayoutContext
-  );
-  const effectiveSurfaceKey = stableTypeKeyFromAst(
-    stripNullableTypeAst(effectiveSurfaceAst)
-  );
-  const directLayoutKey = stableTypeKeyFromAst(
-    buildRuntimeUnionTypeAst(directLayout)
-  );
-
-  if (directLayoutKey === effectiveSurfaceKey) {
-    return [directLayout.members, effectiveSurfaceContext];
-  }
-
-  if (effectiveLayoutResult) {
-    const [effectiveLayout, effectiveLayoutContext] = effectiveLayoutResult;
-    const effectiveLayoutKey = stableTypeKeyFromAst(
-      buildRuntimeUnionTypeAst(effectiveLayout)
-    );
-    if (effectiveLayoutKey === effectiveSurfaceKey) {
-      return [effectiveLayout.members, effectiveLayoutContext];
+    const directLayoutResult = tryLayout(directStorageType, context);
+    if (directLayoutResult) {
+      return [directLayoutResult[0], directLayoutResult[1]];
     }
   }
 
-  return [directLayout.members, effectiveSurfaceContext];
+  if (!effectiveType) {
+    return undefined;
+  }
+
+  const effectiveLayoutResult = tryLayout(effectiveType, context);
+  return effectiveLayoutResult
+    ? [effectiveLayoutResult[0], effectiveLayoutResult[1]]
+    : undefined;
+};
+
+const buildRuntimeUnionMemberCheck = (opts: {
+  readonly receiver: CSharpExpressionAst;
+  readonly memberNs: readonly number[];
+  readonly negate: boolean;
+  readonly context: EmitterContext;
+}): [CSharpExpressionAst, EmitterContext] => {
+  const { receiver, memberNs, negate, context } = opts;
+
+  if (memberNs.length === 0) {
+    return [booleanLiteral(negate), context];
+  }
+
+  const guardedCheck: CSharpExpressionAst = {
+    kind: "binaryExpression",
+    operatorToken: "&&",
+    left: {
+      kind: "binaryExpression",
+      operatorToken: "!=",
+      left: {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "castExpression",
+          type: identifierType("global::System.Object"),
+          expression: {
+            kind: "parenthesizedExpression",
+            expression: receiver,
+          },
+        },
+      },
+      right: nullLiteral(),
+    },
+    right: buildRuntimeUnionMemberOrChain(receiver, memberNs),
+  };
+
+  return [
+    negate
+      ? {
+          kind: "prefixUnaryExpression",
+          operatorToken: "!",
+          operand: {
+            kind: "parenthesizedExpression",
+            expression: guardedCheck,
+          },
+        }
+      : guardedCheck,
+    context,
+  ];
 };
 
 const tryExtractTypeofComparison = (
@@ -242,7 +265,8 @@ export const emitTypeofComparison = (
   );
   const directStorageType =
     target?.kind === "identifier"
-      ? resolveIdentifierCarrierStorageType(target, operandContext)
+      ? (operandContext.localValueTypes?.get(target.name) ??
+        resolveIdentifierCarrierStorageType(target, operandContext))
       : resolveDirectStorageExpressionType(
           target ?? directGuard.operand,
           operandAst,
@@ -263,7 +287,8 @@ export const emitTypeofComparison = (
   if (!alignedCarrierMembers) {
     return undefined;
   }
-  const [runtimeMembers, layoutContext] = alignedCarrierMembers;
+  const [runtimeLayout, layoutContext] = alignedCarrierMembers;
+  const runtimeMembers = runtimeLayout.members;
 
   const matchingMemberNs = runtimeMembers.flatMap((member, index) =>
     member && matchesTypeofTag(member, directGuard.tag, layoutContext)
@@ -271,14 +296,12 @@ export const emitTypeofComparison = (
       : []
   );
 
-  return [
-    buildRuntimeUnionMemberCheck(
-      runtimeCarrierAst,
-      matchingMemberNs,
-      directGuard.negate
-    ),
-    operandContext,
-  ];
+  return buildRuntimeUnionMemberCheck({
+    receiver: runtimeCarrierAst,
+    memberNs: matchingMemberNs,
+    negate: directGuard.negate,
+    context: layoutContext,
+  });
 };
 
 /**

@@ -16,6 +16,7 @@ import {
 } from "../core/format/backend-ast/utils.js";
 import { splitRuntimeNullishUnionMembers } from "../core/semantic/type-resolution.js";
 import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
+import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
 
 const getBareTypeParameterName = (type: IrType): string | undefined => {
   if (type.kind === "typeParameterType") return type.name;
@@ -163,7 +164,9 @@ export const emitUnionType = (
   let currentContext = context;
 
   for (const member of nonNullTypes) {
-    const [typeAst, nextContext] = emitTypeAst(member, currentContext);
+    const emittedMember =
+      resolveStructuralReferenceType(member, currentContext) ?? member;
+    const [typeAst, nextContext] = emitTypeAst(emittedMember, currentContext);
     currentContext = nextContext;
     uniqueNonNullTypeAsts.push(typeAst);
   }

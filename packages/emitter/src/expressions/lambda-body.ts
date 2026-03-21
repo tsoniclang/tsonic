@@ -60,6 +60,18 @@ const isDefinitelyTerminatingStatement = (stmt: IrStatement): boolean => {
   return false;
 };
 
+const canEmitDirectVoidLambdaStatement = (
+  body: Extract<
+    IrExpression,
+    { kind: "functionExpression" | "arrowFunction" }
+  >["body"]
+): boolean =>
+  body.kind === "call" ||
+  body.kind === "new" ||
+  body.kind === "assignment" ||
+  body.kind === "update" ||
+  body.kind === "await";
+
 const getAsyncUnionReturnPlan = (
   returnType: IrType | undefined,
   context: EmitterContext
@@ -357,6 +369,49 @@ const emitLambdaBodyAst = (
   }
 
   const [exprAst] = emitExpressionAst(body, preludeContext, returnType);
+  const isVoidReturn = returnType?.kind === "voidType";
+  const isNoopVoidExpression =
+    isVoidReturn &&
+    ((body.kind === "literal" &&
+      (body.value === undefined || body.value === null)) ||
+      (body.kind === "identifier" &&
+        (body.name === "undefined" || body.name === "null")));
+
+  if (isVoidReturn) {
+    const emitsDirectStatement = canEmitDirectVoidLambdaStatement(body);
+    const discardLocal =
+      isNoopVoidExpression ||
+      exprAst.kind === "defaultExpression" ||
+      emitsDirectStatement
+        ? undefined
+        : allocateLocalName("__tsonic_discard", preludeContext);
+    const statements: CSharpStatementAst[] = emitsDirectStatement
+      ? [{ kind: "expressionStatement", expression: exprAst }]
+      : discardLocal && discardLocal.emittedName
+        ? [
+            {
+              kind: "localDeclarationStatement",
+              modifiers: [],
+              type: identifierType("var"),
+              declarators: [
+                {
+                  name: discardLocal.emittedName,
+                  initializer: exprAst,
+                },
+              ],
+            },
+          ]
+        : [];
+
+    return [
+      {
+        kind: "blockStatement",
+        statements: [...preludeStatements, ...statements],
+      },
+      discardLocal?.context ?? preludeContext,
+    ];
+  }
+
   return [
     {
       kind: "blockStatement",
@@ -418,7 +473,7 @@ export const emitFunctionExpression = (
   const result: CSharpExpressionAst = {
     kind: "lambdaExpression",
     isAsync: asyncUnionReturnPlan ? false : (expr.isAsync ?? false),
-    parameters: paramInfos.map((p) => p.ast),
+    parameters: paramInfos.flatMap((p) => (p.ast ? [p.ast] : [])),
     body: bodyAst,
   };
   return [result, paramContext];
@@ -453,6 +508,7 @@ export const emitArrowFunction = (
       : undefined;
 
   const requiresLoweredBody = paramInfos.some((p) => !p.bindsDirectly);
+  const requiresVoidLoweredBody = returnType?.kind === "voidType";
 
   if (asyncUnionReturnPlan) {
     const [bodyAst] = emitAsyncUnionReturningLambdaBodyAst(
@@ -465,13 +521,17 @@ export const emitArrowFunction = (
     const result: CSharpExpressionAst = {
       kind: "lambdaExpression",
       isAsync: false,
-      parameters: paramInfos.map((p) => p.ast),
+      parameters: paramInfos.flatMap((p) => (p.ast ? [p.ast] : [])),
       body: bodyAst,
     };
     return [result, paramContext];
   }
 
-  if (expr.body.kind === "blockStatement" || requiresLoweredBody) {
+  if (
+    expr.body.kind === "blockStatement" ||
+    requiresLoweredBody ||
+    requiresVoidLoweredBody
+  ) {
     const [bodyAst] = emitLambdaBodyAst(
       paramInfos,
       expr.body,
@@ -482,7 +542,7 @@ export const emitArrowFunction = (
     const result: CSharpExpressionAst = {
       kind: "lambdaExpression",
       isAsync: expr.isAsync ?? false,
-      parameters: paramInfos.map((p) => p.ast),
+      parameters: paramInfos.flatMap((p) => (p.ast ? [p.ast] : [])),
       body: bodyAst,
     };
     return [result, paramContext];
@@ -493,7 +553,7 @@ export const emitArrowFunction = (
   const result: CSharpExpressionAst = {
     kind: "lambdaExpression",
     isAsync: expr.isAsync ?? false,
-    parameters: paramInfos.map((p) => p.ast),
+    parameters: paramInfos.flatMap((p) => (p.ast ? [p.ast] : [])),
     body: exprAst,
   };
   return [result, paramContext];

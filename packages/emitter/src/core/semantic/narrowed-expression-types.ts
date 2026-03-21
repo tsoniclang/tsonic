@@ -7,12 +7,18 @@ import {
 } from "./type-resolution.js";
 import type { EmitterContext } from "../../types.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
+import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 
 const tryExtractRuntimeUnionMemberN = (
   exprAst: CSharpExpressionAst
 ): number | undefined => {
-  const target =
-    exprAst.kind === "parenthesizedExpression" ? exprAst.expression : exprAst;
+  let target: CSharpExpressionAst = exprAst;
+  while (
+    target.kind === "parenthesizedExpression" ||
+    target.kind === "castExpression"
+  ) {
+    target = target.expression;
+  }
   if (target.kind !== "invocationExpression" || target.arguments.length !== 0) {
     return undefined;
   }
@@ -46,6 +52,18 @@ export const tryResolveRuntimeUnionMemberType = (
 
   const memberN = tryExtractRuntimeUnionMemberN(exprAst);
   if (!memberN) return undefined;
+
+  const canonicalRuntimeMembers = getCanonicalRuntimeUnionMembers(
+    baseType,
+    context
+  );
+  if (
+    canonicalRuntimeMembers &&
+    memberN >= 1 &&
+    memberN <= canonicalRuntimeMembers.length
+  ) {
+    return canonicalRuntimeMembers[memberN - 1];
+  }
 
   const resolvedBase = resolveTypeAlias(stripNullish(baseType), context);
   if (resolvedBase.kind === "unionType") {

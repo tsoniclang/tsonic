@@ -15,6 +15,7 @@ import {
   isRuntimeUnionElementFamily,
 } from "./runtime-union-expansion.js";
 import { getRuntimeUnionMemberSortKey } from "./runtime-union-ordering.js";
+import { resolveStructuralReferenceType } from "./structural-shape-matching.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
@@ -53,7 +54,9 @@ export const buildRuntimeUnionLayout = (
   let currentContext = context;
 
   for (const member of semanticMembers) {
-    const [typeAst, nextContext] = emitTypeAst(member, currentContext);
+    const carrierMember =
+      resolveStructuralReferenceType(member, currentContext) ?? member;
+    const [typeAst, nextContext] = emitTypeAst(carrierMember, currentContext);
     currentContext = nextContext;
     const key = stableTypeKeyFromAst(typeAst);
     if (!byAstKey.has(key)) {

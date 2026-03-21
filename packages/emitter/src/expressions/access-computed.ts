@@ -18,13 +18,116 @@ import {
 } from "../core/semantic/type-resolution.js";
 import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
-import { identifierType } from "../core/format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  identifierType,
+  nullLiteral,
+  parseNumericLiteral,
+} from "../core/format/backend-ast/builders.js";
 import {
   hasInt32Proof,
   maybeReifyErasedArrayElement,
   type MemberAccessUsage,
 } from "./access-resolution.js";
 import { buildJsSafeDictionaryReadAst } from "./dictionary-safe-access.js";
+
+const buildSafeJsStringIndexAst = (
+  objectAst: CSharpExpressionAst,
+  indexAst: CSharpExpressionAst
+): CSharpExpressionAst => {
+  const stringName = "__tsonic_string";
+  const indexName = "__tsonic_index";
+  const stringIdentifier = identifierExpression(stringName);
+  const indexIdentifier = identifierExpression(indexName);
+  const safeElementAccess: CSharpExpressionAst = {
+    kind: "elementAccessExpression",
+    expression: stringIdentifier,
+    arguments: [indexIdentifier],
+  };
+
+  return {
+    kind: "invocationExpression",
+    expression: {
+      kind: "parenthesizedExpression",
+      expression: {
+        kind: "castExpression",
+        type: {
+          kind: "qualifiedIdentifierType",
+          name: {
+            aliasQualifier: "global",
+            segments: ["System", "Func"],
+          },
+          typeArguments: [
+            { kind: "predefinedType", keyword: "string" },
+            { kind: "predefinedType", keyword: "int" },
+            { kind: "predefinedType", keyword: "string" },
+          ],
+        },
+        expression: {
+          kind: "parenthesizedExpression",
+          expression: {
+            kind: "lambdaExpression",
+            isAsync: false,
+            parameters: [
+              {
+                name: stringName,
+                type: { kind: "predefinedType", keyword: "string" },
+              },
+              {
+                name: indexName,
+                type: { kind: "predefinedType", keyword: "int" },
+              },
+            ],
+            body: {
+              kind: "conditionalExpression",
+              condition: {
+                kind: "binaryExpression",
+                operatorToken: "==",
+                left: stringIdentifier,
+                right: nullLiteral(),
+              },
+              whenTrue: nullLiteral(),
+              whenFalse: {
+                kind: "conditionalExpression",
+                condition: {
+                  kind: "binaryExpression",
+                  operatorToken: "&&",
+                  left: {
+                    kind: "binaryExpression",
+                    operatorToken: ">=",
+                    left: indexIdentifier,
+                    right: parseNumericLiteral("0"),
+                  },
+                  right: {
+                    kind: "binaryExpression",
+                    operatorToken: "<",
+                    left: indexIdentifier,
+                    right: {
+                      kind: "memberAccessExpression",
+                      expression: stringIdentifier,
+                      memberName: "Length",
+                    },
+                  },
+                },
+                whenTrue: {
+                  kind: "invocationExpression",
+                  expression: {
+                    kind: "memberAccessExpression",
+                    expression: safeElementAccess,
+                    memberName: "ToString",
+                  },
+                  arguments: [],
+                },
+                whenFalse: nullLiteral(),
+              },
+            },
+          },
+        },
+      },
+    },
+    arguments: [objectAst, indexAst],
+  };
+};
 
 /**
  * Emit a computed member access expression as CSharpExpressionAst.
@@ -101,17 +204,18 @@ export const emitComputedAccess = (
   }
 
   if (accessKind === "stringChar") {
-    const elementAccess: CSharpExpressionAst = expr.isOptional
+    const elementAccess: CSharpExpressionAst = {
+      kind: "elementAccessExpression",
+      expression: objectAst,
+      arguments: [propAst],
+    };
+    const charElementAccess: CSharpExpressionAst = expr.isOptional
       ? {
           kind: "conditionalElementAccessExpression",
           expression: objectAst,
           arguments: [propAst],
         }
-      : {
-          kind: "elementAccessExpression",
-          expression: objectAst,
-          arguments: [propAst],
-        };
+      : elementAccess;
 
     const narrowedExpectedType = expectedType
       ? stripNullish(expectedType)
@@ -126,23 +230,10 @@ export const emitComputedAccess = (
         resolvedExpectedType.name === "char");
 
     if (expectsChar) {
-      return [elementAccess, finalContext];
+      return [charElementAccess, finalContext];
     }
 
-    // str[i] returns char in C#, but JS/TS surface semantics expect a string
-    // in non-char contexts. Convert char -> string at the emission boundary.
-    return [
-      {
-        kind: "invocationExpression",
-        expression: {
-          kind: "memberAccessExpression",
-          expression: elementAccess,
-          memberName: "ToString",
-        },
-        arguments: [],
-      },
-      finalContext,
-    ];
+    return [buildSafeJsStringIndexAst(objectAst, propAst), finalContext];
   }
 
   if (expr.isOptional) {

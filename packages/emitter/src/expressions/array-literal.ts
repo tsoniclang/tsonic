@@ -18,22 +18,74 @@ import type {
 } from "../core/format/backend-ast/types.js";
 import { resolveArrayLiteralContextType } from "../core/semantic/array-expected-types.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
+import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
+import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
+import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
 
 const shouldCoerceArrayLiteralElementToExpectedType = (
   element: IrExpression,
   expectedElementType: IrType | undefined,
   context: EmitterContext
 ): boolean => {
+  if (!expectedElementType) {
+    return false;
+  }
+
   if (element.kind === "literal") {
     return false;
   }
 
-  if (!expectedElementType || !element.inferredType) {
+  if (element.kind === "identifier" || element.kind === "memberAccess") {
+    const resolvedExpected = resolveTypeAlias(
+      stripNullish(expectedElementType),
+      context
+    );
+    const isBroadObjectTarget =
+      resolvedExpected.kind === "objectType" ||
+      (resolvedExpected.kind === "referenceType" &&
+        resolvedExpected.name === "object");
+    if (!isBroadObjectTarget) {
+      return false;
+    }
+  }
+
+  const effectiveElementType =
+    resolveEffectiveExpressionType(element, context) ?? element.inferredType;
+  if (!effectiveElementType) {
     return false;
   }
 
+  if (
+    matchesExpectedEmissionType(
+      effectiveElementType,
+      expectedElementType,
+      context
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    willCarryAsRuntimeUnion(expectedElementType, context) &&
+    !willCarryAsRuntimeUnion(effectiveElementType, context)
+  ) {
+    const [expectedLayout] = buildRuntimeUnionLayout(
+      expectedElementType,
+      context,
+      emitTypeAst
+    );
+    if (
+      expectedLayout?.members.some((member) =>
+        matchesExpectedEmissionType(effectiveElementType, member, context)
+      )
+    ) {
+      return false;
+    }
+  }
+
   const actual = stableIrTypeKey(
-    resolveTypeAlias(stripNullish(element.inferredType), context)
+    resolveTypeAlias(stripNullish(effectiveElementType), context)
   );
   const expected = stableIrTypeKey(
     resolveTypeAlias(stripNullish(expectedElementType), context)

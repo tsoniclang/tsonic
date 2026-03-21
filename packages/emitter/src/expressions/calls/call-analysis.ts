@@ -11,7 +11,12 @@ import {
   stableTypeKeyFromAst,
   stripNullableTypeAst,
 } from "../../core/format/backend-ast/utils.js";
-import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
+import {
+  containsTypeParameter,
+  getPropertyType,
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
 
 /**
  * Ref/out/in parameter handling:
@@ -204,45 +209,165 @@ export const registerJsonAotType = (
   registry.needsJsonAot = true;
 };
 
+const boxedJsNumberJsonType: IrType = {
+  kind: "referenceType",
+  name: "double",
+  resolvedClrType: "System.Double",
+};
+
+const isJsNumberishType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" &&
+      (resolved.name === "number" || resolved.name === "int")) ||
+    (resolved.kind === "literalType" && typeof resolved.value === "number") ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "int" ||
+        resolved.name === "double" ||
+        resolved.resolvedClrType === "System.Int32" ||
+        resolved.resolvedClrType === "global::System.Int32" ||
+        resolved.resolvedClrType === "System.Double" ||
+        resolved.resolvedClrType === "global::System.Double"))
+  );
+};
+
+const expectsBoxedObjectJsonType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  if (type.kind === "unknownType" || type.kind === "anyType") {
+    return true;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    resolved.kind === "referenceType" &&
+    (resolved.name === "object" ||
+      resolved.resolvedClrType === "System.Object" ||
+      resolved.resolvedClrType === "global::System.Object")
+  );
+};
+
+const getJsonObjectValueExpectedType = (
+  containerType: IrType | undefined,
+  propertyName: string,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!containerType) return undefined;
+
+  const propertyType = getPropertyType(containerType, propertyName, context);
+  if (propertyType) return propertyType;
+
+  const resolved = resolveTypeAlias(stripNullish(containerType), context);
+  return resolved.kind === "dictionaryType" ? resolved.valueType : undefined;
+};
+
+const getJsonArrayElementExpectedType = (
+  containerType: IrType | undefined,
+  index: number,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!containerType) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(containerType), context);
+  if (resolved.kind === "arrayType") return resolved.elementType;
+  if (resolved.kind === "tupleType") {
+    return resolved.elementTypes[index] ?? undefined;
+  }
+  return undefined;
+};
+
+const shouldRegisterBoxedJsNumberJsonType = (
+  expr: IrExpression,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (context.options.surface !== "@tsonic/js") return false;
+  return (
+    isJsNumberishType(expr.inferredType, context) &&
+    expectsBoxedObjectJsonType(expectedType, context)
+  );
+};
+
 export const registerJsonAotExpressionTypes = (
   expr: IrExpression | undefined,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): void => {
   if (!expr) return;
 
-  registerJsonAotType(expr.inferredType, context);
+  registerJsonAotType(
+    shouldRegisterBoxedJsNumberJsonType(expr, expectedType, context)
+      ? boxedJsNumberJsonType
+      : expr.inferredType,
+    context
+  );
 
   switch (expr.kind) {
-    case "object":
+    case "object": {
       for (const property of expr.properties) {
         if (property.kind === "property") {
-          registerJsonAotExpressionTypes(property.value, context);
+          const propertyName =
+            typeof property.key === "string"
+              ? property.key
+              : property.key.kind === "literal" &&
+                  typeof property.key.value === "string"
+                ? property.key.value
+                : undefined;
+          registerJsonAotExpressionTypes(
+            property.value,
+            context,
+            propertyName
+              ? getJsonObjectValueExpectedType(
+                  expectedType ?? expr.inferredType,
+                  propertyName,
+                  context
+                )
+              : undefined
+          );
         } else {
           registerJsonAotExpressionTypes(property.expression, context);
         }
       }
       return;
-    case "array":
+    }
+    case "array": {
+      let elementIndex = 0;
       for (const element of expr.elements) {
         if (!element) continue;
         if (element.kind === "spread") {
           registerJsonAotExpressionTypes(element.expression, context);
         } else {
-          registerJsonAotExpressionTypes(element, context);
+          registerJsonAotExpressionTypes(
+            element,
+            context,
+            getJsonArrayElementExpectedType(
+              expectedType ?? expr.inferredType,
+              elementIndex,
+              context
+            )
+          );
         }
+        elementIndex += 1;
       }
       return;
+    }
     case "conditional":
-      registerJsonAotExpressionTypes(expr.whenTrue, context);
-      registerJsonAotExpressionTypes(expr.whenFalse, context);
+      registerJsonAotExpressionTypes(expr.whenTrue, context, expectedType);
+      registerJsonAotExpressionTypes(expr.whenFalse, context, expectedType);
       return;
     case "logical":
     case "binary":
-      registerJsonAotExpressionTypes(expr.left, context);
-      registerJsonAotExpressionTypes(expr.right, context);
+      registerJsonAotExpressionTypes(expr.left, context, expectedType);
+      registerJsonAotExpressionTypes(expr.right, context, expectedType);
       return;
     case "assignment":
-      registerJsonAotExpressionTypes(expr.right, context);
+      registerJsonAotExpressionTypes(expr.right, context, expectedType);
       return;
     case "await":
     case "yield":
@@ -251,11 +376,11 @@ export const registerJsonAotExpressionTypes = (
     case "typeAssertion":
     case "asinterface":
     case "trycast":
-      registerJsonAotExpressionTypes(expr.expression, context);
+      registerJsonAotExpressionTypes(expr.expression, context, expectedType);
       return;
     case "templateLiteral":
       for (const embedded of expr.expressions) {
-        registerJsonAotExpressionTypes(embedded, context);
+        registerJsonAotExpressionTypes(embedded, context, expectedType);
       }
       return;
     default:

@@ -292,5 +292,77 @@ describe("Module Map", () => {
         sourceName: "basename",
       });
     });
+
+    it("tracks named exports of imported source-package values using module-relative keys", () => {
+      const source = {
+        ...makeModule(
+          "../../../node_modules/@tsonic/nodejs/src/process-module.ts",
+          [
+            {
+              kind: "variableDeclaration",
+              declarationKind: "const",
+              declarations: [
+                {
+                  kind: "variableDeclarator",
+                  name: { kind: "identifierPattern", name: "process" },
+                  initializer: {
+                    kind: "object",
+                    properties: [],
+                    inferredType: { kind: "objectType", members: [] },
+                  },
+                },
+              ],
+              isExported: true,
+            },
+          ]
+        ),
+        exports: [
+          {
+            kind: "named" as const,
+            name: "process",
+            localName: "process",
+          },
+        ],
+      } satisfies IrModule;
+
+      const barrel = {
+        ...makeModule("../../../node_modules/@tsonic/nodejs/src/index.ts", []),
+        imports: [
+          {
+            kind: "import" as const,
+            source: "./process-module.ts",
+            isLocal: true,
+            isClr: false,
+            resolvedPath:
+              "/tmp/project/node_modules/@tsonic/nodejs/src/process-module.ts",
+            specifiers: [
+              {
+                kind: "named" as const,
+                name: "process",
+                localName: "process",
+              },
+            ],
+          },
+        ],
+        exports: [
+          {
+            kind: "named" as const,
+            name: "process",
+            localName: "process",
+          },
+        ],
+      } satisfies IrModule;
+
+      const result = buildModuleMap([source, barrel]);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(
+        result.exportMap.get("node_modules/@tsonic/nodejs/src/index:process")
+      ).to.deep.equal({
+        sourceFile: "node_modules/@tsonic/nodejs/src/process-module",
+        sourceName: "process",
+      });
+    });
   });
 });

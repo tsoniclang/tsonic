@@ -12,9 +12,11 @@ import { emitExpressionAst } from "../expression-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { lowerPatternAst } from "../patterns.js";
+import { decimalIntegerLiteral } from "../core/format/backend-ast/builders.js";
 import {
   resolveTypeAlias,
   stripNullish,
+  getArrayLikeElementType,
 } from "../core/semantic/type-resolution.js";
 import { unwrapParameterModifierType } from "../core/semantic/parameter-modifier-types.js";
 import { registerParameterTypes } from "../core/semantic/symbol-types.js";
@@ -27,9 +29,11 @@ import type {
 
 export type EmittedLambdaParameter = {
   readonly parameter?: IrParameter;
-  readonly ast: CSharpLambdaParameterAst;
+  readonly ast?: CSharpLambdaParameterAst;
   readonly emittedName: string;
   readonly bindsDirectly: boolean;
+  readonly bindingSourceExpression?: CSharpExpressionAst;
+  readonly bindingSourceType?: IrType;
 };
 
 export const seedLocalNameMapFromParameters = (
@@ -59,6 +63,17 @@ export const seedLocalNameMapFromParameters = (
 };
 
 export type ContextualFunctionType = Extract<IrType, { kind: "functionType" }>;
+
+type PlannedLambdaParameter = {
+  readonly parameter?: IrParameter;
+  readonly type?: IrType;
+  readonly isOptional: boolean;
+  readonly modifier?: "ref" | "out" | "in";
+  readonly emittedName: string;
+  readonly bindsDirectly: boolean;
+  readonly bindingSourceExpression?: CSharpExpressionAst;
+  readonly emitInParameterList: boolean;
+};
 
 export const resolveContextualFunctionType = (
   expr: Extract<IrExpression, { kind: "functionExpression" | "arrowFunction" }>,
@@ -123,32 +138,124 @@ export const emitLambdaParametersAst = (
 ): [readonly EmittedLambdaParameter[], EmitterContext] => {
   let currentContext = context;
   const contextualParameters = contextualFunctionType?.parameters ?? [];
-  const synthesizedContextualParameters =
-    contextualParameters.length > parameters.length
-      ? contextualParameters
-          .slice(parameters.length)
-          .filter((parameter) => !parameter.isRest)
-      : [];
+  const contextualRestIndex = contextualParameters.findIndex(
+    (parameter) => parameter?.isRest
+  );
+  const contextualRestParameter =
+    contextualRestIndex >= 0
+      ? (contextualParameters[contextualRestIndex] ?? undefined)
+      : undefined;
+  const plannedParameters: PlannedLambdaParameter[] = [];
+  let restCarrierName: string | undefined;
 
-  const allHaveConcreteTypes =
-    parameters.every((p) => {
-      if (!p.type) return false;
-      const unwrapped = unwrapParameterModifierType(p.type);
-      const actualType = unwrapped ?? p.type;
-      return isConcreteLambdaParamType(actualType, currentContext);
-    }) &&
-    synthesizedContextualParameters.every((p) => {
-      if (!p.type) return false;
-      const unwrapped = unwrapParameterModifierType(p.type);
-      const actualType = unwrapped ?? p.type;
-      return isConcreteLambdaParamType(actualType, currentContext);
+  const ensureRestCarrierName = (): string => {
+    if (restCarrierName !== undefined) return restCarrierName;
+    const baseName =
+      contextualRestParameter?.pattern.kind === "identifierPattern"
+        ? `__unused_${escapeCSharpIdentifier(
+            contextualRestParameter.pattern.name
+          )}`
+        : "__unused_rest";
+    restCarrierName = baseName;
+    return restCarrierName;
+  };
+
+  const buildRestCarrierExpression = (
+    index: number
+  ): CSharpExpressionAst | undefined => {
+    const carrierName = restCarrierName ?? ensureRestCarrierName();
+    if (contextualRestIndex < 0 || index < contextualRestIndex) {
+      return undefined;
+    }
+
+    if (parameters[index]?.isRest) {
+      return {
+        kind: "identifierExpression",
+        identifier: carrierName,
+      };
+    }
+
+    return {
+      kind: "elementAccessExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: carrierName,
+      },
+      arguments: [decimalIntegerLiteral(index - contextualRestIndex)],
+    };
+  };
+
+  const pushPlannedParameter = (planned: PlannedLambdaParameter): void => {
+    plannedParameters.push(planned);
+  };
+
+  const synthesizeRestCarrierParameter = (): void => {
+    if (!contextualRestParameter) return;
+    const carrierName = ensureRestCarrierName();
+    if (
+      plannedParameters.some(
+        (planned) =>
+          planned.emitInParameterList && planned.emittedName === carrierName
+      )
+    ) {
+      return;
+    }
+    pushPlannedParameter({
+      emittedName: carrierName,
+      bindsDirectly: false,
+      emitInParameterList: true,
+      type: contextualRestParameter.type,
+      isOptional:
+        contextualRestParameter.isOptional ||
+        contextualRestParameter.initializer !== undefined,
     });
+  };
 
-  const paramAsts: EmittedLambdaParameter[] = [];
+  const shouldLowerFromContextualRest = (
+    parameter: IrParameter,
+    index: number
+  ): boolean => {
+    if (contextualRestParameter === undefined || index < contextualRestIndex) {
+      return false;
+    }
+
+    return !(
+      parameter.isRest &&
+      index === contextualRestIndex &&
+      parameters.length === contextualRestIndex + 1
+    );
+  };
 
   for (let index = 0; index < parameters.length; index++) {
     const param = parameters[index];
     if (!param) continue;
+    const contextualParam = contextualParameters[index];
+    const effectiveParameterType =
+      param.type?.kind === "functionType" &&
+      contextualParam?.type?.kind === "functionType"
+        ? contextualParam.type
+        : param.type;
+
+    if (shouldLowerFromContextualRest(param, index)) {
+      synthesizeRestCarrierParameter();
+      pushPlannedParameter({
+        parameter: param,
+        emittedName: `__rest_binding_${index}`,
+        bindsDirectly: false,
+        emitInParameterList: false,
+        isOptional: param.isOptional || param.initializer !== undefined,
+        bindingSourceExpression: buildRestCarrierExpression(index),
+        type:
+          param.isRest && index === contextualRestIndex
+            ? (contextualRestParameter?.type ?? param.type)
+            : (getArrayLikeElementType(
+                contextualRestParameter?.type,
+                currentContext
+              ) ?? undefined),
+      });
+      continue;
+    }
+
     const bindsDirectly =
       param.pattern.kind === "identifierPattern" &&
       param.initializer === undefined;
@@ -158,74 +265,105 @@ export const emitLambdaParametersAst = (
 
     const modifier = param.passing !== "value" ? param.passing : undefined;
 
-    if (allHaveConcreteTypes && param.type) {
-      const unwrapped = unwrapParameterModifierType(param.type);
-      const actualType = unwrapped ?? param.type;
-
-      const [typeAst, newContext] = emitTypeAst(actualType, currentContext);
-      currentContext = newContext;
-      const finalTypeAst = wrapOptionalLambdaParameterTypeAst(
-        typeAst,
-        param.isOptional || param.initializer !== undefined
-      );
-
-      paramAsts.push({
-        parameter: param,
-        emittedName: name,
-        bindsDirectly,
-        ast: modifier
-          ? { name, type: finalTypeAst, modifier }
-          : { name, type: finalTypeAst },
-      });
-    } else {
-      paramAsts.push({
-        parameter: param,
-        emittedName: name,
-        bindsDirectly,
-        ast: modifier ? { name, modifier } : { name },
-      });
-    }
+    pushPlannedParameter({
+      parameter: param,
+      emittedName: name,
+      bindsDirectly,
+      emitInParameterList: true,
+      type: effectiveParameterType,
+      isOptional: param.isOptional || param.initializer !== undefined,
+      modifier,
+    });
   }
 
   for (
-    let index = 0;
-    index < synthesizedContextualParameters.length;
+    let index = parameters.length;
+    index < contextualParameters.length;
     index += 1
   ) {
-    const contextualParam = synthesizedContextualParameters[index];
+    const contextualParam = contextualParameters[index];
     if (!contextualParam) continue;
-    const contextualIndex = parameters.length + index;
+
+    if (contextualParam.isRest) {
+      synthesizeRestCarrierParameter();
+      continue;
+    }
+
+    const contextualIndex = index;
 
     const name =
       contextualParam.pattern.kind === "identifierPattern"
         ? `__unused_${escapeCSharpIdentifier(contextualParam.pattern.name)}`
         : `__unused${contextualIndex}`;
 
-    if (allHaveConcreteTypes && contextualParam.type) {
-      const unwrapped = unwrapParameterModifierType(contextualParam.type);
-      const actualType = unwrapped ?? contextualParam.type;
-      const [typeAst, newContext] = emitTypeAst(actualType, currentContext);
-      currentContext = newContext;
-      const finalTypeAst = wrapOptionalLambdaParameterTypeAst(
-        typeAst,
-        contextualParam.isOptional || contextualParam.initializer !== undefined
-      );
-      paramAsts.push({
-        emittedName: name,
-        bindsDirectly: false,
-        ast: { name, type: finalTypeAst },
+    pushPlannedParameter({
+      emittedName: name,
+      bindsDirectly: false,
+      emitInParameterList: true,
+      type: contextualParam.type,
+      isOptional:
+        contextualParam.isOptional || contextualParam.initializer !== undefined,
+    });
+  }
+
+  const allHaveConcreteTypes = plannedParameters
+    .filter((planned) => planned.emitInParameterList)
+    .every((planned) => {
+      if (!planned.type) return false;
+      const unwrapped = unwrapParameterModifierType(planned.type);
+      const actualType = unwrapped ?? planned.type;
+      return isConcreteLambdaParamType(actualType, currentContext);
+    });
+
+  const emittedParameters: EmittedLambdaParameter[] = [];
+  for (const planned of plannedParameters) {
+    if (!planned.emitInParameterList) {
+      emittedParameters.push({
+        parameter: planned.parameter,
+        emittedName: planned.emittedName,
+        bindsDirectly: planned.bindsDirectly,
+        bindingSourceExpression: planned.bindingSourceExpression,
+        bindingSourceType: planned.type,
       });
       continue;
     }
 
-    paramAsts.push({
-      emittedName: name,
-      bindsDirectly: false,
-      ast: { name },
+    let ast: CSharpLambdaParameterAst;
+    if (allHaveConcreteTypes && planned.type) {
+      const unwrapped = unwrapParameterModifierType(planned.type);
+      const actualType = unwrapped ?? planned.type;
+      const [typeAst, newContext] = emitTypeAst(actualType, currentContext);
+      currentContext = newContext;
+      const finalTypeAst = wrapOptionalLambdaParameterTypeAst(
+        typeAst,
+        planned.isOptional
+      );
+      ast = planned.modifier
+        ? {
+            name: planned.emittedName,
+            type: finalTypeAst,
+            modifier: planned.modifier,
+          }
+        : { name: planned.emittedName, type: finalTypeAst };
+    } else {
+      ast = planned.modifier
+        ? { name: planned.emittedName, modifier: planned.modifier }
+        : { name: planned.emittedName };
+    }
+
+    emittedParameters.push({
+      parameter: planned.parameter,
+      ast,
+      emittedName: planned.emittedName,
+      bindsDirectly: planned.bindsDirectly,
+      bindingSourceExpression: planned.bindingSourceExpression,
+      bindingSourceType: planned.bindingSourceExpression
+        ? planned.type
+        : undefined,
     });
   }
 
-  return [paramAsts, currentContext];
+  return [emittedParameters, currentContext];
 };
 
 export const lowerLambdaParameterPreludeAst = (
@@ -238,10 +376,11 @@ export const lowerLambdaParameterPreludeAst = (
   for (const parameter of parameters) {
     if (parameter.bindsDirectly || !parameter.parameter) continue;
 
-    let inputExpr: CSharpExpressionAst = {
+    let inputExpr: CSharpExpressionAst = parameter.bindingSourceExpression ?? {
       kind: "identifierExpression",
       identifier: parameter.emittedName,
     };
+    const inputType = parameter.bindingSourceType ?? parameter.parameter.type;
 
     if (parameter.parameter.initializer) {
       const [defaultAst, defaultContext] = emitExpressionAst(
@@ -261,7 +400,7 @@ export const lowerLambdaParameterPreludeAst = (
     const lowered = lowerPatternAst(
       parameter.parameter.pattern,
       inputExpr,
-      parameter.parameter.type,
+      inputType,
       currentContext
     );
     statements.push(...lowered.statements);

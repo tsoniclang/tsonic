@@ -157,6 +157,32 @@ describe("Maximus Validation Coverage", () => {
           void createAppHandlers;
         `,
       },
+      {
+        name: "class property assignments preserve explicit member annotations",
+        source: `
+          class AssertionErrorLike extends Error {
+            public actual: unknown = undefined;
+            public expected: unknown = undefined;
+            public operator: string = "";
+            public generatedMessage: boolean = false;
+
+            public constructor(
+              message?: string,
+              actual?: unknown,
+              expected?: unknown,
+              operator: string = ""
+            ) {
+              super(message);
+              this.actual = actual as unknown;
+              this.expected = expected as unknown;
+              this.operator = operator;
+              this.generatedMessage = message === undefined;
+            }
+          }
+
+          void AssertionErrorLike;
+        `,
+      },
     ];
 
     for (const c of allowCases) {

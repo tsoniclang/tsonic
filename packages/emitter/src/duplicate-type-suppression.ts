@@ -63,6 +63,9 @@ const stableCircularStringify = (value: unknown): string => {
 
   const normalize = (current: unknown): unknown => {
     if (current === null) return null;
+    if (typeof current === "bigint") {
+      return { $bigint: current.toString(10) };
+    }
     if (typeof current !== "object") return current;
 
     const existing = seen.get(current);

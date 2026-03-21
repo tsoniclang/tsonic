@@ -5,30 +5,59 @@
  * Exchange and wrapper classes are built as typed CSharpTypeDeclarationAst.
  */
 
-import { IrModule, IrFunctionDeclaration } from "@tsonic/frontend";
+import { IrModule } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
 import { identifierType } from "./core/format/backend-ast/builders.js";
 import {
+  type GeneratorLike,
+  getGeneratorHelperBaseName,
   needsBidirectionalSupport,
   generateWrapperClass,
 } from "./generator-wrapper.js";
-import { getCSharpName } from "./naming-policy.js";
 import type {
   CSharpTypeDeclarationAst,
   CSharpMemberAst,
   CSharpTypeAst,
 } from "./core/format/backend-ast/types.js";
 
+type CollectedGenerator = {
+  readonly generator: GeneratorLike;
+  readonly helperBaseName: string;
+};
+
 /**
- * Collect all generator functions from a module
+ * Collect all generator declarations from a module, including class methods.
  */
-const collectGenerators = (module: IrModule): IrFunctionDeclaration[] => {
-  const generators: IrFunctionDeclaration[] = [];
+const collectGenerators = (
+  module: IrModule,
+  context: EmitterContext
+): CollectedGenerator[] => {
+  const generators: CollectedGenerator[] = [];
 
   for (const stmt of module.body) {
     if (stmt.kind === "functionDeclaration" && stmt.isGenerator) {
-      generators.push(stmt);
+      generators.push({
+        generator: stmt,
+        helperBaseName: getGeneratorHelperBaseName(stmt, context),
+      });
+      continue;
+    }
+
+    if (stmt.kind === "classDeclaration") {
+      for (const member of stmt.members) {
+        if (member.kind !== "methodDeclaration" || !member.isGenerator) {
+          continue;
+        }
+        generators.push({
+          generator: member,
+          helperBaseName: getGeneratorHelperBaseName(
+            member,
+            context,
+            stmt.name
+          ),
+        });
+      }
     }
   }
 
@@ -39,12 +68,12 @@ const collectGenerators = (module: IrModule): IrFunctionDeclaration[] => {
  * Generate exchange object class as CSharpTypeDeclarationAst
  */
 export const generateExchangeClassAst = (
-  func: IrFunctionDeclaration,
-  context: EmitterContext
+  func: GeneratorLike,
+  context: EmitterContext,
+  helperBaseName = getGeneratorHelperBaseName(func, context)
 ): [CSharpTypeDeclarationAst, EmitterContext] => {
   let currentContext = context;
-  const csharpBaseName = getCSharpName(func.name, "methods", context);
-  const exchangeName = `${csharpBaseName}_exchange`;
+  const exchangeName = `${helperBaseName}_exchange`;
 
   // Determine output/input types from return type
   let outputTypeAst: CSharpTypeAst = identifierType("object");
@@ -115,7 +144,7 @@ export const generateGeneratorExchanges = (
   module: IrModule,
   context: EmitterContext
 ): [readonly CSharpTypeDeclarationAst[], EmitterContext] => {
-  const generators = collectGenerators(module);
+  const generators = collectGenerators(module, context);
 
   if (generators.length === 0) {
     return [[], context];
@@ -124,11 +153,12 @@ export const generateGeneratorExchanges = (
   const decls: CSharpTypeDeclarationAst[] = [];
   let currentContext = context;
 
-  for (const generator of generators) {
+  for (const { generator, helperBaseName } of generators) {
     // Exchange class (fully AST)
     const [exchangeAst, exchangeContext] = generateExchangeClassAst(
       generator,
-      currentContext
+      currentContext,
+      helperBaseName
     );
     currentContext = exchangeContext;
     decls.push(exchangeAst);
@@ -137,7 +167,8 @@ export const generateGeneratorExchanges = (
     if (needsBidirectionalSupport(generator)) {
       const [wrapperDecl, wrapperContext] = generateWrapperClass(
         generator,
-        currentContext
+        currentContext,
+        helperBaseName
       );
       currentContext = wrapperContext;
       decls.push(wrapperDecl);

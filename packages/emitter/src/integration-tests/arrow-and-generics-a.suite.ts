@@ -33,7 +33,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       expect(csharp).to.match(
-        /consume\(\(string __unused_value\)\s*=>\s*\{?\s*return/
+        /consume\(\(string __unused_value\)\s*=>\s*\{\s*\}\)/
       );
     });
 
@@ -57,7 +57,7 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("does not synthesize ignored parameters for rest-only contextual callbacks", () => {
+    it("lowers rest-only contextual callbacks through a synthesized rest carrier", () => {
       const source = `
         type Tick = (...args: unknown[]) => void;
 
@@ -72,11 +72,10 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("consume(() =>");
-      expect(csharp).not.to.match(/__unused_args/);
+      expect(csharp).to.match(/consume\(\(object\?\[\] __unused_args\)\s*=>/);
     });
 
-    it("does not synthesize ignored rest parameters after required contextual callback parameters", () => {
+    it("preserves fixed contextual parameters and synthesizes a rest carrier after them", () => {
       const source = `
         type Tick = (value: string, ...rest: unknown[]) => void;
 
@@ -91,8 +90,99 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("consume((string __unused_value) =>");
-      expect(csharp).not.to.match(/__unused_args/);
+      expect(csharp).to.match(
+        /consume\(\(string __unused_value,\s*object\?\[\] __unused_rest\)\s*=>/
+      );
+    });
+
+    it("binds explicit lambda parameters from synthesized rest carriers", () => {
+      const source = `
+        type Tick = (...args: unknown[]) => void;
+
+        function consume(tick: Tick): void {
+          tick("ok", 1, true);
+        }
+
+        export function main(): void {
+          consume((first, second, third) => {
+            void first;
+            void second;
+            void third;
+          });
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /consume\(\(object\?\[\] __unused_args\)\s*=>\s*\{/
+      );
+      expect(csharp).to.match(/first = __unused_args\[0\]/);
+      expect(csharp).to.match(/second = __unused_args\[1\]/);
+      expect(csharp).to.match(/third = __unused_args\[2\]/);
+    });
+
+    it("lowers expression-bodied undefined callbacks for void contextual delegates without void casts", () => {
+      const source = `
+        type Tick = (...args: unknown[]) => void;
+
+        function consume(tick: Tick): void {
+          tick("ok");
+        }
+
+        export function main(): void {
+          consume(() => undefined);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.not.include("(void)default");
+      expect(csharp).to.match(
+        /consume\(\(object\?\[\] __unused_args\)\s*=>\s*\{\s*\}\)/
+      );
+    });
+
+    it("emits static arrow fields with default parameter initializers through custom delegates", () => {
+      const source = `
+        export const formatLabel = (label: string = "default"): string => label;
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /delegate\s+string\s+formatLabel__Delegate\s*\(\s*string\s+label\s*=\s*"default"\s*\)/
+      );
+      expect(csharp).to.match(
+        /private\s+static\s+string\s+formatLabel__Impl\s*\(\s*string\s+label\s*=\s*"default"\s*\)/
+      );
+      expect(csharp).to.not.include(
+        "ICE: Arrow function values with default parameter initializers are not supported"
+      );
+    });
+
+    it("omits non-constant defaults from static arrow signatures and synthesizes omitted call arguments", () => {
+      const source = `
+        export const formatLabel = (
+          parts: readonly string[] = []
+        ): string => parts.length === 0 ? "empty" : parts[0];
+
+        export function run(): string {
+          return formatLabel();
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.not.match(
+        /formatLabel__Delegate\s*\([^)]*=\s*(?:global::System\.Array\.Empty|new\s+string)/
+      );
+      expect(csharp).to.not.match(
+        /formatLabel__Impl\s*\([^)]*=\s*(?:global::System\.Array\.Empty|new\s+string)/
+      );
+      expect(csharp).to.match(
+        /return formatLabel\((?:global::System\.Array\.Empty<string>\(\)|new string\[\] \{ \}|new string\[0\])\);/
+      );
     });
   });
 

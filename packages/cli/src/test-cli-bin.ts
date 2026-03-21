@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   copyFileSync,
   cpSync,
   existsSync,
@@ -35,7 +36,10 @@ export const getStableCliPath = (repoRoot: string): string => {
 
   if (!existsSync(snapshotEntry)) {
     mkdirSync(dirname(snapshotEntry), { recursive: true });
-    copyFileSync(join(packageRoot, "package.json"), join(snapshotRoot, "package.json"));
+    copyFileSync(
+      join(packageRoot, "package.json"),
+      join(snapshotRoot, "package.json")
+    );
     cpSync(sourceDir, snapshotDir, { recursive: true });
     const runtimeDir = join(packageRoot, "runtime");
     if (existsSync(runtimeDir)) {
@@ -51,6 +55,7 @@ export const getStableCliPath = (repoRoot: string): string => {
       ].join("\n"),
       "utf-8"
     );
+    chmodSync(snapshotEntry, 0o755);
   }
 
   SNAPSHOT_CACHE.set(repoRoot, snapshotEntry);

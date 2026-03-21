@@ -9,6 +9,7 @@
 import * as ts from "typescript";
 import { IrType, ComputedAccessKind } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
+import type { BindingInternal } from "../../../binding/binding-types.js";
 
 const receiverHasDeclaredUnknownMember = (
   receiverIrType: IrType | undefined,
@@ -72,8 +73,13 @@ const getDeclaredPropertyTypeFallback = (
   // Use TypeSystem.typeOfMemberId() to get the member's declared type
   const memberType = typeSystem.typeOfMemberId(memberId, receiverIrType);
 
-  // If TypeSystem returns unknownType, treat as not found
   if (memberType.kind === "unknownType") {
+    const memberInfo = (ctx.binding as BindingInternal)
+      ._getHandleRegistry()
+      .getMember(memberId);
+    if (memberInfo?.typeNode) {
+      return memberType;
+    }
     return undefined;
   }
 

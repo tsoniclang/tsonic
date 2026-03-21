@@ -7,6 +7,8 @@ export {
 export {
   adaptReturnStatements,
   createWrapperBody,
+  needsAsyncReturnStatementAdaptation,
+  needsAsyncWrapperReturnAdaptation,
 } from "./classes/overload-wrapper-body.js";
 export {
   assertNoIsTypeCalls,

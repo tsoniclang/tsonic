@@ -175,6 +175,18 @@ export const resolveInstanceofTargetType = (
   expr: ts.Expression,
   ctx: ProgramContext
 ): IrType | undefined => {
+  const bindingBackedTargetType = (
+    typeName: string
+  ): Extract<IrType, { kind: "referenceType" }> | undefined => {
+    const bindingType = ctx.bindings.getType(typeName);
+    if (!bindingType) return undefined;
+    return {
+      kind: "referenceType",
+      name: bindingType.alias,
+      resolvedClrType: bindingType.name,
+    };
+  };
+
   const normalize = (type: IrType): IrType =>
     type.kind === "referenceType" &&
     !type.typeId &&
@@ -192,10 +204,12 @@ export const resolveInstanceofTargetType = (
     const declId = ctx.binding.resolveIdentifier(unwrapped);
     if (declId) {
       const type = ctx.typeSystem.typeOfDecl(declId);
-      if (type.kind !== "unknownType") {
+      if (type.kind !== "unknownType" && type.kind !== "objectType") {
         return normalize(type);
       }
     }
+
+    return bindingBackedTargetType(unwrapped.text);
   }
 
   const accessTarget = getAccessPathTarget(unwrapped, ctx);

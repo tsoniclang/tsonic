@@ -423,6 +423,25 @@ export const typeOfMemberId = (
       const inferred = tryInferTypeFromInitializer(state, decl);
       return inferred ?? unknownType;
     }
+
+    if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)) {
+      if (decl.type)
+        return applySubstitution(convertTypeNode(state, decl.type));
+      const inferred = tryInferTypeFromInitializer(state, decl);
+      return inferred ? applySubstitution(inferred) : unknownType;
+    }
+
+    if (ts.isGetAccessorDeclaration(decl)) {
+      if (decl.type)
+        return applySubstitution(convertTypeNode(state, decl.type));
+      return unknownType;
+    }
+
+    if (ts.isSetAccessorDeclaration(decl)) {
+      const setterParam = decl.parameters[0];
+      if (!setterParam?.type) return unknownType;
+      return applySubstitution(convertTypeNode(state, setterParam.type));
+    }
   }
 
   if (memberInfo.typeNode) {

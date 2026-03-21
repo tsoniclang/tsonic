@@ -12,6 +12,9 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 - Never use `git stash` (it hides work and creates dangling/unreviewed changes).
 - No dangling local work: if something matters, put it on a branch as commits (and ideally push + PR it).
 - Before switching tasks/repos, ensure `git status` is clean; otherwise commit to a branch or explicitly discard.
+- Use `.temp/` for all temporary/debug work inside this repo.
+- Do not use `/tmp` for Tsonic-specific scratch work.
+- Do not create scratch workspaces under `packages/`; put them under `.temp/` instead.
 
 ## Branch Discipline (IMPORTANT)
 

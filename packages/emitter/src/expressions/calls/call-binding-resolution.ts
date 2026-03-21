@@ -17,6 +17,7 @@ type ReceiverMemberBinding = NonNullable<
   readonly parameterCount?: number;
   readonly semanticSignature?: {
     readonly parameters: readonly {
+      readonly type?: IrType;
       readonly isOptional?: boolean;
       readonly initializer?: unknown;
     }[];
@@ -42,6 +43,7 @@ type ReceiverBindingLookupMember = {
   };
   readonly semanticSignature?: {
     readonly parameters: readonly {
+      readonly type?: IrType;
       readonly isOptional?: boolean;
       readonly initializer?: unknown;
     }[];
@@ -226,6 +228,8 @@ const collapseResolvedReceiverBinding = (
         : undefined,
     isExtensionMethod: first.isExtensionMethod,
     emitSemantics: first.emitSemantics,
+    parameterCount: first.parameterCount,
+    semanticSignature: first.semanticSignature,
   };
 };
 

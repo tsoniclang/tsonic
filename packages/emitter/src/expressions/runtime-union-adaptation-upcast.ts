@@ -14,6 +14,7 @@ import {
   findRuntimeUnionMemberIndex,
 } from "../core/semantic/runtime-unions.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import { buildRuntimeUnionFactoryCallAst } from "../core/semantic/runtime-union-projection.js";
 import {
   resolveComparableType,
@@ -151,6 +152,9 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (!actualType || !expectedType) return undefined;
 
+  const extractedMemberType =
+    tryResolveRuntimeUnionMemberType(actualType, ast, context) ?? actualType;
+
   const exactComparisonTargetAst = tryEmitExactComparisonTargetAst(
     expectedType,
     context
@@ -170,7 +174,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   const directValueSurfaceType = resolveDirectValueSurfaceType(ast, context);
   const preferredActualType = (() => {
     if (!directValueSurfaceType) {
-      return actualType;
+      return extractedMemberType;
     }
 
     const [directLayout, directLayoutContext] = buildRuntimeUnionLayout(
@@ -179,7 +183,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       emitTypeAst
     );
     const [actualLayout] = buildRuntimeUnionLayout(
-      actualType,
+      extractedMemberType,
       directLayoutContext,
       emitTypeAst
     );
@@ -207,9 +211,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       return directValueSurfaceType;
     }
 
-    return !areIrTypesEquivalent(directValueSurfaceType, actualType, context)
-      ? directValueSurfaceType
-      : actualType;
+    return extractedMemberType;
   })();
 
   const emissionActualType = unwrapComparableType(preferredActualType);
@@ -220,7 +222,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   );
   const normalizedExpectedType = resolveComparableType(expectedType, context);
 
-  const runtimeUnionLayoutsDiffer = (() => {
+  const runtimeUnionLayoutComparison = (() => {
     const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
       emissionActualType,
       context,
@@ -233,18 +235,18 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     );
 
     if (!actualLayout && !expectedLayout) {
-      return false;
+      return { actualLayout, expectedLayout, differs: false };
     }
 
     if (!actualLayout || !expectedLayout) {
-      return true;
+      return { actualLayout, expectedLayout, differs: true };
     }
 
     if (
       actualLayout.memberTypeAsts.length !==
       expectedLayout.memberTypeAsts.length
     ) {
-      return true;
+      return { actualLayout, expectedLayout, differs: true };
     }
 
     for (
@@ -255,15 +257,15 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       const actualMemberAst = actualLayout.memberTypeAsts[index];
       const expectedMemberAst = expectedLayout.memberTypeAsts[index];
       if (!actualMemberAst || !expectedMemberAst) {
-        return true;
+        return { actualLayout, expectedLayout, differs: true };
       }
       if (!sameTypeAstSurface(actualMemberAst, expectedMemberAst)) {
-        return true;
+        return { actualLayout, expectedLayout, differs: true };
       }
       const actualMember = actualLayout.members[index];
       const expectedMember = expectedLayout.members[index];
       if (!actualMember || !expectedMember) {
-        return true;
+        return { actualLayout, expectedLayout, differs: true };
       }
       if (
         !areIrTypesEquivalent(
@@ -272,11 +274,11 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
           expectedLayoutContext
         )
       ) {
-        return true;
+        return { actualLayout, expectedLayout, differs: true };
       }
     }
 
-    return false;
+    return { actualLayout, expectedLayout, differs: false };
   })();
 
   const adapted = tryAdaptStructuralExpressionAst(
@@ -291,18 +293,26 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   }
 
   if (
-    areIrTypesEquivalent(
-      normalizedActualType,
-      normalizedExpectedType,
-      context
-    ) &&
-    !runtimeUnionLayoutsDiffer
+    !runtimeUnionLayoutComparison.differs &&
+    runtimeUnionLayoutComparison.actualLayout &&
+    runtimeUnionLayoutComparison.expectedLayout
   ) {
     return [ast, context];
   }
 
   if (
-    !runtimeUnionLayoutsDiffer &&
+    areIrTypesEquivalent(
+      normalizedActualType,
+      normalizedExpectedType,
+      context
+    ) &&
+    !runtimeUnionLayoutComparison.differs
+  ) {
+    return [ast, context];
+  }
+
+  if (
+    !runtimeUnionLayoutComparison.differs &&
     canUseImplicitOptionalSurfaceConversion(
       emissionActualType,
       expectedType,

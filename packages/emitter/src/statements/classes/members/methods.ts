@@ -2,12 +2,7 @@
  * Method member emission — returns CSharpMemberAst (method declaration)
  */
 
-import {
-  getAwaitedIrType,
-  IrClassMember,
-  IrType,
-  type IrParameter,
-} from "@tsonic/frontend";
+import { IrClassMember } from "@tsonic/frontend";
 import {
   EmitterContext,
   indent,
@@ -24,8 +19,20 @@ import {
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { identifierType } from "../../../core/format/backend-ast/builders.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
-import { registerParameterTypes } from "../../../core/semantic/symbol-types.js";
 import { emitCSharpName } from "../../../naming-policy.js";
+import {
+  captureFunctionScopeContext,
+  getAsyncBodyReturnType,
+  reserveGeneratorLocals,
+  restoreFunctionScopeContext,
+  seedLocalNameMapFromParameters,
+} from "../../declarations/function-shared.js";
+import {
+  extractGeneratorTypeArgs,
+  getGeneratorHelperBaseName,
+  hasGeneratorReturnType,
+  needsBidirectionalSupport,
+} from "../../../generator-wrapper.js";
 import type {
   CSharpMemberAst,
   CSharpBlockStatementAst,
@@ -34,40 +41,6 @@ import type {
   CSharpStatementAst,
 } from "../../../core/format/backend-ast/types.js";
 
-const getAsyncBodyReturnType = (
-  isAsync: boolean,
-  returnType: IrType | undefined
-): IrType | undefined => {
-  if (!isAsync || !returnType) return returnType;
-  return getAwaitedIrType(returnType) ?? returnType;
-};
-
-const seedLocalNameMapFromParameters = (
-  params: readonly IrParameter[],
-  context: EmitterContext
-): EmitterContext => {
-  const map = new Map(context.localNameMap ?? []);
-  let currentContext = context;
-  const used = new Set<string>();
-  for (const p of params) {
-    if (p.pattern.kind === "identifierPattern") {
-      const emitted = escapeCSharpIdentifier(p.pattern.name);
-      map.set(p.pattern.name, emitted);
-      used.add(emitted);
-      currentContext = registerParameterTypes(
-        p.pattern.name,
-        p.type,
-        currentContext
-      );
-    }
-  }
-  return {
-    ...currentContext,
-    localNameMap: map,
-    usedLocalNames: used,
-  };
-};
-
 /**
  * Emit a method declaration as CSharpMemberAst
  */
@@ -75,20 +48,9 @@ export const emitMethodMember = (
   member: IrClassMember & { kind: "methodDeclaration" },
   context: EmitterContext
 ): [CSharpMemberAst, EmitterContext] => {
-  const savedScoped = {
-    typeParameters: context.typeParameters,
-    typeParamConstraints: context.typeParamConstraints,
-    typeParameterNameMap: context.typeParameterNameMap,
-    returnType: context.returnType,
-    localNameMap: context.localNameMap,
-    localSemanticTypes: context.localSemanticTypes,
-    localValueTypes: context.localValueTypes,
-    usedLocalNames: context.usedLocalNames,
-  };
-
+  const savedScoped = captureFunctionScopeContext(context);
   let currentContext = context;
 
-  // Build method type parameter names FIRST
   const methodTypeParams = new Set<string>([
     ...(context.typeParameters ?? []),
     ...(member.typeParameters?.map((tp) => tp.name) ?? []),
@@ -99,12 +61,10 @@ export const emitMethodMember = (
     typeParameters: methodTypeParams,
   };
 
-  // Emit type parameters and constraints as AST
   const [typeParamAsts, constraintAsts, typeParamContext] =
     emitTypeParametersAst(member.typeParameters, signatureContext);
   currentContext = typeParamContext;
 
-  // Modifiers
   const modifiers: string[] = [];
   const accessibility = member.accessibility ?? "public";
   modifiers.push(accessibility);
@@ -121,50 +81,85 @@ export const emitMethodMember = (
   if (!member.isStatic && !member.isOverride && member.isVirtual) {
     modifiers.push("virtual");
   }
-  if (member.isAsync) {
-    modifiers.push("async");
-  }
 
-  // Return type
+  const generatorHelperBaseName = member.isGenerator
+    ? getGeneratorHelperBaseName(
+        member,
+        context,
+        context.className !== "Program" ? context.className : undefined
+      )
+    : undefined;
+  const isBidirectional = member.isGenerator
+    ? needsBidirectionalSupport(member)
+    : false;
+  const generatorHasReturnType =
+    member.isGenerator && isBidirectional
+      ? hasGeneratorReturnType(member)
+      : false;
+
   let returnTypeAst: CSharpTypeAst;
-  if (member.returnType) {
+  if (member.isGenerator) {
+    if (!generatorHelperBaseName) {
+      throw new Error(
+        "ICE: Generator method helper base name was not resolved."
+      );
+    }
+    if (isBidirectional) {
+      returnTypeAst = identifierType(`${generatorHelperBaseName}_Generator`);
+    } else {
+      if (member.isAsync) {
+        modifiers.push("async");
+        returnTypeAst = identifierType(
+          "global::System.Collections.Generic.IAsyncEnumerable",
+          [identifierType(`${generatorHelperBaseName}_exchange`)]
+        );
+      } else {
+        returnTypeAst = identifierType(
+          "global::System.Collections.Generic.IEnumerable",
+          [identifierType(`${generatorHelperBaseName}_exchange`)]
+        );
+      }
+    }
+  } else if (member.returnType) {
     const [rAst, newContext] = emitTypeAst(member.returnType, currentContext);
     currentContext = newContext;
+    if (member.isAsync) {
+      modifiers.push("async");
+    }
     if (
       member.isAsync &&
       member.returnType.kind === "referenceType" &&
       member.returnType.name === "Promise"
     ) {
-      returnTypeAst = rAst; // Already Task<T> from emitType
+      returnTypeAst = rAst;
+    } else if (member.isAsync) {
+      returnTypeAst = identifierType("global::System.Threading.Tasks.Task", [
+        rAst,
+      ]);
     } else {
-      returnTypeAst = member.isAsync
-        ? identifierType("global::System.Threading.Tasks.Task", [rAst])
-        : rAst;
+      returnTypeAst = rAst;
     }
+  } else if (member.isAsync) {
+    modifiers.push("async");
+    returnTypeAst = identifierType("global::System.Threading.Tasks.Task");
   } else {
-    returnTypeAst = member.isAsync
-      ? identifierType("global::System.Threading.Tasks.Task")
-      : { kind: "predefinedType", keyword: "void" };
+    returnTypeAst = { kind: "predefinedType", keyword: "void" };
   }
 
-  // Method name
   const name = emitCSharpName(member.name, "methods", context);
 
-  // Parameters
   const paramsResult = emitParametersWithDestructuring(
     member.parameters,
     currentContext
   );
   currentContext = paramsResult.context;
 
-  // Attributes
   const [attrs, attrContext] = emitAttributes(
     member.attributes,
     currentContext
   );
   currentContext = attrContext;
 
-  // No body → abstract/interface method
   if (!member.body) {
     const methodAst: CSharpMemberAst = {
       kind: "methodDeclaration",
@@ -176,71 +171,220 @@ export const emitMethodMember = (
       parameters: paramsResult.parameters,
       constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
     };
-    return [methodAst, { ...currentContext, ...savedScoped }];
+    return [
+      methodAst,
+      restoreFunctionScopeContext(context, currentContext, savedScoped),
+    ];
   }
 
-  // Method body
+  const body = member.body;
+
   const baseBodyContext = seedLocalNameMapFromParameters(
     member.parameters,
     withAsync(indent(currentContext), member.isAsync)
   );
+  const reservedLocals = reserveGeneratorLocals(
+    baseBodyContext,
+    member.isGenerator,
+    isBidirectional,
+    generatorHasReturnType
+  );
 
-  // Generate parameter destructuring statements BEFORE body
   const [paramDestructuringStmts, destructuringContext] =
     paramsResult.destructuringParams.length > 0
       ? generateParameterDestructuringAst(
           paramsResult.destructuringParams,
-          baseBodyContext
+          reservedLocals.context
         )
-      : [[] as readonly CSharpStatementAst[], baseBodyContext];
+      : [[] as readonly CSharpStatementAst[], reservedLocals.context];
 
-  // Emit body with scoped typeParameters and returnType
-  const body = member.body;
+  const bodyReturnType =
+    member.isAsync && !member.isGenerator
+      ? getAsyncBodyReturnType(member.isAsync, member.returnType)
+      : member.returnType;
+
   const [bodyBlockAst, finalContext] = withScoped(
     destructuringContext,
     {
       typeParameters: methodTypeParams,
-      returnType: getAsyncBodyReturnType(member.isAsync, member.returnType),
+      returnType: bodyReturnType,
     },
     (scopedCtx) => emitBlockStatementAst(body, scopedCtx)
   );
 
-  // Collect out parameters that need initialization
-  const outParamStmts: CSharpStatementAst[] = [];
-  for (const param of member.parameters) {
-    if (param.passing === "out" && param.pattern.kind === "identifierPattern") {
-      let defaultExpr: CSharpExpressionAst = { kind: "defaultExpression" };
-      if (param.type) {
-        const [typeAst] = emitTypeAst(param.type, currentContext);
-        defaultExpr = { kind: "defaultExpression", type: typeAst };
-      }
-      outParamStmts.push({
-        kind: "expressionStatement",
-        expression: {
-          kind: "assignmentExpression",
-          operatorToken: "=",
-          left: {
-            kind: "identifierExpression",
-            identifier: escapeCSharpIdentifier(param.pattern.name),
+  let mergedBody: CSharpBlockStatementAst;
+
+  if (member.isGenerator && isBidirectional) {
+    if (!generatorHelperBaseName) {
+      throw new Error(
+        "ICE: Bidirectional generator method helper base name missing."
+      );
+    }
+    const exchangeName = `${generatorHelperBaseName}_exchange`;
+    const wrapperName = `${generatorHelperBaseName}_Generator`;
+    const wrapperBodyStatements: CSharpStatementAst[] = [
+      {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "varType" },
+        declarators: [
+          {
+            name: reservedLocals.generatorExchangeVar,
+            initializer: {
+              kind: "objectCreationExpression",
+              type: identifierType(exchangeName),
+              arguments: [],
+            },
           },
-          right: defaultExpr,
+        ],
+      },
+    ];
+
+    if (generatorHasReturnType) {
+      const {
+        returnType: extractedReturnTypeAst,
+        newContext: typeExtractContext,
+      } = extractGeneratorTypeArgs(member.returnType, currentContext);
+      currentContext = typeExtractContext;
+      if (!extractedReturnTypeAst) {
+        throw new Error(
+          "ICE: Generator method marked with non-void return type but no return type AST was extracted."
+        );
+      }
+
+      wrapperBodyStatements.push({
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: extractedReturnTypeAst,
+        declarators: [
+          {
+            name: reservedLocals.generatorReturnValueVar,
+            initializer: {
+              kind: "suppressNullableWarningExpression",
+              expression: { kind: "defaultExpression" },
+            },
+          },
+        ],
+      });
+    }
+
+    const enumerableType: CSharpTypeAst = member.isAsync
+      ? identifierType("global::System.Collections.Generic.IAsyncEnumerable", [
+          identifierType(exchangeName),
+        ])
+      : identifierType("global::System.Collections.Generic.IEnumerable", [
+          identifierType(exchangeName),
+        ]);
+
+    wrapperBodyStatements.push({
+      kind: "localFunctionStatement",
+      modifiers: member.isAsync ? ["async"] : [],
+      returnType: enumerableType,
+      name: reservedLocals.generatorIteratorFn,
+      parameters: [],
+      body: {
+        kind: "blockStatement",
+        statements: [...paramDestructuringStmts, ...bodyBlockAst.statements],
+      },
+    });
+
+    const constructorArgs: CSharpExpressionAst[] = [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: reservedLocals.generatorIteratorFn,
+        },
+        arguments: [],
+      },
+      {
+        kind: "identifierExpression",
+        identifier: reservedLocals.generatorExchangeVar,
+      },
+    ];
+
+    if (generatorHasReturnType) {
+      constructorArgs.push({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [],
+        body: {
+          kind: "identifierExpression",
+          identifier: reservedLocals.generatorReturnValueVar,
         },
       });
     }
-  }
 
-  // Merge preamble statements into body block
-  const preamble: CSharpStatementAst[] = [
-    ...paramDestructuringStmts,
-    ...outParamStmts,
-  ];
-  const mergedBody: CSharpBlockStatementAst =
-    preamble.length > 0
-      ? {
-          kind: "blockStatement",
-          statements: [...preamble, ...bodyBlockAst.statements],
+    wrapperBodyStatements.push({
+      kind: "returnStatement",
+      expression: {
+        kind: "objectCreationExpression",
+        type: identifierType(wrapperName),
+        arguments: constructorArgs,
+      },
+    });
+
+    mergedBody = {
+      kind: "blockStatement",
+      statements: wrapperBodyStatements,
+    };
+  } else {
+    const preamble: CSharpStatementAst[] = [...paramDestructuringStmts];
+
+    if (member.isGenerator) {
+      if (!generatorHelperBaseName) {
+        throw new Error("ICE: Generator method helper base name missing.");
+      }
+      preamble.push({
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "varType" },
+        declarators: [
+          {
+            name: reservedLocals.generatorExchangeVar,
+            initializer: {
+              kind: "objectCreationExpression",
+              type: identifierType(`${generatorHelperBaseName}_exchange`),
+              arguments: [],
+            },
+          },
+        ],
+      });
+    }
+
+    for (const param of member.parameters) {
+      if (
+        param.passing === "out" &&
+        param.pattern.kind === "identifierPattern"
+      ) {
+        let defaultExpr: CSharpExpressionAst = { kind: "defaultExpression" };
+        if (param.type) {
+          const [typeAst] = emitTypeAst(param.type, currentContext);
+          defaultExpr = { kind: "defaultExpression", type: typeAst };
         }
-      : bodyBlockAst;
+        preamble.push({
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignmentExpression",
+            operatorToken: "=",
+            left: {
+              kind: "identifierExpression",
+              identifier: escapeCSharpIdentifier(param.pattern.name),
+            },
+            right: defaultExpr,
+          },
+        });
+      }
+    }
+
+    mergedBody = {
+      kind: "blockStatement",
+      statements:
+        preamble.length > 0
+          ? [...preamble, ...bodyBlockAst.statements]
+          : [...bodyBlockAst.statements],
+    };
+  }
 
   const methodAst: CSharpMemberAst = {
     kind: "methodDeclaration",
@@ -254,5 +398,8 @@ export const emitMethodMember = (
     constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
   };
 
-  return [methodAst, { ...dedent(finalContext), ...savedScoped }];
+  return [
+    methodAst,
+    restoreFunctionScopeContext(context, dedent(finalContext), savedScoped),
+  ];
 };
