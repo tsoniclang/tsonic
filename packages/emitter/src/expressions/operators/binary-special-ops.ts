@@ -37,9 +37,7 @@ import {
   identifierType,
   nullLiteral,
 } from "../../core/format/backend-ast/builders.js";
-import {
-  extractCalleeNameFromAst,
-} from "../../core/format/backend-ast/utils.js";
+import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 type RuntimeUnionLayout = NonNullable<
   ReturnType<typeof buildRuntimeUnionLayout>[0]

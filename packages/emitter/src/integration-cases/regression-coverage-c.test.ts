@@ -309,7 +309,7 @@ describe("End-to-End Integration", () => {
         "return (await __tsonic_overload_impl_readFile(path, default(string))).Match("
       );
       expect(csharp).to.not.include(
-        "__tsonic_union_member_2 => throw new global::System.InvalidCastException(\"Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none\")).Match("
+        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match('
       );
     });
 
@@ -445,7 +445,7 @@ describe("End-to-End Integration", () => {
         "return __tsonic_overload_impl_readFileSync(path, default(string)).Match("
       );
       expect(csharp).to.not.include(
-        "__tsonic_union_member_2 => throw new global::System.InvalidCastException(\"Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none\")).Match("
+        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match('
       );
       expect(csharp).to.include(
         "return this.__tsonic_overload_impl_readFileSync(path, default(string)).Match("

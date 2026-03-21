@@ -200,7 +200,6 @@ export const emitTypeAssertion = (
   };
 
   const shouldEraseTypeAssertion = (resolved: IrType): boolean => {
-
     if (isTypeOnlyStructuralTarget(resolved, context)) {
       return true;
     }
@@ -284,7 +283,8 @@ export const emitTypeAssertion = (
     context
   );
   const sourceNarrowedBinding =
-    expr.expression.kind === "identifier" || expr.expression.kind === "memberAccess"
+    expr.expression.kind === "identifier" ||
+    expr.expression.kind === "memberAccess"
       ? getNarrowedBindingForExpression(expr.expression, context)
       : undefined;
   const preserveNarrowedSourceStorage =
