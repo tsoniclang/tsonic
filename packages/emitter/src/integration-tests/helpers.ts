@@ -13,6 +13,7 @@ import {
   runNumericProofPass,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
+import type { EmitterOptions } from "../types.js";
 
 const require = createRequire(import.meta.url);
 const corePackageRoot = path.dirname(
@@ -51,7 +52,8 @@ const resolveTsonicModule = (
 
 export const compileToCSharp = (
   source: string,
-  fileName = "/test/test.ts"
+  fileName = "/test/test.ts",
+  emitOptions: Partial<EmitterOptions> = {}
 ): string => {
   const resolvedPackageRoots = new Set<string>();
 
@@ -138,15 +140,18 @@ export const compileToCSharp = (
   const tsProgram = ts.createProgram([fileName], compilerOptions, host);
   const checker = tsProgram.getTypeChecker();
 
+  const programOptions = {
+    projectRoot: "/test",
+    sourceRoot: "/test",
+    rootNamespace: "Test",
+    ...(emitOptions.surface ? { surface: emitOptions.surface } : {}),
+  };
+
   const tsonicProgram = {
     program: tsProgram,
     checker,
     binding: createBinding(checker),
-    options: {
-      projectRoot: "/test",
-      sourceRoot: "/test",
-      rootNamespace: "Test",
-    },
+    options: programOptions,
     sourceFiles: [sourceFile],
     declarationSourceFiles: [],
     metadata: new DotnetMetadataRegistry(),
@@ -154,7 +159,7 @@ export const compileToCSharp = (
     clrResolver: createClrBindingsResolver("/test"),
   };
 
-  const options = { sourceRoot: "/test", rootNamespace: "Test" };
+  const options = programOptions;
   const ctx = createProgramContext(tsonicProgram, options);
   const irResult = buildIrModule(sourceFile, tsonicProgram, options, ctx);
   if (!irResult.ok) {
@@ -178,6 +183,7 @@ export const compileToCSharp = (
 
   const emitResult = emitCSharpFiles(attributeResult.modules, {
     rootNamespace: "Test",
+    ...emitOptions,
   });
   if (!emitResult.ok) {
     throw new Error(

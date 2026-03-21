@@ -33,7 +33,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       expect(csharp).to.match(
-        /consume\(\(string __unused_value\)\s*=>\s*\{?\s*return/
+        /consume\(\(string __unused_value\)\s*=>\s*\{\s*\}\)/
       );
     });
 
@@ -57,7 +57,7 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("does not synthesize ignored parameters for rest-only contextual callbacks", () => {
+    it("lowers rest-only contextual callbacks through a synthesized rest carrier", () => {
       const source = `
         type Tick = (...args: unknown[]) => void;
 
@@ -72,11 +72,10 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("consume(() =>");
-      expect(csharp).not.to.match(/__unused_args/);
+      expect(csharp).to.match(/consume\(\(object\?\[\] __unused_args\)\s*=>/);
     });
 
-    it("does not synthesize ignored rest parameters after required contextual callback parameters", () => {
+    it("preserves fixed contextual parameters and synthesizes a rest carrier after them", () => {
       const source = `
         type Tick = (value: string, ...rest: unknown[]) => void;
 
@@ -91,8 +90,57 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("consume((string __unused_value) =>");
-      expect(csharp).not.to.match(/__unused_args/);
+      expect(csharp).to.match(
+        /consume\(\(string __unused_value,\s*object\?\[\] __unused_rest\)\s*=>/
+      );
+    });
+
+    it("binds explicit lambda parameters from synthesized rest carriers", () => {
+      const source = `
+        type Tick = (...args: unknown[]) => void;
+
+        function consume(tick: Tick): void {
+          tick("ok", 1, true);
+        }
+
+        export function main(): void {
+          consume((first, second, third) => {
+            void first;
+            void second;
+            void third;
+          });
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /consume\(\(object\?\[\] __unused_args\)\s*=>\s*\{/
+      );
+      expect(csharp).to.match(/first = __unused_args\[0\]/);
+      expect(csharp).to.match(/second = __unused_args\[1\]/);
+      expect(csharp).to.match(/third = __unused_args\[2\]/);
+    });
+
+    it("lowers expression-bodied undefined callbacks for void contextual delegates without void casts", () => {
+      const source = `
+        type Tick = (...args: unknown[]) => void;
+
+        function consume(tick: Tick): void {
+          tick("ok");
+        }
+
+        export function main(): void {
+          consume(() => undefined);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.not.include("(void)default");
+      expect(csharp).to.match(
+        /consume\(\(object\?\[\] __unused_args\)\s*=>\s*\{\s*\}\)/
+      );
     });
   });
 

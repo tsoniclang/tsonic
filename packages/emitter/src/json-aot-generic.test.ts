@@ -202,6 +202,108 @@ describe("JSON NativeAOT registry", () => {
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
 
+  it("registers boxed JS numeric object-literal values for global JSON.stringify AOT metadata", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/index.ts",
+      namespace: "MyApp",
+      className: "index",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "stringifyInline",
+          parameters: [],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "call",
+                  callee: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "JSON" },
+                    property: "stringify",
+                    isComputed: false,
+                    isOptional: false,
+                  },
+                  arguments: [
+                    {
+                      kind: "object",
+                      properties: [
+                        {
+                          kind: "property",
+                          key: "ok",
+                          shorthand: false,
+                          value: {
+                            kind: "literal",
+                            value: true,
+                            inferredType: {
+                              kind: "primitiveType",
+                              name: "boolean",
+                            },
+                          },
+                        },
+                        {
+                          kind: "property",
+                          key: "value",
+                          shorthand: false,
+                          value: {
+                            kind: "literal",
+                            value: 3,
+                            inferredType: {
+                              kind: "primitiveType",
+                              name: "int",
+                            },
+                          },
+                        },
+                      ],
+                      hasSpreads: false,
+                      inferredType: {
+                        kind: "dictionaryType",
+                        keyType: { kind: "primitiveType", name: "string" },
+                        valueType: {
+                          kind: "referenceType",
+                          name: "object",
+                          resolvedClrType: "System.Object",
+                        },
+                      },
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "string" },
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitCSharpFiles([module], {
+      rootNamespace: "MyApp",
+      enableJsonAot: true,
+      surface: "@tsonic/js",
+    });
+    expect(result.ok).to.equal(true);
+    if (!result.ok) return;
+
+    const code = result.files.get("index.cs");
+    const jsonFile = result.files.get("__tsonic_json.g.cs");
+    expect(code).to.not.equal(undefined);
+    expect(jsonFile).to.not.equal(undefined);
+    expect(code).to.include('["value"] =');
+    expect(code).to.include("double)3");
+    expect(jsonFile).to.include("typeof(global::System.Double)");
+  });
+
   it("does not register open generic type parameters (no typeof(global::T))", () => {
     const module: IrModule = {
       kind: "module",

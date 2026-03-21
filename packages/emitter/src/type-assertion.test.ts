@@ -206,4 +206,49 @@ describe("Type Assertion Emission", () => {
       /\(global::System\.Collections\.Generic\.Dictionary/
     );
   });
+
+  it("erases never assertions instead of emitting invalid void casts", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/test/neverAssert.ts",
+      namespace: "Test",
+      className: "neverAssert",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "value",
+          parameters: [],
+          returnType: { kind: "unknownType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "typeAssertion",
+                  expression: {
+                    kind: "literal",
+                    value: undefined,
+                    inferredType: { kind: "primitiveType", name: "undefined" },
+                  },
+                  targetType: { kind: "neverType" },
+                  inferredType: { kind: "neverType" },
+                },
+              },
+            ],
+          },
+          isAsync: false,
+          isGenerator: false,
+          isExported: true,
+        },
+      ],
+    };
+
+    const code = emitModule(module);
+
+    expect(code).to.not.include("(void)default");
+  });
 });

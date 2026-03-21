@@ -16,13 +16,18 @@ import {
 import {
   identifierExpression,
   identifierType,
+  nullLiteral,
+  nullableType,
 } from "../core/format/backend-ast/builders.js";
 import {
   getIdentifierTypeName,
   getIdentifierTypeLeafName,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
-import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../core/format/backend-ast/types.js";
 import {
   isPlainObjectIrType,
   isObjectTypeAst,
@@ -262,27 +267,58 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
     ? stripNullableTypeAst(receiverTypeAst)
     : undefined;
 
+  const buildOptionalArrayWrapperLengthAccess = (
+    elementTypeAst: CSharpTypeAst,
+    nextContext: EmitterContext
+  ): [CSharpExpressionAst, EmitterContext] => [
+    expr.isOptional
+      ? {
+          kind: "conditionalExpression",
+          condition: {
+            kind: "binaryExpression",
+            operatorToken: "==",
+            left: objectAst,
+            right: nullLiteral(),
+          },
+          whenTrue: {
+            kind: "defaultExpression",
+            type: nullableType({ kind: "predefinedType", keyword: "int" }),
+          },
+          whenFalse: {
+            kind: "memberAccessExpression",
+            expression: {
+              kind: "objectCreationExpression",
+              type: identifierType("global::Tsonic.JSRuntime.JSArray", [
+                elementTypeAst,
+              ]),
+              arguments: [objectAst],
+            },
+            memberName: "length",
+          },
+        }
+      : {
+          kind: "memberAccessExpression",
+          expression: {
+            kind: "objectCreationExpression",
+            type: identifierType("global::Tsonic.JSRuntime.JSArray", [
+              elementTypeAst,
+            ]),
+            arguments: [objectAst],
+          },
+          memberName: "length",
+        },
+    nextContext,
+  ];
+
   if (concreteReceiverTypeAst?.kind === "arrayType") {
     const elementTypeAst = eraseOutOfScopeArrayWrapperTypeParameters(
       concreteReceiverTypeAst.elementType,
       receiverTypeContext
     );
-    return [
-      {
-        kind: expr.isOptional
-          ? "conditionalMemberAccessExpression"
-          : "memberAccessExpression",
-        expression: {
-          kind: "objectCreationExpression",
-          type: identifierType("global::Tsonic.JSRuntime.JSArray", [
-            elementTypeAst,
-          ]),
-          arguments: [objectAst],
-        },
-        memberName: "length",
-      },
-      receiverTypeContext,
-    ];
+    return buildOptionalArrayWrapperLengthAccess(
+      elementTypeAst,
+      receiverTypeContext
+    );
   }
 
   const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
@@ -297,20 +333,5 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
       context
     );
 
-  return [
-    {
-      kind: expr.isOptional
-        ? "conditionalMemberAccessExpression"
-        : "memberAccessExpression",
-      expression: {
-        kind: "objectCreationExpression",
-        type: identifierType("global::Tsonic.JSRuntime.JSArray", [
-          elementTypeAst,
-        ]),
-        arguments: [objectAst],
-      },
-      memberName: "length",
-    },
-    typeContext,
-  ];
+  return buildOptionalArrayWrapperLengthAccess(elementTypeAst, typeContext);
 };

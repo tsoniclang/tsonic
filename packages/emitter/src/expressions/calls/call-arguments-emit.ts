@@ -186,7 +186,10 @@ const emitFunctionValueCallArguments = (
       const [argAst, argCtx] = emitExpressionAst(
         arg,
         currentContext,
-        normalizeCallArgumentExpectedType(
+        resolveCallArgumentExpectedType(
+          expr,
+          arg,
+          i,
           getAcceptedParameterType(parameter?.type, !!parameter?.isOptional),
           currentContext
         )
@@ -222,6 +225,62 @@ const emitFunctionValueCallArguments = (
   }
 
   return [argAsts, currentContext];
+};
+
+const shouldPreferZeroArgJsTimerCallback = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  arg: IrExpression,
+  argIndex: number,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): expectedType is Extract<IrType, { kind: "functionType" }> => {
+  if (context.options.surface !== "@tsonic/js") return false;
+  if (argIndex !== 0) return false;
+  if (arg.kind !== "arrowFunction" && arg.kind !== "functionExpression") {
+    return false;
+  }
+  if (arg.parameters.length !== 0) return false;
+  if (expectedType?.kind !== "functionType") return false;
+  if (expectedType.parameters.length !== 1) return false;
+  if (!expectedType.parameters[0]?.isRest) return false;
+  if (expr.arguments.length > 2) return false;
+  if (expr.callee.kind !== "identifier") return false;
+
+  return (
+    expr.callee.csharpName === "Timers.setInterval" ||
+    expr.callee.csharpName === "Timers.setTimeout"
+  );
+};
+
+const resolveCallArgumentExpectedType = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  arg: IrExpression,
+  argIndex: number,
+  parameterType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  const expectedType = normalizeCallArgumentExpectedType(
+    parameterType,
+    context
+  );
+
+  if (
+    shouldPreferZeroArgJsTimerCallback(
+      expr,
+      arg,
+      argIndex,
+      expectedType,
+      context
+    )
+  ) {
+    return {
+      kind: "functionType",
+      parameters: [],
+      returnType: expectedType.returnType,
+    };
+  }
+
+  return expectedType;
 };
 
 /**
@@ -314,17 +373,29 @@ const emitCallArguments = (
     const expectedType =
       restInfo && i >= restInfo.index
         ? restInfo.elementType
-        : normalizeCallArgumentExpectedType(parameterTypes[i], currentContext);
+        : resolveCallArgumentExpectedType(
+            expr,
+            arg,
+            i,
+            parameterTypes[i],
+            currentContext
+          );
 
     const runtimeParameterType =
       parameterTypeOverrides && parameterTypeOverrides.length > 0
         ? parameterTypeOverrides[i]
         : expr.parameterTypes?.[i];
     const effectiveExpectedType = (() => {
-      const normalizedRuntime = normalizeCallArgumentExpectedType(
-        runtimeParameterType,
-        currentContext
-      );
+      const normalizedRuntime =
+        runtimeParameterType === undefined
+          ? undefined
+          : resolveCallArgumentExpectedType(
+              expr,
+              arg,
+              i,
+              runtimeParameterType,
+              currentContext
+            );
       if (!normalizedRuntime) {
         return expectedType;
       }

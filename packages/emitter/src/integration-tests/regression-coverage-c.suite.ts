@@ -215,6 +215,41 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("preserves ?? fallbacks after JS-surface optional array-wrapper length lowering", () => {
+      const source = `
+        export function run(values?: string[]): number {
+          return values?.length ?? 0;
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include(
+        "new global::Tsonic.JSRuntime.JSArray<string>(values).length"
+      );
+      expect(csharp).to.include("?? 0");
+    });
+
+    it("avoids identity Match projections for identical optional union passthrough calls", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        function normalizeSignal(signal?: int | string): string {
+          return signal === undefined ? "SIGTERM" : typeof signal === "string" ? signal : "n";
+        }
+
+        export function run(signal?: int | string): string {
+          return normalizeSignal(signal);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("return normalizeSignal(signal);");
+      expect(csharp).not.to.include("signal.Match(");
+    });
+
     it("materializes inline object-type elements through generic List<T>.Add", () => {
       const source = `
         declare class List<T> {

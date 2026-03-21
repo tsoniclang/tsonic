@@ -10,22 +10,34 @@ import { isBooleanType } from "./helpers.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 /**
- * Check if an expression AST contains conditional access (`?.` or `?[`).
+ * Check if an expression AST can still produce a nullable value type.
  * Used to detect nullable value type scenarios in `??` optimization.
  */
-const containsConditionalAccess = (ast: CSharpExpressionAst): boolean => {
+const preservesNullableValueFallback = (ast: CSharpExpressionAst): boolean => {
   switch (ast.kind) {
     case "conditionalMemberAccessExpression":
     case "conditionalElementAccessExpression":
       return true;
+    case "conditionalExpression":
+      return (
+        preservesNullableValueFallback(ast.whenTrue) ||
+        preservesNullableValueFallback(ast.whenFalse) ||
+        (ast.whenTrue.kind === "defaultExpression" &&
+          ast.whenTrue.type?.kind === "nullableType") ||
+        (ast.whenFalse.kind === "defaultExpression" &&
+          ast.whenFalse.type?.kind === "nullableType")
+      );
     case "memberAccessExpression":
-      return containsConditionalAccess(ast.expression);
+      return preservesNullableValueFallback(ast.expression);
     case "invocationExpression":
-      return containsConditionalAccess(ast.expression);
+      return preservesNullableValueFallback(ast.expression);
     case "elementAccessExpression":
-      return containsConditionalAccess(ast.expression);
+      return preservesNullableValueFallback(ast.expression);
     case "parenthesizedExpression":
-      return containsConditionalAccess(ast.expression);
+      return preservesNullableValueFallback(ast.expression);
+    case "castExpression":
+    case "asExpression":
+      return preservesNullableValueFallback(ast.expression);
     default:
       return false;
   }
@@ -67,7 +79,7 @@ export const emitLogical = (
     // Conditional access (`?.` / `?[`) produces nullable value types in C# even when the
     // underlying member type is non-nullable (e.g., `string?.Length` → `int?`).
     // In that case the fallback is still meaningful and must be preserved.
-    if (!containsConditionalAccess(leftAst)) {
+    if (!preservesNullableValueFallback(leftAst)) {
       return [leftAst, leftContext];
     }
   }

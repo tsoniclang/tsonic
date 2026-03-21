@@ -207,9 +207,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       return directValueSurfaceType;
     }
 
-    return !areIrTypesEquivalent(directValueSurfaceType, actualType, context)
-      ? directValueSurfaceType
-      : actualType;
+    return actualType;
   })();
 
   const emissionActualType = unwrapComparableType(preferredActualType);
@@ -220,7 +218,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   );
   const normalizedExpectedType = resolveComparableType(expectedType, context);
 
-  const runtimeUnionLayoutsDiffer = (() => {
+  const runtimeUnionLayoutComparison = (() => {
     const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
       emissionActualType,
       context,
@@ -233,18 +231,18 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     );
 
     if (!actualLayout && !expectedLayout) {
-      return false;
+      return { actualLayout, expectedLayout, differs: false };
     }
 
     if (!actualLayout || !expectedLayout) {
-      return true;
+      return { actualLayout, expectedLayout, differs: true };
     }
 
     if (
       actualLayout.memberTypeAsts.length !==
       expectedLayout.memberTypeAsts.length
     ) {
-      return true;
+      return { actualLayout, expectedLayout, differs: true };
     }
 
     for (
@@ -255,15 +253,15 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       const actualMemberAst = actualLayout.memberTypeAsts[index];
       const expectedMemberAst = expectedLayout.memberTypeAsts[index];
       if (!actualMemberAst || !expectedMemberAst) {
-        return true;
+        return { actualLayout, expectedLayout, differs: true };
       }
       if (!sameTypeAstSurface(actualMemberAst, expectedMemberAst)) {
-        return true;
+        return { actualLayout, expectedLayout, differs: true };
       }
       const actualMember = actualLayout.members[index];
       const expectedMember = expectedLayout.members[index];
       if (!actualMember || !expectedMember) {
-        return true;
+        return { actualLayout, expectedLayout, differs: true };
       }
       if (
         !areIrTypesEquivalent(
@@ -272,11 +270,11 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
           expectedLayoutContext
         )
       ) {
-        return true;
+        return { actualLayout, expectedLayout, differs: true };
       }
     }
 
-    return false;
+    return { actualLayout, expectedLayout, differs: false };
   })();
 
   const adapted = tryAdaptStructuralExpressionAst(
@@ -291,18 +289,26 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   }
 
   if (
-    areIrTypesEquivalent(
-      normalizedActualType,
-      normalizedExpectedType,
-      context
-    ) &&
-    !runtimeUnionLayoutsDiffer
+    !runtimeUnionLayoutComparison.differs &&
+    runtimeUnionLayoutComparison.actualLayout &&
+    runtimeUnionLayoutComparison.expectedLayout
   ) {
     return [ast, context];
   }
 
   if (
-    !runtimeUnionLayoutsDiffer &&
+    areIrTypesEquivalent(
+      normalizedActualType,
+      normalizedExpectedType,
+      context
+    ) &&
+    !runtimeUnionLayoutComparison.differs
+  ) {
+    return [ast, context];
+  }
+
+  if (
+    !runtimeUnionLayoutComparison.differs &&
     canUseImplicitOptionalSurfaceConversion(
       emissionActualType,
       expectedType,

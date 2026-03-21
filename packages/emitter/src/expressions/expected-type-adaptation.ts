@@ -5,6 +5,7 @@ import type { EmitterContext } from "../types.js";
 import {
   maybeCastNullishTypeParamAst,
   maybeConvertCharToStringAst,
+  maybeBoxJsNumberAsObjectAst,
   maybeUnwrapNullableValueTypeAst,
 } from "./post-emission-adaptation.js";
 import {
@@ -110,11 +111,19 @@ export const adaptEmittedExpressionAst = (opts: {
       allowUnionNarrowing: false,
     }) ?? [dictionaryAdjustedAst, dictionaryAdjustedContext];
 
+  const [boxedNumericAst, boxedNumericContext] = maybeBoxJsNumberAsObjectAst(
+    expectedAdjustedAst,
+    expr,
+    actualType,
+    expectedAdjustedContext,
+    expectedType
+  );
+
   const [stringAdjustedAst, stringAdjustedContext] =
     maybeConvertCharToStringAst(
       expr,
-      expectedAdjustedAst,
-      expectedAdjustedContext,
+      boxedNumericAst,
+      boxedNumericContext,
       expectedType
     );
 

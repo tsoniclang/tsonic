@@ -286,3 +286,75 @@ export const maybeConvertCharToStringAst = (
     context,
   ];
 };
+
+// ---------------------------------------------------------------------------
+// JS number boxing
+// ---------------------------------------------------------------------------
+
+const isJsNumberIrType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" &&
+      (resolved.name === "number" || resolved.name === "int")) ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "int" ||
+        resolved.name === "double" ||
+        resolved.resolvedClrType === "System.Int32" ||
+        resolved.resolvedClrType === "global::System.Int32" ||
+        resolved.resolvedClrType === "System.Double" ||
+        resolved.resolvedClrType === "global::System.Double"))
+  );
+};
+
+const expectsBoxedObjectIrType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  if (type.kind === "unknownType" || type.kind === "anyType") {
+    return true;
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    resolved.kind === "referenceType" &&
+    (resolved.name === "object" ||
+      resolved.resolvedClrType === "System.Object" ||
+      resolved.resolvedClrType === "global::System.Object")
+  );
+};
+
+export const maybeBoxJsNumberAsObjectAst = (
+  ast: CSharpExpressionAst,
+  expr: IrExpression | undefined,
+  actualType: IrType | undefined,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] => {
+  if (context.options.surface !== "@tsonic/js") return [ast, context];
+  const isNumericLiteral =
+    expr?.kind === "literal" && typeof expr.value === "number";
+  if (!isNumericLiteral && !isJsNumberIrType(actualType, context)) {
+    return [ast, context];
+  }
+  if (!expectsBoxedObjectIrType(expectedType, context)) return [ast, context];
+
+  const widenedNumericAst: CSharpExpressionAst = {
+    kind: "castExpression",
+    type: { kind: "predefinedType", keyword: "double" },
+    expression: ast,
+  };
+
+  return [
+    {
+      kind: "castExpression",
+      type: { kind: "predefinedType", keyword: "object" },
+      expression: widenedNumericAst,
+    },
+    context,
+  ];
+};

@@ -90,6 +90,47 @@ const getExecutorArity = (
   return contextualArity ?? 1;
 };
 
+const normalizePromiseExecutorExpectedType = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  promiseValueType: IrType | undefined
+): IrType | undefined => {
+  const executorType = expr.parameterTypes?.[0];
+  if (!promiseValueType || executorType?.kind !== "functionType") {
+    return executorType;
+  }
+
+  return {
+    ...executorType,
+    parameters: executorType.parameters.map((parameter, index) => {
+      if (
+        index !== 0 ||
+        parameter.type === undefined ||
+        parameter.type.kind !== "functionType"
+      ) {
+        return parameter;
+      }
+
+      const resolveParameter = parameter.type.parameters[0];
+      if (!resolveParameter) {
+        return parameter;
+      }
+
+      return {
+        ...parameter,
+        type: {
+          ...parameter.type,
+          parameters: [
+            {
+              ...resolveParameter,
+              type: promiseValueType,
+            },
+          ],
+        },
+      };
+    }),
+  };
+};
+
 export const emitPromiseConstructor = (
   expr: Extract<IrExpression, { kind: "new" }>,
   context: EmitterContext
@@ -144,8 +185,12 @@ export const emitPromiseConstructor = (
     resolveParam.type.parameters.some((p) =>
       containsVoidInGenericPosition(p.type)
     );
+  const resolveParamNeedsPromiseLikeNormalization =
+    promiseValueType !== undefined &&
+    resolveParam?.type?.kind === "functionType" &&
+    resolveParam.type.parameters.some((p) => p.type?.kind === "unionType");
   const emittedExecutor =
-    resolveParamHasVoidGeneric &&
+    (resolveParamHasVoidGeneric || resolveParamNeedsPromiseLikeNormalization) &&
     (executor.kind === "arrowFunction" ||
       executor.kind === "functionExpression")
       ? {
@@ -155,11 +200,15 @@ export const emitPromiseConstructor = (
           ),
         }
       : executor;
+  const executorExpectedType = normalizePromiseExecutorExpectedType(
+    expr,
+    promiseValueType
+  );
 
   const [executorAst, executorContext] = emitExpressionAst(
     emittedExecutor,
     executorEmitContext,
-    expr.parameterTypes?.[0]
+    executorExpectedType
   );
   currentContext = resolveParamName
     ? { ...executorContext, voidResolveNames: undefined }

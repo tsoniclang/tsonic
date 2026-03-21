@@ -207,6 +207,10 @@ export const emitTypeAssertion = (
       return true;
     }
 
+    if (resolved.kind === "neverType" || resolved.kind === "voidType") {
+      return true;
+    }
+
     if (resolved.kind === "referenceType" && resolved.typeArguments?.length) {
       const importBinding = context.importBindings?.get(resolved.name);
       const clrName =

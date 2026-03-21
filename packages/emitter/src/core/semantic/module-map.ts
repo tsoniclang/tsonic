@@ -198,9 +198,7 @@ const buildExportMap = (modules: readonly IrModule[]): ExportMap => {
 
     for (const imp of module.imports) {
       if (!imp.isLocal) continue;
-      const sourceFile = imp.resolvedPath
-        ? canonicalizeFilePath(imp.resolvedPath)
-        : resolveImportPath(module.filePath, imp.source);
+      const sourceFile = resolveImportPath(module.filePath, imp.source);
 
       for (const spec of imp.specifiers) {
         if (spec.kind !== "named" || spec.isType === true) continue;

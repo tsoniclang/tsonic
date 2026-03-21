@@ -36,23 +36,26 @@ stabilize_tsonic_bin() {
     source_dir="$(cd "$(dirname "$source_bin")" && pwd)"
     local package_root
     package_root="$(cd "$source_dir/.." && pwd)"
-    local snapshot_root="$CACHE_DIR/tsonic-cli"
+    local source_stamp
+    source_stamp="$(stat -c %Y "$source_bin" 2>/dev/null || echo 0)"
+    local snapshot_root="$CACHE_DIR/tsonic-cli/${BASHPID:-$$}-$source_stamp"
     local snapshot_dir="$snapshot_root/dist"
     local snapshot_entry="$snapshot_root/index.js"
 
-    rm -rf "$snapshot_root" 2>/dev/null || true
-    mkdir -p "$snapshot_root"
-    cp "$package_root/package.json" "$snapshot_root/package.json"
-    cp -R "$source_dir" "$snapshot_dir"
-    if [[ -d "$package_root/runtime" ]]; then
-        cp -R "$package_root/runtime" "$snapshot_root/runtime"
-    fi
+    if [[ ! -f "$snapshot_entry" ]]; then
+        mkdir -p "$snapshot_root"
+        cp "$package_root/package.json" "$snapshot_root/package.json"
+        cp -R "$source_dir" "$snapshot_dir"
+        if [[ -d "$package_root/runtime" ]]; then
+            cp -R "$package_root/runtime" "$snapshot_root/runtime"
+        fi
 
-    cat >"$snapshot_entry" <<EOF
+        cat >"$snapshot_entry" <<EOF
 #!/usr/bin/env node
 process.env.TSONIC_REPO_ROOT ??= ${ROOT_DIR@Q};
 await import("./dist/index.js");
 EOF
+    fi
 
     TSONIC_BIN="$snapshot_entry"
 }
