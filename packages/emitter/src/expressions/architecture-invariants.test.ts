@@ -25,9 +25,12 @@ const walkTsFiles = (dir: string): string[] => {
   return files;
 };
 
+const isTestSupportFile = (file: string): boolean =>
+  /(?:^|\/)[^/]+-cases\//.test(relative(expressionsRoot, file));
+
 const productionExpressionFiles = (): string[] =>
   walkTsFiles(expressionsRoot).filter(
-    (file) => !file.endsWith(".test.ts") && !file.endsWith(".suite.ts")
+    (file) => !file.endsWith(".test.ts") && !isTestSupportFile(file)
   );
 
 describe("expression architecture invariants", () => {

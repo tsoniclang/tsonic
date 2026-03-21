@@ -1,2 +1,2 @@
-import "./imports-tests/basic-and-local.suite.js";
-import "./imports-tests/bindings-and-namespaces.suite.js";
+import "./imports-cases/basic-and-local.test.js";
+import "./imports-cases/bindings-and-namespaces.test.js";

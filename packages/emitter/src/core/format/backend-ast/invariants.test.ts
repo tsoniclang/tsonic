@@ -25,7 +25,7 @@ const walkTsFiles = (dir: string): string[] => {
 };
 
 const isTestSupportFile = (file: string): boolean =>
-  /(?:^|\/)[^/]+-(?:tests|parts)\//.test(relative(emitterRoot, file));
+  /(?:^|\/)[^/]+-cases\//.test(relative(emitterRoot, file));
 
 const productionFiles = (): string[] =>
   walkTsFiles(emitterRoot).filter(

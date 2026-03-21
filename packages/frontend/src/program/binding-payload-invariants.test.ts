@@ -24,9 +24,12 @@ const walkTsFiles = (dir: string): string[] => {
   return files;
 };
 
+const isTestSupportFile = (file: string): boolean =>
+  /(?:^|\/)[^/]+-cases\//.test(relative(srcRoot, file));
+
 const productionFiles = (): string[] =>
   walkTsFiles(srcRoot).filter(
-    (file) => !file.endsWith(".test.ts") && !file.endsWith(".suite.ts")
+    (file) => !file.endsWith(".test.ts") && !isTestSupportFile(file)
   );
 
 describe("dotnet binding payload architecture invariants", () => {
