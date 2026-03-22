@@ -30,6 +30,7 @@ import {
   buildRuntimeUnionLayout,
   emitRuntimeCarrierTypeAst,
 } from "../core/semantic/runtime-unions.js";
+import { resolveIdentifierValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { resolveRuntimeMaterializationTargetType } from "../core/semantic/runtime-materialization-targets.js";
@@ -42,6 +43,7 @@ import {
 } from "../core/format/backend-ast/utils.js";
 import { stringLiteral } from "../core/format/backend-ast/builders.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
+import { matchesEmittedStorageSurface } from "./identifier-storage.js";
 import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
 
@@ -242,6 +244,26 @@ export const emitTypeAssertion = (
   };
 
   const resolvedAssertionTarget = resolveLocalTypeAliases(expr.targetType);
+  const runtimeAssertionTarget = resolveRuntimeMaterializationTargetType(
+    resolvedAssertionTarget,
+    context
+  );
+  const sourceStorageTypeAtEntry =
+    transparentSourceExpression.kind === "identifier"
+      ? resolveIdentifierValueSurfaceType(transparentSourceExpression, context)
+      : undefined;
+  const preservesStorageSurfaceAtEntry =
+    !sourceStorageTypeAtEntry ||
+    areIrTypesEquivalent(
+      sourceStorageTypeAtEntry,
+      runtimeAssertionTarget,
+      context
+    ) ||
+    matchesEmittedStorageSurface(
+      sourceStorageTypeAtEntry,
+      runtimeAssertionTarget,
+      context
+    )[0];
 
   if (
     (resolvedAssertionTarget.kind === "primitiveType" &&
@@ -290,6 +312,7 @@ export const emitTypeAssertion = (
   if (
     expectedType &&
     sourceExpressionTypeAtEntry &&
+    preservesStorageSurfaceAtEntry &&
     (areIrTypesEquivalent(sourceExpressionTypeAtEntry, expectedType, context) ||
       matchesExpectedEmissionType(
         sourceExpressionTypeAtEntry,
@@ -336,10 +359,27 @@ export const emitTypeAssertion = (
     expr.targetType,
     ctx1
   );
+  const sourceCarrierTypeAtEntry =
+    sourceStorageTypeAtEntry ?? sourceExpressionTypeAtEntry;
+  const sourceCarriesRuntimeUnionAtEntry =
+    !!sourceCarrierTypeAtEntry &&
+    willCarryAsRuntimeUnion(sourceCarrierTypeAtEntry, ctx1);
+  const targetNeedsStructuredReification =
+    runtimeTarget.kind === "arrayType" ||
+    runtimeTarget.kind === "dictionaryType";
+  const mustPreserveDirectStorageCast =
+    !preservesStorageSurfaceAtEntry &&
+    !willCarryAsRuntimeUnion(runtimeTarget, ctx1) &&
+    !sourceCarriesRuntimeUnionAtEntry &&
+    !targetNeedsStructuredReification;
   const sourceExpressionType =
     transparentSourceExpression.kind === "identifier"
       ? (ctx1.localSemanticTypes?.get(transparentSourceExpression.name) ??
-        transparentSourceExpression.inferredType)
+        ((rawSourceContext !== context &&
+        !preservesStorageSurfaceAtEntry &&
+        sourceStorageTypeAtEntry
+          ? sourceStorageTypeAtEntry
+          : transparentSourceExpression.inferredType)))
       : transparentSourceExpression.inferredType;
   const isSourceUnion = sourceExpressionType
     ? isSemanticUnion(sourceExpressionType, ctx1)
@@ -399,12 +439,14 @@ export const emitTypeAssertion = (
     ];
   }
 
-  const adaptedUnionAst = adaptValueToExpectedTypeAst({
-    valueAst: innerAst,
-    actualType: actualExpressionType,
-    context: sourceLayoutContext,
-    expectedType: runtimeTarget,
-  });
+  const adaptedUnionAst = mustPreserveDirectStorageCast
+    ? undefined
+    : adaptValueToExpectedTypeAst({
+        valueAst: innerAst,
+        actualType: actualExpressionType,
+        context: sourceLayoutContext,
+        expectedType: runtimeTarget,
+      });
   if (adaptedUnionAst) {
     return adaptedUnionAst;
   }

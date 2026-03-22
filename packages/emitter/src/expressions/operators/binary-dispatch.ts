@@ -467,12 +467,21 @@ export const emitBinary = (
 
   const isArithmeticOp =
     op === "+" || op === "-" || op === "*" || op === "/" || op === "%";
+  const shouldContextuallyTypeComparisonOperand = (
+    operand: IrExpression
+  ): boolean => getTransparentComparisonTarget(operand).kind === "literal";
   // Standard emission path
   // Emit operands without contextual type propagation
   // Literals will emit using their raw lexeme (42 vs 42.0)
   // Parenthesization is handled by the printer's precedence system
   const leftExpectedType = isComparisonOp
-    ? chooseComparisonExpectedType(leftResolvedType, rightResolvedType, context)
+    ? shouldContextuallyTypeComparisonOperand(expr.left)
+      ? chooseComparisonExpectedType(
+          leftResolvedType,
+          rightResolvedType,
+          context
+        )
+      : undefined
     : isArithmeticOp &&
         expr.left.kind === "conditional" &&
         isNumericOperandType(rightResolvedType)
@@ -484,7 +493,13 @@ export const emitBinary = (
     leftExpectedType
   );
   const rightExpectedType = isComparisonOp
-    ? chooseComparisonExpectedType(rightResolvedType, leftResolvedType, context)
+    ? shouldContextuallyTypeComparisonOperand(expr.right)
+      ? chooseComparisonExpectedType(
+          rightResolvedType,
+          leftResolvedType,
+          context
+        )
+      : undefined
     : isArithmeticOp &&
         expr.right.kind === "conditional" &&
         isNumericOperandType(leftResolvedType)

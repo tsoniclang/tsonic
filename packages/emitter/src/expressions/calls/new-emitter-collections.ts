@@ -164,7 +164,9 @@ const INT_IR_TYPE: IrType = {
 const getConstructorClrName = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): string | undefined =>
-  (expr.callee.kind === "identifier" ? expr.callee.resolvedClrType : undefined) ??
+  (expr.callee.kind === "identifier"
+    ? expr.callee.resolvedClrType
+    : undefined) ??
   (expr.inferredType?.kind === "referenceType"
     ? (expr.inferredType.resolvedClrType ?? expr.inferredType.typeId?.clrName)
     : undefined);

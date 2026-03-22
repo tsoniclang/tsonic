@@ -187,6 +187,18 @@ export const resolveInstanceofTargetType = (
     };
   };
 
+  const containsAnyType = (type: IrType): boolean => {
+    switch (type.kind) {
+      case "anyType":
+        return true;
+      case "unionType":
+      case "intersectionType":
+        return type.types.some((member) => containsAnyType(member));
+      default:
+        return false;
+    }
+  };
+
   const normalize = (type: IrType): IrType =>
     type.kind === "referenceType" &&
     !type.typeId &&
@@ -198,24 +210,84 @@ export const resolveInstanceofTargetType = (
         }
       : type;
 
+  const isAnonymousStructuralReferenceType = (type: IrType): boolean =>
+    type.kind === "referenceType" &&
+    type.name.startsWith("__Anon_") &&
+    (type.structuralMembers?.length ?? 0) > 0;
+
+  const selectPreferredTargetType = (type: IrType): IrType | undefined => {
+    const normalized = normalize(type);
+
+    if (
+      normalized.kind === "unknownType" ||
+      normalized.kind === "objectType" ||
+      normalized.kind === "anyType"
+    ) {
+      return undefined;
+    }
+
+    if (isAnonymousStructuralReferenceType(normalized)) {
+      return undefined;
+    }
+
+    if (normalized.kind === "intersectionType") {
+      if (containsAnyType(normalized)) {
+        return undefined;
+      }
+
+      const referenceMembers = normalized.types
+        .map((member) => normalize(member))
+        .filter(
+          (member): member is Extract<IrType, { kind: "referenceType" }> =>
+            member.kind === "referenceType" &&
+            !isAnonymousStructuralReferenceType(member)
+        );
+
+      if (referenceMembers.length === 1) {
+        return referenceMembers[0];
+      }
+
+      return undefined;
+    }
+
+    return normalized;
+  };
+
   const unwrapped = unwrapExpr(expr);
 
   if (ts.isIdentifier(unwrapped)) {
+    const fallback = bindingBackedTargetType(unwrapped.text);
     const declId = ctx.binding.resolveIdentifier(unwrapped);
     if (declId) {
-      const type = ctx.typeSystem.typeOfDecl(declId);
-      if (type.kind !== "unknownType" && type.kind !== "objectType") {
-        return normalize(type);
+      const preferredDeclType = selectPreferredTargetType(
+        ctx.typeSystem.typeOfDecl(declId)
+      );
+      if (preferredDeclType) {
+        return preferredDeclType;
+      }
+
+      const preferredValueReadType = selectPreferredTargetType(
+        ctx.typeSystem.typeOfValueRead(declId)
+      );
+      if (preferredValueReadType) {
+        return preferredValueReadType;
       }
     }
 
-    return bindingBackedTargetType(unwrapped.text);
+    return fallback;
   }
 
   const accessTarget = getAccessPathTarget(unwrapped, ctx);
   if (!accessTarget) return undefined;
 
   const type = getCurrentTypeForAccessPath(accessTarget, ctx);
-  if (!type || type.kind === "unknownType") return undefined;
-  return normalize(type);
+  if (!type) return undefined;
+
+  const preferred = selectPreferredTargetType(type);
+  if (preferred) {
+    return preferred;
+  }
+
+  const finalSegment = accessTarget.segments.at(-1);
+  return finalSegment ? bindingBackedTargetType(finalSegment) : undefined;
 };

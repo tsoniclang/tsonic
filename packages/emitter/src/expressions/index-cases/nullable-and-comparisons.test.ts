@@ -83,7 +83,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("useLong(id.Value)");
+    expect(result).to.include("useLong((long)id)");
   });
 
   it("should not double-unwrap member-access nullable guards (no .Value.Value)", () => {
@@ -254,5 +254,85 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
     expect(result).to.include("global::System.String.CompareOrdinal(a, b) > 0");
     expect(result).to.not.include("a > b");
+  });
+
+  it("does not cast non-literal numeric comparison operands from the other side's exact int type", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "binary",
+            operator: ">",
+            left: {
+              kind: "identifier",
+              name: "ticks",
+              inferredType: { kind: "referenceType", name: "long" },
+            },
+            right: {
+              kind: "literal",
+              value: 0,
+              inferredType: { kind: "referenceType", name: "int" },
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("ticks >");
+    expect(result).to.not.include("(int)ticks");
+  });
+
+  it("does not wrap non-literal numeric comparison expressions in cosmetic int casts", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "binary",
+            operator: "===",
+            left: {
+              kind: "binary",
+              operator: "%",
+              left: {
+                kind: "identifier",
+                name: "n",
+                inferredType: { kind: "referenceType", name: "int" },
+              },
+              right: {
+                kind: "literal",
+                value: 2,
+                inferredType: { kind: "referenceType", name: "int" },
+              },
+              inferredType: { kind: "primitiveType", name: "number" },
+            },
+            right: {
+              kind: "literal",
+              value: 0,
+              inferredType: { kind: "referenceType", name: "int" },
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("n % 2");
+    expect(result).to.not.include("(int)(n % 2)");
   });
 });

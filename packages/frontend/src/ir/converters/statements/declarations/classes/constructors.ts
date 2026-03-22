@@ -173,11 +173,10 @@ export const convertConstructorOverloadGroup = (
     return [convertConstructor(impl, ctx, impl.parameters)];
   }
 
-  const implCtor = convertConstructor(
-    impl,
-    ctx,
-    impl.parameters
-  ) as Extract<IrClassMember, { kind: "constructorDeclaration" }>;
+  const implCtor = convertConstructor(impl, ctx, impl.parameters) as Extract<
+    IrClassMember,
+    { kind: "constructorDeclaration" }
+  >;
 
   const helperMethod: IrMethodDeclaration = {
     kind: "methodDeclaration",

@@ -432,7 +432,7 @@ describe("build command (native library port regressions)", function () {
         "global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<global::Tsonic.Runtime.Union<object[]"
       );
       expect(tree).to.not.include("var items = value;");
-      expect(tree).to.include("object?[] items = (object?[])(object?)value;");
+      expect(tree).to.include("object?[] items = (object?[])value;");
       expect(tree).to.match(
         /class MemoryResponse\s*:\s*global::.*TransportResponse/
       );

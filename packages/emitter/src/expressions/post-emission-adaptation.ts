@@ -420,12 +420,21 @@ const isNumericSourceIrType = (
       (resolved.name === "number" || resolved.name === "int")) ||
     (resolved.kind === "literalType" && typeof resolved.value === "number") ||
     (resolved.kind === "referenceType" &&
-      (resolved.name === "int" ||
+      (INTEGRAL_EXPECTED_TYPE_NAMES.has(resolved.name) ||
         resolved.name === "double" ||
-        resolved.resolvedClrType === "System.Int32" ||
-        resolved.resolvedClrType === "global::System.Int32" ||
-        resolved.resolvedClrType === "System.Double" ||
-        resolved.resolvedClrType === "global::System.Double"))
+        resolved.name === "float" ||
+        resolved.name === "decimal" ||
+        resolved.name === "Half" ||
+        (resolved.resolvedClrType !== undefined &&
+          (INTEGRAL_EXPECTED_TYPE_NAMES.has(resolved.resolvedClrType) ||
+            resolved.resolvedClrType === "System.Double" ||
+            resolved.resolvedClrType === "global::System.Double" ||
+            resolved.resolvedClrType === "System.Single" ||
+            resolved.resolvedClrType === "global::System.Single" ||
+            resolved.resolvedClrType === "System.Decimal" ||
+            resolved.resolvedClrType === "global::System.Decimal" ||
+            resolved.resolvedClrType === "System.Half" ||
+            resolved.resolvedClrType === "global::System.Half"))))
   );
 };
 
@@ -517,16 +526,10 @@ export const maybeBoxJsNumberAsObjectAst = (
     nullableNumericBaseType &&
     isJsNumberIrType(nullableNumericBaseType, context)
   ) {
-    const nullableValueAccessAst: CSharpExpressionAst = {
-      kind: "memberAccessExpression",
-      expression: ast,
-      memberName: "Value",
-    };
-
     const widenedNullableValueAst: CSharpExpressionAst = {
       kind: "castExpression",
       type: { kind: "predefinedType", keyword: "double" },
-      expression: nullableValueAccessAst,
+      expression: ast,
     };
 
     return [

@@ -20,9 +20,9 @@ import {
 
 describe("backend-ast utils", () => {
   it("normalizes CLR qualified names for nested type references", () => {
-    expect(normalizeClrQualifiedName("System.Environment+SpecialFolder")).to.equal(
-      "System.Environment.SpecialFolder"
-    );
+    expect(
+      normalizeClrQualifiedName("System.Environment+SpecialFolder")
+    ).to.equal("System.Environment.SpecialFolder");
     expect(normalizeClrQualifiedName("global::Outer+Inner`2", true)).to.equal(
       "global::Outer.Inner"
     );

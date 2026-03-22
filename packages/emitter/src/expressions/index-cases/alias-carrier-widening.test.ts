@@ -261,4 +261,142 @@ describe("Expression Emission", () => {
     // (Match Union<A>.From(Union<B>) is NOT nested — it's sibling factory calls.)
     expect(rendered).to.not.include("Union<global::Tsonic.Runtime.Union<");
   });
+
+  it("does not re-wrap alias narrowing assertions that already materialize the target carrier", () => {
+    const requestHandlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "req" },
+          type: {
+            kind: "referenceType",
+            name: "Request",
+            resolvedClrType: "Test.Request",
+          },
+          initializer: undefined,
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "unknownType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const pathSpecUnderlying: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        {
+          kind: "referenceType",
+          name: "RegExp",
+          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+        },
+        {
+          kind: "arrayType",
+          elementType: { kind: "referenceType", name: "PathSpec" },
+          origin: "explicit",
+        },
+      ],
+    };
+
+    const middlewareLikeUnderlying: IrType = {
+      kind: "unionType",
+      types: [
+        requestHandlerType,
+        routerType,
+        {
+          kind: "arrayType",
+          elementType: { kind: "referenceType", name: "MiddlewareLike" },
+          origin: "explicit",
+        },
+      ],
+    };
+
+    const typesModuleLocalTypes = new Map([
+      [
+        "PathSpec",
+        { kind: "typeAlias" as const, typeParameters: [], type: pathSpecUnderlying },
+      ],
+      [
+        "MiddlewareLike",
+        {
+          kind: "typeAlias" as const,
+          typeParameters: [],
+          type: middlewareLikeUnderlying,
+        },
+      ],
+    ]);
+
+    const moduleMap = new Map([
+      [
+        "src/types.ts",
+        {
+          namespace: "Test",
+          className: "types",
+          filePath: "src/types.ts",
+          hasRuntimeContainer: false,
+          hasTypeCollision: false,
+          exportedValueKinds: undefined,
+          localTypes: typesModuleLocalTypes,
+        },
+      ],
+    ]);
+
+    const pathSpecRef: IrType = {
+      kind: "referenceType",
+      name: "PathSpec",
+    };
+
+    const middlewareLikeRef: IrType = {
+      kind: "referenceType",
+      name: "MiddlewareLike",
+    };
+
+    const broadType: IrType = {
+      kind: "unionType",
+      types: [pathSpecRef, middlewareLikeRef],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "first",
+          inferredType: broadType,
+        },
+        targetType: middlewareLikeRef,
+        inferredType: middlewareLikeRef,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+          moduleMap: moduleMap as ReadonlyMap<
+            string,
+            typeof moduleMap extends Map<string, infer V> ? V : never
+          >,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+      },
+      middlewareLikeRef
+    );
+
+    const rendered = printExpression(result);
+    const matchCount = rendered.split(".Match(").length - 1;
+
+    expect(matchCount).to.equal(1);
+    expect(rendered).to.not.include(")).Match(");
+  });
 });

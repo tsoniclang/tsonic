@@ -12,6 +12,7 @@ import type { CSharpTypeAst } from "../../../core/format/backend-ast/types.js";
 import { hasDeterministicPropertyMembership } from "../../../core/semantic/type-resolution.js";
 import { matchesExpectedEmissionType } from "../../../core/semantic/expected-type-matching.js";
 import {
+  findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
 } from "../../../core/semantic/runtime-unions.js";
@@ -361,6 +362,17 @@ export const tryResolveInstanceofGuard = (
         )
       : undefined;
   const runtimeMatchIndex = runtimeMatchIndices?.[0];
+  const memberNeedsPatternCheck =
+    runtimeUnionFrame &&
+    runtimeMatchIndex !== undefined &&
+    inferredRhsType &&
+    runtimeUnionFrame.members[runtimeMatchIndex]
+      ? findExactRuntimeUnionMemberIndices(
+          [runtimeUnionFrame.members[runtimeMatchIndex]],
+          inferredRhsType,
+          context
+        ).length === 0
+      : false;
   const memberN =
     runtimeUnionFrame && runtimeMatchIndex !== undefined
       ? (runtimeUnionFrame.candidateMemberNs[runtimeMatchIndex] ??
@@ -386,6 +398,7 @@ export const tryResolveInstanceofGuard = (
     narrowedMap,
     targetType: inferredRhsType ?? undefined,
     memberN,
+    memberNeedsPatternCheck,
     runtimeUnionArity: runtimeUnionFrame?.runtimeUnionArity,
     candidateMemberNs: runtimeUnionFrame?.candidateMemberNs,
     candidateMembers: runtimeUnionFrame?.members,

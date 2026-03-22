@@ -14,6 +14,7 @@
 
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
+import { expandRuntimeUnionMembers } from "./runtime-union-expansion.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 import {
   findExactRuntimeUnionMemberIndices,
@@ -62,10 +63,9 @@ export const resolveNarrowedUnionMembers = (
       narrowed.sourceType,
       context
     );
-    const narrowedMembers = getCanonicalRuntimeUnionMembers(
-      narrowed.type,
-      context
-    );
+    const narrowedMembers =
+      getCanonicalRuntimeUnionMembers(narrowed.type, context) ??
+      expandRuntimeUnionMembers(narrowed.type, context);
 
     if (sourceMembers && narrowedMembers) {
       const candidateMemberNs = narrowedMembers.flatMap((member) => {

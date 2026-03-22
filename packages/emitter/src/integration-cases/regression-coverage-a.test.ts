@@ -146,7 +146,7 @@ describe("End-to-End Integration", () => {
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.include("limit = limit");
+      expect(csharp).to.include("limit = (int?)limit");
       expect(csharp).not.to.include("limit = limit.Value");
       expect(csharp).to.include("int? limit =");
       expect(csharp).not.to.include("var limit =");
@@ -173,9 +173,9 @@ describe("End-to-End Integration", () => {
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.include("takeDeclared(query.limit);");
-      expect(csharp).to.include("takeLocal(query.limit);");
-      expect(csharp).to.include("takeTyped(query.limit);");
+      expect(csharp).to.include("takeDeclared((int?)query.limit);");
+      expect(csharp).to.include("takeLocal((int?)query.limit);");
+      expect(csharp).to.include("takeTyped((int?)query.limit);");
       expect(csharp).not.to.include("takeDeclared(query.limit.Value)");
       expect(csharp).not.to.include("takeLocal(query.limit.Value)");
       expect(csharp).not.to.include("takeTyped(query.limit.Value)");

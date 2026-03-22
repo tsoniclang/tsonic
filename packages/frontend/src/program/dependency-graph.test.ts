@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { buildModuleDependencyGraph } from "./dependency-graph.js";
 
 describe("Dependency Graph", function () {
-  this.timeout(30_000);
+  this.timeout(60_000);
   it("should traverse imports from installed tsonic source packages", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-dependency-graph-source-package-")

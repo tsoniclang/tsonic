@@ -228,7 +228,112 @@ describe("Expression Emission", () => {
     );
 
     expect(printExpression(result)).to.equal(
-      "global::Tsonic.Runtime.Union<object[], global::System.Func<object?>, global::Test.Router>.From1(new object[] { (object)handler })"
+      "global::Tsonic.Runtime.Union<object[], global::System.Func<object?>, global::Test.Router>.From1(new object[] { handler })"
+    );
+  });
+
+  it("keeps exact storage-erased recursive array literal arms when wrapping recursive alias unions", () => {
+    const handlerType: IrType = {
+      kind: "functionType",
+      parameters: [
+        {
+          kind: "parameter",
+          pattern: { kind: "identifierPattern", name: "value" },
+          type: { kind: "primitiveType", name: "string" },
+          isOptional: false,
+          isRest: false,
+          passing: "value",
+        },
+      ],
+      returnType: { kind: "voidType" },
+    };
+
+    const routerType: IrType = {
+      kind: "referenceType",
+      name: "Router",
+      resolvedClrType: "Test.Router",
+    };
+
+    const middlewareParamRef: IrType = {
+      kind: "referenceType",
+      name: "MiddlewareParam",
+    };
+    const middlewareLikeRef: IrType = {
+      kind: "referenceType",
+      name: "MiddlewareLike",
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "array",
+        elements: [
+          {
+            kind: "identifier",
+            name: "handler",
+            inferredType: handlerType,
+          },
+        ],
+        inferredType: {
+          kind: "arrayType",
+          elementType: middlewareLikeRef,
+          origin: "explicit",
+        },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localTypes: new Map([
+          [
+            "MiddlewareParam",
+            {
+              kind: "typeAlias",
+              typeParameters: [],
+              type: {
+                kind: "unionType",
+                types: [
+                  handlerType,
+                  {
+                    kind: "arrayType",
+                    elementType: middlewareParamRef,
+                    origin: "explicit",
+                  },
+                ],
+              },
+            },
+          ],
+          [
+            "MiddlewareLike",
+            {
+              kind: "typeAlias",
+              typeParameters: [],
+              type: {
+                kind: "unionType",
+                types: [
+                  middlewareParamRef,
+                  routerType,
+                  {
+                    kind: "arrayType",
+                    elementType: middlewareLikeRef,
+                    origin: "explicit",
+                  },
+                ],
+              },
+            },
+          ],
+        ]),
+      },
+      middlewareLikeRef
+    );
+
+    expect(printExpression(result)).to.equal(
+      "global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From1(new object[] { global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From2(handler) })"
     );
   });
 

@@ -384,7 +384,9 @@ describe("Expression Emission", () => {
     const rendered = printExpression(result);
     expect(rendered).to.include("result.Is2()");
     expect(rendered).to.include("!= null");
-    expect(rendered).to.not.include("result is global::Tsonic.JSRuntime.Uint8Array");
+    expect(rendered).to.not.include(
+      "result is global::Tsonic.JSRuntime.Uint8Array"
+    );
   });
 
   it("prefers runtime-union carrier guards over narrowed semantic views for Array.isArray", () => {

@@ -33,7 +33,10 @@ const method = (
   parameters: readonly IrParameter[],
   returnType: IrType,
   options?: Partial<
-    Pick<IrMethodDeclaration, "isOverride" | "isShadow" | "isVirtual" | "isAsync">
+    Pick<
+      IrMethodDeclaration,
+      "isOverride" | "isShadow" | "isVirtual" | "isAsync"
+    >
   >
 ): IrMethodDeclaration => ({
   kind: "methodDeclaration",
@@ -190,7 +193,9 @@ describe("virtual-marking-pass", () => {
           kind: "classDeclaration",
           name: "Base",
           implements: [],
-          members: [method("write", [parameter("chunk", unknownType)], unknownType)],
+          members: [
+            method("write", [parameter("chunk", unknownType)], unknownType),
+          ],
           isExported: true,
           isStruct: false,
         },

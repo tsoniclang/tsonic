@@ -167,7 +167,8 @@ const parametersMatchForBridgePrefix = (
 ): boolean =>
   baseParameter.isRest === derivedParameter.isRest &&
   baseParameter.passing === derivedParameter.passing &&
-  getMethodTypeKey(baseParameter.type) === getMethodTypeKey(derivedParameter.type);
+  getMethodTypeKey(baseParameter.type) ===
+    getMethodTypeKey(derivedParameter.type);
 
 const canOmitDerivedTrailingParameters = (
   parameters: readonly IrParameter[]
@@ -232,7 +233,8 @@ const buildBridgeMethod = (
     return undefined;
   }
 
-  const forwardedArgs: NonNullable<ReturnType<typeof buildBridgeArgument>>[] = [];
+  const forwardedArgs: NonNullable<ReturnType<typeof buildBridgeArgument>>[] =
+    [];
   for (const parameter of baseMethod.parameters) {
     const argument = buildBridgeArgument(parameter);
     if (!argument) {

@@ -472,7 +472,10 @@ describe("Array Emission", () => {
                         },
                         arguments: [{ kind: "this" }],
                         isOptional: false,
-                        inferredType: { kind: "primitiveType", name: "boolean" },
+                        inferredType: {
+                          kind: "primitiveType",
+                          name: "boolean",
+                        },
                       },
                     },
                     thenStatement: {
@@ -510,7 +513,10 @@ describe("Array Emission", () => {
                             },
                             arguments: [{ kind: "this" }],
                             isOptional: false,
-                            inferredType: { kind: "primitiveType", name: "int" },
+                            inferredType: {
+                              kind: "primitiveType",
+                              name: "int",
+                            },
                           },
                         },
                       ],

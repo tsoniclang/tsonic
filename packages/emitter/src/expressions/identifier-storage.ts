@@ -17,6 +17,7 @@ import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import {
+  normalizeStructuralEmissionType,
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
@@ -24,6 +25,65 @@ import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adap
 import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
+import {
+  getArrayElementType,
+  getDictionaryValueType,
+  isSameNominalType,
+} from "./structural-type-shapes.js";
+
+const needsStructuralCollectionMaterialization = (
+  actualType: IrType | undefined,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!actualType || !expectedType) {
+    return false;
+  }
+
+  const actualArrayElement = getArrayElementType(actualType, context);
+  const expectedArrayElement = getArrayElementType(expectedType, context);
+  if (actualArrayElement && expectedArrayElement) {
+    const actualStructuralElement =
+      resolveStructuralReferenceType(actualArrayElement, context) ??
+      stripNullish(actualArrayElement);
+    const expectedStructuralElement =
+      resolveStructuralReferenceType(expectedArrayElement, context) ??
+      stripNullish(expectedArrayElement);
+
+    if (
+      (actualStructuralElement.kind === "objectType" ||
+        expectedStructuralElement.kind === "objectType") &&
+      !isSameNominalType(actualArrayElement, expectedArrayElement, context)
+    ) {
+      return true;
+    }
+  }
+
+  const actualDictionaryValue = getDictionaryValueType(actualType, context);
+  const expectedDictionaryValue = getDictionaryValueType(expectedType, context);
+  if (actualDictionaryValue && expectedDictionaryValue) {
+    const actualStructuralValue =
+      resolveStructuralReferenceType(actualDictionaryValue, context) ??
+      stripNullish(actualDictionaryValue);
+    const expectedStructuralValue =
+      resolveStructuralReferenceType(expectedDictionaryValue, context) ??
+      stripNullish(expectedDictionaryValue);
+
+    if (
+      (actualStructuralValue.kind === "objectType" ||
+        expectedStructuralValue.kind === "objectType") &&
+      !isSameNominalType(
+        actualDictionaryValue,
+        expectedDictionaryValue,
+        context
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+};
 
 export const isBroadStorageTarget = (
   expectedType: IrType | undefined,
@@ -143,6 +203,12 @@ export const tryEmitStorageCompatibleIdentifier = (
     return undefined;
   }
 
+  if (
+    needsStructuralCollectionMaterialization(storageType, expectedType, context)
+  ) {
+    return undefined;
+  }
+
   return identifierExpression(remappedLocal);
 };
 
@@ -159,10 +225,6 @@ export const tryEmitCollapsedStorageIdentifier = (
   const effectiveType = resolveEffectiveExpressionType(expr, context);
   if (!effectiveType) {
     return undefined;
-  }
-
-  if (matchesExpectedEmissionType(storageType, effectiveType, context)) {
-    return [identifierExpression(remappedLocal), context];
   }
 
   const [sameSurface, nextContext] = matchesEmittedStorageSurface(
@@ -191,19 +253,16 @@ export const tryEmitImplicitNarrowedStorageIdentifier = (
     return undefined;
   }
 
-  if (!matchesExpectedEmissionType(storageType, narrowed.type, context)) {
-    const [sameSurface, nextContext] = matchesEmittedStorageSurface(
-      storageType,
-      narrowed.type,
-      context
-    );
-    if (!sameSurface) {
-      return undefined;
-    }
-    return [narrowed.storageExprAst, nextContext];
+  const [sameSurface, nextContext] = matchesEmittedStorageSurface(
+    storageType,
+    narrowed.type,
+    context
+  );
+  if (!sameSurface) {
+    return undefined;
   }
 
-  return [narrowed.storageExprAst, context];
+  return [narrowed.storageExprAst, nextContext];
 };
 
 export const tryEmitImplicitRuntimeSubsetStorageIdentifier = (
@@ -219,10 +278,6 @@ export const tryEmitImplicitRuntimeSubsetStorageIdentifier = (
   const storageType = context.localValueTypes?.get(expr.name);
   if (!remappedLocal || !storageType) {
     return undefined;
-  }
-
-  if (matchesExpectedEmissionType(storageType, narrowed.type, context)) {
-    return [identifierExpression(remappedLocal), context];
   }
 
   const [sameSurface, nextContext] = matchesEmittedStorageSurface(
@@ -294,19 +349,16 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   }
 
   const targetType = expectedType ?? narrowed.type;
-  if (!matchesExpectedEmissionType(storageType, targetType, context)) {
-    const [sameSurface, nextContext] = matchesEmittedStorageSurface(
-      storageType,
-      targetType,
-      context
-    );
-    if (!sameSurface) {
-      return undefined;
-    }
-    return [narrowed.storageExprAst, nextContext];
+  const [sameSurface, nextContext] = matchesEmittedStorageSurface(
+    storageType,
+    targetType,
+    context
+  );
+  if (!sameSurface) {
+    return undefined;
   }
 
-  return [narrowed.storageExprAst, context];
+  return [narrowed.storageExprAst, nextContext];
 };
 
 export const tryEmitMaterializedNarrowedIdentifier = (
@@ -361,11 +413,39 @@ export const tryEmitMaterializedNarrowedIdentifier = (
   );
 };
 
-const matchesEmittedStorageSurface = (
+export const matchesEmittedStorageSurface = (
   actualType: IrType | undefined,
   expectedType: IrType | undefined,
   context: EmitterContext
 ): [boolean, EmitterContext] => {
+  const containsRawObjectType = (type: IrType): boolean => {
+    switch (type.kind) {
+      case "objectType":
+        return true;
+      case "arrayType":
+        return containsRawObjectType(type.elementType);
+      case "tupleType":
+        return type.elementTypes.some((elementType) =>
+          containsRawObjectType(elementType)
+        );
+      case "dictionaryType":
+        return containsRawObjectType(type.valueType);
+      case "unionType":
+      case "intersectionType":
+        return type.types.some((memberType) =>
+          containsRawObjectType(memberType)
+        );
+      case "referenceType":
+        return (
+          type.typeArguments?.some((typeArgument) =>
+            containsRawObjectType(typeArgument)
+          ) ?? false
+        );
+      default:
+        return false;
+    }
+  };
+
   if (!actualType || !expectedType) {
     return [false, context];
   }
@@ -374,12 +454,22 @@ const matchesEmittedStorageSurface = (
     return [false, context];
   }
 
-  const strippedActual =
+  const strippedActual = normalizeStructuralEmissionType(
     resolveStructuralReferenceType(stripNullish(actualType), context) ??
-    stripNullish(actualType);
-  const strippedExpected =
+      stripNullish(actualType),
+    context
+  );
+  const strippedExpected = normalizeStructuralEmissionType(
     resolveStructuralReferenceType(stripNullish(expectedType), context) ??
-    stripNullish(expectedType);
+      stripNullish(expectedType),
+    context
+  );
+  if (
+    containsRawObjectType(strippedActual) ||
+    containsRawObjectType(strippedExpected)
+  ) {
+    return [false, context];
+  }
   const [actualTypeAst, actualTypeContext] = emitTypeAst(
     strippedActual,
     context

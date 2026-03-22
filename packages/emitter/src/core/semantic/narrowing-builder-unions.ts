@@ -119,7 +119,8 @@ export const buildRuntimeUnionComplementBinding = (
             members: sourceInfo.sourceMembers,
             candidateMemberNs: sourceInfo.sourceCandidateMemberNs,
           }
-        : runtimeUnionFrame.runtimeUnionArity === runtimeUnionFrame.members.length
+        : runtimeUnionFrame.runtimeUnionArity ===
+            runtimeUnionFrame.members.length
           ? {
               members: runtimeUnionFrame.members,
               candidateMemberNs: runtimeUnionFrame.candidateMemberNs,
@@ -344,14 +345,23 @@ export const applyDirectTypeNarrowing = (
     }
 
     if (existingBinding.kind === "expr") {
-      return [
-        existingBinding.exprAst,
-        context,
+      const exprCarrierType =
+        existingBinding.sourceType ??
         existingBinding.type ??
-          existingBinding.sourceType ??
-          currentType ??
-          targetExpr.inferredType,
-      ] as const;
+        currentType ??
+        targetExpr.inferredType;
+      const exprCarrierFrame = currentType
+        ? resolveRuntimeUnionFrame(bindingKey, currentType, context)
+        : undefined;
+      if (existingBinding.storageExprAst && exprCarrierFrame) {
+        return [
+          existingBinding.storageExprAst,
+          context,
+          exprCarrierType,
+        ] as const;
+      }
+
+      return [existingBinding.exprAst, context, exprCarrierType] as const;
     }
 
     if (

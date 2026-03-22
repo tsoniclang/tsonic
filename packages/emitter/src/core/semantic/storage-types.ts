@@ -1,6 +1,9 @@
 import { IrType, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
-import { shouldEraseRecursiveRuntimeUnionArrayElement } from "./runtime-unions.js";
+import {
+  getCanonicalRuntimeUnionMembers,
+  shouldEraseRecursiveRuntimeUnionArrayElement,
+} from "./runtime-unions.js";
 import {
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
@@ -283,6 +286,53 @@ export const normalizeRuntimeStorageType = (
   }
 
   if (resolved.kind === "unionType") {
+    const topLevelSplit = splitRuntimeNullishUnionMembers(resolved);
+    const topLevelNonNullishMembers =
+      topLevelSplit?.nonNullishMembers ?? resolved.types;
+    const canonicalRuntimeMembers =
+      topLevelNonNullishMembers.length > 1
+        ? getCanonicalRuntimeUnionMembers(
+            {
+              kind: "unionType",
+              types: [...topLevelNonNullishMembers],
+            },
+            context
+          )
+        : undefined;
+
+    if (canonicalRuntimeMembers && canonicalRuntimeMembers.length > 1) {
+      const normalizedCanonicalMembers: IrType[] = [];
+      for (const member of canonicalRuntimeMembers) {
+        const normalizedMember =
+          normalizeRuntimeStorageType(member, context, activeArrayKeys) ??
+          member;
+        if (
+          normalizedCanonicalMembers.some(
+            (candidate) =>
+              stableIrTypeKey(candidate) === stableIrTypeKey(normalizedMember)
+          )
+        ) {
+          continue;
+        }
+        normalizedCanonicalMembers.push(normalizedMember);
+      }
+
+      if (!topLevelSplit?.hasRuntimeNullish) {
+        return {
+          kind: "unionType",
+          types: normalizedCanonicalMembers,
+        };
+      }
+
+      const directNullishMembers = resolved.types.filter(
+        isRuntimeNullishMember
+      );
+      return {
+        kind: "unionType",
+        types: [...normalizedCanonicalMembers, ...directNullishMembers],
+      };
+    }
+
     const split = splitRuntimeNullishUnionMembers(resolved);
     if (split) {
       const normalizedNonNullishMembers = split.nonNullishMembers.map(

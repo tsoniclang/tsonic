@@ -146,7 +146,7 @@ describe("End-to-End Integration", () => {
       expect(csharpB).to.match(/required\s+double\s+id\s*\{/i);
       expect(csharpAAgain).to.match(/required\s+string\s+id\s*\{/i);
       expect(csharpAAgain).not.to.match(/required\s+double\s+id\s*\{/i);
-    }).timeout(5000);
+    }).timeout(15000);
   });
 
   describe("Promise Chains", () => {

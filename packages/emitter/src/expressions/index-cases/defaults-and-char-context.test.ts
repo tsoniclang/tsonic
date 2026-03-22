@@ -402,8 +402,9 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("acceptOffset((int)5)");
-    expect(result).to.include("acceptOffset(default(int?))");
+    expect(result).to.include("acceptOffset(5)");
+    expect(result).to.include("acceptOffset(default(int))");
+    expect(result).not.to.include(".Value");
   });
 
   it("should emit char literals for single-character string assertions to char", () => {

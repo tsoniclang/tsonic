@@ -163,8 +163,58 @@ describe("expected-type-adaptation", () => {
 
     const rendered = printExpression(boxedAst);
     expect(rendered).to.include("(object)statusCode == null");
-    expect(rendered).to.include("(object)(double)statusCode.Value");
-    expect(rendered).to.not.equal("(object)(double)statusCode");
+    expect(rendered).to.include("(object)(double)statusCode");
+    expect(rendered).to.not.include(".Value");
+  });
+
+  it("does not append .Value when boxing nullable JS numbers that already emit as concrete casts", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [boxedAst] = maybeBoxJsNumberAsObjectAst(
+      {
+        kind: "castExpression",
+        type: { kind: "predefinedType", keyword: "double" },
+        expression: {
+          kind: "castExpression",
+          type: { kind: "predefinedType", keyword: "object" },
+          expression: identifierExpression('map.get("value")'),
+        },
+      },
+      {
+        kind: "memberAccess",
+        object: {
+          kind: "identifier",
+          name: "map",
+          inferredType: { kind: "unknownType" },
+        },
+        property: "get",
+        isComputed: false,
+        isOptional: false,
+        inferredType: {
+          kind: "unionType",
+          types: [
+            { kind: "primitiveType", name: "number" },
+            { kind: "primitiveType", name: "undefined" },
+          ],
+        },
+      },
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "number" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      },
+      context,
+      { kind: "unknownType" }
+    );
+
+    const rendered = printExpression(boxedAst);
+    expect(rendered).to.include('(object)(double)(object)map.get("value")');
+    expect(rendered).to.not.include(".Value");
   });
 
   it("materializes runtime-union values when broad object slots are expected", () => {

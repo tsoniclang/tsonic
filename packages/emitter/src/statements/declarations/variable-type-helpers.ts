@@ -25,6 +25,7 @@ import {
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import { resolveIdentifierValueSurfaceType } from "../../core/semantic/direct-value-surfaces.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 import type {
@@ -175,10 +176,18 @@ export const shouldForceDeclaredInitializerCast = (
     return false;
   }
 
+  const rawInitializer = (() => {
+    let current: IrExpression = initializer;
+    while (current.kind === "typeAssertion") {
+      current = current.expression;
+    }
+    return current;
+  })();
   const originalType =
-    initializer.kind === "typeAssertion"
-      ? initializer.expression.inferredType
-      : initializer.inferredType;
+    rawInitializer.kind === "identifier"
+      ? (resolveIdentifierValueSurfaceType(rawInitializer, context) ??
+        rawInitializer.inferredType)
+      : rawInitializer.inferredType;
   const effectiveType =
     initializer.kind === "typeAssertion"
       ? resolveEffectiveExpressionType(initializer.expression, context)

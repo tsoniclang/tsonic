@@ -29,6 +29,7 @@ import {
 } from "./branch-context.js";
 import {
   buildRuntimeUnionComplementBinding,
+  buildRuntimeUnionSubsetBinding,
   resolveRuntimeSubsetSourceInfo,
 } from "../../../core/semantic/narrowing-builders.js";
 
@@ -342,6 +343,29 @@ export const applyTypeofGuardRefinements = (
         runtimeUnionFrame.members[matchingRuntimeMemberIndex] ?? narrowedType;
 
       if (refinement.matchTag) {
+        const existingBinding = currentContext.narrowedBindings?.get(
+          refinement.bindingKey
+        );
+        const subsetBinding = buildRuntimeUnionSubsetBinding(
+          rawTargetAst,
+          runtimeUnionFrame,
+          existingBinding?.sourceType ??
+            existingBinding?.type ??
+            currentType ??
+            narrowedType,
+          narrowedType,
+          rawTargetContext
+        );
+        if (subsetBinding) {
+          const [binding, subsetContext] = subsetBinding;
+          nextBindings.set(refinement.bindingKey, binding);
+          currentContext = {
+            ...subsetContext,
+            narrowedBindings: nextBindings,
+          };
+          continue;
+        }
+
         nextBindings.set(
           refinement.bindingKey,
           buildExprBinding(

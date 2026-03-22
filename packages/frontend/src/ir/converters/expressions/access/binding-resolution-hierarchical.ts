@@ -32,9 +32,32 @@ export const resolveHierarchicalBinding = (
     ts.isNamespaceImport(decl) ||
     ts.isImportEqualsDeclaration(decl);
 
-  const isAmbientGlobalDeclaration = (decl: ts.Declaration): boolean =>
-    decl.getSourceFile().isDeclarationFile ||
-    (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient) !== 0;
+  const isAmbientGlobalDeclaration = (decl: ts.Declaration): boolean => {
+    const sourceFile = decl.getSourceFile();
+    const isDeclarationModuleGlobal = (() => {
+      for (
+        let current: ts.Node | undefined = decl.parent;
+        current;
+        current = current.parent
+      ) {
+        if (
+          ts.isModuleDeclaration(current) &&
+          ts.isIdentifier(current.name) &&
+          current.name.text === "global"
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+    })();
+
+    return (
+      (sourceFile.isDeclarationFile &&
+        (!ts.isExternalModule(sourceFile) || isDeclarationModuleGlobal)) ||
+      (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient) !== 0
+    );
+  };
 
   const isTypeLikeIdentifierName = (name: string | undefined): boolean =>
     typeof name === "string" && /^[A-Z]/.test(name);

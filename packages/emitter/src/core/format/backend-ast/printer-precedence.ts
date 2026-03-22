@@ -131,6 +131,7 @@ export const getExpressionPrecedence = (expr: CSharpExpressionAst): number => {
     case "interpolatedStringExpression":
     case "suppressNullableWarningExpression":
     case "switchExpression":
+    case "declarationExpression":
       return 16;
     case "argumentModifierExpression":
       return 16; // Argument modifier is used in argument position only

@@ -256,7 +256,8 @@ export const tryEmitMemberBindingAccess = (
   })();
 
   if (isStaticTypeReference(expr, context) || isGlobalSimpleBindingAccess) {
-    const staticReceiverName = importedStaticReceiverName ?? normalizedBindingType;
+    const staticReceiverName =
+      importedStaticReceiverName ?? normalizedBindingType;
     const staticMemberName = importedStaticReceiverName
       ? emitMemberName(
           expr.object,

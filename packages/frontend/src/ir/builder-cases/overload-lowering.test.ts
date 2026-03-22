@@ -428,7 +428,9 @@ describe("IR Builder", function () {
         ).to.equal(false);
 
         const declaration = numberOverload.body.statements.find(
-          (stmt): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
             stmt.kind === "variableDeclaration"
         );
         expect(declaration).to.not.equal(undefined);

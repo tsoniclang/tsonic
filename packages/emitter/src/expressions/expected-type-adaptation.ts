@@ -22,6 +22,7 @@ import {
 } from "./runtime-union-adaptation.js";
 import { resolveDirectStorageExpressionType } from "./direct-storage-types.js";
 import { tryAdaptStructuralExpressionAst } from "./structural-adaptation.js";
+import { resolveRuntimeMaterializationTargetType } from "../core/semantic/runtime-materialization-targets.js";
 
 export const adaptValueToExpectedTypeAst = (opts: {
   readonly valueAst: CSharpExpressionAst;
@@ -100,17 +101,39 @@ export const adaptEmittedExpressionAst = (opts: {
   const exactExpectedSurface = expectedType
     ? tryEmitExactComparisonTargetAst(expectedType, castedContext)
     : undefined;
+  const exactAssertedSurface =
+    expr.kind === "typeAssertion"
+      ? tryEmitExactComparisonTargetAst(
+          resolveRuntimeMaterializationTargetType(expr.targetType, castedContext),
+          castedContext
+        )
+      : undefined;
   const preservesExpectedSurface =
     expr.kind === "typeAssertion" &&
     !!exactExpectedSurface &&
     (isExactExpressionToType(castedAst, exactExpectedSurface[0]) ||
       isExactArrayCreationToType(castedAst, exactExpectedSurface[0]));
+  const preservesAssertedSurface =
+    expr.kind === "typeAssertion" &&
+    !!exactAssertedSurface &&
+    (isExactExpressionToType(castedAst, exactAssertedSurface[0]) ||
+      isExactArrayCreationToType(castedAst, exactAssertedSurface[0]));
+  const preservedTypeForAdaptation =
+    expr.kind === "typeAssertion"
+      ? preservesAssertedSurface
+        ? expr.targetType
+        : preservesExpectedSurface
+          ? expectedType
+          : undefined
+      : undefined;
   const adaptationSourceExpr =
     expr.kind === "typeAssertion" &&
-    (castedAst.kind !== "castExpression" || preservesExpectedSurface)
+    castedAst.kind !== "castExpression" &&
+    !preservedTypeForAdaptation
       ? expr.expression
       : expr;
   const actualType =
+    preservedTypeForAdaptation ??
     tryResolveRuntimeUnionMemberType(
       resolveDirectStorageExpressionType(
         adaptationSourceExpr,

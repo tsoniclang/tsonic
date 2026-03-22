@@ -133,6 +133,13 @@ export const emitIdentifier = (
 
         return [narrowed.exprAst, context];
       } else if (narrowed.kind === "runtimeSubset") {
+        const storageCompatibleExpected = expectedType
+          ? tryEmitStorageCompatibleIdentifier(expr, context, expectedType)
+          : undefined;
+        if (storageCompatibleExpected && expectedType) {
+          return [storageCompatibleExpected, context];
+        }
+
         const shouldPreferNarrowedSubsetTarget =
           !!narrowed.type &&
           !!expectedType &&
@@ -239,8 +246,15 @@ export const emitIdentifier = (
       context.moduleStaticClassName &&
       context.className !== context.moduleStaticClassName
     ) {
+      const moduleNamespace =
+        context.moduleNamespace ?? context.options.rootNamespace;
+      const containerPrefix = moduleNamespace.startsWith("global::")
+        ? moduleNamespace
+        : `global::${moduleNamespace}`;
       return [
-        identifierExpression(`${context.moduleStaticClassName}.${memberName}`),
+        identifierExpression(
+          `${containerPrefix}.${context.moduleStaticClassName}.${memberName}`
+        ),
         context,
       ];
     }

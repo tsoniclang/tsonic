@@ -59,6 +59,24 @@ const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
   ts.isNamespaceImport(decl) ||
   ts.isImportEqualsDeclaration(decl);
 
+const isDeclarationModuleGlobal = (decl: ts.Declaration): boolean => {
+  for (
+    let current: ts.Node | undefined = decl.parent;
+    current;
+    current = current.parent
+  ) {
+    if (
+      ts.isModuleDeclaration(current) &&
+      ts.isIdentifier(current.name) &&
+      current.name.text === "global"
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 /**
  * Main expression conversion dispatcher
  * Converts TypeScript expression nodes to IR expressions
@@ -171,9 +189,13 @@ export const convertExpression = (
     const isAmbientDeclarationFileGlobal =
       symbolDeclarations.length > 0 &&
       !hasImportLikeDeclaration &&
-      symbolDeclarations.every((decl: ts.Declaration) =>
-        decl.getSourceFile().isDeclarationFile
-      );
+      symbolDeclarations.every((decl: ts.Declaration) => {
+        const sourceFile = decl.getSourceFile();
+        return (
+          sourceFile.isDeclarationFile &&
+          (!ts.isExternalModule(sourceFile) || isDeclarationModuleGlobal(decl))
+        );
+      });
 
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
     const clrBinding = ctx.bindings.getExactBinding(node.text);

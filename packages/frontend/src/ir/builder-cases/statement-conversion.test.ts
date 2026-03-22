@@ -268,7 +268,8 @@ describe("IR Builder", function () {
       );
       expect(helper).to.not.equal(undefined);
       expect(helper?.kind).to.equal("methodDeclaration");
-      if (!helper || helper.kind !== "methodDeclaration" || !helper.body) return;
+      if (!helper || helper.kind !== "methodDeclaration" || !helper.body)
+        return;
 
       expect(helper.accessibility).to.equal("private");
       expect(helper.returnType).to.deep.equal({ kind: "voidType" });

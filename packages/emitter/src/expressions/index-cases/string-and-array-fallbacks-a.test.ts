@@ -173,10 +173,8 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module, { surface: "@tsonic/js" });
-    expect(result).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<string>(process.argv).length"
-    );
-    expect(result).to.not.include("process.argv.Length");
+    expect(result).to.include("process.argv.Length");
+    expect(result).to.not.include("new global::Tsonic.JSRuntime.JSArray<");
   });
 
   it("should recover JS string length fallback under JS surface when narrowing lost the original binding", () => {

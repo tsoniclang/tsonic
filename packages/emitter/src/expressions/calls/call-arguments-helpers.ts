@@ -27,7 +27,8 @@ import { normalizeRecursiveArrayExpectedType } from "../../core/semantic/array-e
 
 const isExplicitNullishArgument = (arg: IrExpression): boolean =>
   (arg.kind === "literal" && (arg.value === undefined || arg.value === null)) ||
-  (arg.kind === "identifier" && (arg.name === "undefined" || arg.name === "null"));
+  (arg.kind === "identifier" &&
+    (arg.name === "undefined" || arg.name === "null"));
 
 const argumentMayBeNullish = (arg: IrExpression): boolean => {
   if (isExplicitNullishArgument(arg)) {
