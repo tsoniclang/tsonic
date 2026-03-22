@@ -357,7 +357,7 @@ describe("IR Builder", function () {
       }
     });
 
-    it("specializes identifier inferred types inside void overload bodies", () => {
+    it("folds typeof overload guards away inside specialized overload bodies", () => {
       const fixture = createFilesystemTestProgram(
         {
           "src/index.ts": [
@@ -408,23 +408,11 @@ describe("IR Builder", function () {
         );
         expect(stringOverload).to.not.equal(undefined);
         if (!stringOverload?.body) return;
-        const stringIf = stringOverload.body.statements.find(
-          (stmt): stmt is Extract<typeof stmt, { kind: "ifStatement" }> =>
-            stmt.kind === "ifStatement"
-        );
-        expect(stringIf).to.not.equal(undefined);
-        if (
-          !stringIf ||
-          stringIf.condition.kind !== "binary" ||
-          stringIf.condition.left.kind !== "unary" ||
-          stringIf.condition.left.expression.kind !== "identifier"
-        ) {
-          return;
-        }
-        expect(stringIf.condition.left.expression.inferredType).to.deep.equal({
-          kind: "primitiveType",
-          name: "string",
-        });
+        expect(
+          stringOverload.body.statements.some(
+            (stmt) => stmt.kind === "ifStatement"
+          )
+        ).to.equal(false);
 
         const numberOverload = methods.find(
           (member) =>
@@ -433,24 +421,11 @@ describe("IR Builder", function () {
         );
         expect(numberOverload).to.not.equal(undefined);
         if (!numberOverload?.body) return;
-
-        const numberIf = numberOverload.body.statements.find(
-          (stmt): stmt is Extract<typeof stmt, { kind: "ifStatement" }> =>
-            stmt.kind === "ifStatement"
-        );
-        expect(numberIf).to.not.equal(undefined);
-        if (
-          !numberIf ||
-          numberIf.condition.kind !== "binary" ||
-          numberIf.condition.left.kind !== "unary" ||
-          numberIf.condition.left.expression.kind !== "identifier"
-        ) {
-          return;
-        }
-        expect(numberIf.condition.left.expression.inferredType).to.deep.equal({
-          kind: "primitiveType",
-          name: "number",
-        });
+        expect(
+          numberOverload.body.statements.some(
+            (stmt) => stmt.kind === "ifStatement"
+          )
+        ).to.equal(false);
 
         const declaration = numberOverload.body.statements.find(
           (stmt): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
@@ -467,6 +442,98 @@ describe("IR Builder", function () {
           kind: "primitiveType",
           name: "number",
         });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("specializes same-arity return-shape overloads guarded by typeof checks", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "export class KeyStore {",
+            "  read(encoding: string): string;",
+            "  read(encoding?: undefined): Uint8Array;",
+            "  read(encoding?: string): string | Uint8Array {",
+            '    if (typeof encoding === "string") {',
+            '      return "";',
+            "    }",
+            "    return new Uint8Array(4);",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const targetClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "KeyStore"
+        );
+        expect(targetClass).to.not.equal(undefined);
+        if (!targetClass) return;
+
+        const methods = targetClass.members.filter(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "read"
+        );
+        expect(methods.length).to.equal(2);
+
+        const stringOverload = methods.find(
+          (member) =>
+            member.parameters[0]?.type?.kind === "primitiveType" &&
+            member.parameters[0].type.name === "string"
+        );
+        expect(stringOverload).to.not.equal(undefined);
+        if (!stringOverload?.body) return;
+        expect(
+          stringOverload.body.statements.some(
+            (stmt) => stmt.kind === "ifStatement"
+          )
+        ).to.equal(false);
+        expect(stringOverload.body.statements[0]?.kind).to.equal(
+          "blockStatement"
+        );
+        const stringBlock = stringOverload.body.statements[0];
+        if (!stringBlock || stringBlock.kind !== "blockStatement") return;
+        const stringReturn = stringBlock.statements.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+        expect(stringReturn?.expression?.kind).to.equal("literal");
+        if (stringReturn?.expression?.kind === "literal") {
+          expect(stringReturn.expression.value).to.equal("");
+        }
+
+        const bytesOverload = methods.find(
+          (member) =>
+            member.parameters[0]?.type?.kind === "primitiveType" &&
+            member.parameters[0].type.name === "undefined"
+        );
+        expect(bytesOverload).to.not.equal(undefined);
+        if (!bytesOverload?.body) return;
+        expect(
+          bytesOverload.body.statements.some(
+            (stmt) => stmt.kind === "ifStatement"
+          )
+        ).to.equal(false);
+        const bytesReturn = bytesOverload.body.statements.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+        const bytesExpr = unwrapTransparentExpression(bytesReturn?.expression);
+        expect(bytesExpr?.kind).to.equal("new");
       } finally {
         fixture.cleanup();
       }
