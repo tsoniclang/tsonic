@@ -189,9 +189,21 @@ export const specializeExpression = (
 
   switch (expr.kind) {
     case "literal":
-    case "identifier":
     case "this":
       return expr;
+
+    case "identifier": {
+      const specializedType =
+        expr.declId && paramTypesByDeclId.get(expr.declId.id);
+      if (!specializedType) {
+        return expr;
+      }
+
+      return {
+        ...expr,
+        inferredType: specializedType,
+      };
+    }
 
     case "call": {
       const callee = specializeExpression(expr.callee, paramTypesByDeclId);

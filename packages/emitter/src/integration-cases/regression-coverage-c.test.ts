@@ -661,6 +661,27 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("return nameOrPath;");
     });
 
+    it("erases runtime-union member probes from specialized void overload bodies", () => {
+      const csharp = compileToCSharp(`
+        export class KeyStore {
+          setValue(value: string): void;
+          setValue(value: number): void;
+          setValue(value: string | number): void {
+            if (typeof value === "string") {
+              return;
+            }
+
+            const stable = value;
+            void stable;
+          }
+        }
+      `);
+
+      expect(csharp).to.not.include("publicKey.Is1()");
+      expect(csharp).to.not.include("value.Is1()");
+      expect(csharp).to.not.include("value.As2()");
+    });
+
     it("materializes inline object-type elements through generic List<T>.Add", () => {
       const source = `
         declare class List<T> {
