@@ -203,11 +203,15 @@ export const applyDirectTypeofRefinement = (
     withoutNarrowedBinding(context, directGuard.bindingKey)
   );
 
+  const runtimeFrameContext = {
+    ...rawTargetContext,
+    narrowedBindings: context.narrowedBindings,
+  };
   const runtimeUnionFrame = currentType
     ? resolveRuntimeUnionFrame(
         directGuard.bindingKey,
         currentType,
-        rawTargetContext
+        runtimeFrameContext
       )
     : undefined;
   const matchingRuntimeMemberIndex =

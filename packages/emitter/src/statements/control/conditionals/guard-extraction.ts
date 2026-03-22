@@ -383,12 +383,16 @@ export const applyTypeofGuardRefinements = (
       withoutNarrowedBinding(currentContext, refinement.bindingKey)
     );
 
+    const runtimeFrameContext = {
+      ...rawTargetContext,
+      narrowedBindings: currentContext.narrowedBindings,
+    };
     const runtimeUnionFrame =
       currentType &&
       resolveRuntimeUnionFrame(
         refinement.bindingKey,
         currentType,
-        rawTargetContext
+        runtimeFrameContext
       );
     const matchingRuntimeMemberIndex =
       runtimeUnionFrame?.members.findIndex((member) =>

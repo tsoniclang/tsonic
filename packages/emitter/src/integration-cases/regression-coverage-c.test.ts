@@ -104,6 +104,46 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("nameOrPath.Is3()");
     });
 
+    it("preserves final fallback runtime-union slots after chained typeof guards", () => {
+      const csharp = compileToCSharp(`
+        type TcpSocketConnectOpts = {
+          readonly port: number;
+          readonly host?: string;
+        };
+
+        declare function connectPath(path: string): string;
+        declare function connectPort(port: number, host?: string): string;
+
+        export function connect(
+          portOrOptionsOrPath: number | TcpSocketConnectOpts | string
+        ): string {
+          if (typeof portOrOptionsOrPath === "string") {
+            return connectPath(portOrOptionsOrPath);
+          }
+
+          if (typeof portOrOptionsOrPath === "number") {
+            return connectPort(portOrOptionsOrPath);
+          }
+
+          return connectPort(
+            portOrOptionsOrPath.port,
+            portOrOptionsOrPath.host
+          );
+        }
+      `);
+
+      expect(csharp).to.include("portOrOptionsOrPath.Is2()");
+      expect(csharp).to.include("portOrOptionsOrPath.Is1()");
+      expect(csharp).to.include(
+        "__tsonic_union_member_3 => __tsonic_union_member_3).port"
+      );
+      expect(csharp).to.include(
+        "__tsonic_union_member_3 => __tsonic_union_member_3).host"
+      );
+      expect(csharp).not.to.include("portOrOptionsOrPath.As2()).port");
+      expect(csharp).not.to.include("portOrOptionsOrPath.As2()).host");
+    });
+
     it("materializes structural object arguments for inline object-type parameters", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
