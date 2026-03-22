@@ -3,7 +3,14 @@
  */
 
 import * as ts from "typescript";
-import { IrClassMember, IrStatement } from "../../../../types.js";
+import {
+  IrBlockStatement,
+  IrClassMember,
+  IrMethodDeclaration,
+  IrParameter,
+  IrStatement,
+  IrType,
+} from "../../../../types.js";
 import { convertBlockStatement } from "../../control.js";
 import {
   hasReadonlyModifier,
@@ -11,6 +18,7 @@ import {
   convertParameters,
   makeOptionalType,
 } from "../../helpers.js";
+import { createWrapperBody } from "./overload-wrapper-helpers.js";
 import type { ProgramContext } from "../../../../program-context.js";
 
 const isParameterPropertyParameter = (
@@ -103,6 +111,123 @@ export const convertConstructor = (
     body: { kind: "blockStatement", statements },
     accessibility: getAccessibility(node),
   };
+};
+
+const CONSTRUCTOR_IMPL_METHOD_NAME = "__tsonic_ctor_impl";
+
+const VOID_TYPE: IrType = {
+  kind: "voidType",
+};
+
+const extractImplementationConstructor = (
+  nodes: readonly ts.ConstructorDeclaration[]
+): ts.ConstructorDeclaration => {
+  const impls = nodes.filter((node) => !!node.body);
+  if (impls.length !== 1) {
+    throw new Error(
+      `ICE: constructor overload group must contain exactly one implementation body (found ${impls.length})`
+    );
+  }
+
+  return impls[0] as ts.ConstructorDeclaration;
+};
+
+const stripSuperCallForConstructorHelper = (
+  body: IrBlockStatement
+): IrBlockStatement => {
+  const [first, ...rest] = body.statements;
+  if (
+    !first ||
+    first.kind !== "expressionStatement" ||
+    !isLeadingSuperCallStatement(first)
+  ) {
+    return body;
+  }
+
+  const expression = first.expression;
+  if (expression.kind !== "call") {
+    return body;
+  }
+
+  const superCall = expression;
+  if (superCall.arguments.length > 0) {
+    throw new Error(
+      "ICE: overloaded constructors with super(...) arguments are not yet supported for wrapper lowering."
+    );
+  }
+
+  return {
+    ...body,
+    statements: rest,
+  };
+};
+
+export const convertConstructorOverloadGroup = (
+  nodes: readonly ts.ConstructorDeclaration[],
+  ctx: ProgramContext
+): readonly IrClassMember[] => {
+  const impl = extractImplementationConstructor(nodes);
+  const sigs = nodes.filter((node) => !node.body);
+
+  if (sigs.length === 0) {
+    return [convertConstructor(impl, ctx, impl.parameters)];
+  }
+
+  const implCtor = convertConstructor(
+    impl,
+    ctx,
+    impl.parameters
+  ) as Extract<IrClassMember, { kind: "constructorDeclaration" }>;
+
+  const helperMethod: IrMethodDeclaration = {
+    kind: "methodDeclaration",
+    name: CONSTRUCTOR_IMPL_METHOD_NAME,
+    typeParameters: [],
+    parameters: [...implCtor.parameters],
+    returnType: VOID_TYPE,
+    body: stripSuperCallForConstructorHelper(
+      implCtor.body ?? { kind: "blockStatement", statements: [] }
+    ),
+    isStatic: false,
+    isAsync: false,
+    isGenerator: false,
+    accessibility: "private",
+  };
+
+  const wrappers: IrClassMember[] = [];
+  const implParams = implCtor.parameters;
+  const declaredAccessibility = getAccessibility(impl);
+
+  for (const sig of sigs) {
+    const sigParams = convertParameters(sig.parameters, ctx);
+    if (sigParams.length > implParams.length) {
+      throw new Error(
+        `ICE: constructor overload signature parameter count exceeds implementation (sig=${sigParams.length}, impl=${implParams.length})`
+      );
+    }
+
+    const parameters: IrParameter[] = sigParams.map((param, index) => ({
+      ...param,
+      pattern: (implParams[index] as IrParameter).pattern,
+    }));
+
+    wrappers.push({
+      kind: "constructorDeclaration",
+      parameters,
+      body: createWrapperBody(
+        CONSTRUCTOR_IMPL_METHOD_NAME,
+        parameters,
+        implParams,
+        false,
+        VOID_TYPE,
+        VOID_TYPE,
+        []
+      ),
+      accessibility: declaredAccessibility,
+    });
+  }
+
+  return [helperMethod, ...wrappers];
 };
 
 /**

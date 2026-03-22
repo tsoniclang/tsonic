@@ -14,6 +14,7 @@ import { convertAccessorProperty, convertProperty } from "./properties.js";
 import { convertMethod, convertMethodOverloadGroup } from "./methods.js";
 import {
   convertConstructor,
+  convertConstructorOverloadGroup,
   extractParameterProperties,
 } from "./constructors.js";
 import {
@@ -151,12 +152,19 @@ export const convertClassDeclaration = (
         )
       ) ?? [];
 
-  // Extract parameter properties from constructor
-  const constructor = node.members.find(ts.isConstructorDeclaration);
-  const parameterProperties = extractParameterProperties(constructor, ctx);
-
   // Filter to only include members declared directly on this class (not inherited)
   const ownMembers = filterOwnMembers(node);
+  const constructorNodes = ownMembers.filter(
+    ts.isConstructorDeclaration
+  ) as readonly ts.ConstructorDeclaration[];
+  const constructorImplementation =
+    constructorNodes.find((member) => !!member.body) ?? constructorNodes[0];
+
+  // Extract parameter properties from the implementation constructor when present.
+  const parameterProperties = extractParameterProperties(
+    constructorImplementation,
+    ctx
+  );
 
   // Pre-group overload method declarations by (static, name) so we can emit one C# method per signature.
   const methodGroups = new Map<string, ts.MethodDeclaration[]>();
@@ -192,6 +200,7 @@ export const convertClassDeclaration = (
   const convertedMembers: IrClassMember[] = [];
   const seenAccessors = new Set<string>();
   const seenMethodGroups = new Set<string>();
+  let emittedConstructors = false;
   for (const member of ownMembers) {
     if (
       ts.isGetAccessorDeclaration(member) ||
@@ -233,11 +242,23 @@ export const convertClassDeclaration = (
       continue;
     }
 
+    if (ts.isConstructorDeclaration(member)) {
+      if (emittedConstructors) {
+        continue;
+      }
+
+      emittedConstructors = true;
+      convertedMembers.push(
+        ...convertConstructorOverloadGroup(constructorNodes, ctx)
+      );
+      continue;
+    }
+
     const converted = convertClassMember(
       member,
       ctx,
       superClass,
-      constructor?.parameters
+      constructorImplementation?.parameters
     );
     if (converted) {
       convertedMembers.push(converted);
