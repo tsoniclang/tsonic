@@ -682,6 +682,30 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("value.As2()");
     });
 
+    it("lowers Uint8Array array-literal constructors through byte arrays", () => {
+      const csharp = compileToCSharp(
+        `
+          import { Uint8Array } from "@tsonic/js/index.js";
+
+          export function run(): void {
+            const bytes = new Uint8Array([1, 2, 3]);
+            void bytes;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "new global::Tsonic.JSRuntime.Uint8Array(new byte[] { 1, 2, 3 })"
+      );
+      expect(csharp).not.to.include(
+        "new global::Tsonic.JSRuntime.Uint8Array(new int[] { 1, 2, 3 })"
+      );
+    });
+
     it("materializes inline object-type elements through generic List<T>.Add", () => {
       const source = `
         declare class List<T> {

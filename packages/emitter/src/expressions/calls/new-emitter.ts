@@ -23,9 +23,11 @@ import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-exp
 import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import {
   emitArrayConstructor,
+  emitUint8ArrayArrayLiteralConstructor,
   emitListCollectionInitializer,
   isArrayConstructorCall,
   isListConstructorWithArrayLiteral,
+  isUint8ArrayConstructorWithArrayLiteral,
 } from "./new-emitter-collections.js";
 import {
   emitPromiseConstructor,
@@ -47,6 +49,10 @@ export const emitNew = (
   // Special case: new List<T>([...]) → new List<T> { ... }
   if (isListConstructorWithArrayLiteral(expr)) {
     return emitListCollectionInitializer(expr, context, emitNew);
+  }
+
+  if (isUint8ArrayConstructorWithArrayLiteral(expr)) {
+    return emitUint8ArrayArrayLiteralConstructor(expr, context);
   }
 
   // Promise constructor lowering
