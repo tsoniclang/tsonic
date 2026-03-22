@@ -20,6 +20,10 @@ import {
   getCanonicalRuntimeUnionMembers,
 } from "../../core/semantic/runtime-unions.js";
 import {
+  findExactRuntimeUnionMemberIndices,
+  findRuntimeUnionMemberIndices,
+} from "../../core/semantic/runtime-union-matching.js";
+import {
   isSemanticUnion,
   willCarryAsRuntimeUnion,
 } from "../../core/semantic/union-semantics.js";
@@ -42,6 +46,12 @@ import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js
 type RuntimeUnionLayout = NonNullable<
   ReturnType<typeof buildRuntimeUnionLayout>[0]
 >;
+
+type AlignedRuntimeCarrierMembers = {
+  readonly carrierLayout: RuntimeUnionLayout;
+  readonly effectiveMembers: readonly IrExpression["inferredType"][];
+  readonly candidateMemberNs: readonly number[];
+};
 
 const buildRuntimeUnionMemberOrChain = (
   receiver: CSharpExpressionAst,
@@ -84,7 +94,7 @@ const resolveAlignedRuntimeCarrierMembers = (
   directStorageType: IrExpression["inferredType"] | undefined,
   effectiveType: IrExpression["inferredType"],
   context: EmitterContext
-): [RuntimeUnionLayout, EmitterContext] | undefined => {
+): [AlignedRuntimeCarrierMembers, EmitterContext] | undefined => {
   const tryLayout = (
     type: IrExpression["inferredType"],
     currentContext: EmitterContext
@@ -101,28 +111,61 @@ const resolveAlignedRuntimeCarrierMembers = (
     return layout ? ([layout, layoutContext] as const) : undefined;
   };
 
-  if (directStorageType) {
-    const effectiveLayoutResult = effectiveType
-      ? tryLayout(effectiveType, context)
-      : undefined;
-    if (effectiveLayoutResult) {
-      return [effectiveLayoutResult[0], effectiveLayoutResult[1]];
-    }
-
-    const directLayoutResult = tryLayout(directStorageType, context);
-    if (directLayoutResult) {
-      return [directLayoutResult[0], directLayoutResult[1]];
-    }
-  }
-
   if (!effectiveType) {
     return undefined;
   }
 
-  const effectiveLayoutResult = tryLayout(effectiveType, context);
-  return effectiveLayoutResult
-    ? [effectiveLayoutResult[0], effectiveLayoutResult[1]]
+  const directLayoutResult = directStorageType
+    ? tryLayout(directStorageType, context)
     : undefined;
+  const effectiveLayoutResult = tryLayout(effectiveType, context);
+
+  if (!directLayoutResult && !effectiveLayoutResult) {
+    return undefined;
+  }
+
+  const [carrierLayout, carrierContext] =
+    directLayoutResult ?? effectiveLayoutResult ?? [];
+  if (!carrierLayout || !carrierContext) {
+    return undefined;
+  }
+
+  const effectiveMembers =
+    getCanonicalRuntimeUnionMembers(effectiveType, carrierContext) ??
+    carrierLayout.members;
+
+  const candidateMemberNs = effectiveMembers.flatMap((member) => {
+    const exactMatches = findExactRuntimeUnionMemberIndices(
+      carrierLayout.members,
+      member,
+      carrierContext
+    );
+    if (exactMatches.length > 0) {
+      const index = exactMatches[0];
+      return index === undefined ? [] : [index + 1];
+    }
+
+    const semanticMatches = findRuntimeUnionMemberIndices(
+      carrierLayout.members,
+      member,
+      carrierContext
+    );
+    const index = semanticMatches[0];
+    return index === undefined ? [] : [index + 1];
+  });
+
+  if (candidateMemberNs.length !== effectiveMembers.length) {
+    return undefined;
+  }
+
+  return [
+    {
+      carrierLayout,
+      effectiveMembers,
+      candidateMemberNs,
+    },
+    carrierContext,
+  ];
 };
 
 const buildRuntimeUnionMemberCheck = (opts: {
@@ -285,12 +328,12 @@ export const emitTypeofComparison = (
   if (!alignedCarrierMembers) {
     return undefined;
   }
-  const [runtimeLayout, layoutContext] = alignedCarrierMembers;
-  const runtimeMembers = runtimeLayout.members;
+  const [{ effectiveMembers, candidateMemberNs }, layoutContext] =
+    alignedCarrierMembers;
 
-  const matchingMemberNs = runtimeMembers.flatMap((member, index) =>
+  const matchingMemberNs = effectiveMembers.flatMap((member, index) =>
     member && matchesTypeofTag(member, directGuard.tag, layoutContext)
-      ? [index + 1]
+      ? [candidateMemberNs[index] ?? index + 1]
       : []
   );
 

@@ -28,6 +28,7 @@ import {
   tryBuildRuntimeUnionProjectionToLayoutAst,
 } from "./runtime-union-projection.js";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
+import { tryBuildRuntimeMaterializationAst } from "./runtime-reification.js";
 import {
   type RuntimeUnionFrame,
   type RuntimeSubsetSourceInfo,
@@ -108,7 +109,50 @@ export const buildRuntimeUnionComplementBinding = (
   }
 
   if (hasRuntimeNullish) {
-    return undefined;
+    const carrierSourceType = sourceInfo?.sourceType ?? sourceType;
+    const sourceFrame =
+      sourceInfo?.sourceMembers &&
+      sourceInfo.sourceCandidateMemberNs &&
+      sourceInfo.sourceMembers.length ===
+        sourceInfo.sourceCandidateMemberNs.length
+        ? {
+            members: sourceInfo.sourceMembers,
+            candidateMemberNs: sourceInfo.sourceCandidateMemberNs,
+          }
+        : runtimeUnionFrame.runtimeUnionArity === runtimeUnionFrame.members.length
+          ? {
+              members: runtimeUnionFrame.members,
+              candidateMemberNs: runtimeUnionFrame.candidateMemberNs,
+            }
+          : undefined;
+    const selectedSourceMemberNs = new Set(
+      remainingPairs.map((pair) => pair.runtimeMemberN)
+    );
+    const materialized = tryBuildRuntimeMaterializationAst(
+      receiver,
+      carrierSourceType,
+      narrowedType,
+      context,
+      emitTypeAst,
+      selectedSourceMemberNs,
+      sourceFrame
+    );
+    if (!materialized) {
+      return undefined;
+    }
+
+    const [nullAwareExpr] = buildConditionalNullishGuardAst(
+      receiver,
+      materialized[0],
+      narrowedType,
+      materialized[1]
+    );
+    return buildExprBinding(
+      nullAwareExpr,
+      narrowedType,
+      carrierSourceType,
+      toReceiverAst(receiver)
+    );
   }
 
   return {

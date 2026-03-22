@@ -15,6 +15,10 @@
 import type { IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
+import {
+  findExactRuntimeUnionMemberIndices,
+  findRuntimeUnionMemberIndices,
+} from "./runtime-union-matching.js";
 
 /**
  * The semantic payload for narrowed union member resolution.
@@ -47,6 +51,52 @@ export const resolveNarrowedUnionMembers = (
   context: EmitterContext
 ): NarrowedUnionMembers | undefined => {
   const narrowed = context.narrowedBindings?.get(originalName);
+
+  if (
+    narrowed?.kind === "expr" &&
+    narrowed.type &&
+    narrowed.sourceType &&
+    narrowed.type !== narrowed.sourceType
+  ) {
+    const sourceMembers = getCanonicalRuntimeUnionMembers(
+      narrowed.sourceType,
+      context
+    );
+    const narrowedMembers = getCanonicalRuntimeUnionMembers(
+      narrowed.type,
+      context
+    );
+
+    if (sourceMembers && narrowedMembers) {
+      const candidateMemberNs = narrowedMembers.flatMap((member) => {
+        const exactMatches = findExactRuntimeUnionMemberIndices(
+          sourceMembers,
+          member,
+          context
+        );
+        if (exactMatches.length > 0) {
+          const index = exactMatches[0];
+          return index === undefined ? [] : [index + 1];
+        }
+
+        const semanticMatches = findRuntimeUnionMemberIndices(
+          sourceMembers,
+          member,
+          context
+        );
+        const index = semanticMatches[0];
+        return index === undefined ? [] : [index + 1];
+      });
+
+      if (candidateMemberNs.length === narrowedMembers.length) {
+        return {
+          members: narrowedMembers,
+          candidateMemberNs,
+          runtimeUnionArity: sourceMembers.length,
+        };
+      }
+    }
+  }
 
   // Fast path: pre-cached runtimeSubset with source member data
   if (

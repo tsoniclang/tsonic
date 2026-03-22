@@ -64,21 +64,7 @@ export const buildRuntimeUnionLayout = (
     }
   }
 
-  const ordered = Array.from(byAstKey.entries())
-    .sort(([, left], [, right]) => {
-      const leftKey = getRuntimeUnionMemberSortKey(left.member, currentContext);
-      const rightKey = getRuntimeUnionMemberSortKey(
-        right.member,
-        currentContext
-      );
-      if (leftKey !== rightKey) {
-        return leftKey.localeCompare(rightKey);
-      }
-      return stableTypeKeyFromAst(left.typeAst).localeCompare(
-        stableTypeKeyFromAst(right.typeAst)
-      );
-    })
-    .map(([, entry]) => entry);
+  const ordered = Array.from(byAstKey.values());
 
   if (ordered.length < 2 || ordered.length > 8) {
     return [undefined, currentContext];

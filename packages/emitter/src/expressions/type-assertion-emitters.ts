@@ -289,6 +289,7 @@ export const emitTypeAssertion = (
       : undefined;
   const preserveNarrowedSourceStorage =
     !!sourceNarrowedBinding &&
+    sourceNarrowedBinding.kind !== "runtimeSubset" &&
     willCarryAsRuntimeUnion(runtimeEmissionTarget, context);
   const rawSourceContext =
     expr.expression.kind === "identifier" ||
@@ -328,13 +329,18 @@ export const emitTypeAssertion = (
     isSourceUnion && sourceExpressionType
       ? buildRuntimeUnionLayout(sourceExpressionType, ctx1, emitTypeAst)
       : [undefined, ctx1];
-  const narrowedBinding = getNarrowedBindingForExpression(
+  const activeNarrowedBinding = getNarrowedBindingForExpression(
     expr.expression,
     sourceLayoutContext
   );
+  const strippedSourceNarrowing =
+    rawSourceContext !== context &&
+    !!sourceNarrowedBinding?.sourceType &&
+    !!sourceRuntimeUnionLayout;
   const actualExpressionType =
-    sourceRuntimeUnionLayout && narrowedBinding?.kind === "runtimeSubset"
-      ? sourceExpressionType
+    sourceRuntimeUnionLayout &&
+    (activeNarrowedBinding?.kind === "runtimeSubset" || strippedSourceNarrowing)
+      ? (sourceNarrowedBinding?.sourceType ?? sourceExpressionType)
       : resolveEffectiveExpressionType(expr.expression, sourceLayoutContext);
   const [
     runtimeTargetTypeAst,

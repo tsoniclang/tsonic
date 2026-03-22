@@ -373,6 +373,67 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("options.Is1()");
     });
 
+    it("preserves undefined in typeof complement branches for optional union receivers", () => {
+      const csharp = compileToCSharp(`
+        type ServerOpts = {
+          readonly allowHalfOpen?: boolean;
+          readonly pauseOnConnect?: boolean;
+        };
+
+        export class ServerLike {
+          private readonly _allowHalfOpen: boolean;
+
+          constructor(
+            optionsOrListener?: ServerOpts | (() => void)
+          ) {
+            if (typeof optionsOrListener === "function") {
+              this._allowHalfOpen = false;
+            } else {
+              this._allowHalfOpen = optionsOrListener?.allowHalfOpen ?? false;
+            }
+          }
+        }
+      `);
+
+      expect(csharp).to.include(
+        "((object)optionsOrListener == null ? default(ServerOpts__Alias) : (optionsOrListener.As2()))?.allowHalfOpen"
+      );
+      expect(csharp).to.not.include("(optionsOrListener.As2())?.allowHalfOpen");
+    });
+
+    it("preserves original runtime union slots across chained typeof object branches", () => {
+      const csharp = compileToCSharp(`
+        type BindOptions = {
+          readonly fd?: int;
+          readonly port?: int;
+          readonly address?: string;
+        };
+
+        export function bindLike(
+          portOrCallbackOrOptions?: int | (() => void) | BindOptions
+        ): int {
+          if (typeof portOrCallbackOrOptions === "function") {
+            return 0;
+          } else if (
+            typeof portOrCallbackOrOptions === "object" &&
+            portOrCallbackOrOptions !== null &&
+            portOrCallbackOrOptions !== undefined
+          ) {
+            return portOrCallbackOrOptions.port ?? 0;
+          }
+
+          return portOrCallbackOrOptions ?? 0;
+        }
+      `);
+
+      expect(csharp).to.include("portOrCallbackOrOptions.Is3()");
+      expect(csharp).to.not.include("portOrCallbackOrOptions.Is2()");
+      expect(csharp).to.not.include("(portOrCallbackOrOptions.As2())");
+      expect(csharp).to.not.include(
+        "((global::Tsonic.Runtime.Union<int, BindOptions>?)portOrCallbackOrOptions)"
+      );
+    });
+
     it("awaits async void overload wrappers without discard locals", () => {
       const csharp = compileToCSharp(`
         declare function implDefault(path: string): Promise<void>;
