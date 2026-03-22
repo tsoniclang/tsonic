@@ -276,12 +276,8 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>(entries).length"
-    );
-    expect(text).to.not.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
-    );
+    expect(text).to.equal("entries.Length");
+    expect(text).to.not.include("new global::Tsonic.JSRuntime.JSArray");
   });
 
   it("uses storage-erased element types for JS array mutation wrappers on recursive union arrays", () => {

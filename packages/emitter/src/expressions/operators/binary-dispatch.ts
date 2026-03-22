@@ -50,6 +50,41 @@ import {
 } from "./binary-special-ops.js";
 import { emitRuntimeUnionLiteralComparison } from "./binary-runtime-union-comparison.js";
 
+const BITWISE_OPERATORS = new Set(["&", "|", "^", "<<", ">>", ">>>"]);
+
+const isJsBitwiseNumberishType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" &&
+      (resolved.name === "number" || resolved.name === "int")) ||
+    (resolved.kind === "literalType" && typeof resolved.value === "number") ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "int" ||
+        resolved.name === "double" ||
+        resolved.resolvedClrType === "System.Int32" ||
+        resolved.resolvedClrType === "global::System.Int32" ||
+        resolved.resolvedClrType === "System.Double" ||
+        resolved.resolvedClrType === "global::System.Double"))
+  );
+};
+
+const maybeCastBitwiseOperandToInt = (
+  ast: CSharpExpressionAst,
+  type: IrType | undefined,
+  context: EmitterContext
+): CSharpExpressionAst =>
+  isJsBitwiseNumberishType(type, context)
+    ? {
+        kind: "castExpression",
+        type: { kind: "predefinedType", keyword: "int" },
+        expression: ast,
+      }
+    : ast;
+
 /**
  * Emit a binary operator expression as CSharpExpressionAst
  *
@@ -406,6 +441,25 @@ export const emitBinary = (
         kind: "prefixUnaryExpression",
         operatorToken: "!",
         operand: equalsAst,
+      },
+      rightContext,
+    ];
+  }
+
+  if (BITWISE_OPERATORS.has(op)) {
+    const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+    const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+
+    return [
+      {
+        kind: "binaryExpression",
+        operatorToken: op,
+        left: maybeCastBitwiseOperandToInt(leftAst, leftResolvedType, context),
+        right: maybeCastBitwiseOperandToInt(
+          rightAst,
+          rightResolvedType,
+          rightContext
+        ),
       },
       rightContext,
     ];

@@ -746,6 +746,73 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("casts numeric Uint8Array length constructors to int", () => {
+      const csharp = compileToCSharp(
+        `
+          import { Uint8Array } from "@tsonic/js/index.js";
+
+          export function run(start: number, end: number): Uint8Array {
+            return new Uint8Array(end - start);
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "new global::Tsonic.JSRuntime.Uint8Array((int)(end - start))"
+      );
+    });
+
+    it("casts Uint8Array element assignments to byte", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+          import { Uint8Array } from "@tsonic/js/index.js";
+
+          export function run(i: int): void {
+            const data = new Uint8Array(16);
+            data[i] = 255;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include("data[i] = (byte)255;");
+    });
+
+    it("casts JS numeric expressions when assigning into int slots", () => {
+      const csharp = compileToCSharp(
+        `
+          import { Math as JSMath } from "@tsonic/js/index.js";
+          import type { int } from "@tsonic/core/types.js";
+
+          class CursorPosition {
+            public rows: int = 0;
+          }
+
+          export function run(totalLength: number): CursorPosition {
+            const pos = new CursorPosition();
+            pos.rows = JSMath.floor(totalLength / 80);
+            return pos;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "pos.rows = (int)global::Tsonic.JSRuntime.Math.floor(totalLength / 80);"
+      );
+    });
+
     it("materializes inline object-type elements through generic List<T>.Add", () => {
       const source = `
         declare class List<T> {

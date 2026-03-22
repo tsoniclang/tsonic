@@ -24,10 +24,12 @@ import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-m
 import {
   emitArrayConstructor,
   emitUint8ArrayArrayLiteralConstructor,
+  emitUint8ArrayNumericLengthConstructor,
   emitListCollectionInitializer,
   isArrayConstructorCall,
   isListConstructorWithArrayLiteral,
   isUint8ArrayConstructorWithArrayLiteral,
+  isUint8ArrayConstructorWithNumericLength,
 } from "./new-emitter-collections.js";
 import {
   emitPromiseConstructor,
@@ -53,6 +55,10 @@ export const emitNew = (
 
   if (isUint8ArrayConstructorWithArrayLiteral(expr)) {
     return emitUint8ArrayArrayLiteralConstructor(expr, context);
+  }
+
+  if (isUint8ArrayConstructorWithNumericLength(expr)) {
+    return emitUint8ArrayNumericLengthConstructor(expr, context);
   }
 
   // Promise constructor lowering

@@ -241,6 +241,16 @@ const resolveRecoveredReceiverBinding = (
   if (expr.callee.memberBinding) return expr.callee.memberBinding;
   if (expr.callee.isComputed) return undefined;
   if (typeof expr.callee.property !== "string") return undefined;
+  if (expr.callee.object.kind === "identifier") {
+    const importBinding = context.importBindings?.get(expr.callee.object.name);
+    if (importBinding?.kind === "type") {
+      return undefined;
+    }
+
+    if (context.localTypes?.has(expr.callee.object.name)) {
+      return undefined;
+    }
+  }
 
   const registry = context.bindingsRegistry;
   if (!registry || registry.size === 0) return undefined;

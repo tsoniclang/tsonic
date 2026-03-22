@@ -304,6 +304,8 @@ export type EmitterContext = {
   readonly declaringTypeName?: string;
   /** Whether the current class has a superclass (for virtual/override) */
   readonly hasSuperClass?: boolean;
+  /** Whether the current class routes constructor bodies through a helper wrapper. */
+  readonly hasConstructorHelper?: boolean;
   /** Whether the module has any inheritance (to decide virtual methods) */
   readonly hasInheritance?: boolean;
   /** Registry mapping TypeScript emit names to type bindings */

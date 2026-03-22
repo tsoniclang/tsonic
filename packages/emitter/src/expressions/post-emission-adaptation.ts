@@ -10,6 +10,7 @@ import {
   stripNullish,
   resolveTypeAlias,
 } from "../core/semantic/type-resolution.js";
+import { isAssignable } from "../core/semantic/type-compatibility.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
@@ -284,6 +285,104 @@ export const maybeConvertCharToStringAst = (
       arguments: [],
     },
     context,
+  ];
+};
+
+// ---------------------------------------------------------------------------
+// Numeric integral adaptation
+// ---------------------------------------------------------------------------
+
+const INTEGRAL_EXPECTED_TYPE_NAMES = new Set([
+  "int",
+  "Int32",
+  "System.Int32",
+  "long",
+  "Int64",
+  "System.Int64",
+  "short",
+  "Int16",
+  "System.Int16",
+  "byte",
+  "Byte",
+  "System.Byte",
+  "sbyte",
+  "SByte",
+  "System.SByte",
+  "uint",
+  "UInt32",
+  "System.UInt32",
+  "ulong",
+  "UInt64",
+  "System.UInt64",
+  "ushort",
+  "UInt16",
+  "System.UInt16",
+  "nint",
+  "IntPtr",
+  "System.IntPtr",
+  "nuint",
+  "UIntPtr",
+  "System.UIntPtr",
+]);
+
+const isExpectedIntegralIrType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "primitiveType") {
+    return resolved.name === "int";
+  }
+  if (resolved.kind === "referenceType") {
+    return (
+      INTEGRAL_EXPECTED_TYPE_NAMES.has(resolved.name) ||
+      (resolved.resolvedClrType !== undefined &&
+        INTEGRAL_EXPECTED_TYPE_NAMES.has(resolved.resolvedClrType))
+    );
+  }
+  return false;
+};
+
+const isNumericSourceIrType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" &&
+      (resolved.name === "number" || resolved.name === "int")) ||
+    (resolved.kind === "literalType" && typeof resolved.value === "number") ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "int" ||
+        resolved.name === "double" ||
+        resolved.resolvedClrType === "System.Int32" ||
+        resolved.resolvedClrType === "global::System.Int32" ||
+        resolved.resolvedClrType === "System.Double" ||
+        resolved.resolvedClrType === "global::System.Double"))
+  );
+};
+
+export const maybeCastNumericToExpectedIntegralAst = (
+  ast: CSharpExpressionAst,
+  actualType: IrType | undefined,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] => {
+  if (!expectedType || !actualType) return [ast, context];
+  if (!isExpectedIntegralIrType(expectedType, context)) return [ast, context];
+  if (!isNumericSourceIrType(actualType, context)) return [ast, context];
+  if (isAssignable(actualType, expectedType)) return [ast, context];
+
+  const [typeAst, newContext] = emitTypeAst(expectedType, context);
+  return [
+    {
+      kind: "castExpression",
+      type: typeAst,
+      expression: ast,
+    },
+    newContext,
   ];
 };
 

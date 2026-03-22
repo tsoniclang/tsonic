@@ -3,6 +3,7 @@ import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expres
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import type { EmitterContext } from "../types.js";
 import {
+  maybeCastNumericToExpectedIntegralAst,
   maybeCastNullishTypeParamAst,
   maybeConvertCharToStringAst,
   maybeBoxJsNumberAsObjectAst,
@@ -111,11 +112,19 @@ export const adaptEmittedExpressionAst = (opts: {
       allowUnionNarrowing: false,
     }) ?? [dictionaryAdjustedAst, dictionaryAdjustedContext];
 
+  const [integralAdjustedAst, integralAdjustedContext] =
+    maybeCastNumericToExpectedIntegralAst(
+      expectedAdjustedAst,
+      actualType,
+      expectedAdjustedContext,
+      expectedType
+    );
+
   const [boxedNumericAst, boxedNumericContext] = maybeBoxJsNumberAsObjectAst(
-    expectedAdjustedAst,
+    integralAdjustedAst,
     expr,
     actualType,
-    expectedAdjustedContext,
+    integralAdjustedContext,
     expectedType
   );
 

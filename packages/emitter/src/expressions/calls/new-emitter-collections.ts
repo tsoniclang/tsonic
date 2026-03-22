@@ -156,6 +156,19 @@ const BYTE_ARRAY_TYPE: IrType = {
   origin: "explicit",
 };
 
+const INT_IR_TYPE: IrType = {
+  kind: "primitiveType",
+  name: "int",
+};
+
+const getConstructorClrName = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): string | undefined =>
+  (expr.callee.kind === "identifier" ? expr.callee.resolvedClrType : undefined) ??
+  (expr.inferredType?.kind === "referenceType"
+    ? (expr.inferredType.resolvedClrType ?? expr.inferredType.typeId?.clrName)
+    : undefined);
+
 export const isUint8ArrayConstructorWithArrayLiteral = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): boolean => {
@@ -168,13 +181,7 @@ export const isUint8ArrayConstructorWithArrayLiteral = (
     return false;
   }
 
-  const ctorClrName =
-    (expr.callee.kind === "identifier" ? expr.callee.resolvedClrType : undefined) ??
-    (expr.inferredType?.kind === "referenceType"
-      ? (expr.inferredType.resolvedClrType ?? expr.inferredType.typeId?.clrName)
-      : undefined);
-
-  return ctorClrName === UINT8ARRAY_CLR_NAME;
+  return getConstructorClrName(expr) === UINT8ARRAY_CLR_NAME;
 };
 
 export const emitUint8ArrayArrayLiteralConstructor = (
@@ -199,6 +206,72 @@ export const emitUint8ArrayArrayLiteralConstructor = (
     expr.arguments[0] as Extract<IrExpression, { kind: "array" }>,
     currentContext,
     BYTE_ARRAY_TYPE
+  );
+  currentContext = argContext;
+
+  return [
+    {
+      kind: "objectCreationExpression",
+      type: typeAst,
+      arguments: [argAst],
+    },
+    currentContext,
+  ];
+};
+
+export const isUint8ArrayConstructorWithNumericLength = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean => {
+  if (expr.arguments.length !== 1) {
+    return false;
+  }
+
+  const arg = expr.arguments[0];
+  if (!arg || arg.kind === "spread" || arg.kind === "array") {
+    return false;
+  }
+
+  if (getConstructorClrName(expr) !== UINT8ARRAY_CLR_NAME) {
+    return false;
+  }
+
+  const argType = arg.inferredType;
+  return (
+    (argType?.kind === "primitiveType" &&
+      (argType.name === "number" || argType.name === "int")) ||
+    (argType?.kind === "literalType" && typeof argType.value === "number") ||
+    (argType?.kind === "referenceType" &&
+      (argType.name === "int" ||
+        argType.name === "double" ||
+        argType.resolvedClrType === "System.Int32" ||
+        argType.resolvedClrType === "global::System.Int32" ||
+        argType.resolvedClrType === "System.Double" ||
+        argType.resolvedClrType === "global::System.Double"))
+  );
+};
+
+export const emitUint8ArrayNumericLengthConstructor = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  let currentContext = context;
+
+  const [calleeAst, calleeContext] = emitExpressionAst(
+    expr.callee,
+    currentContext
+  );
+  currentContext = calleeContext;
+  const calleeText = extractCalleeNameFromAst(calleeAst);
+
+  const typeAst: CSharpTypeAst =
+    calleeAst.kind === "typeReferenceExpression"
+      ? calleeAst.type
+      : identifierType(calleeText);
+
+  const [argAst, argContext] = emitExpressionAst(
+    expr.arguments[0] as IrExpression,
+    currentContext,
+    INT_IR_TYPE
   );
   currentContext = argContext;
 

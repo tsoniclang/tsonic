@@ -9,7 +9,24 @@ import { emitRemappedLocalName } from "../../core/format/local-names.js";
 import { lowerAssignmentPatternAst } from "../../patterns.js";
 import { hasInt32Proof } from "./helpers.js";
 import { emitWritableTargetAst } from "./write-targets.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+
+const UINT8ARRAY_CLR_NAME = "Tsonic.JSRuntime.Uint8Array";
+
+const BYTE_IR_TYPE: IrType = {
+  kind: "referenceType",
+  name: "byte",
+  typeId: {
+    stableId: "System.Private.CoreLib:System.Byte",
+    clrName: "System.Byte",
+    assemblyName: "System.Private.CoreLib",
+    tsName: "Byte",
+  },
+};
 
 /**
  * Emit an assignment expression as CSharpExpressionAst
@@ -23,12 +40,24 @@ export const emitAssignment = (
 ): [CSharpExpressionAst, EmitterContext] => {
   // Array element assignment uses native CLR indexer
   // HARD GATE: Index must be proven Int32 (validated by proof pass)
+  const isUint8ArrayReceiverType = (type: IrType | undefined): boolean => {
+    if (!type) return false;
+    const resolved = resolveTypeAlias(stripNullish(type), context);
+    return (
+      resolved.kind === "referenceType" &&
+      (resolved.resolvedClrType === UINT8ARRAY_CLR_NAME ||
+        resolved.typeId?.clrName === UINT8ARRAY_CLR_NAME ||
+        resolved.name === "Uint8Array")
+    );
+  };
+
   if (
     expr.operator === "=" &&
     "kind" in expr.left &&
     expr.left.kind === "memberAccess" &&
     expr.left.isComputed &&
-    expr.left.object.inferredType?.kind === "arrayType"
+    (expr.left.object.inferredType?.kind === "arrayType" ||
+      isUint8ArrayReceiverType(expr.left.object.inferredType))
   ) {
     const leftExpr = expr.left as Extract<
       IrExpression,
@@ -52,16 +81,21 @@ export const emitAssignment = (
       indexExpr,
       objectContext
     );
-    const expectedArrayType = leftExpr.object.inferredType;
-    if (!expectedArrayType || expectedArrayType.kind !== "arrayType") {
+    const expectedElementType =
+      leftExpr.object.inferredType?.kind === "arrayType"
+        ? leftExpr.object.inferredType.elementType
+        : isUint8ArrayReceiverType(leftExpr.object.inferredType)
+          ? BYTE_IR_TYPE
+          : undefined;
+    if (!expectedElementType) {
       throw new Error(
-        "Internal Compiler Error: array element assignment reached emitter without an array LHS type."
+        "Internal Compiler Error: CLR indexer assignment reached emitter without a writable element type."
       );
     }
     const [rightAst, rightContext] = emitExpressionAst(
       expr.right,
       indexContext,
-      expectedArrayType.elementType
+      expectedElementType
     );
 
     // Use native CLR indexer: arr[idx] = value

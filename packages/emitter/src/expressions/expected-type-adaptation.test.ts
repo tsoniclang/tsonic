@@ -8,7 +8,10 @@ import {
 import { printExpression } from "../core/format/backend-ast/printer.js";
 import type { IrType } from "@tsonic/frontend";
 import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
-import { maybeBoxJsNumberAsObjectAst } from "./post-emission-adaptation.js";
+import {
+  maybeBoxJsNumberAsObjectAst,
+  maybeCastNumericToExpectedIntegralAst,
+} from "./post-emission-adaptation.js";
 
 describe("expected-type-adaptation", () => {
   it("uses the shared planner for runtime-union narrowing", () => {
@@ -122,5 +125,46 @@ describe("expected-type-adaptation", () => {
     );
 
     expect(printExpression(boxedAst)).to.equal("(object)(double)42");
+  });
+
+  it("casts JS numeric expressions into integral expected slots", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [castAst] = maybeCastNumericToExpectedIntegralAst(
+      identifierExpression("value"),
+      { kind: "primitiveType", name: "number" },
+      context,
+      { kind: "primitiveType", name: "int" }
+    );
+
+    expect(printExpression(castAst)).to.equal("(int)value");
+  });
+
+  it("casts JS numeric expressions into byte expected slots", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [castAst] = maybeCastNumericToExpectedIntegralAst(
+      parseNumericLiteral("255"),
+      { kind: "primitiveType", name: "number" },
+      context,
+      {
+        kind: "referenceType",
+        name: "byte",
+        typeId: {
+          stableId: "System.Private.CoreLib:System.Byte",
+          clrName: "System.Byte",
+          assemblyName: "System.Private.CoreLib",
+          tsName: "Byte",
+        },
+      }
+    );
+
+    expect(printExpression(castAst)).to.equal("(byte)255");
   });
 });

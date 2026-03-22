@@ -7,7 +7,10 @@ import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
-import { stableIdentifierSuffixFromTypeAst } from "../core/format/backend-ast/utils.js";
+import {
+  normalizeClrQualifiedName,
+  stableIdentifierSuffixFromTypeAst,
+} from "../core/format/backend-ast/utils.js";
 import { emitTypedDefaultAst } from "../core/semantic/defaults.js";
 import type {
   CSharpExpressionAst,
@@ -250,10 +253,10 @@ export const emitIdentifier = (
     return [identifierExpression(fqn), context];
   }
 
-  // Use resolved binding if available (from binding manifest) with global:: prefix
-  // resolvedClrType is already the full CLR type name, just add global::
+  // Use resolved binding if available (from binding manifest) with global:: prefix.
+  // Normalize nested CLR type syntax (Outer+Inner`1) before emitting.
   if (expr.resolvedClrType) {
-    const fqn = `global::${expr.resolvedClrType}`;
+    const fqn = normalizeClrQualifiedName(expr.resolvedClrType, true);
     return [identifierExpression(fqn), context];
   }
 
