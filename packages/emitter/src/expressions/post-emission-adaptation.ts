@@ -14,6 +14,10 @@ import { isAssignable } from "../core/semantic/type-compatibility.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import {
+  getIdentifierTypeName,
+  stripNullableTypeAst,
+} from "../core/format/backend-ast/utils.js";
 
 // ---------------------------------------------------------------------------
 // Nullish type-parameter casting
@@ -181,6 +185,63 @@ const isSameTypeForNullableUnwrap = (
   return false;
 };
 
+const astAlreadyCastsToConcreteValueType = (
+  ast: CSharpExpressionAst
+): boolean => {
+  if (ast.kind !== "castExpression" && ast.kind !== "asExpression") {
+    return false;
+  }
+
+  const concreteTarget = stripNullableTypeAst(ast.type);
+  if (concreteTarget.kind === "predefinedType") {
+    return (
+      concreteTarget.keyword === "int" ||
+      concreteTarget.keyword === "long" ||
+      concreteTarget.keyword === "short" ||
+      concreteTarget.keyword === "byte" ||
+      concreteTarget.keyword === "sbyte" ||
+      concreteTarget.keyword === "uint" ||
+      concreteTarget.keyword === "ulong" ||
+      concreteTarget.keyword === "ushort" ||
+      concreteTarget.keyword === "float" ||
+      concreteTarget.keyword === "double" ||
+      concreteTarget.keyword === "decimal" ||
+      concreteTarget.keyword === "bool" ||
+      concreteTarget.keyword === "char"
+    );
+  }
+
+  const identifierName = getIdentifierTypeName(concreteTarget);
+  return (
+    identifierName === "System.Int32" ||
+    identifierName === "global::System.Int32" ||
+    identifierName === "System.Int64" ||
+    identifierName === "global::System.Int64" ||
+    identifierName === "System.Int16" ||
+    identifierName === "global::System.Int16" ||
+    identifierName === "System.Byte" ||
+    identifierName === "global::System.Byte" ||
+    identifierName === "System.SByte" ||
+    identifierName === "global::System.SByte" ||
+    identifierName === "System.UInt32" ||
+    identifierName === "global::System.UInt32" ||
+    identifierName === "System.UInt64" ||
+    identifierName === "global::System.UInt64" ||
+    identifierName === "System.UInt16" ||
+    identifierName === "global::System.UInt16" ||
+    identifierName === "System.Single" ||
+    identifierName === "global::System.Single" ||
+    identifierName === "System.Double" ||
+    identifierName === "global::System.Double" ||
+    identifierName === "System.Decimal" ||
+    identifierName === "global::System.Decimal" ||
+    identifierName === "System.Boolean" ||
+    identifierName === "global::System.Boolean" ||
+    identifierName === "System.Char" ||
+    identifierName === "global::System.Char"
+  );
+};
+
 export const maybeUnwrapNullableValueTypeAst = (
   expr: IrExpression,
   ast: CSharpExpressionAst,
@@ -213,6 +274,9 @@ export const maybeUnwrapNullableValueTypeAst = (
 
   if (!isNonNullableValueType(expectedType)) return [ast, context];
   if (!isSameTypeForNullableUnwrap(nullableBase, expectedType)) {
+    return [ast, context];
+  }
+  if (astAlreadyCastsToConcreteValueType(ast)) {
     return [ast, context];
   }
 

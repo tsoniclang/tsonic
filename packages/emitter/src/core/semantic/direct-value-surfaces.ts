@@ -15,6 +15,13 @@ export const resolveDirectValueSurfaceType = (
     return direct;
   }
 
+  const narrowedRename = Array.from(context.narrowedBindings ?? []).find(
+    ([, binding]) => binding.kind === "rename" && binding.name === valueAst.identifier
+  )?.[1];
+  if (narrowedRename?.kind === "rename" && narrowedRename.type) {
+    return narrowedRename.type;
+  }
+
   const originalName = Array.from(context.localNameMap ?? []).find(
     ([, emitted]) => emitted === valueAst.identifier
   )?.[0];

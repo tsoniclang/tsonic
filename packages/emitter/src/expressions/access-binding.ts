@@ -15,7 +15,11 @@ import {
   identifierType,
   nullLiteral,
 } from "../core/format/backend-ast/builders.js";
-import { stripNullableTypeAst } from "../core/format/backend-ast/utils.js";
+import {
+  getIdentifierTypeName,
+  normalizeClrQualifiedName,
+  stripNullableTypeAst,
+} from "../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -53,8 +57,15 @@ export const tryEmitMemberBindingAccess = (
   const { type, member } = expr.memberBinding;
   const escapedMember = escapeCSharpIdentifier(member);
   const bindingTypeLeaf = stripClrGenericArity(type).split(".").pop();
+  const normalizedBindingType = normalizeClrQualifiedName(type, true);
+  const normalizedBindingTypeWithoutArity = normalizeClrQualifiedName(
+    stripClrGenericArity(type),
+    true
+  );
 
   const receiverType = resolveEffectiveReceiverType(expr.object, context);
+  const sourcePropertyName =
+    typeof expr.property === "string" ? expr.property : member;
   const arrayLikeReceiver = resolveArrayLikeReceiverType(receiverType, context);
   const hasArrayLikeBindingHint =
     bindingTypeLeaf === "JSArray" ||
@@ -160,7 +171,7 @@ export const tryEmitMemberBindingAccess = (
       const wrapperAst: CSharpExpressionAst = {
         kind: "objectCreationExpression",
         type: identifierType(
-          `global::${stripClrGenericArity(type)}`,
+          normalizedBindingTypeWithoutArity,
           wrapperTypeArguments
         ),
         arguments: [objectAst],
@@ -192,7 +203,9 @@ export const tryEmitMemberBindingAccess = (
     const [objectAst, newContext] = emitExpressionAst(expr.object, context);
     const extensionCallAst: CSharpExpressionAst = {
       kind: "invocationExpression",
-      expression: identifierExpression(`global::${type}.${escapedMember}`),
+      expression: identifierExpression(
+        `${normalizedBindingType}.${escapedMember}`
+      ),
       arguments: [objectAst],
     };
 
@@ -231,14 +244,36 @@ export const tryEmitMemberBindingAccess = (
     return bindingTypeLeaf === expr.object.name;
   })();
 
+  const importedStaticReceiverName = (() => {
+    if (expr.object.kind !== "identifier") {
+      return undefined;
+    }
+    const importBinding = context.importBindings?.get(expr.object.name);
+    if (importBinding?.kind !== "type") {
+      return undefined;
+    }
+    return getIdentifierTypeName(importBinding.typeAst);
+  })();
+
   if (isStaticTypeReference(expr, context) || isGlobalSimpleBindingAccess) {
+    const staticReceiverName = importedStaticReceiverName ?? normalizedBindingType;
+    const staticMemberName = importedStaticReceiverName
+      ? emitMemberName(
+          expr.object,
+          receiverType,
+          sourcePropertyName,
+          context,
+          usage
+        )
+      : escapedMember;
     // Static access: emit full CLR type and member with global:: prefix
-    return [identifierExpression(`global::${type}.${escapedMember}`), context];
+    return [
+      identifierExpression(`${staticReceiverName}.${staticMemberName}`),
+      context,
+    ];
   } else {
     // Instance access: emit object.ClrMemberName
     const [objectAst, newContext] = emitExpressionAst(expr.object, context);
-    const sourcePropertyName =
-      typeof expr.property === "string" ? expr.property : member;
     const emittedSourceMemberName = emitMemberName(
       expr.object,
       receiverType,

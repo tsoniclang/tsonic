@@ -11,6 +11,7 @@ import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
 import {
   maybeBoxJsNumberAsObjectAst,
   maybeCastNumericToExpectedIntegralAst,
+  maybeUnwrapNullableValueTypeAst,
 } from "./post-emission-adaptation.js";
 
 describe("expected-type-adaptation", () => {
@@ -166,5 +167,48 @@ describe("expected-type-adaptation", () => {
     );
 
     expect(printExpression(castAst)).to.equal("(byte)255");
+  });
+
+  it("does not append .Value when the emitted AST already casts to a concrete value type", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [unwrappedAst] = maybeUnwrapNullableValueTypeAst(
+      {
+        kind: "memberAccess",
+        object: {
+          kind: "identifier",
+          name: "options",
+          inferredType: { kind: "referenceType", name: "MarkOptions" },
+        },
+        property: "startTime",
+        isComputed: false,
+        isOptional: false,
+        inferredType: {
+          kind: "unionType",
+          types: [
+            { kind: "primitiveType", name: "number" },
+            { kind: "primitiveType", name: "null" },
+          ],
+        },
+      },
+      {
+        kind: "castExpression",
+        type: { kind: "predefinedType", keyword: "double" },
+        expression: {
+          kind: "castExpression",
+          type: { kind: "predefinedType", keyword: "object" },
+          expression: identifierExpression("options.startTime"),
+        },
+      },
+      context,
+      { kind: "primitiveType", name: "number" }
+    );
+
+    expect(printExpression(unwrappedAst)).to.equal(
+      "(double)(object)options.startTime"
+    );
   });
 });
