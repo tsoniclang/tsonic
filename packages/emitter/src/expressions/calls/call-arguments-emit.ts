@@ -279,6 +279,7 @@ const resolveCallArgumentExpectedType = (
 ): IrType | undefined => {
   const expectedType = normalizeCallArgumentExpectedType(
     parameterType,
+    arg,
     context
   );
 

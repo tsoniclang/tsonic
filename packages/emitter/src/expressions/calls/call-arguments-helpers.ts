@@ -19,14 +19,48 @@ import {
 import {
   resolveArrayLikeReceiverType,
   normalizeStructuralEmissionType,
+  splitRuntimeNullishUnionMembers,
+  stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { shouldEraseRecursiveRuntimeUnionArrayElement } from "../../core/semantic/runtime-unions.js";
 import { normalizeRecursiveArrayExpectedType } from "../../core/semantic/array-expected-types.js";
 
+const isExplicitNullishArgument = (arg: IrExpression): boolean =>
+  (arg.kind === "literal" && (arg.value === undefined || arg.value === null)) ||
+  (arg.kind === "identifier" && (arg.name === "undefined" || arg.name === "null"));
+
+const argumentMayBeNullish = (arg: IrExpression): boolean => {
+  if (isExplicitNullishArgument(arg)) {
+    return true;
+  }
+
+  const split = arg.inferredType
+    ? splitRuntimeNullishUnionMembers(arg.inferredType)
+    : undefined;
+  return split?.hasRuntimeNullish ?? false;
+};
+
 export const normalizeCallArgumentExpectedType = (
   type: IrType | undefined,
+  arg: IrExpression,
   context: EmitterContext
-): IrType | undefined => normalizeRecursiveArrayExpectedType(type, context);
+): IrType | undefined => {
+  const normalizedType = normalizeRecursiveArrayExpectedType(type, context);
+  if (!normalizedType) {
+    return normalizedType;
+  }
+
+  const split = splitRuntimeNullishUnionMembers(normalizedType);
+  if (!split?.hasRuntimeNullish) {
+    return normalizedType;
+  }
+
+  if (argumentMayBeNullish(arg)) {
+    return normalizedType;
+  }
+
+  return stripNullish(normalizedType);
+};
 
 export const emitArrayWrapperElementTypeAst = (
   receiverType: IrType,

@@ -337,6 +337,75 @@ describe("Expression Emission", () => {
     expect(result).to.include("acceptString(default(string))");
   });
 
+  it("should strip optional exact-numeric nullish wrappers for concrete arguments", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "acceptOffset",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: { kind: "primitiveType", name: "int" },
+              isOptional: true,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isAsync: false,
+          isGenerator: false,
+          isExported: false,
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "acceptOffset" },
+            arguments: [{ kind: "literal", value: 5 }],
+            isOptional: false,
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 2,
+              column: 1,
+              length: 16,
+            },
+          },
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "acceptOffset" },
+            arguments: [{ kind: "identifier", name: "undefined" }],
+            isOptional: false,
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 3,
+              column: 1,
+              length: 24,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("acceptOffset((int)5)");
+    expect(result).to.include("acceptOffset(default(int?))");
+  });
+
   it("should emit char literals for single-character string assertions to char", () => {
     const module: IrModule = {
       kind: "module",
