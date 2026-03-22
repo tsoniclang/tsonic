@@ -136,7 +136,8 @@ const emitFunctionValueCallArguments = (
       if (args.length === i + 1 && spreadArg && spreadArg.kind === "spread") {
         const [spreadAst, spreadCtx] = emitExpressionAst(
           spreadArg.expression,
-          currentContext
+          currentContext,
+          parameter.type
         );
         argAsts.push(spreadAst);
         currentContext = spreadCtx;
@@ -166,7 +167,8 @@ const emitFunctionValueCallArguments = (
         if (arg.kind === "spread") {
           const [spreadAst, spreadCtx] = emitExpressionAst(
             arg.expression,
-            currentContext
+            currentContext,
+            parameter.type
           );
           argAsts.push(spreadAst);
           currentContext = spreadCtx;
@@ -411,6 +413,7 @@ const emitCallArguments = (
     ) {
       const [flattenedRestArgs, flattenedContext] = emitFlattenedRestArguments(
         normalizedArgs.slice(restInfo.index),
+        restInfo.arrayType,
         restInfo.elementType,
         currentContext
       );

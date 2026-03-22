@@ -18,6 +18,7 @@ import {
   getIdentifierTypeName,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
+import { nullLiteral } from "../core/format/backend-ast/builders.js";
 
 // ---------------------------------------------------------------------------
 // Nullish type-parameter casting
@@ -508,6 +509,49 @@ export const maybeBoxJsNumberAsObjectAst = (
     return [ast, context];
   }
   if (!expectsBoxedObjectIrType(expectedType, context)) return [ast, context];
+
+  const nullableNumericBaseType = actualType
+    ? getNullableUnionBaseType(actualType)
+    : undefined;
+  if (
+    nullableNumericBaseType &&
+    isJsNumberIrType(nullableNumericBaseType, context)
+  ) {
+    const nullableValueAccessAst: CSharpExpressionAst = {
+      kind: "memberAccessExpression",
+      expression: ast,
+      memberName: "Value",
+    };
+
+    const widenedNullableValueAst: CSharpExpressionAst = {
+      kind: "castExpression",
+      type: { kind: "predefinedType", keyword: "double" },
+      expression: nullableValueAccessAst,
+    };
+
+    return [
+      {
+        kind: "conditionalExpression",
+        condition: {
+          kind: "binaryExpression",
+          operatorToken: "==",
+          left: {
+            kind: "castExpression",
+            type: { kind: "predefinedType", keyword: "object" },
+            expression: ast,
+          },
+          right: nullLiteral(),
+        },
+        whenTrue: nullLiteral(),
+        whenFalse: {
+          kind: "castExpression",
+          type: { kind: "predefinedType", keyword: "object" },
+          expression: widenedNullableValueAst,
+        },
+      },
+      context,
+    ];
+  }
 
   const widenedNumericAst: CSharpExpressionAst = {
     kind: "castExpression",

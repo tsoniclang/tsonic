@@ -24,6 +24,11 @@ import {
   getArrayElementType,
   getDictionaryValueType,
 } from "./structural-type-shapes.js";
+import {
+  isExactArrayCreationToType,
+  isExactExpressionToType,
+  tryEmitExactComparisonTargetAst,
+} from "./exact-comparison.js";
 
 const isDirectlyReusableExpression = (
   expression: CSharpExpressionAst
@@ -40,6 +45,17 @@ export const tryAdaptStructuralCollectionExpressionAst = (
   adaptStructuralExpressionAst: StructuralAdaptFn,
   upcastFn?: UpcastFn
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (expectedType) {
+    const exactTarget = tryEmitExactComparisonTargetAst(expectedType, context);
+    if (
+      exactTarget &&
+      (isExactExpressionToType(emittedAst, exactTarget[0]) ||
+        isExactArrayCreationToType(emittedAst, exactTarget[0]))
+    ) {
+      return [emittedAst, exactTarget[1]];
+    }
+  }
+
   const targetElementType = getArrayElementType(expectedType, context);
   const sourceElementType = getArrayElementType(sourceType, context);
   if (targetElementType && sourceElementType) {

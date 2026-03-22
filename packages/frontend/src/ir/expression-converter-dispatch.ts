@@ -53,6 +53,12 @@ import {
   stripNullish,
 } from "./expression-converter-helpers.js";
 
+const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
+  ts.isImportClause(decl) ||
+  ts.isImportSpecifier(decl) ||
+  ts.isNamespaceImport(decl) ||
+  ts.isImportEqualsDeclaration(decl);
+
 /**
  * Main expression conversion dispatcher
  * Converts TypeScript expression nodes to IR expressions
@@ -157,9 +163,25 @@ export const convertExpression = (
       }
     }
 
+    const symbolDeclarations =
+      ctx.checker.getSymbolAtLocation(node)?.getDeclarations() ?? [];
+    const hasImportLikeDeclaration = symbolDeclarations.some(
+      isImportLikeDeclaration
+    );
+    const isAmbientDeclarationFileGlobal =
+      symbolDeclarations.length > 0 &&
+      !hasImportLikeDeclaration &&
+      symbolDeclarations.every((decl: ts.Declaration) =>
+        decl.getSourceFile().isDeclarationFile
+      );
+
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
     const clrBinding = ctx.bindings.getExactBinding(node.text);
-    if (clrBinding && clrBinding.kind === "global") {
+    if (
+      clrBinding &&
+      clrBinding.kind === "global" &&
+      (!declId || isAmbientDeclarationFileGlobal)
+    ) {
       const baseIdentifier: IrExpression = {
         kind: "identifier",
         name: node.text,

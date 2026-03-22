@@ -13,6 +13,10 @@ import {
   buildRuntimeUnionTypeAst,
   findRuntimeUnionMemberIndex,
 } from "../core/semantic/runtime-unions.js";
+import {
+  tryBuildRuntimeMaterializationAst,
+  tryBuildRuntimeReificationPlan,
+} from "../core/semantic/runtime-reification.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import { buildRuntimeUnionFactoryCallAst } from "../core/semantic/runtime-union-projection.js";
@@ -57,6 +61,22 @@ const isObjectLikeTypeAst = (type: CSharpTypeAst | undefined): boolean => {
     name === "object" ||
     name === "System.Object" ||
     name === "global::System.Object"
+  );
+};
+
+const isBroadReificationSourceType = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveComparableType(type, context);
+  return (
+    resolved.kind === "unknownType" ||
+    resolved.kind === "anyType" ||
+    resolved.kind === "objectType" ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "object" ||
+        resolved.resolvedClrType === "System.Object" ||
+        resolved.resolvedClrType === "global::System.Object"))
   );
 };
 
@@ -350,6 +370,24 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     return projectedUnion;
   }
 
+  const [actualRuntimeLayout] = buildRuntimeUnionLayout(
+    emissionActualType,
+    context,
+    emitTypeAst
+  );
+  if (actualRuntimeLayout) {
+    const materialized = tryBuildRuntimeMaterializationAst(
+      ast,
+      emissionActualType,
+      emissionExpectedType,
+      context,
+      emitTypeAst
+    );
+    if (materialized) {
+      return materialized;
+    }
+  }
+
   if (normalizedExpected.kind !== "unionType") {
     return undefined;
   }
@@ -365,11 +403,6 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     return widenedUnion;
   }
 
-  const [actualRuntimeLayout] = buildRuntimeUnionLayout(
-    emissionActualType,
-    context,
-    emitTypeAst
-  );
   if (actualRuntimeLayout) {
     return undefined;
   }
@@ -381,6 +414,18 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   );
   if (!runtimeLayout) {
     return undefined;
+  }
+
+  if (isBroadReificationSourceType(emissionActualType, layoutContext)) {
+    const plan = tryBuildRuntimeReificationPlan(
+      ast,
+      emissionExpectedType,
+      layoutContext,
+      emitTypeAst
+    );
+    if (plan) {
+      return [plan.value, plan.context];
+    }
   }
 
   const [actualTypeAst, actualTypeContext] = emitTypeAst(

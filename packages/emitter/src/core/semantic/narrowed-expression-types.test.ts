@@ -285,5 +285,72 @@ describe("narrowed-expression-types", () => {
         context
       )
     ).to.deep.equal(routerType);
+
+    expect(
+      tryResolveRuntimeUnionMemberType(
+        middlewareLikeType,
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: {
+              kind: "identifierExpression",
+              identifier: "handler",
+            },
+            memberName: "Match",
+          },
+          arguments: [
+            {
+              kind: "lambdaExpression",
+              isAsync: false,
+              parameters: [{ name: "__tsonic_union_member_1" }],
+              body: {
+                kind: "throwExpression",
+                expression: {
+                  kind: "objectCreationExpression",
+                  type: {
+                    kind: "qualifiedIdentifierType",
+                    name: {
+                      aliasQualifier: "global",
+                      segments: ["System", "InvalidCastException"],
+                    },
+                  },
+                  arguments: [],
+                },
+              },
+            },
+            {
+              kind: "lambdaExpression",
+              isAsync: false,
+              parameters: [{ name: "__tsonic_union_member_2" }],
+              body: {
+                kind: "identifierExpression",
+                identifier: "__tsonic_union_member_2",
+              },
+            },
+            {
+              kind: "lambdaExpression",
+              isAsync: false,
+              parameters: [{ name: "__tsonic_union_member_3" }],
+              body: {
+                kind: "throwExpression",
+                expression: {
+                  kind: "objectCreationExpression",
+                  type: {
+                    kind: "qualifiedIdentifierType",
+                    name: {
+                      aliasQualifier: "global",
+                      segments: ["System", "InvalidCastException"],
+                    },
+                  },
+                  arguments: [],
+                },
+              },
+            },
+          ],
+        },
+        context
+      )
+    ).to.deep.equal(requestHandlerType);
   });
 });

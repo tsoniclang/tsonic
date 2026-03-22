@@ -18,7 +18,7 @@ import { identifierType } from "../../core/format/backend-ast/builders.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { resolveArrayLikeReceiverType } from "../../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
-import { isLValue, needsIntCast } from "./call-analysis.js";
+import { needsIntCast } from "./call-analysis.js";
 import {
   emitCallArguments,
   wrapIntCast,
@@ -125,6 +125,15 @@ const captureAssignableArrayTarget = (
     };
   }
 
+  if (receiverAst.kind === "qualifiedIdentifierExpression") {
+    return {
+      readExpression: receiverAst,
+      writeExpression: receiverAst,
+      setupStatements: [],
+      context: receiverContext,
+    };
+  }
+
   if (receiverAst.kind === "memberAccessExpression") {
     const objectTemp = allocateLocalName(
       "__tsonic_arrayTarget",
@@ -207,7 +216,6 @@ export const emitArrayMutationInteropCall = (
   if (expr.callee.isComputed) return undefined;
   if (typeof expr.callee.property !== "string") return undefined;
   if (!nativeArrayMutationMembers.has(expr.callee.property)) return undefined;
-  if (!isLValue(expr.callee.object)) return undefined;
 
   const binding = expr.callee.memberBinding;
   if (

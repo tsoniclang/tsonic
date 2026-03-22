@@ -41,6 +41,7 @@ import {
   getIdentifierTypeName,
 } from "../core/format/backend-ast/utils.js";
 import { stringLiteral } from "../core/format/backend-ast/builders.js";
+import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
 
@@ -165,6 +166,14 @@ export const emitTypeAssertion = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const transparentSourceExpression = unwrapTransparentExpression(
+    expr.expression
+  );
+  const sourceExpressionTypeAtEntry =
+    transparentSourceExpression.kind === "identifier"
+      ? (context.localSemanticTypes?.get(transparentSourceExpression.name) ??
+        transparentSourceExpression.inferredType)
+      : transparentSourceExpression.inferredType;
   const isTransparentFlowAssertion = (() => {
     const inner = expr.expression;
     if (inner.kind !== "identifier" && inner.kind !== "memberAccess") {
@@ -278,6 +287,19 @@ export const emitTypeAssertion = (
     return emitExpressionAst(expr.expression, context, expectedType);
   }
 
+  if (
+    expectedType &&
+    sourceExpressionTypeAtEntry &&
+    (areIrTypesEquivalent(sourceExpressionTypeAtEntry, expectedType, context) ||
+      matchesExpectedEmissionType(
+        sourceExpressionTypeAtEntry,
+        expectedType,
+        context
+      ))
+  ) {
+    return emitExpressionAst(expr.expression, context, expectedType);
+  }
+
   const runtimeEmissionTarget = resolveRuntimeMaterializationTargetType(
     expr.targetType,
     context
@@ -313,9 +335,6 @@ export const emitTypeAssertion = (
   const runtimeTarget = resolveRuntimeMaterializationTargetType(
     expr.targetType,
     ctx1
-  );
-  const transparentSourceExpression = unwrapTransparentExpression(
-    expr.expression
   );
   const sourceExpressionType =
     transparentSourceExpression.kind === "identifier"
@@ -369,7 +388,7 @@ export const emitTypeAssertion = (
     return [innerAst, runtimeTargetTypeContext];
   }
 
-  if (mustPreserveNominalCast || mustPreserveFlowStorageCast) {
+  if (mustPreserveNominalCast) {
     return [
       {
         kind: "castExpression",
@@ -388,6 +407,17 @@ export const emitTypeAssertion = (
   });
   if (adaptedUnionAst) {
     return adaptedUnionAst;
+  }
+
+  if (mustPreserveFlowStorageCast) {
+    return [
+      {
+        kind: "castExpression",
+        type: runtimeTargetTypeAst,
+        expression: innerAst,
+      },
+      runtimeTargetTypeContext,
+    ];
   }
 
   return [

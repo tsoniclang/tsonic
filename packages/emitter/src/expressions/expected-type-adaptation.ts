@@ -1,5 +1,6 @@
 import type { IrExpression, IrType } from "@tsonic/frontend";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import type { EmitterContext } from "../types.js";
 import {
@@ -9,6 +10,11 @@ import {
   maybeBoxJsNumberAsObjectAst,
   maybeUnwrapNullableValueTypeAst,
 } from "./post-emission-adaptation.js";
+import {
+  isExactArrayCreationToType,
+  isExactExpressionToType,
+  tryEmitExactComparisonTargetAst,
+} from "./exact-comparison.js";
 import {
   maybeNarrowRuntimeUnionExpressionAst,
   maybeAdaptDictionaryUnionValueAst,
@@ -91,9 +97,35 @@ export const adaptEmittedExpressionAst = (opts: {
     expectedType
   );
 
+  const exactExpectedSurface = expectedType
+    ? tryEmitExactComparisonTargetAst(expectedType, castedContext)
+    : undefined;
+  const preservesExpectedSurface =
+    expr.kind === "typeAssertion" &&
+    !!exactExpectedSurface &&
+    (isExactExpressionToType(castedAst, exactExpectedSurface[0]) ||
+      isExactArrayCreationToType(castedAst, exactExpectedSurface[0]));
+  const adaptationSourceExpr =
+    expr.kind === "typeAssertion" &&
+    (castedAst.kind !== "castExpression" || preservesExpectedSurface)
+      ? expr.expression
+      : expr;
   const actualType =
-    resolveDirectStorageExpressionType(expr, castedAst, castedContext) ??
-    resolveEffectiveExpressionType(expr, castedContext);
+    tryResolveRuntimeUnionMemberType(
+      resolveDirectStorageExpressionType(
+        adaptationSourceExpr,
+        castedAst,
+        castedContext
+      ) ?? resolveEffectiveExpressionType(adaptationSourceExpr, castedContext),
+      castedAst,
+      castedContext
+    ) ??
+    resolveDirectStorageExpressionType(
+      adaptationSourceExpr,
+      castedAst,
+      castedContext
+    ) ??
+    resolveEffectiveExpressionType(adaptationSourceExpr, castedContext);
 
   const [dictionaryAdjustedAst, dictionaryAdjustedContext] =
     maybeAdaptDictionaryUnionValueAst(

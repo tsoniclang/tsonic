@@ -215,16 +215,6 @@ export const emitCall = (
     }
   }
 
-  // Extension method lowering — delegated to call-extension-methods.ts
-  const extensionResult = tryEmitExtensionMethodCall(
-    expr,
-    context,
-    expectedType
-  );
-  if (extensionResult) {
-    return extensionResult;
-  }
-
   const arrayWrapperInteropCall = emitArrayWrapperInteropCall(
     expr,
     context,
@@ -236,6 +226,18 @@ export const emitCall = (
   }
   if (arrayWrapperInteropCall) {
     return arrayWrapperInteropCall;
+  }
+
+  // Extension method lowering — delegated to call-extension-methods.ts
+  // Keep this after native array interop so lifted/static container array
+  // mutation calls cannot fall through to copy-based JSArray extension syntax.
+  const extensionResult = tryEmitExtensionMethodCall(
+    expr,
+    context,
+    expectedType
+  );
+  if (extensionResult) {
+    return extensionResult;
   }
 
   // Regular function call

@@ -7,10 +7,12 @@
  * Split from binding-resolution.ts for file-size compliance (< 500 LOC).
  */
 
+import * as ts from "typescript";
 import { IrMemberExpression } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { MemberBinding } from "../../../../program/bindings.js";
+import type { BindingInternal } from "../../../binding/binding-types.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { extractTypeName } from "./member-resolution.js";
 
@@ -24,8 +26,46 @@ export const resolveHierarchicalBinding = (
   ctx: ProgramContext
 ): IrMemberExpression["memberBinding"] => {
   const registry = ctx.bindings;
+  const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
+    ts.isImportClause(decl) ||
+    ts.isImportSpecifier(decl) ||
+    ts.isNamespaceImport(decl) ||
+    ts.isImportEqualsDeclaration(decl);
+
+  const isAmbientGlobalDeclaration = (decl: ts.Declaration): boolean =>
+    decl.getSourceFile().isDeclarationFile ||
+    (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient) !== 0;
+
   const isTypeLikeIdentifierName = (name: string | undefined): boolean =>
     typeof name === "string" && /^[A-Z]/.test(name);
+
+  const shouldUseSimpleIdentifierBinding = (): boolean => {
+    if (object.kind !== "identifier") return false;
+    if (!object.declId) return true;
+
+    const declInfo = (ctx.binding as BindingInternal)
+      ._getHandleRegistry()
+      .getDecl(object.declId);
+    if (!declInfo) {
+      return true;
+    }
+
+    const declarationNodes = [
+      declInfo.declNode,
+      declInfo.valueDeclNode,
+      declInfo.typeDeclNode,
+    ].filter((node): node is ts.Declaration => node !== undefined);
+
+    if (declarationNodes.length === 0) {
+      return true;
+    }
+
+    if (declarationNodes.some(isImportLikeDeclaration)) {
+      return false;
+    }
+
+    return declarationNodes.every(isAmbientGlobalDeclaration);
+  };
 
   const tryResolveOwnerMemberBinding = (
     ownerAliasOrClrType: string | undefined,
@@ -141,29 +181,31 @@ export const resolveHierarchicalBinding = (
 
   // Case 1: object is identifier → check if it's a namespace, then check if property is a type
   if (object.kind === "identifier") {
-    const simpleBinding = ctx.bindings.getExactBinding(object.name);
+    if (shouldUseSimpleIdentifierBinding()) {
+      const simpleBinding = ctx.bindings.getExactBinding(object.name);
 
-    if (simpleBinding?.staticType) {
-      const staticBinding =
-        tryResolveOwnerMemberBinding(simpleBinding.staticType, false) ??
-        tryResolveOwnerMemberBinding(
-          tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
-          false
-        );
-      if (staticBinding) {
-        return staticBinding;
+      if (simpleBinding?.staticType) {
+        const staticBinding =
+          tryResolveOwnerMemberBinding(simpleBinding.staticType, false) ??
+          tryResolveOwnerMemberBinding(
+            tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
+            false
+          );
+        if (staticBinding) {
+          return staticBinding;
+        }
       }
-    }
 
-    if (simpleBinding) {
-      const instanceBinding =
-        tryResolveOwnerMemberBinding(simpleBinding.type, false) ??
-        tryResolveOwnerMemberBinding(
-          tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
-          false
-        );
-      if (instanceBinding) {
-        return instanceBinding;
+      if (simpleBinding) {
+        const instanceBinding =
+          tryResolveOwnerMemberBinding(simpleBinding.type, false) ??
+          tryResolveOwnerMemberBinding(
+            tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
+            false
+          );
+        if (instanceBinding) {
+          return instanceBinding;
+        }
       }
     }
 

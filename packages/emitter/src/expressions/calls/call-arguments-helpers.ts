@@ -223,6 +223,7 @@ export const wrapIntCast = (
 
 export const emitFlattenedRestArguments = (
   restArgs: readonly IrExpression[],
+  restArrayType: IrType,
   restElementType: IrType,
   context: EmitterContext
 ): [readonly CSharpExpressionAst[], EmitterContext] => {
@@ -253,7 +254,8 @@ export const emitFlattenedRestArguments = (
       flushInlineElements();
       const [spreadAst, spreadContext] = emitExpressionAst(
         arg.expression,
-        currentContext
+        currentContext,
+        restArrayType
       );
       segments.push(spreadAst);
       currentContext = spreadContext;
