@@ -225,10 +225,7 @@ describe("Program Creation – module bindings", function () {
           2
         )
       );
-      fs.writeFileSync(
-        path.join(jsRoot, "index.js"),
-        "export {};\n"
-      );
+      fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
       fs.writeFileSync(
         path.join(jsRoot, "index.d.ts"),
         [

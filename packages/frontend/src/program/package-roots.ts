@@ -49,7 +49,9 @@ const getRepoRoot = (packageRoot: string): string => {
   return absoluteRoot;
 };
 
-const findNearestPackageRoot = (resolvedFilePath: string): string | undefined => {
+const findNearestPackageRoot = (
+  resolvedFilePath: string
+): string | undefined => {
   let currentDir = path.dirname(resolvedFilePath);
 
   for (;;) {

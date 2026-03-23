@@ -382,7 +382,10 @@ describe("Module Map", () => {
       } satisfies IrModule;
 
       const barrel = {
-        ...makeModule("../../../node_modules/@tsonic/nodejs/src/crypto/index.ts", []),
+        ...makeModule(
+          "../../../node_modules/@tsonic/nodejs/src/crypto/index.ts",
+          []
+        ),
         namespace: "nodejs",
         className: "crypto",
         imports: [

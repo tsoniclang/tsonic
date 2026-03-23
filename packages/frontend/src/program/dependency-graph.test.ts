@@ -212,10 +212,12 @@ describe("Dependency Graph", function () {
         )
       ).to.equal(true);
       const packageEntryModule = result.value.modules.find(
-        (module) => module.filePath === "node_modules/@tsonic/nodejs/src/http/index.ts"
+        (module) =>
+          module.filePath === "node_modules/@tsonic/nodejs/src/http/index.ts"
       );
       const packageHelperModule = result.value.modules.find(
-        (module) => module.filePath === "node_modules/@tsonic/nodejs/src/http/helper.ts"
+        (module) =>
+          module.filePath === "node_modules/@tsonic/nodejs/src/http/helper.ts"
       );
       expect(packageEntryModule?.namespace).to.equal("nodejs.Http");
       expect(packageEntryModule?.className).to.equal("http");
@@ -349,7 +351,8 @@ describe("Dependency Graph", function () {
       if (!result.ok) return;
 
       const packageEntryModule = result.value.modules.find(
-        (module) => module.filePath === "node_modules/@fixture/js/src/console.ts"
+        (module) =>
+          module.filePath === "node_modules/@fixture/js/src/console.ts"
       );
       const packageHelperModule = result.value.modules.find(
         (module) => module.filePath === "node_modules/@fixture/js/src/helper.ts"
@@ -684,7 +687,8 @@ describe("Dependency Graph", function () {
 
       const processModule = result.value.modules.find(
         (module) =>
-          module.filePath === "node_modules/@tsonic/nodejs/src/process-module.ts"
+          module.filePath ===
+          "node_modules/@tsonic/nodejs/src/process-module.ts"
       );
       expect(processModule?.namespace).to.equal("nodejs");
       expect(processModule?.className).to.equal("ProcessModule");

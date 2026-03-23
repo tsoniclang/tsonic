@@ -623,7 +623,10 @@ describe("IR Builder", function () {
         const options = { ...project.options, surface: "@tsonic/js" as const };
         (project.ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
         project.ctx.bindings.addBindings(
-          path.join(project.tempDir, "node_modules/@tsonic/nodejs/bindings.json"),
+          path.join(
+            project.tempDir,
+            "node_modules/@tsonic/nodejs/bindings.json"
+          ),
           {
             bindings: {
               "node:http": {
@@ -666,9 +669,7 @@ describe("IR Builder", function () {
         expect(incoming.resolvedClrType).to.equal(
           "nodejs.Http.IncomingMessage"
         );
-        expect(response.resolvedClrType).to.equal(
-          "nodejs.Http.ServerResponse"
-        );
+        expect(response.resolvedClrType).to.equal("nodejs.Http.ServerResponse");
       } finally {
         project.cleanup();
       }

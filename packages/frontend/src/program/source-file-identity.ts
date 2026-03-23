@@ -25,7 +25,10 @@ type SourceFileIdentity = {
 };
 
 const sourcePackageRootCache = new Map<string, string | null>();
-const sourcePackageManifestCache = new Map<string, SourcePackageManifest | null>();
+const sourcePackageManifestCache = new Map<
+  string,
+  SourcePackageManifest | null
+>();
 const sourcePackageBindingCache = new Map<
   string,
   ReadonlyMap<string, string>
@@ -58,14 +61,20 @@ const readSourcePackageManifest = (
     return cached;
   }
 
-  const manifestPath = path.join(normalizedRoot, "tsonic", "package-manifest.json");
+  const manifestPath = path.join(
+    normalizedRoot,
+    "tsonic",
+    "package-manifest.json"
+  );
   if (!fs.existsSync(manifestPath)) {
     sourcePackageManifestCache.set(normalizedRoot, null);
     return null;
   }
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as unknown;
+    const parsed = JSON.parse(
+      fs.readFileSync(manifestPath, "utf-8")
+    ) as unknown;
     if (
       parsed === null ||
       typeof parsed !== "object" ||
@@ -176,7 +185,9 @@ const sanitizeNamespaceSegment = (segment: string): string => {
   return /^\d/.test(cleaned) ? `_${cleaned}` : cleaned;
 };
 
-const promoteEntryClassToNamespaceSegment = (entryClassName: string): string => {
+const promoteEntryClassToNamespaceSegment = (
+  entryClassName: string
+): string => {
   const parts = entryClassName
     .split(/[^a-zA-Z0-9]+/g)
     .filter((part) => part.length > 0);
@@ -206,7 +217,9 @@ const inferPackageRootNamespaceFromBindings = (
     return cached ?? undefined;
   }
 
-  const namespaceRoots = [...readSourcePackageSourceImportBindings(normalizedRoot).values()]
+  const namespaceRoots = [
+    ...readSourcePackageSourceImportBindings(normalizedRoot).values(),
+  ]
     .map((moduleClrType) => {
       const lastDot = moduleClrType.lastIndexOf(".");
       return lastDot > 0 ? moduleClrType.slice(0, lastDot) : undefined;
@@ -237,7 +250,10 @@ const inferPackageRootNamespaceFromBindings = (
 
   const inferredNamespace =
     commonSegments.length > 0 ? commonSegments.join(".") : undefined;
-  sourcePackageRootNamespaceCache.set(normalizedRoot, inferredNamespace ?? null);
+  sourcePackageRootNamespaceCache.set(
+    normalizedRoot,
+    inferredNamespace ?? null
+  );
   return inferredNamespace;
 };
 
@@ -302,7 +318,9 @@ const resolveSourcePackageEntryMapping = (
       continue;
     }
 
-    const targetPath = normalizeAbsolutePath(path.resolve(packageRoot, rawTarget));
+    const targetPath = normalizeAbsolutePath(
+      path.resolve(packageRoot, rawTarget)
+    );
     const namespaceRoot = moduleClrType.slice(0, lastDot);
     const entryClassName = moduleClrType.slice(lastDot + 1);
     const matchRoot = isIndexModuleTarget(targetPath)
@@ -335,7 +353,10 @@ const defaultSourceFileIdentity = (
   rootNamespace: string
 ): SourceFileIdentity => ({
   filePath: normalizeRelativePath(
-    path.relative(normalizeAbsolutePath(sourceRoot), normalizeAbsolutePath(filePath))
+    path.relative(
+      normalizeAbsolutePath(sourceRoot),
+      normalizeAbsolutePath(filePath)
+    )
   ),
   namespace: getNamespaceFromPath(filePath, sourceRoot, rootNamespace),
   className: getClassNameFromPath(filePath),
@@ -379,7 +400,11 @@ export const resolveSourceFileIdentity = (
     path.relative(packageRoot, normalizedFilePath)
   );
   const stableFilePath = normalizeRelativePath(
-    path.join("node_modules", ...packageName.split("/"), relativeFromPackageRoot)
+    path.join(
+      "node_modules",
+      ...packageName.split("/"),
+      relativeFromPackageRoot
+    )
   );
 
   const mapping = resolveSourcePackageEntryMapping(
@@ -442,4 +467,5 @@ export const resolveSourceFileNamespace = (
   filePath: string,
   sourceRoot: string,
   rootNamespace: string
-): string => resolveSourceFileIdentity(filePath, sourceRoot, rootNamespace).namespace;
+): string =>
+  resolveSourceFileIdentity(filePath, sourceRoot, rootNamespace).namespace;

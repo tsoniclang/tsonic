@@ -178,7 +178,10 @@ export const createProgram = (
     new Set([...discoveredAllFiles, ...globalSourceBindings.value])
   );
   if (typeof tsOptions.rootDir === "string" && absolutePaths.length > 0) {
-    tsOptions.rootDir = resolveCommonRootDir([tsOptions.rootDir, ...absolutePaths]);
+    tsOptions.rootDir = resolveCommonRootDir([
+      tsOptions.rootDir,
+      ...absolutePaths,
+    ]);
   }
   const moduleResolutionCache = ts.createModuleResolutionCache(
     options.projectRoot,

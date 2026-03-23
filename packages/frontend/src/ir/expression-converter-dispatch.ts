@@ -223,7 +223,9 @@ export const convertExpression = (
     let clrBinding = ctx.bindings.getExactBinding(node.text);
     if (!clrBinding && isAmbientDeclarationFileGlobal) {
       for (const decl of symbolDeclarations) {
-        const bindingsPath = findNearestBindingsJson(decl.getSourceFile().fileName);
+        const bindingsPath = findNearestBindingsJson(
+          decl.getSourceFile().fileName
+        );
         if (bindingsPath) {
           loadBindingsFromPath(ctx.bindings, bindingsPath);
         }

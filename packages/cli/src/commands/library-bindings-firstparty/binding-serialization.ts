@@ -235,8 +235,7 @@ export const serializeBindingsJsonSafe = <T>(value: T): T => {
         typeof child === "boolean" ||
         typeof child === "bigint"
       ) {
-        collapsed[key] =
-          typeof child === "bigint" ? child.toString() : child;
+        collapsed[key] = typeof child === "bigint" ? child.toString() : child;
       }
     }
     return collapsed;

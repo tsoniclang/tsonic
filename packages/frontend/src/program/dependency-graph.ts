@@ -210,9 +210,7 @@ export const buildModuleDependencyGraph = (
     ])
   ).map((typeRoot) =>
     ts.sys.resolvePath(
-      isAbsolute(typeRoot)
-        ? typeRoot
-        : resolve(options.projectRoot, typeRoot)
+      isAbsolute(typeRoot) ? typeRoot : resolve(options.projectRoot, typeRoot)
     )
   );
   const discoveryBindings = loadBindings(discoveryTypeRoots);
