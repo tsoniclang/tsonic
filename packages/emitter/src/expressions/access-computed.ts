@@ -129,6 +129,15 @@ const buildSafeJsStringIndexAst = (
   };
 };
 
+const hasMethodBackedIntIndexer = (
+  objectType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!objectType) return false;
+  const resolved = resolveTypeAlias(stripNullish(objectType), context);
+  return resolved.kind === "referenceType" && resolved.name === "Buffer";
+};
+
 /**
  * Emit a computed member access expression as CSharpExpressionAst.
  *
@@ -144,9 +153,12 @@ export const emitComputedAccess = (
 ): [CSharpExpressionAst, EmitterContext] => {
   const accessKind = expr.accessKind;
   if (accessKind === undefined || accessKind === "unknown") {
+    const sourceInfo = expr.sourceSpan
+      ? ` at ${expr.sourceSpan.file}:${String(expr.sourceSpan.line)}:${String(expr.sourceSpan.column)}`
+      : "";
     throw new Error(
       `Internal Compiler Error: Computed accessKind was not classified during IR build ` +
-        `(accessKind=${accessKind ?? "undefined"}).`
+        `(accessKind=${accessKind ?? "undefined"})${sourceInfo}.`
     );
   }
 
@@ -156,9 +168,42 @@ export const emitComputedAccess = (
     indexContext
   );
   const finalContext = { ...contextWithIndex, isArrayIndex: false };
+  const indexExpr = expr.property as IrExpression;
   const resolvedObjectType = objectType
     ? resolveTypeAlias(stripNullish(objectType), context)
     : undefined;
+  const usesMethodBackedIndexer =
+    hasMethodBackedIntIndexer(objectType, context) && hasInt32Proof(indexExpr);
+
+  if (usesMethodBackedIndexer) {
+    if (expr.isOptional) {
+      return [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "conditionalMemberAccessExpression",
+            expression: objectAst,
+            memberName: "at",
+          },
+          arguments: [propAst],
+        },
+        finalContext,
+      ];
+    }
+
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: objectAst,
+          memberName: "at",
+        },
+        arguments: [propAst],
+      },
+      finalContext,
+    ];
+  }
 
   if (accessKind === "dictionary") {
     if (context.options.surface === "@tsonic/js" && usage !== "write") {
@@ -193,7 +238,6 @@ export const emitComputedAccess = (
   }
 
   // HARD GATE: clrIndexer + stringChar require Int32 proof
-  const indexExpr = expr.property as IrExpression;
   if (!hasInt32Proof(indexExpr)) {
     const propText = extractCalleeNameFromAst(propAst);
     throw new Error(
@@ -246,6 +290,7 @@ export const emitComputedAccess = (
       finalContext,
     ];
   }
+
   const accessAst: CSharpExpressionAst = {
     kind: "elementAccessExpression",
     expression: objectAst,

@@ -100,6 +100,102 @@ describe("Program Creation – module bindings", function () {
     }
   });
 
+  it("should resolve module-binding source imports into installed source-package modules", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-module-source-import-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const nodejsRoot = path.join(tempDir, "node_modules/@tsonic/nodejs");
+      fs.mkdirSync(path.join(nodejsRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(nodejsRoot, "src", "http"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(nodejsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/nodejs", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(nodejsRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              "node:http": {
+                kind: "module",
+                assembly: "nodejs",
+                type: "nodejs.Http.http",
+                sourceImport: "@tsonic/nodejs/http.js",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(nodejsRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                "./http.js": "./src/http/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      const packageEntry = path.join(nodejsRoot, "src", "http", "index.ts");
+      fs.writeFileSync(
+        packageEntry,
+        "export const createServer = (): number => 42;\n"
+      );
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        'import { createServer } from "node:http";\nexport const value = createServer();\n'
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        typeRoots: ["node_modules/@tsonic/nodejs"],
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.value.program.getSourceFile(packageEntry)).to.not.equal(
+        undefined
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("should remap root-namespace internal imports to package index internals", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-root-namespace-internal-")

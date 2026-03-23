@@ -163,9 +163,15 @@ export const buildLibrary = (
 
     return { ok: true, value: { outputPath: outputDir } };
   } catch (error) {
+    const errorDetail =
+      error instanceof Error
+        ? process.env.TSONIC_DEBUG_STACKS === "1"
+          ? (error.stack ?? error.message)
+          : error.message
+        : String(error);
     return {
       ok: false,
-      error: `Failed to copy library artifacts: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Failed to copy library artifacts: ${errorDetail}`,
     };
   }
 };

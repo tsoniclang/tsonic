@@ -124,6 +124,7 @@ export const createProgram = (
     surfaceCapabilities,
     (pkgDirName) => resolveCompilerOwnedTsonicPackageRoot(pkgDirName) ?? null
   );
+  const bindings = loadBindings(typeRoots);
   const moduleResolutionCache = ts.createModuleResolutionCache(
     options.projectRoot,
     (fileName) =>
@@ -386,6 +387,29 @@ export const createProgram = (
         };
       }
 
+      const moduleBinding = bindings.getBinding(moduleName);
+      if (moduleBinding?.kind === "module" && moduleBinding.sourceImport) {
+        const redirectedSourcePackage = resolveSourcePackageImport(
+          moduleBinding.sourceImport,
+          containingFile,
+          options.surface,
+          options.projectRoot
+        );
+        if (redirectedSourcePackage.ok && redirectedSourcePackage.value) {
+          return {
+            resolvedFileName: redirectedSourcePackage.value.resolvedPath,
+            extension: redirectedSourcePackage.value.resolvedPath.endsWith(
+              ".mts"
+            )
+              ? ts.Extension.Mts
+              : redirectedSourcePackage.value.resolvedPath.endsWith(".cts")
+                ? ts.Extension.Cts
+                : ts.Extension.Ts,
+            isExternalLibraryImport: false,
+          };
+        }
+      }
+
       // Use default resolution for other modules
       const result = ts.resolveModuleName(
         moduleName,
@@ -426,7 +450,6 @@ export const createProgram = (
   const metadata = loadDotnetMetadata(typeRoots);
 
   // Load binding manifests (from typeRoots - for ambient globals)
-  const bindings = loadBindings(typeRoots);
   // Compiler-owned builtin: map TS `Error` to CLR `System.Exception`.
   // This keeps `throw new Error(...)` usable in noLib mode without requiring
   // consumers to import Exception explicitly.

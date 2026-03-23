@@ -51,13 +51,22 @@ export const emitAssignment = (
     );
   };
 
+  const isBufferMethodBackedIndexerReceiverType = (
+    type: IrType | undefined
+  ): boolean => {
+    if (!type) return false;
+    const resolved = resolveTypeAlias(stripNullish(type), context);
+    return resolved.kind === "referenceType" && resolved.name === "Buffer";
+  };
+
   if (
     expr.operator === "=" &&
     "kind" in expr.left &&
     expr.left.kind === "memberAccess" &&
     expr.left.isComputed &&
     (expr.left.object.inferredType?.kind === "arrayType" ||
-      isUint8ArrayReceiverType(expr.left.object.inferredType))
+      isUint8ArrayReceiverType(expr.left.object.inferredType) ||
+      isBufferMethodBackedIndexerReceiverType(expr.left.object.inferredType))
   ) {
     const leftExpr = expr.left as Extract<
       IrExpression,
@@ -86,7 +95,11 @@ export const emitAssignment = (
         ? leftExpr.object.inferredType.elementType
         : isUint8ArrayReceiverType(leftExpr.object.inferredType)
           ? BYTE_IR_TYPE
-          : undefined;
+          : isBufferMethodBackedIndexerReceiverType(
+                leftExpr.object.inferredType
+              )
+            ? BYTE_IR_TYPE
+            : undefined;
     if (!expectedElementType) {
       throw new Error(
         "Internal Compiler Error: CLR indexer assignment reached emitter without a writable element type."
@@ -97,6 +110,21 @@ export const emitAssignment = (
       indexContext,
       expectedElementType
     );
+
+    if (isBufferMethodBackedIndexerReceiverType(leftExpr.object.inferredType)) {
+      return [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: objectAst,
+            memberName: "set",
+          },
+          arguments: [indexAst, rightAst],
+        },
+        rightContext,
+      ];
+    }
 
     // Use native CLR indexer: arr[idx] = value
     return [

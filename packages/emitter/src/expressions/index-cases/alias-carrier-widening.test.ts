@@ -322,7 +322,11 @@ describe("Expression Emission", () => {
     const typesModuleLocalTypes = new Map([
       [
         "PathSpec",
-        { kind: "typeAlias" as const, typeParameters: [], type: pathSpecUnderlying },
+        {
+          kind: "typeAlias" as const,
+          typeParameters: [],
+          type: pathSpecUnderlying,
+        },
       ],
       [
         "MiddlewareLike",

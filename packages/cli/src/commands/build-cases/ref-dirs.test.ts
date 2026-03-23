@@ -491,4 +491,175 @@ describe("build command (library bindings ref dirs)", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("keeps library declaration emit out of imported source-package roots", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-decls-source-pkg-"));
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+
+      const sourcePackageRoot = join(dir, "node_modules/@acme/runtime");
+      mkdirSync(join(sourcePackageRoot, "tsonic"), { recursive: true });
+      mkdirSync(join(sourcePackageRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(sourcePackageRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/runtime",
+            version: "1.0.0",
+            type: "module",
+            exports: {
+              "./client.js": "./src/client.ts",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                "./client.js": "./src/client.ts",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(sourcePackageRoot, "src/client.ts"),
+        [
+          "export interface ExternalOptions {",
+          "  readonly name: string;",
+          "}",
+          "",
+          "export const format = (value: ExternalOptions): string => value.name;",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+      const importedDeclarationPath = join(
+        sourcePackageRoot,
+        "src/client.d.ts"
+      );
+      const importedDeclarationText = [
+        "export interface ExternalOptions {",
+        "  readonly name: string;",
+        "}",
+        "",
+        "export declare const format: (value: ExternalOptions) => string;",
+        "",
+      ].join("\n");
+      writeFileSync(importedDeclarationPath, importedDeclarationText, "utf-8");
+
+      const workspaceConfig = {
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
+        dotnetVersion: "net10.0",
+        surface: "@tsonic/js",
+        dotnet: {
+          typeRoots: ["node_modules/@tsonic/js"],
+          libraries: [],
+          frameworkReferences: [],
+          packageReferences: [],
+        },
+      };
+
+      const projectRoot = join(dir, "packages", "app");
+      mkdirSync(join(projectRoot, "src"), { recursive: true });
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app-lib",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "src", "index.ts"),
+        [
+          'import { format, type ExternalOptions } from "@acme/runtime/client.js";',
+          "",
+          "export function render(value: ExternalOptions): string {",
+          "  return format(value);",
+          "}",
+          "",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const projectConfig = {
+        $schema: "https://tsonic.org/schema/v1.json",
+        rootNamespace: "Acme.App",
+        entryPoint: "src/index.ts",
+        sourceRoot: "src",
+        outputDirectory: "generated",
+        outputName: "Acme.App",
+        output: { type: "library" as const },
+      };
+
+      const config = resolveEffectiveConfig(
+        workspaceConfig,
+        projectConfig,
+        dir,
+        projectRoot
+      );
+
+      const build = buildCommand(config);
+      expect(build.ok).to.equal(true);
+
+      const declarationPath = join(projectRoot, "dist", "index.d.ts");
+      expect(existsSync(declarationPath)).to.equal(true);
+      expect(readFileSync(declarationPath, "utf-8")).to.include(
+        'from "@acme/runtime/client.js"'
+      );
+      expect(readFileSync(importedDeclarationPath, "utf-8")).to.equal(
+        importedDeclarationText
+      );
+      expect(
+        existsSync(
+          join(projectRoot, "dist", "node_modules", "@acme", "runtime")
+        )
+      ).to.equal(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

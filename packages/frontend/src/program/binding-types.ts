@@ -98,6 +98,7 @@ export type SimpleBindingDescriptor = {
   readonly kind: "global" | "module";
   readonly assembly: string;
   readonly type: string;
+  readonly sourceImport?: string; // Optional: resolve the binding through a source-package import instead of a CLR module type
   readonly staticType?: string; // Optional: separate CLR type for static member access
   readonly csharpName?: string; // Optional: rename identifier in generated C#
   readonly typeSemantics?: TypeSemantics;

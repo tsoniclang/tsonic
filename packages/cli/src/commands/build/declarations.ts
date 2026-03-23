@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import * as ts from "typescript";
 import type { ResolvedConfig, Result } from "../../types.js";
 
@@ -69,9 +69,12 @@ const formatTsDiagnostics = (
   return ts.formatDiagnosticsWithColorAndContext(diagnostics, host).trim();
 };
 
+const normalizeSlashes = (pathLike: string): string => pathLike.replace(/\\/g, "/");
+
 export const emitLibraryTypeDeclarations = (
   config: ResolvedConfig
 ): Result<void, string> => {
+  const emitRootDir = resolve(config.workspaceRoot);
   const sourceRoot = resolve(config.projectRoot, config.sourceRoot);
   const sourceFiles = listTypeScriptSourceInputs(sourceRoot);
   if (sourceFiles.length === 0) {
@@ -88,6 +91,8 @@ export const emitLibraryTypeDeclarations = (
   );
   const declarationFiles = listDeclarationFiles(resolvedTypeRoots);
   const rootNames = Array.from(new Set<string>([...sourceFiles, ...declarationFiles]));
+  const sourceRootFromEmitRoot = normalizeSlashes(relative(emitRootDir, sourceRoot));
+  const normalizedDistDir = normalizeSlashes(distDir);
 
   const compilerOptions: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
@@ -99,8 +104,9 @@ export const emitLibraryTypeDeclarations = (
     allowImportingTsExtensions: true,
     noCheck: true,
     skipLibCheck: true,
+    preserveSymlinks: true,
     outDir: distDir,
-    rootDir: sourceRoot,
+    rootDir: emitRootDir,
     types: [],
   };
 
@@ -116,7 +122,52 @@ export const emitLibraryTypeDeclarations = (
     };
   }
 
-  const emitResult = program.emit(undefined, undefined, undefined, true);
+  const emitResult = program.emit(
+    undefined,
+    (fileName, text, writeByteOrderMark) => {
+      const normalizedFileName = normalizeSlashes(fileName);
+      const distPrefix = `${normalizedDistDir}/`;
+
+      const relativeEmittedPath = normalizedFileName.startsWith(distPrefix)
+        ? normalizedFileName.slice(distPrefix.length)
+        : normalizedFileName === normalizedDistDir
+          ? ""
+          : null;
+
+      if (
+        relativeEmittedPath !== null &&
+        (relativeEmittedPath === "node_modules" ||
+          relativeEmittedPath.startsWith("node_modules/"))
+      ) {
+        return;
+      }
+
+      let targetPath = fileName;
+      if (
+        relativeEmittedPath !== null &&
+        sourceRootFromEmitRoot.length > 0 &&
+        (relativeEmittedPath === sourceRootFromEmitRoot ||
+          relativeEmittedPath.startsWith(`${sourceRootFromEmitRoot}/`))
+      ) {
+        const trimmedRelativePath = relativeEmittedPath
+          .slice(sourceRootFromEmitRoot.length)
+          .replace(/^\/+/, "");
+        targetPath =
+          trimmedRelativePath.length > 0
+            ? join(distDir, ...trimmedRelativePath.split("/"))
+            : distDir;
+      }
+
+      mkdirSync(dirname(targetPath), { recursive: true });
+      writeFileSync(
+        targetPath,
+        writeByteOrderMark ? `\uFEFF${text}` : text,
+        "utf-8"
+      );
+    },
+    undefined,
+    true
+  );
   if (emitResult.emitSkipped || emitResult.diagnostics.length > 0) {
     return {
       ok: false,

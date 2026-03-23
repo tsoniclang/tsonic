@@ -55,6 +55,43 @@ export const resolveImport = (
     );
   }
 
+  // @tsonic/core packages are type-only (phantom types, attributes) - no runtime code
+  if (
+    importSpecifier === "@tsonic/core/types.js" ||
+    importSpecifier === "@tsonic/core/lang.js"
+  ) {
+    return ok({
+      resolvedPath: "", // No file path for type-only packages
+      isLocal: false,
+      isClr: false,
+      originalSpecifier: importSpecifier,
+      resolvedClrType: undefined,
+      resolvedAssembly: undefined,
+    });
+  }
+
+  // Prefer installed source packages over CLR/module bindings so packages like
+  // @tsonic/nodejs use their native source implementation instead of legacy
+  // CLR facades when both are available.
+  if (opts?.projectRoot) {
+    const sourcePackage = resolveSourcePackageImport(
+      canonicalImportSpecifier,
+      containingFile,
+      opts.surface,
+      opts.projectRoot
+    );
+    if (!sourcePackage.ok) return sourcePackage;
+    if (sourcePackage.value) {
+      return ok({
+        resolvedPath: sourcePackage.value.resolvedPath,
+        isLocal: true,
+        isSourcePackage: true,
+        isClr: false,
+        originalSpecifier: importSpecifier,
+      });
+    }
+  }
+
   // Use import-driven resolution for CLR imports (if resolver provided)
   if (clrResolver) {
     const clrResolution = clrResolver.resolve(canonicalImportSpecifier);
@@ -74,6 +111,25 @@ export const resolveImport = (
   if (bindings) {
     const binding = bindings.getBinding(canonicalImportSpecifier);
     if (binding && binding.kind === "module") {
+      if (binding.sourceImport && opts?.projectRoot) {
+        const sourcePackage = resolveSourcePackageImport(
+          binding.sourceImport,
+          containingFile,
+          opts.surface,
+          opts.projectRoot
+        );
+        if (!sourcePackage.ok) return sourcePackage;
+        if (sourcePackage.value) {
+          return ok({
+            resolvedPath: sourcePackage.value.resolvedPath,
+            isLocal: true,
+            isSourcePackage: true,
+            isClr: false,
+            originalSpecifier: importSpecifier,
+          });
+        }
+      }
+
       return ok({
         resolvedPath: "", // No file path for bound modules
         isLocal: false,
@@ -81,40 +137,6 @@ export const resolveImport = (
         originalSpecifier: importSpecifier,
         resolvedClrType: binding.type,
         resolvedAssembly: binding.assembly,
-      });
-    }
-  }
-
-  // @tsonic/core packages are type-only (phantom types, attributes) - no runtime code
-  if (
-    importSpecifier === "@tsonic/core/types.js" ||
-    importSpecifier === "@tsonic/core/lang.js"
-  ) {
-    return ok({
-      resolvedPath: "", // No file path for type-only packages
-      isLocal: false,
-      isClr: false,
-      originalSpecifier: importSpecifier,
-      resolvedClrType: undefined,
-      resolvedAssembly: undefined,
-    });
-  }
-
-  if (opts?.projectRoot) {
-    const sourcePackage = resolveSourcePackageImport(
-      canonicalImportSpecifier,
-      containingFile,
-      opts.surface,
-      opts.projectRoot
-    );
-    if (!sourcePackage.ok) return sourcePackage;
-    if (sourcePackage.value) {
-      return ok({
-        resolvedPath: sourcePackage.value.resolvedPath,
-        isLocal: true,
-        isSourcePackage: true,
-        isClr: false,
-        originalSpecifier: importSpecifier,
       });
     }
   }

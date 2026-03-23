@@ -10,7 +10,6 @@ import * as ts from "typescript";
 import type { IrType } from "../../types/index.js";
 import { normalizeToClrName } from "./universe/alias-table.js";
 import { tryResolveDeterministicPropertyName } from "../../syntax/property-names.js";
-import { getNamespaceFromPath } from "../../../resolver/namespace.js";
 import type {
   ConvertTypeFn,
   MemberInfo,
@@ -22,6 +21,7 @@ import {
   convertMethodToSignature,
   convertMethodSignatureToIr,
 } from "./registry-helpers-inference.js";
+import { resolveSourceFileNamespace } from "../../../program/source-file-identity.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CANONICAL CLR NAME HELPERS
@@ -184,7 +184,11 @@ export const resolveHeritageTypeName = (
   // Source-authored types use namespace-based FQ names.
   const ns =
     sourceFile && !sourceFile.isDeclarationFile
-      ? getNamespaceFromPath(sourceFile.fileName, sourceRoot, rootNamespace)
+      ? resolveSourceFileNamespace(
+          sourceFile.fileName,
+          sourceRoot,
+          rootNamespace
+        )
       : undefined;
 
   return ns ? `${ns}.${simpleName}` : simpleName;

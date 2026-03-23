@@ -9,6 +9,10 @@ export const stableSerializeBindingSemanticValue = (value: unknown): string => {
       return null;
     }
 
+    if (typeof current === "bigint") {
+      return current.toString();
+    }
+
     if (typeof current !== "object") {
       return current;
     }
@@ -228,9 +232,11 @@ export const serializeBindingsJsonSafe = <T>(value: T): T => {
         child === null ||
         typeof child === "string" ||
         typeof child === "number" ||
-        typeof child === "boolean"
+        typeof child === "boolean" ||
+        typeof child === "bigint"
       ) {
-        collapsed[key] = child;
+        collapsed[key] =
+          typeof child === "bigint" ? child.toString() : child;
       }
     }
     return collapsed;
@@ -247,6 +253,10 @@ export const serializeBindingsJsonSafe = <T>(value: T): T => {
       typeof current === "boolean"
     ) {
       return current;
+    }
+
+    if (typeof current === "bigint") {
+      return current.toString();
     }
 
     if (typeof current !== "object") {

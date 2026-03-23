@@ -319,10 +319,7 @@ export const emitVariableDeclarationAst = (
             currentContext
           ) &&
           !matchesEmittedStorageSurface(
-            resolveIdentifierValueSurfaceType(
-              decl.initializer,
-              currentContext
-            ),
+            resolveIdentifierValueSurfaceType(decl.initializer, currentContext),
             declaredInitializerType,
             currentContext
           )[0];

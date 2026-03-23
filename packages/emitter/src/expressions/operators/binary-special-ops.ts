@@ -115,7 +115,10 @@ const resolveAlignedRuntimeCarrierMembers = (
     return undefined;
   }
 
-  if (directStorageType && !willCarryAsRuntimeUnion(directStorageType, context)) {
+  if (
+    directStorageType &&
+    !willCarryAsRuntimeUnion(directStorageType, context)
+  ) {
     return undefined;
   }
 

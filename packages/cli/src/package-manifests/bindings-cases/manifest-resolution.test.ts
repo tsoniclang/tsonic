@@ -100,6 +100,56 @@ describe("package-manifest bindings", function () {
     }
   });
 
+  it("resolves source-package overlays when the manifest declares type roots and runtime metadata", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-source-overlay-")
+    );
+    try {
+      const pkgRoot = writeInstalledPackage(dir, "@acme/node", "2.0.0", {
+        packageManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-source-package",
+          surfaces: ["@tsonic/js"],
+          requiredTypeRoots: ["."],
+          runtime: {
+            frameworkReferences: ["Microsoft.AspNetCore.App"],
+            runtimePackages: ["@tsonic/aspnetcore"],
+          },
+          dotnet: {
+            packageReferences: [{ id: "Acme.Node.Runtime", version: "2.0.0" }],
+          },
+          source: {
+            exports: {
+              ".": "./src/index.ts",
+              "./fs.js": "./src/fs.ts",
+            },
+          },
+        },
+      });
+
+      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
+      expect(result.ok).to.equal(true);
+      const manifest = result.ok ? result.value : null;
+      expect(manifest).to.not.equal(null);
+      expect(manifest?.sourceManifest).to.equal("package-manifest");
+      expect(manifest?.requiredTypeRoots).to.deep.equal([
+        "node_modules/@acme/node",
+      ]);
+      expect(manifest?.runtimePackages).to.deep.equal([
+        "@acme/node",
+        "@tsonic/aspnetcore",
+      ]);
+      expect(manifest?.dotnet?.frameworkReferences).to.deep.equal([
+        "Microsoft.AspNetCore.App",
+      ]);
+      expect(manifest?.dotnet?.packageReferences).to.deep.equal([
+        { id: "Acme.Node.Runtime", version: "2.0.0" },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("errors with TSN8A01 when producer.tool is invalid", () => {
     const dir = mkdtempSync(
       join(tmpdir(), "tsonic-package-manifest-producer-tool-")

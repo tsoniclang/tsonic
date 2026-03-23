@@ -67,11 +67,18 @@ export const generateFirstPartyLibraryBindings = (
   rmSync(bindingsOutDir, { recursive: true, force: true });
   mkdirSync(bindingsOutDir, { recursive: true });
 
+  const resolveModuleAbsolutePath = (moduleFilePath: string): string => {
+    const moduleKey = normalizeModuleFileKey(moduleFilePath);
+    return moduleKey.startsWith("node_modules/")
+      ? resolve(config.workspaceRoot, moduleKey)
+      : resolve(absoluteSourceRoot, moduleKey);
+  };
+
   const sourceIndexByFileKey = new Map<string, ModuleSourceIndex>();
   for (const module of graphResult.value.modules) {
     if (module.filePath.startsWith("__tsonic/")) continue;
     const moduleKey = normalizeModuleFileKey(module.filePath);
-    const absolutePath = resolve(absoluteSourceRoot, moduleKey);
+    const absolutePath = resolveModuleAbsolutePath(module.filePath);
     const indexed = buildModuleSourceIndex(absolutePath, moduleKey);
     if (!indexed.ok) return indexed;
     sourceIndexByFileKey.set(moduleKey, indexed.value);

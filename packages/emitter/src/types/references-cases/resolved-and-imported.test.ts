@@ -263,5 +263,69 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::nodejs.Http.IncomingMessage req");
       expect(result).not.to.include("global::nodejs.Http.http.IncomingMessage");
     });
+
+    it("should resolve aliased local type imports when IR normalizes to the exported name", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/http/index.ts",
+        namespace: "nodejs.Http",
+        className: "http",
+        isStaticContainer: true,
+        imports: [
+          {
+            kind: "import",
+            source: "./incoming-message.ts",
+            isLocal: true,
+            isClr: false,
+            resolvedPath: "/src/http/incoming-message.ts",
+            specifiers: [
+              {
+                kind: "named",
+                name: "IncomingMessage",
+                localName: "IncomingMessageType",
+                isType: true,
+              },
+            ],
+          },
+        ],
+        body: [
+          {
+            kind: "variableDeclaration",
+            declarationKind: "const",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "req" },
+                type: {
+                  kind: "referenceType",
+                  name: "IncomingMessage$instance",
+                },
+                initializer: { kind: "literal", value: null },
+              },
+            ],
+          },
+        ],
+        exports: [],
+      };
+
+      const result = emitModule(module, {
+        rootNamespace: "nodejs",
+        moduleMap: new Map([
+          [
+            "src/http/incoming-message",
+            {
+              namespace: "nodejs.Http",
+              className: "incoming_message",
+              filePath: "src/http/incoming-message",
+              hasRuntimeContainer: false,
+              hasTypeCollision: false,
+            },
+          ],
+        ]),
+      });
+
+      expect(result).to.include("global::nodejs.Http.IncomingMessage req");
+    });
   });
 });

@@ -17,6 +17,35 @@ type SurfaceCapabilitiesLike = {
   readonly resolvedModes: readonly string[];
 };
 
+const resolveCommonRootDir = (paths: readonly string[]): string => {
+  const [first, ...remaining] = paths;
+  if (!first) {
+    throw new Error("resolveCommonRootDir requires at least one path");
+  }
+  const rest = remaining.map((filePath) => path.resolve(filePath));
+  let current = path.resolve(first);
+
+  for (;;) {
+    const containsAll = rest.every((candidate) => {
+      const relative = path.relative(current, candidate);
+      return (
+        relative === "" ||
+        (!relative.startsWith("..") && !path.isAbsolute(relative))
+      );
+    });
+
+    if (containsAll) {
+      return current;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return current;
+    }
+    current = parent;
+  }
+};
+
 export type ProgramInputDiscovery = {
   readonly absolutePaths: readonly string[];
   readonly typeRoots: readonly string[];
@@ -118,6 +147,12 @@ export const discoverProgramInputs = (
   }
 
   const tsOptions = createCompilerOptions(options);
+  if (typeof tsOptions.rootDir === "string" && absolutePaths.length > 0) {
+    tsOptions.rootDir = resolveCommonRootDir([
+      tsOptions.rootDir,
+      ...absolutePaths,
+    ]);
+  }
   const projectDeclarationFiles = collectProjectIncludedDeclarationFiles(
     options.projectRoot,
     tsOptions

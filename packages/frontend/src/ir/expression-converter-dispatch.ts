@@ -6,6 +6,8 @@
  */
 
 import * as ts from "typescript";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type {
   IrExpression,
   IrNumericNarrowingExpression,
@@ -46,6 +48,7 @@ import {
 } from "./converters/expressions/import-meta.js";
 import { getSourceSpan } from "./converters/expressions/helpers.js";
 import { shouldWrapExpressionWithAssertion } from "./converters/assertion-wrapping.js";
+import { loadBindingsFromPath } from "../program/bindings.js";
 import {
   getNumericKindFromTypeNode,
   inferThisType,
@@ -75,6 +78,25 @@ const isDeclarationModuleGlobal = (decl: ts.Declaration): boolean => {
   }
 
   return false;
+};
+
+const findNearestBindingsJson = (
+  sourceFilePath: string
+): string | undefined => {
+  let currentDir = path.dirname(path.resolve(sourceFilePath));
+
+  for (;;) {
+    const candidate = path.join(currentDir, "bindings.json");
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      return undefined;
+    }
+    currentDir = parentDir;
+  }
 };
 
 /**
@@ -198,7 +220,16 @@ export const convertExpression = (
       });
 
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
-    const clrBinding = ctx.bindings.getExactBinding(node.text);
+    let clrBinding = ctx.bindings.getExactBinding(node.text);
+    if (!clrBinding && isAmbientDeclarationFileGlobal) {
+      for (const decl of symbolDeclarations) {
+        const bindingsPath = findNearestBindingsJson(decl.getSourceFile().fileName);
+        if (bindingsPath) {
+          loadBindingsFromPath(ctx.bindings, bindingsPath);
+        }
+      }
+      clrBinding = ctx.bindings.getExactBinding(node.text);
+    }
     if (
       clrBinding &&
       clrBinding.kind === "global" &&

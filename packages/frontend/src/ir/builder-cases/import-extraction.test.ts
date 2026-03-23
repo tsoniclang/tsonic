@@ -9,7 +9,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
-import { createTestProgram } from "./_test-helpers.js";
+import {
+  createFilesystemTestProgram,
+  createTestProgram,
+} from "./_test-helpers.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);
@@ -270,6 +273,222 @@ describe("IR Builder", function () {
       expect(spec.resolvedClrValue).to.equal(undefined);
     });
 
+    it("treats source-package node subpath imports as module-bound values without TSN4004", () => {
+      const source = `
+        import { createServer } from "@tsonic/nodejs/http.js";
+        void createServer;
+      `;
+
+      const {
+        testProgram,
+        ctx,
+        options: baseOptions,
+      } = createTestProgram(source);
+      const options = { ...baseOptions, surface: "@tsonic/js" as const };
+      (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
+
+      (
+        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
+      ).clrResolver = {
+        resolve: () => ({ isClr: false }),
+      };
+      ctx.bindings.addBindings("/x/node-modules.json", {
+        bindings: {
+          "node:http": {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.Http.http",
+          },
+          http: {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.Http.http",
+          },
+        },
+      });
+      ctx.bindings.addBindings("/x/node-types.json", {
+        namespace: "nodejs.Http",
+        types: [
+          {
+            clrName: "nodejs.Http.http",
+            assemblyName: "nodejs",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(ctx.diagnostics.some((d) => d.code === "TSN4004")).to.equal(false);
+      const imp = result.value.imports[0];
+      if (!imp) throw new Error("Missing import");
+      expect(imp.source).to.equal("@tsonic/nodejs/http.js");
+      expect(imp.resolvedClrType).to.equal("nodejs.Http.http");
+      const spec = imp.specifiers[0];
+      if (!spec || spec.kind !== "named") throw new Error("Missing named spec");
+      expect(spec.name).to.equal("createServer");
+      expect(spec.resolvedClrValue).to.equal(undefined);
+    });
+
+    it("does not globally hijack module-bound named value imports to unrelated CLR types", () => {
+      const source = `
+        import { Buffer } from "@tsonic/nodejs/buffer.js";
+        void Buffer;
+      `;
+
+      const {
+        testProgram,
+        ctx,
+        options: baseOptions,
+      } = createTestProgram(source);
+      const options = { ...baseOptions, surface: "@tsonic/js" as const };
+      (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
+
+      (
+        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
+      ).clrResolver = {
+        resolve: () => ({ isClr: false }),
+      };
+      ctx.bindings.addBindings("/x/node-modules.json", {
+        bindings: {
+          "@tsonic/nodejs/buffer.js": {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.buffer",
+            sourceImport: "@tsonic/nodejs/buffer.js",
+          },
+        },
+      });
+      ctx.bindings.addBindings("/x/unrelated-types.json", {
+        namespace: "System",
+        types: [
+          {
+            clrName: "System.Buffer",
+            assemblyName: "System.Runtime",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const imp = result.value.imports[0];
+      if (!imp) throw new Error("Missing import");
+      expect(imp.resolvedClrType).to.equal("nodejs.buffer");
+
+      const spec = imp.specifiers[0];
+      if (!spec || spec.kind !== "named") throw new Error("Missing named spec");
+      expect(spec.name).to.equal("Buffer");
+      expect(spec.resolvedClrType).to.equal(undefined);
+      expect(spec.resolvedClrValue).to.equal(undefined);
+    });
+
+    it("prefers installed source-package imports over CLR resolution", () => {
+      const project = createFilesystemTestProgram(
+        {
+          "src/test.ts": `
+            import { process } from "@tsonic/nodejs/process.js";
+            void process.version;
+          `,
+          "node_modules/@tsonic/nodejs/package.json": JSON.stringify(
+            {
+              name: "@tsonic/nodejs",
+              version: "1.0.0",
+              type: "module",
+            },
+            null,
+            2
+          ),
+          "node_modules/@tsonic/nodejs/tsonic/package-manifest.json":
+            JSON.stringify(
+              {
+                schemaVersion: 1,
+                kind: "tsonic-source-package",
+                surfaces: ["@tsonic/js"],
+                source: {
+                  exports: {
+                    "./process.js": "./src/process-module.ts",
+                  },
+                },
+              },
+              null,
+              2
+            ),
+          "node_modules/@tsonic/nodejs/src/process-module.ts": `
+            export const process = {
+              version: "v1.0.0-tsonic",
+            };
+          `,
+        },
+        "src/test.ts"
+      );
+
+      try {
+        const options = {
+          ...project.options,
+          surface: "@tsonic/js" as const,
+        };
+        (project.ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
+        (
+          project.ctx as unknown as {
+            clrResolver: { resolve: (specifier: string) => unknown };
+          }
+        ).clrResolver = {
+          resolve: (specifier: string) =>
+            specifier === "@tsonic/nodejs/process.js"
+              ? {
+                  isClr: true as const,
+                  resolvedNamespace: "process",
+                }
+              : { isClr: false as const },
+        };
+
+        const result = buildIrModule(
+          project.sourceFile,
+          project.testProgram,
+          options,
+          project.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const imp = result.value.imports[0];
+        if (!imp) throw new Error("Missing import");
+        expect(imp.source).to.equal("@tsonic/nodejs/process.js");
+        expect(imp.isLocal).to.equal(true);
+        expect(imp.isClr).to.equal(false);
+        expect(imp.resolvedNamespace).to.equal(undefined);
+        expect(imp.resolvedClrType).to.equal(undefined);
+        expect(imp.resolvedPath).to.equal(
+          path.join(
+            project.tempDir,
+            "node_modules",
+            "@tsonic",
+            "nodejs",
+            "src",
+            "process-module.ts"
+          )
+        );
+      } finally {
+        project.cleanup();
+      }
+    });
+
     it("resolves module-bound import type clauses to owning CLR types", () => {
       const source = `
         import type { IncomingMessage, ServerResponse } from "node:http";
@@ -334,6 +553,7 @@ describe("IR Builder", function () {
 
         const imp = result.value.imports[0];
         if (!imp) throw new Error("Missing import");
+        expect(imp.resolvedNamespace).to.equal("nodejs.Http");
 
         const incoming = imp.specifiers[0];
         const response = imp.specifiers[1];
@@ -354,6 +574,103 @@ describe("IR Builder", function () {
         expect(response.resolvedClrType).to.equal("nodejs.Http.ServerResponse");
       } finally {
         fs.rmSync(tempRoot, { recursive: true, force: true });
+      }
+    });
+
+    it("preserves module-bound CLR type metadata for installed source-package redirects", () => {
+      const project = createFilesystemTestProgram(
+        {
+          "src/test.ts": `
+            import type { IncomingMessage, ServerResponse } from "node:http";
+            let req: IncomingMessage | undefined;
+            let res: ServerResponse | undefined;
+            void req;
+            void res;
+          `,
+          "node_modules/@tsonic/nodejs/package.json": JSON.stringify(
+            {
+              name: "@tsonic/nodejs",
+              version: "1.0.0",
+              type: "module",
+            },
+            null,
+            2
+          ),
+          "node_modules/@tsonic/nodejs/tsonic/package-manifest.json":
+            JSON.stringify(
+              {
+                schemaVersion: 1,
+                kind: "tsonic-source-package",
+                surfaces: ["@tsonic/js"],
+                source: {
+                  exports: {
+                    "./http.js": "./src/http/index.ts",
+                  },
+                },
+              },
+              null,
+              2
+            ),
+          "node_modules/@tsonic/nodejs/src/http/index.ts": `
+            export interface IncomingMessage {}
+            export interface ServerResponse {}
+          `,
+        },
+        "src/test.ts"
+      );
+
+      try {
+        const options = { ...project.options, surface: "@tsonic/js" as const };
+        (project.ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
+        project.ctx.bindings.addBindings(
+          path.join(project.tempDir, "node_modules/@tsonic/nodejs/bindings.json"),
+          {
+            bindings: {
+              "node:http": {
+                kind: "module",
+                assembly: "nodejs",
+                type: "nodejs.Http.http",
+                sourceImport: "@tsonic/nodejs/http.js",
+              },
+            },
+          }
+        );
+
+        const result = buildIrModule(
+          project.sourceFile,
+          project.testProgram,
+          options,
+          project.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const imp = result.value.imports[0];
+        if (!imp) throw new Error("Missing import");
+        expect(imp.isLocal).to.equal(true);
+        expect(imp.resolvedClrType).to.equal("nodejs.Http.http");
+        expect(imp.resolvedNamespace).to.equal("nodejs.Http");
+
+        const incoming = imp.specifiers[0];
+        const response = imp.specifiers[1];
+        if (
+          !incoming ||
+          incoming.kind !== "named" ||
+          !response ||
+          response.kind !== "named"
+        ) {
+          throw new Error("Missing named import specifiers");
+        }
+
+        expect(incoming.resolvedClrType).to.equal(
+          "nodejs.Http.IncomingMessage"
+        );
+        expect(response.resolvedClrType).to.equal(
+          "nodejs.Http.ServerResponse"
+        );
+      } finally {
+        project.cleanup();
       }
     });
 
