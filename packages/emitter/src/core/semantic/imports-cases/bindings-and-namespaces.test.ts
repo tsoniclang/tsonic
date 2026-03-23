@@ -365,4 +365,37 @@ describe("Import Handling", () => {
     );
     expect(result).not.to.include("ICE: Missing resolvedClrValue");
   });
+
+  it("falls back to module namespace for source-package type imports without per-spec CLR type metadata", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "node:http",
+          isLocal: false,
+          isClr: false,
+          resolvedClrType: "nodejs.Http.http",
+          resolvedNamespace: "nodejs.Http",
+          specifiers: [
+            {
+              kind: "named",
+              name: "IncomingMessage",
+              localName: "IncomingMessage",
+              isType: true,
+            },
+          ],
+        },
+      ],
+      body: [],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.be.a("string");
+  });
 });

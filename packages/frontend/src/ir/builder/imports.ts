@@ -80,9 +80,6 @@ export const extractImports = (
       // in dependency-graph.ts before IR building starts.
       const clrResolution = ctx.clrResolver.resolve(source);
       const isClr = clrResolution.isClr;
-      const resolvedNamespace = clrResolution.isClr
-        ? clrResolution.resolvedNamespace
-        : undefined;
       const clrAssembly = clrResolution.isClr
         ? clrResolution.assembly
         : undefined;
@@ -92,6 +89,18 @@ export const extractImports = (
       const moduleBindingType =
         moduleBinding?.kind === "module" ? moduleBinding.type : undefined;
       const hasModuleBinding = moduleBindingType !== undefined;
+      const resolvedNamespace = (() => {
+        if (clrResolution.isClr) {
+          return clrResolution.resolvedNamespace;
+        }
+        if (!moduleBindingType) {
+          return undefined;
+        }
+        const lastDot = moduleBindingType.lastIndexOf(".");
+        return lastDot > 0
+          ? moduleBindingType.slice(0, lastDot)
+          : undefined;
+      })();
 
       const specifiers = extractImportSpecifiers(
         node,
@@ -249,8 +258,8 @@ export const extractImports = (
               isType: true,
               resolvedClrType: resolvedTypeBinding?.name
                 ? clrTypeNameToCSharp(resolvedTypeBinding.name)
-                : expNamespace
-                  ? `${expNamespace}.${spec.name}`
+                : expNamespace ?? resolvedNamespace
+                  ? `${expNamespace ?? resolvedNamespace}.${spec.name}`
                   : spec.resolvedClrType,
             };
           }

@@ -104,6 +104,132 @@ export const createResolveModuleFromPackageRoot = (
   packageRoot: string,
   subpath: string | undefined
 ) => ts.ResolvedModuleFull | undefined) => {
+  const tryResolveExportTarget = (
+    packageRoot: string,
+    target: unknown
+  ): ts.ResolvedModuleFull | undefined => {
+    if (typeof target !== "string" || target.length === 0) {
+      return undefined;
+    }
+
+    const candidate = path.resolve(packageRoot, target);
+    if (!fs.existsSync(candidate)) {
+      return undefined;
+    }
+
+    const extension = candidate.endsWith(".d.ts")
+      ? ts.Extension.Dts
+      : candidate.endsWith(".ts")
+        ? ts.Extension.Ts
+        : candidate.endsWith(".js")
+          ? ts.Extension.Js
+          : candidate.endsWith(".mts")
+            ? ts.Extension.Mts
+            : candidate.endsWith(".cts")
+              ? ts.Extension.Cts
+              : undefined;
+
+    if (!extension) {
+      return undefined;
+    }
+
+    return {
+      resolvedFileName: candidate,
+      extension,
+      isExternalLibraryImport: true,
+    };
+  };
+
+  const tryResolveFromPackageJsonExports = (
+    packageRoot: string,
+    subpath: string | undefined
+  ): ts.ResolvedModuleFull | undefined => {
+    const packageJsonPath = path.join(packageRoot, "package.json");
+    if (!fs.existsSync(packageJsonPath)) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")) as {
+        readonly exports?: Record<string, unknown>;
+      };
+      const exportsField = parsed.exports;
+      if (
+        exportsField === null ||
+        typeof exportsField !== "object" ||
+        Array.isArray(exportsField)
+      ) {
+        return undefined;
+      }
+
+      const exportKey =
+        subpath && subpath.length > 0 ? `./${subpath}` : ".";
+      const rawTarget = exportsField[exportKey];
+      if (rawTarget === undefined) {
+        return undefined;
+      }
+
+      if (typeof rawTarget === "string") {
+        return tryResolveExportTarget(packageRoot, rawTarget);
+      }
+
+      if (
+        rawTarget !== null &&
+        typeof rawTarget === "object" &&
+        !Array.isArray(rawTarget)
+      ) {
+        const resolvedFromTypes = tryResolveExportTarget(
+          packageRoot,
+          (rawTarget as { readonly types?: unknown }).types
+        );
+        if (resolvedFromTypes) {
+          return resolvedFromTypes;
+        }
+
+        return tryResolveExportTarget(
+          packageRoot,
+          (rawTarget as { readonly default?: unknown }).default
+        );
+      }
+    } catch {
+      return undefined;
+    }
+
+    return undefined;
+  };
+
+  const tryResolveFromSourceManifest = (
+    packageRoot: string,
+    subpath: string | undefined
+  ): ts.ResolvedModuleFull | undefined => {
+    const manifestPath = path.join(packageRoot, "tsonic", "package-manifest.json");
+    if (!fs.existsSync(manifestPath)) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+        readonly source?: {
+          readonly exports?: Record<string, unknown>;
+        };
+      };
+      const exportsField = parsed.source?.exports;
+      if (
+        exportsField === null ||
+        typeof exportsField !== "object" ||
+        Array.isArray(exportsField)
+      ) {
+        return undefined;
+      }
+
+      const exportKey =
+        subpath && subpath.length > 0 ? `./${subpath}` : ".";
+      return tryResolveExportTarget(packageRoot, exportsField[exportKey]);
+    } catch {
+      return undefined;
+    }
+  };
+
   const resolveModuleFromPackageRoot = (
     packageRoot: string,
     subpath: string | undefined
@@ -113,6 +239,15 @@ export const createResolveModuleFromPackageRoot = (
     if (cached !== undefined) {
       return cached ?? undefined;
     }
+
+    const exportedResolution =
+      tryResolveFromPackageJsonExports(packageRoot, subpath) ??
+      tryResolveFromSourceManifest(packageRoot, subpath);
+    if (exportedResolution) {
+      packageRootModuleResolutionCache.set(cacheKey, exportedResolution);
+      return exportedResolution;
+    }
+
     const buildCandidates = (
       candidateSubpath: string | undefined
     ): readonly string[] => {

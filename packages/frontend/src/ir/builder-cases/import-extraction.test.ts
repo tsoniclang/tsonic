@@ -334,6 +334,7 @@ describe("IR Builder", function () {
 
         const imp = result.value.imports[0];
         if (!imp) throw new Error("Missing import");
+        expect(imp.resolvedNamespace).to.equal("nodejs.Http");
 
         const incoming = imp.specifiers[0];
         const response = imp.specifiers[1];

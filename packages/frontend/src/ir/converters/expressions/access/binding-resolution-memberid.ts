@@ -19,6 +19,7 @@ import type { MemberBinding } from "../../../../program/bindings.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
 import { loadBindingsFromPath } from "../../../../program/bindings.js";
+import { extractRawDotnetBindingsPayload } from "../../../../program/dotnet-binding-payload.js";
 import { extractTypeName } from "./member-resolution.js";
 
 const stripTsonicExtensionWrapperType = (
@@ -40,7 +41,16 @@ const findNearestBindingsJson = (filePath: string): string | undefined => {
   let currentDir = dirname(filePath);
   while (true) {
     const candidate = join(currentDir, "bindings.json");
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) {
+      try {
+        const raw = JSON.parse(readFileSync(candidate, "utf8")) as unknown;
+        if (extractRawDotnetBindingsPayload(raw)) {
+          return candidate;
+        }
+      } catch {
+        // Ignore unreadable/invalid candidates here. Loader diagnostics happen elsewhere.
+      }
+    }
     const parentDir = dirname(currentDir);
     if (parentDir === currentDir) return undefined;
     currentDir = parentDir;

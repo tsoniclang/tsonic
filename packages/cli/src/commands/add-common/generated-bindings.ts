@@ -126,6 +126,11 @@ export const installGeneratedBindingsPackage = (
   packageName: string,
   fromDir: string
 ): Result<void, string> => {
+  const isLegacyGeneratedBindingsDir = (dir: string): boolean =>
+    existsSync(join(dir, "families.json")) ||
+    existsSync(join(dir, "tsonic.bindings.json")) ||
+    existsSync(join(dir, "tsonic.surface.json"));
+
   const nodeModulesDir = join(projectRoot, "node_modules");
   mkdirSync(nodeModulesDir, { recursive: true });
 
@@ -133,35 +138,41 @@ export const installGeneratedBindingsPackage = (
   if (existsSync(targetDir)) {
     const pkgJsonPath = join(targetDir, "package.json");
     if (!existsSync(pkgJsonPath)) {
-      return {
-        ok: false,
-        error:
-          `Refusing to overwrite existing directory without package.json: ${targetDir}\n` +
-          `Rename/remove it and retry.`,
-      };
-    }
-    try {
-      const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<
-        string,
-        unknown
-      >;
-      const tsonic = (parsed.tsonic ?? {}) as Record<string, unknown>;
-      if (tsonic.generated !== true) {
+      if (isLegacyGeneratedBindingsDir(targetDir)) {
+        rmSync(targetDir, { recursive: true, force: true });
+      } else {
         return {
           ok: false,
           error:
-            `Refusing to overwrite existing npm package '${packageName}' in node_modules.\n` +
-            `Delete ${targetDir} if you intended to replace it.`,
+            `Refusing to overwrite existing directory without package.json: ${targetDir}\n` +
+            `Rename/remove it and retry.`,
         };
       }
-    } catch (error) {
-      return {
-        ok: false,
-        error: `Failed to parse ${pkgJsonPath}: ${error instanceof Error ? error.message : String(error)}`,
-      };
     }
+    if (existsSync(pkgJsonPath)) {
+      try {
+        const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<
+          string,
+          unknown
+        >;
+        const tsonic = (parsed.tsonic ?? {}) as Record<string, unknown>;
+        if (tsonic.generated !== true) {
+          return {
+            ok: false,
+            error:
+              `Refusing to overwrite existing npm package '${packageName}' in node_modules.\n` +
+              `Delete ${targetDir} if you intended to replace it.`,
+          };
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          error: `Failed to parse ${pkgJsonPath}: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
 
-    rmSync(targetDir, { recursive: true, force: true });
+      rmSync(targetDir, { recursive: true, force: true });
+    }
   }
 
   mkdirSync(dirname(targetDir), { recursive: true });
