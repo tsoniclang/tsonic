@@ -4,6 +4,7 @@
  */
 
 import * as ts from "typescript";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -77,6 +78,46 @@ const resolveCommonRootDir = (paths: readonly string[]): string => {
     }
     current = parent;
   }
+};
+
+const canonicalizeFilePath = (filePath: string): string => {
+  const normalizedPath = path.resolve(filePath);
+  try {
+    return fs.realpathSync(normalizedPath);
+  } catch {
+    return normalizedPath;
+  }
+};
+
+const dedupeCanonicalFilePaths = (
+  filePaths: readonly string[]
+): readonly string[] => {
+  const uniquePaths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const filePath of filePaths) {
+    const canonicalPath = canonicalizeFilePath(filePath);
+    if (seen.has(canonicalPath)) {
+      continue;
+    }
+
+    seen.add(canonicalPath);
+    uniquePaths.push(canonicalPath);
+  }
+
+  return uniquePaths;
+};
+
+const createSourceFilePathSet = (
+  filePaths: readonly string[]
+): ReadonlySet<string> => {
+  const canonicalPaths = new Set<string>();
+
+  for (const filePath of filePaths) {
+    canonicalPaths.add(canonicalizeFilePath(filePath));
+  }
+
+  return canonicalPaths;
 };
 
 /**
@@ -171,12 +212,14 @@ export const createProgram = (
       addDiagnostic(createDiagnosticsCollector(), globalSourceBindings.error)
     );
   }
-  const absolutePaths = Array.from(
-    new Set([...discoveredAbsolutePaths, ...globalSourceBindings.value])
-  );
-  const allFiles = Array.from(
-    new Set([...discoveredAllFiles, ...globalSourceBindings.value])
-  );
+  const absolutePaths = dedupeCanonicalFilePaths([
+    ...discoveredAbsolutePaths,
+    ...globalSourceBindings.value,
+  ]);
+  const allFiles = dedupeCanonicalFilePaths([
+    ...discoveredAllFiles,
+    ...globalSourceBindings.value,
+  ]);
   if (typeof tsOptions.rootDir === "string" && absolutePaths.length > 0) {
     tsOptions.rootDir = resolveCommonRootDir([
       tsOptions.rootDir,
@@ -489,10 +532,13 @@ export const createProgram = (
   }
 
   // User source files (non-declaration files from input paths)
+  const sourceFilePaths = createSourceFilePathSet(absolutePaths);
   const sourceFiles = program
     .getSourceFiles()
     .filter(
-      (sf) => !sf.isDeclarationFile && absolutePaths.includes(sf.fileName)
+      (sf) =>
+        !sf.isDeclarationFile &&
+        sourceFilePaths.has(path.resolve(sf.fileName))
     );
 
   // Declaration files for TypeRegistry:

@@ -28,6 +28,43 @@ export type ResolveImportOptions = {
   readonly surface?: string;
 };
 
+const findCaseMismatchPath = (
+  containingDir: string,
+  resolvedPath: string
+): string | undefined => {
+  const relativePath = path.relative(containingDir, resolvedPath);
+  if (
+    relativePath === "" ||
+    relativePath.startsWith("..") ||
+    path.isAbsolute(relativePath)
+  ) {
+    return undefined;
+  }
+
+  const segments = relativePath.split(path.sep).filter((segment) => segment);
+  let currentDir = containingDir;
+
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i]!;
+    const entries = fs.readdirSync(currentDir);
+    if (entries.includes(segment)) {
+      currentDir = path.join(currentDir, segment);
+      continue;
+    }
+
+    const mismatchedEntry = entries.find(
+      (entry) => entry.toLowerCase() === segment.toLowerCase()
+    );
+    if (!mismatchedEntry) {
+      return undefined;
+    }
+
+    return path.join(currentDir, mismatchedEntry, ...segments.slice(i + 1));
+  }
+
+  return undefined;
+};
+
 /**
  * Resolve import specifier to module
  *
@@ -201,16 +238,18 @@ export const resolveLocalImport = (
     );
   }
 
-  // Check case sensitivity
-  const realPath = fs.realpathSync(resolvedPath);
-  if (realPath !== resolvedPath && process.platform !== "win32") {
+  const caseMismatchPath =
+    process.platform === "win32"
+      ? undefined
+      : findCaseMismatchPath(containingDir, resolvedPath);
+  if (caseMismatchPath && caseMismatchPath !== resolvedPath) {
     return error(
       createDiagnostic(
         "TSN1003",
         "error",
         `Case mismatch in import path: "${importSpecifier}"`,
         undefined,
-        `File exists as: ${realPath}`
+        `File exists as: ${caseMismatchPath}`
       )
     );
   }

@@ -135,14 +135,18 @@ const queueResolvedLocalDependency = (
       currentFile,
       sourceRootAbs
     );
+    const canonicalResolvedPath =
+      ts.sys.realpath?.(resolvedPath) ?? resolvedPath;
+    const canonicalLocalBoundary =
+      ts.sys.realpath?.(localBoundary) ?? localBoundary;
 
     if (
-      resolvedPath.startsWith(localBoundary) &&
-      resolvedPath.endsWith(".ts") &&
-      !resolvedPath.endsWith(".d.ts")
+      canonicalResolvedPath.startsWith(canonicalLocalBoundary) &&
+      canonicalResolvedPath.endsWith(".ts") &&
+      !canonicalResolvedPath.endsWith(".d.ts")
     ) {
-      queue.push(resolvedPath);
-    } else if (!resolvedPath.startsWith(localBoundary)) {
+      queue.push(canonicalResolvedPath);
+    } else if (!canonicalResolvedPath.startsWith(canonicalLocalBoundary)) {
       diagnostics.push(
         createDiagnostic(
           "TSN1004",
@@ -154,7 +158,7 @@ const queueResolvedLocalDependency = (
             column: 1,
             length: importSpecifier.length,
           },
-          `Allowed root: ${localBoundary}`
+          `Allowed root: ${canonicalLocalBoundary}`
         )
       );
     }

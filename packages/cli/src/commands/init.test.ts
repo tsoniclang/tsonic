@@ -134,6 +134,67 @@ describe("Init Command", () => {
       }
     });
 
+    it("preserves existing package specs from the workspace root", () => {
+      const workspaceRoot = mkdtempSync(join(tmpdir(), "tsonic-init-specs-"));
+      try {
+        writeFileSync(
+          join(workspaceRoot, "package.json"),
+          JSON.stringify(
+            {
+              name: "app",
+              version: "1.0.0",
+              private: true,
+              type: "module",
+              devDependencies: {
+                tsonic: "file:../cli",
+                "@tsonic/js": "file:../js-next",
+                "@acme/runtime": "file:../runtime",
+              },
+            },
+            null,
+            2
+          )
+        );
+
+        const jsRoot = join(workspaceRoot, "node_modules", "@tsonic", "js");
+        mkdirSync(jsRoot, { recursive: true });
+        writeFileSync(
+          join(jsRoot, "package.json"),
+          JSON.stringify({
+            name: "@tsonic/js",
+            version: "1.0.0",
+            type: "module",
+          })
+        );
+        writeFileSync(
+          join(jsRoot, "tsonic.surface.json"),
+          JSON.stringify(
+            {
+              schemaVersion: 1,
+              id: "@tsonic/js",
+              extends: [],
+              requiredTypeRoots: ["types"],
+              requiredNpmPackages: ["@tsonic/js", "@acme/runtime"],
+            },
+            null,
+            2
+          )
+        );
+
+        const result = getTypePackageInfo({
+          surface: "@tsonic/js",
+          workspaceRoot,
+        });
+        expect(result.packages).to.deep.include.members([
+          { name: "tsonic", version: "file:../cli" },
+          { name: "@tsonic/js", version: "file:../js-next" },
+          { name: "@acme/runtime", version: "file:../runtime" },
+        ]);
+      } finally {
+        rmSync(workspaceRoot, { recursive: true, force: true });
+      }
+    });
+
     it("should bootstrap custom surface package names before manifest resolution", () => {
       const result = getTypePackageInfo({ surface: "@acme/surface-web" });
       const packageNames = result.packages.map((p) => p.name);

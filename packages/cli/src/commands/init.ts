@@ -36,6 +36,46 @@ type TypePackageInfo = {
   readonly typeRoots: readonly string[];
 };
 
+const readExistingPackageSpecs = (
+  workspaceRoot: string | undefined
+): ReadonlyMap<string, string> => {
+  if (!workspaceRoot) return new Map<string, string>();
+
+  const packageJsonPath = join(workspaceRoot, "package.json");
+  if (!existsSync(packageJsonPath)) {
+    return new Map<string, string>();
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+      readonly dependencies?: Record<string, unknown>;
+      readonly devDependencies?: Record<string, unknown>;
+      readonly optionalDependencies?: Record<string, unknown>;
+      readonly peerDependencies?: Record<string, unknown>;
+    };
+
+    const specs = new Map<string, string>();
+    for (const bucket of [
+      parsed.dependencies,
+      parsed.devDependencies,
+      parsed.optionalDependencies,
+      parsed.peerDependencies,
+    ]) {
+      if (!bucket || typeof bucket !== "object" || Array.isArray(bucket)) {
+        continue;
+      }
+      for (const [name, version] of Object.entries(bucket)) {
+        if (typeof version === "string" && version.trim().length > 0) {
+          specs.set(name, version.trim());
+        }
+      }
+    }
+    return specs;
+  } catch {
+    return new Map<string, string>();
+  }
+};
+
 // Unified CLI package version - installed as devDependency for npm scripts.
 const CLI_PACKAGE = { name: "tsonic", version: "latest" };
 
@@ -46,10 +86,16 @@ export const getTypePackageInfo = (
   } = {}
 ): TypePackageInfo => {
   const surface = options.surface ?? "clr";
+  const existingPackageSpecs = readExistingPackageSpecs(options.workspaceRoot);
+  const resolveVersion = (name: string, fallback: string): string =>
+    existingPackageSpecs.get(name) ?? fallback;
   const packages = [CLI_PACKAGE];
 
   if (surface !== "clr") {
-    packages.push({ name: surface, version: "latest" });
+    packages.push({
+      name: surface,
+      version: resolveVersion(surface, "latest"),
+    });
   }
 
   const surfaceCapabilities = resolveSurfaceCapabilities(surface, {
@@ -57,7 +103,10 @@ export const getTypePackageInfo = (
   });
 
   for (const pkgName of surfaceCapabilities.requiredNpmPackages) {
-    packages.push({ name: pkgName, version: "latest" });
+    packages.push({
+      name: pkgName,
+      version: resolveVersion(pkgName, "latest"),
+    });
   }
 
   const uniquePackages: { name: string; version: string }[] = [];
@@ -65,7 +114,10 @@ export const getTypePackageInfo = (
   for (const pkg of packages) {
     if (seen.has(pkg.name)) continue;
     seen.add(pkg.name);
-    uniquePackages.push(pkg);
+    uniquePackages.push({
+      name: pkg.name,
+      version: resolveVersion(pkg.name, pkg.version),
+    });
   }
 
   return {

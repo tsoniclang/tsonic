@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -169,6 +170,110 @@ describe("Frontend Surface Profiles", () => {
       );
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers a project-installed symlinked surface package over a sibling checkout", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-link-"));
+    const externalRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-pkg-"));
+    try {
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
+      );
+
+      writeFileSync(
+        join(externalRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(externalRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["linked-types"],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+
+      const scopeRoot = join(projectRoot, "node_modules", "@tsonic");
+      mkdirSync(scopeRoot, { recursive: true });
+      symlinkSync(externalRoot, join(scopeRoot, "js"), "dir");
+
+      const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
+      expect(caps.requiredTypeRoots).to.include(
+        resolve(externalRoot, "linked-types")
+      );
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers an ancestor workspace-installed surface package over a sibling checkout", () => {
+    const workspaceRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-frontend-workspace-link-")
+    );
+    const projectRoot = join(workspaceRoot, "packages", "app");
+    const externalRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-pkg-"));
+    try {
+      mkdirSync(projectRoot, { recursive: true });
+      writeFileSync(
+        join(workspaceRoot, "package.json"),
+        JSON.stringify(
+          { name: "workspace", private: true, type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(projectRoot, "package.json"),
+        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
+      );
+
+      writeFileSync(
+        join(externalRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(externalRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["linked-types"],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+
+      const scopeRoot = join(workspaceRoot, "node_modules", "@tsonic");
+      mkdirSync(scopeRoot, { recursive: true });
+      symlinkSync(externalRoot, join(scopeRoot, "js"), "dir");
+
+      const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
+      expect(caps.requiredTypeRoots).to.include(
+        resolve(externalRoot, "linked-types")
+      );
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      rmSync(externalRoot, { recursive: true, force: true });
     }
   });
 
