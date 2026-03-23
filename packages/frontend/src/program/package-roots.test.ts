@@ -171,4 +171,76 @@ describe("resolveDependencyPackageRoot", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("resolves installed export-mapped packages from project directories without package.json", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-package-roots-workspace-project-")
+    );
+
+    try {
+      const workspaceRoot = path.join(tempDir, "workspace");
+      const projectRoot = path.join(workspaceRoot, "packages", "app");
+      const installedNodejsRoot = path.join(
+        workspaceRoot,
+        "node_modules",
+        "@tsonic",
+        "nodejs"
+      );
+
+      fs.mkdirSync(projectRoot, { recursive: true });
+      fs.mkdirSync(path.join(installedNodejsRoot, "src"), { recursive: true });
+
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "workspace",
+            private: true,
+            type: "module",
+            dependencies: {
+              "@tsonic/nodejs": "10.0.0",
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(installedNodejsRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/nodejs",
+            version: "10.0.0",
+            type: "module",
+            exports: {
+              ".": {
+                types: "./index.d.ts",
+                default: "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(installedNodejsRoot, "index.d.ts"),
+        "export {};\n"
+      );
+      fs.writeFileSync(
+        path.join(installedNodejsRoot, "src", "index.ts"),
+        "export {};\n"
+      );
+
+      expect(
+        resolveDependencyPackageRoot(
+          projectRoot,
+          "@tsonic/nodejs",
+          "installed-first"
+        )
+      ).to.equal(installedNodejsRoot);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

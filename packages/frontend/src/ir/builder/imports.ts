@@ -12,6 +12,7 @@ import type { ProgramContext } from "../program-context.js";
 import type { Binding } from "../binding/index.js";
 import type { TypeAuthority } from "../type-system/type-system.js";
 import type { TypeBinding } from "../../program/binding-types.js";
+import { parseTsonicModuleRequest } from "../../program/module-resolution.js";
 import { createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
 import { resolveImport } from "../../resolver.js";
@@ -71,6 +72,8 @@ export const extractImports = (
         resolvedImport.ok && resolvedImport.value.resolvedPath
           ? resolvedImport.value.resolvedPath
           : undefined;
+      const resolvedImportIsClr =
+        resolvedImport.ok && resolvedImport.value.isClr === true;
       const isLocal =
         source.startsWith(".") || source.startsWith("/") || isSourcePackage;
 
@@ -79,27 +82,67 @@ export const extractImports = (
       // Note: Bindings are loaded upfront by discoverAndLoadClrBindings()
       // in dependency-graph.ts before IR building starts.
       const clrResolution = ctx.clrResolver.resolve(source);
-      const isClr = clrResolution.isClr;
-      const clrAssembly = clrResolution.isClr
+      const isClr = resolvedImportIsClr || (!resolvedImport.ok && clrResolution.isClr);
+      const clrAssembly = isClr && clrResolution.isClr
         ? clrResolution.assembly
         : undefined;
 
+      const getSourcePackageModuleBinding = (): ReturnType<
+        ProgramContext["bindings"]["getBinding"]
+      > => {
+        const exact = ctx.bindings.getBinding(source);
+        if (exact) {
+          return exact;
+        }
+
+        const request = parseTsonicModuleRequest(source);
+        const subpath = request?.subpath;
+        if (!subpath) {
+          return undefined;
+        }
+
+        const normalizedSubpath = subpath.replace(/\\/g, "/");
+        const withoutExtension = normalizedSubpath.replace(
+          /\.(?:[cm]?ts|[cm]?js)$/i,
+          ""
+        );
+        const candidates = [
+          withoutExtension,
+          withoutExtension.split("/").pop(),
+          `node:${withoutExtension}`,
+          `node:${withoutExtension.split("/").pop() ?? ""}`,
+        ].filter(
+          (candidate): candidate is string =>
+            typeof candidate === "string" && candidate.length > 0
+        );
+
+        for (const candidate of candidates) {
+          const binding = ctx.bindings.getBinding(candidate);
+          if (binding?.kind === "module") {
+            return binding;
+          }
+        }
+
+        return undefined;
+      };
+
       // Check for module binding (Node.js API, etc.)
-      const moduleBinding = ctx.bindings.getBinding(source);
+      const moduleBinding = getSourcePackageModuleBinding();
       const moduleBindingType =
         moduleBinding?.kind === "module" ? moduleBinding.type : undefined;
       const hasModuleBinding = moduleBindingType !== undefined;
       const resolvedNamespace = (() => {
-        if (clrResolution.isClr) {
+        if (resolvedImportIsClr) {
+          return resolvedImport.value.resolvedNamespace;
+        }
+        if (isClr && clrResolution.isClr) {
           return clrResolution.resolvedNamespace;
         }
         if (!moduleBindingType) {
           return undefined;
         }
         const lastDot = moduleBindingType.lastIndexOf(".");
-        return lastDot > 0
-          ? moduleBindingType.slice(0, lastDot)
-          : undefined;
+        return lastDot > 0 ? moduleBindingType.slice(0, lastDot) : undefined;
       })();
 
       const specifiers = extractImportSpecifiers(
@@ -193,7 +236,8 @@ export const extractImports = (
       };
 
       const resolveClrTypeBindingForNamedImport = (
-        exportName: string
+        exportName: string,
+        allowGlobalFallback: boolean
       ): TypeBinding | undefined => {
         const matchesExportName = (type: TypeBinding): boolean => {
           if (type.alias === exportName) return true;
@@ -212,6 +256,10 @@ export const extractImports = (
           const namespaceBinding = ctx.bindings.getNamespace(owningNamespace);
           const exact = namespaceBinding?.types.find(matchesExportName);
           if (exact) return exact;
+        }
+
+        if (!allowGlobalFallback) {
+          return undefined;
         }
 
         const globalMatch = ctx.bindings
@@ -244,7 +292,7 @@ export const extractImports = (
         // form itself (`import type`) or checker result.
         const resolvedTypeBinding =
           (isClr || hasModuleBinding) && resolvedNamespace
-            ? resolveClrTypeBindingForNamedImport(spec.name)
+            ? resolveClrTypeBindingForNamedImport(spec.name, !hasModuleBinding)
             : undefined;
         const isType = spec.isType === true;
 
@@ -258,7 +306,7 @@ export const extractImports = (
               isType: true,
               resolvedClrType: resolvedTypeBinding?.name
                 ? clrTypeNameToCSharp(resolvedTypeBinding.name)
-                : expNamespace ?? resolvedNamespace
+                : (expNamespace ?? resolvedNamespace)
                   ? `${expNamespace ?? resolvedNamespace}.${spec.name}`
                   : spec.resolvedClrType,
             };

@@ -162,8 +162,7 @@ export const createResolveModuleFromPackageRoot = (
         return undefined;
       }
 
-      const exportKey =
-        subpath && subpath.length > 0 ? `./${subpath}` : ".";
+      const exportKey = subpath && subpath.length > 0 ? `./${subpath}` : ".";
       const rawTarget = exportsField[exportKey];
       if (rawTarget === undefined) {
         return undefined;
@@ -202,7 +201,11 @@ export const createResolveModuleFromPackageRoot = (
     packageRoot: string,
     subpath: string | undefined
   ): ts.ResolvedModuleFull | undefined => {
-    const manifestPath = path.join(packageRoot, "tsonic", "package-manifest.json");
+    const manifestPath = path.join(
+      packageRoot,
+      "tsonic",
+      "package-manifest.json"
+    );
     if (!fs.existsSync(manifestPath)) {
       return undefined;
     }
@@ -222,8 +225,7 @@ export const createResolveModuleFromPackageRoot = (
         return undefined;
       }
 
-      const exportKey =
-        subpath && subpath.length > 0 ? `./${subpath}` : ".";
+      const exportKey = subpath && subpath.length > 0 ? `./${subpath}` : ".";
       return tryResolveExportTarget(packageRoot, exportsField[exportKey]);
     } catch {
       return undefined;

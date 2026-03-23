@@ -364,5 +364,66 @@ describe("Module Map", () => {
         sourceName: "process",
       });
     });
+
+    it("tracks named exports of imported source-package type-like symbols", () => {
+      const source = {
+        ...makeModule(
+          "../../../node_modules/@tsonic/nodejs/src/crypto/key-object.ts",
+          [
+            {
+              kind: "classDeclaration",
+              name: "PublicKeyObject",
+              members: [],
+            },
+          ]
+        ),
+        namespace: "nodejs.Crypto",
+        className: "KeyObject",
+      } satisfies IrModule;
+
+      const barrel = {
+        ...makeModule("../../../node_modules/@tsonic/nodejs/src/crypto/index.ts", []),
+        namespace: "nodejs",
+        className: "crypto",
+        imports: [
+          {
+            kind: "import" as const,
+            source: "./key-object.ts",
+            isLocal: true,
+            isClr: false,
+            resolvedPath:
+              "/tmp/project/node_modules/@tsonic/nodejs/src/crypto/key-object.ts",
+            specifiers: [
+              {
+                kind: "named" as const,
+                name: "PublicKeyObject",
+                localName: "PublicKeyObject",
+                isType: true,
+              },
+            ],
+          },
+        ],
+        exports: [
+          {
+            kind: "named" as const,
+            name: "PublicKeyObject",
+            localName: "PublicKeyObject",
+          },
+        ],
+      } satisfies IrModule;
+
+      const result = buildModuleMap([source, barrel]);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(
+        result.exportMap.get(
+          "node_modules/@tsonic/nodejs/src/crypto/index:PublicKeyObject"
+        )
+      ).to.deep.equal({
+        sourceFile: "node_modules/@tsonic/nodejs/src/crypto/key-object",
+        sourceName: "PublicKeyObject",
+      });
+    });
   });
 });

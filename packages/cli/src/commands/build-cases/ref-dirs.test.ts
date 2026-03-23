@@ -570,7 +570,10 @@ describe("build command (library bindings ref dirs)", function () {
         ].join("\n"),
         "utf-8"
       );
-      const importedDeclarationPath = join(sourcePackageRoot, "src/client.d.ts");
+      const importedDeclarationPath = join(
+        sourcePackageRoot,
+        "src/client.d.ts"
+      );
       const importedDeclarationText = [
         "export interface ExternalOptions {",
         "  readonly name: string;",
@@ -651,7 +654,9 @@ describe("build command (library bindings ref dirs)", function () {
         importedDeclarationText
       );
       expect(
-        existsSync(join(projectRoot, "dist", "node_modules", "@acme", "runtime"))
+        existsSync(
+          join(projectRoot, "dist", "node_modules", "@acme", "runtime")
+        )
       ).to.equal(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });

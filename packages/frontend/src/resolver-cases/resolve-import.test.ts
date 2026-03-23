@@ -214,6 +214,145 @@ describe("Module Resolver", () => {
       }
     });
 
+    it("should prefer direct source-package imports over CLR resolution", () => {
+      const packageRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@tsonic",
+        "nodejs"
+      );
+      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      const processEntry = path.join(packageRoot, "src", "process-module.ts");
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                "./process.js": "./src/process-module.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        processEntry,
+        "export const process = { version: 'v1.0.0-tsonic' };\n"
+      );
+
+      const result = resolveImport(
+        "@tsonic/nodejs/process.js",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        {
+          projectRoot: tempDir,
+          surface: "@tsonic/js",
+          clrResolver: {
+            resolve: (specifier: string) =>
+              specifier === "@tsonic/nodejs/process.js"
+                ? {
+                    isClr: true as const,
+                    resolvedNamespace: "process",
+                  }
+                : { isClr: false as const },
+          } as never,
+        }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.isLocal).to.equal(true);
+        expect(result.value.isSourcePackage).to.equal(true);
+        expect(result.value.isClr).to.equal(false);
+        expect(result.value.resolvedPath).to.equal(processEntry);
+      }
+    });
+
+    it("should prefer source-package redirects over CLR module bindings", () => {
+      const packageRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@tsonic",
+        "nodejs"
+      );
+      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "src", "net"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                "./net.js": "./src/net/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      const netEntry = path.join(packageRoot, "src", "net", "index.ts");
+      fs.writeFileSync(netEntry, "export const createServer = () => ({});\n");
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/nodejs-bindings.json", {
+        bindings: {
+          "node:net": {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.net",
+            sourceImport: "@tsonic/nodejs/net.js",
+          },
+          net: {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.net",
+            sourceImport: "@tsonic/nodejs/net.js",
+          },
+        },
+      });
+
+      const result = resolveImport(
+        "node:net",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        { bindings, projectRoot: tempDir, surface: "@tsonic/js" }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.isLocal).to.equal(true);
+        expect(result.value.isSourcePackage).to.equal(true);
+        expect(result.value.isClr).to.equal(false);
+        expect(result.value.resolvedPath).to.equal(netEntry);
+      }
+    });
+
     it("should reject source-package local imports that only match the package root by string prefix", () => {
       const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
       const packageEntry = path.join(packageRoot, "src", "index.ts");

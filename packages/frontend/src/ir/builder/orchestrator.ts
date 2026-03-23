@@ -5,10 +5,8 @@
  */
 
 import * as ts from "typescript";
-import { relative } from "path";
 import { IrModule } from "../types.js";
 import { TsonicProgram } from "../../program.js";
-import { getNamespaceFromPath, getClassNameFromPath } from "../../resolver.js";
 import { Result, ok, error } from "../../types/result.js";
 import {
   Diagnostic,
@@ -24,6 +22,7 @@ import { extractImports } from "./imports.js";
 import { extractExportsWithContext } from "./exports.js";
 import { extractStatements, isExecutableStatement } from "./statements.js";
 import { validateClassImplements } from "./validation.js";
+import { resolveSourceFileIdentity } from "../../program/source-file-identity.js";
 
 /**
  * Build IR module from TypeScript source file
@@ -41,12 +40,12 @@ export const buildIrModule = (
   ctx: ProgramContext
 ): Result<IrModule, Diagnostic> => {
   try {
-    const namespace = getNamespaceFromPath(
+    const sourceIdentity = resolveSourceFileIdentity(
       sourceFile.fileName,
       options.sourceRoot,
       options.rootNamespace
     );
-    const className = getClassNameFromPath(sourceFile.fileName);
+    const { namespace, className } = sourceIdentity;
 
     const imports = extractImports(sourceFile, ctx);
     const exports = extractExportsWithContext(sourceFile, ctx);
@@ -117,14 +116,9 @@ export const buildIrModule = (
 
     // Compute relative file path from source root
     // Normalize to forward slashes for cross-platform consistency
-    const relativePath = relative(
-      options.sourceRoot,
-      sourceFile.fileName
-    ).replace(/\\/g, "/");
-
     const module: IrModule = {
       kind: "module",
-      filePath: relativePath, // Now stores relative path instead of absolute
+      filePath: sourceIdentity.filePath,
       namespace,
       className,
       isStaticContainer,

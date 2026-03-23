@@ -375,11 +375,11 @@ export const emitTypeAssertion = (
   const sourceExpressionType =
     transparentSourceExpression.kind === "identifier"
       ? (ctx1.localSemanticTypes?.get(transparentSourceExpression.name) ??
-        ((rawSourceContext !== context &&
+        (rawSourceContext !== context &&
         !preservesStorageSurfaceAtEntry &&
         sourceStorageTypeAtEntry
           ? sourceStorageTypeAtEntry
-          : transparentSourceExpression.inferredType)))
+          : transparentSourceExpression.inferredType))
       : transparentSourceExpression.inferredType;
   const isSourceUnion = sourceExpressionType
     ? isSemanticUnion(sourceExpressionType, ctx1)

@@ -6,7 +6,6 @@
  */
 
 import * as ts from "typescript";
-import { getNamespaceFromPath } from "../../../resolver/namespace.js";
 import type {
   TypeRegistry,
   TypeRegistryEntry,
@@ -24,6 +23,7 @@ import {
   extractHeritage,
 } from "./registry-helpers.js";
 import type { IrType } from "../../types/index.js";
+import { resolveSourceFileNamespace } from "../../../program/source-file-identity.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BUILD FUNCTION
@@ -224,7 +224,11 @@ export const buildTypeRegistry = (
   for (const sourceFile of sourceFiles) {
     const namespace = sourceFile.isDeclarationFile
       ? undefined
-      : getNamespaceFromPath(sourceFile.fileName, sourceRoot, rootNamespace);
+      : resolveSourceFileNamespace(
+          sourceFile.fileName,
+          sourceRoot,
+          rootNamespace
+        );
 
     ts.forEachChild(sourceFile, (node) => {
       processDeclaration(node, sourceFile, namespace);

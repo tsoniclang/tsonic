@@ -4,7 +4,7 @@
  */
 
 import * as ts from "typescript";
-import { relative, resolve } from "path";
+import { isAbsolute, relative, resolve } from "path";
 import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
 import { IrModule, IrStatement } from "../ir/types.js";
@@ -29,6 +29,8 @@ import {
   resolveSourcePackageImport,
 } from "../resolver/source-package-resolution.js";
 import { collectClosedWorldDynamicImportSites } from "../resolver/dynamic-import.js";
+import { loadBindings } from "./bindings.js";
+import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -197,6 +199,22 @@ export const buildModuleDependencyGraph = (
       ts.sys.useCaseSensitiveFileNames ? fileName : fileName.toLowerCase(),
     compilerOptions
   );
+  const surfaceCapabilities = resolveSurfaceCapabilities(options.surface, {
+    projectRoot: options.projectRoot,
+  });
+  const discoveryTypeRoots = Array.from(
+    new Set<string>([
+      ...(options.typeRoots ?? []),
+      ...surfaceCapabilities.requiredTypeRoots,
+    ])
+  ).map((typeRoot) =>
+    ts.sys.resolvePath(
+      isAbsolute(typeRoot)
+        ? typeRoot
+        : resolve(options.projectRoot, typeRoot)
+    )
+  );
+  const discoveryBindings = loadBindings(discoveryTypeRoots);
 
   // Track all discovered files for later type checking
   const allDiscoveredFiles: string[] = [];
@@ -271,6 +289,32 @@ export const buildModuleDependencyGraph = (
           diagnostics
         );
         continue;
+      }
+
+      const moduleBinding = discoveryBindings.getBinding(importSpecifier);
+      if (moduleBinding?.kind === "module" && moduleBinding.sourceImport) {
+        const redirectedSourcePackage = resolveSourcePackageImport(
+          moduleBinding.sourceImport,
+          currentFile,
+          options.surface,
+          options.projectRoot
+        );
+        if (!redirectedSourcePackage.ok) {
+          diagnostics.push({
+            ...redirectedSourcePackage.error,
+            location: {
+              file: currentFile,
+              line: stmt.getStart(sourceFile),
+              column: 1,
+              length: importSpecifier.length,
+            },
+          });
+          continue;
+        }
+        if (redirectedSourcePackage.value) {
+          queue.push(redirectedSourcePackage.value.resolvedPath);
+          continue;
+        }
       }
 
       const sourcePackage = resolveSourcePackageImport(

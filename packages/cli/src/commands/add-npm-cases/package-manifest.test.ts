@@ -128,6 +128,78 @@ describe("add npm (package manifests)", function () {
     }
   });
 
+  it("merges overlay metadata from source packages when they declare runtime requirements", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-add-npm-source-package-overlay-")
+    );
+    try {
+      const configPath = writeWorkspaceConfig(dir, { surface: "@tsonic/js" });
+      const pkgName = "@acme/node";
+      writeLocalNpmPackage(dir, "local/acme-node", {
+        name: pkgName,
+        packageManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-source-package",
+          surfaces: ["@tsonic/js"],
+          requiredTypeRoots: ["."],
+          runtime: {
+            frameworkReferences: ["Microsoft.AspNetCore.App"],
+          },
+          dotnet: {
+            packageReferences: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
+          },
+          source: {
+            exports: {
+              ".": "./src/index.ts",
+              "./fs.js": "./src/fs.ts",
+            },
+          },
+        },
+      });
+      mkdirSync(join(dir, "local/acme-node", "src"), { recursive: true });
+      writeFileSync(
+        join(dir, "local/acme-node", "src", "index.ts"),
+        "export const ok = true;\n",
+        "utf-8"
+      );
+
+      const result = addNpmCommand("./local/acme-node", configPath, {
+        quiet: true,
+      });
+      expect(result.ok).to.equal(true);
+      expect(result.ok ? result.value.packageName : "").to.equal(pkgName);
+
+      const cfg = readWorkspaceConfig(dir);
+      expect(cfg.dotnet.typeRoots).to.deep.equal(["node_modules/@acme/node"]);
+      expect(cfg.dotnet.frameworkReferences).to.deep.equal([
+        "Microsoft.AspNetCore.App",
+      ]);
+      expect(cfg.dotnet.packageReferences).to.deep.equal([
+        { id: "Acme.Node.Runtime", version: "1.0.0" },
+        { id: "Tsonic.JSRuntime", version: "0.0.9", types: "@tsonic/js" },
+      ]);
+
+      const normalizedManifestPath = join(
+        dir,
+        ".tsonic",
+        "manifests",
+        "npm",
+        pkgName,
+        "tsonic.bindings.normalized.json"
+      );
+      expect(existsSync(normalizedManifestPath)).to.equal(true);
+      const normalizedManifest = JSON.parse(
+        readFileSync(normalizedManifestPath, "utf-8")
+      ) as Record<string, unknown>;
+      expect(normalizedManifest["sourceManifest"]).to.equal("package-manifest");
+      expect(normalizedManifest["requiredTypeRoots"]).to.deep.equal([
+        "node_modules/@acme/node",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("uses the workspace surface when rediscovering manifests", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-surface-"));
     try {

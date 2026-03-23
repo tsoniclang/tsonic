@@ -36,6 +36,13 @@ const readProjectPackageMetadata = (
   }
 };
 
+const stringifyManifest = (value: unknown): string =>
+  JSON.stringify(
+    value,
+    (_key, entry) => (typeof entry === "bigint" ? entry.toString() : entry),
+    2
+  ) + "\n";
+
 export const writePackageManifest = (
   config: ResolvedConfig
 ): Result<void, string> => {
@@ -107,7 +114,7 @@ export const writePackageManifest = (
 
   try {
     mkdirSync(manifestDir, { recursive: true });
-    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+    writeFileSync(manifestPath, stringifyManifest(manifest), "utf-8");
     return { ok: true, value: undefined };
   } catch (error) {
     return {

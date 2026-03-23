@@ -104,7 +104,10 @@ export const adaptEmittedExpressionAst = (opts: {
   const exactAssertedSurface =
     expr.kind === "typeAssertion"
       ? tryEmitExactComparisonTargetAst(
-          resolveRuntimeMaterializationTargetType(expr.targetType, castedContext),
+          resolveRuntimeMaterializationTargetType(
+            expr.targetType,
+            castedContext
+          ),
           castedContext
         )
       : undefined;

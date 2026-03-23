@@ -36,6 +36,26 @@ export const processImports = (
 ): EmitterContext => {
   const importBindings = new Map<string, ImportBinding>();
 
+  const registerImportBinding = (
+    spec: IrImportSpecifier,
+    binding: { localName: string; importBinding: ImportBinding } | null
+  ): void => {
+    if (!binding) {
+      return;
+    }
+
+    importBindings.set(binding.localName, binding.importBinding);
+
+    if (
+      spec.kind === "named" &&
+      spec.isType === true &&
+      spec.localName !== spec.name &&
+      !importBindings.has(spec.name)
+    ) {
+      importBindings.set(spec.name, binding.importBinding);
+    }
+  };
+
   const resolveLocalTarget = (
     moduleMap: NonNullable<EmitterContext["options"]["moduleMap"]>,
     source: string,
@@ -94,6 +114,26 @@ export const processImports = (
   };
 
   const updatedContext = imports.reduce((ctx, imp) => {
+    // Pure module bindings (for example bare `node:fs`) still bypass local
+    // module-map resolution and bind directly to their CLR container/type.
+    //
+    // Installed source-package redirects remain `isLocal` on purpose. For
+    // those we must resolve through the inlined source graph so named re-exports
+    // bind to the actual generated container/type locations rather than the
+    // coarse module binding root from `bindings.json`.
+    if (imp.resolvedClrType && !imp.isLocal) {
+      const moduleClrType = `global::${imp.resolvedClrType}`;
+      for (const spec of imp.specifiers) {
+        const binding = createModuleImportBinding(
+          spec,
+          moduleClrType,
+          imp.resolvedNamespace
+        );
+        registerImportBinding(spec, binding);
+      }
+      return ctx;
+    }
+
     if (imp.isLocal) {
       // Local import - build ImportBindings with fully-qualified CLR names
       // NO using directive for local modules
@@ -138,9 +178,7 @@ export const processImports = (
               targetModule.localTypes,
               ctx
             );
-            if (binding) {
-              importBindings.set(binding.localName, binding.importBinding);
-            }
+            registerImportBinding(spec, binding);
           }
         }
         // If module not found in map, it's a compilation error - will be caught elsewhere
@@ -148,29 +186,11 @@ export const processImports = (
       // No module map = single file compilation, no import bindings needed
     }
 
-    // Module bindings (e.g., node:* aliases mapped to @tsonic/nodejs/index.js)
-    if (!imp.isLocal && imp.resolvedClrType) {
-      const moduleClrType = `global::${imp.resolvedClrType}`;
-      for (const spec of imp.specifiers) {
-        const binding = createModuleImportBinding(
-          spec,
-          moduleClrType,
-          imp.resolvedNamespace
-        );
-        if (binding) {
-          importBindings.set(binding.localName, binding.importBinding);
-        }
-      }
-      return ctx;
-    }
-
     // CLR imports (from @tsonic/dotnet/* or similar packages)
     if (imp.isClr && imp.resolvedNamespace) {
       for (const spec of imp.specifiers) {
         const binding = createClrImportBinding(spec, imp.resolvedNamespace);
-        if (binding) {
-          importBindings.set(binding.localName, binding.importBinding);
-        }
+        registerImportBinding(spec, binding);
       }
       return ctx;
     }
@@ -420,6 +440,16 @@ const createModuleImportBinding = (
   }
 
   if (spec.kind === "named") {
+    if (spec.resolvedClrType) {
+      return {
+        localName,
+        importBinding: {
+          kind: "namespace",
+          clrName: `global::${spec.resolvedClrType}`,
+        },
+      };
+    }
+
     if (spec.isType === true) {
       const clrName = spec.resolvedClrType
         ? `global::${spec.resolvedClrType}`

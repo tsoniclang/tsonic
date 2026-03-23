@@ -49,6 +49,21 @@ const getRepoRoot = (packageRoot: string): string => {
   return absoluteRoot;
 };
 
+const findNearestPackageRoot = (resolvedFilePath: string): string | undefined => {
+  let currentDir = path.dirname(resolvedFilePath);
+
+  for (;;) {
+    if (fs.existsSync(path.join(currentDir, "package.json"))) {
+      return currentDir;
+    }
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      return undefined;
+    }
+    currentDir = parentDir;
+  }
+};
+
 const tryResolveInstalledPackage = (
   packageRoot: string,
   packageName: string
@@ -58,13 +73,30 @@ const tryResolveInstalledPackage = (
   if (cached !== undefined) {
     return cached;
   }
+
+  const packageJsonPath = path.join(packageRoot, "package.json");
+  const req = createRequire(
+    fs.existsSync(packageJsonPath)
+      ? packageJsonPath
+      : path.join(packageRoot, "__tsonic_require__.js")
+  );
+
   try {
-    const req = createRequire(path.join(packageRoot, "package.json"));
     const pkgJsonPath = req.resolve(`${packageName}/package.json`);
     const resolvedRoot = path.dirname(pkgJsonPath);
     installedPackageRootCache.set(cacheKey, resolvedRoot);
     return resolvedRoot;
   } catch {
+    try {
+      const entryPath = req.resolve(packageName);
+      const resolvedRoot = findNearestPackageRoot(entryPath);
+      if (resolvedRoot) {
+        installedPackageRootCache.set(cacheKey, resolvedRoot);
+        return resolvedRoot;
+      }
+    } catch {
+      // ignore and fall through
+    }
     return undefined;
   }
 };

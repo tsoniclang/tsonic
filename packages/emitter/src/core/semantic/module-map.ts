@@ -194,15 +194,15 @@ const buildExportMap = (modules: readonly IrModule[]): ExportMap => {
   // First pass: collect all re-exports
   for (const module of modules) {
     const modulePath = canonicalizeFilePath(module.filePath);
-    const importedValueSources = new Map<string, ExportSource>();
+    const importedSources = new Map<string, ExportSource>();
 
     for (const imp of module.imports) {
       if (!imp.isLocal) continue;
       const sourceFile = resolveImportPath(module.filePath, imp.source);
 
       for (const spec of imp.specifiers) {
-        if (spec.kind !== "named" || spec.isType === true) continue;
-        importedValueSources.set(spec.localName, {
+        if (spec.kind !== "named") continue;
+        importedSources.set(spec.localName, {
           sourceFile,
           sourceName: spec.name,
         });
@@ -222,7 +222,7 @@ const buildExportMap = (modules: readonly IrModule[]): ExportMap => {
       }
 
       if (exp.kind === "named") {
-        const importedSource = importedValueSources.get(exp.localName);
+        const importedSource = importedSources.get(exp.localName);
         const key = `${modulePath}:${exp.name}`;
 
         if (importedSource) {

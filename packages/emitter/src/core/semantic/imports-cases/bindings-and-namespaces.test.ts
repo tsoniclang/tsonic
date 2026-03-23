@@ -54,6 +54,356 @@ describe("Import Handling", () => {
     expect(result).to.include('global::nodejs.fs.readFileSync("README.md")');
   });
 
+  it("should resolve source-package redirects through the local source graph even when module bindings exist", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "node:http",
+          isLocal: true,
+          isClr: false,
+          resolvedPath: "/node_modules/@tsonic/nodejs/src/http/index.ts",
+          resolvedClrType: "nodejs.Http.http",
+          resolvedNamespace: "nodejs.Http",
+          specifiers: [
+            {
+              kind: "named",
+              name: "createServer",
+              localName: "createServer",
+              isType: false,
+            },
+            {
+              kind: "named",
+              name: "IncomingMessage",
+              localName: "IncomingMessage",
+              isType: true,
+              resolvedClrType: "nodejs.Http.IncomingMessage",
+            },
+            {
+              kind: "named",
+              name: "ServerResponse",
+              localName: "ServerResponse",
+              isType: true,
+              resolvedClrType: "nodejs.Http.ServerResponse",
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "createServer",
+            },
+            arguments: [
+              {
+                kind: "arrowFunction",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "req" },
+                    type: {
+                      kind: "referenceType",
+                      name: "IncomingMessage",
+                      resolvedClrType: "nodejs.Http.IncomingMessage",
+                    },
+                    isOptional: false,
+                    isRest: false,
+                    passing: "value",
+                  },
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "res" },
+                    type: {
+                      kind: "referenceType",
+                      name: "ServerResponse",
+                      resolvedClrType: "nodejs.Http.ServerResponse",
+                    },
+                    isOptional: false,
+                    isRest: false,
+                    passing: "value",
+                  },
+                ],
+                body: {
+                  kind: "blockStatement",
+                  statements: [],
+                },
+                isAsync: false,
+              },
+            ],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, {
+      moduleMap: new Map([
+        [
+          "node_modules/@tsonic/nodejs/src/http/index",
+          {
+            namespace: "nodejs.Http",
+            className: "http",
+            filePath: "node_modules/@tsonic/nodejs/src/http/index",
+            hasRuntimeContainer: true,
+            hasTopLevelCode: false,
+            imports: [],
+            exports: [
+              { name: "createServer", isDefault: false, kind: "function" },
+            ],
+            exportedValueKinds: new Map([["createServer", "function"]]),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+        [
+          "node_modules/@tsonic/nodejs/src/http/incoming-message",
+          {
+            namespace: "nodejs.Http",
+            className: "IncomingMessage",
+            filePath: "node_modules/@tsonic/nodejs/src/http/incoming-message",
+            hasRuntimeContainer: false,
+            hasTopLevelCode: false,
+            imports: [],
+            exports: [],
+            exportedValueKinds: new Map(),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+        [
+          "node_modules/@tsonic/nodejs/src/http/server-response",
+          {
+            namespace: "nodejs.Http",
+            className: "ServerResponse",
+            filePath: "node_modules/@tsonic/nodejs/src/http/server-response",
+            hasRuntimeContainer: false,
+            hasTopLevelCode: false,
+            imports: [],
+            exports: [],
+            exportedValueKinds: new Map(),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+      ]),
+      exportMap: new Map([
+        [
+          "node_modules/@tsonic/nodejs/src/http/index:IncomingMessage",
+          {
+            sourceFile: "node_modules/@tsonic/nodejs/src/http/incoming-message",
+            sourceName: "IncomingMessage",
+          },
+        ],
+        [
+          "node_modules/@tsonic/nodejs/src/http/index:ServerResponse",
+          {
+            sourceFile: "node_modules/@tsonic/nodejs/src/http/server-response",
+            sourceName: "ServerResponse",
+          },
+        ],
+      ]),
+    });
+    expect(result).to.include("global::nodejs.Http.http.createServer");
+    expect(result).to.include("global::nodejs.Http.IncomingMessage");
+    expect(result).to.include("global::nodejs.Http.ServerResponse");
+    expect(result).not.to.include("global::MyApp");
+  });
+
+  it("resolves source-package class re-exports to the generated declaring type instead of the coarse module binding root", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "@tsonic/nodejs/buffer.js",
+          isLocal: true,
+          isClr: false,
+          resolvedPath: "/node_modules/@tsonic/nodejs/src/buffer/index.ts",
+          resolvedClrType: "nodejs.buffer",
+          resolvedNamespace: "nodejs",
+          specifiers: [
+            {
+              kind: "named",
+              name: "Buffer",
+              localName: "Buffer",
+              isType: true,
+              resolvedClrType: "nodejs.Buffer",
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "Buffer" },
+              property: "alloc",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [{ kind: "literal", value: 8 }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, {
+      moduleMap: new Map([
+        [
+          "node_modules/@tsonic/nodejs/src/buffer/index",
+          {
+            namespace: "nodejs",
+            className: "buffer",
+            filePath: "node_modules/@tsonic/nodejs/src/buffer/index",
+            hasRuntimeContainer: false,
+            hasTopLevelCode: false,
+            imports: [],
+            exports: [],
+            exportedValueKinds: new Map(),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+        [
+          "node_modules/@tsonic/nodejs/src/buffer/buffer",
+          {
+            namespace: "nodejs.Buffer",
+            className: "Buffer",
+            filePath: "node_modules/@tsonic/nodejs/src/buffer/buffer",
+            hasRuntimeContainer: true,
+            hasTopLevelCode: false,
+            imports: [],
+            exports: [],
+            exportedValueKinds: new Map(),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+      ]),
+      exportMap: new Map([
+        [
+          "node_modules/@tsonic/nodejs/src/buffer/index:Buffer",
+          {
+            sourceFile: "node_modules/@tsonic/nodejs/src/buffer/buffer",
+            sourceName: "Buffer",
+          },
+        ],
+      ]),
+    });
+
+    expect(result).to.include("global::nodejs.Buffer.Buffer.alloc(8)");
+    expect(result).not.to.include("global::nodejs.Buffer.alloc(8)");
+  });
+
+  it("resolves source-package value re-exports to the generated module container instead of the coarse module binding root", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "@tsonic/nodejs/zlib.js",
+          isLocal: true,
+          isClr: false,
+          resolvedPath: "/node_modules/@tsonic/nodejs/src/zlib/index.ts",
+          resolvedClrType: "nodejs.zlib",
+          resolvedNamespace: "nodejs",
+          specifiers: [
+            {
+              kind: "named",
+              name: "gzipSync",
+              localName: "gzipSync",
+              isType: false,
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "gzipSync" },
+            arguments: [{ kind: "identifier", name: "bytes" }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, {
+      moduleMap: new Map([
+        [
+          "node_modules/@tsonic/nodejs/src/zlib/index",
+          {
+            namespace: "nodejs",
+            className: "zlib",
+            filePath: "node_modules/@tsonic/nodejs/src/zlib/index",
+            hasRuntimeContainer: false,
+            hasTopLevelCode: false,
+            imports: [],
+            exports: [],
+            exportedValueKinds: new Map(),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+        [
+          "node_modules/@tsonic/nodejs/src/zlib/zlib",
+          {
+            namespace: "nodejs.Zlib",
+            className: "zlib",
+            filePath: "node_modules/@tsonic/nodejs/src/zlib/zlib",
+            hasRuntimeContainer: true,
+            hasTopLevelCode: false,
+            imports: [],
+            exports: [
+              { name: "gzipSync", isDefault: false, kind: "function" },
+            ],
+            exportedValueKinds: new Map([["gzipSync", "function"]]),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+      ]),
+      exportMap: new Map([
+        [
+          "node_modules/@tsonic/nodejs/src/zlib/index:gzipSync",
+          {
+            sourceFile: "node_modules/@tsonic/nodejs/src/zlib/zlib",
+            sourceName: "gzipSync",
+          },
+        ],
+      ]),
+    });
+
+    expect(result).to.include("global::nodejs.Zlib.zlib.gzipSync(bytes)");
+    expect(result).not.to.include("global::nodejs.zlib.gzipSync(bytes)");
+  });
+
   it("should lower node module object imports to namespace bindings", () => {
     const module: IrModule = {
       kind: "module",
@@ -364,6 +714,57 @@ describe("Import Handling", () => {
       "global::System.Threading.Tasks.Task.CompletedTask"
     );
     expect(result).not.to.include("ICE: Missing resolvedClrValue");
+  });
+
+  it("binds module-bound named value imports with resolvedClrType as CLR type containers", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "@tsonic/nodejs/buffer.js",
+          isLocal: false,
+          isClr: false,
+          resolvedClrType: "nodejs.buffer",
+          resolvedNamespace: "nodejs",
+          specifiers: [
+            {
+              kind: "named",
+              name: "Buffer",
+              localName: "Buffer",
+              isType: false,
+              resolvedClrType: "nodejs.Buffer",
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "Buffer" },
+              property: "alloc",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [{ kind: "literal", value: 8 }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("global::nodejs.Buffer.alloc(8)");
+    expect(result).not.to.include("global::nodejs.buffer.Buffer");
   });
 
   it("falls back to module namespace for source-package type imports without per-spec CLR type metadata", () => {
