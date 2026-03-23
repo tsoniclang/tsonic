@@ -74,7 +74,9 @@ const buildReceiverBindingLookupKeys = (
   const keys = new Set<string>();
   const pushAll = (values: readonly string[]): void => {
     for (const value of values) {
-      keys.add(value);
+      for (const normalized of normalizeBindingLookupName(value)) {
+        keys.add(normalized);
+      }
     }
   };
 
@@ -105,6 +107,7 @@ const buildReceiverBindingLookupKeys = (
           "Boolean",
           "System.Boolean",
           "Tsonic.JSRuntime.Boolean",
+          "Tsonic.JSRuntime.BooleanOps",
         ]);
         return keys;
     }
@@ -134,6 +137,7 @@ const buildReceiverBindingLookupKeys = (
           "Boolean",
           "System.Boolean",
           "Tsonic.JSRuntime.Boolean",
+          "Tsonic.JSRuntime.BooleanOps",
         ]);
         return keys;
     }

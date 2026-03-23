@@ -122,6 +122,48 @@ describe("Expression Emission", () => {
     expect(result).to.include('$"Hello {name}!"');
   });
 
+  it("should coerce js-surface template literal holes through Globals.String", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "message" },
+              initializer: {
+                kind: "templateLiteral",
+                quasis: ["flag=", ""],
+                expressions: [
+                  {
+                    kind: "identifier",
+                    name: "flag",
+                    inferredType: { kind: "primitiveType", name: "boolean" },
+                  },
+                ],
+                inferredType: { kind: "primitiveType", name: "string" },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { surface: "@tsonic/js" });
+
+    expect(result).to.include("global::Tsonic.JSRuntime.Globals.String(flag)");
+    expect(result).not.to.include('$"flag={flag}"');
+  });
+
   it("should use csharpName for identifiers when provided", () => {
     const module: IrModule = {
       kind: "module",

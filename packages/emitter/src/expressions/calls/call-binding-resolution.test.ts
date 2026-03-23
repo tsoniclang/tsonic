@@ -75,4 +75,59 @@ describe("resolveRecoveredReceiverBinding", () => {
 
     expect(result).to.equal(undefined);
   });
+
+  it("recovers boolean primitive wrapper methods from BooleanOps owners", () => {
+    const context = createContext({
+      bindingsRegistry: new Map([
+        [
+          "Tsonic.JSRuntime.BooleanOps",
+          {
+            alias: "BooleanOps",
+            name: "BooleanOps",
+            kind: "class",
+            members: [
+              {
+                kind: "method",
+                name: "toString",
+                binding: {
+                  assembly: "Tsonic.JSRuntime",
+                  type: "Tsonic.JSRuntime.BooleanOps",
+                  member: "toString",
+                },
+                isExtensionMethod: true,
+                emitSemantics: {
+                  callStyle: "receiver",
+                },
+              },
+            ],
+          } as never,
+        ],
+      ]),
+    });
+
+    const result = resolveRecoveredReceiverBinding(
+      {
+        kind: "call",
+        callee: {
+          kind: "memberAccess",
+          object: {
+            kind: "identifier",
+            name: "flag",
+            inferredType: { kind: "primitiveType", name: "boolean" },
+          },
+          property: "toString",
+          isComputed: false,
+          isOptional: false,
+        },
+        arguments: [],
+        isOptional: false,
+      } as never,
+      context
+    );
+
+    expect(result).to.not.equal(undefined);
+    expect(result?.type).to.equal("Tsonic.JSRuntime.BooleanOps");
+    expect(result?.member).to.equal("toString");
+    expect(result?.isExtensionMethod).to.equal(true);
+  });
 });

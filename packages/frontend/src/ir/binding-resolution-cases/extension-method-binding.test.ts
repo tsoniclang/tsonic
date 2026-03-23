@@ -93,6 +93,86 @@ describe("Binding Resolution in IR", () => {
       );
     });
 
+    it("should prefer surface wrapper bindings for boolean primitive instance methods", () => {
+      const source = `
+        interface Boolean { toString(): string; }
+
+        export function test(value: boolean): string {
+          return value.toString();
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+        bindings: {
+          Boolean: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.BooleanOps",
+          },
+        },
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.BooleanOps",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "toString",
+                normalizedSignature:
+                  "toString|(System.Boolean):System.String|static=true",
+                parameterCount: 1,
+                declaringClrType: "Tsonic.JSRuntime.BooleanOps",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "System.Boolean",
+            assemblyName: "System.Private.CoreLib",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[0];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) {
+        return;
+      }
+      if (returnStmt.expression.kind !== "call") return;
+      if (returnStmt.expression.callee.kind !== "memberAccess") return;
+
+      expect(returnStmt.expression.callee.memberBinding).to.not.equal(
+        undefined
+      );
+      expect(
+        returnStmt.expression.callee.memberBinding?.isExtensionMethod
+      ).to.equal(true);
+      expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
+        "Tsonic.JSRuntime.BooleanOps"
+      );
+      expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
+        "toString"
+      );
+    });
+
     it("should resolve primitive receiver extension methods via bindings", () => {
       const source = `
         interface String { trim(): string; }
