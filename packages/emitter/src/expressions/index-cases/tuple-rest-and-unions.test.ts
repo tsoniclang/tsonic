@@ -177,4 +177,128 @@ describe("Expression Emission", () => {
     expect(result).to.include("next(5)");
     expect(result).to.not.include("new object[] { 5 }");
   });
+
+  it("preserves broad rest spreads without reifying asserted tuple arrays", () => {
+    const assertedTupleArrayType = {
+      kind: "arrayType" as const,
+      elementType: {
+        kind: "unionType" as const,
+        types: [
+          { kind: "primitiveType" as const, name: "number" as const },
+          { kind: "primitiveType" as const, name: "string" as const },
+        ],
+      },
+      tuplePrefixElementTypes: [
+        { kind: "primitiveType" as const, name: "number" as const },
+      ],
+      tupleRestElementType: {
+        kind: "unionType" as const,
+        types: [
+          { kind: "primitiveType" as const, name: "number" as const },
+          { kind: "primitiveType" as const, name: "string" as const },
+        ],
+      },
+      origin: "explicit" as const,
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "let",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "args" },
+              type: {
+                kind: "arrayType",
+                elementType: { kind: "unknownType" },
+                origin: "explicit",
+              },
+              initializer: { kind: "array", elements: [] },
+            },
+          ],
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "identifier",
+              name: "next",
+              inferredType: {
+                kind: "functionType",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "items" },
+                    type: {
+                      kind: "arrayType",
+                      elementType: { kind: "unknownType" },
+                      origin: "explicit",
+                    },
+                    isOptional: false,
+                    isRest: true,
+                    passing: "value",
+                  },
+                ],
+                returnType: { kind: "voidType" },
+              },
+            },
+            arguments: [
+              {
+                kind: "spread",
+                expression: {
+                  kind: "typeAssertion",
+                  expression: {
+                    kind: "identifier",
+                    name: "args",
+                    inferredType: {
+                      kind: "arrayType",
+                      elementType: { kind: "unknownType" },
+                      origin: "explicit",
+                    },
+                  },
+                  targetType: assertedTupleArrayType,
+                  inferredType: assertedTupleArrayType,
+                },
+                inferredType: assertedTupleArrayType,
+              },
+            ],
+            isOptional: false,
+            parameterTypes: [
+              {
+                kind: "arrayType",
+                elementType: { kind: "unknownType" },
+                origin: "explicit",
+              },
+            ],
+            restParameter: {
+              index: 0,
+              arrayType: {
+                kind: "arrayType",
+                elementType: { kind: "unknownType" },
+                origin: "explicit",
+              },
+              elementType: { kind: "unknownType" },
+            },
+            inferredType: { kind: "voidType" },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("next(args)");
+    expect(result).to.not.include("System.Linq.Enumerable.Select");
+    expect(result).to.not.include("Tsonic.Runtime.Union");
+  });
 });

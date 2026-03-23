@@ -1,4 +1,4 @@
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import {
@@ -137,6 +137,154 @@ export const isArrayConstructorCall = (
   }
 
   return !!expr.typeArguments && expr.typeArguments.length === 1;
+};
+
+const UINT8ARRAY_CLR_NAME = "Tsonic.JSRuntime.Uint8Array";
+
+const BYTE_ARRAY_TYPE: IrType = {
+  kind: "arrayType",
+  elementType: {
+    kind: "referenceType",
+    name: "byte",
+    typeId: {
+      stableId: "System.Private.CoreLib:System.Byte",
+      clrName: "System.Byte",
+      assemblyName: "System.Private.CoreLib",
+      tsName: "Byte",
+    },
+  },
+  origin: "explicit",
+};
+
+const INT_IR_TYPE: IrType = {
+  kind: "primitiveType",
+  name: "int",
+};
+
+const getConstructorClrName = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): string | undefined =>
+  (expr.callee.kind === "identifier"
+    ? expr.callee.resolvedClrType
+    : undefined) ??
+  (expr.inferredType?.kind === "referenceType"
+    ? (expr.inferredType.resolvedClrType ?? expr.inferredType.typeId?.clrName)
+    : undefined);
+
+export const isUint8ArrayConstructorWithArrayLiteral = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean => {
+  if (expr.arguments.length !== 1) {
+    return false;
+  }
+
+  const arg = expr.arguments[0];
+  if (!arg || arg.kind === "spread" || arg.kind !== "array") {
+    return false;
+  }
+
+  return getConstructorClrName(expr) === UINT8ARRAY_CLR_NAME;
+};
+
+export const emitUint8ArrayArrayLiteralConstructor = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  let currentContext = context;
+
+  const [calleeAst, calleeContext] = emitExpressionAst(
+    expr.callee,
+    currentContext
+  );
+  currentContext = calleeContext;
+  const calleeText = extractCalleeNameFromAst(calleeAst);
+
+  const typeAst: CSharpTypeAst =
+    calleeAst.kind === "typeReferenceExpression"
+      ? calleeAst.type
+      : identifierType(calleeText);
+
+  const [argAst, argContext] = emitExpressionAst(
+    expr.arguments[0] as Extract<IrExpression, { kind: "array" }>,
+    currentContext,
+    BYTE_ARRAY_TYPE
+  );
+  currentContext = argContext;
+
+  return [
+    {
+      kind: "objectCreationExpression",
+      type: typeAst,
+      arguments: [argAst],
+    },
+    currentContext,
+  ];
+};
+
+export const isUint8ArrayConstructorWithNumericLength = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean => {
+  if (expr.arguments.length !== 1) {
+    return false;
+  }
+
+  const arg = expr.arguments[0];
+  if (!arg || arg.kind === "spread" || arg.kind === "array") {
+    return false;
+  }
+
+  if (getConstructorClrName(expr) !== UINT8ARRAY_CLR_NAME) {
+    return false;
+  }
+
+  const argType = arg.inferredType;
+  return (
+    (argType?.kind === "primitiveType" &&
+      (argType.name === "number" || argType.name === "int")) ||
+    (argType?.kind === "literalType" && typeof argType.value === "number") ||
+    (argType?.kind === "referenceType" &&
+      (argType.name === "int" ||
+        argType.name === "double" ||
+        argType.resolvedClrType === "System.Int32" ||
+        argType.resolvedClrType === "global::System.Int32" ||
+        argType.resolvedClrType === "System.Double" ||
+        argType.resolvedClrType === "global::System.Double"))
+  );
+};
+
+export const emitUint8ArrayNumericLengthConstructor = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  let currentContext = context;
+
+  const [calleeAst, calleeContext] = emitExpressionAst(
+    expr.callee,
+    currentContext
+  );
+  currentContext = calleeContext;
+  const calleeText = extractCalleeNameFromAst(calleeAst);
+
+  const typeAst: CSharpTypeAst =
+    calleeAst.kind === "typeReferenceExpression"
+      ? calleeAst.type
+      : identifierType(calleeText);
+
+  const [argAst, argContext] = emitExpressionAst(
+    expr.arguments[0] as IrExpression,
+    currentContext,
+    INT_IR_TYPE
+  );
+  currentContext = argContext;
+
+  return [
+    {
+      kind: "objectCreationExpression",
+      type: typeAst,
+      arguments: [argAst],
+    },
+    currentContext,
+  ];
 };
 
 export const emitArrayConstructor = (

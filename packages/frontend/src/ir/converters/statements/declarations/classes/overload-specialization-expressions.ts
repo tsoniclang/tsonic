@@ -40,6 +40,79 @@ const getClrName = (type: IrType): string | undefined => {
   return type.resolvedClrType ?? type.typeId?.clrName;
 };
 
+const knownJsTypeofForType = (type: IrType | undefined): string | undefined => {
+  if (!type) return undefined;
+
+  switch (type.kind) {
+    case "primitiveType":
+      switch (type.name) {
+        case "string":
+          return "string";
+        case "number":
+        case "int":
+          return "number";
+        case "boolean":
+          return "boolean";
+        case "undefined":
+          return "undefined";
+        case "null":
+          return "object";
+        default:
+          return undefined;
+      }
+
+    case "literalType":
+      switch (typeof type.value) {
+        case "string":
+          return "string";
+        case "number":
+          return "number";
+        case "boolean":
+          return "boolean";
+        default:
+          return undefined;
+      }
+
+    case "arrayType":
+    case "tupleType":
+    case "referenceType":
+    case "objectType":
+    case "dictionaryType":
+      return "object";
+
+    case "functionType":
+      return "function";
+
+    case "voidType":
+      return "undefined";
+
+    case "unionType": {
+      const memberKinds = Array.from(
+        new Set(
+          type.types
+            .map((member) => knownJsTypeofForType(member))
+            .filter((kind): kind is string => kind !== undefined)
+        )
+      );
+      return memberKinds.length === 1 ? memberKinds[0] : undefined;
+    }
+
+    case "intersectionType": {
+      const memberKinds = Array.from(
+        new Set(
+          type.types
+            .map((member) => knownJsTypeofForType(member))
+            .filter((kind): kind is string => kind !== undefined)
+        )
+      );
+      return memberKinds.length === 1 ? memberKinds[0] : undefined;
+    }
+
+    default:
+      return undefined;
+  }
+};
+
 export const typesEqualForIsType = (
   a: IrType | undefined,
   b: IrType | undefined
@@ -187,11 +260,82 @@ export const specializeExpression = (
     return undefined;
   };
 
+  const tryResolveTypeofKind = (
+    expression: IrExpression
+  ): string | undefined => {
+    if (expression.kind !== "unary" || expression.operator !== "typeof") {
+      return undefined;
+    }
+
+    return knownJsTypeofForType(tryResolveParamType(expression.expression));
+  };
+
+  const tryEvaluateEquality = (
+    operator: "==" | "!=" | "===" | "!==",
+    left: IrExpression,
+    right: IrExpression,
+    sourceSpan: IrExpression["sourceSpan"]
+  ): IrExpression | undefined => {
+    const comparisonResult = (() => {
+      const leftTypeof = tryResolveTypeofKind(left);
+      if (
+        leftTypeof !== undefined &&
+        right.kind === "literal" &&
+        typeof right.value === "string"
+      ) {
+        return leftTypeof === right.value;
+      }
+
+      const rightTypeof = tryResolveTypeofKind(right);
+      if (
+        rightTypeof !== undefined &&
+        left.kind === "literal" &&
+        typeof left.value === "string"
+      ) {
+        return rightTypeof === left.value;
+      }
+
+      if (left.kind === "literal" && right.kind === "literal") {
+        return left.value === right.value;
+      }
+
+      return undefined;
+    })();
+
+    if (comparisonResult === undefined) {
+      return undefined;
+    }
+
+    const value =
+      operator === "!=" || operator === "!=="
+        ? !comparisonResult
+        : comparisonResult;
+
+    return {
+      kind: "literal",
+      value,
+      inferredType: { kind: "primitiveType", name: "boolean" },
+      sourceSpan,
+    };
+  };
+
   switch (expr.kind) {
     case "literal":
-    case "identifier":
     case "this":
       return expr;
+
+    case "identifier": {
+      const specializedType =
+        expr.declId && paramTypesByDeclId.get(expr.declId.id);
+      if (!specializedType) {
+        return expr;
+      }
+
+      return {
+        ...expr,
+        inferredType: specializedType,
+      };
+    }
 
     case "call": {
       const callee = specializeExpression(expr.callee, paramTypesByDeclId);
@@ -306,12 +450,33 @@ export const specializeExpression = (
       return { ...expr, left, right };
     }
 
-    case "binary":
+    case "binary": {
+      const left = specializeExpression(expr.left, paramTypesByDeclId);
+      const right = specializeExpression(expr.right, paramTypesByDeclId);
+
+      if (
+        expr.operator === "==" ||
+        expr.operator === "!=" ||
+        expr.operator === "===" ||
+        expr.operator === "!=="
+      ) {
+        const specializedEquality = tryEvaluateEquality(
+          expr.operator,
+          left,
+          right,
+          expr.sourceSpan
+        );
+        if (specializedEquality) {
+          return specializedEquality;
+        }
+      }
+
       return {
         ...expr,
-        left: specializeExpression(expr.left, paramTypesByDeclId),
-        right: specializeExpression(expr.right, paramTypesByDeclId),
+        left,
+        right,
       };
+    }
     case "conditional": {
       const condition = specializeExpression(
         expr.condition,

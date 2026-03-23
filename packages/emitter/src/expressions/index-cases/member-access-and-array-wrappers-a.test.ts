@@ -167,6 +167,51 @@ describe("Expression Emission", () => {
     expect(result).to.include("global::Tsonic.JSRuntime.console.log");
   });
 
+  it("should normalize nested CLR type names for static member access", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "Environment_SpecialFolder",
+              inferredType: {
+                kind: "referenceType",
+                name: "Environment_SpecialFolder",
+                resolvedClrType: "System.Environment+SpecialFolder",
+              },
+              resolvedClrType: "System.Environment+SpecialFolder",
+            },
+            property: "UserProfile",
+            isComputed: false,
+            isOptional: false,
+            memberBinding: {
+              kind: "property",
+              assembly: "System.Private.CoreLib",
+              type: "System.Environment+SpecialFolder",
+              member: "UserProfile",
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      "global::System.Environment.SpecialFolder.UserProfile"
+    );
+    expect(result).not.to.include("Environment+SpecialFolder");
+  });
+
   it("should keep local member access when identifier case differs from CLR type leaf", () => {
     const module: IrModule = {
       kind: "module",

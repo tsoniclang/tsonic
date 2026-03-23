@@ -7,30 +7,30 @@ namespace TestCases.common.types.expectedtypethreading
         {
             if (condition)
             {
-                return 100;
+                return (int)100;
             }
-            return 200;
+            return (int)200;
         }
 
         public static int getInElse(bool condition)
         {
             if (condition)
             {
-                return 10;
+                return (int)10;
             }
             else
             {
-                return 20;
+                return (int)20;
             }
         }
 
         public static int getInWhile(int count)
         {
-            while (count > 0)
+            while (count > (int)0)
             {
-                return 50;
+                return (int)50;
             }
-            return 0;
+            return (int)0;
         }
 
         public static int getInSwitch(int key)
@@ -38,11 +38,11 @@ namespace TestCases.common.types.expectedtypethreading
             switch (key)
             {
                 case 1:
-                    return 100;
+                    return (int)100;
                 case 2:
-                    return 200;
+                    return (int)200;
                 default:
-                    return 0;
+                    return (int)0;
             }
         }
     }

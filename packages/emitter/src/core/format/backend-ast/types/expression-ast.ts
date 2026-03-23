@@ -240,6 +240,12 @@ export type CSharpArgumentModifierExpressionAst = {
   readonly expression: CSharpExpressionAst;
 };
 
+export type CSharpDeclarationExpressionAst = {
+  readonly kind: "declarationExpression";
+  readonly designation: string;
+  readonly type?: CSharpTypeAst;
+};
+
 export type CSharpTupleExpressionAst = {
   readonly kind: "tupleExpression";
   readonly elements: readonly CSharpExpressionAst[];
@@ -294,4 +300,5 @@ export type CSharpExpressionAst =
   | CSharpTypeofExpressionAst
   | CSharpSwitchExpressionAst
   | CSharpArgumentModifierExpressionAst
+  | CSharpDeclarationExpressionAst
   | CSharpTupleExpressionAst;

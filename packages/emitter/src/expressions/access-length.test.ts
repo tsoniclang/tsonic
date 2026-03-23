@@ -43,7 +43,7 @@ describe("access-length", () => {
     expect(result).to.not.equal(undefined);
     expect(result![0].kind).to.equal("conditionalExpression");
     expect(printExpression(result![0])).to.equal(
-      "values == null ? default(int?) : new global::Tsonic.JSRuntime.JSArray<string>(values).length"
+      "values == null ? default(int?) : values.Length"
     );
   });
 });

@@ -4,7 +4,7 @@ namespace TestCases.common.types.genericconstraints
     {
         public int compareTo(T other)
         {
-            return 0;
+            return (int)0;
         }
 
         public string show()
@@ -40,7 +40,7 @@ namespace TestCases.common.types.genericconstraints
             where T : ComparableShowable<T>
         {
             var comparison = a.compareTo(b);
-            if (comparison >= 0)
+            if (comparison >= (int)0)
             {
                 return a.show();
             }

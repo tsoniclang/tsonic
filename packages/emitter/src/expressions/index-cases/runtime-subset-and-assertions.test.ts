@@ -257,4 +257,179 @@ describe("Expression Emission", () => {
     expect(matchCount).to.equal(1);
     expect(rendered).to.not.include(")).Match(");
   });
+
+  it("preserves source carrier storage when expr-narrowed assertions emit the original identifier", () => {
+    const callbackType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+
+    const bindOptionsType: IrType = {
+      kind: "referenceType",
+      name: "BindOptions",
+      resolvedClrType: "Test.BindOptions",
+    };
+
+    const broadType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "int" },
+        callbackType,
+        bindOptionsType,
+      ],
+    };
+
+    const narrowedType: IrType = {
+      kind: "unionType",
+      types: [{ kind: "primitiveType", name: "int" }, bindOptionsType],
+    };
+
+    const optionalIntType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "int" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "value",
+          inferredType: narrowedType,
+        },
+        targetType: optionalIntType,
+        inferredType: optionalIntType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["value", "value"]]),
+        narrowedBindings: new Map([
+          [
+            "value",
+            {
+              kind: "expr",
+              exprAst: {
+                kind: "identifierExpression",
+                identifier: "value",
+              },
+              storageExprAst: {
+                kind: "identifierExpression",
+                identifier: "value",
+              },
+              type: narrowedType,
+              sourceType: broadType,
+            },
+          ],
+        ]),
+      }
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.include("value.Match(");
+    expect(rendered).to.not.include(
+      "((global::Tsonic.Runtime.Union<int, Test.BindOptions>?)value).Match("
+    );
+  });
+
+  it("reprojects nested runtime-subset assertions from the source carrier instead of raw subset casts", () => {
+    const callbackType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+
+    const bindOptionsType: IrType = {
+      kind: "referenceType",
+      name: "BindOptions",
+      resolvedClrType: "Test.BindOptions",
+    };
+
+    const broadType: IrType = {
+      kind: "unionType",
+      types: [
+        callbackType,
+        { kind: "primitiveType", name: "int" },
+        bindOptionsType,
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const bindLikeType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "int" },
+        bindOptionsType,
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const optionalIntType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "int" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "typeAssertion",
+          expression: {
+            kind: "identifier",
+            name: "value",
+            inferredType: broadType,
+          },
+          targetType: bindLikeType,
+          inferredType: bindLikeType,
+        },
+        targetType: optionalIntType,
+        inferredType: optionalIntType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        narrowedBindings: new Map([
+          [
+            "value",
+            {
+              kind: "runtimeSubset",
+              runtimeMemberNs: [2, 3, 4],
+              runtimeUnionArity: 4,
+              sourceMembers: [...broadType.types],
+              sourceCandidateMemberNs: [1, 2, 3, 4],
+              type: bindLikeType,
+              sourceType: broadType,
+            },
+          ],
+        ]),
+      }
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.include("value.Match(");
+    expect(rendered).to.not.include(
+      "((global::Tsonic.Runtime.Union<int, Test.BindOptions>?)value).Match("
+    );
+  });
 });

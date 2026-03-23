@@ -3,6 +3,7 @@ import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import type { EmitterContext } from "../types.js";
 import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
+import { resolveIdentifierValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
 
 export const resolveDirectStorageExpressionType = (
   expr: IrExpression,
@@ -26,16 +27,10 @@ export const resolveIdentifierCarrierStorageType = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   context: EmitterContext
 ): IrType | undefined => {
-  const narrowed = context.narrowedBindings?.get(expr.name);
-  if (narrowed?.kind === "expr" && narrowed.sourceType) {
-    return narrowed.sourceType;
-  }
-
-  if (narrowed?.kind === "runtimeSubset" && narrowed.sourceType) {
-    return narrowed.sourceType;
-  }
-
-  return context.localValueTypes?.get(expr.name);
+  return (
+    context.localValueTypes?.get(expr.name) ??
+    resolveIdentifierValueSurfaceType(expr, context)
+  );
 };
 
 export const resolveDirectStorageExpressionAst = (

@@ -4,11 +4,14 @@ import type { IrType, IrInterfaceMember } from "@tsonic/frontend";
 import {
   buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
+  findExactRuntimeUnionMemberIndices,
   getCanonicalRuntimeUnionMembers,
   findRuntimeUnionMemberIndices,
 } from "./runtime-unions.js";
+import { resolveNarrowedUnionMembers } from "./narrowed-union-resolution.js";
 import { emitTypeAst } from "../../types/emitter.js";
 import { createContext } from "../../emitter-types/context.js";
+import { identifierExpression } from "../format/backend-ast/builders.js";
 import type { TypeAliasIndex } from "../../emitter-types/core.js";
 
 const property = (
@@ -79,6 +82,200 @@ describe("runtime-unions", () => {
       })
     ).to.deep.equal(["MyApp.ErrEvents", "MyApp.OkEvents"]);
     expect(frame?.runtimeUnionArity).to.equal(2);
+  });
+
+  it("keeps emitted runtime-union layout order aligned with narrowing frame order", () => {
+    const bindOptions: IrType = {
+      kind: "referenceType",
+      name: "BindOptions",
+      resolvedClrType: "Test.BindOptions",
+      structuralMembers: [
+        property("fd", { kind: "primitiveType", name: "int" }),
+        property("port", { kind: "primitiveType", name: "int" }),
+      ],
+    };
+
+    const callback: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+
+    const unionType: IrType = {
+      kind: "unionType",
+      types: [callback, { kind: "primitiveType", name: "int" }, bindOptions],
+    };
+
+    const context = createContext({ rootNamespace: "Test" });
+    const frame = buildRuntimeUnionFrame(unionType, context);
+    const [layout] = buildRuntimeUnionLayout(unionType, context, emitTypeAst);
+
+    const frameOrder = frame?.members.map((member) => {
+      if (member.kind === "primitiveType") return member.name;
+      if (member.kind === "referenceType") return member.name;
+      return member.kind;
+    });
+    const layoutOrder = layout?.members.map((member) => {
+      if (member.kind === "primitiveType") return member.name;
+      if (member.kind === "referenceType") return member.name;
+      return member.kind;
+    });
+
+    expect(layoutOrder).to.deep.equal(frameOrder);
+  });
+
+  it("preserves original runtime member slots for expr-narrowed unions", () => {
+    const bindOptions: IrType = {
+      kind: "referenceType",
+      name: "BindOptions",
+      resolvedClrType: "Test.BindOptions",
+      structuralMembers: [
+        property("fd", { kind: "primitiveType", name: "int" }),
+        property("port", { kind: "primitiveType", name: "int" }),
+      ],
+    };
+
+    const callback: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+
+    const sourceType: IrType = {
+      kind: "unionType",
+      types: [
+        callback,
+        { kind: "primitiveType", name: "int" },
+        bindOptions,
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const narrowedType: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "int" },
+        bindOptions,
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const context = createContext({ rootNamespace: "Test" });
+    const narrowedMembers = resolveNarrowedUnionMembers("value", narrowedType, {
+      ...context,
+      narrowedBindings: new Map([
+        [
+          "value",
+          {
+            kind: "expr" as const,
+            exprAst: identifierExpression("value"),
+            type: narrowedType,
+            sourceType,
+          },
+        ],
+      ]),
+    });
+
+    expect(
+      narrowedMembers?.members.map((member) => {
+        if (member.kind === "primitiveType") return member.name;
+        if (member.kind === "referenceType") return member.name;
+        return member.kind;
+      })
+    ).to.deep.equal(["int", "BindOptions"]);
+    expect(narrowedMembers?.candidateMemberNs).to.deep.equal([2, 3]);
+    expect(narrowedMembers?.runtimeUnionArity).to.equal(3);
+  });
+
+  it("preserves original runtime member slots for single-member expr narrowings", () => {
+    const interfaceOptions: IrType = {
+      kind: "referenceType",
+      name: "InterfaceOptions",
+      resolvedClrType: "Test.InterfaceOptions",
+    };
+
+    const readable: IrType = {
+      kind: "referenceType",
+      name: "Readable",
+      resolvedClrType: "Test.Readable",
+    };
+
+    const sourceType: IrType = {
+      kind: "unionType",
+      types: [interfaceOptions, readable],
+    };
+
+    const context = createContext({ rootNamespace: "Test" });
+    const narrowedMembers = resolveNarrowedUnionMembers("value", readable, {
+      ...context,
+      narrowedBindings: new Map([
+        [
+          "value",
+          {
+            kind: "expr" as const,
+            exprAst: identifierExpression("value"),
+            type: readable,
+            sourceType,
+          },
+        ],
+      ]),
+    });
+
+    expect(
+      narrowedMembers?.members.map((member) => {
+        if (member.kind === "referenceType") {
+          return member.name;
+        }
+        return member.kind;
+      })
+    ).to.deep.equal(["Readable"]);
+    expect(narrowedMembers?.candidateMemberNs).to.deep.equal([2]);
+    expect(narrowedMembers?.runtimeUnionArity).to.equal(2);
+  });
+
+  it("treats nominal reference members as exact runtime matches even when one side carries structural members", () => {
+    const interfaceOptionsMember: IrType = {
+      kind: "referenceType",
+      name: "InterfaceOptions",
+      structuralMembers: [
+        property("input", { kind: "referenceType", name: "Readable" }),
+      ],
+    };
+
+    const targetType: IrType = {
+      kind: "referenceType",
+      name: "InterfaceOptions",
+    };
+
+    const context = createContext({ rootNamespace: "Test" });
+    expect(
+      findExactRuntimeUnionMemberIndices(
+        [interfaceOptionsMember],
+        targetType,
+        context
+      )
+    ).to.deep.equal([0]);
+  });
+
+  it("does not treat subclass instanceof targets as exact runtime matches", () => {
+    const keyObjectMember: IrType = {
+      kind: "referenceType",
+      name: "KeyObject",
+    };
+
+    const publicKeyTarget: IrType = {
+      kind: "referenceType",
+      name: "PublicKeyObject",
+    };
+
+    const context = createContext({ rootNamespace: "Test" });
+    expect(
+      findExactRuntimeUnionMemberIndices(
+        [keyObjectMember],
+        publicKeyTarget,
+        context
+      )
+    ).to.deep.equal([]);
   });
 
   it("preserves recursive array members semantically in runtime union frames", () => {

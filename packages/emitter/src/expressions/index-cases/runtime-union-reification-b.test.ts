@@ -215,6 +215,180 @@ describe("Expression Emission", () => {
     expect(printExpression(result)).to.equal("e");
   });
 
+  it("reifies broad object arrays into runtime-union element arrays during assertions", () => {
+    const streamType: IrType = {
+      kind: "referenceType",
+      name: "Stream",
+      resolvedClrType: "Test.Stream",
+    };
+    const unionElementType: IrType = {
+      kind: "unionType",
+      types: [{ kind: "primitiveType", name: "string" }, streamType],
+    };
+    const [result] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "args",
+          inferredType: {
+            kind: "arrayType",
+            elementType: {
+              kind: "referenceType",
+              name: "object",
+              resolvedClrType: "System.Object",
+            },
+            origin: "explicit",
+          },
+        },
+        targetType: {
+          kind: "arrayType",
+          elementType: unionElementType,
+          origin: "explicit",
+        },
+        inferredType: {
+          kind: "arrayType",
+          elementType: unionElementType,
+          origin: "explicit",
+        },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["args", "args"]]),
+        localSemanticTypes: new Map([
+          [
+            "args",
+            {
+              kind: "arrayType",
+              elementType: {
+                kind: "referenceType",
+                name: "object",
+                resolvedClrType: "System.Object",
+              },
+              origin: "explicit",
+            },
+          ],
+        ]),
+        localValueTypes: new Map([
+          [
+            "args",
+            {
+              kind: "arrayType",
+              elementType: {
+                kind: "referenceType",
+                name: "object",
+                resolvedClrType: "System.Object",
+              },
+              origin: "explicit",
+            },
+          ],
+        ]),
+      }
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.include("global::System.Linq.Enumerable.Select");
+    expect(rendered).to.include("global::System.Linq.Enumerable.ToArray");
+    expect(rendered).to.include(".From1(");
+    expect(rendered).to.include(".From2(");
+    expect(rendered).to.not.include(
+      "(global::Tsonic.Runtime.Union<string, global::Test.Stream>[])args"
+    );
+  });
+
+  it("uses runtime-union carrier member checks for instanceof expressions", () => {
+    const [result] = emitExpressionAst(
+      {
+        kind: "binary",
+        operator: "instanceof",
+        left: {
+          kind: "identifier",
+          name: "result",
+          inferredType: {
+            kind: "unionType",
+            types: [
+              { kind: "primitiveType", name: "string" },
+              {
+                kind: "referenceType",
+                name: "Uint8Array",
+                resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+              },
+            ],
+          },
+        },
+        right: {
+          kind: "identifier",
+          name: "Uint8Array",
+          inferredType: {
+            kind: "referenceType",
+            name: "Uint8ArrayConstructor",
+            resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+          },
+        },
+        inferredType: { kind: "primitiveType", name: "boolean" },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["result", "result"]]),
+        localSemanticTypes: new Map([
+          [
+            "result",
+            {
+              kind: "unionType",
+              types: [
+                { kind: "primitiveType", name: "string" },
+                {
+                  kind: "referenceType",
+                  name: "Uint8Array",
+                  resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+                },
+              ],
+            },
+          ],
+        ]),
+        localValueTypes: new Map([
+          [
+            "result",
+            {
+              kind: "unionType",
+              types: [
+                { kind: "primitiveType", name: "string" },
+                {
+                  kind: "referenceType",
+                  name: "Uint8Array",
+                  resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+                },
+              ],
+            },
+          ],
+        ]),
+      }
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.include("result.Is2()");
+    expect(rendered).to.include("!= null");
+    expect(rendered).to.not.include(
+      "result is global::Tsonic.JSRuntime.Uint8Array"
+    );
+  });
+
   it("prefers runtime-union carrier guards over narrowed semantic views for Array.isArray", () => {
     const pathSpecArrayType: IrType = {
       kind: "arrayType",

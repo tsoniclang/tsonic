@@ -184,10 +184,23 @@ export const getIdentifierTypeLeafName = (
   }
 };
 
-export const clrTypeNameToTypeAst = (clrName: string): CSharpTypeAst => {
+export const normalizeClrQualifiedName = (
+  clrName: string,
+  forceGlobal: boolean = false
+): string => {
   const hasGlobal = clrName.startsWith("global::");
   const body = hasGlobal ? clrName.slice("global::".length) : clrName;
   const sanitized = body.replace(/`\d+/g, "").replace(/\+/g, ".");
+
+  return hasGlobal || forceGlobal ? `global::${sanitized}` : sanitized;
+};
+
+export const clrTypeNameToTypeAst = (clrName: string): CSharpTypeAst => {
+  const normalized = normalizeClrQualifiedName(clrName);
+  const hasGlobal = normalized.startsWith("global::");
+  const sanitized = hasGlobal
+    ? normalized.slice("global::".length)
+    : normalized;
 
   if (isCSharpPredefinedTypeKeyword(sanitized)) {
     return { kind: "predefinedType", keyword: sanitized };

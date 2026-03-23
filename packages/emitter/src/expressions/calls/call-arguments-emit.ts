@@ -48,6 +48,22 @@ const getFunctionValueSignature = (
   return calleeType;
 };
 
+const emitOutDiscardArgument = (
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const nextId = (context.tempVarId ?? 0) + 1;
+  return [
+    wrapArgModifier("out", {
+      kind: "declarationExpression",
+      designation: `__tsonic_out_discard_${nextId}`,
+    }),
+    {
+      ...context,
+      tempVarId: nextId,
+    },
+  ];
+};
+
 const emitFunctionValueCallArguments = (
   args: readonly IrExpression[],
   signature: Extract<IrType, { kind: "functionType" }>,
@@ -136,7 +152,8 @@ const emitFunctionValueCallArguments = (
       if (args.length === i + 1 && spreadArg && spreadArg.kind === "spread") {
         const [spreadAst, spreadCtx] = emitExpressionAst(
           spreadArg.expression,
-          currentContext
+          currentContext,
+          parameter.type
         );
         argAsts.push(spreadAst);
         currentContext = spreadCtx;
@@ -166,7 +183,8 @@ const emitFunctionValueCallArguments = (
         if (arg.kind === "spread") {
           const [spreadAst, spreadCtx] = emitExpressionAst(
             arg.expression,
-            currentContext
+            currentContext,
+            parameter.type
           );
           argAsts.push(spreadAst);
           currentContext = spreadCtx;
@@ -191,6 +209,13 @@ const emitFunctionValueCallArguments = (
 
     const arg = args[i];
     if (arg) {
+      const passingMode = expr.argumentPassing?.[i];
+      if (passingMode === "out" && !isLValue(arg)) {
+        const [discardAst, discardCtx] = emitOutDiscardArgument(currentContext);
+        argAsts.push(discardAst);
+        currentContext = discardCtx;
+        continue;
+      }
       const [argAst, argCtx] = emitExpressionAst(
         arg,
         currentContext,
@@ -203,10 +228,8 @@ const emitFunctionValueCallArguments = (
         )
       );
       const modifier =
-        expr.argumentPassing?.[i] &&
-        expr.argumentPassing[i] !== "value" &&
-        isLValue(arg)
-          ? expr.argumentPassing[i]
+        passingMode && passingMode !== "value" && isLValue(arg)
+          ? passingMode
           : undefined;
       argAsts.push(wrapArgModifier(modifier, argAst));
       currentContext = argCtx;
@@ -279,6 +302,7 @@ const resolveCallArgumentExpectedType = (
 ): IrType | undefined => {
   const expectedType = normalizeCallArgumentExpectedType(
     parameterType,
+    arg,
     context
   );
 
@@ -410,6 +434,7 @@ const emitCallArguments = (
     ) {
       const [flattenedRestArgs, flattenedContext] = emitFlattenedRestArguments(
         normalizedArgs.slice(restInfo.index),
+        restInfo.arrayType,
         restInfo.elementType,
         currentContext
       );
@@ -482,17 +507,30 @@ const emitCallArguments = (
       currentContext = ctx;
     } else {
       const castModifier = getPassingModifierFromCast(arg);
+      if (castModifier === "out" && !isLValue(arg)) {
+        const [discardAst, discardCtx] = emitOutDiscardArgument(currentContext);
+        argAsts.push(discardAst);
+        currentContext = discardCtx;
+        continue;
+      }
       if (castModifier && isLValue(arg)) {
         const [argAst, ctx] = emitExpressionAst(arg, currentContext);
         argAsts.push(wrapArgModifier(castModifier, argAst));
         currentContext = ctx;
       } else {
+        const passingMode = expr.argumentPassing?.[i];
+        if (passingMode === "out" && !isLValue(arg)) {
+          const [discardAst, discardCtx] =
+            emitOutDiscardArgument(currentContext);
+          argAsts.push(discardAst);
+          currentContext = discardCtx;
+          continue;
+        }
         const [argAst, ctx] = emitExpressionAst(
           arg,
           currentContext,
           effectiveExpectedType
         );
-        const passingMode = expr.argumentPassing?.[i];
         const modifier =
           passingMode && passingMode !== "value" && isLValue(arg)
             ? passingMode

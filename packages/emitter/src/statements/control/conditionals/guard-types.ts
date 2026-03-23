@@ -71,6 +71,7 @@ export type InstanceofGuardInfo = {
   readonly narrowedMap: Map<string, NarrowedBinding>;
   readonly targetType?: IrType;
   readonly memberN?: number;
+  readonly memberNeedsPatternCheck?: boolean;
   readonly runtimeUnionArity?: number;
   readonly candidateMemberNs?: readonly number[];
   readonly candidateMembers?: readonly IrType[];

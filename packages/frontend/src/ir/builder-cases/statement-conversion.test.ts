@@ -219,5 +219,96 @@ describe("IR Builder", function () {
         }
       }
     });
+
+    it("groups constructor overload signatures behind a single helper body", () => {
+      const source = `
+        export class Server {
+          constructor(port: number);
+          constructor(host: string, port: number);
+          constructor(arg1: string | number, arg2?: number) {}
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const cls = result.value.body.find(
+        (stmt): stmt is IrClassDeclaration =>
+          stmt.kind === "classDeclaration" && stmt.name === "Server"
+      );
+      expect(cls).to.not.equal(undefined);
+      if (!cls) return;
+
+      const constructors = cls.members.filter(
+        (member) => member.kind === "constructorDeclaration"
+      );
+      expect(constructors).to.have.length(2);
+      expect(constructors[0]?.kind).to.equal("constructorDeclaration");
+      expect(constructors[1]?.kind).to.equal("constructorDeclaration");
+      if (
+        constructors[0]?.kind !== "constructorDeclaration" ||
+        constructors[1]?.kind !== "constructorDeclaration"
+      ) {
+        return;
+      }
+
+      expect(constructors[0].parameters).to.have.length(1);
+      expect(constructors[1].parameters).to.have.length(2);
+
+      const helper = cls.members.find(
+        (member) =>
+          member.kind === "methodDeclaration" &&
+          member.name === "__tsonic_ctor_impl"
+      );
+      expect(helper).to.not.equal(undefined);
+      expect(helper?.kind).to.equal("methodDeclaration");
+      if (!helper || helper.kind !== "methodDeclaration" || !helper.body)
+        return;
+
+      expect(helper.accessibility).to.equal("private");
+      expect(helper.returnType).to.deep.equal({ kind: "voidType" });
+    });
+
+    it("extracts parameter properties from the constructor implementation in overload groups", () => {
+      const source = `
+        export class BoolValue {
+          constructor(value: boolean);
+          constructor(readonly value: boolean) {}
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const cls = result.value.body.find(
+        (stmt): stmt is IrClassDeclaration =>
+          stmt.kind === "classDeclaration" && stmt.name === "BoolValue"
+      );
+      expect(cls).to.not.equal(undefined);
+      if (!cls) return;
+
+      const valueProp = cls.members.find(
+        (member) =>
+          member.kind === "propertyDeclaration" && member.name === "value"
+      );
+      expect(valueProp).to.not.equal(undefined);
+      expect(valueProp?.kind).to.equal("propertyDeclaration");
+      if (!valueProp || valueProp.kind !== "propertyDeclaration") return;
+
+      expect(valueProp.isReadonly).to.equal(true);
+      expect(valueProp.accessibility).to.equal("public");
+    });
   });
 });

@@ -26,7 +26,7 @@ namespace TestCases.common.types.generics
         public static bool tryFirstElement<T>(T[] arr, out T result)
         {
             result = default;
-            if (arr.Length == 0)
+            if (arr.Length == (int)0)
             {
                 return false;
             }

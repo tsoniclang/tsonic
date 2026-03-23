@@ -85,12 +85,7 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>(flatten()).length"
-    );
-    expect(text).to.not.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
-    );
+    expect(text).to.equal("flatten().Length");
   });
 
   it("uses storage-erased element types for JS array wrappers on asserted recursive union arrays", () => {
@@ -168,13 +163,9 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>((global::System.Object[])handlerArray).length"
-    );
-    expect(text).to.not.include(".Match(");
-    expect(text).to.not.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
-    );
+    expect(text).to.include("handlerArray.Match(");
+    expect(text).to.include(".Length");
+    expect(text).to.not.include("new global::Tsonic.JSRuntime.JSArray<");
   });
 
   it("uses storage-erased wrapper element types for narrowed recursive union arrays", () => {
@@ -271,11 +262,6 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>(handler.As1()).length"
-    );
-    expect(text).to.not.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
-    );
+    expect(text).to.equal("handler.As1().Length");
   });
 });

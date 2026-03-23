@@ -23,8 +23,11 @@ import {
   buildExprBinding,
   buildIsNCondition,
   buildIsPatternCondition,
+  buildUnionNarrowAst,
   buildCastLocalDecl,
   emitForcedBlockWithPreambleAst,
+  mergeBranchContextMeta,
+  resetBranchFlowState,
   wrapInBlock,
   withComplementNarrowing,
   applyExprFallthroughNarrowing,
@@ -52,6 +55,7 @@ export const tryEmitInstanceofGuard = (
     rhsTypeAst,
     narrowedMap,
     memberN,
+    memberNeedsPatternCheck,
     runtimeUnionArity,
     candidateMemberNs,
     candidateMembers,
@@ -60,12 +64,24 @@ export const tryEmitInstanceofGuard = (
 
   const condAst =
     memberN && runtimeUnionArity && candidateMemberNs && candidateMembers
-      ? buildIsNCondition(receiverAst, memberN, false)
+      ? memberNeedsPatternCheck
+        ? buildIsPatternCondition(
+            buildUnionNarrowAst(receiverAst, memberN),
+            rhsTypeAst,
+            escapedNarrow
+          )
+        : buildIsNCondition(receiverAst, memberN, false)
       : buildIsPatternCondition(receiverAst, rhsTypeAst, escapedNarrow);
 
   let thenStatementAst: CSharpStatementAst;
   let thenCtxAfter: EmitterContext;
-  if (memberN && runtimeUnionArity && candidateMemberNs && candidateMembers) {
+  if (
+    memberN &&
+    runtimeUnionArity &&
+    candidateMemberNs &&
+    candidateMembers &&
+    !memberNeedsPatternCheck
+  ) {
     const [thenBlock, thenBlockCtx] = emitForcedBlockWithPreambleAst(
       [buildCastLocalDecl(escapedNarrow, receiverAst, memberN, rhsTypeAst)],
       stmt.thenStatement,
@@ -85,24 +101,51 @@ export const tryEmitInstanceofGuard = (
     thenCtxAfter = nextCtx;
   }
 
-  let finalContext: EmitterContext = {
-    ...thenCtxAfter,
-    narrowedBindings: ctxAfterRhs.narrowedBindings,
-  };
+  const thenTerminates = isDefinitelyTerminating(stmt.thenStatement);
+  const basePostConditionContext = resetBranchFlowState(
+    ctxAfterRhs,
+    thenCtxAfter
+  );
+  let finalContext: EmitterContext = basePostConditionContext;
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
+    const elseEntryContext =
+      applyConditionBranchNarrowing(
+        stmt.condition,
+        "falsy",
+        {
+          ...basePostConditionContext,
+          narrowedBindings: ctxAfterRhs.narrowedBindings,
+        },
+        emitExprAstCb
+      ) ??
+      ({
+        ...basePostConditionContext,
+        narrowedBindings: ctxAfterRhs.narrowedBindings,
+      } satisfies EmitterContext);
     const [elseStmts, elseCtx] = emitStatementAst(
       stmt.elseStatement,
-      finalContext
+      elseEntryContext
     );
     elseStmt = wrapInBlock(elseStmts);
-    finalContext = elseCtx;
+    const elseTerminates = isDefinitelyTerminating(stmt.elseStatement);
+
+    if (thenTerminates && !elseTerminates) {
+      finalContext = mergeBranchContextMeta(elseCtx, thenCtxAfter);
+    } else if (!thenTerminates && elseTerminates) {
+      finalContext = mergeBranchContextMeta(thenCtxAfter, elseCtx);
+    } else {
+      finalContext = mergeBranchContextMeta(
+        resetBranchFlowState(ctxAfterRhs, elseCtx),
+        thenCtxAfter
+      );
+    }
   }
 
-  if (!stmt.elseStatement && isDefinitelyTerminating(stmt.thenStatement)) {
+  if (!stmt.elseStatement && thenTerminates) {
     const fallthroughBaseContext: EmitterContext = {
-      ...finalContext,
+      ...basePostConditionContext,
       narrowedBindings: ctxAfterRhs.narrowedBindings,
     };
     const fallthroughContext = applyConditionBranchNarrowing(
@@ -135,6 +178,7 @@ export const tryEmitInstanceofGuard = (
         );
       if (
         memberN !== undefined &&
+        !memberNeedsPatternCheck &&
         fallthroughRuntimeFrame &&
         fallthroughRuntimeFrame.candidateMemberNs.includes(memberN)
       ) {
@@ -207,17 +251,24 @@ export const tryEmitNegatedInstanceofGuard = (
     rhsTypeAst,
     narrowedMap,
     memberN,
+    memberNeedsPatternCheck,
     receiverAst,
   } = guard;
 
   const condAst =
     memberN !== undefined
-      ? buildIsNCondition(receiverAst, memberN, false)
+      ? memberNeedsPatternCheck
+        ? buildIsPatternCondition(
+            buildUnionNarrowAst(receiverAst, memberN),
+            rhsTypeAst,
+            escapedNarrow
+          )
+        : buildIsNCondition(receiverAst, memberN, false)
       : buildIsPatternCondition(receiverAst, rhsTypeAst, escapedNarrow);
 
   let thenStatementAst: CSharpStatementAst;
   let thenCtxAfter: EmitterContext;
-  if (memberN !== undefined) {
+  if (memberN !== undefined && !memberNeedsPatternCheck) {
     const [thenBlock, thenBlockCtx] = emitForcedBlockWithPreambleAst(
       [buildCastLocalDecl(escapedNarrow, receiverAst, memberN, rhsTypeAst)],
       stmt.elseStatement,
@@ -238,10 +289,24 @@ export const tryEmitNegatedInstanceofGuard = (
   }
 
   // ELSE branch is the original THEN (not narrowed)
-  const [elseStmts, elseCtxAfter] = emitStatementAst(stmt.thenStatement, {
-    ...thenCtxAfter,
-    narrowedBindings: ctxAfterRhs.narrowedBindings,
-  });
+  const elseEntryContext =
+    applyConditionBranchNarrowing(
+      inner,
+      "falsy",
+      {
+        ...resetBranchFlowState(ctxAfterRhs, thenCtxAfter),
+        narrowedBindings: ctxAfterRhs.narrowedBindings,
+      },
+      emitExprAstCb
+    ) ??
+    ({
+      ...resetBranchFlowState(ctxAfterRhs, thenCtxAfter),
+      narrowedBindings: ctxAfterRhs.narrowedBindings,
+    } satisfies EmitterContext);
+  const [elseStmts, elseCtxAfter] = emitStatementAst(
+    stmt.thenStatement,
+    elseEntryContext
+  );
 
   return [
     [

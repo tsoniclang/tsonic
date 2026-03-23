@@ -11,6 +11,6 @@ namespace TestCases.common.types.anonymousobjects
 
         internal static readonly int value = 100;
 
-        public static readonly global::TestCases.common.types.anonymousobjects.__Anon_2697_430acccb shorthand = new global::TestCases.common.types.anonymousobjects.__Anon_2697_430acccb { value = value };
+        public static readonly global::TestCases.common.types.anonymousobjects.__Anon_2697_430acccb shorthand = new global::TestCases.common.types.anonymousobjects.__Anon_2697_430acccb { value = (int)value };
     }
 }

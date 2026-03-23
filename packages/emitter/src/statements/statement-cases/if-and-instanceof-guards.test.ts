@@ -260,6 +260,196 @@ describe("Statement Emission", () => {
     expect(result).to.not.include("Uint8ArrayConstructor");
   });
 
+  it("applies complement narrowing inside explicit instanceof else branches", () => {
+    const readableType: IrType = {
+      kind: "referenceType",
+      name: "Readable",
+    };
+    const interfaceOptionsType: IrType = {
+      kind: "referenceType",
+      name: "InterfaceOptions",
+      structuralMembers: [
+        {
+          kind: "propertySignature",
+          name: "input",
+          type: readableType,
+          isOptional: false,
+          isReadonly: false,
+        },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "classDeclaration",
+          name: "Readable",
+          isExported: false,
+          isStruct: false,
+          typeParameters: [],
+          implements: [],
+          members: [],
+        },
+        {
+          kind: "classDeclaration",
+          name: "InterfaceOptions",
+          isExported: false,
+          isStruct: false,
+          typeParameters: [],
+          implements: [],
+          members: [
+            {
+              kind: "propertyDeclaration",
+              name: "input",
+              type: readableType,
+              isStatic: false,
+              isReadonly: false,
+              accessibility: "public",
+              isRequired: false,
+            },
+          ],
+        },
+        {
+          kind: "functionDeclaration",
+          name: "createInterface",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "optionsOrInput" },
+              type: {
+                kind: "unionType",
+                types: [interfaceOptionsType, readableType],
+              },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: interfaceOptionsType,
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "binary",
+                  operator: "instanceof",
+                  left: {
+                    kind: "identifier",
+                    name: "optionsOrInput",
+                    inferredType: {
+                      kind: "unionType",
+                      types: [interfaceOptionsType, readableType],
+                    },
+                  },
+                  right: {
+                    kind: "identifier",
+                    name: "InterfaceOptions",
+                    inferredType: interfaceOptionsType,
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: {
+                        kind: "identifier",
+                        name: "optionsOrInput",
+                        inferredType: interfaceOptionsType,
+                      },
+                    },
+                  ],
+                },
+                elseStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "variableDeclaration",
+                      declarationKind: "const",
+                      isExported: false,
+                      declarations: [
+                        {
+                          kind: "variableDeclarator",
+                          name: { kind: "identifierPattern", name: "options" },
+                          type: interfaceOptionsType,
+                          initializer: {
+                            kind: "new",
+                            callee: {
+                              kind: "identifier",
+                              name: "InterfaceOptions",
+                              inferredType: interfaceOptionsType,
+                            },
+                            arguments: [],
+                            inferredType: interfaceOptionsType,
+                          },
+                        },
+                      ],
+                    },
+                    {
+                      kind: "expressionStatement",
+                      expression: {
+                        kind: "assignment",
+                        left: {
+                          kind: "memberAccess",
+                          object: {
+                            kind: "identifier",
+                            name: "options",
+                            inferredType: interfaceOptionsType,
+                          },
+                          property: "input",
+                          isOptional: false,
+                          isComputed: false,
+                          inferredType: readableType,
+                        },
+                        right: {
+                          kind: "identifier",
+                          name: "optionsOrInput",
+                          inferredType: {
+                            kind: "unionType",
+                            types: [interfaceOptionsType, readableType],
+                          },
+                        },
+                        operator: "=",
+                        inferredType: readableType,
+                      },
+                    },
+                    {
+                      kind: "returnStatement",
+                      expression: {
+                        kind: "identifier",
+                        name: "options",
+                        inferredType: interfaceOptionsType,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("if (optionsOrInput.Is1())");
+    expect(result).to.include(
+      "options.input = (Readable)(optionsOrInput.As2());"
+    );
+    expect(result).to.not.include("options.input = optionsOrInput;");
+  });
+
   it("emits runtime-union typeof and Array.isArray guards against member slots", () => {
     const unionType: IrType = {
       kind: "unionType",
@@ -646,6 +836,7 @@ describe("Statement Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include(".Is1())");
+    expect(result).to.not.include("(pathSpec.As1()).Is1()");
     expect(result).to.not.include("JSArrayStatics.isArray(pathSpec)");
   });
 });

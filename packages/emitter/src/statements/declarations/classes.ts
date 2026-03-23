@@ -254,8 +254,14 @@ export const emitClassDeclaration = (
     ...withClassName(indent(currentContext), escapedClassName),
     declaringTypeName: stmt.name,
   };
+  const hasConstructorHelper = membersToEmit.some(
+    (member) =>
+      member.kind === "methodDeclaration" &&
+      member.name === "__tsonic_ctor_impl"
+  );
   const bodyContext: EmitterContext = {
     ...baseContext,
+    hasConstructorHelper,
     hasSuperClass: stmt.superClass ? true : undefined,
   };
 

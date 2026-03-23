@@ -20,13 +20,21 @@ import {
   getCanonicalRuntimeUnionMembers,
 } from "../../core/semantic/runtime-unions.js";
 import {
+  findExactRuntimeUnionMemberIndices,
+  findRuntimeUnionMemberIndices,
+  findRuntimeUnionInstanceofMemberIndices,
+} from "../../core/semantic/runtime-union-matching.js";
+import {
   isSemanticUnion,
   willCarryAsRuntimeUnion,
 } from "../../core/semantic/union-semantics.js";
 import { normalizeInstanceofTargetType } from "../../core/semantic/instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "../../core/semantic/transparent-expressions.js";
 import { getMemberAccessNarrowKey } from "../../core/semantic/narrowing-keys.js";
-import { currentNarrowedType } from "../../core/semantic/narrowing-builders.js";
+import {
+  currentNarrowedType,
+  resolveRuntimeUnionFrame,
+} from "../../core/semantic/narrowing-builders.js";
 import {
   resolveIdentifierCarrierStorageType,
   resolveDirectStorageExpressionAst,
@@ -39,9 +47,10 @@ import {
 } from "../../core/format/backend-ast/builders.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
-type RuntimeUnionLayout = NonNullable<
-  ReturnType<typeof buildRuntimeUnionLayout>[0]
->;
+type AlignedRuntimeCarrierMembers = {
+  readonly effectiveMembers: readonly IrExpression["inferredType"][];
+  readonly candidateMemberNs: readonly number[];
+};
 
 const buildRuntimeUnionMemberOrChain = (
   receiver: CSharpExpressionAst,
@@ -81,10 +90,11 @@ const buildRuntimeUnionMemberOrChain = (
 };
 
 const resolveAlignedRuntimeCarrierMembers = (
+  bindingKey: string | undefined,
   directStorageType: IrExpression["inferredType"] | undefined,
   effectiveType: IrExpression["inferredType"],
   context: EmitterContext
-): [RuntimeUnionLayout, EmitterContext] | undefined => {
+): [AlignedRuntimeCarrierMembers, EmitterContext] | undefined => {
   const tryLayout = (
     type: IrExpression["inferredType"],
     currentContext: EmitterContext
@@ -101,28 +111,83 @@ const resolveAlignedRuntimeCarrierMembers = (
     return layout ? ([layout, layoutContext] as const) : undefined;
   };
 
-  if (directStorageType) {
-    const effectiveLayoutResult = effectiveType
-      ? tryLayout(effectiveType, context)
-      : undefined;
-    if (effectiveLayoutResult) {
-      return [effectiveLayoutResult[0], effectiveLayoutResult[1]];
-    }
-
-    const directLayoutResult = tryLayout(directStorageType, context);
-    if (directLayoutResult) {
-      return [directLayoutResult[0], directLayoutResult[1]];
-    }
-  }
-
   if (!effectiveType) {
     return undefined;
   }
 
-  const effectiveLayoutResult = tryLayout(effectiveType, context);
-  return effectiveLayoutResult
-    ? [effectiveLayoutResult[0], effectiveLayoutResult[1]]
+  if (directStorageType && !willCarryAsRuntimeUnion(directStorageType, context)) {
+    return undefined;
+  }
+
+  const boundFrame =
+    bindingKey && effectiveType
+      ? resolveRuntimeUnionFrame(bindingKey, effectiveType, context)
+      : undefined;
+  if (boundFrame) {
+    return [
+      {
+        effectiveMembers: [...boundFrame.members],
+        candidateMemberNs: [...boundFrame.candidateMemberNs],
+      },
+      context,
+    ];
+  }
+
+  const directLayoutResult = directStorageType
+    ? tryLayout(directStorageType, context)
     : undefined;
+  const effectiveLayoutResult = tryLayout(effectiveType, context);
+
+  if (!directLayoutResult && !effectiveLayoutResult) {
+    return undefined;
+  }
+
+  const [carrierLayout, carrierContext] =
+    directLayoutResult ?? effectiveLayoutResult ?? [];
+  if (!carrierLayout || !carrierContext) {
+    return undefined;
+  }
+
+  const semanticEffectiveMembers = getCanonicalRuntimeUnionMembers(
+    effectiveType,
+    carrierContext
+  ) ?? [effectiveType];
+
+  const alignedMembers = carrierLayout.members.flatMap(
+    (carrierMember, index) => {
+      const exactMatches = findExactRuntimeUnionMemberIndices(
+        semanticEffectiveMembers,
+        carrierMember,
+        carrierContext
+      );
+      if (exactMatches.length > 0) {
+        return [[carrierMember, index + 1] as const];
+      }
+
+      const semanticMatches = findRuntimeUnionMemberIndices(
+        semanticEffectiveMembers,
+        carrierMember,
+        carrierContext
+      );
+      return semanticMatches.length > 0
+        ? [[carrierMember, index + 1] as const]
+        : [];
+    }
+  );
+
+  if (alignedMembers.length === 0) {
+    return undefined;
+  }
+
+  const candidateMemberNs = alignedMembers.map(([, memberN]) => memberN);
+
+  return [
+    {
+      effectiveMembers: alignedMembers.map(([member]) => member),
+      candidateMemberNs,
+    },
+    carrierContext,
+  ];
 };
 
 const buildRuntimeUnionMemberCheck = (opts: {
@@ -278,6 +343,7 @@ export const emitTypeofComparison = (
         )
       : undefined) ?? operandAst;
   const alignedCarrierMembers = resolveAlignedRuntimeCarrierMembers(
+    bindingKey,
     directStorageType,
     effectiveType,
     operandContext
@@ -285,12 +351,12 @@ export const emitTypeofComparison = (
   if (!alignedCarrierMembers) {
     return undefined;
   }
-  const [runtimeLayout, layoutContext] = alignedCarrierMembers;
-  const runtimeMembers = runtimeLayout.members;
+  const [{ effectiveMembers, candidateMemberNs }, layoutContext] =
+    alignedCarrierMembers;
 
-  const matchingMemberNs = runtimeMembers.flatMap((member, index) =>
+  const matchingMemberNs = effectiveMembers.flatMap((member, index) =>
     member && matchesTypeofTag(member, directGuard.tag, layoutContext)
-      ? [index + 1]
+      ? [candidateMemberNs[index] ?? index + 1]
       : []
   );
 
@@ -444,10 +510,97 @@ export const emitInstanceof = (
   expr: Extract<IrExpression, { kind: "binary" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
   const normalizedTargetType = normalizeInstanceofTargetType(
     expr.right.inferredType
   );
+  const leftOperandType = expr.left.inferredType;
+  const target = unwrapTransparentNarrowingTarget(expr.left);
+  const bindingKey =
+    target?.kind === "identifier"
+      ? target.name
+      : target
+        ? getMemberAccessNarrowKey(target)
+        : undefined;
+  const effectiveLeftType =
+    (bindingKey && leftOperandType
+      ? currentNarrowedType(
+          bindingKey,
+          target?.inferredType ?? leftOperandType,
+          context
+        )
+      : undefined) ?? leftOperandType;
+
+  const [leftAst, leftContext] = emitExpressionAst(
+    target ?? expr.left,
+    context
+  );
+  const directStorageType =
+    target?.kind === "identifier"
+      ? (leftContext.localValueTypes?.get(target.name) ??
+        resolveIdentifierCarrierStorageType(target, leftContext))
+      : resolveDirectStorageExpressionType(
+          target ?? expr.left,
+          leftAst,
+          leftContext
+        );
+  const runtimeCarrierAst =
+    (directStorageType
+      ? resolveDirectStorageExpressionAst(target ?? expr.left, leftContext)
+      : undefined) ?? leftAst;
+  const alignedCarrierMembers =
+    normalizedTargetType && effectiveLeftType
+      ? resolveAlignedRuntimeCarrierMembers(
+          bindingKey,
+          directStorageType,
+          effectiveLeftType,
+          leftContext
+        )
+      : undefined;
+  if (normalizedTargetType && alignedCarrierMembers) {
+    const [{ effectiveMembers, candidateMemberNs }, layoutContext] =
+      alignedCarrierMembers;
+
+    const matchingMemberNs = effectiveMembers.flatMap((member, index) => {
+      if (!member) {
+        return [];
+      }
+
+      const exactMatches = findExactRuntimeUnionMemberIndices(
+        [member],
+        normalizedTargetType,
+        layoutContext
+      );
+      if (exactMatches.length > 0) {
+        return [candidateMemberNs[index] ?? index + 1];
+      }
+
+      const semanticMatches = findRuntimeUnionMemberIndices(
+        [member],
+        normalizedTargetType,
+        layoutContext
+      );
+      const instanceofMatches = findRuntimeUnionInstanceofMemberIndices(
+        [member],
+        normalizedTargetType,
+        layoutContext
+      );
+      return semanticMatches.length > 0
+        ? [candidateMemberNs[index] ?? index + 1]
+        : instanceofMatches.length > 0
+          ? [candidateMemberNs[index] ?? index + 1]
+          : [];
+    });
+
+    if (matchingMemberNs.length > 0) {
+      return buildRuntimeUnionMemberCheck({
+        receiver: runtimeCarrierAst,
+        memberNs: matchingMemberNs,
+        negate: false,
+        context: layoutContext,
+      });
+    }
+  }
+
   let rightContext = leftContext;
   let rightText: string | undefined;
 

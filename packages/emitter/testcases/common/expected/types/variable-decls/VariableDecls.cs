@@ -11,13 +11,13 @@ namespace TestCases.common.types.variabledecls
 
         public static readonly bool inferredBool = true;
 
-        public static readonly int explicitInt = 42;
+        public static readonly int explicitInt = (int)42;
 
-        public static readonly byte explicitByte = 255;
+        public static readonly byte explicitByte = (byte)255;
 
-        public static readonly short explicitShort = 1000;
+        public static readonly short explicitShort = (short)1000;
 
-        public static readonly long explicitLong = 1000000L;
+        public static readonly long explicitLong = (long)1000000L;
 
         public static readonly float explicitFloat = 1.5f;
 
@@ -29,11 +29,11 @@ namespace TestCases.common.types.variabledecls
 
         public static readonly int assertedInt = 42;
 
-        public static readonly byte assertedByte = 255;
+        public static readonly byte assertedByte = (byte)255;
 
-        public static readonly short assertedShort = 1000;
+        public static readonly short assertedShort = (short)1000;
 
-        public static readonly long assertedLong = 1000000L;
+        public static readonly long assertedLong = (long)1000000L;
 
         public static readonly float assertedFloat = 1.5f;
 
@@ -45,8 +45,8 @@ namespace TestCases.common.types.variabledecls
             var localInferredInt = 42;
             var localInferredString = "local";
             var localInferredBool = true;
-            int localExplicitInt = 100;
-            byte localExplicitByte = 200;
+            int localExplicitInt = (int)100;
+            byte localExplicitByte = (byte)200;
             float localExplicitFloat = 3.14f;
             string localExplicitString = "explicit";
             var localAssertedInt = 200;
@@ -54,10 +54,10 @@ namespace TestCases.common.types.variabledecls
             var localAssertedDouble = 100;
         }
 
-        public static int mutableInt = 0;
+        public static int mutableInt = (int)0;
 
         public static string mutableString = "";
 
-        public static readonly int immutableInt = 42;
+        public static readonly int immutableInt = (int)42;
     }
 }

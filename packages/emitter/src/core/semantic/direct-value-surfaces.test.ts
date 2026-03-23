@@ -45,4 +45,32 @@ describe("direct-value-surfaces", () => {
       resolveDirectValueSurfaceType(decimalIntegerLiteral(1), context)
     ).to.equal(undefined);
   });
+
+  it("uses narrowed rename bindings when the emitted identifier is a branch temp", () => {
+    const narrowedStringType: IrType = {
+      kind: "referenceType",
+      name: "Uint8Array",
+      resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+    };
+    const context = {
+      ...createContext({ rootNamespace: "Test" }),
+      narrowedBindings: new Map([
+        [
+          "value",
+          {
+            kind: "rename" as const,
+            name: "value__is_2",
+            type: narrowedStringType,
+          },
+        ],
+      ]),
+    };
+
+    expect(
+      resolveDirectValueSurfaceType(
+        { kind: "identifierExpression", identifier: "value__is_2" },
+        context
+      )
+    ).to.equal(narrowedStringType);
+  });
 });

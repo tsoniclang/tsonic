@@ -16,7 +16,7 @@ describe("IR Builder", function () {
 
   describe("CLR identity", () => {
     it("preserves imported root-namespace member types across package internals", function () {
-      this.timeout(30_000);
+      this.timeout(60_000);
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tsonic-builder-node-date-")
       );

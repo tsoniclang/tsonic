@@ -10,6 +10,14 @@ import { emitTypeAst } from "../../../type-emitter.js";
 import { emitStatementAst } from "../../../statement-emitter.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
 import { emitBooleanConditionAst } from "../../../core/semantic/boolean-context.js";
+import { applyConditionBranchNarrowing } from "../../../core/semantic/condition-branch-narrowing.js";
+import { currentNarrowedType } from "../../../core/semantic/narrowing-builders.js";
+import { willCarryAsRuntimeUnion } from "../../../core/semantic/union-semantics.js";
+import {
+  resolveDirectStorageExpressionAst,
+  resolveDirectStorageExpressionType,
+  resolveIdentifierCarrierStorageType,
+} from "../../../expressions/direct-storage-types.js";
 import {
   isDefinitelyTerminating,
   resolveRuntimeUnionFrame,
@@ -17,7 +25,6 @@ import {
 import {
   tryExtractArrayIsArrayGuard,
   collectTypeofGuardRefinements,
-  applyTypeofGuardRefinements,
   narrowTypeByArrayShape,
   isArrayLikeNarrowingCandidate,
 } from "./guard-extraction.js";
@@ -45,15 +52,49 @@ export const tryEmitArrayIsArrayGuard = (
   const arrayIsArrayGuard = tryExtractArrayIsArrayGuard(stmt.condition);
   if (!arrayIsArrayGuard) return undefined;
 
-  const [rawTargetAst, condCtxAfterCond] = emitExpressionAst(
+  const [emittedTargetAst, condCtxAfterCond] = emitExpressionAst(
     arrayIsArrayGuard.targetExpr,
     context
   );
+  const effectiveTargetType = currentNarrowedType(
+    arrayIsArrayGuard.originalName,
+    arrayIsArrayGuard.targetExpr.inferredType,
+    condCtxAfterCond
+  );
+  const directStorageType =
+    arrayIsArrayGuard.targetExpr.kind === "identifier"
+      ? (condCtxAfterCond.localValueTypes?.get(
+          arrayIsArrayGuard.targetExpr.name
+        ) ??
+        resolveIdentifierCarrierStorageType(
+          arrayIsArrayGuard.targetExpr,
+          condCtxAfterCond
+        ))
+      : resolveDirectStorageExpressionType(
+          arrayIsArrayGuard.targetExpr,
+          emittedTargetAst,
+          condCtxAfterCond
+        );
+  const runtimeCarrierAst =
+    (directStorageType
+      ? resolveDirectStorageExpressionAst(
+          arrayIsArrayGuard.targetExpr,
+          condCtxAfterCond
+        )
+      : undefined) ?? emittedTargetAst;
+  const runtimeCarrierType = directStorageType
+    ? willCarryAsRuntimeUnion(directStorageType, condCtxAfterCond)
+      ? directStorageType
+      : undefined
+    : effectiveTargetType &&
+        willCarryAsRuntimeUnion(effectiveTargetType, condCtxAfterCond)
+      ? effectiveTargetType
+      : undefined;
   const runtimeUnionFrame =
-    arrayIsArrayGuard.targetExpr.inferredType &&
+    runtimeCarrierType &&
     resolveRuntimeUnionFrame(
       arrayIsArrayGuard.originalName,
-      arrayIsArrayGuard.targetExpr.inferredType,
+      runtimeCarrierType,
       condCtxAfterCond
     );
   const runtimeArrayPairs =
@@ -91,15 +132,15 @@ export const tryEmitArrayIsArrayGuard = (
 
     const arrayBranchContext = withRuntimeUnionMemberNarrowing(
       arrayIsArrayGuard.originalName,
-      rawTargetAst,
+      runtimeCarrierAst,
       runtimeArrayPair.runtimeMemberN,
       runtimeArrayPair.memberType,
-      arrayIsArrayGuard.targetExpr.inferredType,
+      runtimeCarrierType,
       condCtxAfterCondAst
     );
     const nonArrayBranchContext = withComplementNarrowing(
       arrayIsArrayGuard.originalName,
-      rawTargetAst,
+      runtimeCarrierAst,
       runtimeUnionFrame.runtimeUnionArity,
       runtimeUnionFrame.candidateMemberNs,
       runtimeUnionFrame.members,
@@ -146,7 +187,7 @@ export const tryEmitArrayIsArrayGuard = (
     }
 
     const runtimeCondAst = buildIsNCondition(
-      rawTargetAst,
+      runtimeCarrierAst,
       runtimeArrayPair.runtimeMemberN,
       !arrayIsArrayGuard.narrowsInThen
     );
@@ -175,11 +216,11 @@ export const tryEmitArrayIsArrayGuard = (
       {
         kind: "castExpression",
         type: narrowedTypeAst,
-        expression: rawTargetAst,
+        expression: emittedTargetAst,
       },
       narrowedType,
       undefined,
-      rawTargetAst
+      emittedTargetAst
     )
   );
 
@@ -235,7 +276,7 @@ export const tryEmitArrayIsArrayGuard = (
     if (complementType) {
       finalContext = applyExprFallthroughNarrowing(
         arrayIsArrayGuard.originalName,
-        rawTargetAst,
+        emittedTargetAst,
         complementType,
         condCtxAfterCond,
         finalContext
@@ -287,7 +328,12 @@ export const tryEmitTypeofGuard = (
 
   const thenCtx =
     truthyTypeofRefinements.length > 0
-      ? applyTypeofGuardRefinements(condCtxAfterCond, truthyTypeofRefinements)
+      ? applyConditionBranchNarrowing(
+          stmt.condition,
+          "truthy",
+          condCtxAfterCond,
+          emitExprAstCb
+        )
       : condCtxAfterCond;
   const [thenStmts, thenCtxAfter] = emitStatementAst(
     stmt.thenStatement,
@@ -307,7 +353,12 @@ export const tryEmitTypeofGuard = (
     };
     const elseCtx =
       falsyTypeofRefinements.length > 0
-        ? applyTypeofGuardRefinements(elseBaseContext, falsyTypeofRefinements)
+        ? applyConditionBranchNarrowing(
+            stmt.condition,
+            "falsy",
+            elseBaseContext,
+            emitExprAstCb
+          )
         : elseBaseContext;
     const [elseStmts, elseCtxAfter] = emitStatementAst(
       stmt.elseStatement,
@@ -325,12 +376,14 @@ export const tryEmitTypeofGuard = (
     isDefinitelyTerminating(stmt.thenStatement) &&
     falsyTypeofRefinements.length > 0
   ) {
-    finalContext = applyTypeofGuardRefinements(
+    finalContext = applyConditionBranchNarrowing(
+      stmt.condition,
+      "falsy",
       {
         ...finalContext,
         narrowedBindings: condCtxAfterCond.narrowedBindings,
       },
-      falsyTypeofRefinements
+      emitExprAstCb
     );
   }
 

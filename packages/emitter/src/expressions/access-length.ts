@@ -31,7 +31,6 @@ import type {
 import {
   isPlainObjectIrType,
   isObjectTypeAst,
-  eraseOutOfScopeArrayWrapperTypeParameters,
   emitStorageCompatibleArrayWrapperElementTypeAst,
   resolveEmittedReceiverTypeAst,
 } from "./access-resolution.js";
@@ -311,14 +310,33 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
   ];
 
   if (concreteReceiverTypeAst?.kind === "arrayType") {
-    const elementTypeAst = eraseOutOfScopeArrayWrapperTypeParameters(
-      concreteReceiverTypeAst.elementType,
-      receiverTypeContext
-    );
-    return buildOptionalArrayWrapperLengthAccess(
-      elementTypeAst,
-      receiverTypeContext
-    );
+    return [
+      expr.isOptional
+        ? {
+            kind: "conditionalExpression",
+            condition: {
+              kind: "binaryExpression",
+              operatorToken: "==",
+              left: objectAst,
+              right: nullLiteral(),
+            },
+            whenTrue: {
+              kind: "defaultExpression",
+              type: nullableType({ kind: "predefinedType", keyword: "int" }),
+            },
+            whenFalse: {
+              kind: "memberAccessExpression",
+              expression: objectAst,
+              memberName: "Length",
+            },
+          }
+        : {
+            kind: "memberAccessExpression",
+            expression: objectAst,
+            memberName: "Length",
+          },
+      receiverTypeContext,
+    ];
   }
 
   const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);

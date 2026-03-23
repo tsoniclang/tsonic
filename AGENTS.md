@@ -15,6 +15,8 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 - Use `.temp/` for all temporary/debug work inside this repo.
 - Do not use `/tmp` for Tsonic-specific scratch work.
 - Do not create scratch workspaces under `packages/`; put them under `.temp/` instead.
+- Do not delete anything under `.temp/` unless the maintainer explicitly asks for that exact cleanup.
+- Treat `.temp/` contents as maintainer-owned scratch state that must be preserved by default.
 
 ## Branch Discipline (IMPORTANT)
 

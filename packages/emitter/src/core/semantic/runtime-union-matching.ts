@@ -7,6 +7,38 @@ import {
   unionMemberMatchesTarget,
 } from "./type-resolution.js";
 
+const referenceTypesHaveExactRuntimeIdentity = (
+  left: Extract<IrType, { kind: "referenceType" }>,
+  right: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): boolean => {
+  const resolvedLeft = resolveTypeAlias(stripNullish(left), context);
+  const resolvedRight = resolveTypeAlias(stripNullish(right), context);
+
+  if (
+    resolvedLeft.kind !== "referenceType" ||
+    resolvedRight.kind !== "referenceType"
+  ) {
+    return false;
+  }
+
+  const leftStableId = resolvedLeft.typeId?.stableId;
+  const rightStableId = resolvedRight.typeId?.stableId;
+  if (leftStableId && rightStableId && leftStableId === rightStableId) {
+    return true;
+  }
+
+  const leftClrName =
+    resolvedLeft.resolvedClrType ?? resolvedLeft.typeId?.clrName;
+  const rightClrName =
+    resolvedRight.resolvedClrType ?? resolvedRight.typeId?.clrName;
+  if (leftClrName && rightClrName && leftClrName === rightClrName) {
+    return true;
+  }
+
+  return resolvedLeft.name === resolvedRight.name;
+};
+
 export const findRuntimeUnionMemberIndex = (
   members: readonly IrType[],
   target: IrType,
@@ -35,17 +67,31 @@ export const findExactRuntimeUnionMemberIndices = (
   target: IrType,
   context: EmitterContext
 ): readonly number[] => {
-  const targetKey = stableIrTypeKey(
-    resolveTypeAlias(stripNullish(target), context)
-  );
+  const resolvedTarget = resolveTypeAlias(stripNullish(target), context);
+  const targetKey = stableIrTypeKey(resolvedTarget);
   return members.flatMap((member, index) => {
     if (!member) {
       return [];
     }
-    const memberKey = stableIrTypeKey(
-      resolveTypeAlias(stripNullish(member), context)
-    );
-    return memberKey === targetKey ? [index] : [];
+    const resolvedMember = resolveTypeAlias(stripNullish(member), context);
+    const memberKey = stableIrTypeKey(resolvedMember);
+    if (memberKey === targetKey) {
+      return [index];
+    }
+
+    if (
+      resolvedMember.kind === "referenceType" &&
+      resolvedTarget.kind === "referenceType" &&
+      referenceTypesHaveExactRuntimeIdentity(
+        resolvedMember,
+        resolvedTarget,
+        context
+      )
+    ) {
+      return [index];
+    }
+
+    return [];
   });
 };
 

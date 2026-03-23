@@ -3,12 +3,13 @@
  * Handles applyInstanceofRefinement and applyPredicateCallRefinement.
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext, NarrowedBinding } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import {
+  findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
   findRuntimeUnionMemberIndices,
 } from "./runtime-unions.js";
@@ -78,6 +79,17 @@ export const applyInstanceofRefinement = (
           )
         : undefined;
     const runtimeMatchIndex = runtimeMatchIndices?.[0];
+    const memberNeedsPatternCheck =
+      runtimeUnionFrame &&
+      runtimeMatchIndex !== undefined &&
+      inferredRhsType &&
+      runtimeUnionFrame.members[runtimeMatchIndex]
+        ? findExactRuntimeUnionMemberIndices(
+            [runtimeUnionFrame.members[runtimeMatchIndex]],
+            inferredRhsType,
+            context
+          ).length === 0
+        : false;
     const memberN =
       runtimeUnionFrame && runtimeMatchIndex !== undefined
         ? (runtimeUnionFrame.candidateMemberNs[runtimeMatchIndex] ??
@@ -86,9 +98,11 @@ export const applyInstanceofRefinement = (
 
     return {
       originalName,
+      targetExpr: target,
       receiverAst: lhsAst,
       targetType: inferredRhsType,
       memberN,
+      memberNeedsPatternCheck,
       runtimeUnionArity: runtimeUnionFrame?.runtimeUnionArity,
       candidateMemberNs: runtimeUnionFrame?.candidateMemberNs,
       candidateMembers: runtimeUnionFrame?.members,
@@ -103,14 +117,40 @@ export const applyInstanceofRefinement = (
   if (branch === "falsy") {
     if (
       guard.memberN === undefined ||
+      guard.memberNeedsPatternCheck ||
       !guard.candidateMemberNs ||
       !guard.candidateMembers ||
-      !guard.runtimeUnionArity ||
-      !guard.currentType
+      !guard.runtimeUnionArity
     ) {
-      return undefined;
+      if (!guard.currentType) {
+        return undefined;
+      }
+      const complementType = narrowTypeByNotAssignableTarget(
+        guard.currentType,
+        guard.targetType,
+        context
+      );
+      if (!complementType) {
+        return undefined;
+      }
+      if (
+        stableIrTypeKey(complementType) === stableIrTypeKey(guard.currentType)
+      ) {
+        return context;
+      }
+      return applyDirectTypeNarrowing(
+        guard.originalName,
+        guard.targetExpr,
+        complementType,
+        context,
+        emitExprAst
+      );
     }
 
+    const currentType = guard.currentType;
+    if (!currentType) {
+      return undefined;
+    }
     const runtimeUnionFrame = {
       members: guard.candidateMembers,
       candidateMemberNs: guard.candidateMemberNs,
@@ -118,7 +158,7 @@ export const applyInstanceofRefinement = (
     };
     const sourceInfo = resolveRuntimeSubsetSourceInfo(
       guard.originalName,
-      guard.currentType,
+      currentType,
       runtimeUnionFrame,
       context
     );
@@ -126,7 +166,7 @@ export const applyInstanceofRefinement = (
     const complementBinding = buildRuntimeUnionComplementBinding(
       guard.receiverAst,
       runtimeUnionFrame,
-      guard.currentType,
+      currentType,
       buildSubsetUnionType(
         guard.candidateMembers.filter((_, index) => {
           const candidateMemberN =

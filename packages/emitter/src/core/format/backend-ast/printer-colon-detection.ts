@@ -73,6 +73,8 @@ export const expressionMayPrintColon = (expr: CSharpExpressionAst): boolean => {
       return true;
     case "identifierExpression":
       return false;
+    case "declarationExpression":
+      return expr.type ? typeMayPrintColon(expr.type) : false;
     case "qualifiedIdentifierExpression":
       return nameMayPrintColon(expr.name);
     case "typeReferenceExpression":

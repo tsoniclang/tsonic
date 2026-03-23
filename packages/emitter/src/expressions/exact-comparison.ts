@@ -231,7 +231,10 @@ export const isExactArrayCreationToType = (
   return (
     concreteTargetType.kind === "arrayType" &&
     concreteTargetType.rank === 1 &&
-    sameTypeAstSurface(ast.elementType, concreteTargetType.elementType)
+    sameTypeAstSurface(
+      stripNullableTypeAst(ast.elementType),
+      stripNullableTypeAst(concreteTargetType.elementType)
+    )
   );
 };
 

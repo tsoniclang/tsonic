@@ -19,19 +19,66 @@ const tryExtractRuntimeUnionMemberN = (
   ) {
     target = target.expression;
   }
-  if (target.kind !== "invocationExpression" || target.arguments.length !== 0) {
+  if (target.kind !== "invocationExpression") {
     return undefined;
   }
   if (target.expression.kind !== "memberAccessExpression") {
     return undefined;
   }
 
-  const match = target.expression.memberName.match(/^As(\d+)$/);
-  if (!match?.[1]) {
+  if (target.arguments.length === 0) {
+    const match = target.expression.memberName.match(/^As(\d+)$/);
+    if (!match?.[1]) {
+      return undefined;
+    }
+
+    return Number.parseInt(match[1], 10);
+  }
+
+  if (target.expression.memberName !== "Match") {
     return undefined;
   }
 
-  return Number.parseInt(match[1], 10);
+  let projectedMemberIndex: number | undefined;
+
+  for (let index = 0; index < target.arguments.length; index += 1) {
+    const lambda = target.arguments[index];
+    if (!lambda || lambda.kind !== "lambdaExpression") {
+      return undefined;
+    }
+
+    const parameterName = lambda.parameters[0]?.name;
+    if (!parameterName) {
+      return undefined;
+    }
+
+    let body = lambda.body;
+    while (
+      body.kind === "parenthesizedExpression" ||
+      body.kind === "castExpression"
+    ) {
+      body = body.expression;
+    }
+
+    if (
+      body.kind === "identifierExpression" &&
+      body.identifier === parameterName
+    ) {
+      if (projectedMemberIndex !== undefined) {
+        return undefined;
+      }
+      projectedMemberIndex = index + 1;
+      continue;
+    }
+
+    if (body.kind === "throwExpression") {
+      continue;
+    }
+
+    return undefined;
+  }
+
+  return projectedMemberIndex;
 };
 
 const getRuntimeUnionReferenceMembers = (

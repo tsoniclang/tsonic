@@ -297,6 +297,275 @@ describe("Array Emission", () => {
     );
   });
 
+  it("should preserve write-back for lifted module arrays before extension lowering", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/test/module-array-mutation.ts",
+      namespace: "Test",
+      className: "moduleArrayMutation",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "classDeclaration",
+          name: "PerformanceObserver",
+          isExported: false,
+          isStruct: false,
+          typeParameters: [],
+          implements: [],
+          members: [],
+        },
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "observers" },
+              type: {
+                kind: "arrayType",
+                elementType: {
+                  kind: "referenceType",
+                  name: "PerformanceObserver",
+                  resolvedClrType: "Test.PerformanceObserver",
+                },
+                origin: "explicit",
+              },
+              initializer: { kind: "array", elements: [] },
+            },
+          ],
+        },
+        {
+          kind: "functionDeclaration",
+          name: "addObserver",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "observer" },
+              type: {
+                kind: "referenceType",
+                name: "PerformanceObserver",
+                resolvedClrType: "Test.PerformanceObserver",
+              },
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "call",
+                  callee: {
+                    kind: "memberAccess",
+                    object: {
+                      kind: "identifier",
+                      name: "observers",
+                      inferredType: {
+                        kind: "arrayType",
+                        elementType: {
+                          kind: "referenceType",
+                          name: "PerformanceObserver",
+                          resolvedClrType: "Test.PerformanceObserver",
+                        },
+                        origin: "explicit",
+                      },
+                    },
+                    property: "push",
+                    isComputed: false,
+                    isOptional: false,
+                    memberBinding: {
+                      kind: "method",
+                      assembly: "Tsonic.JSRuntime",
+                      type: "Tsonic.JSRuntime.JSArray`1",
+                      member: "push",
+                      isExtensionMethod: true,
+                    },
+                  },
+                  arguments: [{ kind: "identifier", name: "observer" }],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "int" },
+                },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+    };
+
+    const code = emitModule(module);
+
+    expect(code).to.include("observers = __tsonic_arrayWrapper.toArray()");
+    expect(code).to.not.include(
+      "new global::Tsonic.JSRuntime.JSArray<global::Test.PerformanceObserver>(observers).push(observer)"
+    );
+  });
+
+  it("should preserve write-back for lifted module arrays referenced inside class methods", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/test/module-array-class-mutation.ts",
+      namespace: "Test",
+      className: "moduleArrayClassMutation",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "classDeclaration",
+          name: "PerformanceObserver",
+          isExported: false,
+          isStruct: false,
+          typeParameters: [],
+          implements: [],
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "observe",
+              parameters: [],
+              returnType: { kind: "voidType" },
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "ifStatement",
+                    condition: {
+                      kind: "unary",
+                      operator: "!",
+                      expression: {
+                        kind: "call",
+                        callee: {
+                          kind: "memberAccess",
+                          object: {
+                            kind: "identifier",
+                            name: "observers",
+                            inferredType: {
+                              kind: "arrayType",
+                              elementType: {
+                                kind: "referenceType",
+                                name: "PerformanceObserver",
+                                resolvedClrType: "Test.PerformanceObserver",
+                              },
+                              origin: "explicit",
+                            },
+                          },
+                          property: "includes",
+                          isComputed: false,
+                          isOptional: false,
+                          memberBinding: {
+                            kind: "method",
+                            assembly: "Tsonic.JSRuntime",
+                            type: "Tsonic.JSRuntime.JSArray`1",
+                            member: "includes",
+                            isExtensionMethod: true,
+                          },
+                        },
+                        arguments: [{ kind: "this" }],
+                        isOptional: false,
+                        inferredType: {
+                          kind: "primitiveType",
+                          name: "boolean",
+                        },
+                      },
+                    },
+                    thenStatement: {
+                      kind: "blockStatement",
+                      statements: [
+                        {
+                          kind: "expressionStatement",
+                          expression: {
+                            kind: "call",
+                            callee: {
+                              kind: "memberAccess",
+                              object: {
+                                kind: "identifier",
+                                name: "observers",
+                                inferredType: {
+                                  kind: "arrayType",
+                                  elementType: {
+                                    kind: "referenceType",
+                                    name: "PerformanceObserver",
+                                    resolvedClrType: "Test.PerformanceObserver",
+                                  },
+                                  origin: "explicit",
+                                },
+                              },
+                              property: "push",
+                              isComputed: false,
+                              isOptional: false,
+                              memberBinding: {
+                                kind: "method",
+                                assembly: "Tsonic.JSRuntime",
+                                type: "Tsonic.JSRuntime.JSArray`1",
+                                member: "push",
+                                isExtensionMethod: true,
+                              },
+                            },
+                            arguments: [{ kind: "this" }],
+                            isOptional: false,
+                            inferredType: {
+                              kind: "primitiveType",
+                              name: "int",
+                            },
+                          },
+                        },
+                      ],
+                    },
+                    elseStatement: undefined,
+                  },
+                ],
+              },
+              accessibility: "public",
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+            },
+          ],
+        },
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "observers" },
+              type: {
+                kind: "arrayType",
+                elementType: {
+                  kind: "referenceType",
+                  name: "PerformanceObserver",
+                  resolvedClrType: "Test.PerformanceObserver",
+                },
+                origin: "explicit",
+              },
+              initializer: { kind: "array", elements: [] },
+            },
+          ],
+        },
+      ],
+    };
+
+    const code = emitModule(module);
+
+    expect(code).to.include(
+      "moduleArrayClassMutation.observers = __tsonic_arrayWrapper.toArray()"
+    );
+    expect(code).to.not.include(
+      "new global::Tsonic.JSRuntime.JSArray<Test.PerformanceObserver>(moduleArrayClassMutation.observers).push(this)"
+    );
+  });
+
   it("should handle array element access", () => {
     const module: IrModule = {
       kind: "module",

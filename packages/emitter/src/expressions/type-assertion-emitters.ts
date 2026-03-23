@@ -30,6 +30,7 @@ import {
   buildRuntimeUnionLayout,
   emitRuntimeCarrierTypeAst,
 } from "../core/semantic/runtime-unions.js";
+import { resolveIdentifierValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { resolveRuntimeMaterializationTargetType } from "../core/semantic/runtime-materialization-targets.js";
@@ -41,6 +42,8 @@ import {
   getIdentifierTypeName,
 } from "../core/format/backend-ast/utils.js";
 import { stringLiteral } from "../core/format/backend-ast/builders.js";
+import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
+import { matchesEmittedStorageSurface } from "./identifier-storage.js";
 import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
 
@@ -165,6 +168,14 @@ export const emitTypeAssertion = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const transparentSourceExpression = unwrapTransparentExpression(
+    expr.expression
+  );
+  const sourceExpressionTypeAtEntry =
+    transparentSourceExpression.kind === "identifier"
+      ? (context.localSemanticTypes?.get(transparentSourceExpression.name) ??
+        transparentSourceExpression.inferredType)
+      : transparentSourceExpression.inferredType;
   const isTransparentFlowAssertion = (() => {
     const inner = expr.expression;
     if (inner.kind !== "identifier" && inner.kind !== "memberAccess") {
@@ -233,6 +244,26 @@ export const emitTypeAssertion = (
   };
 
   const resolvedAssertionTarget = resolveLocalTypeAliases(expr.targetType);
+  const runtimeAssertionTarget = resolveRuntimeMaterializationTargetType(
+    resolvedAssertionTarget,
+    context
+  );
+  const sourceStorageTypeAtEntry =
+    transparentSourceExpression.kind === "identifier"
+      ? resolveIdentifierValueSurfaceType(transparentSourceExpression, context)
+      : undefined;
+  const preservesStorageSurfaceAtEntry =
+    !sourceStorageTypeAtEntry ||
+    areIrTypesEquivalent(
+      sourceStorageTypeAtEntry,
+      runtimeAssertionTarget,
+      context
+    ) ||
+    matchesEmittedStorageSurface(
+      sourceStorageTypeAtEntry,
+      runtimeAssertionTarget,
+      context
+    )[0];
 
   if (
     (resolvedAssertionTarget.kind === "primitiveType" &&
@@ -278,6 +309,20 @@ export const emitTypeAssertion = (
     return emitExpressionAst(expr.expression, context, expectedType);
   }
 
+  if (
+    expectedType &&
+    sourceExpressionTypeAtEntry &&
+    preservesStorageSurfaceAtEntry &&
+    (areIrTypesEquivalent(sourceExpressionTypeAtEntry, expectedType, context) ||
+      matchesExpectedEmissionType(
+        sourceExpressionTypeAtEntry,
+        expectedType,
+        context
+      ))
+  ) {
+    return emitExpressionAst(expr.expression, context, expectedType);
+  }
+
   const runtimeEmissionTarget = resolveRuntimeMaterializationTargetType(
     expr.targetType,
     context
@@ -289,6 +334,7 @@ export const emitTypeAssertion = (
       : undefined;
   const preserveNarrowedSourceStorage =
     !!sourceNarrowedBinding &&
+    sourceNarrowedBinding.kind !== "runtimeSubset" &&
     willCarryAsRuntimeUnion(runtimeEmissionTarget, context);
   const rawSourceContext =
     expr.expression.kind === "identifier" ||
@@ -313,13 +359,27 @@ export const emitTypeAssertion = (
     expr.targetType,
     ctx1
   );
-  const transparentSourceExpression = unwrapTransparentExpression(
-    expr.expression
-  );
+  const sourceCarrierTypeAtEntry =
+    sourceStorageTypeAtEntry ?? sourceExpressionTypeAtEntry;
+  const sourceCarriesRuntimeUnionAtEntry =
+    !!sourceCarrierTypeAtEntry &&
+    willCarryAsRuntimeUnion(sourceCarrierTypeAtEntry, ctx1);
+  const targetNeedsStructuredReification =
+    runtimeTarget.kind === "arrayType" ||
+    runtimeTarget.kind === "dictionaryType";
+  const mustPreserveDirectStorageCast =
+    !preservesStorageSurfaceAtEntry &&
+    !willCarryAsRuntimeUnion(runtimeTarget, ctx1) &&
+    !sourceCarriesRuntimeUnionAtEntry &&
+    !targetNeedsStructuredReification;
   const sourceExpressionType =
     transparentSourceExpression.kind === "identifier"
       ? (ctx1.localSemanticTypes?.get(transparentSourceExpression.name) ??
-        transparentSourceExpression.inferredType)
+        ((rawSourceContext !== context &&
+        !preservesStorageSurfaceAtEntry &&
+        sourceStorageTypeAtEntry
+          ? sourceStorageTypeAtEntry
+          : transparentSourceExpression.inferredType)))
       : transparentSourceExpression.inferredType;
   const isSourceUnion = sourceExpressionType
     ? isSemanticUnion(sourceExpressionType, ctx1)
@@ -328,13 +388,18 @@ export const emitTypeAssertion = (
     isSourceUnion && sourceExpressionType
       ? buildRuntimeUnionLayout(sourceExpressionType, ctx1, emitTypeAst)
       : [undefined, ctx1];
-  const narrowedBinding = getNarrowedBindingForExpression(
+  const activeNarrowedBinding = getNarrowedBindingForExpression(
     expr.expression,
     sourceLayoutContext
   );
+  const strippedSourceNarrowing =
+    rawSourceContext !== context &&
+    !!sourceNarrowedBinding?.sourceType &&
+    !!sourceRuntimeUnionLayout;
   const actualExpressionType =
-    sourceRuntimeUnionLayout && narrowedBinding?.kind === "runtimeSubset"
-      ? sourceExpressionType
+    sourceRuntimeUnionLayout &&
+    (activeNarrowedBinding?.kind === "runtimeSubset" || strippedSourceNarrowing)
+      ? (sourceNarrowedBinding?.sourceType ?? sourceExpressionType)
       : resolveEffectiveExpressionType(expr.expression, sourceLayoutContext);
   const [
     runtimeTargetTypeAst,
@@ -363,7 +428,7 @@ export const emitTypeAssertion = (
     return [innerAst, runtimeTargetTypeContext];
   }
 
-  if (mustPreserveNominalCast || mustPreserveFlowStorageCast) {
+  if (mustPreserveNominalCast) {
     return [
       {
         kind: "castExpression",
@@ -374,14 +439,27 @@ export const emitTypeAssertion = (
     ];
   }
 
-  const adaptedUnionAst = adaptValueToExpectedTypeAst({
-    valueAst: innerAst,
-    actualType: actualExpressionType,
-    context: sourceLayoutContext,
-    expectedType: runtimeTarget,
-  });
+  const adaptedUnionAst = mustPreserveDirectStorageCast
+    ? undefined
+    : adaptValueToExpectedTypeAst({
+        valueAst: innerAst,
+        actualType: actualExpressionType,
+        context: sourceLayoutContext,
+        expectedType: runtimeTarget,
+      });
   if (adaptedUnionAst) {
     return adaptedUnionAst;
+  }
+
+  if (mustPreserveFlowStorageCast) {
+    return [
+      {
+        kind: "castExpression",
+        type: runtimeTargetTypeAst,
+        expression: innerAst,
+      },
+      runtimeTargetTypeContext,
+    ];
   }
 
   return [

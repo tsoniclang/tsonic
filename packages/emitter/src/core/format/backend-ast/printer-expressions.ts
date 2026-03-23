@@ -248,6 +248,9 @@ export const printExpression = (
     case "argumentModifierExpression":
       return `${expr.modifier} ${printExpression(expr.expression, indent)}`;
 
+    case "declarationExpression":
+      return `${expr.type ? printType(expr.type) : "var"} ${expr.designation}`;
+
     case "tupleExpression": {
       const elems = expr.elements
         .map((element) => printExpression(element, indent))

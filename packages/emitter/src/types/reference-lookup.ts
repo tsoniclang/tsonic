@@ -40,8 +40,13 @@ export const resolveImportedTypeAst = (
 
   for (const candidate of candidates) {
     const binding = context.importBindings?.get(candidate);
-    if (!binding || binding.kind !== "type") continue;
-    return binding.typeAst;
+    if (!binding) continue;
+    if (binding.kind === "type") {
+      return binding.typeAst;
+    }
+    if (binding.kind === "namespace" && !binding.moduleObject) {
+      return identifierType(binding.clrName);
+    }
   }
 
   return undefined;

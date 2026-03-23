@@ -9,6 +9,7 @@ import {
   getIdentifierTypeLeafName,
   getIdentifierTypeName,
   globallyQualifyTypeAst,
+  normalizeClrQualifiedName,
   sameConcreteTypeAstSurface,
   sameTypeAstSurface,
   stableIdentifierSuffixFromTypeAst,
@@ -18,6 +19,15 @@ import {
 } from "./utils.js";
 
 describe("backend-ast utils", () => {
+  it("normalizes CLR qualified names for nested type references", () => {
+    expect(
+      normalizeClrQualifiedName("System.Environment+SpecialFolder")
+    ).to.equal("System.Environment.SpecialFolder");
+    expect(normalizeClrQualifiedName("global::Outer+Inner`2", true)).to.equal(
+      "global::Outer.Inner"
+    );
+  });
+
   it("maps all supported predefined CLR keyword names to predefinedType AST nodes", () => {
     const expectedKeywords = [
       "bool",

@@ -8,7 +8,7 @@ import {
   IrType,
   normalizedUnionType,
 } from "@tsonic/frontend";
-import { EmitterContext, NarrowedBinding } from "../../../types.js";
+import { EmitterContext } from "../../../types.js";
 import { emitTypeAst } from "../../../type-emitter.js";
 import {
   resolveTypeAlias,
@@ -18,92 +18,20 @@ import {
   matchesTypeofTag,
 } from "../../../core/semantic/type-resolution.js";
 import { isAssignable } from "../../../core/semantic/index.js";
-import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
 import { unwrapTransparentNarrowingTarget } from "../../../core/semantic/transparent-expressions.js";
 import { getMemberAccessNarrowKey } from "../../../core/semantic/narrowing-keys.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { resolveRuntimeUnionFrame } from "./guard-analysis.js";
 import {
   buildExprBinding,
-  toReceiverAst,
+  buildUnionNarrowAst,
   withoutNarrowedBinding,
 } from "./branch-context.js";
-
-const buildUnionNarrowAst = (
-  receiver: string | CSharpExpressionAst,
-  memberN: number
-): CSharpExpressionAst => ({
-  kind: "parenthesizedExpression",
-  expression: {
-    kind: "invocationExpression",
-    expression: {
-      kind: "memberAccessExpression",
-      expression: toReceiverAst(receiver),
-      memberName: `As${memberN}`,
-    },
-    arguments: [],
-  },
-});
-
-const buildSubsetUnionType = (
-  members: readonly import("@tsonic/frontend").IrType[]
-): import("@tsonic/frontend").IrType | undefined => {
-  if (members.length === 0) return undefined;
-  if (members.length === 1) return members[0];
-  return normalizedUnionType(members);
-};
-
-const buildComplementNarrowedBinding = (
-  receiver: string | CSharpExpressionAst,
-  runtimeUnionArity: number,
-  candidateMemberNs: readonly number[],
-  candidateMembers: readonly import("@tsonic/frontend").IrType[],
-  selectedMemberN: number,
-  sourceType?: import("@tsonic/frontend").IrType,
-  sourceMembers?: readonly import("@tsonic/frontend").IrType[],
-  sourceCandidateMemberNs?: readonly number[]
-): NarrowedBinding | undefined => {
-  const remainingPairs = candidateMemberNs.flatMap((runtimeMemberN, index) => {
-    if (runtimeMemberN === selectedMemberN) {
-      return [];
-    }
-
-    const memberType = candidateMembers[index];
-    if (!memberType) {
-      return [];
-    }
-
-    return [{ runtimeMemberN, memberType }];
-  });
-
-  if (remainingPairs.length === 0) {
-    return undefined;
-  }
-
-  if (remainingPairs.length === 1) {
-    const remaining = remainingPairs[0];
-    if (!remaining) return undefined;
-
-    return buildExprBinding(
-      buildUnionNarrowAst(receiver, remaining.runtimeMemberN),
-      remaining.memberType,
-      sourceType,
-      toReceiverAst(receiver)
-    );
-  }
-
-  return {
-    kind: "runtimeSubset",
-    runtimeMemberNs: remainingPairs.map((pair) => pair.runtimeMemberN),
-    runtimeUnionArity,
-    sourceMembers: [...(sourceMembers ?? candidateMembers)],
-    sourceCandidateMemberNs: [
-      ...(sourceCandidateMemberNs ?? candidateMemberNs),
-    ],
-    type: buildSubsetUnionType(remainingPairs.map((pair) => pair.memberType)),
-    sourceType,
-  };
-};
+import {
+  buildRuntimeUnionComplementBinding,
+  buildRuntimeUnionSubsetBinding,
+  resolveRuntimeSubsetSourceInfo,
+} from "../../../core/semantic/narrowing-builders.js";
 
 export const isArrayLikeNarrowingCandidate = (
   type: IrType,
@@ -383,12 +311,16 @@ export const applyTypeofGuardRefinements = (
       withoutNarrowedBinding(currentContext, refinement.bindingKey)
     );
 
+    const runtimeFrameContext = {
+      ...rawTargetContext,
+      narrowedBindings: currentContext.narrowedBindings,
+    };
     const runtimeUnionFrame =
       currentType &&
       resolveRuntimeUnionFrame(
         refinement.bindingKey,
         currentType,
-        rawTargetContext
+        runtimeFrameContext
       );
     const matchingRuntimeMemberIndex =
       runtimeUnionFrame?.members.findIndex((member) =>
@@ -411,6 +343,29 @@ export const applyTypeofGuardRefinements = (
         runtimeUnionFrame.members[matchingRuntimeMemberIndex] ?? narrowedType;
 
       if (refinement.matchTag) {
+        const existingBinding = currentContext.narrowedBindings?.get(
+          refinement.bindingKey
+        );
+        const subsetBinding = buildRuntimeUnionSubsetBinding(
+          rawTargetAst,
+          runtimeUnionFrame,
+          existingBinding?.sourceType ??
+            existingBinding?.type ??
+            currentType ??
+            narrowedType,
+          narrowedType,
+          rawTargetContext
+        );
+        if (subsetBinding) {
+          const [binding, subsetContext] = subsetBinding;
+          nextBindings.set(refinement.bindingKey, binding);
+          currentContext = {
+            ...subsetContext,
+            narrowedBindings: nextBindings,
+          };
+          continue;
+        }
+
         nextBindings.set(
           refinement.bindingKey,
           buildExprBinding(
@@ -427,13 +382,21 @@ export const applyTypeofGuardRefinements = (
         continue;
       }
 
-      const complementBinding = buildComplementNarrowedBinding(
+      const complementBinding = buildRuntimeUnionComplementBinding(
         rawTargetAst,
-        runtimeUnionFrame.runtimeUnionArity,
-        runtimeUnionFrame.candidateMemberNs,
-        runtimeUnionFrame.members,
+        runtimeUnionFrame,
+        currentType ?? narrowedType,
+        narrowedType,
         memberN,
+        rawTargetContext,
         currentType
+          ? resolveRuntimeSubsetSourceInfo(
+              refinement.bindingKey,
+              currentType,
+              runtimeUnionFrame,
+              currentContext
+            )
+          : undefined
       );
       if (complementBinding) {
         nextBindings.set(refinement.bindingKey, complementBinding);
@@ -458,7 +421,7 @@ export const applyTypeofGuardRefinements = (
           expression: rawTargetAst,
         },
         narrowedType,
-        undefined,
+        currentType,
         rawTargetAst
       )
     );

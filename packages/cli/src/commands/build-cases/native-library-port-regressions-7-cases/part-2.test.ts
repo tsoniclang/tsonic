@@ -225,7 +225,10 @@ describe("build command (native library port regressions)", function () {
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       expect(tree).to.include(
-        "new global::Tsonic.JSRuntime.JSArray<string>(global::App._._._.node_modules.demo.pkg.index.process.argv).length"
+        "global::App._._._.node_modules.demo.pkg.index.process.argv.Length"
+      );
+      expect(tree).to.include(
+        "new global::Tsonic.JSRuntime.JSArray<object>(global::App._._._.node_modules.demo.pkg.index.process.argv).length"
       );
       expect(tree).to.not.include(
         "global::App._._._.node_modules.demo.pkg.index.process.argv.length"
@@ -527,8 +530,8 @@ describe("build command (native library port regressions)", function () {
       }
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.include("wait(int delay = 1)");
-      expect(tree).to.include("readDelay__Delegate(int delay = 0)");
+      expect(tree).to.include("wait(int delay = (int)1)");
+      expect(tree).to.include("readDelay__Delegate(int delay = (int)0)");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

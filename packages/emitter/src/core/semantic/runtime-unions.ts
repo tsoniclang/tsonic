@@ -4,7 +4,7 @@ import type { CSharpTypeAst } from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
 import { identifierType } from "../format/backend-ast/builders.js";
 import { resolveTypeAlias } from "./type-resolution.js";
-import {
+import type {
   EmitTypeAstLike,
   RuntimeUnionFrame,
   RuntimeUnionLayout,
@@ -28,10 +28,12 @@ export {
   findRuntimeUnionMemberIndex,
   findRuntimeUnionMemberIndices,
 };
-export {
+export type {
   EmitTypeAstLike,
   RuntimeUnionFrame,
   RuntimeUnionLayout,
+} from "./runtime-union-shared.js";
+export {
   getRuntimeUnionReferenceMembers,
   isRuntimeUnionTypeName,
 } from "./runtime-union-shared.js";
@@ -64,21 +66,7 @@ export const buildRuntimeUnionLayout = (
     }
   }
 
-  const ordered = Array.from(byAstKey.entries())
-    .sort(([, left], [, right]) => {
-      const leftKey = getRuntimeUnionMemberSortKey(left.member, currentContext);
-      const rightKey = getRuntimeUnionMemberSortKey(
-        right.member,
-        currentContext
-      );
-      if (leftKey !== rightKey) {
-        return leftKey.localeCompare(rightKey);
-      }
-      return stableTypeKeyFromAst(left.typeAst).localeCompare(
-        stableTypeKeyFromAst(right.typeAst)
-      );
-    })
-    .map(([, entry]) => entry);
+  const ordered = Array.from(byAstKey.values());
 
   if (ordered.length < 2 || ordered.length > 8) {
     return [undefined, currentContext];

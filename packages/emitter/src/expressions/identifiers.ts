@@ -7,7 +7,10 @@ import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
-import { stableIdentifierSuffixFromTypeAst } from "../core/format/backend-ast/utils.js";
+import {
+  normalizeClrQualifiedName,
+  stableIdentifierSuffixFromTypeAst,
+} from "../core/format/backend-ast/utils.js";
 import { emitTypedDefaultAst } from "../core/semantic/defaults.js";
 import type {
   CSharpExpressionAst,
@@ -130,6 +133,13 @@ export const emitIdentifier = (
 
         return [narrowed.exprAst, context];
       } else if (narrowed.kind === "runtimeSubset") {
+        const storageCompatibleExpected = expectedType
+          ? tryEmitStorageCompatibleIdentifier(expr, context, expectedType)
+          : undefined;
+        if (storageCompatibleExpected && expectedType) {
+          return [storageCompatibleExpected, context];
+        }
+
         const shouldPreferNarrowedSubsetTarget =
           !!narrowed.type &&
           !!expectedType &&
@@ -236,8 +246,15 @@ export const emitIdentifier = (
       context.moduleStaticClassName &&
       context.className !== context.moduleStaticClassName
     ) {
+      const moduleNamespace =
+        context.moduleNamespace ?? context.options.rootNamespace;
+      const containerPrefix = moduleNamespace.startsWith("global::")
+        ? moduleNamespace
+        : `global::${moduleNamespace}`;
       return [
-        identifierExpression(`${context.moduleStaticClassName}.${memberName}`),
+        identifierExpression(
+          `${containerPrefix}.${context.moduleStaticClassName}.${memberName}`
+        ),
         context,
       ];
     }
@@ -250,10 +267,10 @@ export const emitIdentifier = (
     return [identifierExpression(fqn), context];
   }
 
-  // Use resolved binding if available (from binding manifest) with global:: prefix
-  // resolvedClrType is already the full CLR type name, just add global::
+  // Use resolved binding if available (from binding manifest) with global:: prefix.
+  // Normalize nested CLR type syntax (Outer+Inner`1) before emitting.
   if (expr.resolvedClrType) {
-    const fqn = `global::${expr.resolvedClrType}`;
+    const fqn = normalizeClrQualifiedName(expr.resolvedClrType, true);
     return [identifierExpression(fqn), context];
   }
 

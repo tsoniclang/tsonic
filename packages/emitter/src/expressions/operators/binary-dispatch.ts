@@ -50,6 +50,41 @@ import {
 } from "./binary-special-ops.js";
 import { emitRuntimeUnionLiteralComparison } from "./binary-runtime-union-comparison.js";
 
+const BITWISE_OPERATORS = new Set(["&", "|", "^", "<<", ">>", ">>>"]);
+
+const isJsBitwiseNumberishType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  return (
+    (resolved.kind === "primitiveType" &&
+      (resolved.name === "number" || resolved.name === "int")) ||
+    (resolved.kind === "literalType" && typeof resolved.value === "number") ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "int" ||
+        resolved.name === "double" ||
+        resolved.resolvedClrType === "System.Int32" ||
+        resolved.resolvedClrType === "global::System.Int32" ||
+        resolved.resolvedClrType === "System.Double" ||
+        resolved.resolvedClrType === "global::System.Double"))
+  );
+};
+
+const maybeCastBitwiseOperandToInt = (
+  ast: CSharpExpressionAst,
+  type: IrType | undefined,
+  context: EmitterContext
+): CSharpExpressionAst =>
+  isJsBitwiseNumberishType(type, context)
+    ? {
+        kind: "castExpression",
+        type: { kind: "predefinedType", keyword: "int" },
+        expression: ast,
+      }
+    : ast;
+
 /**
  * Emit a binary operator expression as CSharpExpressionAst
  *
@@ -411,14 +446,42 @@ export const emitBinary = (
     ];
   }
 
+  if (BITWISE_OPERATORS.has(op)) {
+    const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+    const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+
+    return [
+      {
+        kind: "binaryExpression",
+        operatorToken: op,
+        left: maybeCastBitwiseOperandToInt(leftAst, leftResolvedType, context),
+        right: maybeCastBitwiseOperandToInt(
+          rightAst,
+          rightResolvedType,
+          rightContext
+        ),
+      },
+      rightContext,
+    ];
+  }
+
   const isArithmeticOp =
     op === "+" || op === "-" || op === "*" || op === "/" || op === "%";
+  const shouldContextuallyTypeComparisonOperand = (
+    operand: IrExpression
+  ): boolean => getTransparentComparisonTarget(operand).kind === "literal";
   // Standard emission path
   // Emit operands without contextual type propagation
   // Literals will emit using their raw lexeme (42 vs 42.0)
   // Parenthesization is handled by the printer's precedence system
   const leftExpectedType = isComparisonOp
-    ? chooseComparisonExpectedType(leftResolvedType, rightResolvedType, context)
+    ? shouldContextuallyTypeComparisonOperand(expr.left)
+      ? chooseComparisonExpectedType(
+          leftResolvedType,
+          rightResolvedType,
+          context
+        )
+      : undefined
     : isArithmeticOp &&
         expr.left.kind === "conditional" &&
         isNumericOperandType(rightResolvedType)
@@ -430,7 +493,13 @@ export const emitBinary = (
     leftExpectedType
   );
   const rightExpectedType = isComparisonOp
-    ? chooseComparisonExpectedType(rightResolvedType, leftResolvedType, context)
+    ? shouldContextuallyTypeComparisonOperand(expr.right)
+      ? chooseComparisonExpectedType(
+          rightResolvedType,
+          leftResolvedType,
+          context
+        )
+      : undefined
     : isArithmeticOp &&
         expr.right.kind === "conditional" &&
         isNumericOperandType(leftResolvedType)

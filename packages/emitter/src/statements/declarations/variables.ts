@@ -37,6 +37,8 @@ import {
   resolveLocalTypeAst,
 } from "./variable-type-resolution.js";
 import { emitStaticArrowFieldMembers } from "./variable-static-arrow.js";
+import { resolveIdentifierValueSurfaceType } from "../../core/semantic/direct-value-surfaces.js";
+import { matchesEmittedStorageSurface } from "../../expressions/identifier-storage.js";
 
 /**
  * Emit a static variable declaration as AST members (fields, methods, delegates).
@@ -301,20 +303,38 @@ export const emitVariableDeclarationAst = (
           expectedInitializerType
         );
         currentContext = newContext;
+        const declaredInitializerType =
+          decl.type ??
+          (decl.initializer.kind === "typeAssertion"
+            ? decl.initializer.targetType
+            : resolveEffectiveVariableInitializerType(
+                decl.initializer,
+                currentContext
+              ));
+        const storageSurfaceNeedsCast =
+          decl.initializer.kind === "identifier" &&
+          !!declaredInitializerType &&
+          !!resolveIdentifierValueSurfaceType(
+            decl.initializer,
+            currentContext
+          ) &&
+          !matchesEmittedStorageSurface(
+            resolveIdentifierValueSurfaceType(
+              decl.initializer,
+              currentContext
+            ),
+            declaredInitializerType,
+            currentContext
+          )[0];
         initAst =
           typeAst.kind !== "varType" &&
           !isExplicitCastLikeAst(exprAst) &&
-          shouldForceDeclaredInitializerCast(
+          (shouldForceDeclaredInitializerCast(
             decl.initializer,
-            decl.type ??
-              (decl.initializer.kind === "typeAssertion"
-                ? decl.initializer.targetType
-                : resolveEffectiveVariableInitializerType(
-                    decl.initializer,
-                    currentContext
-                  )),
+            declaredInitializerType,
             currentContext
-          )
+          ) ||
+            storageSurfaceNeedsCast)
             ? {
                 kind: "castExpression" as const,
                 type: typeAst,
