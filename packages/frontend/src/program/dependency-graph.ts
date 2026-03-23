@@ -31,6 +31,7 @@ import {
 import { collectClosedWorldDynamicImportSites } from "../resolver/dynamic-import.js";
 import { loadBindings } from "./bindings.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+import { resolveSourceBindingFiles } from "./source-binding-imports.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -215,13 +216,23 @@ export const buildModuleDependencyGraph = (
     )
   );
   const discoveryBindings = loadBindings(discoveryTypeRoots);
+  const globalSourceBindings = resolveSourceBindingFiles(
+    discoveryBindings,
+    ["global"],
+    entryAbs,
+    options.projectRoot,
+    options.surface ?? "clr"
+  );
+  if (!globalSourceBindings.ok) {
+    return error([globalSourceBindings.error]);
+  }
 
   // Track all discovered files for later type checking
   const allDiscoveredFiles: string[] = [];
 
   // BFS to discover all local imports
   const visited = new Set<string>();
-  const queue: string[] = [entryAbs];
+  const queue: string[] = [entryAbs, ...globalSourceBindings.value];
 
   // First pass: discover all files
   while (queue.length > 0) {

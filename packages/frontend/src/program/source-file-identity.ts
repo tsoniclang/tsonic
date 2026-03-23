@@ -117,7 +117,7 @@ const findContainingSourcePackageRoot = (
   }
 };
 
-const readSourcePackageModuleBindings = (
+const readSourcePackageSourceImportBindings = (
   packageRoot: string
 ): ReadonlyMap<string, string> => {
   const normalizedRoot = normalizeAbsolutePath(packageRoot);
@@ -150,7 +150,7 @@ const readSourcePackageModuleBindings = (
     if (bindings && typeof bindings === "object") {
       for (const descriptor of Object.values(bindings)) {
         if (
-          descriptor?.kind === "module" &&
+          (descriptor?.kind === "module" || descriptor?.kind === "global") &&
           typeof descriptor.type === "string" &&
           typeof descriptor.sourceImport === "string" &&
           descriptor.sourceImport.length > 0 &&
@@ -206,7 +206,7 @@ const inferPackageRootNamespaceFromBindings = (
     return cached ?? undefined;
   }
 
-  const namespaceRoots = [...readSourcePackageModuleBindings(normalizedRoot).values()]
+  const namespaceRoots = [...readSourcePackageSourceImportBindings(normalizedRoot).values()]
     .map((moduleClrType) => {
       const lastDot = moduleClrType.lastIndexOf(".");
       return lastDot > 0 ? moduleClrType.slice(0, lastDot) : undefined;
@@ -282,7 +282,7 @@ const resolveSourcePackageEntryMapping = (
     return undefined;
   }
 
-  const sourceImportToType = readSourcePackageModuleBindings(packageRoot);
+  const sourceImportToType = readSourcePackageSourceImportBindings(packageRoot);
   const normalizedFilePath = normalizeAbsolutePath(filePath);
 
   let bestMatch: SourcePackageEntryMapping | undefined;

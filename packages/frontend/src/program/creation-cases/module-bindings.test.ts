@@ -196,6 +196,135 @@ describe("Program Creation – module bindings", function () {
     }
   });
 
+  it("should include source-package entrypoints referenced by global bindings", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-global-source-import-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const jsRoot = path.join(tempDir, "node_modules", "@fixture", "js");
+      fs.mkdirSync(path.join(jsRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(jsRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(jsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@fixture/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsRoot, "index.js"),
+        "export {};\n"
+      );
+      fs.writeFileSync(
+        path.join(jsRoot, "index.d.ts"),
+        [
+          "declare global {",
+          "  const console: {",
+          "    log(message: string): void;",
+          "  };",
+          "}",
+          "",
+          "export {};",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        path.join(jsRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              console: {
+                kind: "global",
+                assembly: "Fixture.JsRuntime",
+                type: "Fixture.JsRuntime.console",
+                sourceImport: "@fixture/js/console.js",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@fixture/js",
+            extends: [],
+            requiredTypeRoots: ["."],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@fixture/js"],
+            source: {
+              exports: {
+                "./console.js": "./src/console.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      const packageEntry = path.join(jsRoot, "src", "console.ts");
+      fs.writeFileSync(
+        packageEntry,
+        "export function log(_message: string): void {}\n"
+      );
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        'export const value = console.log("hello");\n'
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@fixture/js",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.value.program.getSourceFile(packageEntry)).to.not.equal(
+        undefined
+      );
+      expect(
+        result.value.sourceFiles.some(
+          (sourceFile) => path.resolve(sourceFile.fileName) === packageEntry
+        )
+      ).to.equal(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("should remap root-namespace internal imports to package index internals", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-root-namespace-internal-")

@@ -35,6 +35,7 @@ import {
   createResolveModuleFromPackageRoot,
 } from "./module-resolution.js";
 import { discoverProgramInputs } from "./program-input-discovery.js";
+import { resolveSourceBindingFiles } from "./source-binding-imports.js";
 
 const resolveMonorepoRoot = (): string => {
   const envRoot = process.env.TSONIC_REPO_ROOT?.trim();
@@ -46,6 +47,36 @@ const resolveMonorepoRoot = (): string => {
   return path.resolve(
     path.join(path.dirname(compilerContainingFile), "../../../..")
   );
+};
+
+const resolveCommonRootDir = (paths: readonly string[]): string => {
+  const [first, ...remaining] = paths;
+  if (!first) {
+    throw new Error("resolveCommonRootDir requires at least one path");
+  }
+
+  const rest = remaining.map((filePath) => path.resolve(filePath));
+  let current = path.resolve(first);
+
+  for (;;) {
+    const containsAll = rest.every((candidate) => {
+      const relative = path.relative(current, candidate);
+      return (
+        relative === "" ||
+        (!relative.startsWith("..") && !path.isAbsolute(relative))
+      );
+    });
+
+    if (containsAll) {
+      return current;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return current;
+    }
+    current = parent;
+  }
 };
 
 /**
@@ -111,12 +142,12 @@ export const createProgram = (
     );
 
   const {
-    absolutePaths,
+    absolutePaths: discoveredAbsolutePaths,
     typeRoots,
     authoritativeTsonicPackageRoots,
     namespaceIndexFiles,
     virtualDeclarationSources,
-    allFiles,
+    allFiles: discoveredAllFiles,
     tsOptions,
   } = discoverProgramInputs(
     filePaths,
@@ -125,6 +156,30 @@ export const createProgram = (
     (pkgDirName) => resolveCompilerOwnedTsonicPackageRoot(pkgDirName) ?? null
   );
   const bindings = loadBindings(typeRoots);
+  const resolutionAnchorFile =
+    discoveredAbsolutePaths[0] ??
+    path.join(options.projectRoot, "__tsonic_resolver__.ts");
+  const globalSourceBindings = resolveSourceBindingFiles(
+    bindings,
+    ["global"],
+    resolutionAnchorFile,
+    options.projectRoot,
+    surface
+  );
+  if (!globalSourceBindings.ok) {
+    return error(
+      addDiagnostic(createDiagnosticsCollector(), globalSourceBindings.error)
+    );
+  }
+  const absolutePaths = Array.from(
+    new Set([...discoveredAbsolutePaths, ...globalSourceBindings.value])
+  );
+  const allFiles = Array.from(
+    new Set([...discoveredAllFiles, ...globalSourceBindings.value])
+  );
+  if (typeof tsOptions.rootDir === "string" && absolutePaths.length > 0) {
+    tsOptions.rootDir = resolveCommonRootDir([tsOptions.rootDir, ...absolutePaths]);
+  }
   const moduleResolutionCache = ts.createModuleResolutionCache(
     options.projectRoot,
     (fileName) =>
