@@ -108,13 +108,13 @@ describe("Binding Resolution in IR", () => {
           Boolean: {
             kind: "global",
             assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.BooleanOps",
+            type: "Tsonic.JSRuntime.Boolean",
           },
         },
         namespace: "Tsonic.JSRuntime",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.BooleanOps",
+            clrName: "Tsonic.JSRuntime.Boolean",
             assemblyName: "Tsonic.JSRuntime",
             methods: [
               {
@@ -122,7 +122,7 @@ describe("Binding Resolution in IR", () => {
                 normalizedSignature:
                   "toString|(System.Boolean):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.BooleanOps",
+                declaringClrType: "Tsonic.JSRuntime.Boolean",
                 declaringAssemblyName: "Tsonic.JSRuntime",
                 isExtensionMethod: true,
               },
@@ -166,7 +166,7 @@ describe("Binding Resolution in IR", () => {
         returnStmt.expression.callee.memberBinding?.isExtensionMethod
       ).to.equal(true);
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.BooleanOps"
+        "Tsonic.JSRuntime.Boolean"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
         "toString"

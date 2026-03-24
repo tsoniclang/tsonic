@@ -107,7 +107,6 @@ const buildReceiverBindingLookupKeys = (
           "Boolean",
           "System.Boolean",
           "Tsonic.JSRuntime.Boolean",
-          "Tsonic.JSRuntime.BooleanOps",
         ]);
         return keys;
     }
@@ -137,7 +136,6 @@ const buildReceiverBindingLookupKeys = (
           "Boolean",
           "System.Boolean",
           "Tsonic.JSRuntime.Boolean",
-          "Tsonic.JSRuntime.BooleanOps",
         ]);
         return keys;
     }

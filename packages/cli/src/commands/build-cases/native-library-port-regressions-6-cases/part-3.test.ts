@@ -269,7 +269,9 @@ describe("build command (native library port regressions)", function () {
       expect(tree).to.not.include("localsOrCallback == null");
       expect(tree).to.not.include("callback.Match(");
       expect(tree).to.not.include("locals.Match(");
-      expect(tree).to.include('push($"SameSite={(options?.sameSite.As2())}")');
+      expect(tree).to.match(
+        /push\(\$"SameSite=\{[^"\n]*options\?\.sameSite\.As\d\(\)[^"\n]*\}"\)/
+      );
       expect(tree).to.not.include('push($"SameSite={options?.sameSite}")');
     } finally {
       rmSync(dir, { recursive: true, force: true });

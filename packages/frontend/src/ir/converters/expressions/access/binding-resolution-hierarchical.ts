@@ -155,6 +155,14 @@ export const resolveHierarchicalBinding = (
     return candidates;
   };
 
+  const getPreferredInstanceOwnerClrType = (
+    ownerAlias: string
+  ): string | undefined => {
+    const descriptor = registry.getExactBinding(ownerAlias);
+    if (!descriptor) return undefined;
+    return descriptor.type;
+  };
+
   const toIrMemberBinding = (
     overloads: readonly MemberBinding[]
   ): IrMemberExpression["memberBinding"] => {
@@ -304,7 +312,12 @@ export const resolveHierarchicalBinding = (
   ].filter((candidate): candidate is string => typeof candidate === "string");
 
   for (const objectTypeName of objectTypeCandidates) {
-    const overloads = registry.getMemberOverloads(objectTypeName, propertyName);
+    const overloads = registry.getMemberOverloads(
+      objectTypeName,
+      propertyName,
+      true,
+      getPreferredInstanceOwnerClrType(objectTypeName)
+    );
     if (!overloads || overloads.length === 0) continue;
     return toIrMemberBinding(overloads);
   }
