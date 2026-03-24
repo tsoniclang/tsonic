@@ -118,6 +118,102 @@ describe("package-manifest bindings", function () {
     }
   });
 
+  it("prefers root package manifests over transitive nested packages with the same name", () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-manifest-root-preference-")
+    );
+    try {
+      installClrSurfacePackages(dir);
+      writeJson(join(dir, "package.json"), {
+        name: "workspace",
+        private: true,
+        type: "module",
+        dependencies: {
+          "@tsonic/js": "10.0.9",
+          "@tsonic/nodejs": "10.0.9",
+        },
+      });
+
+      writeInstalledPackage(dir, "@tsonic/js", "10.0.9", {
+        bindingsRoot: "tsonic/bindings",
+        packageManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "@tsonic/js",
+          npmVersion: "10.0.9",
+          runtime: {
+            nugetPackages: [{ id: "Tsonic.JSRuntime", version: "0.0.9" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+        },
+      });
+
+      const nodejsRoot = writeInstalledPackage(dir, "@tsonic/nodejs", "10.0.9", {
+        bindingsRoot: "tsonic/bindings",
+        dependencies: {
+          "@tsonic/js": "10.0.4",
+        },
+        packageManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "@tsonic/nodejs",
+          npmVersion: "10.0.9",
+          runtime: {
+            nugetPackages: [{ id: "Tsonic.Nodejs", version: "10.0.9" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+        },
+      });
+
+      writeInstalledPackage(nodejsRoot, "@tsonic/js", "10.0.4", {
+        bindingsRoot: "tsonic/bindings",
+        packageManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-library",
+          npmPackage: "@tsonic/js",
+          npmVersion: "10.0.4",
+          runtime: {
+            nugetPackages: [{ id: "Tsonic.JSRuntime", version: "0.0.4" }],
+          },
+          typing: {
+            bindingsRoot: "tsonic/bindings",
+          },
+        },
+      });
+
+      const manifests = discoverWorkspaceBindingsManifests(dir);
+      expect(manifests.ok).to.equal(true);
+      if (!manifests.ok) return;
+
+      expect(
+        manifests.value.map((manifest) => [
+          manifest.packageName,
+          manifest.packageVersion,
+        ])
+      ).to.deep.equal([
+        ["@tsonic/js", "10.0.9"],
+        ["@tsonic/nodejs", "10.0.9"],
+      ]);
+
+      const overlay = applyPackageManifestWorkspaceOverlay(
+        dir,
+        baseWorkspaceConfig()
+      );
+      expect(overlay.ok).to.equal(true);
+      if (!overlay.ok) return;
+      expect(overlay.value.config.dotnet?.packageReferences).to.deep.equal([
+        { id: "Tsonic.JSRuntime", version: "0.0.9" },
+        { id: "Tsonic.Nodejs", version: "10.0.9" },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("applies workspace overlay and merges package references", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-package-manifest-overlay-"));
     try {

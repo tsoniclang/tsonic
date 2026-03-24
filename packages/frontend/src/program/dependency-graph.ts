@@ -304,7 +304,10 @@ export const buildModuleDependencyGraph = (
         continue;
       }
 
-      const moduleBinding = discoveryBindings.getBinding(importSpecifier);
+      const moduleBinding = discoveryBindings.getBindingByKind(
+        importSpecifier,
+        "module"
+      );
       if (moduleBinding?.kind === "module" && moduleBinding.sourceImport) {
         const redirectedSourcePackage = resolveSourcePackageImport(
           moduleBinding.sourceImport,

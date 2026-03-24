@@ -77,6 +77,22 @@ export class BindingRegistry {
     string,
     SimpleBindingDescriptor
   >();
+  private readonly simpleGlobalBindings = new Map<
+    string,
+    SimpleBindingDescriptor
+  >();
+  private readonly simpleGlobalBindingsLowercase = new Map<
+    string,
+    SimpleBindingDescriptor
+  >();
+  private readonly simpleModuleBindings = new Map<
+    string,
+    SimpleBindingDescriptor
+  >();
+  private readonly simpleModuleBindingsLowercase = new Map<
+    string,
+    SimpleBindingDescriptor
+  >();
 
   // Hierarchical format: namespace/type/member bindings
   private readonly namespaces = new Map<string, NamespaceBinding>();
@@ -120,6 +136,10 @@ export class BindingRegistry {
       tsBaseTypes: this.tsBaseTypes,
       simpleBindings: this.simpleBindings,
       simpleBindingsLowercase: this.simpleBindingsLowercase,
+      simpleGlobalBindings: this.simpleGlobalBindings,
+      simpleGlobalBindingsLowercase: this.simpleGlobalBindingsLowercase,
+      simpleModuleBindings: this.simpleModuleBindings,
+      simpleModuleBindingsLowercase: this.simpleModuleBindingsLowercase,
       typeLookupAliasMap: this.typeLookupAliasMap,
       clrTypeNames: this.clrTypeNames,
     };
@@ -135,6 +155,10 @@ export class BindingRegistry {
         loadedBindingFiles: this.loadedBindingFiles,
         simpleBindings: this.simpleBindings,
         simpleBindingsLowercase: this.simpleBindingsLowercase,
+        simpleGlobalBindings: this.simpleGlobalBindings,
+        simpleGlobalBindingsLowercase: this.simpleGlobalBindingsLowercase,
+        simpleModuleBindings: this.simpleModuleBindings,
+        simpleModuleBindingsLowercase: this.simpleModuleBindingsLowercase,
         namespaces: this.namespaces,
         types: this.types,
         typeLookupAliasMap: this.typeLookupAliasMap,
@@ -160,6 +184,15 @@ export class BindingRegistry {
     return this.simpleBindings.get(name);
   }
 
+  getExactBindingByKind(
+    name: string,
+    kind: SimpleBindingDescriptor["kind"]
+  ): SimpleBindingDescriptor | undefined {
+    return kind === "global"
+      ? this.simpleGlobalBindings.get(name)
+      : this.simpleModuleBindings.get(name);
+  }
+
   /**
    * Look up a simple global/module binding.
    *
@@ -173,6 +206,17 @@ export class BindingRegistry {
       this.simpleBindings.get(name) ??
       this.simpleBindingsLowercase.get(name.toLowerCase())
     );
+  }
+
+  getBindingByKind(
+    name: string,
+    kind: SimpleBindingDescriptor["kind"]
+  ): SimpleBindingDescriptor | undefined {
+    return kind === "global"
+      ? (this.simpleGlobalBindings.get(name) ??
+          this.simpleGlobalBindingsLowercase.get(name.toLowerCase()))
+      : (this.simpleModuleBindings.get(name) ??
+          this.simpleModuleBindingsLowercase.get(name.toLowerCase()));
   }
 
   /**
@@ -370,6 +414,10 @@ export class BindingRegistry {
     this.loadedBindingFiles.clear();
     this.simpleBindings.clear();
     this.simpleBindingsLowercase.clear();
+    this.simpleGlobalBindings.clear();
+    this.simpleGlobalBindingsLowercase.clear();
+    this.simpleModuleBindings.clear();
+    this.simpleModuleBindingsLowercase.clear();
     this.namespaces.clear();
     this.types.clear();
     this.typeLookupAliasMap.clear();

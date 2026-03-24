@@ -1,5 +1,4 @@
 import { Console } from "@tsonic/dotnet/System.js";
-import { JSON } from "@tsonic/js/index.js";
 import { int } from "@tsonic/core/types.js";
 
 type Payload = {
@@ -18,7 +17,7 @@ export function main(): void {
   const parsed = JSON.parse<Payload>(json);
 
   Console.WriteLine(`PARSE.displayName=${parsed.displayName}`);
-  Console.WriteLine(`PARSE.tagsLen=${parsed.tags.Length}`);
+  Console.WriteLine(`PARSE.tagsLen=${parsed.tags.length}`);
   Console.WriteLine(`PARSE.nested.ok=${parsed.nested.ok}`);
 
   const inline = JSON.parse<{ x: number }>('{"x": 1}');

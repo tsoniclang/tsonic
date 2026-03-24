@@ -584,6 +584,7 @@ describe("Module Resolver", () => {
             source: {
               exports: {
                 ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
                 "./console.js": "./src/console.ts",
               },
             },
@@ -611,19 +612,17 @@ describe("Module Resolver", () => {
       fs.mkdirSync(path.dirname(containingFile), { recursive: true });
       fs.writeFileSync(
         containingFile,
-        'import { console } from "@tsonic/js";\nconsole.error("x");\n'
+        'import { console } from "@tsonic/js/index.js";\nconsole.error("x");\n'
       );
 
       const result = resolveImport(
-        "@tsonic/js",
+        "@tsonic/js/index.js",
         containingFile,
         sourceRoot,
         {
           projectRoot: tempDir,
           surface: "@tsonic/js",
-          authoritativeTsonicPackageRoots: new Map([
-            ["@tsonic/js", jsRoot],
-          ]),
+          authoritativeTsonicPackageRoots: new Map([["@tsonic/js", jsRoot]]),
         }
       );
 
@@ -662,6 +661,7 @@ describe("Module Resolver", () => {
             source: {
               exports: {
                 ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
               },
             },
           },
@@ -713,11 +713,11 @@ describe("Module Resolver", () => {
       const containingFile = path.join(nodejsRoot, "src", "events-module.ts");
       fs.writeFileSync(
         containingFile,
-        'import { ok } from "@tsonic/js";\nvoid ok;\n'
+        'import { ok } from "@tsonic/js/index.js";\nvoid ok;\n'
       );
 
       const result = resolveImport(
-        "@tsonic/js",
+        "@tsonic/js/index.js",
         containingFile,
         sourceRoot,
         {
@@ -746,8 +746,20 @@ describe("Module Resolver", () => {
         "@tsonic",
         "js"
       );
-      const jsSourceRoot = path.join(tempDir, "wave", "js-next", "versions", "10");
-      const nodejsRoot = path.join(tempDir, "wave", "nodejs-next", "versions", "10");
+      const jsSourceRoot = path.join(
+        tempDir,
+        "wave",
+        "js-next",
+        "versions",
+        "10"
+      );
+      const nodejsRoot = path.join(
+        tempDir,
+        "wave",
+        "nodejs-next",
+        "versions",
+        "10"
+      );
 
       fs.mkdirSync(path.join(jsClrRoot, "index"), { recursive: true });
       fs.mkdirSync(path.join(jsSourceRoot, "src"), { recursive: true });
@@ -785,6 +797,7 @@ describe("Module Resolver", () => {
             source: {
               exports: {
                 ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
               },
             },
           },
@@ -832,11 +845,11 @@ describe("Module Resolver", () => {
       const containingFile = path.join(nodejsRoot, "src", "events-module.ts");
       fs.writeFileSync(
         containingFile,
-        'import { ok } from "@tsonic/js";\nvoid ok;\n'
+        'import { ok } from "@tsonic/js/index.js";\nvoid ok;\n'
       );
 
       const result = resolveImport(
-        "@tsonic/js",
+        "@tsonic/js/index.js",
         containingFile,
         sourceRoot,
         {
@@ -915,6 +928,41 @@ describe("Module Resolver", () => {
       expect(result.ok).to.equal(true);
       if (result.ok) {
         expect(result.value.resolvedClrType).to.equal("nodejs.path");
+      }
+    });
+
+    it("should resolve module imports even when a global binding shares the same alias", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/js-runtime.json", {
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.console",
+          },
+        },
+      });
+      bindings.addBindings("/test/nodejs.json", {
+        bindings: {
+          console: {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.console",
+          },
+        },
+      });
+
+      const result = resolveImport(
+        "console",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        { bindings }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.resolvedClrType).to.equal("nodejs.console");
+        expect(result.value.resolvedAssembly).to.equal("nodejs");
       }
     });
 

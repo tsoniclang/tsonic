@@ -208,5 +208,45 @@ describe("Binding System", () => {
         type: "Tsonic.Runtime.console",
       });
     });
+
+    it("should retain both global and module bindings for the same alias", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/js-runtime.json", {
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.console",
+          },
+        },
+      });
+
+      registry.addBindings("/test/nodejs.json", {
+        bindings: {
+          console: {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.console",
+          },
+        },
+      });
+
+      expect(registry.getBinding("console")).to.deep.equal({
+        kind: "global",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.console",
+      });
+      expect(registry.getBindingByKind("console", "global")).to.deep.equal({
+        kind: "global",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.console",
+      });
+      expect(registry.getBindingByKind("console", "module")).to.deep.equal({
+        kind: "module",
+        assembly: "nodejs",
+        type: "nodejs.console",
+      });
+    });
   });
 });

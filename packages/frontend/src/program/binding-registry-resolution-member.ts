@@ -41,6 +41,16 @@ export type RegistryState = {
     string,
     SimpleBindingDescriptor
   >;
+  readonly simpleGlobalBindings: ReadonlyMap<string, SimpleBindingDescriptor>;
+  readonly simpleGlobalBindingsLowercase: ReadonlyMap<
+    string,
+    SimpleBindingDescriptor
+  >;
+  readonly simpleModuleBindings: ReadonlyMap<string, SimpleBindingDescriptor>;
+  readonly simpleModuleBindingsLowercase: ReadonlyMap<
+    string,
+    SimpleBindingDescriptor
+  >;
   readonly typeLookupAliasMap: ReadonlyMap<string, string>;
   readonly clrTypeNames: ReadonlySet<string>;
 };

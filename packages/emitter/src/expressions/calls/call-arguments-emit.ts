@@ -16,6 +16,7 @@ import { getArrayLikeElementType } from "../../core/semantic/type-resolution.js"
 import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import { getAcceptedParameterType } from "../../core/semantic/defaults.js";
 import { getPassingModifierFromCast, isLValue } from "./call-analysis.js";
+import { shouldPreferRuntimeExpectedType } from "./runtime-expected-type-preference.js";
 import {
   normalizeCallArgumentExpectedType,
   expandTupleLikeSpreadArguments,
@@ -479,6 +480,17 @@ const emitCallArguments = (
       if (
         actualArgumentType &&
         matchesExpectedEmissionType(
+          actualArgumentType,
+          normalizedRuntime,
+          currentContext
+        )
+      ) {
+        return normalizedRuntime;
+      }
+
+      if (
+        shouldPreferRuntimeExpectedType(
+          arg,
           actualArgumentType,
           normalizedRuntime,
           currentContext

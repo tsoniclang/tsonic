@@ -16,37 +16,107 @@ import { emitCSharpFiles } from "../emitter.js";
 import type { EmitterOptions } from "../types.js";
 
 const require = createRequire(import.meta.url);
-const corePackageRoot = path.dirname(
-  require.resolve("@tsonic/core/package.json")
-);
+const findNearestPackageRoot = (
+  resolvedFilePath: string
+): string | undefined => {
+  let currentDir = path.dirname(resolvedFilePath);
+
+  for (;;) {
+    const packageJsonPath = path.join(currentDir, "package.json");
+    if (ts.sys.fileExists(packageJsonPath)) {
+      return currentDir;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      return undefined;
+    }
+    currentDir = parentDir;
+  }
+};
+
+const resolveDeclarationFilePath = (resolvedFilePath: string): string => {
+  if (resolvedFilePath.endsWith(".d.ts") || resolvedFilePath.endsWith(".ts")) {
+    return resolvedFilePath;
+  }
+
+  if (resolvedFilePath.endsWith(".js")) {
+    const declarationPath = resolvedFilePath.replace(/\.js$/, ".d.ts");
+    if (ts.sys.fileExists(declarationPath)) {
+      return declarationPath;
+    }
+  }
+
+  return resolvedFilePath;
+};
+
+const scanDeclarationFiles = (dir: string): readonly string[] => {
+  if (!ts.sys.directoryExists(dir)) {
+    return [];
+  }
+
+  const results: string[] = [];
+  for (const entry of ts.sys.readDirectory(dir, [".d.ts"], undefined, [
+    "**/*.d.ts",
+  ])) {
+    if (entry.includes("/node_modules/") || entry.endsWith("/core-globals.d.ts")) {
+      continue;
+    }
+    results.push(path.resolve(entry));
+  }
+  return results;
+};
+
+const getModuleResolutionExtension = (
+  resolvedFilePath: string
+): ts.Extension => {
+  if (resolvedFilePath.endsWith(".d.ts")) {
+    return ts.Extension.Dts;
+  }
+  if (resolvedFilePath.endsWith(".ts")) {
+    return ts.Extension.Ts;
+  }
+  return ts.Extension.Js;
+};
+
+const coreTypesResolvedPath = require.resolve("@tsonic/core/types.js");
+const corePackageRoot =
+  findNearestPackageRoot(coreTypesResolvedPath) ??
+  path.dirname(coreTypesResolvedPath);
 const coreTypesPath = path.join(corePackageRoot, "types.d.ts");
 const coreLangPath = path.join(corePackageRoot, "lang.d.ts");
 
 const resolveTsonicModule = (
   moduleName: string
-): { readonly filePath: string; readonly packageRoot: string } | undefined => {
+):
+  | {
+      readonly filePath: string;
+      readonly packageRoot: string;
+      readonly extension: ts.Extension;
+    }
+  | undefined => {
   if (!moduleName.startsWith("@tsonic/")) {
     return undefined;
   }
 
-  const parts = moduleName.split("/");
-  if (parts.length < 2) {
+  let resolvedFilePath: string;
+  try {
+    resolvedFilePath = require.resolve(moduleName);
+  } catch {
     return undefined;
   }
 
-  const packageName = parts.slice(0, 2).join("/");
-  const packageRoot = path.dirname(
-    require.resolve(`${packageName}/package.json`)
-  );
-  const subPath = moduleName.slice(packageName.length + 1);
-  const declarationPath = path.join(
-    packageRoot,
-    subPath.replace(/\.js$/, ".d.ts")
-  );
+  const packageRoot = findNearestPackageRoot(resolvedFilePath);
+  if (!packageRoot) {
+    return undefined;
+  }
+
+  const declarationPath = resolveDeclarationFilePath(resolvedFilePath);
 
   return {
     filePath: declarationPath,
     packageRoot,
+    extension: getModuleResolutionExtension(declarationPath),
   };
 };
 
@@ -56,6 +126,14 @@ export const compileToCSharp = (
   emitOptions: Partial<EmitterOptions> = {}
 ): string => {
   const resolvedPackageRoots = new Set<string>();
+  resolvedPackageRoots.add(corePackageRoot);
+
+  if (typeof emitOptions.surface === "string" && emitOptions.surface.startsWith("@")) {
+    const surfaceEntry = resolveTsonicModule(`${emitOptions.surface}/index.js`);
+    if (surfaceEntry) {
+      resolvedPackageRoots.add(surfaceEntry.packageRoot);
+    }
+  }
 
   const sourceFile = ts.createSourceFile(
     fileName,
@@ -107,15 +185,23 @@ export const compileToCSharp = (
     return moduleNames.map((moduleName) => {
       const resolvedTsonicModule =
         moduleName === "@tsonic/core/types.js"
-          ? { filePath: coreTypesPath, packageRoot: corePackageRoot }
+          ? {
+              filePath: coreTypesPath,
+              packageRoot: corePackageRoot,
+              extension: ts.Extension.Dts,
+            }
           : moduleName === "@tsonic/core/lang.js"
-            ? { filePath: coreLangPath, packageRoot: corePackageRoot }
+            ? {
+                filePath: coreLangPath,
+                packageRoot: corePackageRoot,
+                extension: ts.Extension.Dts,
+              }
             : resolveTsonicModule(moduleName);
       if (resolvedTsonicModule) {
         resolvedPackageRoots.add(resolvedTsonicModule.packageRoot);
         return {
           resolvedFileName: resolvedTsonicModule.filePath,
-          extension: ts.Extension.Dts,
+          extension: resolvedTsonicModule.extension,
           isExternalLibraryImport: true,
         };
       }
@@ -137,7 +223,19 @@ export const compileToCSharp = (
     });
   };
 
-  const tsProgram = ts.createProgram([fileName], compilerOptions, host);
+  const declarationRootFiles = Array.from(
+    new Set(
+      Array.from(resolvedPackageRoots).flatMap((packageRoot) =>
+        scanDeclarationFiles(packageRoot)
+      )
+    )
+  );
+
+  const tsProgram = ts.createProgram(
+    [fileName, ...declarationRootFiles],
+    compilerOptions,
+    host
+  );
   const checker = tsProgram.getTypeChecker();
 
   const programOptions = {
@@ -153,7 +251,9 @@ export const compileToCSharp = (
     binding: createBinding(checker),
     options: programOptions,
     sourceFiles: [sourceFile],
-    declarationSourceFiles: [],
+    declarationSourceFiles: tsProgram
+      .getSourceFiles()
+      .filter((sourceFile) => sourceFile.isDeclarationFile),
     metadata: new DotnetMetadataRegistry(),
     bindings: loadBindings(Array.from(resolvedPackageRoots)),
     clrResolver: createClrBindingsResolver("/test"),

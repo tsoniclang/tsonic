@@ -153,6 +153,62 @@ describe("Binding Resolution in IR", () => {
       expect(mathExpr.resolvedAssembly).to.equal("Tsonic.Runtime");
     });
 
+    it("prefers the global binding when a module binding shares the same alias", () => {
+      const source = `
+        export function test() {
+          console.error("hello");
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/js-runtime.json", {
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.console",
+          },
+        },
+      });
+      bindings.addBindings("/test/nodejs.json", {
+        bindings: {
+          console: {
+            kind: "module",
+            assembly: "nodejs",
+            type: "nodejs.console",
+          },
+        },
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements[0];
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      if (callExpr.kind !== "call") return;
+
+      const memberExpr = callExpr.callee;
+      if (memberExpr.kind !== "memberAccess") return;
+
+      const consoleExpr = memberExpr.object as IrIdentifierExpression;
+      expect(consoleExpr.kind).to.equal("identifier");
+      expect(consoleExpr.name).to.equal("console");
+      expect(consoleExpr.resolvedClrType).to.equal("Tsonic.JSRuntime.console");
+      expect(consoleExpr.resolvedAssembly).to.equal("Tsonic.JSRuntime");
+    });
+
     it("should resolve global function bindings with csharpName on identifier callees", () => {
       const source = `
         export function test() {

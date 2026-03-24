@@ -499,7 +499,7 @@ export const createProgram = (
         };
       }
 
-      const moduleBinding = bindings.getBinding(moduleName);
+      const moduleBinding = bindings.getBindingByKind(moduleName, "module");
       if (moduleBinding?.kind === "module" && moduleBinding.sourceImport) {
         const redirectedSourcePackage = resolveSourcePackageImport(
           moduleBinding.sourceImport,
@@ -548,8 +548,7 @@ export const createProgram = (
     .getSourceFiles()
     .filter(
       (sf) =>
-        !sf.isDeclarationFile &&
-        sourceFilePaths.has(path.resolve(sf.fileName))
+        !sf.isDeclarationFile && sourceFilePaths.has(path.resolve(sf.fileName))
     );
 
   // Declaration files for TypeRegistry:

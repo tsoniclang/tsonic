@@ -64,8 +64,7 @@ export const extractImports = (
           bindings: ctx.bindings,
           projectRoot: ctx.projectRoot,
           surface: ctx.surface,
-          authoritativeTsonicPackageRoots:
-            ctx.authoritativeTsonicPackageRoots,
+          authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
         }
       );
       const isSourcePackage =
@@ -90,9 +89,9 @@ export const extractImports = (
         isClr && clrResolution.isClr ? clrResolution.assembly : undefined;
 
       const getSourcePackageModuleBinding = (): ReturnType<
-        ProgramContext["bindings"]["getBinding"]
+        ProgramContext["bindings"]["getBindingByKind"]
       > => {
-        const exact = ctx.bindings.getBinding(source);
+        const exact = ctx.bindings.getBindingByKind(source, "module");
         if (exact) {
           return exact;
         }
@@ -119,8 +118,8 @@ export const extractImports = (
         );
 
         for (const candidate of candidates) {
-          const binding = ctx.bindings.getBinding(candidate);
-          if (binding?.kind === "module") {
+          const binding = ctx.bindings.getBindingByKind(candidate, "module");
+          if (binding) {
             return binding;
           }
         }

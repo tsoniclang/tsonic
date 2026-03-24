@@ -223,6 +223,7 @@ export const discoverWorkspaceBindingsManifests = (
   }));
 
   const seenPackageRoots = new Set<string>();
+  const seenPackageNames = new Map<string, string>();
   const out: NormalizedBindingsManifest[] = [];
 
   while (queue.length > 0) {
@@ -260,8 +261,18 @@ export const discoverWorkspaceBindingsManifests = (
     }
 
     const packageRoot = resolvedRoot;
+    const packageNameKey = normalizeId(current.dependencyName);
+    const existingRootForName = seenPackageNames.get(packageNameKey);
+    if (
+      existingRootForName !== undefined &&
+      normalizeId(existingRootForName) !== normalizeId(packageRoot)
+    ) {
+      continue;
+    }
+
     if (seenPackageRoots.has(packageRoot)) continue;
     seenPackageRoots.add(packageRoot);
+    seenPackageNames.set(packageNameKey, packageRoot);
 
     const manifest = resolveInstalledPackageBindingsManifest(packageRoot);
     if (!manifest.ok) return manifest;
