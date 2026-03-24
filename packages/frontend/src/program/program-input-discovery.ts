@@ -17,13 +17,22 @@ type SurfaceCapabilitiesLike = {
   readonly resolvedModes: readonly string[];
 };
 
+const canonicalizeRootDirPath = (filePath: string): string => {
+  const normalizedPath = path.resolve(filePath);
+  try {
+    return fs.realpathSync(normalizedPath);
+  } catch {
+    return normalizedPath;
+  }
+};
+
 const resolveCommonRootDir = (paths: readonly string[]): string => {
   const [first, ...remaining] = paths;
   if (!first) {
     throw new Error("resolveCommonRootDir requires at least one path");
   }
-  const rest = remaining.map((filePath) => path.resolve(filePath));
-  let current = path.resolve(first);
+  const rest = remaining.map(canonicalizeRootDirPath);
+  let current = canonicalizeRootDirPath(first);
 
   for (;;) {
     const containsAll = rest.every((candidate) => {
