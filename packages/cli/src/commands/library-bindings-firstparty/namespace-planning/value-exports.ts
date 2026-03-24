@@ -5,6 +5,7 @@ import type {
 } from "@tsonic/frontend";
 import type { Result } from "../../../types.js";
 import {
+  buildSemanticSignature,
   buildSemanticSignatureFromFunctionType,
   resolveFunctionTypeFromValueDeclarator,
   rewriteBindingSemanticType,
@@ -97,6 +98,12 @@ export const registerFunctionExport = (opts: {
           opts.declarationModule.className
         ),
         declaringAssemblyName: opts.builder.assemblyName,
+        semanticSignature: buildSemanticSignature({
+          typeParameters: opts.functionDeclaration.typeParameters,
+          parameters: opts.functionDeclaration.parameters,
+          returnType: opts.functionDeclaration.returnType,
+          localTypeNameRemaps: registeredLocalTypeRefs.value,
+        }),
       },
       facade: {
         kind: "function",
@@ -197,6 +204,11 @@ export const registerVariableExport = (opts: {
       sourceType: opts.builder.sourceIndexByFileKey
         .get(normalizeModuleFileKey(opts.symbol.declaringFilePath))
         ?.exportedValueTypesByName.get(opts.symbol.localName),
+      sourceAnonymousTypeTexts:
+        opts.builder.sourceIndexByFileKey
+          .get(normalizeModuleFileKey(opts.symbol.declaringFilePath))
+          ?.exportedValueAnonymousTypeTextsByName.get(opts.symbol.localName) ??
+        [],
       sourceSignatures:
         opts.builder.sourceIndexByFileKey
           .get(normalizeModuleFileKey(opts.symbol.declaringFilePath))
@@ -236,6 +248,10 @@ export const registerVariableExport = (opts: {
         sourceType: declarationSourceIndex?.exportedValueTypesByName.get(
           opts.symbol.localName
         ),
+        sourceAnonymousTypeTexts:
+          declarationSourceIndex?.exportedValueAnonymousTypeTextsByName.get(
+            opts.symbol.localName
+          ) ?? [],
         sourceSignatures:
           declarationSourceIndex?.exportedFunctionSignaturesByName.get(
             opts.symbol.localName

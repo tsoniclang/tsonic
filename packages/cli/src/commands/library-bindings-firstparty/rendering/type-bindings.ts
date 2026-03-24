@@ -2,8 +2,12 @@ import type {
   IrClassDeclaration,
   IrEnumDeclaration,
   IrInterfaceDeclaration,
+  IrInterfaceMember,
+  IrParameter,
+  IrType,
   IrTypeAliasDeclaration,
 } from "@tsonic/frontend";
+import * as ts from "typescript";
 import {
   buildParameterModifiers,
   isPublicOverloadSurfaceMethod,
@@ -14,7 +18,12 @@ import {
   toSignatureType,
   toStableId,
 } from "../binding-semantics.js";
-import type { FirstPartyBindingsType, ModuleContainerEntry } from "../types.js";
+import { getPropertyNameText } from "../portable-types.js";
+import type {
+  FirstPartyBindingsType,
+  ModuleContainerEntry,
+  SourceAnonymousStructuralAliasPlan,
+} from "../types.js";
 
 export const buildTypeBindingFromClass = (
   declaration: IrClassDeclaration,
@@ -431,5 +440,372 @@ export const buildTypeBindingFromContainer = (
     fields: [],
     events: [],
     constructors: [],
+  };
+};
+
+const parseSourceTypeLiteralNode = (
+  sourceTypeText: string
+): ts.TypeLiteralNode | undefined => {
+  const sourceFile = ts.createSourceFile(
+    "__tsonic_source_anon__.ts",
+    `type __T = ${sourceTypeText};`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const statement = sourceFile.statements[0];
+  if (!statement || !ts.isTypeAliasDeclaration(statement)) return undefined;
+  const typeNode = statement.type;
+  return ts.isTypeLiteralNode(typeNode) ? typeNode : undefined;
+};
+
+const sourceTypeNodeToIrType = (
+  node: ts.TypeNode,
+  localTypeNameRemaps: ReadonlyMap<string, string>,
+  inScopeTypeParameters: ReadonlySet<string> = new Set()
+): IrType => {
+  while (ts.isParenthesizedTypeNode(node)) {
+    node = node.type;
+  }
+
+  if (ts.isTypeReferenceNode(node)) {
+    const rawName = node.typeName.getText();
+    const remappedName = localTypeNameRemaps.get(rawName) ?? rawName;
+
+    if (remappedName === "Record" && node.typeArguments?.length === 2) {
+      const [keyNode, valueNode] = node.typeArguments;
+      if (keyNode && valueNode) {
+        return {
+          kind: "dictionaryType",
+          keyType: sourceTypeNodeToIrType(
+            keyNode,
+            localTypeNameRemaps,
+            inScopeTypeParameters
+          ),
+          valueType: sourceTypeNodeToIrType(
+            valueNode,
+            localTypeNameRemaps,
+            inScopeTypeParameters
+          ),
+        };
+      }
+    }
+
+    if (!node.typeArguments?.length && inScopeTypeParameters.has(remappedName)) {
+      return { kind: "typeParameterType", name: remappedName };
+    }
+
+    const primitiveKeywordAlias =
+      remappedName === "int" || remappedName === "char"
+        ? remappedName
+        : undefined;
+    if (primitiveKeywordAlias) {
+      return {
+        kind: "primitiveType",
+        name: primitiveKeywordAlias,
+      };
+    }
+
+    return {
+      kind: "referenceType",
+      name: remappedName,
+      typeArguments:
+        node.typeArguments?.map((typeArgument) =>
+          sourceTypeNodeToIrType(
+            typeArgument,
+            localTypeNameRemaps,
+            inScopeTypeParameters
+          )
+        ) ?? [],
+    };
+  }
+
+  if (ts.isArrayTypeNode(node)) {
+    return {
+      kind: "arrayType",
+      elementType: sourceTypeNodeToIrType(
+        node.elementType,
+        localTypeNameRemaps,
+        inScopeTypeParameters
+      ),
+      origin: "explicit",
+    };
+  }
+
+  if (ts.isTupleTypeNode(node)) {
+    return {
+      kind: "tupleType",
+      elementTypes: node.elements.map((element) =>
+        sourceTypeNodeToIrType(element, localTypeNameRemaps, inScopeTypeParameters)
+      ),
+    };
+  }
+
+  if (ts.isUnionTypeNode(node)) {
+    return {
+      kind: "unionType",
+      types: node.types.map((typeNode) =>
+        sourceTypeNodeToIrType(typeNode, localTypeNameRemaps, inScopeTypeParameters)
+      ),
+    };
+  }
+
+  if (ts.isIntersectionTypeNode(node)) {
+    return {
+      kind: "intersectionType",
+      types: node.types.map((typeNode) =>
+        sourceTypeNodeToIrType(typeNode, localTypeNameRemaps, inScopeTypeParameters)
+      ),
+    };
+  }
+
+  if (ts.isFunctionTypeNode(node)) {
+    return {
+      kind: "functionType",
+      parameters: node.parameters.map((parameter, index) =>
+        sourceParameterToIrParameter(
+          parameter,
+          index,
+          localTypeNameRemaps,
+          inScopeTypeParameters
+        )
+      ),
+      returnType: node.type
+        ? sourceTypeNodeToIrType(
+            node.type,
+            localTypeNameRemaps,
+            inScopeTypeParameters
+          )
+        : { kind: "voidType" },
+    };
+  }
+
+  if (ts.isTypeLiteralNode(node)) {
+    return {
+      kind: "objectType",
+      members: sourceTypeLiteralMembersToIrMembers(
+        node,
+        localTypeNameRemaps,
+        inScopeTypeParameters
+      ),
+    };
+  }
+
+  if (ts.isLiteralTypeNode(node)) {
+    if (ts.isStringLiteral(node.literal)) {
+      return { kind: "literalType", value: node.literal.text };
+    }
+    if (ts.isNumericLiteral(node.literal)) {
+      return { kind: "literalType", value: Number(node.literal.text) };
+    }
+    if (node.literal.kind === ts.SyntaxKind.TrueKeyword) {
+      return { kind: "literalType", value: true };
+    }
+    if (node.literal.kind === ts.SyntaxKind.FalseKeyword) {
+      return { kind: "literalType", value: false };
+    }
+  }
+
+  switch (node.kind) {
+    case ts.SyntaxKind.StringKeyword:
+      return { kind: "primitiveType", name: "string" };
+    case ts.SyntaxKind.NumberKeyword:
+      return { kind: "primitiveType", name: "number" };
+    case ts.SyntaxKind.BooleanKeyword:
+      return { kind: "primitiveType", name: "boolean" };
+    case ts.SyntaxKind.NullKeyword:
+      return { kind: "primitiveType", name: "null" };
+    case ts.SyntaxKind.UndefinedKeyword:
+      return { kind: "primitiveType", name: "undefined" };
+    case ts.SyntaxKind.VoidKeyword:
+      return { kind: "voidType" };
+    case ts.SyntaxKind.NeverKeyword:
+      return { kind: "neverType" };
+    case ts.SyntaxKind.UnknownKeyword:
+      return { kind: "unknownType" };
+    case ts.SyntaxKind.AnyKeyword:
+      return { kind: "anyType" };
+    default:
+      return { kind: "unknownType" };
+  }
+};
+
+const sourceParameterToIrParameter = (
+  parameter: ts.ParameterDeclaration,
+  index: number,
+  localTypeNameRemaps: ReadonlyMap<string, string>,
+  inScopeTypeParameters: ReadonlySet<string>
+): IrParameter => ({
+  kind: "parameter",
+  pattern: {
+    kind: "identifierPattern",
+    name: ts.isIdentifier(parameter.name) ? parameter.name.text : `p${index + 1}`,
+  },
+  type: parameter.type
+    ? sourceTypeNodeToIrType(
+        parameter.type,
+        localTypeNameRemaps,
+        inScopeTypeParameters
+      )
+    : { kind: "unknownType" },
+  initializer: undefined,
+  isOptional: parameter.questionToken !== undefined,
+  isRest: parameter.dotDotDotToken !== undefined,
+  passing: "value",
+});
+
+const sourceTypeLiteralMembersToIrMembers = (
+  typeLiteralNode: ts.TypeLiteralNode,
+  localTypeNameRemaps: ReadonlyMap<string, string>,
+  inScopeTypeParameters: ReadonlySet<string>
+): readonly IrInterfaceMember[] => {
+  const members: IrInterfaceMember[] = [];
+  for (const member of typeLiteralNode.members) {
+    if (ts.isPropertySignature(member)) {
+      const propertyName = member.name ? getPropertyNameText(member.name) : undefined;
+      if (!propertyName || !member.type) continue;
+      members.push({
+        kind: "propertySignature",
+        name: propertyName,
+        type: sourceTypeNodeToIrType(
+          member.type,
+          localTypeNameRemaps,
+          inScopeTypeParameters
+        ),
+        isOptional: member.questionToken !== undefined,
+        isReadonly:
+          member.modifiers?.some(
+            (modifier) => modifier.kind === ts.SyntaxKind.ReadonlyKeyword
+          ) ?? false,
+      });
+      continue;
+    }
+
+    if (ts.isMethodSignature(member)) {
+      const methodName = member.name ? getPropertyNameText(member.name) : undefined;
+      if (!methodName) continue;
+      const nestedTypeParameters = new Set(inScopeTypeParameters);
+      member.typeParameters?.forEach((typeParameter) =>
+        nestedTypeParameters.add(typeParameter.name.text)
+      );
+      members.push({
+        kind: "methodSignature",
+        name: methodName,
+        typeParameters: member.typeParameters?.map((typeParameter) => ({
+          kind: "typeParameter",
+          name: typeParameter.name.text,
+          constraint: undefined,
+          default: undefined,
+        })),
+        parameters: member.parameters.map((parameter, index) =>
+          sourceParameterToIrParameter(
+            parameter,
+            index,
+            localTypeNameRemaps,
+            nestedTypeParameters
+          )
+        ),
+        returnType: member.type
+          ? sourceTypeNodeToIrType(
+              member.type,
+              localTypeNameRemaps,
+              nestedTypeParameters
+            )
+          : { kind: "voidType" },
+      });
+      continue;
+    }
+  }
+  return members;
+};
+
+export const buildTypeBindingFromSourceAnonymousStructuralAlias = (
+  alias: SourceAnonymousStructuralAliasPlan,
+  namespace: string,
+  assemblyName: string
+): FirstPartyBindingsType | undefined => {
+  const typeLiteralNode = parseSourceTypeLiteralNode(alias.sourceTypeText);
+  if (!typeLiteralNode) return undefined;
+
+  const effectiveNamespace = alias.declaringNamespace || namespace;
+  const declaringClrType = toClrTypeName(effectiveNamespace, alias.name);
+  const typeStableId = toStableId(assemblyName, declaringClrType);
+  const members = sourceTypeLiteralMembersToIrMembers(
+    typeLiteralNode,
+    alias.localTypeNameRemaps,
+    new Set()
+  );
+
+  const methods = [];
+  const properties = [];
+
+  for (const member of members) {
+    if (member.kind === "methodSignature") {
+      methods.push(
+        makeMethodBinding({
+          declaringClrType,
+          declaringAssemblyName: assemblyName,
+          methodName: member.name,
+          parameters: member.parameters,
+          returnType: member.returnType,
+          typeParameters: member.typeParameters,
+          arity: member.typeParameters?.length ?? 0,
+          parameterModifiers: buildParameterModifiers(member.parameters),
+          isStatic: false,
+          isAbstract: true,
+          localTypeNameRemaps: alias.localTypeNameRemaps,
+        })
+      );
+      continue;
+    }
+
+    properties.push({
+      stableId: `${typeStableId}::property:${member.name}`,
+      clrName: member.name,
+      normalizedSignature: `${member.name}|:${toSignatureType(
+        member.type,
+        [],
+        alias.localTypeNameRemaps
+      )}|static=false|accessor=${member.isReadonly ? "get" : "getset"}`,
+      semanticType: rewriteBindingSemanticType(
+        member.type,
+        alias.localTypeNameRemaps
+      ),
+      semanticOptional: member.isOptional,
+      isStatic: false,
+      isAbstract: false,
+      isVirtual: false,
+      isOverride: false,
+      isIndexer: false,
+      hasGetter: true,
+      hasSetter: !member.isReadonly,
+      declaringClrType,
+      declaringAssemblyName: assemblyName,
+    });
+  }
+
+  return {
+    stableId: typeStableId,
+    clrName: declaringClrType,
+    alias: toBindingTypeAlias(effectiveNamespace, alias.name),
+    assemblyName,
+    kind: "Class",
+    accessibility: "Public",
+    isAbstract: false,
+    isSealed: false,
+    isStatic: false,
+    arity: 0,
+    typeParameters: [],
+    methods,
+    properties,
+    fields: [],
+    events: [],
+    constructors: [
+      {
+        normalizedSignature: ".ctor|()|static=false",
+        isStatic: false,
+        parameterCount: 0,
+      },
+    ],
   };
 };

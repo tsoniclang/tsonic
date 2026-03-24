@@ -4,9 +4,11 @@ import type {
   Result,
   TsonicWorkspaceConfig,
 } from "../types.js";
+import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import {
   PACKAGE_MANIFEST_DIAGNOSTIC,
   manifestIsSatisfiedByLocalLibrary,
+  normalizeId,
 } from "./bindings/shared.js";
 import {
   mergeFrameworkReferences,
@@ -33,10 +35,31 @@ export {
   resolveInstalledPackageBindingsManifest,
 };
 
+type MergeManifestOptions = {
+  readonly workspaceRoot?: string;
+};
+
+const shouldMergeManifestTypeRoots = (
+  config: TsonicWorkspaceConfig,
+  manifest: NormalizedBindingsManifest,
+  options: MergeManifestOptions
+): boolean => {
+  const workspaceRoot = options.workspaceRoot;
+  if (!workspaceRoot) return true;
+
+  const surfacePackages = new Set(
+    resolveSurfaceCapabilities(config.surface, {
+      workspaceRoot,
+    }).requiredNpmPackages.map((pkg) => normalizeId(pkg))
+  );
+  return !surfacePackages.has(normalizeId(manifest.packageName));
+};
+
 export const mergeManifestIntoWorkspaceConfig = (
   config: TsonicWorkspaceConfig,
   manifest: NormalizedBindingsManifest,
-  conflictCode: string | undefined = undefined
+  conflictCode: string | undefined = undefined,
+  options: MergeManifestOptions = {}
 ): Result<TsonicWorkspaceConfig, string> => {
   const dotnet = config.dotnet ?? {};
   const testDotnet = config.testDotnet ?? {};
@@ -44,10 +67,17 @@ export const mergeManifestIntoWorkspaceConfig = (
     config,
     manifest
   );
+  const manifestTypeRoots = shouldMergeManifestTypeRoots(
+    config,
+    manifest,
+    options
+  )
+    ? manifest.requiredTypeRoots
+    : [];
   const mergedTypeRoots = [
     ...new Set([
       ...((dotnet.typeRoots ?? []) as readonly string[]),
-      ...manifest.requiredTypeRoots,
+      ...manifestTypeRoots,
     ]),
   ].sort((a, b) => a.localeCompare(b));
 
@@ -149,7 +179,8 @@ export const applyPackageManifestWorkspaceOverlay = (
     const merged = mergeManifestIntoWorkspaceConfig(
       current,
       manifest,
-      PACKAGE_MANIFEST_DIAGNOSTIC.conflictingRuntime
+      PACKAGE_MANIFEST_DIAGNOSTIC.conflictingRuntime,
+      { workspaceRoot }
     );
     if (!merged.ok) return merged;
     current = merged.value;

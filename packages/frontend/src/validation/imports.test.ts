@@ -216,6 +216,75 @@ describe("validateImports", () => {
     }
   });
 
+  it("does not warn on default imports from source packages", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tsonic-imports-"));
+    const sourceDir = path.join(tempRoot, "src");
+    const sourceFile = path.join(sourceDir, "main.ts");
+    const packageRoot = path.join(tempRoot, "node_modules", "@acme", "runtime");
+    fs.mkdirSync(path.join(sourceDir), { recursive: true });
+    fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+    fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+    fs.writeFileSync(
+      path.join(packageRoot, "package.json"),
+      JSON.stringify(
+        {
+          name: "@acme/runtime",
+          private: true,
+          type: "module",
+          exports: {
+            "./index.js": "./src/index.ts",
+          },
+        },
+        null,
+        2
+      ) + "\n",
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(packageRoot, "tsonic", "package-manifest.json"),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          kind: "tsonic-source-package",
+          surfaces: ["@tsonic/js"],
+          source: {
+            exports: {
+              "./index.js": "./src/index.ts",
+            },
+          },
+        },
+        null,
+        2
+      ) + "\n",
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(packageRoot, "src", "index.ts"),
+      "export default 1;\n",
+      "utf-8"
+    );
+
+    try {
+      const result = runValidation(
+        `
+          import value from "@acme/runtime/index.js";
+          void value;
+        `,
+        sourceFile,
+        tempRoot,
+        { surface: "@tsonic/js" }
+      );
+
+      expect(result.hasErrors).to.equal(false);
+      const warningCodes = result.diagnostics
+        .filter((diag) => diag.severity === "warning")
+        .map((diag) => diag.code);
+      expect(warningCodes.includes("TSN2001")).to.equal(false);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("allows canonical node module named imports when module bindings exist", () => {
     const testProgram = createTestProgram(
       `

@@ -65,6 +65,7 @@ const resolveOutputConfig = (
       targetFrameworks: configOutput.targetFrameworks ?? [
         workspaceConfig.dotnetVersion,
       ],
+      libraryPackaging: configOutput.libraryPackaging,
       nativeAot: cliOptions.noAot ? false : (configOutput.nativeAot ?? false),
       nativeLib: configOutput.nativeLib ?? "shared",
       generateDocumentation:

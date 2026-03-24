@@ -260,6 +260,55 @@ describe("CLI Surface Profiles", () => {
     }
   });
 
+  it("finds an ancestor installed surface package even when the active roots have no package.json", () => {
+    const workspaceRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-surface-nopkg-ancestor-")
+    );
+    const projectRoot = join(workspaceRoot, "packages", "app");
+    const externalRoot = mkdtempSync(join(tmpdir(), "tsonic-surface-pkg-"));
+    try {
+      mkdirSync(projectRoot, { recursive: true });
+
+      writeFileSync(
+        join(externalRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(externalRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@tsonic/js",
+            extends: [],
+            requiredTypeRoots: ["linked-types"],
+            requiredNpmPackages: ["@tsonic/js"],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+
+      const scopeRoot = join(workspaceRoot, "node_modules", "@tsonic");
+      mkdirSync(scopeRoot, { recursive: true });
+      symlinkSync(externalRoot, join(scopeRoot, "js"), "dir");
+
+      const caps = resolveSurfaceCapabilities("@tsonic/js", {
+        workspaceRoot: projectRoot,
+      });
+      expect(caps.requiredTypeRoots).to.include(
+        resolve(externalRoot, "linked-types")
+      );
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  });
+
   it("prefers sibling @tsonic surface packages over stray ancestor node_modules installs", () => {
     const originalTmpNodeModules = join(tmpdir(), "node_modules");
     const strayJsRoot = join(originalTmpNodeModules, "@tsonic", "js");

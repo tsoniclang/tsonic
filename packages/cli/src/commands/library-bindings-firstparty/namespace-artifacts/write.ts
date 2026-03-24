@@ -45,6 +45,7 @@ export const writeNamespaceArtifacts = (
     plan,
     sourceAliasLines: artifacts.sourceAliasLines,
     sourceAliasInternalImports: artifacts.sourceAliasInternalImports,
+    sourceAnonymousStructuralAliases: artifacts.sourceAnonymousStructuralAliases,
     anonymousStructuralAliases: artifacts.anonymousStructuralAliases,
   });
 

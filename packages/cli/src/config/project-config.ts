@@ -129,5 +129,19 @@ export const loadProjectConfig = (
     };
   }
 
+  const libraryPackaging = config.output?.libraryPackaging;
+  if (
+    libraryPackaging !== undefined &&
+    libraryPackaging !== "source-package" &&
+    libraryPackaging !== "bindings-library"
+  ) {
+    return {
+      ok: false,
+      error:
+        `${PROJECT_CONFIG_FILE}: 'output.libraryPackaging' must be 'source-package' or 'bindings-library' when present ` +
+        `(got '${String(libraryPackaging)}')`,
+    };
+  }
+
   return { ok: true, value: config };
 };

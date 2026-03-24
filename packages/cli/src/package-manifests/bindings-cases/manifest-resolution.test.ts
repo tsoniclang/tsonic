@@ -109,6 +109,7 @@ describe("package-manifest bindings", function () {
         packageManifest: {
           schemaVersion: 1,
           kind: "tsonic-source-package",
+          assemblyName: "Acme.Node.Runtime",
           surfaces: ["@tsonic/js"],
           requiredTypeRoots: ["."],
           runtime: {
@@ -132,6 +133,7 @@ describe("package-manifest bindings", function () {
       const manifest = result.ok ? result.value : null;
       expect(manifest).to.not.equal(null);
       expect(manifest?.sourceManifest).to.equal("package-manifest");
+      expect(manifest?.assemblyName).to.equal("Acme.Node.Runtime");
       expect(manifest?.requiredTypeRoots).to.deep.equal([
         "node_modules/@acme/node",
       ]);

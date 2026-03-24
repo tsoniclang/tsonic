@@ -199,9 +199,7 @@ describe("Program Creation – authoritative type roots", function () {
       fs.writeFileSync(
         path.join(projectNodejsRoot, "index.d.ts"),
         [
-          "export declare const path: {",
-          "  join(...parts: string[]): any;",
-          "};",
+          "export declare function join(...parts: string[]): any;",
           "export declare const process: {",
           "  cwd(): any;",
           "};",
@@ -212,8 +210,8 @@ describe("Program Creation – authoritative type roots", function () {
       fs.writeFileSync(
         entryPath,
         [
-          'import { path, process } from "@tsonic/nodejs/index.js";',
-          'export const joined = path.join("a", "b");',
+          'import { join, process } from "@tsonic/nodejs/index.js";',
+          'export const joined = join("a", "b");',
           "export const cwd = process.cwd();",
         ].join("\n")
       );
@@ -240,10 +238,11 @@ describe("Program Creation – authoritative type roots", function () {
       const visit = (node: ts.Node): void => {
         if (
           ts.isCallExpression(node) &&
-          ts.isPropertyAccessExpression(node.expression)
+          (ts.isIdentifier(node.expression) ||
+            ts.isPropertyAccessExpression(node.expression))
         ) {
           const callee = node.expression.getText(sourceFile);
-          if (callee === "path.join" || callee === "process.cwd") {
+          if (callee === "join" || callee === "process.cwd") {
             const signature = checker.getResolvedSignature(node);
             returnTypes.set(
               callee,
@@ -257,9 +256,9 @@ describe("Program Creation – authoritative type roots", function () {
 
       visit(sourceFile);
 
-      expect(returnTypes.get("path.join")).to.equal("string");
+      expect(returnTypes.get("join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
-      expect(declarationFlags.get("path.join")).to.equal(true);
+      expect(declarationFlags.get("join")).to.equal(true);
       expect(declarationFlags.get("process.cwd")).to.equal(true);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });

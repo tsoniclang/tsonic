@@ -125,7 +125,7 @@ describe("JSON NativeAOT registry", () => {
     const code = result.files.get("index.cs");
     expect(code).to.not.equal(undefined);
     expect(code).to.include(
-      'global::System.Text.Json.JsonSerializer.Deserialize<double>("123", TsonicJson.Options)'
+      'global::System.Text.Json.JsonSerializer.Deserialize<double>("123", global::MyApp.TsonicJson.Options)'
     );
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
   });

@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "chai";
@@ -8,6 +14,10 @@ import { getStableCliPath } from "../../test-cli-bin.js";
 export const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
 );
+const localJsPackageRoot = resolve(join(repoRoot, "..", "js", "versions", "10"));
+const linkedJsPackageRoot = existsSync(localJsPackageRoot)
+  ? localJsPackageRoot
+  : join(repoRoot, "node_modules/@tsonic/js");
 
 export const linkDir = (target: string, linkPath: string): void => {
   mkdirSync(dirname(linkPath), { recursive: true });
@@ -108,6 +118,7 @@ export const writeLibraryScaffold = (
     join(repoRoot, "node_modules/@tsonic/globals"),
     join(dir, "node_modules/@tsonic/globals")
   );
+  linkDir(linkedJsPackageRoot, join(dir, "node_modules/@tsonic/js"));
 
   return wsConfigPath;
 };

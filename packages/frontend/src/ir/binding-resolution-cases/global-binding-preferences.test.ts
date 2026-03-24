@@ -231,7 +231,7 @@ describe("Binding Resolution in IR", () => {
           readFileSync(
             resolvePath(
               process.cwd(),
-              "../../../nodejs/versions/10/index/bindings.json"
+              "../../../nodejs/versions/10/bindings.json"
             ),
             "utf-8"
           )

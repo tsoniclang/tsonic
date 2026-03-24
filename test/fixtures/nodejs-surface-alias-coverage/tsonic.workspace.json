@@ -4,10 +4,7 @@
   "surface": "@tsonic/js",
   "dotnet": {
     "typeRoots": ["node_modules/@tsonic/nodejs"],
-    "libraries": [
-      "../../../packages/cli/runtime/Tsonic.JSRuntime.dll",
-      "../../../packages/cli/runtime/nodejs.dll"
-    ],
+    "libraries": [],
     "frameworkReferences": ["Microsoft.AspNetCore.App"],
     "packageReferences": []
   }

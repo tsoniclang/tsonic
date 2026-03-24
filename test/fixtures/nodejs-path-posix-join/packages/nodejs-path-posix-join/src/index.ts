@@ -1,5 +1,5 @@
-import { path } from "@tsonic/nodejs/index.js";
+import { posix } from "@tsonic/nodejs/path.js";
 
 export function main(): void {
-  console.log(path.posix.join("a", "b", "c"));
+  console.log(posix.join("a", "b", "c"));
 }

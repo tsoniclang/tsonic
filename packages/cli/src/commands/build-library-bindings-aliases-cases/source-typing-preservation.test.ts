@@ -346,6 +346,13 @@ describe("build command (library bindings)", function () {
         Object.keys(rootBindings.semanticSurface?.exports ?? {})
       ).to.include("dispatch");
       expect(
+        (
+          rootBindings.semanticSurface?.exports as
+            | Record<string, { readonly signature?: unknown }>
+            | undefined
+        )?.renderMarkdownDomain?.signature
+      ).to.not.equal(undefined);
+      expect(
         (rootBindings.dotnet?.types ?? []).some(
           (t) => t.clrName === "Acme.Core.Entity"
         )
@@ -404,6 +411,10 @@ describe("build command (library bindings)", function () {
         /(set Maybe\(value: [^)]+undefined\)\s*;|Maybe: [^;]+undefined\s*;)/
       );
       expect(coreEntitiesInternal).to.include("data: Record<string, unknown>");
+      expect(coreEntitiesInternal).to.match(
+        /interface\s+__Anon_[A-Za-z0-9_]+\$instance\s*\{/
+      );
+      expect(coreEntitiesInternal).to.include("rendered: string;");
       expect(coreEntitiesInternal).to.match(
         /interface\s+ServeRequest\$instance\s+extends\s+BuildRequest/
       );
