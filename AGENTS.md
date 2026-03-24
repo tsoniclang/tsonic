@@ -86,3 +86,10 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 ## Compatibility Policy (IMPORTANT)
 
 - Backward compatibility is not required unless specifically and explicitly requested by the maintainer.
+
+## ESM Only (IMPORTANT)
+
+- ESM only. Do not introduce or keep non-ESM module wiring in source, declarations, tests, or generated package entrypoints.
+- Triple-slash TypeScript references such as `/// <reference ... />` are banned.
+- Do not use CommonJS patterns (`require`, `module.exports`, `export =`) or TypeScript namespace-style module shims as compatibility shortcuts.
+- Do not rely on ambient/preprocessing hacks to inject globals across modules; use explicit ESM imports/exports or compiler-managed package loading instead.

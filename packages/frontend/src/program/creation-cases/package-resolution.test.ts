@@ -120,6 +120,125 @@ describe("Program Creation – package resolution", function () {
     }
   });
 
+  it("should preserve symlinked source-package paths during program creation", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-symlinked-source-package-")
+    );
+    const externalRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-symlinked-source-package-ext-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const nodejsRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@tsonic",
+        "nodejs"
+      );
+      fs.mkdirSync(path.dirname(nodejsRoot), { recursive: true });
+
+      fs.mkdirSync(path.join(externalRoot, "src"), { recursive: true });
+      fs.mkdirSync(path.join(externalRoot, "tsonic"), { recursive: true });
+      fs.writeFileSync(
+        path.join(externalRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/nodejs",
+            version: "10.0.99-test",
+            type: "module",
+            exports: {
+              ".": "./src/index.ts",
+              "./path.js": "./src/path-module.ts",
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(externalRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+                "./path.js": "./src/path-module.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(externalRoot, "src", "index.ts"),
+        'export * as path from "./path-module.ts";\n'
+      );
+      fs.writeFileSync(
+        path.join(externalRoot, "src", "path-module.ts"),
+        'export const join = (...parts: string[]): string => parts.join("/");\n'
+      );
+      fs.symlinkSync(externalRoot, nodejsRoot, "dir");
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        [
+          'import * as nodePath from "@tsonic/nodejs/path.js";',
+          'export const ok = nodePath.join("alpha", "beta");',
+        ].join("\n")
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        typeRoots: [nodejsRoot],
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(
+        result.value.program
+          .getSourceFiles()
+          .some(
+            (sourceFile) =>
+              path.resolve(sourceFile.fileName) ===
+              path.resolve(path.join(nodejsRoot, "src", "path-module.ts"))
+          )
+      ).to.equal(true);
+      expect(
+        result.value.program
+          .getSourceFiles()
+          .some(
+            (sourceFile) =>
+              path.resolve(sourceFile.fileName) ===
+              path.resolve(path.join(externalRoot, "src", "path-module.ts"))
+          )
+      ).to.equal(false);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      fs.rmSync(externalRoot, { recursive: true, force: true });
+    }
+  });
+
   it("should include tsconfig declaration roots for local module augmentation", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-tsconfig-decls-")

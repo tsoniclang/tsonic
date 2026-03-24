@@ -8,6 +8,8 @@
  * just uses the pre-computed clrName directly (no string parsing).
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { IrImport, IrModule, IrImportSpecifier } from "@tsonic/frontend";
 import { EmitterContext, ImportBinding, LocalTypeInfo } from "../../types.js";
 import type { ModuleIdentity } from "../../emitter-types/core.js";
@@ -19,6 +21,70 @@ import {
   clrTypeNameToTypeAst,
   globallyQualifyTypeAst,
 } from "../format/backend-ast/utils.js";
+
+const projectedSourcePackagePathCache = new Map<string, string | null>();
+
+const tryProjectSourcePackagePathToModuleKey = (
+  resolvedPath: string
+): string | undefined => {
+  const normalizedPath = resolve(resolvedPath);
+  const cached = projectedSourcePackagePathCache.get(normalizedPath);
+  if (cached !== undefined) {
+    return cached ?? undefined;
+  }
+
+  let currentDir = dirname(normalizedPath);
+  for (;;) {
+    const manifestPath = join(currentDir, "tsonic", "package-manifest.json");
+    const packageJsonPath = join(currentDir, "package.json");
+    if (existsSync(manifestPath) && existsSync(packageJsonPath)) {
+      try {
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+          readonly kind?: unknown;
+        };
+        const packageJson = JSON.parse(
+          readFileSync(packageJsonPath, "utf-8")
+        ) as {
+          readonly name?: unknown;
+        };
+        if (
+          manifest.kind === "tsonic-source-package" &&
+          typeof packageJson.name === "string" &&
+          packageJson.name.length > 0
+        ) {
+          const relativeFromPackageRoot = relative(
+            currentDir,
+            normalizedPath
+          ).replace(/\\/g, "/");
+          if (
+            relativeFromPackageRoot.length > 0 &&
+            !relativeFromPackageRoot.startsWith("..") &&
+            !isAbsolute(relativeFromPackageRoot)
+          ) {
+            const projected = canonicalizeFilePath(
+              join(
+                "node_modules",
+                ...packageJson.name.split("/"),
+                relativeFromPackageRoot
+              )
+            );
+            projectedSourcePackagePathCache.set(normalizedPath, projected);
+            return projected;
+          }
+        }
+      } catch {
+        // Ignore malformed package metadata and continue climbing.
+      }
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      projectedSourcePackagePathCache.set(normalizedPath, null);
+      return undefined;
+    }
+    currentDir = parentDir;
+  }
+};
 
 /**
  * Process imports and build ImportBindings for local and CLR modules.
@@ -65,6 +131,9 @@ export const processImports = (
     const resolvedTargetPath = resolvedPath
       ? canonicalizeFilePath(resolvedPath)
       : undefined;
+    const projectedSourcePackagePath = resolvedPath
+      ? tryProjectSourcePackagePathToModuleKey(resolvedPath)
+      : undefined;
     const nodeModulesTargetPath = (() => {
       if (!resolvedTargetPath) return undefined;
       const marker = "/node_modules/";
@@ -76,6 +145,7 @@ export const processImports = (
       relativeTargetPath,
       resolvedTargetPath,
       nodeModulesTargetPath,
+      projectedSourcePackagePath,
     ].filter((candidate): candidate is string => !!candidate);
 
     for (const candidate of directCandidates) {

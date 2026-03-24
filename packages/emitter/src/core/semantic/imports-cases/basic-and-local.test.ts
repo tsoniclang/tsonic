@@ -3,6 +3,9 @@
  * Tests emission of .NET and local imports
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../../../emitter.js";
@@ -228,5 +231,104 @@ describe("Import Handling", () => {
     });
 
     expect(result).to.include("global::Acme.Math.index.clamp(10, 0, 5)");
+  });
+
+  it("should lower source-package imports when resolvedPath points to a sibling checkout", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-emitter-source-package-")
+    );
+
+    try {
+      const packageRoot = path.join(tempDir, "js-next", "versions", "10");
+      const resolvedConsolePath = path.join(packageRoot, "src", "console.ts");
+
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "10.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            source: { exports: { ".": "./src/index.ts" } },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(resolvedConsolePath, "export const error = console.error;\n");
+
+      const module: IrModule = {
+        kind: "module",
+        filePath: "src/App.ts",
+        namespace: "MyApp",
+        className: "App",
+        isStaticContainer: true,
+        imports: [
+          {
+            kind: "import",
+            source: "@tsonic/js/console.js",
+            isLocal: true,
+            isClr: false,
+            resolvedPath: resolvedConsolePath,
+            specifiers: [
+              {
+                kind: "named",
+                name: "error",
+                localName: "consoleError",
+                isType: false,
+              },
+            ],
+          },
+        ],
+        body: [
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "call",
+              callee: {
+                kind: "identifier",
+                name: "consoleError",
+              },
+              arguments: [{ kind: "literal", value: "x" }],
+              isOptional: false,
+            },
+          },
+        ],
+        exports: [],
+      };
+
+      const result = emitModule(module, {
+        moduleMap: new Map([
+          [
+            "node_modules/@tsonic/js/src/console",
+            {
+              namespace: "Tsonic.JSRuntime",
+              className: "console",
+              filePath: "node_modules/@tsonic/js/src/console",
+              hasRuntimeContainer: true,
+              hasTopLevelCode: false,
+              imports: [],
+              exports: [{ name: "error", isDefault: false, kind: "function" }],
+              exportedValueKinds: new Map([["error", "function"]]),
+              localTypes: new Map(),
+              hasTypeCollision: false,
+            },
+          ],
+        ]),
+      });
+
+      expect(result).to.include('global::Tsonic.JSRuntime.console.error("x")');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

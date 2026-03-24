@@ -37,6 +37,11 @@ export type ProgramContext = {
   readonly sourceRoot: string;
 
   /**
+   * Authoritative @tsonic package roots participating in the active wave.
+   */
+  readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
+
+  /**
    * Root namespace for generated module/type names.
    */
   readonly rootNamespace: string;

@@ -26,6 +26,7 @@ export type TsonicProgram = {
   readonly program: ts.Program;
   readonly checker: ts.TypeChecker;
   readonly options: CompilerOptions;
+  readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
   readonly sourceFiles: readonly ts.SourceFile[];
   /** Declaration files from typeRoots (globals, dotnet types, etc.) */
   readonly declarationSourceFiles: readonly ts.SourceFile[];

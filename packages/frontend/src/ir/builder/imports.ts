@@ -64,6 +64,8 @@ export const extractImports = (
           bindings: ctx.bindings,
           projectRoot: ctx.projectRoot,
           surface: ctx.surface,
+          authoritativeTsonicPackageRoots:
+            ctx.authoritativeTsonicPackageRoots,
         }
       );
       const isSourcePackage =

@@ -205,7 +205,8 @@ export const createProgram = (
     ["global"],
     resolutionAnchorFile,
     options.projectRoot,
-    surface
+    surface,
+    authoritativeTsonicPackageRoots
   );
   if (!globalSourceBindings.ok) {
     return error(
@@ -254,6 +255,16 @@ export const createProgram = (
     if (virtualText !== undefined) return virtualText;
     if (isPackageCoreGlobalsFile(fileName)) return "export {};\n";
     return originalReadFile(fileName);
+  };
+  const originalRealpath = host.realpath?.bind(host);
+  host.realpath = (fileName: string): string => {
+    if (tsOptions.preserveSymlinks) {
+      return path.resolve(fileName);
+    }
+    if (originalRealpath) {
+      return originalRealpath(fileName);
+    }
+    return path.resolve(fileName);
   };
 
   // Map of .NET namespace names to their declaration file paths
@@ -585,6 +596,7 @@ export const createProgram = (
     program,
     checker,
     options,
+    authoritativeTsonicPackageRoots,
     sourceFiles,
     declarationSourceFiles,
     metadata,

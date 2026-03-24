@@ -76,6 +76,7 @@ export const validateImportDeclaration = (
       bindings: program.bindings,
       projectRoot: program.options.projectRoot,
       surface: program.options.surface,
+      authoritativeTsonicPackageRoots: program.authoritativeTsonicPackageRoots,
     }
   );
 
