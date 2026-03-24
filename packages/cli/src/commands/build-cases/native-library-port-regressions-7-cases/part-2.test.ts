@@ -224,15 +224,11 @@ describe("build command (native library port regressions)", function () {
       }
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.include(
-        "global::demo.pkg.index.process.argv.Length"
-      );
+      expect(tree).to.include("global::demo.pkg.index.process.argv.Length");
       expect(tree).to.include(
         "new global::Tsonic.JSRuntime.JSArray<object>(global::demo.pkg.index.process.argv).length"
       );
-      expect(tree).to.not.include(
-        "global::demo.pkg.index.process.argv.length"
-      );
+      expect(tree).to.not.include("global::demo.pkg.index.process.argv.length");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

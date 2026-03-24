@@ -380,9 +380,7 @@ describe("Import Handling", () => {
             hasRuntimeContainer: true,
             hasTopLevelCode: false,
             imports: [],
-            exports: [
-              { name: "gzipSync", isDefault: false, kind: "function" },
-            ],
+            exports: [{ name: "gzipSync", isDefault: false, kind: "function" }],
             exportedValueKinds: new Map([["gzipSync", "function"]]),
             localTypes: new Map(),
             hasTypeCollision: false,

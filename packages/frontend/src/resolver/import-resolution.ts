@@ -14,6 +14,7 @@ import {
   getLocalResolutionBoundary,
   isPathWithinBoundary,
   resolveSourcePackageImport,
+  resolveSourcePackageImportFromPackageRoot,
 } from "./source-package-resolution.js";
 import { ClrBindingsResolver } from "./clr-bindings-resolver.js";
 import type { BindingRegistry } from "../program/bindings.js";
@@ -26,6 +27,74 @@ export type ResolveImportOptions = {
   readonly bindings?: BindingRegistry;
   readonly projectRoot?: string;
   readonly surface?: string;
+  readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
+};
+
+const findAuthoritativePackageRootForImport = (
+  importSpecifier: string,
+  authoritativeTsonicPackageRoots:
+    | ReadonlyMap<string, string>
+    | undefined
+): string | undefined => {
+  if (!authoritativeTsonicPackageRoots) {
+    return undefined;
+  }
+
+  let bestMatch: string | undefined;
+  for (const [packageName, packageRoot] of authoritativeTsonicPackageRoots) {
+    if (
+      importSpecifier === packageName ||
+      importSpecifier.startsWith(`${packageName}/`)
+    ) {
+      if (!bestMatch || packageName.length > bestMatch.length) {
+        bestMatch = packageName;
+      }
+      if (packageName === importSpecifier) {
+        return packageRoot;
+      }
+    }
+  }
+
+  return bestMatch
+    ? authoritativeTsonicPackageRoots.get(bestMatch)
+    : undefined;
+};
+
+const findCaseMismatchPath = (
+  containingDir: string,
+  resolvedPath: string
+): string | undefined => {
+  const relativePath = path.relative(containingDir, resolvedPath);
+  if (
+    relativePath === "" ||
+    relativePath.startsWith("..") ||
+    path.isAbsolute(relativePath)
+  ) {
+    return undefined;
+  }
+
+  const segments = relativePath.split(path.sep).filter((segment) => segment);
+  let currentDir = containingDir;
+
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i]!;
+    const entries = fs.readdirSync(currentDir);
+    if (entries.includes(segment)) {
+      currentDir = path.join(currentDir, segment);
+      continue;
+    }
+
+    const mismatchedEntry = entries.find(
+      (entry) => entry.toLowerCase() === segment.toLowerCase()
+    );
+    if (!mismatchedEntry) {
+      return undefined;
+    }
+
+    return path.join(currentDir, mismatchedEntry, ...segments.slice(i + 1));
+  }
+
+  return undefined;
 };
 
 /**
@@ -74,12 +143,24 @@ export const resolveImport = (
   // @tsonic/nodejs use their native source implementation instead of legacy
   // CLR facades when both are available.
   if (opts?.projectRoot) {
-    const sourcePackage = resolveSourcePackageImport(
+    const authoritativePackageRoot = findAuthoritativePackageRootForImport(
       canonicalImportSpecifier,
-      containingFile,
-      opts.surface,
-      opts.projectRoot
+      opts.authoritativeTsonicPackageRoots
     );
+    const sourcePackage =
+      authoritativePackageRoot !== undefined
+        ? resolveSourcePackageImportFromPackageRoot(
+            canonicalImportSpecifier,
+            authoritativePackageRoot,
+            opts.surface,
+            opts.projectRoot
+          )
+        : resolveSourcePackageImport(
+            canonicalImportSpecifier,
+            containingFile,
+            opts.surface,
+            opts.projectRoot
+          );
     if (!sourcePackage.ok) return sourcePackage;
     if (sourcePackage.value) {
       return ok({
@@ -201,16 +282,18 @@ export const resolveLocalImport = (
     );
   }
 
-  // Check case sensitivity
-  const realPath = fs.realpathSync(resolvedPath);
-  if (realPath !== resolvedPath && process.platform !== "win32") {
+  const caseMismatchPath =
+    process.platform === "win32"
+      ? undefined
+      : findCaseMismatchPath(containingDir, resolvedPath);
+  if (caseMismatchPath && caseMismatchPath !== resolvedPath) {
     return error(
       createDiagnostic(
         "TSN1003",
         "error",
         `Case mismatch in import path: "${importSpecifier}"`,
         undefined,
-        `File exists as: ${realPath}`
+        `File exists as: ${caseMismatchPath}`
       )
     );
   }

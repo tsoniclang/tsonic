@@ -326,9 +326,17 @@ export const createCompilerOptions = (
     options.surface ?? "clr",
     { projectRoot: options.projectRoot }
   );
+  const canonicalizePath = (filePath: string): string => {
+    const normalizedPath = path.resolve(filePath);
+    try {
+      return fs.realpathSync(normalizedPath);
+    } catch {
+      return normalizedPath;
+    }
+  };
   const resolveCommonRootDir = (...paths: readonly string[]): string => {
-    const [first, ...rest] = paths.map((filePath) => path.resolve(filePath));
-    let current = first ?? path.resolve(options.projectRoot);
+    const [first, ...rest] = paths.map(canonicalizePath);
+    let current = first ?? canonicalizePath(options.projectRoot);
 
     for (;;) {
       const containsAll = rest.every((candidate) => {
@@ -367,6 +375,7 @@ export const createCompilerOptions = (
   const baseConfig: ts.CompilerOptions = {
     ...defaultTsConfig,
     ...(options.strict === undefined ? {} : { strict: options.strict }),
+    preserveSymlinks: true,
     // rootDir must include both the workspace sourceRoot and any installed
     // source-package code under projectRoot/node_modules. In normal project
     // layouts sourceRoot sits under projectRoot, so this resolves to

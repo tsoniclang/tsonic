@@ -278,5 +278,94 @@ describe("Binding Resolution in IR", () => {
         member: "ExitCode",
       });
     });
+
+    it("prefers js primitive wrapper owners over CLR instance owners", () => {
+      const bindings = new BindingRegistry();
+      bindings.addBindings(
+        "/test/js-simple.json",
+        {
+          bindings: {
+            Boolean: {
+              kind: "global",
+              assembly: "Tsonic.JSRuntime",
+              type: "Tsonic.JSRuntime.Boolean",
+              csharpName: "Globals.Boolean",
+            },
+          },
+        }
+      );
+      bindings.addBindings(
+        "/test/js-index.json",
+        {
+          namespace: "Tsonic.JSRuntime",
+          types: [
+            {
+              clrName: "Tsonic.JSRuntime.Boolean",
+              assemblyName: "Tsonic.JSRuntime",
+              methods: [
+                {
+                  clrName: "toString",
+                  normalizedSignature:
+                    "toString|(System.Boolean):System.String|static=true",
+                  parameterCount: 1,
+                  declaringClrType: "Tsonic.JSRuntime.Boolean",
+                  declaringAssemblyName: "Tsonic.JSRuntime",
+                  isExtensionMethod: true,
+                },
+              ],
+              properties: [],
+              fields: [],
+            },
+          ],
+        }
+      );
+      bindings.addBindings(
+        "/test/system.json",
+        {
+          namespace: "System",
+          types: [
+            {
+              clrName: "System.Boolean",
+              assemblyName: "System.Runtime",
+              methods: [
+                {
+                  clrName: "ToString",
+                  normalizedSignature: "ToString|():System.String",
+                  parameterCount: 0,
+                  declaringClrType: "System.Boolean",
+                  declaringAssemblyName: "System.Runtime",
+                  isExtensionMethod: false,
+                },
+              ],
+              properties: [],
+              fields: [],
+            },
+          ],
+        }
+      );
+
+      const { ctx } = createTestProgram(
+        "export function test(flag: boolean): void {}",
+        bindings
+      );
+      const binding = resolveHierarchicalBinding(
+        {
+          kind: "identifier",
+          name: "flag",
+          declId: createTestDeclId(4),
+          inferredType: { kind: "primitiveType", name: "boolean" },
+        } satisfies IrIdentifierExpression,
+        "toString",
+        ctx
+      );
+
+      expect(binding).to.deep.include({
+        kind: "method",
+        assembly: "Tsonic.JSRuntime",
+        type: "Tsonic.JSRuntime.Boolean",
+        member: "toString",
+      });
+      expect(binding?.isExtensionMethod).to.equal(true);
+    });
   });
 });

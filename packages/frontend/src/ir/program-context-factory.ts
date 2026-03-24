@@ -302,6 +302,8 @@ export const createProgramContext = (
   return {
     projectRoot: program.options.projectRoot,
     sourceRoot: options.sourceRoot,
+    authoritativeTsonicPackageRoots:
+      program.authoritativeTsonicPackageRoots ?? new Map<string, string>(),
     rootNamespace: options.rootNamespace,
     surface: program.options.surface ?? "clr",
     checker: program.checker,

@@ -212,10 +212,12 @@ describe("Dependency Graph", function () {
         )
       ).to.equal(true);
       const packageEntryModule = result.value.modules.find(
-        (module) => module.filePath === "node_modules/@tsonic/nodejs/src/http/index.ts"
+        (module) =>
+          module.filePath === "node_modules/@tsonic/nodejs/src/http/index.ts"
       );
       const packageHelperModule = result.value.modules.find(
-        (module) => module.filePath === "node_modules/@tsonic/nodejs/src/http/helper.ts"
+        (module) =>
+          module.filePath === "node_modules/@tsonic/nodejs/src/http/helper.ts"
       );
       expect(packageEntryModule?.namespace).to.equal("nodejs.Http");
       expect(packageEntryModule?.className).to.equal("http");
@@ -223,6 +225,291 @@ describe("Dependency Graph", function () {
       expect(packageHelperModule?.className).to.equal("helper");
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should traverse source-package redirects behind global bindings", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-dependency-graph-global-redirect-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        'export const value = console.log("hello");\n'
+      );
+
+      const packageRoot = path.join(tempDir, "node_modules", "@fixture", "js");
+      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@fixture/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(path.join(packageRoot, "index.js"), "export {};\n");
+      fs.writeFileSync(
+        path.join(packageRoot, "index.d.ts"),
+        [
+          "declare global {",
+          "  const console: {",
+          "    log(message: string): void;",
+          "  };",
+          "}",
+          "",
+          "export {};",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              console: {
+                kind: "global",
+                assembly: "Fixture.JsRuntime",
+                type: "Fixture.JsRuntime.console",
+                sourceImport: "@fixture/js/console.js",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@fixture/js",
+            extends: [],
+            requiredTypeRoots: ["."],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@fixture/js"],
+            source: {
+              exports: {
+                "./console.js": "./src/console.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      const packageHelper = path.join(packageRoot, "src", "helper.ts");
+      fs.writeFileSync(
+        packageHelper,
+        "export const stringify = (message: string): string => message;\n"
+      );
+      const packageEntry = path.join(packageRoot, "src", "console.ts");
+      fs.writeFileSync(
+        packageEntry,
+        [
+          'import { stringify } from "./helper.ts";',
+          "export function log(message: string): void {",
+          "  void stringify(message);",
+          "}",
+        ].join("\n")
+      );
+
+      const result = buildModuleDependencyGraph(entryPath, {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@fixture/js",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const packageEntryModule = result.value.modules.find(
+        (module) =>
+          module.filePath === "node_modules/@fixture/js/src/console.ts"
+      );
+      const packageHelperModule = result.value.modules.find(
+        (module) => module.filePath === "node_modules/@fixture/js/src/helper.ts"
+      );
+
+      expect(packageEntryModule).to.not.equal(undefined);
+      expect(packageHelperModule).to.not.equal(undefined);
+      expect(packageEntryModule?.namespace).to.equal("Fixture.JsRuntime");
+      expect(packageEntryModule?.className).to.equal("console");
+      expect(packageHelperModule?.namespace).to.equal("Fixture.JsRuntime");
+      expect(packageHelperModule?.className).to.equal("helper");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should traverse symlinked source-package redirects behind global bindings", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-dependency-graph-global-redirect-link-")
+    );
+    const externalRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-dependency-graph-global-pkg-link-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        'export const value = console.log("hello");\n'
+      );
+
+      fs.mkdirSync(path.join(externalRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(externalRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(externalRoot, "package.json"),
+        JSON.stringify(
+          { name: "@fixture/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(path.join(externalRoot, "index.js"), "export {};\n");
+      fs.writeFileSync(
+        path.join(externalRoot, "index.d.ts"),
+        [
+          "declare global {",
+          "  const console: {",
+          "    log(message: string): void;",
+          "  };",
+          "}",
+          "",
+          "export {};",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        path.join(externalRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              console: {
+                kind: "global",
+                assembly: "Fixture.JsRuntime",
+                type: "Fixture.JsRuntime.console",
+                sourceImport: "@fixture/js/console.js",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(externalRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@fixture/js",
+            extends: [],
+            requiredTypeRoots: ["."],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(externalRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@fixture/js"],
+            source: {
+              exports: {
+                "./console.js": "./src/console.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(externalRoot, "src", "helper.ts"),
+        "export const stringify = (message: string): string => message;\n"
+      );
+      fs.writeFileSync(
+        path.join(externalRoot, "src", "console.ts"),
+        [
+          'import { stringify } from "./helper.ts";',
+          "export function log(message: string): void {",
+          "  void stringify(message);",
+          "}",
+        ].join("\n")
+      );
+
+      const scopeRoot = path.join(tempDir, "node_modules", "@fixture");
+      fs.mkdirSync(scopeRoot, { recursive: true });
+      fs.symlinkSync(externalRoot, path.join(scopeRoot, "js"), "dir");
+
+      const result = buildModuleDependencyGraph(entryPath, {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@fixture/js",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const packageEntryModule = result.value.modules.find(
+        (module) =>
+          module.filePath === "node_modules/@fixture/js/src/console.ts"
+      );
+      const packageHelperModule = result.value.modules.find(
+        (module) => module.filePath === "node_modules/@fixture/js/src/helper.ts"
+      );
+
+      expect(packageEntryModule).to.not.equal(undefined);
+      expect(packageHelperModule).to.not.equal(undefined);
+      expect(packageEntryModule?.namespace).to.equal("Fixture.JsRuntime");
+      expect(packageHelperModule?.namespace).to.equal("Fixture.JsRuntime");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      fs.rmSync(externalRoot, { recursive: true, force: true });
     }
   });
 
@@ -544,7 +831,8 @@ describe("Dependency Graph", function () {
 
       const processModule = result.value.modules.find(
         (module) =>
-          module.filePath === "node_modules/@tsonic/nodejs/src/process-module.ts"
+          module.filePath ===
+          "node_modules/@tsonic/nodejs/src/process-module.ts"
       );
       expect(processModule?.namespace).to.equal("nodejs");
       expect(processModule?.className).to.equal("ProcessModule");

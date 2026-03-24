@@ -1,5 +1,5 @@
 import type { SurfaceMode } from "../program/types.js";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,16 +66,6 @@ const normalizeSurfaceMode = (mode: SurfaceMode | undefined): SurfaceMode => {
 type ResolvedSurfacePackage = {
   readonly packageName: string;
   readonly packageRoot: string;
-};
-
-const isWithinDirectory = (parent: string, candidate: string): boolean => {
-  const base = resolve(parent).replace(/[/\\]+$/, "");
-  const resolvedCandidate = resolve(candidate).replace(/[/\\]+$/, "");
-  return (
-    resolvedCandidate === base ||
-    resolvedCandidate.startsWith(`${base}/`) ||
-    resolvedCandidate.startsWith(`${base}\\`)
-  );
 };
 
 const readPackageName = (pkgJsonPath: string): string | undefined => {
@@ -157,6 +147,67 @@ const getSurfacePackageName = (mode: SurfaceMode): string | undefined => {
   return trimmed;
 };
 
+const findPackageJsonAncestorRoots = (
+  projectRoot: string
+): readonly string[] => {
+  const roots: string[] = [];
+  let current = resolve(projectRoot);
+
+  for (;;) {
+    if (existsSync(join(current, "package.json"))) {
+      roots.push(current);
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      return roots;
+    }
+    current = parent;
+  }
+};
+
+const tryResolveWorkspaceInstalledSurfacePackage = (
+  packageName: string,
+  projectRoot: string
+): ResolvedSurfacePackage | undefined => {
+  const packagePathParts = packageName.startsWith("@")
+    ? packageName.split("/")
+    : [packageName];
+  const candidateRoot = join(projectRoot, "node_modules", ...packagePathParts);
+  if (!existsSync(join(candidateRoot, "package.json"))) {
+    return undefined;
+  }
+
+  try {
+    return {
+      packageName,
+      packageRoot: realpathSync(candidateRoot),
+    };
+  } catch {
+    return {
+      packageName,
+      packageRoot: resolve(candidateRoot),
+    };
+  }
+};
+
+const tryResolveProjectInstalledSurfacePackage = (
+  packageName: string,
+  projectRoot: string
+): ResolvedSurfacePackage | undefined => {
+  for (const candidateRoot of findPackageJsonAncestorRoots(projectRoot)) {
+    const installed = tryResolveWorkspaceInstalledSurfacePackage(
+      packageName,
+      candidateRoot
+    );
+    if (installed) {
+      return installed;
+    }
+  }
+
+  return undefined;
+};
+
 const resolveSurfacePackage = (
   mode: SurfaceMode,
   projectRoot: string
@@ -165,6 +216,17 @@ const resolveSurfacePackage = (
   const packageName = getSurfacePackageName(mode);
   if (!packageName) return undefined;
 
+  const workspaceInstalled = tryResolveProjectInstalledSurfacePackage(
+    packageName,
+    projectRoot
+  );
+  if (
+    workspaceInstalled &&
+    existsSync(join(workspaceInstalled.packageRoot, "tsonic.surface.json"))
+  ) {
+    return workspaceInstalled;
+  }
+
   const sibling = tryResolveSiblingSurfacePackage(packageName);
 
   try {
@@ -172,7 +234,6 @@ const resolveSurfacePackage = (
     const installed = { packageName, packageRoot: dirname(pkgJsonPath) };
     if (
       sibling &&
-      !isWithinDirectory(projectRoot, installed.packageRoot) &&
       existsSync(join(sibling.packageRoot, "tsonic.surface.json"))
     ) {
       return sibling;

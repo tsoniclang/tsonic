@@ -243,4 +243,180 @@ describe("resolveDependencyPackageRoot", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("preserves symlinked installed package roots for installed-first resolution", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-package-roots-symlink-installed-")
+    );
+
+    try {
+      const workspaceRoot = path.join(tempDir, "workspace");
+      const projectRoot = path.join(workspaceRoot, "apps", "proof");
+      const externalNodejsRoot = path.join(
+        tempDir,
+        "external",
+        "nodejs-next",
+        "versions",
+        "10"
+      );
+      const linkedNodejsRoot = path.join(
+        projectRoot,
+        "node_modules",
+        "@tsonic",
+        "nodejs"
+      );
+
+      fs.mkdirSync(projectRoot, { recursive: true });
+      fs.mkdirSync(externalNodejsRoot, { recursive: true });
+      fs.mkdirSync(path.dirname(linkedNodejsRoot), { recursive: true });
+
+      fs.writeFileSync(
+        path.join(externalNodejsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/nodejs", version: "10.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      fs.symlinkSync(externalNodejsRoot, linkedNodejsRoot, "dir");
+
+      expect(
+        resolveDependencyPackageRoot(
+          projectRoot,
+          "@tsonic/nodejs",
+          "installed-first"
+        )
+      ).to.equal(linkedNodejsRoot);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves sibling workspace packages from symlinked source-package roots", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-package-roots-symlink-wave-")
+    );
+
+    try {
+      const workspaceRoot = path.join(tempDir, "tsoniclang");
+      const nodejsSiblingRepo = path.join(workspaceRoot, "nodejs-next");
+      const jsSiblingRoot = path.join(workspaceRoot, "js-next", "versions", "10");
+      const consumerRoot = path.join(tempDir, "consumer");
+      const installedNodejsRoot = path.join(
+        consumerRoot,
+        "node_modules",
+        "@tsonic",
+        "nodejs"
+      );
+
+      fs.mkdirSync(path.join(nodejsSiblingRepo, "versions", "10"), {
+        recursive: true,
+      });
+      fs.mkdirSync(jsSiblingRoot, { recursive: true });
+      fs.mkdirSync(path.dirname(installedNodejsRoot), { recursive: true });
+
+      fs.writeFileSync(
+        path.join(nodejsSiblingRepo, "versions", "10", "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/nodejs", version: "10.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsSiblingRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "10.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      fs.symlinkSync(
+        path.join(nodejsSiblingRepo, "versions", "10"),
+        installedNodejsRoot,
+        "dir"
+      );
+
+      expect(resolveDependencyPackageRoot(installedNodejsRoot, "@tsonic/js")).to
+        .equal(jsSiblingRoot);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers sibling source packages over CLR siblings with the same package name", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-package-roots-source-preference-")
+    );
+
+    try {
+      const workspaceRoot = path.join(tempDir, "tsoniclang");
+      const nodejsRoot = path.join(workspaceRoot, "nodejs-next", "versions", "10");
+      const jsClrRoot = path.join(workspaceRoot, "js", "versions", "10");
+      const jsSourceRoot = path.join(workspaceRoot, "js-next", "versions", "10");
+
+      fs.mkdirSync(path.join(nodejsRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(jsClrRoot, { recursive: true });
+      fs.mkdirSync(path.join(jsSourceRoot, "tsonic"), { recursive: true });
+
+      fs.writeFileSync(
+        path.join(nodejsRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/nodejs", version: "10.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(nodejsRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: { exports: { ".": "./src/index.ts" } },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsClrRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "10.0.48", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsSourceRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/js", version: "10.0.49-next.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(jsSourceRoot, "tsonic", "package-manifest.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: { exports: { ".": "./src/index.ts" } },
+          },
+          null,
+          2
+        )
+      );
+
+      expect(resolveDependencyPackageRoot(nodejsRoot, "@tsonic/js")).to.equal(
+        jsSourceRoot
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

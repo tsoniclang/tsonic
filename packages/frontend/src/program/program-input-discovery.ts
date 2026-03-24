@@ -17,13 +17,29 @@ type SurfaceCapabilitiesLike = {
   readonly resolvedModes: readonly string[];
 };
 
+type SourcePackageManifest = {
+  readonly kind?: unknown;
+  readonly source?: {
+    readonly exports?: Record<string, unknown>;
+  };
+};
+
+const canonicalizeRootDirPath = (filePath: string): string => {
+  const normalizedPath = path.resolve(filePath);
+  try {
+    return fs.realpathSync(normalizedPath);
+  } catch {
+    return normalizedPath;
+  }
+};
+
 const resolveCommonRootDir = (paths: readonly string[]): string => {
   const [first, ...remaining] = paths;
   if (!first) {
     throw new Error("resolveCommonRootDir requires at least one path");
   }
-  const rest = remaining.map((filePath) => path.resolve(filePath));
-  let current = path.resolve(first);
+  const rest = remaining.map(canonicalizeRootDirPath);
+  let current = canonicalizeRootDirPath(first);
 
   for (;;) {
     const containsAll = rest.every((candidate) => {
@@ -43,6 +59,70 @@ const resolveCommonRootDir = (paths: readonly string[]): string => {
       return current;
     }
     current = parent;
+  }
+};
+
+const readSourcePackageManifest = (
+  packageRoot: string
+): SourcePackageManifest | undefined => {
+  const manifestPath = path.join(
+    packageRoot,
+    "tsonic",
+    "package-manifest.json"
+  );
+  if (!fs.existsSync(manifestPath)) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as
+      | SourcePackageManifest
+      | undefined;
+    if (parsed?.kind !== "tsonic-source-package") {
+      return undefined;
+    }
+    return parsed;
+  } catch {
+    return undefined;
+  }
+};
+
+const readSourcePackageEntryPath = (packageRoot: string): string | undefined => {
+  const manifest = readSourcePackageManifest(packageRoot);
+  const exportTarget = manifest?.source?.exports?.["."];
+  if (typeof exportTarget !== "string" || exportTarget.length === 0) {
+    return undefined;
+  }
+
+  return path.resolve(packageRoot, exportTarget);
+};
+
+const readTsonicDependencyNames = (
+  packageRoot: string
+): readonly string[] => {
+  const packageJsonPath = path.join(packageRoot, "package.json");
+  if (!fs.existsSync(packageJsonPath)) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")) as {
+      readonly dependencies?: Record<string, unknown>;
+      readonly peerDependencies?: Record<string, unknown>;
+      readonly optionalDependencies?: Record<string, unknown>;
+    };
+
+    return Array.from(
+      new Set(
+        [
+          ...Object.keys(parsed.dependencies ?? {}),
+          ...Object.keys(parsed.peerDependencies ?? {}),
+          ...Object.keys(parsed.optionalDependencies ?? {}),
+        ].filter((packageName) => packageName.startsWith("@tsonic/"))
+      )
+    );
+  } catch {
+    return [];
   }
 };
 
@@ -99,15 +179,74 @@ export const discoverProgramInputs = (
     if (fs.existsSync(absoluteRoot)) return absoluteRoot;
     return absoluteRoot;
   });
-  const typeRoots = resolvedRequestedTypeRoots;
-
   const authoritativeTsonicPackageRoots = new Map<string, string>();
-  for (const typeRoot of typeRoots) {
+  for (const typeRoot of resolvedRequestedTypeRoots) {
     const packageName = readPackageName(path.join(typeRoot, "package.json"));
     if (packageName?.startsWith("@tsonic/")) {
       authoritativeTsonicPackageRoots.set(packageName, typeRoot);
     }
   }
+
+  const waveQueue = Array.from(authoritativeTsonicPackageRoots.entries());
+  const visitedWaveRoots = new Set<string>();
+  while (waveQueue.length > 0) {
+    const [packageName, packageRoot] = waveQueue.shift()!;
+    const visitKey = `${packageName}::${path.resolve(packageRoot)}`;
+    if (visitedWaveRoots.has(visitKey)) {
+      continue;
+    }
+    visitedWaveRoots.add(visitKey);
+
+    if (!readSourcePackageManifest(packageRoot)) {
+      continue;
+    }
+
+    for (const dependencyName of readTsonicDependencyNames(packageRoot)) {
+      const dependencyRoot = resolveDependencyPackageRoot(
+        packageRoot,
+        dependencyName,
+        "sibling-first"
+      );
+      if (!dependencyRoot) {
+        continue;
+      }
+
+      const existingRoot = authoritativeTsonicPackageRoots.get(dependencyName);
+      const existingIsSourcePackage =
+        existingRoot !== undefined && readSourcePackageManifest(existingRoot);
+      const dependencyIsSourcePackage = readSourcePackageManifest(dependencyRoot);
+      if (
+        existingRoot !== undefined &&
+        existingRoot !== dependencyRoot &&
+        existingIsSourcePackage &&
+        !dependencyIsSourcePackage
+      ) {
+        continue;
+      }
+
+      if (existingRoot !== dependencyRoot) {
+        authoritativeTsonicPackageRoots.set(dependencyName, dependencyRoot);
+        waveQueue.push([dependencyName, dependencyRoot]);
+      }
+    }
+  }
+
+  const nonAuthoritativeTypeRoots = resolvedRequestedTypeRoots.filter(
+    (typeRoot) => {
+      const packageName = readPackageName(path.join(typeRoot, "package.json"));
+      return !packageName?.startsWith("@tsonic/");
+    }
+  );
+  const typeRoots = Array.from(
+    new Set<string>([
+      ...nonAuthoritativeTypeRoots,
+      ...authoritativeTsonicPackageRoots.values(),
+    ])
+  );
+
+  const sourcePackageEntryPaths = typeRoots
+    .map((typeRoot) => readSourcePackageEntryPath(typeRoot))
+    .filter((entryPath): entryPath is string => entryPath !== undefined);
 
   if (options.verbose && typeRoots.length > 0) {
     console.log(`TypeRoots: ${typeRoots.join(", ")}`);
@@ -151,6 +290,7 @@ export const discoverProgramInputs = (
     tsOptions.rootDir = resolveCommonRootDir([
       tsOptions.rootDir,
       ...absolutePaths,
+      ...sourcePackageEntryPaths,
     ]);
   }
   const projectDeclarationFiles = collectProjectIncludedDeclarationFiles(

@@ -71,6 +71,16 @@ const buildNullishSafeExpr = (
   right: stringLiteral("undefined"),
 });
 
+const buildJsStringCoercionExpr = (
+  exprAst: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: {
+    ...identifierExpression("global::Tsonic.JSRuntime.Globals.String"),
+  },
+  arguments: [exprAst],
+});
+
 /**
  * Emit a template literal as CSharpExpressionAst (interpolatedStringExpression)
  *
@@ -104,10 +114,12 @@ export const emitTemplateLiteral = (
       );
       currentContext = newContext;
 
-      // For nullish types, wrap in Convert.ToString(...) ?? "undefined"
-      const interpolationExpr = typeMayBeNullish(exprAtIndex.inferredType)
-        ? buildNullishSafeExpr(exprAst)
-        : exprAst;
+      const interpolationExpr =
+        currentContext.options.surface === "@tsonic/js"
+          ? buildJsStringCoercionExpr(exprAst)
+          : typeMayBeNullish(exprAtIndex.inferredType)
+            ? buildNullishSafeExpr(exprAst)
+            : exprAst;
 
       parts.push({ kind: "interpolation", expression: interpolationExpr });
     }

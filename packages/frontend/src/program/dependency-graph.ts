@@ -31,6 +31,7 @@ import {
 import { collectClosedWorldDynamicImportSites } from "../resolver/dynamic-import.js";
 import { loadBindings } from "./bindings.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+import { resolveSourceBindingFiles } from "./source-binding-imports.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -134,14 +135,18 @@ const queueResolvedLocalDependency = (
       currentFile,
       sourceRootAbs
     );
+    const canonicalResolvedPath =
+      ts.sys.realpath?.(resolvedPath) ?? resolvedPath;
+    const canonicalLocalBoundary =
+      ts.sys.realpath?.(localBoundary) ?? localBoundary;
 
     if (
-      resolvedPath.startsWith(localBoundary) &&
-      resolvedPath.endsWith(".ts") &&
-      !resolvedPath.endsWith(".d.ts")
+      canonicalResolvedPath.startsWith(canonicalLocalBoundary) &&
+      canonicalResolvedPath.endsWith(".ts") &&
+      !canonicalResolvedPath.endsWith(".d.ts")
     ) {
-      queue.push(resolvedPath);
-    } else if (!resolvedPath.startsWith(localBoundary)) {
+      queue.push(canonicalResolvedPath);
+    } else if (!canonicalResolvedPath.startsWith(canonicalLocalBoundary)) {
       diagnostics.push(
         createDiagnostic(
           "TSN1004",
@@ -153,7 +158,7 @@ const queueResolvedLocalDependency = (
             column: 1,
             length: importSpecifier.length,
           },
-          `Allowed root: ${localBoundary}`
+          `Allowed root: ${canonicalLocalBoundary}`
         )
       );
     }
@@ -209,19 +214,27 @@ export const buildModuleDependencyGraph = (
     ])
   ).map((typeRoot) =>
     ts.sys.resolvePath(
-      isAbsolute(typeRoot)
-        ? typeRoot
-        : resolve(options.projectRoot, typeRoot)
+      isAbsolute(typeRoot) ? typeRoot : resolve(options.projectRoot, typeRoot)
     )
   );
   const discoveryBindings = loadBindings(discoveryTypeRoots);
+  const globalSourceBindings = resolveSourceBindingFiles(
+    discoveryBindings,
+    ["global"],
+    entryAbs,
+    options.projectRoot,
+    options.surface ?? "clr"
+  );
+  if (!globalSourceBindings.ok) {
+    return error([globalSourceBindings.error]);
+  }
 
   // Track all discovered files for later type checking
   const allDiscoveredFiles: string[] = [];
 
   // BFS to discover all local imports
   const visited = new Set<string>();
-  const queue: string[] = [entryAbs];
+  const queue: string[] = [entryAbs, ...globalSourceBindings.value];
 
   // First pass: discover all files
   while (queue.length > 0) {

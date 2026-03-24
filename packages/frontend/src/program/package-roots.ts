@@ -28,6 +28,48 @@ const readPackageName = (pkgJsonPath: string): string | undefined => {
   return undefined;
 };
 
+const isSourcePackageRoot = (packageRoot: string): boolean => {
+  const manifestPath = path.join(packageRoot, "tsonic", "package-manifest.json");
+  if (!fs.existsSync(manifestPath)) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+      readonly kind?: unknown;
+    };
+    return parsed.kind === "tsonic-source-package";
+  } catch {
+    return false;
+  }
+};
+
+const isVersionedPackageRoot = (packageRoot: string): boolean =>
+  path.basename(path.dirname(path.resolve(packageRoot))) === "versions";
+
+const shouldPreferWorkspaceCandidate = (
+  existingRoot: string | undefined,
+  candidateRoot: string
+): boolean => {
+  if (!existingRoot) {
+    return true;
+  }
+
+  const existingIsSourcePackage = isSourcePackageRoot(existingRoot);
+  const candidateIsSourcePackage = isSourcePackageRoot(candidateRoot);
+  if (candidateIsSourcePackage !== existingIsSourcePackage) {
+    return candidateIsSourcePackage;
+  }
+
+  const existingIsVersioned = isVersionedPackageRoot(existingRoot);
+  const candidateIsVersioned = isVersionedPackageRoot(candidateRoot);
+  if (candidateIsVersioned !== existingIsVersioned) {
+    return candidateIsVersioned;
+  }
+
+  return false;
+};
+
 const sortVersionDirs = (dirs: readonly string[]): readonly string[] => {
   return [...dirs].sort((left, right) => {
     const leftNum = Number.parseInt(left, 10);
@@ -41,15 +83,29 @@ const sortVersionDirs = (dirs: readonly string[]): readonly string[] => {
   });
 };
 
-const getRepoRoot = (packageRoot: string): string => {
+const splitPackageNameSegments = (packageName: string): readonly string[] =>
+  packageName.startsWith("@") ? packageName.split("/") : [packageName];
+
+const normalizeWorkspaceLookupRoot = (packageRoot: string): string => {
   const absoluteRoot = path.resolve(packageRoot);
+  try {
+    return fs.realpathSync(absoluteRoot);
+  } catch {
+    return absoluteRoot;
+  }
+};
+
+const getRepoRoot = (packageRoot: string): string => {
+  const absoluteRoot = normalizeWorkspaceLookupRoot(packageRoot);
   if (path.basename(path.dirname(absoluteRoot)) === "versions") {
     return path.dirname(path.dirname(absoluteRoot));
   }
   return absoluteRoot;
 };
 
-const findNearestPackageRoot = (resolvedFilePath: string): string | undefined => {
+const findNearestPackageRoot = (
+  resolvedFilePath: string
+): string | undefined => {
   let currentDir = path.dirname(resolvedFilePath);
 
   for (;;) {
@@ -72,6 +128,23 @@ const tryResolveInstalledPackage = (
   const cached = installedPackageRootCache.get(cacheKey);
   if (cached !== undefined) {
     return cached;
+  }
+
+  const packageSegments = splitPackageNameSegments(packageName);
+  let currentDir = path.resolve(packageRoot);
+
+  for (;;) {
+    const candidate = path.join(currentDir, "node_modules", ...packageSegments);
+    if (fs.existsSync(path.join(candidate, "package.json"))) {
+      installedPackageRootCache.set(cacheKey, candidate);
+      return candidate;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+    currentDir = parentDir;
   }
 
   const packageJsonPath = path.join(packageRoot, "package.json");
@@ -126,7 +199,10 @@ const buildWorkspacePackageIndex = (
 
     const siblingRoot = path.join(normalizedWorkspaceRoot, entry.name);
     const siblingName = readPackageName(path.join(siblingRoot, "package.json"));
-    if (siblingName) {
+    if (
+      siblingName &&
+      shouldPreferWorkspaceCandidate(packageIndex.get(siblingName), siblingRoot)
+    ) {
       packageIndex.set(siblingName, siblingRoot);
     }
 
@@ -147,7 +223,13 @@ const buildWorkspacePackageIndex = (
       const candidateName = readPackageName(
         path.join(candidateRoot, "package.json")
       );
-      if (candidateName && !packageIndex.has(candidateName)) {
+      if (
+        candidateName &&
+        shouldPreferWorkspaceCandidate(
+          packageIndex.get(candidateName),
+          candidateRoot
+        )
+      ) {
         packageIndex.set(candidateName, candidateRoot);
       }
     }
@@ -198,4 +280,10 @@ export const resolveDependencyPackageRoot = (
   }
 
   return trySiblingFirst();
+};
+
+export const __resetDependencyPackageRootCachesForTests = (): void => {
+  packageNameCache.clear();
+  installedPackageRootCache.clear();
+  workspacePackageIndexCache.clear();
 };

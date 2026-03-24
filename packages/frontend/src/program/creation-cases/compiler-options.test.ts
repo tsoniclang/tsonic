@@ -76,4 +76,15 @@ describe("Program Creation – compiler options", function () {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("should preserve symlinked package paths during compilation", () => {
+    const options = createCompilerOptions({
+      projectRoot: "/tmp/app",
+      sourceRoot: "/tmp/app/src",
+      rootNamespace: "App",
+      surface: "@tsonic/js",
+    });
+
+    expect(options.preserveSymlinks).to.equal(true);
+  });
 });

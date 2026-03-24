@@ -4,6 +4,7 @@
  */
 
 import * as ts from "typescript";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -35,6 +36,7 @@ import {
   createResolveModuleFromPackageRoot,
 } from "./module-resolution.js";
 import { discoverProgramInputs } from "./program-input-discovery.js";
+import { resolveSourceBindingFiles } from "./source-binding-imports.js";
 
 const resolveMonorepoRoot = (): string => {
   const envRoot = process.env.TSONIC_REPO_ROOT?.trim();
@@ -46,6 +48,76 @@ const resolveMonorepoRoot = (): string => {
   return path.resolve(
     path.join(path.dirname(compilerContainingFile), "../../../..")
   );
+};
+
+const canonicalizeFilePath = (filePath: string): string => {
+  const normalizedPath = path.resolve(filePath);
+  try {
+    return fs.realpathSync(normalizedPath);
+  } catch {
+    return normalizedPath;
+  }
+};
+
+const resolveCommonRootDir = (paths: readonly string[]): string => {
+  const [first, ...remaining] = paths;
+  if (!first) {
+    throw new Error("resolveCommonRootDir requires at least one path");
+  }
+
+  const rest = remaining.map(canonicalizeFilePath);
+  let current = canonicalizeFilePath(first);
+
+  for (;;) {
+    const containsAll = rest.every((candidate) => {
+      const relative = path.relative(current, candidate);
+      return (
+        relative === "" ||
+        (!relative.startsWith("..") && !path.isAbsolute(relative))
+      );
+    });
+
+    if (containsAll) {
+      return current;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return current;
+    }
+    current = parent;
+  }
+};
+
+const dedupeCanonicalFilePaths = (
+  filePaths: readonly string[]
+): readonly string[] => {
+  const uniquePaths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const filePath of filePaths) {
+    const canonicalPath = canonicalizeFilePath(filePath);
+    if (seen.has(canonicalPath)) {
+      continue;
+    }
+
+    seen.add(canonicalPath);
+    uniquePaths.push(canonicalPath);
+  }
+
+  return uniquePaths;
+};
+
+const createSourceFilePathSet = (
+  filePaths: readonly string[]
+): ReadonlySet<string> => {
+  const canonicalPaths = new Set<string>();
+
+  for (const filePath of filePaths) {
+    canonicalPaths.add(canonicalizeFilePath(filePath));
+  }
+
+  return canonicalPaths;
 };
 
 /**
@@ -111,12 +183,12 @@ export const createProgram = (
     );
 
   const {
-    absolutePaths,
+    absolutePaths: discoveredAbsolutePaths,
     typeRoots,
     authoritativeTsonicPackageRoots,
     namespaceIndexFiles,
     virtualDeclarationSources,
-    allFiles,
+    allFiles: discoveredAllFiles,
     tsOptions,
   } = discoverProgramInputs(
     filePaths,
@@ -125,6 +197,36 @@ export const createProgram = (
     (pkgDirName) => resolveCompilerOwnedTsonicPackageRoot(pkgDirName) ?? null
   );
   const bindings = loadBindings(typeRoots);
+  const resolutionAnchorFile =
+    discoveredAbsolutePaths[0] ??
+    path.join(options.projectRoot, "__tsonic_resolver__.ts");
+  const globalSourceBindings = resolveSourceBindingFiles(
+    bindings,
+    ["global"],
+    resolutionAnchorFile,
+    options.projectRoot,
+    surface,
+    authoritativeTsonicPackageRoots
+  );
+  if (!globalSourceBindings.ok) {
+    return error(
+      addDiagnostic(createDiagnosticsCollector(), globalSourceBindings.error)
+    );
+  }
+  const absolutePaths = dedupeCanonicalFilePaths([
+    ...discoveredAbsolutePaths,
+    ...globalSourceBindings.value,
+  ]);
+  const allFiles = dedupeCanonicalFilePaths([
+    ...discoveredAllFiles,
+    ...globalSourceBindings.value,
+  ]);
+  if (typeof tsOptions.rootDir === "string" && absolutePaths.length > 0) {
+    tsOptions.rootDir = resolveCommonRootDir([
+      tsOptions.rootDir,
+      ...absolutePaths,
+    ]);
+  }
   const moduleResolutionCache = ts.createModuleResolutionCache(
     options.projectRoot,
     (fileName) =>
@@ -153,6 +255,16 @@ export const createProgram = (
     if (virtualText !== undefined) return virtualText;
     if (isPackageCoreGlobalsFile(fileName)) return "export {};\n";
     return originalReadFile(fileName);
+  };
+  const originalRealpath = host.realpath?.bind(host);
+  host.realpath = (fileName: string): string => {
+    if (tsOptions.preserveSymlinks) {
+      return path.resolve(fileName);
+    }
+    if (originalRealpath) {
+      return originalRealpath(fileName);
+    }
+    return path.resolve(fileName);
   };
 
   // Map of .NET namespace names to their declaration file paths
@@ -431,10 +543,13 @@ export const createProgram = (
   }
 
   // User source files (non-declaration files from input paths)
+  const sourceFilePaths = createSourceFilePathSet(absolutePaths);
   const sourceFiles = program
     .getSourceFiles()
     .filter(
-      (sf) => !sf.isDeclarationFile && absolutePaths.includes(sf.fileName)
+      (sf) =>
+        !sf.isDeclarationFile &&
+        sourceFilePaths.has(path.resolve(sf.fileName))
     );
 
   // Declaration files for TypeRegistry:
@@ -481,6 +596,7 @@ export const createProgram = (
     program,
     checker,
     options,
+    authoritativeTsonicPackageRoots,
     sourceFiles,
     declarationSourceFiles,
     metadata,

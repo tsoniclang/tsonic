@@ -64,6 +64,8 @@ export const extractImports = (
           bindings: ctx.bindings,
           projectRoot: ctx.projectRoot,
           surface: ctx.surface,
+          authoritativeTsonicPackageRoots:
+            ctx.authoritativeTsonicPackageRoots,
         }
       );
       const isSourcePackage =
@@ -82,10 +84,10 @@ export const extractImports = (
       // Note: Bindings are loaded upfront by discoverAndLoadClrBindings()
       // in dependency-graph.ts before IR building starts.
       const clrResolution = ctx.clrResolver.resolve(source);
-      const isClr = resolvedImportIsClr || (!resolvedImport.ok && clrResolution.isClr);
-      const clrAssembly = isClr && clrResolution.isClr
-        ? clrResolution.assembly
-        : undefined;
+      const isClr =
+        resolvedImportIsClr || (!resolvedImport.ok && clrResolution.isClr);
+      const clrAssembly =
+        isClr && clrResolution.isClr ? clrResolution.assembly : undefined;
 
       const getSourcePackageModuleBinding = (): ReturnType<
         ProgramContext["bindings"]["getBinding"]

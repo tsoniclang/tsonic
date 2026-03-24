@@ -285,6 +285,7 @@ const resolveMemberOverloadsForOwner = (
     if (preferredOwnerMatches.length > 0) {
       return preferredOwnerMatches;
     }
+    return undefined;
   }
 
   const ownerClrTypes = state.clrTypeNamesByAlias.get(ownerAlias);

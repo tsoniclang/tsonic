@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SurfaceMode } from "../program/types.js";
+import { resolveDependencyPackageRoot } from "../program/package-roots.js";
 import { createDiagnostic, type Diagnostic } from "../types/diagnostic.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import { error, ok, type Result } from "../types/result.js";
@@ -22,7 +23,7 @@ export type ResolvedSourcePackageImport = {
   readonly resolvedPath: string;
 };
 
-const installedPackageRootCache = new Map<string, string>();
+const installedPackageRootCache = new Map<string, string | null>();
 const containingSourcePackageRootCache = new Map<string, string>();
 
 const splitPackageNameSegments = (packageName: string): readonly string[] =>
@@ -35,7 +36,7 @@ const findInstalledPackageRoot = (
   const cacheKey = `${path.resolve(containingFile)}::${packageName}`;
   const cached = installedPackageRootCache.get(cacheKey);
   if (cached !== undefined) {
-    return cached;
+    return cached ?? undefined;
   }
   const packageSegments = splitPackageNameSegments(packageName);
   let currentDir = path.dirname(path.resolve(containingFile));
@@ -49,10 +50,27 @@ const findInstalledPackageRoot = (
 
     const parentDir = path.dirname(currentDir);
     if (parentDir === currentDir) {
-      return undefined;
+      break;
     }
     currentDir = parentDir;
   }
+
+  const containingSourcePackageRoot =
+    findContainingSourcePackageRoot(containingFile);
+  if (containingSourcePackageRoot) {
+    const siblingDependencyRoot = resolveDependencyPackageRoot(
+      containingSourcePackageRoot,
+      packageName,
+      "sibling-first"
+    );
+    if (siblingDependencyRoot) {
+      installedPackageRootCache.set(cacheKey, siblingDependencyRoot);
+      return siblingDependencyRoot;
+    }
+  }
+
+  installedPackageRootCache.set(cacheKey, null);
+  return undefined;
 };
 
 const findContainingSourcePackageRoot = (
@@ -350,24 +368,15 @@ const resolveExportTarget = (
   return ok(absolute);
 };
 
-export const resolveSourcePackageImport = (
-  importSpecifier: string,
-  containingFile: string,
+const resolveSourcePackageImportFromRoot = (
+  parsedSpecifier: {
+    readonly packageName: string;
+    readonly subpath: string | undefined;
+  },
+  packageRoot: string,
   activeSurface: SurfaceMode | undefined,
   projectRoot: string
 ): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
-  const parsedSpecifier = parsePackageSpecifier(importSpecifier);
-  if (!parsedSpecifier) {
-    return ok(null);
-  }
-
-  const packageRoot = findInstalledPackageRoot(
-    parsedSpecifier.packageName,
-    containingFile
-  );
-  if (!packageRoot) {
-    return ok(null);
-  }
   const manifestPath = path.join(
     packageRoot,
     "tsonic",
@@ -445,4 +454,83 @@ export const resolveSourcePackageImport = (
     packageRoot,
     resolvedPath: resolvedTarget.value,
   });
+};
+
+export const resolveSourcePackageImportFromPackageRoot = (
+  importSpecifier: string,
+  packageRoot: string,
+  activeSurface: SurfaceMode | undefined,
+  projectRoot: string
+): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
+  const parsedSpecifier = parsePackageSpecifier(importSpecifier);
+  if (!parsedSpecifier) {
+    return ok(null);
+  }
+
+  return resolveSourcePackageImportFromRoot(
+    parsedSpecifier,
+    packageRoot,
+    activeSurface,
+    projectRoot
+  );
+};
+
+export const resolveSourcePackageImport = (
+  importSpecifier: string,
+  containingFile: string,
+  activeSurface: SurfaceMode | undefined,
+  projectRoot: string
+): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
+  const parsedSpecifier = parsePackageSpecifier(importSpecifier);
+  if (!parsedSpecifier) {
+    return ok(null);
+  }
+
+  const packageRoot = findInstalledPackageRoot(
+    parsedSpecifier.packageName,
+    containingFile
+  );
+  if (!packageRoot) {
+    return ok(null);
+  }
+
+  const resolvedFromInstalledRoot = resolveSourcePackageImportFromRoot(
+    parsedSpecifier,
+    packageRoot,
+    activeSurface,
+    projectRoot
+  );
+  if (!resolvedFromInstalledRoot.ok || resolvedFromInstalledRoot.value) {
+    return resolvedFromInstalledRoot;
+  }
+
+  const containingSourcePackageRoot =
+    findContainingSourcePackageRoot(containingFile);
+  if (!containingSourcePackageRoot) {
+    return resolvedFromInstalledRoot;
+  }
+
+  const siblingDependencyRoot = resolveDependencyPackageRoot(
+    containingSourcePackageRoot,
+    parsedSpecifier.packageName,
+    "sibling-first"
+  );
+  if (
+    !siblingDependencyRoot ||
+    path.resolve(siblingDependencyRoot) === path.resolve(packageRoot)
+  ) {
+    return resolvedFromInstalledRoot;
+  }
+
+  return resolveSourcePackageImportFromRoot(
+    parsedSpecifier,
+    siblingDependencyRoot,
+    activeSurface,
+    projectRoot
+  );
+};
+
+export const __resetSourcePackageResolutionCachesForTests = (): void => {
+  installedPackageRootCache.clear();
+  containingSourcePackageRootCache.clear();
 };
