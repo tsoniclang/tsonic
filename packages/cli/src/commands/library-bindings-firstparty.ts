@@ -11,6 +11,9 @@ import { writeNamespaceArtifacts } from "./library-bindings-firstparty/namespace
 import { collectNamespacePlans } from "./library-bindings-firstparty/namespace-planning.js";
 import type { ModuleSourceIndex } from "./library-bindings-firstparty/types.js";
 
+const toPackageModulePrefix = (packageName: string): string =>
+  `node_modules/${packageName.replace(/\//g, "/")}/`;
+
 export const generateFirstPartyLibraryBindings = (
   config: ResolvedConfig,
   bindingsOutDir: string
@@ -64,6 +67,23 @@ export const generateFirstPartyLibraryBindings = (
     };
   }
 
+  const skippedPackagePrefixes = new Set(
+    surfaceCapabilities.requiredNpmPackages.map(toPackageModulePrefix)
+  );
+  const shouldSkipBindingsModule = (moduleFilePath: string): boolean => {
+    const moduleKey = normalizeModuleFileKey(moduleFilePath);
+    if (moduleKey.startsWith("__tsonic/")) return true;
+    for (const prefix of skippedPackagePrefixes) {
+      if (moduleKey.startsWith(prefix)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const bindingModules = graphResult.value.modules.filter(
+    (module) => !shouldSkipBindingsModule(module.filePath)
+  );
+
   rmSync(bindingsOutDir, { recursive: true, force: true });
   mkdirSync(bindingsOutDir, { recursive: true });
 
@@ -75,8 +95,7 @@ export const generateFirstPartyLibraryBindings = (
   };
 
   const sourceIndexByFileKey = new Map<string, ModuleSourceIndex>();
-  for (const module of graphResult.value.modules) {
-    if (module.filePath.startsWith("__tsonic/")) continue;
+  for (const module of bindingModules) {
     const moduleKey = normalizeModuleFileKey(module.filePath);
     const absolutePath = resolveModuleAbsolutePath(module.filePath);
     const indexed = buildModuleSourceIndex(absolutePath, moduleKey);
@@ -85,7 +104,7 @@ export const generateFirstPartyLibraryBindings = (
   }
 
   const plansResult = collectNamespacePlans(
-    graphResult.value.modules,
+    bindingModules,
     config.outputName,
     config.rootNamespace,
     sourceIndexByFileKey

@@ -4,10 +4,13 @@ import type {
   IrInterfaceDeclaration,
   IrTypeAliasDeclaration,
 } from "@tsonic/frontend";
+import * as ts from "typescript";
 import { isPublicOverloadSurfaceMethod } from "../binding-semantics.js";
 import {
   applyWrappersToBaseType,
   ensureUndefinedInType,
+  getPropertyNameText,
+  printTypeNodeText,
   printTypeParameters,
   renderBindingAliasMarker,
   renderMethodSignature,
@@ -15,6 +18,7 @@ import {
   sanitizeForBrand,
 } from "../portable-types.js";
 import {
+  rewriteSourceTypeText,
   renderSourceFunctionSignatures,
   renderSourceFunctionType,
   renderSourceValueType,
@@ -23,6 +27,7 @@ import type {
   AnonymousStructuralAliasInfo,
   MemberOverride,
   ModuleContainerEntry,
+  SourceAnonymousStructuralAliasPlan,
 } from "../types.js";
 
 export const renderClassInternal = (
@@ -32,7 +37,11 @@ export const renderClassInternal = (
   emittedName = declaration.name,
   localTypeNameRemaps: ReadonlyMap<string, string> = new Map(),
   brandName = declaration.name,
-  bindingAlias = declaration.name
+  bindingAlias = declaration.name,
+  anonymousStructuralAliases: ReadonlyMap<
+    string,
+    AnonymousStructuralAliasInfo
+  > = new Map()
 ): readonly string[] => {
   const lines: string[] = [];
   const isSyntheticAnonymousStructuralClass =
@@ -120,11 +129,18 @@ export const renderClassInternal = (
       const baseType =
         (memberOverride?.replaceWithSourceType
           ? memberOverride.sourceTypeText
+            ? rewriteSourceTypeText(
+                memberOverride.sourceTypeText,
+                localTypeNameRemaps,
+                anonymousStructuralAliases
+              )
+            : undefined
           : undefined) ??
         renderPortableType(
           member.type,
           typeParameterScope,
-          localTypeNameRemaps
+          localTypeNameRemaps,
+          anonymousStructuralAliases
         );
       const wrappedType = applyWrappersToBaseType(
         baseType,
@@ -205,7 +221,11 @@ export const renderInterfaceInternal = (
   emittedName = declaration.name,
   localTypeNameRemaps: ReadonlyMap<string, string> = new Map(),
   brandName = declaration.name,
-  bindingAlias = declaration.name
+  bindingAlias = declaration.name,
+  anonymousStructuralAliases: ReadonlyMap<
+    string,
+    AnonymousStructuralAliasInfo
+  > = new Map()
 ): readonly string[] => {
   const lines: string[] = [];
   const typeParameterScope = (declaration.typeParameters ?? []).map(
@@ -261,11 +281,18 @@ export const renderInterfaceInternal = (
       const baseType =
         (memberOverride?.replaceWithSourceType
           ? memberOverride.sourceTypeText
+            ? rewriteSourceTypeText(
+                memberOverride.sourceTypeText,
+                localTypeNameRemaps,
+                anonymousStructuralAliases
+              )
+            : undefined
           : undefined) ??
         renderPortableType(
           member.type,
           typeParameterScope,
-          localTypeNameRemaps
+          localTypeNameRemaps,
+          anonymousStructuralAliases
         );
       const wrappedType = applyWrappersToBaseType(
         baseType,
@@ -316,7 +343,11 @@ export const renderStructuralAliasInternal = (
     (declaration.typeParameters?.length ?? 0) > 0
       ? `_${declaration.typeParameters?.length ?? 0}`
       : ""
-  }`
+  }`,
+  anonymousStructuralAliases: ReadonlyMap<
+    string,
+    AnonymousStructuralAliasInfo
+  > = new Map()
 ): readonly string[] => {
   if (declaration.type.kind !== "objectType") return [];
 
@@ -352,11 +383,18 @@ export const renderStructuralAliasInternal = (
       const baseType =
         (memberOverride?.replaceWithSourceType
           ? memberOverride.sourceTypeText
+            ? rewriteSourceTypeText(
+                memberOverride.sourceTypeText,
+                localTypeNameRemaps,
+                anonymousStructuralAliases
+              )
+            : undefined
           : undefined) ??
         renderPortableType(
           member.type,
           typeParameterScope,
-          localTypeNameRemaps
+          localTypeNameRemaps,
+          anonymousStructuralAliases
         );
       const wrappedType = applyWrappersToBaseType(
         baseType,
@@ -402,6 +440,98 @@ export const renderTypeAliasInternal = (
     )};`,
     "",
   ];
+};
+
+export const renderSourceAnonymousStructuralAliasInternal = (
+  alias: SourceAnonymousStructuralAliasPlan,
+  namespace: string,
+  anonymousStructuralAliases: ReadonlyMap<
+    string,
+    AnonymousStructuralAliasInfo
+  > = new Map()
+): readonly string[] => {
+  const sourceFile = ts.createSourceFile(
+    "__tsonic_source_anon__.ts",
+    `type __T = ${alias.sourceTypeText};`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const statement = sourceFile.statements[0];
+  if (!statement || !ts.isTypeAliasDeclaration(statement)) return [];
+  if (!ts.isTypeLiteralNode(statement.type)) return [];
+
+  const lines: string[] = [];
+  lines.push(`export interface ${alias.name}$instance {`);
+  lines.push(renderBindingAliasMarker(alias.declaringNamespace || namespace, alias.name));
+  for (const member of statement.type.members) {
+    if (ts.isPropertySignature(member)) {
+      const propertyName = member.name
+        ? getPropertyNameText(member.name)
+        : undefined;
+      if (!propertyName) continue;
+      const optionalMark = member.questionToken ? "?" : "";
+      const readonlyMark =
+        member.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.ReadonlyKeyword
+        ) ?? false
+          ? "readonly "
+          : "";
+      const propertyTypeText = member.type
+        ? rewriteSourceTypeText(
+            printTypeNodeText(member.type, sourceFile),
+            alias.localTypeNameRemaps,
+            anonymousStructuralAliases
+          )
+        : "unknown";
+      lines.push(
+        `    ${readonlyMark}${propertyName}${optionalMark}: ${propertyTypeText};`
+      );
+      continue;
+    }
+    if (ts.isMethodSignature(member)) {
+      const methodName = member.name ? getPropertyNameText(member.name) : undefined;
+      if (!methodName) continue;
+      const typeParametersText = member.typeParameters
+        ? `<${member.typeParameters
+            .map((typeParameter) => typeParameter.name.text)
+            .join(", ")}>`
+        : "";
+      const parametersText = member.parameters
+        .map((parameter, index) => {
+          const parameterName = ts.isIdentifier(parameter.name)
+            ? parameter.name.text
+            : `p${index + 1}`;
+          const optionalMark = parameter.questionToken ? "?" : "";
+          const restPrefix = parameter.dotDotDotToken ? "..." : "";
+          const parameterTypeText = parameter.type
+            ? rewriteSourceTypeText(
+                printTypeNodeText(parameter.type, sourceFile),
+                alias.localTypeNameRemaps,
+                anonymousStructuralAliases
+              )
+            : "unknown";
+          return `${restPrefix}${parameterName}${optionalMark}: ${parameterTypeText}`;
+        })
+        .join(", ");
+      const returnTypeText = member.type
+        ? rewriteSourceTypeText(
+            printTypeNodeText(member.type, sourceFile),
+            alias.localTypeNameRemaps,
+            anonymousStructuralAliases
+          )
+        : "void";
+      lines.push(
+        `    ${methodName}${typeParametersText}(${parametersText}): ${returnTypeText};`
+      );
+      continue;
+    }
+  }
+  lines.push("}");
+  lines.push("");
+  lines.push(`export type ${alias.name} = ${alias.name}$instance;`);
+  lines.push("");
+  return lines;
 };
 
 export const renderContainerInternal = (

@@ -450,9 +450,15 @@ const createImportBinding = (
   }
 
   if (spec.kind === "default") {
-    throw new Error(
-      `Default imports are not supported for local modules (import ${localName} from ...). Use named exports or namespace imports.`
-    );
+    return {
+      localName,
+      importBinding: {
+        kind: "namespace",
+        clrName: valueContainerFqn,
+        memberKinds: exportedValueKinds,
+        moduleObject: true,
+      },
+    };
   }
 
   if (spec.kind === "namespace") {

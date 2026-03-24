@@ -7,20 +7,36 @@ import type {
   IrType,
   IrTypeAliasDeclaration,
 } from "@tsonic/frontend";
+import * as ts from "typescript";
 import {
   isPortableMarkerMemberName,
   renderPortableType,
   renderReferenceType,
 } from "./portable-types.js";
-import type { AnonymousStructuralAliasInfo, NamespacePlan } from "./types.js";
+import { renderSourceTypeNodeForAliasLookup } from "./source-type-text.js";
+import type {
+  AnonymousStructuralAliasInfo,
+  NamespacePlan,
+  SourceAnonymousStructuralAliasPlan,
+} from "./types.js";
 
 export const isGeneratedStructuralHelperName = (name: string): boolean =>
   name.startsWith("__Anon_") || /__\d+$/.test(name);
 
 export const buildAnonymousStructuralAliasMap = (
-  plan: NamespacePlan
+  plan: NamespacePlan,
+  sourceAnonymousStructuralAliases: readonly SourceAnonymousStructuralAliasPlan[] = []
 ): ReadonlyMap<string, AnonymousStructuralAliasInfo> => {
-  const aliases = new Map<string, AnonymousStructuralAliasInfo[]>();
+  const aliases = new Map<string, Map<string, AnonymousStructuralAliasInfo>>();
+
+  const registerAlias = (
+    shape: string,
+    alias: AnonymousStructuralAliasInfo
+  ): void => {
+    const existing = aliases.get(shape) ?? new Map<string, AnonymousStructuralAliasInfo>();
+    existing.set(alias.name, alias);
+    aliases.set(shape, existing);
+  };
 
   const registerAnonymousClass = (
     localName: string,
@@ -60,15 +76,13 @@ export const buildAnonymousStructuralAliasMap = (
       new Map(),
       new Map()
     );
-    const existing = aliases.get(shape) ?? [];
-    existing.push({
+    registerAlias(shape, {
       name: localName,
       typeParameters:
         declaration.typeParameters?.map(
           (typeParameter) => typeParameter.name
         ) ?? [],
     });
-    aliases.set(shape, existing);
   };
 
   for (const symbol of plan.typeDeclarations) {
@@ -89,10 +103,31 @@ export const buildAnonymousStructuralAliasMap = (
     );
   }
 
+  for (const sourceAlias of sourceAnonymousStructuralAliases) {
+    const sourceFile = ts.createSourceFile(
+      "__tsonic_source_anon__.ts",
+      `type __T = ${sourceAlias.sourceTypeText};`,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
+    const statement = sourceFile.statements[0];
+    if (!statement || !ts.isTypeAliasDeclaration(statement)) continue;
+    if (!ts.isTypeLiteralNode(statement.type)) continue;
+    const shape = renderSourceTypeNodeForAliasLookup(
+      statement.type,
+      sourceAlias.localTypeNameRemaps
+    );
+    registerAlias(shape, {
+      name: sourceAlias.name,
+      typeParameters: [],
+    });
+  }
+
   const uniqueAliases = new Map<string, AnonymousStructuralAliasInfo>();
   for (const [shape, candidates] of aliases.entries()) {
-    if (candidates.length !== 1) continue;
-    const onlyCandidate = candidates[0];
+    if (candidates.size !== 1) continue;
+    const onlyCandidate = Array.from(candidates.values())[0];
     if (!onlyCandidate) continue;
     uniqueAliases.set(shape, onlyCandidate);
   }

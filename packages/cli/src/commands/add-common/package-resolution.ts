@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -89,6 +89,23 @@ const tryResolveSiblingTsonicPackageRoot = (
   return undefined;
 };
 
+const tryResolveWorkspaceInstalledPackageRoot = (
+  projectRoot: string,
+  packageName: string
+): string | undefined => {
+  const parts = packageName.startsWith("@")
+    ? packageName.split("/")
+    : [packageName];
+  const candidateRoot = join(projectRoot, "node_modules", ...parts);
+  if (!existsSync(join(candidateRoot, "package.json"))) return undefined;
+
+  try {
+    return realpathSync(candidateRoot);
+  } catch {
+    return resolve(candidateRoot);
+  }
+};
+
 export const resolveTsbindgenDllPath = (
   projectRoot: string
 ): Result<string, string> => {
@@ -126,6 +143,15 @@ export const resolvePackageRoot = (
   projectRoot: string,
   packageName: string
 ): Result<string, string> => {
+  const workspaceInstalled = tryResolveWorkspaceInstalledPackageRoot(
+    projectRoot,
+    packageName
+  );
+  if (workspaceInstalled) return { ok: true, value: workspaceInstalled };
+
+  const sibling = tryResolveSiblingTsonicPackageRoot(packageName);
+  if (sibling) return { ok: true, value: sibling };
+
   const projectPkgJson = join(projectRoot, "package.json");
   const req = createRequire(
     existsSync(projectPkgJson)
@@ -144,9 +170,6 @@ export const resolvePackageRoot = (
     } catch {
       // ignore - fall through to user-friendly error below
     }
-
-    const sibling = tryResolveSiblingTsonicPackageRoot(packageName);
-    if (sibling) return { ok: true, value: sibling };
 
     return {
       ok: false,

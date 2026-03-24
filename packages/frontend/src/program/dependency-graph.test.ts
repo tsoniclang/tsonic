@@ -881,7 +881,11 @@ describe("Dependency Graph", function () {
       expect(result.value.bindings.get("Error")?.name).to.equal(
         "Tsonic.JSRuntime.Error"
       );
-      expect(JSON.stringify(result.value.modules)).to.include(
+      expect(
+        JSON.stringify(result.value.modules, (_key, value) =>
+          typeof value === "bigint" ? value.toString() : value
+        )
+      ).to.include(
         '"clrName":"Tsonic.JSRuntime.Error"'
       );
     } finally {

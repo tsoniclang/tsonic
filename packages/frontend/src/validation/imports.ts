@@ -86,7 +86,11 @@ export const validateImportDeclaration = (
   }
 
   // Check for default imports from local modules (we might want to restrict this)
-  if (result.value.isLocal && node.importClause?.name) {
+  if (
+    result.value.isLocal &&
+    result.value.isSourcePackage !== true &&
+    node.importClause?.name
+  ) {
     return addDiagnostic(
       collector,
       createDiagnostic(

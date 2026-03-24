@@ -96,6 +96,7 @@ const buildNormalizedManifest = (
   packageVersion: string,
   requiredTypeRoots: readonly string[],
   producer: PackageManifestProducer | undefined,
+  assemblyName: string | undefined,
   dotnetParsed: ManifestDotnet | undefined,
   testDotnetParsed: ManifestDotnet | undefined,
   runtimeNuget: readonly PackageReferenceConfig[],
@@ -137,6 +138,7 @@ const buildNormalizedManifest = (
       packageVersion,
       surfaceMode: "clr",
       requiredTypeRoots,
+      ...(assemblyName ? { assemblyName } : {}),
       ...(bindingsRoot ? { bindingsRoot } : {}),
       runtimePackages: [...runtimeSet].sort((a, b) =>
         normalizeId(a).localeCompare(normalizeId(b))
@@ -173,6 +175,11 @@ export const resolveFromPackageManifest = (
   }
 
   const kind = manifest.kind;
+  const assemblyName =
+    typeof manifest.assemblyName === "string" &&
+    manifest.assemblyName.trim().length > 0
+      ? manifest.assemblyName.trim()
+      : undefined;
   if (kind === "tsonic-source-package") {
     const requiredTypeRoots = parseRequiredTypeRoots(
       manifest.requiredTypeRoots,
@@ -214,6 +221,7 @@ export const resolveFromPackageManifest = (
       packageVersion,
       requiredTypeRoots.value,
       producer.value,
+      assemblyName,
       dotnetParsed.value,
       testDotnetParsed.value,
       runtimeParsed.value.runtimeNuget,
@@ -324,6 +332,7 @@ export const resolveFromPackageManifest = (
     packageVersion,
     requiredTypeRoots.value,
     producer.value,
+    assemblyName,
     dotnetParsed.value,
     testDotnetParsed.value,
     runtimeNuget.value,

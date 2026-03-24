@@ -643,6 +643,9 @@ describe("build command (library bindings ref dirs)", function () {
       );
 
       const build = buildCommand(config);
+      if (!build.ok) {
+        throw new Error(build.error);
+      }
       expect(build.ok).to.equal(true);
 
       const declarationPath = join(projectRoot, "dist", "index.d.ts");

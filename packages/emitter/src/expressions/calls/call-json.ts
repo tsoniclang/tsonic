@@ -229,12 +229,16 @@ const emitJsonSerializerCall = (
     }
   }
 
-  // Only pass TsonicJson.Options when this call site actually participates in the
-  // NativeAOT JSON rewrite. Non-generic JSON.parse(...) intentionally returns
-  // unknown and should emit plain JsonSerializer calls without requiring the
-  // generated TsonicJson helper.
+  // Only pass the generated JSON AOT options when this call site actually
+  // participates in the NativeAOT JSON rewrite. Non-generic JSON.parse(...)
+  // intentionally returns unknown and should emit plain JsonSerializer calls
+  // without requiring the generated helper.
   if (context.options.jsonAotRegistry?.needsJsonAot) {
-    argAsts.push(identifierExpression("TsonicJson.Options"));
+    argAsts.push(
+      identifierExpression(
+        `global::${context.options.rootNamespace}.TsonicJson.Options`
+      )
+    );
   }
 
   const invocation: CSharpExpressionAst = {

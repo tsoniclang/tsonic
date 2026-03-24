@@ -147,15 +147,20 @@ const getSurfacePackageName = (mode: SurfaceMode): string | undefined => {
   return trimmed;
 };
 
-const findPackageJsonAncestorRoots = (
+const findAncestorLookupRoots = (
   projectRoot: string
 ): readonly string[] => {
   const roots: string[] = [];
   let current = resolve(projectRoot);
+  let encounteredPackageJson = false;
 
   for (;;) {
-    if (existsSync(join(current, "package.json"))) {
+    const hasPackageJson = existsSync(join(current, "package.json"));
+    if (!encounteredPackageJson || hasPackageJson) {
       roots.push(current);
+    }
+    if (hasPackageJson) {
+      encounteredPackageJson = true;
     }
 
     const parent = dirname(current);
@@ -195,7 +200,7 @@ const tryResolveProjectInstalledSurfacePackage = (
   packageName: string,
   projectRoot: string
 ): ResolvedSurfacePackage | undefined => {
-  for (const candidateRoot of findPackageJsonAncestorRoots(projectRoot)) {
+  for (const candidateRoot of findAncestorLookupRoots(projectRoot)) {
     const installed = tryResolveWorkspaceInstalledSurfacePackage(
       packageName,
       candidateRoot

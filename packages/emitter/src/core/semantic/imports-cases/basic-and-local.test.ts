@@ -233,6 +233,71 @@ describe("Import Handling", () => {
     expect(result).to.include("global::Acme.Math.index.clamp(10, 0, 5)");
   });
 
+  it("should lower default imports from source-package local modules to namespace bindings", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "src/index.ts",
+      namespace: "SourcePackageDefaultImport",
+      className: "index",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "@tsonic/nodejs/fs.js",
+          isLocal: true,
+          isClr: false,
+          resolvedPath: "/tmp/project/node_modules/@tsonic/nodejs/src/fs-module.ts",
+          specifiers: [
+            {
+              kind: "default",
+              localName: "fs",
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "fs" },
+              property: "existsSync",
+              isComputed: false,
+              isOptional: false,
+            },
+            arguments: [{ kind: "literal", value: "." }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, {
+      moduleMap: new Map([
+        [
+          "node_modules/@tsonic/nodejs/src/fs-module",
+          {
+            namespace: "nodejs",
+            className: "fs_module",
+            filePath: "node_modules/@tsonic/nodejs/src/fs-module",
+            hasRuntimeContainer: true,
+            exportedValueKinds: new Map([["fs", "variable"], ["existsSync", "function"]]),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+      ]),
+    });
+
+    expect(result).to.include("global::nodejs.fs_module");
+    expect(result).to.match(
+      /global::nodejs\.fs_module\.[A-Za-z_][A-Za-z0-9_]*\("\."\)/
+    );
+  });
+
   it("should lower source-package imports when resolvedPath points to a sibling checkout", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-emitter-source-package-")

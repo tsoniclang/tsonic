@@ -169,6 +169,7 @@ export type ModuleContainerEntry = {
     readonly declarator: FirstPartyValueDeclarator | undefined;
     readonly localTypeNameRemaps: ReadonlyMap<string, string>;
     readonly sourceType: SourceValueTypeDef | undefined;
+    readonly sourceAnonymousTypeTexts: readonly string[];
     readonly sourceSignatures: readonly SourceFunctionSignatureDef[];
   }[];
 };
@@ -198,6 +199,7 @@ export type FirstPartyValueExportFacade =
       readonly declarator: FirstPartyValueDeclarator | undefined;
       readonly localTypeNameRemaps: ReadonlyMap<string, string>;
       readonly sourceType?: SourceValueTypeDef;
+      readonly sourceAnonymousTypeTexts?: readonly string[];
       readonly sourceSignatures?: readonly SourceFunctionSignatureDef[];
     };
 
@@ -239,6 +241,13 @@ export type AnonymousStructuralAliasInfo = {
   readonly typeParameters: readonly string[];
 };
 
+export type SourceAnonymousStructuralAliasPlan = {
+  readonly name: string;
+  readonly declaringNamespace: string;
+  readonly sourceTypeText: string;
+  readonly localTypeNameRemaps: ReadonlyMap<string, string>;
+};
+
 export type ModuleSourceIndex = {
   readonly fileKey: string;
   readonly wrapperImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
@@ -250,6 +259,10 @@ export type ModuleSourceIndex = {
     readonly SourceFunctionSignatureDef[]
   >;
   readonly exportedValueTypesByName: ReadonlyMap<string, SourceValueTypeDef>;
+  readonly exportedValueAnonymousTypeTextsByName: ReadonlyMap<
+    string,
+    readonly string[]
+  >;
   readonly memberTypesByClassAndMember: ReadonlyMap<
     string,
     ReadonlyMap<string, SourceMemberTypeDef>

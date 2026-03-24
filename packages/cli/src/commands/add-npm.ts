@@ -291,7 +291,12 @@ export const addNpmCommand = (
 
   let mergedConfig = configResult.value;
   for (const item of resolvedManifests) {
-    const merged = mergeManifestIntoWorkspaceConfig(mergedConfig, item);
+    const merged = mergeManifestIntoWorkspaceConfig(
+      mergedConfig,
+      item,
+      undefined,
+      { workspaceRoot }
+    );
     if (!merged.ok) return merged;
     mergedConfig = merged.value;
   }

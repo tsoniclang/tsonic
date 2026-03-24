@@ -40,6 +40,9 @@ const readGeneratedCSharpTree = (root: string): string => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const nextPath = join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (entry.name === "node_modules") {
+          continue;
+        }
         visit(nextPath);
         continue;
       }

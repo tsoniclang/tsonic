@@ -99,4 +99,75 @@ describe("add-common module resolution", () => {
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });
+
+  it("prefers explicit workspace-installed @tsonic package roots over sibling repo copies", () => {
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-resolve-sibling-pref-")
+    );
+
+    try {
+      writeJson(join(projectRoot, "package.json"), {
+        name: "test",
+        private: true,
+        type: "module",
+      });
+
+      const pkgRoot = join(projectRoot, "node_modules", "@tsonic", "js");
+      mkdirSync(pkgRoot, { recursive: true });
+      writeJson(join(pkgRoot, "package.json"), {
+        name: "@tsonic/js",
+        version: "0.0.0-test",
+        type: "module",
+        exports: {
+          ".": "./index.js",
+        },
+      });
+      writeFileSync(join(pkgRoot, "index.js"), "export {};\n", "utf-8");
+
+      const result = resolvePackageRoot(projectRoot, "@tsonic/js");
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(resolve(result.value)).to.equal(resolve(pkgRoot));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers sibling @tsonic package roots over ancestor-installed copies", () => {
+    const parentRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-resolve-sibling-parent-")
+    );
+    const projectRoot = join(parentRoot, "packages", "app");
+
+    try {
+      mkdirSync(projectRoot, { recursive: true });
+      writeJson(join(projectRoot, "package.json"), {
+        name: "test",
+        private: true,
+        type: "module",
+      });
+
+      const pkgRoot = join(parentRoot, "node_modules", "@tsonic", "js");
+      mkdirSync(pkgRoot, { recursive: true });
+      writeJson(join(pkgRoot, "package.json"), {
+        name: "@tsonic/js",
+        version: "0.0.0-test",
+        type: "module",
+        exports: {
+          ".": "./index.js",
+        },
+      });
+      writeFileSync(join(pkgRoot, "index.js"), "export {};\n", "utf-8");
+
+      const result = resolvePackageRoot(projectRoot, "@tsonic/js");
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(resolve(result.value)).to.not.equal(resolve(pkgRoot));
+      expect(resolve(result.value)).to.match(
+        new RegExp(`[/\\\\]js([/\\\\]versions[/\\\\]\\d+)?$`)
+      );
+    } finally {
+      rmSync(parentRoot, { recursive: true, force: true });
+    }
+  });
 });
