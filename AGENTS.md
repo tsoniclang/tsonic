@@ -93,3 +93,5 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 - Triple-slash TypeScript references such as `/// <reference ... />` are banned.
 - Do not use CommonJS patterns (`require`, `module.exports`, `export =`) or TypeScript namespace-style module shims as compatibility shortcuts.
 - Do not rely on ambient/preprocessing hacks to inject globals across modules; use explicit ESM imports/exports or compiler-managed package loading instead.
+- Prefer explicit exported ESM subpaths with extensions (for example `@tsonic/js/index.js`, `@tsonic/js/console.js`) over package-root bootstrap imports.
+- Do not use package-root imports like `@tsonic/js` or `@tsonic/nodejs` as implicit global bootstrap shims unless the maintainer explicitly approves that exact usage.

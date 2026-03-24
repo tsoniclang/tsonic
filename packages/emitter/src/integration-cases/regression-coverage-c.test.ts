@@ -886,8 +886,6 @@ describe("End-to-End Integration", () => {
     it("lowers Uint8Array array-literal constructors through byte arrays", () => {
       const csharp = compileToCSharp(
         `
-          import { Uint8Array } from "@tsonic/js/index.js";
-
           export function run(): void {
             const bytes = new Uint8Array([1, 2, 3]);
             void bytes;
@@ -910,8 +908,6 @@ describe("End-to-End Integration", () => {
     it("casts numeric Uint8Array length constructors to int", () => {
       const csharp = compileToCSharp(
         `
-          import { Uint8Array } from "@tsonic/js/index.js";
-
           export function run(start: number, end: number): Uint8Array {
             return new Uint8Array(end - start);
           }
@@ -927,11 +923,59 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("lowers non-byte typed-array array-literal constructors through concrete CLR arrays", () => {
+      const csharp = compileToCSharp(
+        `
+          export function run(): void {
+            const ints = new Int16Array([1, 2, 3]);
+            const floats = new Float32Array([1.25, 2.5]);
+            void ints;
+            void floats;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "new global::Tsonic.JSRuntime.Int16Array(new short[] { (short)1, (short)2, (short)3 })"
+      );
+      expect(csharp).to.include(
+        "new global::Tsonic.JSRuntime.Float32Array(new float[] { 1.25f, 2.5f })"
+      );
+      expect(csharp).not.to.include(
+        "new Int16Array(global::Tsonic.Runtime.Union<double[], global::System.Collections.Generic.IEnumerable<double>>"
+      );
+      expect(csharp).not.to.include(
+        "new Float32Array(global::Tsonic.Runtime.Union<double[], global::System.Collections.Generic.IEnumerable<double>>"
+      );
+    });
+
+    it("casts non-byte typed-array numeric length constructors to int", () => {
+      const csharp = compileToCSharp(
+        `
+          export function run(start: number, end: number): void {
+            const view = new Int16Array(end - start);
+            void view;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "new global::Tsonic.JSRuntime.Int16Array((int)(end - start))"
+      );
+    });
+
     it("casts Uint8Array element assignments to byte", () => {
       const csharp = compileToCSharp(
         `
           import type { int } from "@tsonic/core/types.js";
-          import { Uint8Array } from "@tsonic/js/index.js";
 
           export function run(i: int): void {
             const data = new Uint8Array(16);
@@ -950,7 +994,6 @@ describe("End-to-End Integration", () => {
     it("casts JS numeric expressions when assigning into int slots", () => {
       const csharp = compileToCSharp(
         `
-          import { Math as JSMath } from "@tsonic/js/index.js";
           import type { int } from "@tsonic/core/types.js";
 
           class CursorPosition {
@@ -959,7 +1002,7 @@ describe("End-to-End Integration", () => {
 
           export function run(totalLength: number): CursorPosition {
             const pos = new CursorPosition();
-            pos.rows = JSMath.floor(totalLength / 80);
+            pos.rows = Math.floor(totalLength / 80);
             return pos;
           }
         `,

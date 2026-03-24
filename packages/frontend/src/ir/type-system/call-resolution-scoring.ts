@@ -66,6 +66,10 @@ export const scoreSignatureMatch = (
     argumentType: IrType
   ): number => {
     if (typesEqual(parameterType, argumentType)) {
+      return 4;
+    }
+
+    if (isAssignableTo(state, argumentType, parameterType)) {
       return 3;
     }
 

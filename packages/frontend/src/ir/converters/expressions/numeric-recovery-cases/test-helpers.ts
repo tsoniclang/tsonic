@@ -22,7 +22,8 @@ const jsPath = path.join(monorepoRoot, "node_modules/@tsonic/js");
  */
 export const compileWithTypeRoots = (
   code: string,
-  typeRoots: readonly string[]
+  typeRoots: readonly string[],
+  surface?: string
 ): { modules: readonly IrModule[]; ok: boolean; error?: string } => {
   const tmpDir = `/tmp/numeric-recovery-test-${Date.now()}`;
   fs.mkdirSync(tmpDir, { recursive: true });
@@ -35,6 +36,7 @@ export const compileWithTypeRoots = (
     sourceRoot: tmpDir,
     rootNamespace: "Test",
     typeRoots,
+    surface,
   });
 
   if (!compileResult.ok) {
@@ -66,7 +68,7 @@ export const compileWithGlobals = (
 export const compileWithJsSurface = (
   code: string
 ): { modules: readonly IrModule[]; ok: boolean; error?: string } =>
-  compileWithTypeRoots(code, [jsPath, corePath]);
+  compileWithTypeRoots(code, [jsPath, corePath], "@tsonic/js");
 
 /**
  * Helper to find an expression in the IR by predicate

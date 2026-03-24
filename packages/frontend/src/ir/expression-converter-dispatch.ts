@@ -220,7 +220,7 @@ export const convertExpression = (
       });
 
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
-    let clrBinding = ctx.bindings.getExactBinding(node.text);
+    let clrBinding = ctx.bindings.getExactBindingByKind(node.text, "global");
     if (!clrBinding && isAmbientDeclarationFileGlobal) {
       for (const decl of symbolDeclarations) {
         const bindingsPath = findNearestBindingsJson(
@@ -230,7 +230,7 @@ export const convertExpression = (
           loadBindingsFromPath(ctx.bindings, bindingsPath);
         }
       }
-      clrBinding = ctx.bindings.getExactBinding(node.text);
+      clrBinding = ctx.bindings.getExactBindingByKind(node.text, "global");
     }
     if (
       clrBinding &&

@@ -187,6 +187,21 @@ export const emitArray = (
         elementTypeResolved = true;
         currentContext = newContext;
       }
+    } else if (
+      resolvedExpected.kind === "referenceType" &&
+      (resolvedExpected.name === "ArrayLike" ||
+        resolvedExpected.name === "JSArray") &&
+      resolvedExpected.typeArguments &&
+      resolvedExpected.typeArguments.length > 0
+    ) {
+      const firstArg = resolvedExpected.typeArguments[0];
+      if (firstArg) {
+        expectedElementType = firstArg;
+        const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
+        elementTypeAst = typeAst;
+        elementTypeResolved = true;
+        currentContext = newContext;
+      }
     }
   }
 

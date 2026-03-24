@@ -32,9 +32,7 @@ export type ResolveImportOptions = {
 
 const findAuthoritativePackageRootForImport = (
   importSpecifier: string,
-  authoritativeTsonicPackageRoots:
-    | ReadonlyMap<string, string>
-    | undefined
+  authoritativeTsonicPackageRoots: ReadonlyMap<string, string> | undefined
 ): string | undefined => {
   if (!authoritativeTsonicPackageRoots) {
     return undefined;
@@ -55,9 +53,7 @@ const findAuthoritativePackageRootForImport = (
     }
   }
 
-  return bestMatch
-    ? authoritativeTsonicPackageRoots.get(bestMatch)
-    : undefined;
+  return bestMatch ? authoritativeTsonicPackageRoots.get(bestMatch) : undefined;
 };
 
 const findCaseMismatchPath = (
@@ -190,7 +186,10 @@ export const resolveImport = (
   // Check if this is a module binding (e.g., Node.js API)
   // Only if bindings registry is provided
   if (bindings) {
-    const binding = bindings.getBinding(canonicalImportSpecifier);
+    const binding = bindings.getBindingByKind(
+      canonicalImportSpecifier,
+      "module"
+    );
     if (binding && binding.kind === "module") {
       if (binding.sourceImport && opts?.projectRoot) {
         const sourcePackage = resolveSourcePackageImport(

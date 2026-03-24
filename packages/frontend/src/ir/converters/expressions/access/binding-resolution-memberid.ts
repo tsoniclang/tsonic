@@ -146,7 +146,10 @@ export const resolveHierarchicalBindingFromMemberId = (
   const typeAlias = normalizeDeclaringType(declaringTypeName);
   const staticOverloads = (() => {
     if (!ts.isIdentifier(node.expression)) return undefined;
-    const simpleBinding = ctx.bindings.getExactBinding(node.expression.text);
+    const simpleBinding = ctx.bindings.getExactBindingByKind(
+      node.expression.text,
+      "global"
+    );
     if (!simpleBinding?.staticType) return undefined;
     const staticAlias = tsbindgenClrTypeNameToTsTypeName(
       simpleBinding.staticType

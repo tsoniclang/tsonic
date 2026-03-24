@@ -29,6 +29,10 @@ export type MutableRegistryState = {
   readonly loadedBindingFiles: Set<string>;
   readonly simpleBindings: Map<string, SimpleBindingDescriptor>;
   readonly simpleBindingsLowercase: Map<string, SimpleBindingDescriptor>;
+  readonly simpleGlobalBindings: Map<string, SimpleBindingDescriptor>;
+  readonly simpleGlobalBindingsLowercase: Map<string, SimpleBindingDescriptor>;
+  readonly simpleModuleBindings: Map<string, SimpleBindingDescriptor>;
+  readonly simpleModuleBindingsLowercase: Map<string, SimpleBindingDescriptor>;
   readonly namespaces: Map<string, NamespaceBinding>;
   readonly types: Map<string, TypeBinding>;
   readonly typeLookupAliasMap: Map<string, string>;
@@ -195,6 +199,30 @@ export const addBindingsToState = (
     state.clrTypeNamesByAlias.set(alias, names);
   };
 
+  const setPreferredSimpleBinding = (
+    name: string,
+    descriptor: SimpleBindingDescriptor
+  ): void => {
+    const existing = state.simpleBindings.get(name);
+    if (
+      existing === undefined ||
+      descriptor.kind === "global" ||
+      existing.kind !== "global"
+    ) {
+      state.simpleBindings.set(name, descriptor);
+    }
+
+    const lowerKey = name.toLowerCase();
+    const existingLower = state.simpleBindingsLowercase.get(lowerKey);
+    if (
+      existingLower === undefined ||
+      descriptor.kind === "global" ||
+      existingLower.kind !== "global"
+    ) {
+      state.simpleBindingsLowercase.set(lowerKey, descriptor);
+    }
+  };
+
   if (isFullBindingManifest(manifest)) {
     // Full format: hierarchical namespace/type/member structure
     // Index by alias (TS identifier) for quick lookup
@@ -223,8 +251,20 @@ export const addBindingsToState = (
       }
       // Simple format: global/module bindings
       for (const [name, descriptor] of Object.entries(manifest.bindings)) {
-        state.simpleBindings.set(name, descriptor);
-        state.simpleBindingsLowercase.set(name.toLowerCase(), descriptor);
+        if (descriptor.kind === "global") {
+          state.simpleGlobalBindings.set(name, descriptor);
+          state.simpleGlobalBindingsLowercase.set(
+            name.toLowerCase(),
+            descriptor
+          );
+        } else {
+          state.simpleModuleBindings.set(name, descriptor);
+          state.simpleModuleBindingsLowercase.set(
+            name.toLowerCase(),
+            descriptor
+          );
+        }
+        setPreferredSimpleBinding(name, descriptor);
       }
       return;
     }

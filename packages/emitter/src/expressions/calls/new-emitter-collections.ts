@@ -139,22 +139,89 @@ export const isArrayConstructorCall = (
   return !!expr.typeArguments && expr.typeArguments.length === 1;
 };
 
-const UINT8ARRAY_CLR_NAME = "Tsonic.JSRuntime.Uint8Array";
-
-const BYTE_ARRAY_TYPE: IrType = {
+const makeClrValueArrayType = (
+  name:
+    | "byte"
+    | "sbyte"
+    | "short"
+    | "ushort"
+    | "int"
+    | "uint"
+    | "float"
+    | "double",
+  clrName: string,
+  tsName: string
+): IrType => ({
   kind: "arrayType",
   elementType: {
     kind: "referenceType",
-    name: "byte",
+    name,
     typeId: {
-      stableId: "System.Private.CoreLib:System.Byte",
-      clrName: "System.Byte",
+      stableId: `System.Private.CoreLib:${clrName}`,
+      clrName,
       assemblyName: "System.Private.CoreLib",
-      tsName: "Byte",
+      tsName,
     },
   },
   origin: "explicit",
-};
+});
+
+const typedArrayArgumentTypes = new Map<string, IrType>([
+  [
+    "Tsonic.JSRuntime.Uint8Array",
+    makeClrValueArrayType("byte", "System.Byte", "Byte"),
+  ],
+  [
+    "Tsonic.JSRuntime.Uint8ClampedArray",
+    makeClrValueArrayType("byte", "System.Byte", "Byte"),
+  ],
+  [
+    "Tsonic.JSRuntime.Int8Array",
+    makeClrValueArrayType("sbyte", "System.SByte", "SByte"),
+  ],
+  [
+    "Tsonic.JSRuntime.Int16Array",
+    makeClrValueArrayType("short", "System.Int16", "Int16"),
+  ],
+  [
+    "Tsonic.JSRuntime.Uint16Array",
+    makeClrValueArrayType("ushort", "System.UInt16", "UInt16"),
+  ],
+  [
+    "Tsonic.JSRuntime.Int32Array",
+    makeClrValueArrayType("int", "System.Int32", "Int32"),
+  ],
+  [
+    "Tsonic.JSRuntime.Uint32Array",
+    makeClrValueArrayType("uint", "System.UInt32", "UInt32"),
+  ],
+  [
+    "Tsonic.JSRuntime.Float32Array",
+    makeClrValueArrayType("float", "System.Single", "Single"),
+  ],
+  [
+    "Tsonic.JSRuntime.Float64Array",
+    makeClrValueArrayType("double", "System.Double", "Double"),
+  ],
+]);
+
+const typedArrayNumericLengthClrNames = new Set([
+  ...typedArrayArgumentTypes.keys(),
+  "Tsonic.JSRuntime.ArrayBuffer",
+]);
+
+const typedArrayConstructorClrNamesByTsName = new Map<string, string>([
+  ["Uint8Array", "Tsonic.JSRuntime.Uint8Array"],
+  ["Uint8ClampedArray", "Tsonic.JSRuntime.Uint8ClampedArray"],
+  ["Int8Array", "Tsonic.JSRuntime.Int8Array"],
+  ["Int16Array", "Tsonic.JSRuntime.Int16Array"],
+  ["Uint16Array", "Tsonic.JSRuntime.Uint16Array"],
+  ["Int32Array", "Tsonic.JSRuntime.Int32Array"],
+  ["Uint32Array", "Tsonic.JSRuntime.Uint32Array"],
+  ["Float32Array", "Tsonic.JSRuntime.Float32Array"],
+  ["Float64Array", "Tsonic.JSRuntime.Float64Array"],
+  ["ArrayBuffer", "Tsonic.JSRuntime.ArrayBuffer"],
+]);
 
 const INT_IR_TYPE: IrType = {
   kind: "primitiveType",
@@ -165,7 +232,8 @@ const getConstructorClrName = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): string | undefined =>
   (expr.callee.kind === "identifier"
-    ? expr.callee.resolvedClrType
+    ? (expr.callee.resolvedClrType ??
+      typedArrayConstructorClrNamesByTsName.get(expr.callee.name))
     : undefined) ??
   (expr.inferredType?.kind === "referenceType"
     ? (expr.inferredType.resolvedClrType ?? expr.inferredType.typeId?.clrName)
@@ -183,7 +251,8 @@ export const isUint8ArrayConstructorWithArrayLiteral = (
     return false;
   }
 
-  return getConstructorClrName(expr) === UINT8ARRAY_CLR_NAME;
+  const clrName = getConstructorClrName(expr);
+  return clrName !== undefined && typedArrayArgumentTypes.has(clrName);
 };
 
 export const emitUint8ArrayArrayLiteralConstructor = (
@@ -204,10 +273,18 @@ export const emitUint8ArrayArrayLiteralConstructor = (
       ? calleeAst.type
       : identifierType(calleeText);
 
+  const clrName = getConstructorClrName(expr);
+  const argumentType =
+    (clrName ? typedArrayArgumentTypes.get(clrName) : undefined) ??
+    typedArrayArgumentTypes.get("Tsonic.JSRuntime.Uint8Array");
+  if (!argumentType) {
+    throw new Error("ICE: Missing typed array argument type mapping");
+  }
+
   const [argAst, argContext] = emitExpressionAst(
     expr.arguments[0] as Extract<IrExpression, { kind: "array" }>,
     currentContext,
-    BYTE_ARRAY_TYPE
+    argumentType
   );
   currentContext = argContext;
 
@@ -233,7 +310,8 @@ export const isUint8ArrayConstructorWithNumericLength = (
     return false;
   }
 
-  if (getConstructorClrName(expr) !== UINT8ARRAY_CLR_NAME) {
+  const clrName = getConstructorClrName(expr);
+  if (!clrName || !typedArrayNumericLengthClrNames.has(clrName)) {
     return false;
   }
 

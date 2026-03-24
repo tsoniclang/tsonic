@@ -35,6 +35,7 @@ import {
   emitPromiseConstructor,
   isPromiseConstructorCall,
 } from "./new-emitter-promise.js";
+import { shouldPreferRuntimeExpectedType } from "./runtime-expected-type-preference.js";
 
 /**
  * Emit a new expression as CSharpExpressionAst
@@ -128,6 +129,17 @@ export const emitNew = (
         if (
           actualArgumentType &&
           matchesExpectedEmissionType(
+            actualArgumentType,
+            runtimeExpectedType,
+            currentContext
+          )
+        ) {
+          return runtimeExpectedType;
+        }
+
+        if (
+          shouldPreferRuntimeExpectedType(
+            arg,
             actualArgumentType,
             runtimeExpectedType,
             currentContext

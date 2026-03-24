@@ -213,7 +213,10 @@ export const resolveHierarchicalBinding = (
   // Case 1: object is identifier → check if it's a namespace, then check if property is a type
   if (object.kind === "identifier") {
     if (shouldUseSimpleIdentifierBinding()) {
-      const simpleBinding = ctx.bindings.getExactBinding(object.name);
+      const simpleBinding = ctx.bindings.getExactBindingByKind(
+        object.name,
+        "global"
+      );
 
       if (simpleBinding?.staticType) {
         const staticBinding =
