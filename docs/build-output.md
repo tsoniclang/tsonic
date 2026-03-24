@@ -61,6 +61,45 @@ Default app build.
 
 Use `output.type = "library"` with NativeAOT disabled.
 
+#### Source-package library
+
+If the project declares `tsonic/package-manifest.json` with
+`kind: "tsonic-source-package"` (or sets
+`output.libraryPackaging = "source-package"`), Tsonic emits:
+
+```text
+packages/<project>/
+  dist/
+    package.json
+    src/**/*.ts
+    src/**/*.d.ts
+    tsonic/package-manifest.json
+    net10.0/
+      <Assembly>.dll
+```
+
+This is the native first-party path:
+
+- source stays the package contract
+- consuming projects compile the package source directly
+- generated first-party bindings are not part of the published contract
+
+#### Bindings-library
+
+If `output.libraryPackaging = "bindings-library"` (or no source-package
+manifest is present), Tsonic keeps the legacy bindings-first output:
+
+```text
+packages/<project>/
+  dist/
+    index.d.ts
+    tsonic/
+      bindings/
+      package-manifest.json
+    net10.0/
+      <Assembly>.dll
+```
+
 ### NativeAOT library
 
 Use `output.type = "library"` with:
@@ -112,5 +151,6 @@ tsonic build --rid win-x64
 
 - inspect `generated/src/*.cs`
 - inspect `generated/tsonic.csproj`
+- inspect `dist/tsonic/package-manifest.json` for source-package vs bindings-library mode
 - rerun with `--verbose`
 - if package references changed, run `tsonic restore`

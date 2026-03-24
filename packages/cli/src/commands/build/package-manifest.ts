@@ -43,7 +43,7 @@ const stringifyManifest = (value: unknown): string =>
     2
   ) + "\n";
 
-export const writePackageManifest = (
+export const writeLegacyBindingsPackageManifest = (
   config: ResolvedConfig
 ): Result<void, string> => {
   const distRoot = join(config.projectRoot, "dist");

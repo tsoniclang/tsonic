@@ -3,6 +3,10 @@ import { dirname, join, relative, resolve } from "node:path";
 import * as ts from "typescript";
 import type { ResolvedConfig, Result } from "../../types.js";
 
+type EmitLibraryDeclarationsOptions = {
+  readonly preserveSourceRoot?: boolean;
+};
+
 const listTypeScriptSourceInputs = (sourceRoot: string): readonly string[] => {
   const out: string[] = [];
   const visit = (dir: string): void => {
@@ -72,7 +76,8 @@ const formatTsDiagnostics = (
 const normalizeSlashes = (pathLike: string): string => pathLike.replace(/\\/g, "/");
 
 export const emitLibraryTypeDeclarations = (
-  config: ResolvedConfig
+  config: ResolvedConfig,
+  options: EmitLibraryDeclarationsOptions = {}
 ): Result<void, string> => {
   const emitRootDir = resolve(config.workspaceRoot);
   const sourceRoot = resolve(config.projectRoot, config.sourceRoot);
@@ -92,6 +97,9 @@ export const emitLibraryTypeDeclarations = (
   const declarationFiles = listDeclarationFiles(resolvedTypeRoots);
   const rootNames = Array.from(new Set<string>([...sourceFiles, ...declarationFiles]));
   const sourceRootFromEmitRoot = normalizeSlashes(relative(emitRootDir, sourceRoot));
+  const projectRootFromEmitRoot = normalizeSlashes(
+    relative(emitRootDir, resolve(config.projectRoot))
+  );
   const normalizedDistDir = normalizeSlashes(distDir);
 
   const compilerOptions: ts.CompilerOptions = {
@@ -143,14 +151,19 @@ export const emitLibraryTypeDeclarations = (
       }
 
       let targetPath = fileName;
+      const trimPrefix =
+        options.preserveSourceRoot === true
+          ? projectRootFromEmitRoot
+          : sourceRootFromEmitRoot;
+
       if (
         relativeEmittedPath !== null &&
-        sourceRootFromEmitRoot.length > 0 &&
-        (relativeEmittedPath === sourceRootFromEmitRoot ||
-          relativeEmittedPath.startsWith(`${sourceRootFromEmitRoot}/`))
+        trimPrefix.length > 0 &&
+        (relativeEmittedPath === trimPrefix ||
+          relativeEmittedPath.startsWith(`${trimPrefix}/`))
       ) {
         const trimmedRelativePath = relativeEmittedPath
-          .slice(sourceRootFromEmitRoot.length)
+          .slice(trimPrefix.length)
           .replace(/^\/+/, "");
         targetPath =
           trimmedRelativePath.length > 0

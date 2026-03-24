@@ -30,6 +30,7 @@ export type TsonicOutputConfig = {
   readonly targetFramework?: string;
   // Library options
   readonly targetFrameworks?: readonly string[];
+  readonly libraryPackaging?: "source-package" | "bindings-library";
   readonly generateDocumentation?: boolean;
   readonly includeSymbols?: boolean;
   readonly packable?: boolean;

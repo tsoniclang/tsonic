@@ -3,7 +3,7 @@
 Tsonic has two different dependency stories:
 
 - CLR/runtime bindings packages
-- first-party Tsonic source packages
+- native first-party source packages
 
 ## 1. CLR / Runtime Bindings
 
@@ -30,6 +30,13 @@ Tsonic uses:
 - declaration surfaces (`.d.ts`)
 - bindings metadata
 - runtime/NuGet/package references from manifests
+
+This path remains required for:
+
+- `tsbindgen`
+- external CLR assemblies
+- NuGet-backed interop libraries
+- legacy CLR-first package surfaces
 
 ## 2. First-Party Package Manifests and Source Packages
 
@@ -65,6 +72,19 @@ When a source package is installed, Tsonic:
 
 This is different from opaque external npm module handling.
 
+For native first-party source packages, the intended published contract is:
+
+- TypeScript source
+- `.d.ts`
+- explicit ESM exports
+- `tsonic/package-manifest.json`
+
+It is **not**:
+
+- `dist/tsonic/bindings`
+- `tsonic.bindings.json`
+- a first-party `tsonic-library` manifest
+
 ## Surface Compatibility
 
 Workspaces still compile with one active ambient surface.
@@ -78,6 +98,7 @@ The CLI normalizes bindings metadata and runtime package requirements so that:
 - runtime code and declaration surfaces stay coherent
 - value exports and type exports are co-produced from the same source graph
 - first-party consumers get deterministic `.d.ts` surfaces from the compiler
+- native source packages can still overlay runtime/dotnet requirements without becoming bindings packages
 
 ## Local vs Published Packages
 
@@ -100,7 +121,7 @@ For normal projects:
 - configs
 - source package manifest
 
-For generated local bindings caches:
+For CLR/interop package generation:
 
-- follow your workspace policy
-- many repos keep generated publishable packages in their own package repos, not in app repos
+- generated bindings and metadata still apply
+- follow your workspace/repo publish policy
