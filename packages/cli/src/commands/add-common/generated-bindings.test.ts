@@ -4,7 +4,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -13,7 +12,7 @@ import { join } from "node:path";
 import { installGeneratedBindingsPackage } from "./generated-bindings.js";
 
 describe("generated bindings package install", () => {
-  it("replaces legacy generated directories that predate package.json", () => {
+  it("refuses to overwrite directories without package.json", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-generated-bindings-"));
 
     try {
@@ -40,10 +39,10 @@ describe("generated bindings package install", () => {
       writeFileSync(join(fromDir, "families.json"), "{}\n", "utf-8");
       writeFileSync(join(fromDir, "index.d.ts"), "export {};\n", "utf-8");
 
-      const legacyTarget = join(dir, "node_modules", "nodejs-types");
-      mkdirSync(legacyTarget, { recursive: true });
-      writeFileSync(join(legacyTarget, "families.json"), "{}\n", "utf-8");
-      writeFileSync(join(legacyTarget, "index.d.ts"), "export {};\n", "utf-8");
+      const existingTarget = join(dir, "node_modules", "nodejs-types");
+      mkdirSync(existingTarget, { recursive: true });
+      writeFileSync(join(existingTarget, "families.json"), "{}\n", "utf-8");
+      writeFileSync(join(existingTarget, "index.d.ts"), "export {};\n", "utf-8");
 
       const result = installGeneratedBindingsPackage(
         dir,
@@ -51,13 +50,11 @@ describe("generated bindings package install", () => {
         fromDir
       );
 
-      expect(result.ok).to.equal(true);
-      expect(existsSync(join(legacyTarget, "package.json"))).to.equal(true);
-
-      const pkgJson = JSON.parse(
-        readFileSync(join(legacyTarget, "package.json"), "utf-8")
-      ) as { readonly tsonic?: { readonly generated?: boolean } };
-      expect(pkgJson.tsonic?.generated).to.equal(true);
+      expect(result.ok).to.equal(false);
+      expect(result.ok ? "" : result.error).to.include(
+        "Refusing to overwrite existing directory without package.json"
+      );
+      expect(existsSync(join(existingTarget, "package.json"))).to.equal(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

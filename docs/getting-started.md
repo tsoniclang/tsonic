@@ -45,7 +45,7 @@ packages/hello-clr/
   package.json
   tsonic.json
   src/App.ts
-  tsonic/package-manifest.json
+  tsonic.package.json
 ```
 
 Run it:

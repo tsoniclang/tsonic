@@ -36,16 +36,16 @@ This path remains required for:
 - `tsbindgen`
 - external CLR assemblies
 - NuGet-backed interop libraries
-- legacy CLR-first package surfaces
+- CLR bindings package surfaces
 
 ## 2. First-Party Package Manifests and Source Packages
 
-Tsonic-authored libraries and source packages can publish a `tsonic/package-manifest.json` and be consumed directly from npm.
+Tsonic-authored libraries and source packages can publish a `tsonic.package.json` and be consumed directly from npm.
 
 Manifest path:
 
 ```text
-tsonic/package-manifest.json
+tsonic.package.json
 ```
 
 Source-package example:
@@ -72,18 +72,18 @@ When a source package is installed, Tsonic:
 
 This is different from opaque external npm module handling.
 
-For native first-party source packages, the intended published contract is:
+For native first-party source packages, the published contract is:
 
 - TypeScript source
 - `.d.ts`
 - explicit ESM exports
-- `tsonic/package-manifest.json`
+- `tsonic.package.json`
 
 It is **not**:
 
 - `dist/tsonic/bindings`
 - `tsonic.bindings.json`
-- a first-party `tsonic-library` manifest
+- per-namespace `bindings.json` payloads
 
 ## Surface Compatibility
 

@@ -183,7 +183,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -240,7 +240,7 @@ describe("Module Resolver", () => {
       );
       const processEntry = path.join(packageRoot, "src", "process-module.ts");
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -307,7 +307,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -381,7 +381,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -431,7 +431,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -531,7 +531,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -575,7 +575,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(jsRoot, "tsonic", "package-manifest.json"),
+        path.join(jsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -652,7 +652,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(jsRoot, "tsonic", "package-manifest.json"),
+        path.join(jsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -693,7 +693,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsRoot, "tsonic", "package-manifest.json"),
+        path.join(nodejsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -788,7 +788,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(jsSourceRoot, "tsonic", "package-manifest.json"),
+        path.join(jsSourceRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -825,7 +825,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsRoot, "tsonic", "package-manifest.json"),
+        path.join(nodejsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,

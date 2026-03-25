@@ -9,19 +9,29 @@ import {
   buildTestTimeoutMs,
   discoverWorkspaceBindingsManifests,
   installClrSurfacePackages,
-  mergeManifestIntoWorkspaceConfig,
-  type NormalizedBindingsManifest,
   writeInstalledPackage,
   writeJson,
 } from "./helpers.js";
 
-describe("package-manifest bindings", function () {
+const createSourcePackageManifest = (
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> => ({
+  schemaVersion: 1,
+  kind: "tsonic-source-package",
+  surfaces: ["@tsonic/js"],
+  source: {
+    exports: {
+      ".": "./src/index.ts",
+    },
+  },
+  ...overrides,
+});
+
+describe("tsonic.package bindings", function () {
   this.timeout(buildTestTimeoutMs);
 
   it("discovers workspace manifests from dependencies and devDependencies", () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "tsonic-package-manifest-discover-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-discover-"));
     try {
       installClrSurfacePackages(dir);
       writeJson(join(dir, "package.json"), {
@@ -32,41 +42,32 @@ describe("package-manifest bindings", function () {
           "app-no-bindings": "1.0.0",
         },
         devDependencies: {
-          "@acme/package-manifest-lib": "1.0.0",
-          "legacy-types": "1.0.0",
+          "@acme/package-lib": "1.0.0",
+          "bindings-types": "1.0.0",
         },
       });
 
       writeInstalledPackage(dir, "app-no-bindings", "1.0.0");
-      writeInstalledPackage(dir, "@acme/package-manifest-lib", "1.0.0", {
-        bindingsRoot: "tsonic/bindings",
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "@acme/package-manifest-lib",
-          npmVersion: "1.0.0",
+      writeInstalledPackage(dir, "@acme/package-lib", "1.0.0", {
+        packageManifest: createSourcePackageManifest({
           runtime: {
-            nugetPackages: [{ id: "Acme.PackageManifest", version: "1.0.0" }],
+            nugetPackages: [{ id: "Acme.Package", version: "1.0.0" }],
           },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
-          },
-        },
+        }),
       });
-      writeInstalledPackage(dir, "legacy-types", "1.0.0", {
-        legacyBindings: {
+      writeInstalledPackage(dir, "bindings-types", "1.0.0", {
+        bindingsManifest: {
           dotnet: {
-            packageReferences: [{ id: "Legacy.Core", version: "1.0.0" }],
+            packageReferences: [{ id: "Bindings.Core", version: "1.0.0" }],
           },
         },
       });
 
       const manifests = discoverWorkspaceBindingsManifests(dir);
       expect(manifests.ok).to.equal(true);
-      const values = manifests.ok ? manifests.value : [];
-      expect(values.map((x) => x.packageName)).to.deep.equal([
-        "@acme/package-manifest-lib",
-        "legacy-types",
+      expect((manifests.ok ? manifests.value : []).map((x) => x.packageName)).to.deep.equal([
+        "@acme/package-lib",
+        "bindings-types",
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -74,9 +75,7 @@ describe("package-manifest bindings", function () {
   });
 
   it("discovers transitive manifests through installed dependency graph", () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "tsonic-package-manifest-discover-transitive-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-discover-transitive-"));
     try {
       installClrSurfacePackages(dir);
       writeJson(join(dir, "package.json"), {
@@ -94,34 +93,25 @@ describe("package-manifest bindings", function () {
         },
       });
       writeInstalledPackage(dir, "acme-child", "1.0.0", {
-        bindingsRoot: "tsonic/bindings",
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "acme-child",
-          npmVersion: "1.0.0",
+        packageManifest: createSourcePackageManifest({
           runtime: {
             nugetPackages: [{ id: "Acme.Child.Runtime", version: "1.0.0" }],
           },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
-          },
-        },
+        }),
       });
 
       const manifests = discoverWorkspaceBindingsManifests(dir);
       expect(manifests.ok).to.equal(true);
-      const values = manifests.ok ? manifests.value : [];
-      expect(values.map((x) => x.packageName)).to.deep.equal(["acme-child"]);
+      expect((manifests.ok ? manifests.value : []).map((x) => x.packageName)).to.deep.equal([
+        "acme-child",
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("prefers root package manifests over transitive nested packages with the same name", () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "tsonic-package-manifest-root-preference-")
-    );
+  it("prefers root manifests over transitive nested packages with the same name", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-root-preference-"));
     try {
       installClrSurfacePackages(dir);
       writeJson(join(dir, "package.json"), {
@@ -135,54 +125,30 @@ describe("package-manifest bindings", function () {
       });
 
       writeInstalledPackage(dir, "@tsonic/js", "10.0.9", {
-        bindingsRoot: "tsonic/bindings",
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "@tsonic/js",
-          npmVersion: "10.0.9",
+        packageManifest: createSourcePackageManifest({
           runtime: {
             nugetPackages: [{ id: "Tsonic.JSRuntime", version: "0.0.9" }],
           },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
-          },
-        },
+        }),
       });
 
       const nodejsRoot = writeInstalledPackage(dir, "@tsonic/nodejs", "10.0.9", {
-        bindingsRoot: "tsonic/bindings",
         dependencies: {
           "@tsonic/js": "10.0.4",
         },
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "@tsonic/nodejs",
-          npmVersion: "10.0.9",
+        packageManifest: createSourcePackageManifest({
           runtime: {
             nugetPackages: [{ id: "Tsonic.Nodejs", version: "10.0.9" }],
           },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
-          },
-        },
+        }),
       });
 
       writeInstalledPackage(nodejsRoot, "@tsonic/js", "10.0.4", {
-        bindingsRoot: "tsonic/bindings",
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "@tsonic/js",
-          npmVersion: "10.0.4",
+        packageManifest: createSourcePackageManifest({
           runtime: {
             nugetPackages: [{ id: "Tsonic.JSRuntime", version: "0.0.4" }],
           },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
-          },
-        },
+        }),
       });
 
       const manifests = discoverWorkspaceBindingsManifests(dir);
@@ -199,10 +165,7 @@ describe("package-manifest bindings", function () {
         ["@tsonic/nodejs", "10.0.9"],
       ]);
 
-      const overlay = applyPackageManifestWorkspaceOverlay(
-        dir,
-        baseWorkspaceConfig()
-      );
+      const overlay = applyPackageManifestWorkspaceOverlay(dir, baseWorkspaceConfig());
       expect(overlay.ok).to.equal(true);
       if (!overlay.ok) return;
       expect(overlay.value.config.dotnet?.packageReferences).to.deep.equal([
@@ -214,8 +177,8 @@ describe("package-manifest bindings", function () {
     }
   });
 
-  it("applies workspace overlay and merges package references", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-manifest-overlay-"));
+  it("applies workspace overlay and merges runtime package references", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-overlay-"));
     try {
       installClrSurfacePackages(dir);
       writeJson(join(dir, "package.json"), {
@@ -228,48 +191,34 @@ describe("package-manifest bindings", function () {
       });
 
       writeInstalledPackage(dir, "acme-a", "1.0.0", {
-        legacyBindings: {
+        bindingsManifest: {
           dotnet: {
             packageReferences: [{ id: "Acme.Core", version: "1.0.0" }],
           },
         },
       });
       writeInstalledPackage(dir, "acme-b", "1.0.0", {
-        bindingsRoot: "tsonic/bindings",
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "acme-b",
-          npmVersion: "1.0.0",
+        packageManifest: createSourcePackageManifest({
           runtime: {
             nugetPackages: [{ id: "Acme.Http", version: "2.0.0" }],
           },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
-          },
-        },
+        }),
       });
 
-      const result = applyPackageManifestWorkspaceOverlay(
-        dir,
-        baseWorkspaceConfig()
-      );
+      const result = applyPackageManifestWorkspaceOverlay(dir, baseWorkspaceConfig());
       expect(result.ok).to.equal(true);
       const cfg = result.ok ? result.value.config : baseWorkspaceConfig();
       expect(cfg.dotnet?.packageReferences).to.deep.equal([
         { id: "Acme.Core", version: "1.0.0" },
         { id: "Acme.Http", version: "2.0.0" },
       ]);
-      expect(result.ok ? result.value.manifests.length : 0).to.equal(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   it("discovers installed custom surface chains even when not listed in workspace package.json", () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "tsonic-package-manifest-surface-chain-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-surface-chain-"));
     try {
       writeJson(join(dir, "package.json"), {
         name: "workspace",
@@ -277,111 +226,68 @@ describe("package-manifest bindings", function () {
         type: "module",
       });
 
-      writeInstalledPackage(dir, "@tsonic/js", "10.0.0", {
+      writeInstalledPackage(dir, "@acme/custom-surface", "1.0.0", {
         surfaceManifest: {
           schemaVersion: 1,
-          id: "@tsonic/js",
-          extends: [],
-          requiredTypeRoots: ["."],
-        },
-        bindingsRoot: "tsonic/bindings",
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "@tsonic/js",
-          npmVersion: "10.0.0",
-          runtime: {
-            nugetPackages: [{ id: "Tsonic.JSRuntime", version: "10.0.0" }],
-          },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
-          },
+          id: "@acme/custom-surface",
+          extends: ["@tsonic/js"],
+          requiredNpmPackages: ["acme-runtime"],
         },
       });
-
-      writeInstalledPackage(dir, "@acme/surface-node", "10.0.0", {
-        surfaceManifest: {
-          schemaVersion: 1,
-          id: "@acme/surface-node",
-          extends: ["@tsonic/js"],
-          requiredTypeRoots: ["."],
-        },
-        bindingsRoot: "tsonic/bindings",
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "@acme/surface-node",
-          npmVersion: "10.0.0",
+      writeInstalledPackage(dir, "acme-runtime", "1.0.0", {
+        packageManifest: createSourcePackageManifest({
           runtime: {
-            nugetPackages: [{ id: "Acme.Surface.Node", version: "10.0.0" }],
-            frameworkReferences: ["Microsoft.AspNetCore.App"],
+            nugetPackages: [{ id: "Acme.Runtime", version: "1.0.0" }],
           },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
-          },
-        },
+        }),
       });
 
       const manifests = discoverWorkspaceBindingsManifests(
         dir,
-        "@acme/surface-node"
+        "@acme/custom-surface"
       );
       expect(manifests.ok).to.equal(true);
-      const values = manifests.ok ? manifests.value : [];
-      expect(values.map((x) => x.packageName)).to.deep.equal([
-        "@acme/surface-node",
+      expect((manifests.ok ? manifests.value : []).map((x) => x.packageName)).to.deep.equal([
         "@tsonic/js",
-      ]);
-
-      const result = applyPackageManifestWorkspaceOverlay(dir, {
-        ...baseWorkspaceConfig(),
-        surface: "@acme/surface-node",
-      });
-      expect(result.ok).to.equal(true);
-      const cfg = result.ok ? result.value.config : baseWorkspaceConfig();
-      expect(cfg.dotnet?.frameworkReferences).to.deep.equal([
-        "Microsoft.AspNetCore.App",
-      ]);
-      expect(cfg.dotnet?.packageReferences).to.deep.equal([
-        { id: "Acme.Surface.Node", version: "10.0.0" },
-        { id: "Tsonic.JSRuntime", version: "10.0.0" },
+        "acme-runtime",
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("merges requiredTypeRoots from regular package manifests into workspace overlay", () => {
-    const manifest: NormalizedBindingsManifest = {
-      bindingVersion: 1,
-      sourceManifest: "legacy",
-      packageName: "@tsonic/nodejs",
-      packageVersion: "10.0.0",
-      surfaceMode: "clr",
-      requiredTypeRoots: [
-        "node_modules/@tsonic/nodejs",
-        "node_modules/@tsonic/nodejs/types",
-      ],
-      runtimePackages: ["@tsonic/nodejs"],
-      nugetDependencies: [],
-      dotnet: {
-        packageReferences: [{ id: "Tsonic.Nodejs", version: "10.0.0" }],
-      },
-    };
+  it("merges requiredTypeRoots from tsonic.bindings.json into workspace overlay", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-bindings-roots-"));
+    try {
+      installClrSurfacePackages(dir);
+      writeJson(join(dir, "package.json"), {
+        name: "workspace",
+        private: true,
+        type: "module",
+        dependencies: {
+          "bindings-types": "1.0.0",
+        },
+      });
 
-    const merged = mergeManifestIntoWorkspaceConfig(
-      baseWorkspaceConfig(),
-      manifest,
-      "TSN8A03"
-    );
-    expect(merged.ok).to.equal(true);
-    if (!merged.ok) return;
-    expect(merged.value.dotnet?.typeRoots).to.deep.equal([
-      "node_modules/@tsonic/nodejs",
-      "node_modules/@tsonic/nodejs/types",
-    ]);
-    expect(merged.value.dotnet?.packageReferences).to.deep.equal([
-      { id: "Tsonic.Nodejs", version: "10.0.0" },
-    ]);
+      writeInstalledPackage(dir, "bindings-types", "1.0.0", {
+        bindingsManifest: {
+          bindingVersion: 1,
+          requiredTypeRoots: ["."],
+          dotnet: {
+            packageReferences: [{ id: "Bindings.Core", version: "1.0.0" }],
+          },
+        },
+      });
+
+      const result = applyPackageManifestWorkspaceOverlay(dir, baseWorkspaceConfig());
+      expect(result.ok).to.equal(true);
+      const cfg = result.ok ? result.value.config : baseWorkspaceConfig();
+      expect(cfg.dotnet?.typeRoots).to.deep.equal(["node_modules/bindings-types"]);
+      expect(cfg.dotnet?.packageReferences).to.deep.equal([
+        { id: "Bindings.Core", version: "1.0.0" },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

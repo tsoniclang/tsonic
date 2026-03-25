@@ -49,7 +49,7 @@ describe("Source Package Resolution", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -111,7 +111,7 @@ describe("Source Package Resolution", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,

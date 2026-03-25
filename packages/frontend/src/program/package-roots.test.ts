@@ -370,7 +370,7 @@ describe("resolveDependencyPackageRoot", () => {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsRoot, "tsonic", "package-manifest.json"),
+        path.join(nodejsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -399,7 +399,7 @@ describe("resolveDependencyPackageRoot", () => {
         )
       );
       fs.writeFileSync(
-        path.join(jsSourceRoot, "tsonic", "package-manifest.json"),
+        path.join(jsSourceRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,

@@ -35,7 +35,7 @@ const tryProjectSourcePackagePathToModuleKey = (
 
   let currentDir = dirname(normalizedPath);
   for (;;) {
-    const manifestPath = join(currentDir, "tsonic", "package-manifest.json");
+    const manifestPath = join(currentDir, "tsonic.package.json");
     const packageJsonPath = join(currentDir, "package.json");
     if (existsSync(manifestPath) && existsSync(packageJsonPath)) {
       try {

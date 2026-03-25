@@ -167,10 +167,8 @@ const writeSourcePackageManifest = (
   surface: SurfaceMode,
   entryPoint: string
 ): void => {
-  const manifestDir = join(projectRoot, "tsonic");
-  mkdirSync(manifestDir, { recursive: true });
   writeFileSync(
-    join(manifestDir, "package-manifest.json"),
+    join(projectRoot, "tsonic.package.json"),
     JSON.stringify(
       {
         schemaVersion: 1,
@@ -256,7 +254,6 @@ const npmInstallDev = (
       spec,
       "--no-fund",
       "--no-audit",
-      "--legacy-peer-deps",
     ],
     {
       cwd: workspaceRoot,
@@ -386,7 +383,7 @@ export const initWorkspace = (
             name,
             version: "1.0.0",
             type: "module",
-            files: ["src", "tsonic", "README.md"],
+            files: ["src", "tsonic.package.json", "README.md"],
           },
           null,
           2

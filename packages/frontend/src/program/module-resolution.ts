@@ -203,8 +203,7 @@ export const createResolveModuleFromPackageRoot = (
   ): ts.ResolvedModuleFull | undefined => {
     const manifestPath = path.join(
       packageRoot,
-      "tsonic",
-      "package-manifest.json"
+      "tsonic.package.json"
     );
     if (!fs.existsSync(manifestPath)) {
       return undefined;

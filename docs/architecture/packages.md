@@ -23,7 +23,7 @@ Tsonic uses several package families.
 
 ## Source Packages
 
-Tsonic-authored npm packages with `tsonic/package-manifest.json`.
+Tsonic-authored npm packages with `tsonic.package.json`.
 
 These are consumed as source, not just declarations.
 

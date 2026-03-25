@@ -10,31 +10,9 @@ import { join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ResolvedConfig, Result } from "../../types.js";
 import { resolveNugetConfigFile } from "../../dotnet/nuget-config.js";
-import { generateFirstPartyLibraryBindings } from "../library-bindings-firstparty.js";
 import { assertNoOutputAssemblyNameConflicts } from "./assets.js";
-import { writeLegacyBindingsPackageManifest } from "./package-manifest.js";
 import { emitLibraryTypeDeclarations } from "./declarations.js";
 import { emitSourcePackageArtifacts } from "./source-package-artifacts.js";
-
-const generateLibraryBindings = (
-  config: ResolvedConfig
-): Result<void, string> => {
-  const outDir = join(config.projectRoot, "dist", "tsonic", "bindings");
-  return generateFirstPartyLibraryBindings(config, outDir);
-};
-
-const resolveLibraryPackaging = (
-  config: ResolvedConfig
-): "source-package" | "bindings-library" => {
-  const explicit = config.outputConfig.libraryPackaging;
-  if (explicit === "source-package" || explicit === "bindings-library") {
-    return explicit;
-  }
-
-  return existsSync(join(config.projectRoot, "tsonic", "package-manifest.json"))
-    ? "source-package"
-    : "bindings-library";
-};
 
 export const buildLibrary = (
   config: ResolvedConfig,
@@ -45,7 +23,6 @@ export const buildLibrary = (
     config.dotnetVersion,
   ];
   const nativeAot = config.outputConfig.nativeAot ?? false;
-  const libraryPackaging = resolveLibraryPackaging(config);
 
   const nugetConfigResult = resolveNugetConfigFile(workspaceRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;
@@ -167,29 +144,16 @@ export const buildLibrary = (
       return { ok: false, error: "No library artifacts found to copy" };
     }
 
-    if (libraryPackaging === "bindings-library") {
-      const bindingsResult = generateLibraryBindings(config);
-      if (!bindingsResult.ok) return { ok: false, error: bindingsResult.error };
+    const sourceArtifactsResult = emitSourcePackageArtifacts(config);
+    if (!sourceArtifactsResult.ok) {
+      return { ok: false, error: sourceArtifactsResult.error };
+    }
 
-      const declarationResult = emitLibraryTypeDeclarations(config);
-      if (!declarationResult.ok) {
-        return { ok: false, error: declarationResult.error };
-      }
-
-      const manifestResult = writeLegacyBindingsPackageManifest(config);
-      if (!manifestResult.ok) return { ok: false, error: manifestResult.error };
-    } else {
-      const sourceArtifactsResult = emitSourcePackageArtifacts(config);
-      if (!sourceArtifactsResult.ok) {
-        return { ok: false, error: sourceArtifactsResult.error };
-      }
-
-      const declarationResult = emitLibraryTypeDeclarations(config, {
-        preserveSourceRoot: true,
-      });
-      if (!declarationResult.ok) {
-        return { ok: false, error: declarationResult.error };
-      }
+    const declarationResult = emitLibraryTypeDeclarations(config, {
+      preserveSourceRoot: true,
+    });
+    if (!declarationResult.ok) {
+      return { ok: false, error: declarationResult.error };
     }
 
     return { ok: true, value: { outputPath: outputDir } };

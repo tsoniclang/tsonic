@@ -65,7 +65,7 @@ Also expected. `Number.isFinite` proves finite double, not 32-bit integer.
 Check for:
 
 ```text
-node_modules/<pkg>/tsonic/package-manifest.json
+node_modules/<pkg>/tsonic.package.json
 ```
 
 Expected shape:

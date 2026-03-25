@@ -28,25 +28,33 @@ describe("add npm (package manifests)", function () {
       const pkgName = "@acme/node";
       writeLocalNpmPackage(dir, "local/acme-node", {
         name: pkgName,
-        bindingsRoot: "tsonic/bindings",
         packageManifest: {
           schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: pkgName,
-          npmVersion: "1.0.0",
+          kind: "tsonic-source-package",
+          surfaces: ["@tsonic/js"],
           runtime: {
             nugetPackages: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
             frameworkReferences: ["Microsoft.AspNetCore.App"],
             runtimePackages: ["@tsonic/dotnet"],
           },
-          typing: { bindingsRoot: "tsonic/bindings" },
           producer: {
             tool: "tsonic",
             version: "0.0.70",
             mode: "tsonic-firstparty",
           },
+          source: {
+            exports: {
+              ".": "./src/index.ts",
+            },
+          },
         },
       });
+      mkdirSync(join(dir, "local/acme-node", "src"), { recursive: true });
+      writeFileSync(
+        join(dir, "local/acme-node", "src", "index.ts"),
+        "export const ok = true;\n",
+        "utf-8"
+      );
 
       const result = addNpmCommand("./local/acme-node", configPath, {
         quiet: true,
@@ -73,9 +81,8 @@ describe("add npm (package manifests)", function () {
       const normalizedManifest = JSON.parse(
         readFileSync(normalizedManifestPath, "utf-8")
       ) as Record<string, unknown>;
-      expect(normalizedManifest["sourceManifest"]).to.equal("package-manifest");
+      expect(normalizedManifest["sourceManifest"]).to.equal("tsonic-package");
       expect(normalizedManifest["packageName"]).to.equal(pkgName);
-      expect(normalizedManifest["bindingsRoot"]).to.equal("tsonic/bindings");
       expect(normalizedManifest["runtimePackages"]).to.deep.equal([
         "@acme/node",
         "@tsonic/dotnet",
@@ -192,7 +199,7 @@ describe("add npm (package manifests)", function () {
       const normalizedManifest = JSON.parse(
         readFileSync(normalizedManifestPath, "utf-8")
       ) as Record<string, unknown>;
-      expect(normalizedManifest["sourceManifest"]).to.equal("package-manifest");
+      expect(normalizedManifest["sourceManifest"]).to.equal("tsonic-package");
       expect(normalizedManifest["requiredTypeRoots"]).to.deep.equal([
         "node_modules/@acme/node",
       ]);
@@ -232,7 +239,7 @@ describe("add npm (package manifests)", function () {
       });
       writeLocalNpmPackage(dir, "node_modules/acme-bindings", {
         name: "acme-bindings",
-        manifest: {
+        bindingsManifest: {
           dotnet: {
             packageReferences: [{ id: "Acme.Runtime", version: "1.0.0" }],
           },
@@ -272,7 +279,7 @@ describe("add npm (package manifests)", function () {
       );
       writeLocalNpmPackage(dir, "node_modules/acme-bindings", {
         name: "acme-bindings",
-        manifest: {
+        bindingsManifest: {
           dotnet: {
             packageReferences: [{ id: "Acme.Runtime", version: "1.0.0" }],
           },

@@ -171,6 +171,117 @@ describe("IR Builder", function () {
       expect(spec.resolvedClrValue).to.equal(undefined);
     });
 
+    it("prefers the imported CLR facade namespace over internal re-export declaration owners", () => {
+      const source = `
+        import { Console } from "@tsonic/dotnet/System.js";
+        void Console.WriteLine;
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+
+      const tempRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-system-console-")
+      );
+      const declPath = path.join(tempRoot, "Internal", "internal", "index.d.ts");
+      const internalBindingsPath = path.join(tempRoot, "Internal", "bindings.json");
+      const systemBindingsPath = path.join(tempRoot, "System", "bindings.json");
+
+      fs.mkdirSync(path.dirname(declPath), { recursive: true });
+      fs.mkdirSync(path.dirname(internalBindingsPath), { recursive: true });
+      fs.mkdirSync(path.dirname(systemBindingsPath), { recursive: true });
+      fs.writeFileSync(
+        declPath,
+        "export declare const Console: { WriteLine(value: string): void };\n",
+        "utf-8"
+      );
+      fs.writeFileSync(
+        internalBindingsPath,
+        JSON.stringify({ namespace: "Internal" }),
+        "utf-8"
+      );
+      fs.writeFileSync(
+        systemBindingsPath,
+        JSON.stringify({ namespace: "System" }),
+        "utf-8"
+      );
+
+      (
+        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
+      ).clrResolver = {
+        resolve: (s: string) =>
+          s === "@tsonic/dotnet/System.js"
+            ? {
+                isClr: true,
+                packageName: "@tsonic/dotnet",
+                resolvedNamespace: "System",
+                bindingsPath: systemBindingsPath,
+                assembly: "System.Console",
+              }
+            : { isClr: false },
+      };
+
+      ctx.bindings.addBindings(systemBindingsPath, {
+        namespace: "System",
+        types: [
+          {
+            alias: "Console",
+            clrName: "System.Console",
+            assemblyName: "System.Console",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+      ctx.bindings.addBindings(internalBindingsPath, {
+        namespace: "Internal",
+        types: [
+          {
+            alias: "Console",
+            clrName: "Internal.Console",
+            assemblyName: "System.Private.CoreLib",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const bindingApi = ctx.binding as unknown as {
+        resolveImport: (node: ts.ImportSpecifier) => number | undefined;
+        getSourceFilePathOfDecl: (decl: number) => string | undefined;
+      };
+      bindingApi.resolveImport = () => 1;
+      bindingApi.getSourceFilePathOfDecl = () => declPath;
+
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      try {
+        const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const imp = result.value.imports[0];
+        if (!imp) throw new Error("Missing import");
+        expect(imp.resolvedNamespace).to.equal("System");
+
+        const spec = imp.specifiers[0];
+        if (!spec || spec.kind !== "named") {
+          throw new Error("Missing named specifier");
+        }
+
+        expect(spec.name).to.equal("Console");
+        expect(spec.isType).to.not.equal(true);
+        expect(spec.resolvedClrType).to.equal("System.Console");
+      } finally {
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+      }
+    });
+
     it("should error if a CLR namespace value import lacks tsbindgen exports mapping", () => {
       const source = `
         import { buildSite } from "@demo/pkg/Demo.js";
@@ -413,7 +524,7 @@ describe("IR Builder", function () {
             null,
             2
           ),
-          "node_modules/@tsonic/nodejs/tsonic/package-manifest.json":
+          "node_modules/@tsonic/nodejs/tsonic.package.json":
             JSON.stringify(
               {
                 schemaVersion: 1,
@@ -596,7 +707,7 @@ describe("IR Builder", function () {
             null,
             2
           ),
-          "node_modules/@tsonic/nodejs/tsonic/package-manifest.json":
+          "node_modules/@tsonic/nodejs/tsonic.package.json":
             JSON.stringify(
               {
                 schemaVersion: 1,

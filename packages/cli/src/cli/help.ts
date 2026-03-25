@@ -16,7 +16,7 @@ USAGE:
 
 COMMANDS:
   init                     Initialize a new Tsonic workspace (and default project)
-  add npm <pkg>             Install an npm bindings package (package-manifest or legacy manifest)
+  add npm <pkg>             Install an npm package with tsonic.package.json or tsonic.bindings.json
   add package <dll> [types] Add a local DLL (and optional bindings) to the workspace
   add nuget <id> <ver> [t]  Add a NuGet package (and optional bindings) to the workspace
   add framework <ref> [t]   Add a .NET FrameworkReference (and optional bindings) to the workspace

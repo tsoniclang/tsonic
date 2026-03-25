@@ -38,7 +38,7 @@ describe("backend-ast architecture invariants", () => {
       ["rawExpression node", /kind:\s*"rawExpression"/],
       ["rawType node", /kind:\s*"rawType"/],
       ["rawMember node", /kind:\s*"rawMember"/],
-      ["legacy literalExpression node", /kind:\s*"literalExpression"/],
+      ["literalExpression node", /kind:\s*"literalExpression"/],
       ["fragmentFromText adapter", /\bfragmentFromText\s*\(/],
       ["expressionAstFromText adapter", /\bexpressionAstFromText\s*\(/],
       ["blockStatementAstFromText adapter", /\bblockStatementAstFromText\s*\(/],

@@ -251,11 +251,25 @@ export const extractImports = (
           return normalizedClrName === exportName;
         };
 
+        const findExactInNamespace = (
+          namespace: string | undefined
+        ): TypeBinding | undefined => {
+          if (!namespace) return undefined;
+          const namespaceBinding = ctx.bindings.getNamespace(namespace);
+          const exact = namespaceBinding?.types.find(matchesExportName);
+          if (exact) return exact;
+          return undefined;
+        };
+
+        const exactInResolvedNamespace = findExactInNamespace(resolvedNamespace);
+        if (exactInResolvedNamespace) {
+          return exactInResolvedNamespace;
+        }
+
         const owningNamespace =
           resolveTsbindgenNamespaceForNamedImport(exportName);
-        if (owningNamespace) {
-          const namespaceBinding = ctx.bindings.getNamespace(owningNamespace);
-          const exact = namespaceBinding?.types.find(matchesExportName);
+        if (owningNamespace && owningNamespace !== resolvedNamespace) {
+          const exact = findExactInNamespace(owningNamespace);
           if (exact) return exact;
         }
 

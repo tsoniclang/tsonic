@@ -85,8 +85,7 @@ const findContainingSourcePackageRoot = (
   for (;;) {
     const manifestPath = path.join(
       currentDir,
-      "tsonic",
-      "package-manifest.json"
+      "tsonic.package.json"
     );
     const packageJsonPath = path.join(currentDir, "package.json");
     if (fs.existsSync(manifestPath) && fs.existsSync(packageJsonPath)) {
@@ -379,8 +378,7 @@ const resolveSourcePackageImportFromRoot = (
 ): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
   const manifestPath = path.join(
     packageRoot,
-    "tsonic",
-    "package-manifest.json"
+    "tsonic.package.json"
   );
   const manifestResult = readManifest(manifestPath);
   if (!manifestResult.ok) return manifestResult;

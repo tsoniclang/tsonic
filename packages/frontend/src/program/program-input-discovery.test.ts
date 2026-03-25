@@ -189,7 +189,7 @@ describe("discoverProgramInputs", () => {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsExternalRoot, "tsonic", "package-manifest.json"),
+        path.join(nodejsExternalRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -220,7 +220,7 @@ describe("discoverProgramInputs", () => {
         )
       );
       fs.writeFileSync(
-        path.join(jsSiblingRoot, "tsonic", "package-manifest.json"),
+        path.join(jsSiblingRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,

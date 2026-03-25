@@ -29,7 +29,7 @@ export type NormalizedNugetDependency = {
 
 export type NormalizedBindingsManifest = {
   readonly bindingVersion: 1;
-  readonly sourceManifest: "package-manifest" | "legacy";
+  readonly sourceManifest: "tsonic-package" | "tsonic-bindings";
   readonly packageName: string;
   readonly packageVersion: string;
   readonly surfaceMode: ManifestSurfaceMode;
@@ -37,7 +37,6 @@ export type NormalizedBindingsManifest = {
   readonly assemblyName?: string;
   readonly assemblyVersion?: string;
   readonly targetFramework?: string;
-  readonly bindingsRoot?: string;
   readonly runtimePackages: readonly string[];
   readonly nugetDependencies: readonly NormalizedNugetDependency[];
   readonly producer?: PackageManifestProducer;

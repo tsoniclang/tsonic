@@ -63,8 +63,7 @@ const readSourcePackageManifest = (
 
   const manifestPath = path.join(
     normalizedRoot,
-    "tsonic",
-    "package-manifest.json"
+    "tsonic.package.json"
   );
   if (!fs.existsSync(manifestPath)) {
     sourcePackageManifestCache.set(normalizedRoot, null);

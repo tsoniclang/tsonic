@@ -257,16 +257,16 @@ if [ "$QUICK_MODE" = true ]; then
     echo -e "${YELLOW}--- Skipping E2E Tests (--quick mode) ---${NC}" | tee -a "$LOG_FILE"
 else
     # ============================================================
-    # 1.5 Runtime DLL sync (required for generator runtime)
+    # 1.5 Core runtime DLL sync
     # ============================================================
-    echo -e "${BLUE}--- Syncing Runtime DLLs ---${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}--- Syncing Core Runtime DLL ---${NC}" | tee -a "$LOG_FILE"
     if "$ROOT_DIR/scripts/sync-runtime-dlls.sh" 2>&1 | tee -a "$LOG_FILE"; then
         RUNTIME_SYNC_STATUS="passed"
     else
         RUNTIME_SYNC_STATUS="failed"
         # Count as an E2E failure so the overall run fails.
         E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
-        echo -e "${RED}FAIL: runtime DLL sync failed${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}FAIL: core runtime DLL sync failed${NC}" | tee -a "$LOG_FILE"
     fi
     echo "" | tee -a "$LOG_FILE"
 

@@ -42,7 +42,7 @@ Supported:
 
 - local relative imports with explicit extensions
 - package imports backed by CLR bindings
-- installed Tsonic source packages with `tsonic/package-manifest.json`
+- installed Tsonic source packages with `tsonic.package.json`
 - deterministic closed-world `import()`
 - `import type`
 

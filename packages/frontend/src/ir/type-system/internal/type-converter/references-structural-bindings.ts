@@ -51,7 +51,7 @@ export const isInstalledTsonicSourcePackageFile = (
 
   let currentDir = dirname(fileName);
   while (true) {
-    const manifestPath = join(currentDir, "tsonic", "package-manifest.json");
+    const manifestPath = join(currentDir, "tsonic.package.json");
     if (existsSync(manifestPath)) {
       try {
         const parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as {

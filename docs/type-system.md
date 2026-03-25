@@ -95,7 +95,7 @@ See `numeric-types.md`.
 Installed packages with:
 
 ```text
-node_modules/<pkg>/tsonic/package-manifest.json
+node_modules/<pkg>/tsonic.package.json
 ```
 
 and:

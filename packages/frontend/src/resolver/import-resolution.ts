@@ -136,8 +136,8 @@ export const resolveImport = (
   }
 
   // Prefer installed source packages over CLR/module bindings so packages like
-  // @tsonic/nodejs use their native source implementation instead of legacy
-  // CLR facades when both are available.
+  // @tsonic/nodejs use their native source implementation instead of CLR
+  // facade packages when both are available.
   if (opts?.projectRoot) {
     const authoritativePackageRoot = findAuthoritativePackageRootForImport(
       canonicalImportSpecifier,

@@ -71,53 +71,34 @@ const findTsonicPackages = (nodeModulesPath: string): string[] => {
     return [];
   }
 
-  const packages: string[] = [];
+  const packages = new Set<string>();
   for (const entry of fs.readdirSync(tsonicDir, { withFileTypes: true })) {
     const fullPath = path.join(tsonicDir, entry.name);
-
-    if (entry.isDirectory()) {
-      packages.push(fullPath);
-      continue;
-    }
-
-    // In multi-repo workspaces, @tsonic packages are often symlinked into node_modules.
-    // Dirent reports these as symbolic links, so we must stat the target to detect
-    // directory packages.
-    if (entry.isSymbolicLink()) {
-      try {
-        if (fs.statSync(fullPath).isDirectory()) {
-          packages.push(fullPath);
-        }
-      } catch {
-        // Ignore broken links.
-      }
+    const resolvedDir = resolveExistingDirectory(fullPath);
+    if (resolvedDir) {
+      packages.add(resolvedDir);
     }
   }
-  return packages;
+  return Array.from(packages).sort();
 };
 
 /**
  * Find all bindings.json files in a package.
  */
 const findBindingsFiles = (packagePath: string): string[] => {
-  const bindingsFiles: string[] = [];
-  const isIgnorableDirReadError = (error: unknown): boolean => {
-    if (!(error instanceof Error)) return false;
-    const err = error as Error & { code?: string };
-    return (
-      err.code === "EACCES" ||
-      err.code === "EPERM" ||
-      err.code === "ENOENT" ||
-      err.code === "ENOTDIR"
-    );
-  };
+  const bindingsFiles = new Set<string>();
+  const visitedDirs = new Set<string>();
 
   const walk = (dir: string) => {
-    if (!fs.existsSync(dir)) return;
+    const resolvedDir = resolveExistingDirectory(dir);
+    if (!resolvedDir || visitedDirs.has(resolvedDir)) {
+      return;
+    }
+    visitedDirs.add(resolvedDir);
 
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = fs.readdirSync(resolvedDir, { withFileTypes: true });
     } catch (error) {
       if (isIgnorableDirReadError(error)) {
         return;
@@ -126,17 +107,56 @@ const findBindingsFiles = (packagePath: string): string[] => {
     }
 
     for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
+      const fullPath = path.join(resolvedDir, entry.name);
+      if (entry.isDirectory() || entry.isSymbolicLink()) {
         walk(fullPath);
-      } else if (entry.name === "bindings.json") {
-        bindingsFiles.push(fullPath);
+      }
+
+      if (entry.name !== "bindings.json") {
+        continue;
+      }
+
+      const resolvedFile = resolveExistingFile(fullPath);
+      if (resolvedFile) {
+        bindingsFiles.add(resolvedFile);
       }
     }
   };
 
   walk(packagePath);
-  return bindingsFiles;
+  return Array.from(bindingsFiles).sort();
+};
+
+const isIgnorableDirReadError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false;
+  const err = error as Error & { code?: string };
+  return err.code === "EACCES" || err.code === "EPERM";
+};
+
+const resolveExistingDirectory = (candidatePath: string): string | undefined => {
+  try {
+    const resolved = fs.realpathSync.native(candidatePath);
+    return fs.statSync(resolved).isDirectory() ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveExistingFile = (candidatePath: string): string | undefined => {
+  try {
+    const resolved = fs.realpathSync.native(candidatePath);
+    return fs.statSync(resolved).isFile() ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveExistingCompanionDts = (
+  bindingsPath: string
+): string | undefined => {
+  return resolveExistingFile(
+    path.join(path.dirname(bindingsPath), "internal", "index.d.ts")
+  );
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -162,7 +182,10 @@ export const loadClrCatalog = (
   // Find all @tsonic packages
   const packageRoots = new Set<string>(findTsonicPackages(nodeModulesPath));
   for (const extra of extraPackageRoots) {
-    packageRoots.add(extra);
+    const resolvedExtra = resolveExistingDirectory(extra);
+    if (resolvedExtra) {
+      packageRoots.add(resolvedExtra);
+    }
   }
 
   for (const packagePath of Array.from(packageRoots).sort()) {
@@ -171,12 +194,8 @@ export const loadClrCatalog = (
 
     for (const bindingsPath of bindingsFiles) {
       try {
-        const internalDtsPath = path.join(
-          path.dirname(bindingsPath),
-          "internal",
-          "index.d.ts"
-        );
-        if (fs.existsSync(internalDtsPath)) {
+        const internalDtsPath = resolveExistingCompanionDts(bindingsPath);
+        if (internalDtsPath) {
           dtsFiles.add(internalDtsPath);
         }
 

@@ -241,7 +241,7 @@ describe("validateImports", () => {
       "utf-8"
     );
     fs.writeFileSync(
-      path.join(packageRoot, "tsonic", "package-manifest.json"),
+      path.join(packageRoot, "tsonic.package.json"),
       JSON.stringify(
         {
           schemaVersion: 1,

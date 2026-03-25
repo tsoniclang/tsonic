@@ -53,16 +53,12 @@ const readProjectPackageJson = (
 const validateSourcePackageManifest = (
   projectRoot: string
 ): Result<string, string> => {
-  const manifestPath = nodePath.join(
-    projectRoot,
-    "tsonic",
-    "package-manifest.json"
-  );
+  const manifestPath = nodePath.join(projectRoot, "tsonic.package.json");
   if (!existsSync(manifestPath)) {
     return {
       ok: false,
       error:
-        `Source-package build requires tsonic/package-manifest.json at ${manifestPath}`,
+        `Source-package build requires tsonic.package.json at ${manifestPath}`,
     };
   }
 
@@ -214,7 +210,7 @@ export const emitSourcePackageArtifacts = (
       explicitFiles.add(normalizeSlashes(mainPath.slice(2)));
     }
     collectExportTargets(packageJsonResult.value.exports, explicitFiles);
-    explicitFiles.add("tsonic/package-manifest.json");
+    explicitFiles.add("tsonic.package.json");
 
     for (const rootFile of [
       "README.md",

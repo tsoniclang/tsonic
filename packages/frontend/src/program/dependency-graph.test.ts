@@ -42,7 +42,7 @@ describe("Dependency Graph", function () {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -141,7 +141,7 @@ describe("Dependency Graph", function () {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -308,7 +308,7 @@ describe("Dependency Graph", function () {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -451,7 +451,7 @@ describe("Dependency Graph", function () {
         )
       );
       fs.writeFileSync(
-        path.join(externalRoot, "tsonic", "package-manifest.json"),
+        path.join(externalRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -553,7 +553,7 @@ describe("Dependency Graph", function () {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -668,7 +668,7 @@ describe("Dependency Graph", function () {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -780,7 +780,7 @@ describe("Dependency Graph", function () {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,

@@ -253,7 +253,11 @@ describe("Init Command", () => {
           readonly files?: readonly string[];
         };
         expect(projectPkg.private).to.equal(undefined);
-        expect(projectPkg.files).to.deep.equal(["src", "tsonic", "README.md"]);
+        expect(projectPkg.files).to.deep.equal([
+          "src",
+          "tsonic.package.json",
+          "README.md",
+        ]);
 
         const manifest = JSON.parse(
           readFileSync(
@@ -261,8 +265,7 @@ describe("Init Command", () => {
               dir,
               "packages",
               workspaceName,
-              "tsonic",
-              "package-manifest.json"
+              "tsonic.package.json"
             ),
             "utf-8"
           )
@@ -323,8 +326,7 @@ describe("Init Command", () => {
               dir,
               "packages",
               workspaceName,
-              "tsonic",
-              "package-manifest.json"
+              "tsonic.package.json"
             ),
             "utf-8"
           )

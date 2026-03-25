@@ -54,7 +54,7 @@ describe("resolveSourceBindingFiles", () => {
         )
       );
       fs.writeFileSync(
-        path.join(authoritativeJsRoot, "tsonic", "package-manifest.json"),
+        path.join(authoritativeJsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,

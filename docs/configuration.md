@@ -183,7 +183,7 @@ Common fields:
 - `type`: `exe` or `library`
 - `nativeAot`
 - `nativeLib`: `shared` or `static`
-- `libraryPackaging`: `source-package` or `bindings-library`
+- `libraryPackaging`: `source-package`
 - `singleFile`
 - `trimmed`
 - `stripSymbols`
@@ -199,22 +199,13 @@ Common fields:
 
 ### `output.libraryPackaging`
 
-Library builds support two packaging modes:
+Library builds use source-package packaging.
 
 - `source-package`
   - for native first-party Tsonic libraries
-  - requires `tsonic/package-manifest.json` with `kind: "tsonic-source-package"`
+  - requires `tsonic.package.json` with `kind: "tsonic-source-package"`
   - emits a publishable source-package `dist/` with source, declarations, and manifest
   - does **not** generate `dist/tsonic/bindings`
-- `bindings-library`
-  - legacy/interop packaging
-  - emits generated first-party bindings under `dist/tsonic/bindings`
-  - writes a `tsonic-library` package manifest with `typing.bindingsRoot`
-
-Default behavior:
-
-- if the project root contains `tsonic/package-manifest.json`, library builds default to `source-package`
-- otherwise library builds default to `bindings-library`
 
 ## Naming Rule
 

@@ -425,7 +425,7 @@ describe("CLI regressions (run/build)", function () {
       );
 
       const badPkgDir = join(dir, "node_modules", "@acme", "bad-runtime");
-      mkdirSync(join(badPkgDir, "tsonic", "bindings"), { recursive: true });
+      mkdirSync(badPkgDir, { recursive: true });
       writeFileSync(
         join(badPkgDir, "package.json"),
         JSON.stringify(
@@ -441,18 +441,19 @@ describe("CLI regressions (run/build)", function () {
         "utf-8"
       );
       writeFileSync(
-        join(badPkgDir, "tsonic", "package-manifest.json"),
+        join(badPkgDir, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
-            kind: "tsonic-library",
-            npmPackage: "@acme/bad-runtime",
-            npmVersion: "1.0.0",
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
             runtime: {
               nugetPackages: [{ id: "Bad.Runtime", version: "" }],
             },
-            typing: {
-              bindingsRoot: "tsonic/bindings",
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
             },
           },
           null,

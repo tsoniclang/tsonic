@@ -29,7 +29,7 @@ const readPackageName = (pkgJsonPath: string): string | undefined => {
 };
 
 const isSourcePackageRoot = (packageRoot: string): boolean => {
-  const manifestPath = path.join(packageRoot, "tsonic", "package-manifest.json");
+  const manifestPath = path.join(packageRoot, "tsonic.package.json");
   if (!fs.existsSync(manifestPath)) {
     return false;
   }

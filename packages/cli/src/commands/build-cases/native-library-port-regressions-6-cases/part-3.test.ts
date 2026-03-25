@@ -125,7 +125,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
       writeFileSync(
-        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        join(sourcePackageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,

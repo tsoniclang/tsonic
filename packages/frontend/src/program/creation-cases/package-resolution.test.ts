@@ -57,7 +57,7 @@ describe("Program Creation – package resolution", function () {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsRoot, "tsonic", "package-manifest.json"),
+        path.join(nodejsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -168,7 +168,7 @@ describe("Program Creation – package resolution", function () {
         )
       );
       fs.writeFileSync(
-        path.join(externalRoot, "tsonic", "package-manifest.json"),
+        path.join(externalRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
