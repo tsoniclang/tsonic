@@ -8,7 +8,7 @@ import { emitCSharpFiles } from "./emitter.js";
 import type { IrModule } from "@tsonic/frontend";
 
 describe("JSON NativeAOT registry", () => {
-  it("routes untyped global JSON.parse through JSRuntime without AOT metadata", () => {
+  it("routes untyped global JSON.parse through JSON runtime support without AOT metadata", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/index.ts",
@@ -130,7 +130,7 @@ describe("JSON NativeAOT registry", () => {
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
   });
 
-  it("routes global JSON.stringify on unknown values through JSRuntime without AOT metadata", () => {
+  it("routes global JSON.stringify on unknown values through JSON runtime support without AOT metadata", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/index.ts",

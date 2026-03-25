@@ -93,7 +93,7 @@ const isConcreteGlobalJsonStringifySource = (
   return !containsTypeParameter(type);
 };
 
-const emitJsRuntimeJsonParseCall = (
+const emitRuntimeJsonParseCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext,
   typeArgument: CSharpTypeAst
@@ -132,7 +132,7 @@ const emitJsRuntimeJsonParseCall = (
   ];
 };
 
-const emitJsRuntimeJsonStringifyCall = (
+const emitRuntimeJsonStringifyCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
@@ -268,7 +268,7 @@ const emitGlobalJsonCall = (
         ? firstArg.inferredType
         : undefined;
     if (!isConcreteGlobalJsonStringifySource(sourceType)) {
-      return emitJsRuntimeJsonStringifyCall(expr, context);
+      return emitRuntimeJsonStringifyCall(expr, context);
     }
     return emitJsonSerializerCall(expr, context, method);
   }
@@ -288,7 +288,7 @@ const emitGlobalJsonCall = (
     );
   }
 
-  return emitJsRuntimeJsonParseCall(expr, context, {
+  return emitRuntimeJsonParseCall(expr, context, {
     kind: "predefinedType",
     keyword: "object",
   });
