@@ -9,9 +9,11 @@ import {
 import { join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ResolvedConfig, Result } from "../../types.js";
-import { resolveNugetConfigFile } from "../../dotnet/nuget-config.js";
+import {
+  buildDotnetProcessEnv,
+  resolveNugetConfigFile,
+} from "../../dotnet/nuget-config.js";
 import { assertNoOutputAssemblyNameConflicts } from "./assets.js";
-import { emitLibraryTypeDeclarations } from "./declarations.js";
 import { emitSourcePackageArtifacts } from "./source-package-artifacts.js";
 
 export const buildLibrary = (
@@ -54,6 +56,7 @@ export const buildLibrary = (
         cwd: generatedDir,
         stdio: verbose ? "inherit" : "pipe",
         encoding: "utf-8",
+        env: buildDotnetProcessEnv(workspaceRoot),
       });
       if (publishResult.status !== 0) {
         const errorMsg = publishResult.stderr || publishResult.stdout || "Unknown error";
@@ -82,6 +85,7 @@ export const buildLibrary = (
       cwd: generatedDir,
       stdio: verbose ? "inherit" : "pipe",
       encoding: "utf-8",
+      env: buildDotnetProcessEnv(workspaceRoot),
     });
     if (buildResult.status !== 0) {
       const errorMsg = buildResult.stderr || buildResult.stdout || "Unknown error";
@@ -147,13 +151,6 @@ export const buildLibrary = (
     const sourceArtifactsResult = emitSourcePackageArtifacts(config);
     if (!sourceArtifactsResult.ok) {
       return { ok: false, error: sourceArtifactsResult.error };
-    }
-
-    const declarationResult = emitLibraryTypeDeclarations(config, {
-      preserveSourceRoot: true,
-    });
-    if (!declarationResult.ok) {
-      return { ok: false, error: declarationResult.error };
     }
 
     return { ok: true, value: { outputPath: outputDir } };

@@ -49,6 +49,7 @@ describe("Dependency Graph", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Acme.Math",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -101,7 +102,7 @@ describe("Dependency Graph", function () {
     }
   });
 
-  it("should traverse source-package redirects behind module bindings", () => {
+  it("should traverse source-package modules behind declaration aliases", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-dependency-graph-module-redirect-")
     );
@@ -148,25 +149,12 @@ describe("Dependency Graph", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "nodejs",
+              moduleAliases: {
+                "node:http": "./http.js",
+              },
               exports: {
                 "./http.js": "./src/http/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            bindings: {
-              "node:http": {
-                kind: "module",
-                assembly: "nodejs",
-                type: "nodejs.Http.http",
-                sourceImport: "@tsonic/nodejs/http.js",
               },
             },
           },
@@ -219,9 +207,9 @@ describe("Dependency Graph", function () {
         (module) =>
           module.filePath === "node_modules/@tsonic/nodejs/src/http/helper.ts"
       );
-      expect(packageEntryModule?.namespace).to.equal("nodejs.Http");
-      expect(packageEntryModule?.className).to.equal("http");
-      expect(packageHelperModule?.namespace).to.equal("nodejs.Http");
+      expect(packageEntryModule?.namespace).to.equal("nodejs.http");
+      expect(packageEntryModule?.className).to.equal("index");
+      expect(packageHelperModule?.namespace).to.equal("nodejs.http");
       expect(packageHelperModule?.className).to.equal("helper");
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -262,36 +250,16 @@ describe("Dependency Graph", function () {
           2
         )
       );
-      fs.writeFileSync(path.join(packageRoot, "index.js"), "export {};\n");
       fs.writeFileSync(
-        path.join(packageRoot, "index.d.ts"),
+        path.join(packageRoot, "globals.ts"),
         [
           "declare global {",
-          "  const console: {",
-          "    log(message: string): void;",
-          "  };",
+          '  const console: typeof import("./src/console.js").console;',
           "}",
           "",
           "export {};",
           "",
         ].join("\n")
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            bindings: {
-              console: {
-                kind: "global",
-                assembly: "Fixture.JsRuntime",
-                type: "Fixture.JsRuntime.console",
-                sourceImport: "@fixture/js/console.js",
-              },
-            },
-          },
-          null,
-          2
-        )
       );
       fs.writeFileSync(
         path.join(packageRoot, "tsonic.surface.json"),
@@ -315,6 +283,8 @@ describe("Dependency Graph", function () {
             kind: "tsonic-source-package",
             surfaces: ["@fixture/js"],
             source: {
+              namespace: "Fixture.Js",
+              ambient: ["./globals.ts"],
               exports: {
                 "./console.js": "./src/console.ts",
               },
@@ -334,8 +304,10 @@ describe("Dependency Graph", function () {
         packageEntry,
         [
           'import { stringify } from "./helper.ts";',
-          "export function log(message: string): void {",
-          "  void stringify(message);",
+          "export abstract class console {",
+          "  public static log(message: string): void {",
+          "    void stringify(message);",
+          "  }",
           "}",
         ].join("\n")
       );
@@ -360,16 +332,16 @@ describe("Dependency Graph", function () {
 
       expect(packageEntryModule).to.not.equal(undefined);
       expect(packageHelperModule).to.not.equal(undefined);
-      expect(packageEntryModule?.namespace).to.equal("Fixture.JsRuntime");
+      expect(packageEntryModule?.namespace).to.equal("Fixture.Js");
       expect(packageEntryModule?.className).to.equal("console");
-      expect(packageHelperModule?.namespace).to.equal("Fixture.JsRuntime");
+      expect(packageHelperModule?.namespace).to.equal("Fixture.Js");
       expect(packageHelperModule?.className).to.equal("helper");
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("should traverse symlinked source-package redirects behind global bindings", () => {
+  it("should traverse symlinked source-package redirects behind global ambient declarations", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-dependency-graph-global-redirect-link-")
     );
@@ -407,34 +379,15 @@ describe("Dependency Graph", function () {
       );
       fs.writeFileSync(path.join(externalRoot, "index.js"), "export {};\n");
       fs.writeFileSync(
-        path.join(externalRoot, "index.d.ts"),
+        path.join(externalRoot, "globals.ts"),
         [
           "declare global {",
-          "  const console: {",
-          "    log(message: string): void;",
-          "  };",
+          '  const console: typeof import("./src/console.js").console;',
           "}",
           "",
           "export {};",
           "",
         ].join("\n")
-      );
-      fs.writeFileSync(
-        path.join(externalRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            bindings: {
-              console: {
-                kind: "global",
-                assembly: "Fixture.JsRuntime",
-                type: "Fixture.JsRuntime.console",
-                sourceImport: "@fixture/js/console.js",
-              },
-            },
-          },
-          null,
-          2
-        )
       );
       fs.writeFileSync(
         path.join(externalRoot, "tsonic.surface.json"),
@@ -458,6 +411,8 @@ describe("Dependency Graph", function () {
             kind: "tsonic-source-package",
             surfaces: ["@fixture/js"],
             source: {
+              namespace: "Fixture.Js",
+              ambient: ["./globals.ts"],
               exports: {
                 "./console.js": "./src/console.ts",
               },
@@ -475,8 +430,10 @@ describe("Dependency Graph", function () {
         path.join(externalRoot, "src", "console.ts"),
         [
           'import { stringify } from "./helper.ts";',
-          "export function log(message: string): void {",
-          "  void stringify(message);",
+          "export abstract class console {",
+          "  public static log(message: string): void {",
+          "    void stringify(message);",
+          "  }",
           "}",
         ].join("\n")
       );
@@ -497,16 +454,19 @@ describe("Dependency Graph", function () {
 
       const packageEntryModule = result.value.modules.find(
         (module) =>
-          module.filePath === "node_modules/@fixture/js/src/console.ts"
+          module.className === "console" &&
+          module.namespace === "Fixture.Js"
       );
       const packageHelperModule = result.value.modules.find(
-        (module) => module.filePath === "node_modules/@fixture/js/src/helper.ts"
+        (module) =>
+          module.className === "helper" &&
+          module.namespace === "Fixture.Js"
       );
 
       expect(packageEntryModule).to.not.equal(undefined);
       expect(packageHelperModule).to.not.equal(undefined);
-      expect(packageEntryModule?.namespace).to.equal("Fixture.JsRuntime");
-      expect(packageHelperModule?.namespace).to.equal("Fixture.JsRuntime");
+      expect(packageEntryModule?.namespace).to.equal("Fixture.Js");
+      expect(packageHelperModule?.namespace).to.equal("Fixture.Js");
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
       fs.rmSync(externalRoot, { recursive: true, force: true });
@@ -560,27 +520,14 @@ describe("Dependency Graph", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "nodejs",
+              moduleAliases: {
+                "node:events": "./events.js",
+              },
               exports: {
                 ".": "./src/index.ts",
                 "./index.js": "./src/index.ts",
                 "./events.js": "./src/events-module.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            bindings: {
-              "node:events": {
-                kind: "module",
-                assembly: "nodejs",
-                type: "nodejs.events",
-                sourceImport: "@tsonic/nodejs/events.js",
               },
             },
           },
@@ -675,25 +622,12 @@ describe("Dependency Graph", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "nodejs",
+              moduleAliases: {
+                "node:buffer": "./buffer.js",
+              },
               exports: {
                 "./buffer.js": "./src/buffer/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            bindings: {
-              "node:buffer": {
-                kind: "module",
-                assembly: "nodejs",
-                type: "nodejs.buffer",
-                sourceImport: "@tsonic/nodejs/buffer.js",
               },
             },
           },
@@ -730,9 +664,9 @@ describe("Dependency Graph", function () {
           module.filePath === "node_modules/@tsonic/nodejs/src/buffer/buffer.ts"
       );
 
-      expect(entryModule?.namespace).to.equal("nodejs");
-      expect(entryModule?.className).to.equal("buffer");
-      expect(bufferModule?.namespace).to.equal("nodejs.Buffer");
+      expect(entryModule?.namespace).to.equal("nodejs.buffer");
+      expect(entryModule?.className).to.equal("index");
+      expect(bufferModule?.namespace).to.equal("nodejs.buffer");
       expect(bufferModule?.className).to.equal("buffer");
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -787,25 +721,12 @@ describe("Dependency Graph", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "nodejs",
+              moduleAliases: {
+                "node:process": "./process.js",
+              },
               exports: {
                 "./process.js": "./src/process-module.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            bindings: {
-              "node:process": {
-                kind: "module",
-                assembly: "nodejs",
-                type: "nodejs.process",
-                sourceImport: "@tsonic/nodejs/process.js",
               },
             },
           },
@@ -841,7 +762,7 @@ describe("Dependency Graph", function () {
     }
   });
 
-  it("should expose type-like simple bindings to the emitter graph", () => {
+  it("uses the builtin Error type when native packages publish no simple global bindings", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-dependency-graph-simple-bindings-")
     );
@@ -878,16 +799,21 @@ describe("Dependency Graph", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(result.value.bindings.get("Error")?.name).to.equal(
-        "Tsonic.JSRuntime.Error"
-      );
+      const seen = new WeakSet<object>();
       expect(
-        JSON.stringify(result.value.modules, (_key, value) =>
-          typeof value === "bigint" ? value.toString() : value
-        )
-      ).to.include(
-        '"clrName":"Tsonic.JSRuntime.Error"'
-      );
+        JSON.stringify(result.value.modules, (_key, value) => {
+          if (typeof value === "bigint") {
+            return value.toString();
+          }
+          if (value && typeof value === "object") {
+            if (seen.has(value as object)) {
+              return "[Circular]";
+            }
+            seen.add(value as object);
+          }
+          return value;
+        })
+      ).to.include('"name":"Error"');
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

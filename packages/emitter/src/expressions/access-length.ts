@@ -123,11 +123,9 @@ export const tryEmitErasedLengthAccess = (
             designation: "__tsonic_string",
           },
           expression: castLengthValue({
-            kind: "invocationExpression",
-            expression: identifierExpression(
-              "global::Tsonic.JSRuntime.String.length"
-            ),
-            arguments: [identifierExpression("__tsonic_string")],
+            kind: "memberAccessExpression",
+            expression: identifierExpression("__tsonic_string"),
+            memberName: "Length",
           }),
         },
         {
@@ -287,7 +285,7 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
             kind: "memberAccessExpression",
             expression: {
               kind: "objectCreationExpression",
-              type: identifierType("global::Tsonic.JSRuntime.JSArray", [
+              type: identifierType("global::Tsonic.Runtime.JSArray", [
                 elementTypeAst,
               ]),
               arguments: [objectAst],
@@ -298,8 +296,8 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
       : {
           kind: "memberAccessExpression",
           expression: {
-            kind: "objectCreationExpression",
-            type: identifierType("global::Tsonic.JSRuntime.JSArray", [
+          kind: "objectCreationExpression",
+            type: identifierType("global::Tsonic.Runtime.JSArray", [
               elementTypeAst,
             ]),
             arguments: [objectAst],

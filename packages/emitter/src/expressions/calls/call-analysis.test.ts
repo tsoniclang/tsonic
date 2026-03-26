@@ -20,7 +20,7 @@ describe("call-analysis", () => {
     it("should prefer explicit static metadata over JS receiver heuristics", () => {
       expect(
         shouldEmitFluentExtensionCall({
-          type: "Tsonic.JSRuntime.String",
+          type: "js.String",
           member: "trim",
           emitSemantics: {
             callStyle: "static",
@@ -48,7 +48,7 @@ describe("call-analysis", () => {
     it("should not infer fluent emission from migrated families when metadata is absent", () => {
       expect(
         shouldEmitFluentExtensionCall({
-          type: "Tsonic.JSRuntime.String",
+          type: "js.String",
           member: "trim",
         })
       ).to.equal(false);

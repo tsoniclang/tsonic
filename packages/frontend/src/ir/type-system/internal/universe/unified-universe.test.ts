@@ -60,6 +60,7 @@ describe("buildUnifiedUniverse", () => {
       kind: "interface",
       name: "Foo",
       fullyQualifiedName: "MyApp.Foo",
+      ownerIdentity: "project",
       isDeclarationFile: false,
       typeParameters: [],
       members: new Map([
@@ -98,6 +99,7 @@ describe("buildUnifiedUniverse", () => {
       kind: "interface",
       name: "Foo",
       fullyQualifiedName: "MyApp.Foo",
+      ownerIdentity: "project",
       isDeclarationFile: false,
       typeParameters: [],
       members: new Map([
@@ -141,6 +143,7 @@ describe("buildUnifiedUniverse", () => {
       kind: "class",
       name: "Error",
       fullyQualifiedName: "Error",
+      ownerIdentity: "project",
       isDeclarationFile: true,
       typeParameters: [],
       members: new Map(),
@@ -148,9 +151,9 @@ describe("buildUnifiedUniverse", () => {
     };
 
     const errorTypeId = makeAssemblyTypeId(
-      "Tsonic.JSRuntime:Tsonic.JSRuntime.Error",
-      "Tsonic.JSRuntime.Error",
-      "Tsonic.JSRuntime",
+      "js:js.Error",
+      "js.Error",
+      "js",
       "Error"
     );
     const assemblyEntry: NominalEntry = {

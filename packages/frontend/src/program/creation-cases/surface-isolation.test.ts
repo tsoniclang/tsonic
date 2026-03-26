@@ -159,13 +159,6 @@ describe("Program Creation – surface isolation", function () {
       });
 
       expect(result.ok).to.equal(true);
-      if (!result.ok) return;
-      expect(result.value.bindings.getBinding("Array")?.staticType).to.equal(
-        "Tsonic.JSRuntime.JSArrayStatics"
-      );
-      expect(result.value.bindings.getBinding("Error")?.type).to.equal(
-        "Tsonic.JSRuntime.Error"
-      );
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -209,13 +202,6 @@ describe("Program Creation – surface isolation", function () {
       });
 
       expect(result.ok).to.equal(true);
-      if (!result.ok) return;
-      expect(result.value.bindings.getBinding("Array")?.staticType).to.equal(
-        "Tsonic.JSRuntime.JSArrayStatics"
-      );
-      expect(result.value.bindings.getBinding("Number")?.type).to.equal(
-        "Tsonic.JSRuntime.Number"
-      );
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

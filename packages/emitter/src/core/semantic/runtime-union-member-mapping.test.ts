@@ -11,19 +11,19 @@ import {
 const regExpType: IrType = {
   kind: "referenceType",
   name: "RegExp",
-  resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+  resolvedClrType: "global::js.RegExp",
 };
 
 describe("runtime-union-member-mapping", () => {
   it("indexes runtime-union members by emitted type key", () => {
     const indexByAstKey = buildRuntimeUnionMemberIndexByAstKey([
       identifierType("string"),
-      identifierType("global::Tsonic.JSRuntime.RegExp"),
+      identifierType("global::js.RegExp"),
     ]);
 
     expect(indexByAstKey.get("predefined:string")).to.equal(0);
     expect(
-      indexByAstKey.get("qualifiedIdentifier:global::Tsonic.JSRuntime.RegExp")
+      indexByAstKey.get("qualifiedIdentifier:global::js.RegExp")
     ).to.equal(1);
   });
 
@@ -31,7 +31,7 @@ describe("runtime-union-member-mapping", () => {
     const context = createContext({ rootNamespace: "Test" });
     const indexByAstKey = buildRuntimeUnionMemberIndexByAstKey([
       identifierType("string"),
-      identifierType("global::Tsonic.JSRuntime.RegExp"),
+      identifierType("global::js.RegExp"),
     ]);
 
     const index = findMappedRuntimeUnionMemberIndex({
@@ -53,7 +53,7 @@ describe("runtime-union-member-mapping", () => {
     const context = createContext({ rootNamespace: "Test" });
     const indexByAstKey = buildRuntimeUnionMemberIndexByAstKey([
       identifierType("string"),
-      identifierType("global::Tsonic.JSRuntime.RegExp"),
+      identifierType("global::js.RegExp"),
     ]);
 
     const index = findMappedRuntimeUnionMemberIndex({

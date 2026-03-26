@@ -147,9 +147,7 @@ const getSurfacePackageName = (mode: SurfaceMode): string | undefined => {
   return trimmed;
 };
 
-const findAncestorLookupRoots = (
-  projectRoot: string
-): readonly string[] => {
+const findAncestorLookupRoots = (projectRoot: string): readonly string[] => {
   const roots: string[] = [];
   let current = resolve(projectRoot);
   let encounteredPackageJson = false;

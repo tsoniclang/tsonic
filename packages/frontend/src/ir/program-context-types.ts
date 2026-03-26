@@ -16,6 +16,7 @@ import type { BindingRegistry } from "../program/bindings.js";
 import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import type { SurfaceMode } from "../program/types.js";
 import type { Diagnostic } from "../types/diagnostic.js";
+import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
 
 /**
  * ProgramContext — Per-compilation context owning all semantic state.
@@ -40,6 +41,11 @@ export type ProgramContext = {
    * Authoritative @tsonic package roots participating in the active wave.
    */
   readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
+
+  /**
+   * Ambient declaration-module aliases (for example `node:http` -> `@tsonic/nodejs/http.js`).
+   */
+  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
 
   /**
    * Root namespace for generated module/type names.

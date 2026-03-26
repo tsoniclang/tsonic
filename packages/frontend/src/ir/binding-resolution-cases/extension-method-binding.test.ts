@@ -24,27 +24,27 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+      bindings.addBindings("/test/js/bindings.json", {
         bindings: {
           Number: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Number",
+            assembly: "js",
+            type: "js.Number",
           },
         },
-        namespace: "Tsonic.JSRuntime",
+        namespace: "js",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.Number",
-            assemblyName: "Tsonic.JSRuntime",
+            clrName: "js.Number",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "toString",
                 normalizedSignature:
                   "toString|(System.Double):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.Number",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.Number",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -86,7 +86,7 @@ describe("Binding Resolution in IR", () => {
         returnStmt.expression.callee.memberBinding?.isExtensionMethod
       ).to.equal(true);
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.Number"
+        "js.Number"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
         "toString"
@@ -103,27 +103,27 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+      bindings.addBindings("/test/js/bindings.json", {
         bindings: {
           Boolean: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Boolean",
+            assembly: "js",
+            type: "js.Boolean",
           },
         },
-        namespace: "Tsonic.JSRuntime",
+        namespace: "js",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.Boolean",
-            assemblyName: "Tsonic.JSRuntime",
+            clrName: "js.Boolean",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "toString",
                 normalizedSignature:
                   "toString|(System.Boolean):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.Boolean",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.Boolean",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -166,7 +166,7 @@ describe("Binding Resolution in IR", () => {
         returnStmt.expression.callee.memberBinding?.isExtensionMethod
       ).to.equal(true);
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.Boolean"
+        "js.Boolean"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
         "toString"
@@ -183,20 +183,20 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
-        namespace: "Tsonic.JSRuntime",
+      bindings.addBindings("/test/js/bindings.json", {
+        namespace: "js",
         types: [
           {
             clrName: "System.String",
-            assemblyName: "Tsonic.JSRuntime",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "trim",
                 normalizedSignature:
                   "trim|(System.String):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.StringExtensions",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.StringExtensions",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -231,7 +231,7 @@ describe("Binding Resolution in IR", () => {
         returnStmt.expression.callee.memberBinding?.isExtensionMethod
       ).to.equal(true);
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.StringExtensions"
+        "js.StringExtensions"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
         "trim"
@@ -260,26 +260,26 @@ describe("Binding Resolution in IR", () => {
         bindings: {
           Number: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Number",
+            assembly: "js",
+            type: "js.Number",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
           },
         },
-        namespace: "Tsonic.JSRuntime",
+        namespace: "js",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.Number",
-            assemblyName: "Tsonic.JSRuntime",
+            clrName: "js.Number",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "toString",
                 normalizedSignature:
                   "toString|(System.Double):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.Number",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.Number",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
                 emitSemantics: {
                   callStyle: "receiver",
@@ -335,7 +335,7 @@ describe("Binding Resolution in IR", () => {
       expect(memberExpr.memberBinding).to.not.equal(undefined);
       expect(memberExpr.memberBinding?.isExtensionMethod).to.equal(true);
       expect(memberExpr.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.Number"
+        "js.Number"
       );
       expect(memberExpr.memberBinding?.member).to.equal("toString");
       expect(memberExpr.memberBinding?.emitSemantics?.callStyle).to.equal(

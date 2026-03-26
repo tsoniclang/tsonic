@@ -6,6 +6,7 @@ import type {
   TsonicProjectConfig,
   TsonicWorkspaceConfig,
 } from "../../types.js";
+import { buildDotnetProcessEnv } from "../../dotnet/nuget-config.js";
 
 export type AddCommandOptions = {
   readonly verbose?: boolean;
@@ -33,6 +34,7 @@ export const defaultExec: Exec = (command, args, cwd, stdio) => {
     cwd,
     stdio,
     encoding: "utf-8",
+    env: command === "dotnet" ? buildDotnetProcessEnv(cwd) : process.env,
   });
 
   return {

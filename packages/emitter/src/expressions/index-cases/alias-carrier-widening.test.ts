@@ -27,7 +27,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+          resolvedClrType: "global::js.RegExp",
         },
       ],
     };
@@ -140,7 +140,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+          resolvedClrType: "global::js.RegExp",
         },
         {
           kind: "arrayType",
@@ -296,7 +296,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+          resolvedClrType: "global::js.RegExp",
         },
         {
           kind: "arrayType",

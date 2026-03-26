@@ -8,6 +8,25 @@ import type {
   CSharpExpressionAst,
 } from "../../core/format/backend-ast/types.js";
 
+const getDirectYieldExpectedType = (
+  context: EmitterContext
+): IrExpression["inferredType"] | undefined => {
+  const returnType = context.returnType;
+  if (!returnType || returnType.kind !== "referenceType") {
+    return undefined;
+  }
+
+  switch (returnType.name) {
+    case "Iterable":
+    case "IterableIterator":
+    case "AsyncIterable":
+    case "AsyncIterableIterator":
+      return returnType.typeArguments?.[0];
+    default:
+      return undefined;
+  }
+};
+
 export const emitYieldExpressionAst = (
   expr: Extract<IrExpression, { kind: "yield" }>,
   context: EmitterContext
@@ -42,12 +61,22 @@ export const emitYieldExpressionAst = (
     }
   } else {
     if (expr.expression) {
+      const directYieldExpectedType = getDirectYieldExpectedType(currentContext);
       const [valueAst, newContext] = emitExpressionAst(
         expr.expression,
-        currentContext
+        currentContext,
+        directYieldExpectedType
       );
       currentContext = newContext;
-      const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
+      const exchangeVar = currentContext.generatorExchangeVar;
+      if (!exchangeVar) {
+        parts.push({
+          kind: "yieldStatement",
+          isBreak: false,
+          expression: valueAst,
+        });
+        return [parts, currentContext];
+      }
       parts.push({
         kind: "expressionStatement",
         expression: {
@@ -73,14 +102,16 @@ export const emitYieldExpressionAst = (
         },
       });
     } else {
-      const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
+      const exchangeVar = currentContext.generatorExchangeVar;
       parts.push({
         kind: "yieldStatement",
         isBreak: false,
-        expression: {
-          kind: "identifierExpression",
-          identifier: exchangeVar,
-        },
+        expression: exchangeVar
+          ? {
+              kind: "identifierExpression",
+              identifier: exchangeVar,
+            }
+          : undefined,
       });
     }
   }
@@ -122,12 +153,22 @@ export const emitYieldStatementAst = (
     }
   } else {
     if (stmt.output) {
+      const directYieldExpectedType = getDirectYieldExpectedType(currentContext);
       const [valueAst, newContext] = emitExpressionAst(
         stmt.output,
-        currentContext
+        currentContext,
+        directYieldExpectedType
       );
       currentContext = newContext;
-      const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
+      const exchangeVar = currentContext.generatorExchangeVar;
+      if (!exchangeVar) {
+        parts.push({
+          kind: "yieldStatement",
+          isBreak: false,
+          expression: valueAst,
+        });
+        return [parts, currentContext];
+      }
       parts.push({
         kind: "expressionStatement",
         expression: {
@@ -145,17 +186,19 @@ export const emitYieldStatementAst = (
         },
       });
     }
-    const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
+    const exchangeVar = currentContext.generatorExchangeVar;
     parts.push({
       kind: "yieldStatement",
       isBreak: false,
-      expression: {
-        kind: "identifierExpression",
-        identifier: exchangeVar,
-      },
+      expression: exchangeVar
+        ? {
+            kind: "identifierExpression",
+            identifier: exchangeVar,
+          }
+        : undefined,
     });
 
-    if (stmt.receiveTarget) {
+    if (stmt.receiveTarget && exchangeVar) {
       const inputExpr: CSharpExpressionAst = {
         kind: "parenthesizedExpression",
         expression: {

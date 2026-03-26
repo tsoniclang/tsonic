@@ -102,11 +102,11 @@ export const emitMemberAccess = (
     );
     return [
       {
-        kind: "invocationExpression",
-        expression: identifierExpression(
-          "global::Tsonic.JSRuntime.String.length"
-        ),
-        arguments: [stringObjectAst],
+        kind: expr.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: stringObjectAst,
+        memberName: "Length",
       },
       stringContext,
     ];

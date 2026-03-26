@@ -23,7 +23,10 @@ import {
   extractHeritage,
 } from "./registry-helpers.js";
 import type { IrType } from "../../types/index.js";
-import { resolveSourceFileNamespace } from "../../../program/source-file-identity.js";
+import {
+  resolveSourceFileNamespace,
+  resolveSourceFileOwnerIdentity,
+} from "../../../program/source-file-identity.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BUILD FUNCTION
@@ -58,7 +61,8 @@ export const buildTypeRegistry = (
   const processDeclaration = (
     node: ts.Node,
     sf: ts.SourceFile,
-    ns: string | undefined
+    ns: string | undefined,
+    ownerIdentity: string
   ): void => {
     // Check if this file is from a well-known Tsonic library
     const isFromWellKnownLib = isWellKnownLibrary(sf.fileName);
@@ -97,6 +101,7 @@ export const buildTypeRegistry = (
         kind: "class",
         name: simpleName,
         fullyQualifiedName: fqName,
+        ownerIdentity,
         isDeclarationFile: sf.isDeclarationFile,
         typeParameters: extractTypeParameters(node.typeParameters, convert),
         members: extractMembers(node.members, convert),
@@ -126,6 +131,7 @@ export const buildTypeRegistry = (
           kind: "typeAlias",
           name: simpleName,
           fullyQualifiedName: fqName,
+          ownerIdentity,
           isDeclarationFile: sf.isDeclarationFile,
           typeParameters: [],
           members: aliasedMembers,
@@ -167,6 +173,7 @@ export const buildTypeRegistry = (
             kind: "interface",
             name: simpleName,
             fullyQualifiedName: fqName,
+            ownerIdentity,
             isDeclarationFile: sf.isDeclarationFile,
             typeParameters: extractTypeParameters(node.typeParameters, convert),
             members: extractMembers(node.members, convert),
@@ -197,6 +204,7 @@ export const buildTypeRegistry = (
         kind: "typeAlias",
         name: simpleName,
         fullyQualifiedName: fqName,
+        ownerIdentity,
         isDeclarationFile: sf.isDeclarationFile,
         typeParameters: extractTypeParameters(node.typeParameters, convert),
         members: aliasedMembers,
@@ -216,12 +224,17 @@ export const buildTypeRegistry = (
       ts.isModuleBlock(node.body)
     ) {
       for (const stmt of node.body.statements) {
-        processDeclaration(stmt, sf, undefined);
+        processDeclaration(stmt, sf, undefined, ownerIdentity);
       }
     }
   };
 
   for (const sourceFile of sourceFiles) {
+    const ownerIdentity = resolveSourceFileOwnerIdentity(
+      sourceFile.fileName,
+      sourceRoot,
+      rootNamespace
+    );
     const namespace = sourceFile.isDeclarationFile
       ? undefined
       : resolveSourceFileNamespace(
@@ -231,7 +244,7 @@ export const buildTypeRegistry = (
         );
 
     ts.forEachChild(sourceFile, (node) => {
-      processDeclaration(node, sourceFile, namespace);
+      processDeclaration(node, sourceFile, namespace, ownerIdentity);
     });
   }
 

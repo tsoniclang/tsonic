@@ -96,8 +96,8 @@ describe("Binding Resolution in IR", () => {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });
@@ -236,8 +236,8 @@ describe("Binding Resolution in IR", () => {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });
@@ -389,35 +389,35 @@ describe("Binding Resolution in IR", () => {
         bindings: {
           Uint8Array: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Uint8Array",
-            staticType: "Tsonic.JSRuntime.Uint8Array",
+            assembly: "js",
+            type: "js.Uint8Array",
+            staticType: "js.Uint8Array",
             typeSemantics: { contributesTypeIdentity: true },
           },
           parseInt: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Globals",
+            assembly: "js",
+            type: "js.Globals",
             csharpName: "Globals.parseInt",
           },
           String: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.String",
-            staticType: "Tsonic.JSRuntime.String",
+            assembly: "js",
+            type: "js.String",
+            staticType: "js.String",
             csharpName: "Globals.String",
             typeSemantics: { contributesTypeIdentity: true },
           },
           Error: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Error",
+            assembly: "js",
+            type: "js.Error",
             typeSemantics: { contributesTypeIdentity: true },
           },
           RangeError: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.RangeError",
+            assembly: "js",
+            type: "js.RangeError",
             typeSemantics: { contributesTypeIdentity: true },
           },
         },
@@ -485,7 +485,7 @@ describe("Binding Resolution in IR", () => {
           matches.some(
             (identifier) =>
               identifier.declId !== undefined &&
-              identifier.resolvedAssembly === "Tsonic.JSRuntime" &&
+              identifier.resolvedAssembly === "js" &&
               identifier.resolvedClrType === expectedClrType &&
               (expectedCsharpName === undefined ||
                 identifier.csharpName === expectedCsharpName)
@@ -494,19 +494,19 @@ describe("Binding Resolution in IR", () => {
         ).to.equal(true);
       };
 
-      expectBoundIdentifier("Uint8Array", "Tsonic.JSRuntime.Uint8Array");
+      expectBoundIdentifier("Uint8Array", "js.Uint8Array");
       expectBoundIdentifier(
         "parseInt",
-        "Tsonic.JSRuntime.Globals",
+        "js.Globals",
         "Globals.parseInt"
       );
       expectBoundIdentifier(
         "String",
-        "Tsonic.JSRuntime.String",
+        "js.String",
         "Globals.String"
       );
-      expectBoundIdentifier("Error", "Tsonic.JSRuntime.Error");
-      expectBoundIdentifier("RangeError", "Tsonic.JSRuntime.RangeError");
+      expectBoundIdentifier("Error", "js.Error");
+      expectBoundIdentifier("RangeError", "js.RangeError");
     });
 
     it("still applies global bindings to external-module declare-global augmentations", () => {
@@ -611,35 +611,35 @@ describe("Binding Resolution in IR", () => {
         bindings: {
           Uint8Array: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Uint8Array",
-            staticType: "Tsonic.JSRuntime.Uint8Array",
+            assembly: "js",
+            type: "js.Uint8Array",
+            staticType: "js.Uint8Array",
             typeSemantics: { contributesTypeIdentity: true },
           },
           parseInt: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Globals",
+            assembly: "js",
+            type: "js.Globals",
             csharpName: "Globals.parseInt",
           },
           String: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.String",
-            staticType: "Tsonic.JSRuntime.String",
+            assembly: "js",
+            type: "js.String",
+            staticType: "js.String",
             csharpName: "Globals.String",
             typeSemantics: { contributesTypeIdentity: true },
           },
           Error: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Error",
+            assembly: "js",
+            type: "js.Error",
             typeSemantics: { contributesTypeIdentity: true },
           },
           RangeError: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.RangeError",
+            assembly: "js",
+            type: "js.RangeError",
             typeSemantics: { contributesTypeIdentity: true },
           },
         },
@@ -707,7 +707,7 @@ describe("Binding Resolution in IR", () => {
           matches.some(
             (identifier) =>
               identifier.declId !== undefined &&
-              identifier.resolvedAssembly === "Tsonic.JSRuntime" &&
+              identifier.resolvedAssembly === "js" &&
               identifier.resolvedClrType === expectedClrType &&
               (expectedCsharpName === undefined ||
                 identifier.csharpName === expectedCsharpName)
@@ -716,19 +716,19 @@ describe("Binding Resolution in IR", () => {
         ).to.equal(true);
       };
 
-      expectBoundIdentifier("Uint8Array", "Tsonic.JSRuntime.Uint8Array");
+      expectBoundIdentifier("Uint8Array", "js.Uint8Array");
       expectBoundIdentifier(
         "parseInt",
-        "Tsonic.JSRuntime.Globals",
+        "js.Globals",
         "Globals.parseInt"
       );
       expectBoundIdentifier(
         "String",
-        "Tsonic.JSRuntime.String",
+        "js.String",
         "Globals.String"
       );
-      expectBoundIdentifier("Error", "Tsonic.JSRuntime.Error");
-      expectBoundIdentifier("RangeError", "Tsonic.JSRuntime.RangeError");
+      expectBoundIdentifier("Error", "js.Error");
+      expectBoundIdentifier("RangeError", "js.RangeError");
     });
   });
 });

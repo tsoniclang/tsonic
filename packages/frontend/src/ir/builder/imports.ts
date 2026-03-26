@@ -65,6 +65,7 @@ export const extractImports = (
           projectRoot: ctx.projectRoot,
           surface: ctx.surface,
           authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
+          declarationModuleAliases: ctx.declarationModuleAliases,
         }
       );
       const isSourcePackage =
@@ -237,8 +238,7 @@ export const extractImports = (
       };
 
       const resolveClrTypeBindingForNamedImport = (
-        exportName: string,
-        allowGlobalFallback: boolean
+        exportName: string
       ): TypeBinding | undefined => {
         const matchesExportName = (type: TypeBinding): boolean => {
           if (type.alias === exportName) return true;
@@ -261,7 +261,8 @@ export const extractImports = (
           return undefined;
         };
 
-        const exactInResolvedNamespace = findExactInNamespace(resolvedNamespace);
+        const exactInResolvedNamespace =
+          findExactInNamespace(resolvedNamespace);
         if (exactInResolvedNamespace) {
           return exactInResolvedNamespace;
         }
@@ -273,17 +274,7 @@ export const extractImports = (
           if (exact) return exact;
         }
 
-        if (!allowGlobalFallback) {
-          return undefined;
-        }
-
-        const globalMatch = ctx.bindings
-          .getAllNamespaces()
-          .flatMap((ns) => ns.types)
-          .find(matchesExportName);
-        if (globalMatch) return globalMatch;
-
-        return ctx.bindings.getType(exportName);
+        return undefined;
       };
 
       // Resolve CLR identities for named imports from both CLR namespace facades
@@ -301,13 +292,9 @@ export const extractImports = (
           return spec;
         }
 
-        // Airplane-grade fallback: if TypeScript resolution can't prove this is a type
-        // (e.g. due to declaration-file quirks), consult loaded CLR bindings directly
-        // for CLR namespace facades. Module-bound surface imports rely on the TS import
-        // form itself (`import type`) or checker result.
         const resolvedTypeBinding =
           (isClr || hasModuleBinding) && resolvedNamespace
-            ? resolveClrTypeBindingForNamedImport(spec.name, !hasModuleBinding)
+            ? resolveClrTypeBindingForNamedImport(spec.name)
             : undefined;
         const isType = spec.isType === true;
 

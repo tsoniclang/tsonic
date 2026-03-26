@@ -484,19 +484,23 @@ describe("build command (library ref dirs)", function () {
         "export declare function main(): void;"
       );
 
-      const packageManifestPath = join(projectRoot, "dist", "tsonic.package.json");
+      const packageManifestPath = join(
+        projectRoot,
+        "dist",
+        "tsonic.package.json"
+      );
       expect(existsSync(packageManifestPath)).to.equal(true);
       const packageManifest = JSON.parse(
         readFileSync(packageManifestPath, "utf-8")
       ) as Record<string, unknown>;
       expect(packageManifest["schemaVersion"]).to.equal(1);
       expect(packageManifest["kind"]).to.equal("tsonic-source-package");
-      expect(
-        existsSync(join(projectRoot, "dist", "package.json"))
-      ).to.equal(true);
-      expect(
-        existsSync(join(projectRoot, "dist", "src", "index.ts"))
-      ).to.equal(true);
+      expect(existsSync(join(projectRoot, "dist", "package.json"))).to.equal(
+        true
+      );
+      expect(existsSync(join(projectRoot, "dist", "src", "index.ts"))).to.equal(
+        true
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -1,6 +1,12 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addNpmCommand } from "../add-npm.js";
@@ -114,7 +120,9 @@ describe("add npm (transitive package manifests)", function () {
   });
 
   it("fails fast when a transitive source package has an invalid kind", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-package-manifest-root-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-add-npm-package-manifest-root-")
+    );
     try {
       const configPath = writeWorkspaceConfig(dir);
       writeLocalNpmPackage(dir, "local/acme-node", {

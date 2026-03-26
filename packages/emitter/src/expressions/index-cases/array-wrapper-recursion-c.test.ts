@@ -66,8 +66,8 @@ describe("Expression Emission", () => {
       inferredType: { kind: "primitiveType", name: "int" },
       memberBinding: {
         kind: "property",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.JSArray`1",
+        assembly: "js",
+        type: "Tsonic.Runtime.JSArray`1",
         member: "length",
       },
     };
@@ -144,8 +144,8 @@ describe("Expression Emission", () => {
       inferredType: { kind: "primitiveType", name: "int" },
       memberBinding: {
         kind: "property",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.JSArray`1",
+        assembly: "js",
+        type: "Tsonic.Runtime.JSArray`1",
         member: "length",
       },
     };
@@ -165,7 +165,7 @@ describe("Expression Emission", () => {
     const text = printExpression(result);
     expect(text).to.include("handlerArray.Match(");
     expect(text).to.include(".Length");
-    expect(text).to.not.include("new global::Tsonic.JSRuntime.JSArray<");
+    expect(text).to.not.include("new global::Tsonic.Runtime.JSArray<");
   });
 
   it("uses storage-erased wrapper element types for narrowed recursive union arrays", () => {
@@ -217,8 +217,8 @@ describe("Expression Emission", () => {
       inferredType: { kind: "primitiveType", name: "int" },
       memberBinding: {
         kind: "property",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.JSArray`1",
+        assembly: "js",
+        type: "Tsonic.Runtime.JSArray`1",
         member: "length",
       },
     };

@@ -61,3 +61,29 @@ export const resolveNugetConfigFile = (
     };
   }
 };
+
+export const resolveNugetPackagesDir = (projectRoot: string): string => {
+  const dir = join(projectRoot, ".tsonic", "nuget", "packages");
+  mkdirSync(dir, { recursive: true });
+  return resolve(dir);
+};
+
+export const buildDotnetProcessEnv = (
+  projectRoot: string
+): NodeJS.ProcessEnv => {
+  const configuredPackagesDir = process.env.NUGET_PACKAGES;
+  if (
+    typeof configuredPackagesDir === "string" &&
+    configuredPackagesDir.trim().length > 0
+  ) {
+    return {
+      ...process.env,
+      NUGET_PACKAGES: configuredPackagesDir,
+    };
+  }
+
+  return {
+    ...process.env,
+    NUGET_PACKAGES: resolveNugetPackagesDir(projectRoot),
+  };
+};

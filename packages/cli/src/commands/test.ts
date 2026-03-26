@@ -4,7 +4,10 @@
 
 import { spawnSync } from "node:child_process";
 import type { ResolvedConfig, Result } from "../types.js";
-import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
+import {
+  buildDotnetProcessEnv,
+  resolveNugetConfigFile,
+} from "../dotnet/nuget-config.js";
 import { generateCommand } from "./generate.js";
 
 export const testCommand = (
@@ -46,6 +49,7 @@ export const testCommand = (
     cwd: generatedDir,
     stdio: config.verbose ? "inherit" : "pipe",
     encoding: "utf-8",
+    env: buildDotnetProcessEnv(config.workspaceRoot),
   });
   if (restoreResult.status !== 0) {
     const msg = restoreResult.stderr || restoreResult.stdout || "Unknown error";
@@ -56,6 +60,7 @@ export const testCommand = (
     cwd: generatedDir,
     stdio: config.verbose ? "inherit" : "pipe",
     encoding: "utf-8",
+    env: buildDotnetProcessEnv(config.workspaceRoot),
   });
 
   if (testResult.status !== 0) {

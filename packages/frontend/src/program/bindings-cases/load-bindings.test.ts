@@ -84,14 +84,14 @@ describe("Binding System", () => {
             bindings: {
               setInterval: {
                 kind: "global",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.Timers",
+                assembly: "js",
+                type: "js.Timers",
                 csharpName: "Timers.setInterval",
               },
               clearInterval: {
                 kind: "global",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.Timers",
+                assembly: "js",
+                type: "js.Timers",
                 csharpName: "Timers.clearInterval",
               },
             },
@@ -105,14 +105,14 @@ describe("Binding System", () => {
 
       expect(registry.getBinding("setInterval")).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.Timers",
+        assembly: "js",
+        type: "js.Timers",
         csharpName: "Timers.setInterval",
       });
       expect(registry.getBinding("clearInterval")).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.Timers",
+        assembly: "js",
+        type: "js.Timers",
         csharpName: "Timers.clearInterval",
       });
     });
@@ -233,6 +233,89 @@ describe("Binding System", () => {
 
       const fsBinding = registry.getBinding("fs");
       expect(fsBinding?.kind).to.equal("module");
+    });
+
+    it("loads native source-package globals from ambient globals.ts declarations", () => {
+      fs.mkdirSync(path.join(tempDir, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          {
+            name: "@fixture/js",
+            version: "1.0.0",
+            type: "module",
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(tempDir, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            source: {
+              namespace: "fixture.js",
+              ambient: ["./globals.ts"],
+              exports: {
+                "./date-object.js": "./src/date-object.ts",
+                "./Globals.js": "./src/Globals.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(tempDir, "globals.ts"),
+        [
+          "declare global {",
+          '  const Date: typeof import("./src/date-object.js").Date;',
+          "  function parseInt(value: string, radix?: number): number;",
+          "}",
+          "",
+          "export {};",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        path.join(tempDir, "src/date-object.ts"),
+        [
+          "export class Date {",
+          '  public toISOString(): string { return \"\"; }',
+          "}",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        path.join(tempDir, "src/Globals.ts"),
+        [
+          "export const parseInt = (value: string, radix?: number): number => {",
+          "  void value;",
+          "  void radix;",
+          "  return 0;",
+          "};",
+          "",
+        ].join("\n")
+      );
+
+      const registry = loadBindings([tempDir]);
+
+      expect(registry.getBinding("Date")).to.deep.equal({
+        kind: "global",
+        assembly: "fixture.js",
+        type: "fixture.js.Date",
+        staticType: "fixture.js.Date",
+        sourceImport: "@fixture/js/date-object.js",
+      });
+      expect(registry.getBinding("parseInt")).to.deep.equal({
+        kind: "global",
+        assembly: "fixture.js",
+        type: "fixture.js.Globals.parseInt",
+        staticType: "fixture.js.Globals.parseInt",
+        sourceImport: "@fixture/js/Globals.js",
+      });
     });
 
     it("should load transitive bindings from non-@tsonic dependencies", () => {
@@ -449,6 +532,93 @@ describe("Binding System", () => {
         kind: "global",
         assembly: "System.Runtime",
         type: "System.SerializableAttribute",
+      });
+    });
+
+    it("ignores local bindings files for source packages while still traversing dependencies", () => {
+      const sourceRoot = path.join(tempDir, "node_modules/@tsonic/js");
+      const dependencyRoot = path.join(tempDir, "node_modules/@tsonic/dotnet");
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.mkdirSync(dependencyRoot, { recursive: true });
+
+      fs.writeFileSync(
+        path.join(sourceRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/js",
+            version: "1.0.0",
+            type: "module",
+            dependencies: {
+              "@tsonic/dotnet": "1.0.0",
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(sourceRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(path.join(sourceRoot, "bindings.json"), JSON.stringify({
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "js",
+            type: "js.console",
+          },
+        },
+      }, null, 2));
+
+      fs.writeFileSync(
+        path.join(dependencyRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/dotnet",
+            version: "1.0.0",
+            type: "module",
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(dependencyRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            bindings: {
+              Guid: {
+                kind: "module",
+                assembly: "System.Private.CoreLib",
+                type: "System.Guid",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const registry = loadBindings([sourceRoot]);
+
+      expect(registry.getBinding("console")).to.equal(undefined);
+      expect(registry.getBinding("Guid")).to.deep.equal({
+        kind: "module",
+        assembly: "System.Private.CoreLib",
+        type: "System.Guid",
       });
     });
   });

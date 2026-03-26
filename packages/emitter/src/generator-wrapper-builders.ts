@@ -79,7 +79,7 @@ export const funcType = (typeArg: CSharpTypeAst): CSharpTypeAst =>
 
 export const buildConstructor = (
   wrapperName: string,
-  exchangeName: string,
+  exchangeType: CSharpTypeAst,
   isAsync: boolean,
   returnType: CSharpTypeAst | undefined
 ): CSharpMemberAst => {
@@ -87,12 +87,12 @@ export const buildConstructor = (
     isAsync
       ? "global::System.Collections.Generic.IAsyncEnumerable"
       : "global::System.Collections.Generic.IEnumerable",
-    [identifierType(exchangeName)]
+    [exchangeType]
   );
 
   const parameters: CSharpParameterAst[] = [
     { name: "enumerable", type: enumerableType },
-    { name: "exchange", type: identifierType(exchangeName) },
+    { name: "exchange", type: exchangeType },
   ];
 
   if (returnType) {

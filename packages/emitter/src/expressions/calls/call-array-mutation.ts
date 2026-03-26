@@ -330,7 +330,7 @@ export const emitArrayMutationInteropCall = (
         ...captured.setupStatements,
         createVarLocal(wrapperTemp.emittedName, {
           kind: "objectCreationExpression",
-          type: identifierType("global::Tsonic.JSRuntime.JSArray", [
+          type: identifierType("global::Tsonic.Runtime.JSArray", [
             elementTypeAst,
           ]),
           arguments: [captured.readExpression],

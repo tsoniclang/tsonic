@@ -302,6 +302,10 @@ export type EmitterContext = {
   readonly className?: string;
   /** Original TS type declaration name currently being emitted. */
   readonly declaringTypeName?: string;
+  /** Source names of the current declaring type's type parameters, in declaration order. */
+  readonly declaringTypeParameterNames?: readonly string[];
+  /** Emitted C# identifiers for the current declaring type's type parameters. */
+  readonly declaringTypeParameterNameMap?: ReadonlyMap<string, string>;
   /** Whether the current class has a superclass (for virtual/override) */
   readonly hasSuperClass?: boolean;
   /** Whether the current class routes constructor bodies through a helper wrapper. */

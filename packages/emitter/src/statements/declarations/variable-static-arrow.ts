@@ -28,44 +28,11 @@ import type {
   CSharpStatementAst,
 } from "../../core/format/backend-ast/types.js";
 import { shouldEmitReadonlyStaticField } from "./variable-type-resolution.js";
-
-const isCSharpOptionalParameterDefaultAst = (
-  expr: CSharpExpressionAst
-): boolean => {
-  switch (expr.kind) {
-    case "nullLiteralExpression":
-    case "booleanLiteralExpression":
-    case "stringLiteralExpression":
-    case "charLiteralExpression":
-    case "numericLiteralExpression":
-    case "defaultExpression":
-      return true;
-    case "parenthesizedExpression":
-      return isCSharpOptionalParameterDefaultAst(expr.expression);
-    case "prefixUnaryExpression":
-      return isCSharpOptionalParameterDefaultAst(expr.operand);
-    case "castExpression":
-      return isCSharpOptionalParameterDefaultAst(expr.expression);
-    default:
-      return false;
-  }
-};
-
-const supportsNullCoalescingParameterDefault = (
-  typeAst: CSharpTypeAst
-): boolean => {
-  switch (typeAst.kind) {
-    case "arrayType":
-    case "nullableType":
-    case "identifierType":
-    case "qualifiedIdentifierType":
-      return true;
-    case "predefinedType":
-      return typeAst.keyword === "string" || typeAst.keyword === "object";
-    default:
-      return false;
-  }
-};
+import {
+  canEmitParameterDefaultInSignature,
+  isCSharpOptionalParameterDefaultAst,
+  supportsNullCoalescingParameterDefault,
+} from "../parameter-defaults.js";
 
 export const getAsyncBodyReturnType = (
   isAsync: boolean,
@@ -290,6 +257,9 @@ export const emitStaticArrowFieldMembers = (
         param.pattern.kind === "identifierPattern"
           ? escapeCSharpIdentifier(param.pattern.name)
           : `p${i}`;
+      const emittedParamType: CSharpTypeAst = param.isOptional
+        ? { kind: "nullableType", underlyingType: pTypeAst }
+        : pTypeAst;
       let defaultValue: CSharpExpressionAst | undefined;
       if (param.initializer) {
         const [ast, nextCtx] = emitExpressionAst(
@@ -297,21 +267,24 @@ export const emitStaticArrowFieldMembers = (
           delegateCtx,
           param.type
         );
-        if (isCSharpOptionalParameterDefaultAst(ast)) {
+        if (
+          canEmitParameterDefaultInSignature(arrowFunc.parameters, i) &&
+          isCSharpOptionalParameterDefaultAst(ast)
+        ) {
           defaultValue = ast;
-        } else {
+        } else if (supportsNullCoalescingParameterDefault(emittedParamType)) {
           defaultValue = { kind: "defaultExpression" };
         }
         delegateCtx = nextCtx;
-      } else if (param.isOptional) {
+      } else if (
+        param.isOptional &&
+        canEmitParameterDefaultInSignature(arrowFunc.parameters, i)
+      ) {
         defaultValue = { kind: "defaultExpression" };
       }
       delegateParams.push({
         name: paramName,
-        type:
-          param.isOptional && !param.initializer
-            ? { kind: "nullableType", underlyingType: pTypeAst }
-            : pTypeAst,
+        type: emittedParamType,
         defaultValue,
       });
     }
@@ -378,12 +351,12 @@ export const emitStaticArrowFieldMembers = (
       param.pattern.kind === "identifierPattern"
         ? escapeCSharpIdentifier(param.pattern.name)
         : `p${i}`;
+    const emittedParamType: CSharpTypeAst = param.isOptional
+      ? { kind: "nullableType", underlyingType: mTypeAst }
+      : mTypeAst;
     methodParams.push({
       name: paramName,
-      type:
-        param.isOptional && !param.initializer
-          ? { kind: "nullableType", underlyingType: mTypeAst }
-          : mTypeAst,
+      type: emittedParamType,
       defaultValue: param.initializer
         ? (() => {
             const [ast, nextCtx] = emitExpressionAst(
@@ -392,17 +365,21 @@ export const emitStaticArrowFieldMembers = (
               param.type
             );
             paramCtx = nextCtx;
-            if (isCSharpOptionalParameterDefaultAst(ast)) {
+            if (
+              canEmitParameterDefaultInSignature(arrowFunc.parameters, i) &&
+              isCSharpOptionalParameterDefaultAst(ast)
+            ) {
               return ast;
             }
             runtimeDefaultInitializers.push({
               paramName,
-              typeAst: mTypeAst,
+              typeAst: emittedParamType,
               initializer: ast,
             });
             return { kind: "defaultExpression" };
           })()
-        : param.isOptional
+        : param.isOptional &&
+            canEmitParameterDefaultInSignature(arrowFunc.parameters, i)
           ? { kind: "defaultExpression" }
           : undefined,
     });

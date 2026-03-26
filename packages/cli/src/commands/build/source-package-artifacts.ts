@@ -16,6 +16,13 @@ type ProjectPackageJson = {
   readonly types?: unknown;
 };
 
+type SourcePackageManifest = {
+  readonly kind?: unknown;
+  readonly source?: {
+    readonly ambient?: unknown;
+  };
+};
+
 const normalizeSlashes = (pathLike: string): string => pathLike.replace(/\\/g, "/");
 
 const matchesGlob = (candidate: string, pattern: string): boolean => {
@@ -50,9 +57,26 @@ const readProjectPackageJson = (
   }
 };
 
+const parseAmbientEntries = (value: unknown): readonly string[] => {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error("`source.ambient` must be a string array.");
+  }
+
+  return value.map((entry) => {
+    if (typeof entry !== "string" || !entry.startsWith("./")) {
+      throw new Error("`source.ambient` entries must be relative package paths.");
+    }
+    return normalizeSlashes(entry.slice(2));
+  });
+};
+
 const validateSourcePackageManifest = (
   projectRoot: string
-): Result<string, string> => {
+): Result<{ readonly manifestPath: string; readonly ambientFiles: readonly string[] }, string> => {
   const manifestPath = nodePath.join(projectRoot, "tsonic.package.json");
   if (!existsSync(manifestPath)) {
     return {
@@ -63,9 +87,9 @@ const validateSourcePackageManifest = (
   }
 
   try {
-    const parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
-      readonly kind?: unknown;
-    };
+    const parsed = JSON.parse(
+      readFileSync(manifestPath, "utf-8")
+    ) as SourcePackageManifest;
     if (parsed.kind !== "tsonic-source-package") {
       return {
         ok: false,
@@ -73,7 +97,13 @@ const validateSourcePackageManifest = (
           `Source-package build requires kind "tsonic-source-package" in ${manifestPath}`,
       };
     }
-    return { ok: true, value: manifestPath };
+    return {
+      ok: true,
+      value: {
+        manifestPath,
+        ambientFiles: parseAmbientEntries(parsed.source?.ambient),
+      },
+    };
   } catch (error) {
     return {
       ok: false,
@@ -187,8 +217,8 @@ export const emitSourcePackageArtifacts = (
   const packageJsonResult = readProjectPackageJson(config.projectRoot);
   if (!packageJsonResult.ok) return packageJsonResult;
 
-  const manifestResult = validateSourcePackageManifest(config.projectRoot);
-  if (!manifestResult.ok) return manifestResult;
+    const manifestResult = validateSourcePackageManifest(config.projectRoot);
+    if (!manifestResult.ok) return manifestResult;
 
   const distRoot = nodePath.join(config.projectRoot, "dist");
   mkdirSync(distRoot, { recursive: true });
@@ -211,6 +241,9 @@ export const emitSourcePackageArtifacts = (
     }
     collectExportTargets(packageJsonResult.value.exports, explicitFiles);
     explicitFiles.add("tsonic.package.json");
+    for (const ambientFile of manifestResult.value.ambientFiles) {
+      explicitFiles.add(ambientFile);
+    }
 
     for (const rootFile of [
       "README.md",

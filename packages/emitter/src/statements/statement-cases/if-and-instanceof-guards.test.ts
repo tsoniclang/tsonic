@@ -221,8 +221,8 @@ describe("Statement Emission", () => {
                     name: "Uint8Array",
                     inferredType: {
                       kind: "referenceType",
-                      name: "Uint8ArrayConstructor",
-                      resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+                      name: "Uint8Array",
+                      resolvedClrType: "js.Uint8Array",
                     },
                   },
                 },
@@ -702,7 +702,7 @@ describe("Statement Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "Tsonic.JSRuntime.RegExp",
+          resolvedClrType: "js.RegExp",
         },
       ],
     };
@@ -773,8 +773,8 @@ describe("Statement Emission", () => {
                     name: "RegExp",
                     inferredType: {
                       kind: "referenceType",
-                      name: "RegExpConstructor",
-                      resolvedClrType: "Tsonic.JSRuntime.RegExp",
+                      name: "RegExp",
+                      resolvedClrType: "js.RegExp",
                     },
                   },
                 },

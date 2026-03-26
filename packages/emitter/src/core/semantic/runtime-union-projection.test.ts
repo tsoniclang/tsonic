@@ -13,7 +13,7 @@ const stringType: IrType = { kind: "primitiveType", name: "string" };
 const regexType: IrType = {
   kind: "referenceType",
   name: "RegExp",
-  resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+  resolvedClrType: "global::js.RegExp",
 };
 const objectArrayType: IrType = {
   kind: "arrayType",
@@ -27,7 +27,7 @@ describe("runtime-union-projection", () => {
       members: [stringType, regexType],
       memberTypeAsts: [
         { kind: "predefinedType", keyword: "string" },
-        identifierType("global::Tsonic.JSRuntime.RegExp"),
+        identifierType("global::js.RegExp"),
       ],
       runtimeUnionArity: 2,
     };
@@ -36,7 +36,7 @@ describe("runtime-union-projection", () => {
       memberTypeAsts: [
         { kind: "arrayType", rank: 1, elementType: identifierType("object") },
         { kind: "predefinedType", keyword: "string" },
-        identifierType("global::Tsonic.JSRuntime.RegExp"),
+        identifierType("global::js.RegExp"),
       ],
       runtimeUnionArity: 3,
     };
@@ -77,7 +77,7 @@ describe("runtime-union-projection", () => {
                     elementType: identifierType("object"),
                   },
                   { kind: "predefinedType", keyword: "string" },
-                  identifierType("global::Tsonic.JSRuntime.RegExp"),
+                  identifierType("global::js.RegExp"),
                 ]),
               },
               memberName: "From2",
@@ -102,7 +102,7 @@ describe("runtime-union-projection", () => {
                     elementType: identifierType("object"),
                   },
                   { kind: "predefinedType", keyword: "string" },
-                  identifierType("global::Tsonic.JSRuntime.RegExp"),
+                  identifierType("global::js.RegExp"),
                 ]),
               },
               memberName: "From3",
@@ -120,7 +120,7 @@ describe("runtime-union-projection", () => {
       members: [stringType, regexType],
       memberTypeAsts: [
         { kind: "predefinedType", keyword: "string" },
-        identifierType("global::Tsonic.JSRuntime.RegExp"),
+        identifierType("global::js.RegExp"),
       ],
       runtimeUnionArity: 2,
     };
@@ -128,7 +128,7 @@ describe("runtime-union-projection", () => {
       members: [stringType, regexType],
       memberTypeAsts: [
         { kind: "predefinedType", keyword: "string" },
-        identifierType("global::Tsonic.JSRuntime.RegExp"),
+        identifierType("global::js.RegExp"),
       ],
       runtimeUnionArity: 2,
     };
@@ -173,7 +173,7 @@ describe("runtime-union-projection", () => {
                 kind: "typeReferenceExpression",
                 type: identifierType("global::Tsonic.Runtime.Union", [
                   { kind: "predefinedType", keyword: "string" },
-                  identifierType("global::Tsonic.JSRuntime.RegExp"),
+                  identifierType("global::js.RegExp"),
                 ]),
               },
               memberName: "From2",

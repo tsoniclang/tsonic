@@ -11,7 +11,7 @@ import { IrType, ComputedAccessKind } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { BindingInternal } from "../../../binding/binding-types.js";
 
-const receiverHasDeclaredUnknownMember = (
+export const hasDeclaredMemberByName = (
   receiverIrType: IrType | undefined,
   propertyName: string,
   ctx: ProgramContext
@@ -133,7 +133,7 @@ export const getDeclaredPropertyType = (
     if (memberType.kind !== "unknownType") {
       return memberType;
     }
-    if (receiverHasDeclaredUnknownMember(receiverIrType, propertyName, ctx)) {
+    if (hasDeclaredMemberByName(receiverIrType, propertyName, ctx)) {
       return memberType;
     }
     // Fall through to Binding fallback
@@ -226,6 +226,10 @@ export const classifyComputedAccess = (
   // TypeScript array type (number[], T[], etc.)
   // Requires Int32 proof
   if (objectType.kind === "arrayType") {
+    return "clrIndexer";
+  }
+
+  if (objectType.kind === "tupleType") {
     return "clrIndexer";
   }
 
@@ -395,7 +399,8 @@ export const extractTypeName = (
  */
 export const deriveElementType = (
   objectType: IrType | undefined,
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  accessExpression?: ts.Expression
 ): IrType | undefined => {
   objectType = normalizeForComputedAccess(objectType);
   if (!objectType) return undefined;
@@ -406,6 +411,32 @@ export const deriveElementType = (
 
   if (objectType.kind === "dictionaryType") {
     return objectType.valueType;
+  }
+
+  if (objectType.kind === "tupleType") {
+    if (
+      accessExpression &&
+      ts.isNumericLiteral(accessExpression) &&
+      Number.isInteger(Number(accessExpression.text))
+    ) {
+      const elementType = objectType.elementTypes[Number(accessExpression.text)];
+      if (elementType) {
+        return elementType;
+      }
+    }
+
+    if (objectType.elementTypes.length === 0) {
+      return undefined;
+    }
+
+    if (objectType.elementTypes.length === 1) {
+      return objectType.elementTypes[0];
+    }
+
+    return {
+      kind: "unionType",
+      types: objectType.elementTypes,
+    };
   }
 
   if (objectType.kind === "primitiveType" && objectType.name === "string") {

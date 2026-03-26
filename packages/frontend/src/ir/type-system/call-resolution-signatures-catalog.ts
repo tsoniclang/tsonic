@@ -10,6 +10,7 @@
 
 import type { IrType } from "../types/index.js";
 import { substituteIrType as irSubstitute } from "../types/ir-substitution.js";
+import type { MethodSignatureEntry } from "./internal/universe/types.js";
 import type { TypeParameterInfo } from "./types.js";
 import type {
   TypeSystemState,
@@ -177,7 +178,7 @@ export const tryResolveCallFromUnifiedCatalog = (
   };
 
   const resolveCandidate = (
-    signature: import("./internal/universe/types.js").MethodSignatureEntry
+    signature: MethodSignatureEntry
   ): ResolvedCall | undefined => {
     if (!isArityCompatible(signature, argumentCount)) return undefined;
     if (

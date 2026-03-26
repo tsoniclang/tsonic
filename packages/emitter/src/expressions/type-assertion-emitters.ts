@@ -550,7 +550,11 @@ export const emitDefaultOf = (
   expr: IrDefaultOfExpression,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  const [typeAst, ctx1] = emitTypeAst(expr.targetType, context);
+  const runtimeTarget = resolveRuntimeMaterializationTargetType(
+    expr.targetType,
+    context
+  );
+  const [typeAst, ctx1] = emitTypeAst(runtimeTarget, context);
   return [
     {
       kind: "defaultExpression",

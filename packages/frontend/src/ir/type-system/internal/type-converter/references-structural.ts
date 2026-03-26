@@ -12,7 +12,7 @@ export {
   isTsonicBindingsDeclarationFile,
   isInstalledTsonicSourcePackageFile,
   shouldPreserveUserTypeAliasIdentity,
-  resolveSourceBindingsClrIdentity,
+  resolveSourceClrIdentity,
   isSafeToEraseUserTypeAliasTarget,
   isRecursiveUserTypeAliasDeclaration,
   shouldExtractFromDeclaration,

@@ -8,7 +8,7 @@
  * unified type catalog. No parallel lookup paths allowed.
  *
  * The loader:
- * 1. Scans node_modules/@tsonic/* packages for metadata files
+ * 1. Loads only explicitly participating CLR package roots
  * 2. Parses bindings.json for type definitions, members, signatures
  * 4. Converts to NominalEntry structures with proper IrType members
  */
@@ -27,6 +27,22 @@ import {
   convertRawType,
   enrichAssemblyEntriesFromTsBindgenDts,
 } from "./clr-entry-converter.js";
+
+const isSourcePackageRoot = (packagePath: string): boolean => {
+  const manifestPath = path.join(packagePath, "tsonic.package.json");
+  if (!fs.existsSync(manifestPath)) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+      readonly kind?: unknown;
+    };
+    return parsed.kind === "tsonic-source-package";
+  } catch {
+    return false;
+  }
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BARREL RE-EXPORTS
@@ -63,27 +79,7 @@ export {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Find all @tsonic packages in node_modules.
- */
-const findTsonicPackages = (nodeModulesPath: string): string[] => {
-  const tsonicDir = path.join(nodeModulesPath, "@tsonic");
-  if (!fs.existsSync(tsonicDir)) {
-    return [];
-  }
-
-  const packages = new Set<string>();
-  for (const entry of fs.readdirSync(tsonicDir, { withFileTypes: true })) {
-    const fullPath = path.join(tsonicDir, entry.name);
-    const resolvedDir = resolveExistingDirectory(fullPath);
-    if (resolvedDir) {
-      packages.add(resolvedDir);
-    }
-  }
-  return Array.from(packages).sort();
-};
-
-/**
- * Find all bindings.json files in a package.
+ * Find all bindings.json files in an explicit CLR package root.
  */
 const findBindingsFiles = (packagePath: string): string[] => {
   const bindingsFiles = new Set<string>();
@@ -133,7 +129,9 @@ const isIgnorableDirReadError = (error: unknown): boolean => {
   return err.code === "EACCES" || err.code === "EPERM";
 };
 
-const resolveExistingDirectory = (candidatePath: string): string | undefined => {
+const resolveExistingDirectory = (
+  candidatePath: string
+): string | undefined => {
   try {
     const resolved = fs.realpathSync.native(candidatePath);
     return fs.statSync(resolved).isDirectory() ? resolved : undefined;
@@ -164,13 +162,15 @@ const resolveExistingCompanionDts = (
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Load all assembly types from node_modules/@tsonic packages.
+ * Load all assembly types from explicitly participating CLR packages.
  *
- * @param nodeModulesPath - Path to node_modules directory
+ * @param _nodeModulesPath - Unused legacy slot preserved for call-site stability
+ * until callers are fully migrated to the explicit-roots-only model.
+ * @param extraPackageRoots - Explicit CLR package roots participating in this build
  * @returns AssemblyTypeCatalog with all loaded types
  */
 export const loadClrCatalog = (
-  nodeModulesPath: string,
+  _nodeModulesPath: string,
   extraPackageRoots: readonly string[] = []
 ): AssemblyTypeCatalog => {
   const entries = new Map<string, NominalEntry>();
@@ -179,8 +179,7 @@ export const loadClrCatalog = (
   const namespaceToTypeIds = new Map<string, TypeId[]>();
   const dtsFiles = new Set<string>();
 
-  // Find all @tsonic packages
-  const packageRoots = new Set<string>(findTsonicPackages(nodeModulesPath));
+  const packageRoots = new Set<string>();
   for (const extra of extraPackageRoots) {
     const resolvedExtra = resolveExistingDirectory(extra);
     if (resolvedExtra) {
@@ -189,6 +188,10 @@ export const loadClrCatalog = (
   }
 
   for (const packagePath of Array.from(packageRoots).sort()) {
+    if (isSourcePackageRoot(packagePath)) {
+      continue;
+    }
+
     // Find all bindings.json files
     const bindingsFiles = findBindingsFiles(packagePath);
 

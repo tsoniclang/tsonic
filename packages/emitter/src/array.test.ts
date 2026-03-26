@@ -223,8 +223,8 @@ describe("Array Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.JSArray`1",
+                assembly: "js",
+                type: "Tsonic.Runtime.JSArray`1",
                 member: "push",
                 isExtensionMethod: false,
               },
@@ -275,8 +275,8 @@ describe("Array Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.JSArray`1",
+                assembly: "js",
+                type: "Tsonic.Runtime.JSArray`1",
                 member: "push",
                 isExtensionMethod: false,
               },
@@ -383,8 +383,8 @@ describe("Array Emission", () => {
                     isOptional: false,
                     memberBinding: {
                       kind: "method",
-                      assembly: "Tsonic.JSRuntime",
-                      type: "Tsonic.JSRuntime.JSArray`1",
+                      assembly: "js",
+                      type: "Tsonic.Runtime.JSArray`1",
                       member: "push",
                       isExtensionMethod: true,
                     },
@@ -407,7 +407,7 @@ describe("Array Emission", () => {
 
     expect(code).to.include("observers = __tsonic_arrayWrapper.toArray()");
     expect(code).to.not.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::Test.PerformanceObserver>(observers).push(observer)"
+      "new global::Tsonic.Runtime.JSArray<global::Test.PerformanceObserver>(observers).push(observer)"
     );
   });
 
@@ -464,8 +464,8 @@ describe("Array Emission", () => {
                           isOptional: false,
                           memberBinding: {
                             kind: "method",
-                            assembly: "Tsonic.JSRuntime",
-                            type: "Tsonic.JSRuntime.JSArray`1",
+                            assembly: "js",
+                            type: "Tsonic.Runtime.JSArray`1",
                             member: "includes",
                             isExtensionMethod: true,
                           },
@@ -505,8 +505,8 @@ describe("Array Emission", () => {
                               isOptional: false,
                               memberBinding: {
                                 kind: "method",
-                                assembly: "Tsonic.JSRuntime",
-                                type: "Tsonic.JSRuntime.JSArray`1",
+                                assembly: "js",
+                                type: "Tsonic.Runtime.JSArray`1",
                                 member: "push",
                                 isExtensionMethod: true,
                               },
@@ -562,7 +562,7 @@ describe("Array Emission", () => {
       "moduleArrayClassMutation.observers = __tsonic_arrayWrapper.toArray()"
     );
     expect(code).to.not.include(
-      "new global::Tsonic.JSRuntime.JSArray<Test.PerformanceObserver>(moduleArrayClassMutation.observers).push(this)"
+      "new global::Tsonic.Runtime.JSArray<Test.PerformanceObserver>(moduleArrayClassMutation.observers).push(this)"
     );
   });
 

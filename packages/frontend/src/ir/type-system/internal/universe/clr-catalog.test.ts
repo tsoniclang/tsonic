@@ -6,6 +6,114 @@ import * as path from "node:path";
 import { loadClrCatalog } from "./clr-catalog.js";
 
 describe("loadClrCatalog", () => {
+  it("loads only explicitly participating CLR packages", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-clr-catalog-")
+    );
+
+    try {
+      const nodeModulesRoot = path.join(tempDir, "node_modules");
+      const loadedRoot = path.join(nodeModulesRoot, "@tsonic", "loaded");
+      const skippedRoot = path.join(nodeModulesRoot, "@tsonic", "skipped");
+
+      fs.mkdirSync(path.join(loadedRoot, "Loaded.Namespace", "internal"), {
+        recursive: true,
+      });
+      fs.mkdirSync(path.join(skippedRoot, "Skipped.Namespace", "internal"), {
+        recursive: true,
+      });
+
+      fs.writeFileSync(
+        path.join(loadedRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/loaded", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(skippedRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/skipped", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(loadedRoot, "Loaded.Namespace", "bindings.json"),
+        JSON.stringify(
+          {
+            namespace: "Loaded.Namespace",
+            types: [
+              {
+                stableId: "Loaded.Namespace:Loaded.Namespace.Console",
+                clrName: "Loaded.Namespace.Console",
+                kind: "class",
+                accessibility: "public",
+                isAbstract: false,
+                isSealed: true,
+                isStatic: true,
+                arity: 0,
+                methods: [],
+                properties: [],
+                fields: [],
+                constructors: [],
+                assemblyName: "Loaded.Assembly",
+              },
+            ],
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(skippedRoot, "Skipped.Namespace", "bindings.json"),
+        JSON.stringify(
+          {
+            namespace: "Skipped.Namespace",
+            types: [
+              {
+                stableId: "Skipped.Namespace:Skipped.Namespace.Console",
+                clrName: "Skipped.Namespace.Console",
+                kind: "class",
+                accessibility: "public",
+                isAbstract: false,
+                isSealed: true,
+                isStatic: true,
+                arity: 0,
+                methods: [],
+                properties: [],
+                fields: [],
+                constructors: [],
+                assemblyName: "Skipped.Assembly",
+              },
+            ],
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(loadedRoot, "Loaded.Namespace", "internal", "index.d.ts"),
+        "export declare class Console {}\n"
+      );
+      fs.writeFileSync(
+        path.join(skippedRoot, "Skipped.Namespace", "internal", "index.d.ts"),
+        "export declare class Console {}\n"
+      );
+
+      const catalog = loadClrCatalog(nodeModulesRoot, [loadedRoot]);
+      expect(
+        catalog.entries.has("Loaded.Namespace:Loaded.Namespace.Console")
+      ).to.equal(true);
+      expect(
+        catalog.entries.has("Skipped.Namespace:Skipped.Namespace.Console")
+      ).to.equal(false);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("ignores surface binding manifests that do not carry CLR types", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-clr-catalog-")
@@ -14,7 +122,7 @@ describe("loadClrCatalog", () => {
     try {
       const nodeModulesRoot = path.join(tempDir, "node_modules");
       const jsRoot = path.join(nodeModulesRoot, "@tsonic", "js");
-      const runtimeNsRoot = path.join(jsRoot, "Tsonic.JSRuntime");
+      const runtimeNsRoot = path.join(jsRoot, "js");
       const runtimeInternalRoot = path.join(runtimeNsRoot, "internal");
 
       fs.mkdirSync(runtimeInternalRoot, { recursive: true });
@@ -34,8 +142,8 @@ describe("loadClrCatalog", () => {
             bindings: {
               console: {
                 kind: "global",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.console",
+                assembly: "js",
+                type: "js.console",
               },
             },
           },
@@ -48,11 +156,11 @@ describe("loadClrCatalog", () => {
         path.join(runtimeNsRoot, "bindings.json"),
         JSON.stringify(
           {
-            namespace: "Tsonic.JSRuntime",
+            namespace: "js",
             types: [
               {
-                stableId: "Tsonic.JSRuntime:Tsonic.JSRuntime.console",
-                clrName: "Tsonic.JSRuntime.console",
+                stableId: "js:js.console",
+                clrName: "js.console",
                 kind: "class",
                 accessibility: "public",
                 isAbstract: false,
@@ -63,7 +171,7 @@ describe("loadClrCatalog", () => {
                 properties: [],
                 fields: [],
                 constructors: [],
-                assemblyName: "Tsonic.JSRuntime",
+                assemblyName: "js",
               },
             ],
           },
@@ -77,10 +185,10 @@ describe("loadClrCatalog", () => {
         "export {};\n"
       );
 
-      const catalog = loadClrCatalog(nodeModulesRoot);
+      const catalog = loadClrCatalog(nodeModulesRoot, [jsRoot]);
       expect(catalog.entries.size).to.equal(1);
       expect(
-        catalog.entries.has("Tsonic.JSRuntime:Tsonic.JSRuntime.console")
+        catalog.entries.has("js:js.console")
       ).to.equal(true);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -96,7 +204,7 @@ describe("loadClrCatalog", () => {
       tempDir,
       "node_modules",
       "@tsonic",
-      "blocked",
+      "dotnet",
       "secret"
     );
 
@@ -150,7 +258,7 @@ describe("loadClrCatalog", () => {
       fs.mkdirSync(unreadableDir, { recursive: true });
       fs.chmodSync(unreadableDir, 0);
 
-      const catalog = loadClrCatalog(nodeModulesRoot);
+      const catalog = loadClrCatalog(nodeModulesRoot, [dotnetRoot]);
       expect(catalog.entries.has("System:System.Console")).to.equal(true);
     } finally {
       if (fs.existsSync(unreadableDir)) {
@@ -169,7 +277,7 @@ describe("loadClrCatalog", () => {
       const nodeModulesRoot = path.join(tempDir, "node_modules");
       const realPackagesRoot = path.join(tempDir, ".tsonic", "bindings");
       const jsRoot = path.join(realPackagesRoot, "@tsonic", "js");
-      const runtimeNsRoot = path.join(jsRoot, "Tsonic.JSRuntime");
+      const runtimeNsRoot = path.join(jsRoot, "js");
       const runtimeInternalRoot = path.join(runtimeNsRoot, "internal");
       const symlinkedJsRoot = path.join(nodeModulesRoot, "@tsonic", "js");
 
@@ -186,11 +294,11 @@ describe("loadClrCatalog", () => {
         path.join(runtimeNsRoot, "bindings.json"),
         JSON.stringify(
           {
-            namespace: "Tsonic.JSRuntime",
+            namespace: "js",
             types: [
               {
-                stableId: "Tsonic.JSRuntime:Tsonic.JSRuntime.console",
-                clrName: "Tsonic.JSRuntime.console",
+                stableId: "js:js.console",
+                clrName: "js.console",
                 kind: "class",
                 accessibility: "public",
                 isAbstract: false,
@@ -201,7 +309,7 @@ describe("loadClrCatalog", () => {
                 properties: [],
                 fields: [],
                 constructors: [],
-                assemblyName: "Tsonic.JSRuntime",
+                assemblyName: "js",
               },
             ],
           },
@@ -219,7 +327,7 @@ describe("loadClrCatalog", () => {
       const warnings: string[] = [];
       const originalWarn = console.warn;
       const require = createRequire(import.meta.url);
-      const fsBuiltin = require("node:fs") as typeof import("node:fs");
+      const fsBuiltin: typeof fs = require("node:fs");
       const originalReadFileSync = fsBuiltin.readFileSync;
       let removedSymlink = false;
       try {
@@ -230,7 +338,7 @@ describe("loadClrCatalog", () => {
           if (
             !removedSymlink &&
             typeof filePath === "string" &&
-            filePath.endsWith(path.join("Tsonic.JSRuntime", "bindings.json"))
+            filePath.endsWith(path.join("js", "bindings.json"))
           ) {
             fs.rmSync(symlinkedJsRoot, { recursive: true, force: true });
             removedSymlink = true;
@@ -243,7 +351,7 @@ describe("loadClrCatalog", () => {
         }) as typeof fs.readFileSync;
         syncBuiltinESMExports();
 
-        const catalog = loadClrCatalog(nodeModulesRoot);
+        const catalog = loadClrCatalog(nodeModulesRoot, [symlinkedJsRoot]);
         expect(catalog.entries.size).to.equal(1);
         expect(warnings).to.deep.equal([]);
       } finally {

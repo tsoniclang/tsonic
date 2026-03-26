@@ -65,17 +65,18 @@ describe("tsonic.package bindings", function () {
 
       const manifests = discoverWorkspaceBindingsManifests(dir);
       expect(manifests.ok).to.equal(true);
-      expect((manifests.ok ? manifests.value : []).map((x) => x.packageName)).to.deep.equal([
-        "@acme/package-lib",
-        "bindings-types",
-      ]);
+      expect(
+        (manifests.ok ? manifests.value : []).map((x) => x.packageName)
+      ).to.deep.equal(["@acme/package-lib", "bindings-types"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   it("discovers transitive manifests through installed dependency graph", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-discover-transitive-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-package-discover-transitive-")
+    );
     try {
       installClrSurfacePackages(dir);
       writeJson(join(dir, "package.json"), {
@@ -102,9 +103,9 @@ describe("tsonic.package bindings", function () {
 
       const manifests = discoverWorkspaceBindingsManifests(dir);
       expect(manifests.ok).to.equal(true);
-      expect((manifests.ok ? manifests.value : []).map((x) => x.packageName)).to.deep.equal([
-        "acme-child",
-      ]);
+      expect(
+        (manifests.ok ? manifests.value : []).map((x) => x.packageName)
+      ).to.deep.equal(["acme-child"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -127,26 +128,31 @@ describe("tsonic.package bindings", function () {
       writeInstalledPackage(dir, "@tsonic/js", "10.0.9", {
         packageManifest: createSourcePackageManifest({
           runtime: {
-            nugetPackages: [{ id: "Tsonic.JSRuntime", version: "0.0.9" }],
+            nugetPackages: [{ id: "js", version: "0.0.9" }],
           },
         }),
       });
 
-      const nodejsRoot = writeInstalledPackage(dir, "@tsonic/nodejs", "10.0.9", {
-        dependencies: {
-          "@tsonic/js": "10.0.4",
-        },
-        packageManifest: createSourcePackageManifest({
-          runtime: {
-            nugetPackages: [{ id: "Tsonic.Nodejs", version: "10.0.9" }],
+      const nodejsRoot = writeInstalledPackage(
+        dir,
+        "@tsonic/nodejs",
+        "10.0.9",
+        {
+          dependencies: {
+            "@tsonic/js": "10.0.4",
           },
-        }),
-      });
+          packageManifest: createSourcePackageManifest({
+            runtime: {
+              nugetPackages: [{ id: "Tsonic.Nodejs", version: "10.0.9" }],
+            },
+          }),
+        }
+      );
 
       writeInstalledPackage(nodejsRoot, "@tsonic/js", "10.0.4", {
         packageManifest: createSourcePackageManifest({
           runtime: {
-            nugetPackages: [{ id: "Tsonic.JSRuntime", version: "0.0.4" }],
+            nugetPackages: [{ id: "js", version: "0.0.4" }],
           },
         }),
       });
@@ -165,11 +171,14 @@ describe("tsonic.package bindings", function () {
         ["@tsonic/nodejs", "10.0.9"],
       ]);
 
-      const overlay = applyPackageManifestWorkspaceOverlay(dir, baseWorkspaceConfig());
+      const overlay = applyPackageManifestWorkspaceOverlay(
+        dir,
+        baseWorkspaceConfig()
+      );
       expect(overlay.ok).to.equal(true);
       if (!overlay.ok) return;
       expect(overlay.value.config.dotnet?.packageReferences).to.deep.equal([
-        { id: "Tsonic.JSRuntime", version: "0.0.9" },
+        { id: "js", version: "0.0.9" },
         { id: "Tsonic.Nodejs", version: "10.0.9" },
       ]);
     } finally {
@@ -205,7 +214,10 @@ describe("tsonic.package bindings", function () {
         }),
       });
 
-      const result = applyPackageManifestWorkspaceOverlay(dir, baseWorkspaceConfig());
+      const result = applyPackageManifestWorkspaceOverlay(
+        dir,
+        baseWorkspaceConfig()
+      );
       expect(result.ok).to.equal(true);
       const cfg = result.ok ? result.value.config : baseWorkspaceConfig();
       expect(cfg.dotnet?.packageReferences).to.deep.equal([
@@ -247,10 +259,9 @@ describe("tsonic.package bindings", function () {
         "@acme/custom-surface"
       );
       expect(manifests.ok).to.equal(true);
-      expect((manifests.ok ? manifests.value : []).map((x) => x.packageName)).to.deep.equal([
-        "@tsonic/js",
-        "acme-runtime",
-      ]);
+      expect(
+        (manifests.ok ? manifests.value : []).map((x) => x.packageName)
+      ).to.deep.equal(["@tsonic/js", "acme-runtime"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -279,12 +290,81 @@ describe("tsonic.package bindings", function () {
         },
       });
 
-      const result = applyPackageManifestWorkspaceOverlay(dir, baseWorkspaceConfig());
+      const result = applyPackageManifestWorkspaceOverlay(
+        dir,
+        baseWorkspaceConfig()
+      );
       expect(result.ok).to.equal(true);
       const cfg = result.ok ? result.value.config : baseWorkspaceConfig();
-      expect(cfg.dotnet?.typeRoots).to.deep.equal(["node_modules/bindings-types"]);
+      expect(cfg.dotnet?.typeRoots).to.deep.equal([
+        "node_modules/bindings-types",
+      ]);
       expect(cfg.dotnet?.packageReferences).to.deep.equal([
         { id: "Bindings.Core", version: "1.0.0" },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not merge requiredTypeRoots from the active surface package", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-surface-roots-"));
+    try {
+      writeJson(join(dir, "package.json"), {
+        name: "workspace",
+        private: true,
+        type: "module",
+        dependencies: {
+          "@tsonic/js": "10.0.9",
+          "@tsonic/nodejs": "10.0.9",
+        },
+      });
+
+      writeInstalledPackage(dir, "@tsonic/js", "10.0.9", {
+        surfaceManifest: {
+          schemaVersion: 1,
+          id: "@tsonic/js",
+          extends: [],
+          requiredTypeRoots: ["."],
+          useStandardLib: false,
+        },
+        packageManifest: createSourcePackageManifest({
+          requiredTypeRoots: ["."],
+          dotnet: {
+            packageReferences: [
+              { id: "js", version: "0.0.9" },
+            ],
+          },
+        }),
+      });
+
+      writeInstalledPackage(dir, "@tsonic/nodejs", "10.0.9", {
+        packageManifest: createSourcePackageManifest({
+          requiredTypeRoots: ["."],
+          dotnet: {
+            packageReferences: [{ id: "Tsonic.Nodejs", version: "10.0.9" }],
+          },
+        }),
+      });
+
+      const result = applyPackageManifestWorkspaceOverlay(dir, {
+        ...baseWorkspaceConfig(),
+        surface: "@tsonic/js",
+        dotnet: {
+          frameworkReferences: [],
+          packageReferences: [],
+          typeRoots: ["node_modules/@tsonic/nodejs"],
+        },
+      });
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.value.config.dotnet?.typeRoots).to.deep.equal([
+        "node_modules/@tsonic/nodejs",
+      ]);
+      expect(result.value.config.dotnet?.packageReferences).to.deep.equal([
+        { id: "js", version: "0.0.9" },
+        { id: "Tsonic.Nodejs", version: "10.0.9" },
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });

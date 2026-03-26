@@ -243,16 +243,16 @@ describe("Binding System", () => {
         bindings: {
           Date: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Date",
+            assembly: "js",
+            type: "js.Date",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
           },
           JSON: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.JSON",
+            assembly: "js",
+            type: "js.JSON",
             typeSemantics: {
               contributesTypeIdentity: false,
             },
@@ -268,62 +268,60 @@ describe("Binding System", () => {
       ).to.equal(false);
     });
 
-    it("should use explicit type semantics before uppercase fallback in emitter type map", () => {
+    it("should use explicit type semantics only in emitter type map", () => {
       const registry = new BindingRegistry();
 
       registry.addBindings("/test/simple.json", {
         bindings: {
           Date: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Date",
+            assembly: "js",
+            type: "js.Date",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
           },
           JSON: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.JSON",
+            assembly: "js",
+            type: "js.JSON",
             typeSemantics: {
               contributesTypeIdentity: false,
             },
           },
           Error: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Error",
+            assembly: "js",
+            type: "js.Error",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
           },
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });
 
       const emitterTypes = registry.getEmitterTypeMap();
       expect(emitterTypes.has("Date")).to.equal(true);
-      expect(emitterTypes.has("DateConstructor")).to.equal(true);
       expect(emitterTypes.has("JSON")).to.equal(false);
       expect(emitterTypes.has("Error")).to.equal(true);
-      expect(emitterTypes.has("ErrorConstructor")).to.equal(true);
       expect(emitterTypes.has("console")).to.equal(false);
     });
 
-    it("should expose constructor aliases for simple bindings with type identity", () => {
+    it("should expose only explicit simple-binding type identities", () => {
       const registry = new BindingRegistry();
 
       registry.addBindings("/test/simple.json", {
         bindings: {
           Uint8Array: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Uint8Array",
-            staticType: "Tsonic.JSRuntime.Uint8Array",
+            assembly: "js",
+            type: "js.Uint8Array",
+            staticType: "js.Uint8Array",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
@@ -333,11 +331,9 @@ describe("Binding System", () => {
 
       const emitterTypes = registry.getEmitterTypeMap();
       expect(emitterTypes.get("Uint8Array")?.name).to.equal(
-        "Tsonic.JSRuntime.Uint8Array"
+        "js.Uint8Array"
       );
-      expect(emitterTypes.get("Uint8ArrayConstructor")?.name).to.equal(
-        "Tsonic.JSRuntime.Uint8Array"
-      );
+      expect(emitterTypes.has("Uint8ArrayConstructor")).to.equal(false);
     });
 
     it("should not infer type identity from uppercase aliases when metadata is absent", () => {
@@ -347,13 +343,13 @@ describe("Binding System", () => {
         bindings: {
           Date: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Date",
+            assembly: "js",
+            type: "js.Date",
           },
           JSON: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.JSON",
+            assembly: "js",
+            type: "js.JSON",
           },
         },
       });

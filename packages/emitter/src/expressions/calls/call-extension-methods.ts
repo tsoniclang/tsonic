@@ -26,10 +26,7 @@ import type {
 } from "../../core/format/backend-ast/types.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
-import {
-  resolveRecoveredReceiverBinding,
-  isPrimitiveReceiverExtensionCall,
-} from "./call-binding-resolution.js";
+import { isPrimitiveReceiverExtensionCall } from "./call-binding-resolution.js";
 import {
   shouldPreferNativeArrayWrapperInterop,
   shouldNormalizeArrayLikeInteropResult,
@@ -81,12 +78,7 @@ export const tryEmitExtensionMethodCall = (
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (expr.callee.kind !== "memberAccess") return undefined;
 
-  const recoveredReceiverBinding = resolveRecoveredReceiverBinding(
-    expr,
-    context
-  );
-
-  const binding = expr.callee.memberBinding ?? recoveredReceiverBinding;
+  const binding = expr.callee.memberBinding;
   if (!binding?.isExtensionMethod) return undefined;
   if (!isInstanceMemberAccess(expr.callee, context)) return undefined;
   if (

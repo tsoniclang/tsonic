@@ -327,5 +327,88 @@ describe("Reference Type Emission", () => {
 
       expect(result).to.include("global::nodejs.Http.IncomingMessage req");
     });
+
+    it("prefers cross-module source aliases over imported resolved CLR names", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "RequestHandler",
+          resolvedClrType: "demo.expresslike.RequestHandler",
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "Acme.App",
+          options: {
+            ...baseContext.options,
+            moduleMap: new Map([
+              [
+                "src/types",
+                {
+                  namespace: "demo.expresslike",
+                  className: "types",
+                  filePath: "src/types",
+                  hasRuntimeContainer: false,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "RequestHandler",
+                      {
+                        kind: "typeAlias",
+                        typeParameters: [],
+                        type: { kind: "primitiveType", name: "string" },
+                      },
+                    ],
+                  ]),
+                },
+              ],
+            ]),
+          },
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("string");
+    });
+
+    it("ignores bare resolvedClrType names when a source-local type exists", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "ArrayBuffer",
+          resolvedClrType: "ArrayBuffer",
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "js",
+          options: {
+            ...baseContext.options,
+            moduleMap: new Map([
+              [
+                "src/array-buffer-object",
+                {
+                  namespace: "js",
+                  className: "array_buffer_object",
+                  filePath: "src/array-buffer-object",
+                  hasRuntimeContainer: false,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "ArrayBuffer",
+                      {
+                        kind: "class",
+                        members: [],
+                        typeParameters: [],
+                        implements: [],
+                      },
+                    ],
+                  ]),
+                },
+              ],
+            ]),
+          },
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("global::js.ArrayBuffer");
+    });
   });
 });

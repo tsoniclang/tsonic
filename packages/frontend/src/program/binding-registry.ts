@@ -41,21 +41,6 @@ export const simpleBindingContributesTypeIdentity = (
   return false;
 };
 
-const SIMPLE_BINDING_CONSTRUCTOR_SUFFIX = "Constructor";
-
-const getSimpleBindingConstructorAlias = (
-  alias: string,
-  descriptor: SimpleBindingDescriptor
-): string | undefined => {
-  if (!simpleBindingContributesTypeIdentity(descriptor)) {
-    return undefined;
-  }
-  if (!/^[A-Z]/.test(alias)) {
-    return undefined;
-  }
-  return `${alias}${SIMPLE_BINDING_CONSTRUCTOR_SUFFIX}`;
-};
-
 const getSimpleBindingIdentityClrType = (
   descriptor: SimpleBindingDescriptor
 ): string => descriptor.staticType ?? descriptor.type;
@@ -380,23 +365,10 @@ export class BindingRegistry {
         continue;
       }
       const identityClrType = getSimpleBindingIdentityClrType(descriptor);
-      const constructorAlias = getSimpleBindingConstructorAlias(
-        alias,
-        descriptor
-      );
 
       if (!result.has(alias)) {
         result.set(alias, {
           alias,
-          name: identityClrType,
-          kind: "class",
-          members: [],
-        });
-      }
-
-      if (constructorAlias && !result.has(constructorAlias)) {
-        result.set(constructorAlias, {
-          alias: constructorAlias,
           name: identityClrType,
           kind: "class",
           members: [],

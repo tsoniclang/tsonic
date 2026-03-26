@@ -100,7 +100,7 @@ describe("Program Creation – module bindings", function () {
     }
   });
 
-  it("should resolve module-binding source imports into installed source-package modules", () => {
+  it("should resolve declaration-module aliases into installed source-package modules", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-module-source-import-")
     );
@@ -132,23 +132,6 @@ describe("Program Creation – module bindings", function () {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            bindings: {
-              "node:http": {
-                kind: "module",
-                assembly: "nodejs",
-                type: "nodejs.Http.http",
-                sourceImport: "@tsonic/nodejs/http.js",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
         path.join(nodejsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
@@ -156,6 +139,9 @@ describe("Program Creation – module bindings", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              moduleAliases: {
+                "node:http": "./http.js",
+              },
               exports: {
                 "./http.js": "./src/http/index.ts",
               },
@@ -191,6 +177,11 @@ describe("Program Creation – module bindings", function () {
       expect(result.value.program.getSourceFile(packageEntry)).to.not.equal(
         undefined
       );
+      expect(
+        result.value.sourceFiles.some(
+          (sourceFile) => path.resolve(sourceFile.fileName) === packageEntry
+        )
+      ).to.equal(true);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -225,36 +216,16 @@ describe("Program Creation – module bindings", function () {
           2
         )
       );
-      fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
       fs.writeFileSync(
-        path.join(jsRoot, "index.d.ts"),
+        path.join(jsRoot, "globals.ts"),
         [
           "declare global {",
-          "  const console: {",
-          "    log(message: string): void;",
-          "  };",
+          '  const console: typeof import("./src/console.js").console;',
           "}",
           "",
           "export {};",
           "",
         ].join("\n")
-      );
-      fs.writeFileSync(
-        path.join(jsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            bindings: {
-              console: {
-                kind: "global",
-                assembly: "Fixture.JsRuntime",
-                type: "Fixture.JsRuntime.console",
-                sourceImport: "@fixture/js/console.js",
-              },
-            },
-          },
-          null,
-          2
-        )
       );
       fs.writeFileSync(
         path.join(jsRoot, "tsonic.surface.json"),
@@ -278,6 +249,8 @@ describe("Program Creation – module bindings", function () {
             kind: "tsonic-source-package",
             surfaces: ["@fixture/js"],
             source: {
+              namespace: "fixture.js",
+              ambient: ["./globals.ts"],
               exports: {
                 "./console.js": "./src/console.ts",
               },
@@ -290,7 +263,11 @@ describe("Program Creation – module bindings", function () {
       const packageEntry = path.join(jsRoot, "src", "console.ts");
       fs.writeFileSync(
         packageEntry,
-        "export function log(_message: string): void {}\n"
+        [
+          "export abstract class console {",
+          "  public static log(_message: string): void {}",
+          "}",
+        ].join("\n")
       );
 
       const entryPath = path.join(srcDir, "index.ts");
@@ -312,6 +289,11 @@ describe("Program Creation – module bindings", function () {
       expect(result.value.program.getSourceFile(packageEntry)).to.not.equal(
         undefined
       );
+      expect(
+        result.value.sourceFiles.some(
+          (sourceFile) => path.resolve(sourceFile.fileName) === packageEntry
+        )
+      ).to.equal(true);
       expect(
         result.value.sourceFiles.some(
           (sourceFile) => path.resolve(sourceFile.fileName) === packageEntry
@@ -354,7 +336,7 @@ describe("Program Creation – module bindings", function () {
       );
       fs.writeFileSync(
         path.join(jsRoot, "index", "bindings.json"),
-        JSON.stringify({ namespace: "Acme.JsRuntime", types: [] }, null, 2)
+        JSON.stringify({ namespace: "Acme.Js", types: [] }, null, 2)
       );
       fs.writeFileSync(
         path.join(jsRoot, "index", "internal", "index.d.ts"),
@@ -381,7 +363,7 @@ describe("Program Creation – module bindings", function () {
       fs.writeFileSync(
         path.join(nodeRoot, "index", "internal", "index.d.ts"),
         [
-          'import type { Date } from "@tsonic/js-temp/Acme.JsRuntime/internal/index.js";',
+          'import type { Date } from "@tsonic/js-temp/Acme.Js/internal/index.js";',
           "export interface Stats$instance {",
           "  mtime: Date;",
           "}",
@@ -573,7 +555,7 @@ describe("Program Creation – module bindings", function () {
     }
   });
 
-  it("dedupes global source-binding files when a workspace-installed surface resolves through an ancestor node_modules", () => {
+  it("dedupes global source-package ambient files when a workspace-installed surface resolves through an ancestor node_modules", () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-global-source-dedupe-")
     );
@@ -587,7 +569,12 @@ describe("Program Creation – module bindings", function () {
       fs.writeFileSync(
         path.join(workspaceRoot, "package.json"),
         JSON.stringify(
-          { name: "workspace", version: "1.0.0", private: true, type: "module" },
+          {
+            name: "workspace",
+            version: "1.0.0",
+            private: true,
+            type: "module",
+          },
           null,
           2
         )
@@ -604,7 +591,10 @@ describe("Program Creation – module bindings", function () {
       const srcDir = path.join(projectRoot, "src");
       fs.mkdirSync(srcDir, { recursive: true });
       const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(entryPath, 'export const value = console.log("hello");\n');
+      fs.writeFileSync(
+        entryPath,
+        'export const value = console.log("hello");\n'
+      );
 
       fs.mkdirSync(path.join(externalRoot, "tsonic"), { recursive: true });
       fs.mkdirSync(path.join(externalRoot, "src"), { recursive: true });
@@ -618,34 +608,15 @@ describe("Program Creation – module bindings", function () {
       );
       fs.writeFileSync(path.join(externalRoot, "index.js"), "export {};\n");
       fs.writeFileSync(
-        path.join(externalRoot, "index.d.ts"),
+        path.join(externalRoot, "globals.ts"),
         [
           "declare global {",
-          "  const console: {",
-          "    log(message: string): void;",
-          "  };",
+          '  const console: typeof import("./src/console.js").console;',
           "}",
           "",
           "export {};",
           "",
         ].join("\n")
-      );
-      fs.writeFileSync(
-        path.join(externalRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            bindings: {
-              console: {
-                kind: "global",
-                assembly: "Fixture.JsRuntime",
-                type: "Fixture.JsRuntime.console",
-                sourceImport: "@fixture/js/console.js",
-              },
-            },
-          },
-          null,
-          2
-        )
       );
       fs.writeFileSync(
         path.join(externalRoot, "tsonic.surface.json"),
@@ -669,6 +640,7 @@ describe("Program Creation – module bindings", function () {
             kind: "tsonic-source-package",
             surfaces: ["@fixture/js"],
             source: {
+              ambient: ["./globals.ts"],
               exports: {
                 "./console.js": "./src/console.ts",
               },
@@ -700,7 +672,13 @@ describe("Program Creation – module bindings", function () {
       if (!result.ok) return;
 
       const consoleSourceFiles = result.value.sourceFiles.filter(
-        (sf) => sf.fileName === consolePath
+        (sf) => {
+          try {
+            return fs.realpathSync(sf.fileName) === fs.realpathSync(consolePath);
+          } catch {
+            return false;
+          }
+        }
       );
       expect(consoleSourceFiles).to.have.lengthOf(1);
     } finally {

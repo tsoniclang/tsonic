@@ -122,7 +122,7 @@ const emitRuntimeJsonParseCall = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: identifierExpression("global::Tsonic.JSRuntime.JSON"),
+        expression: identifierExpression("global::Tsonic.Runtime.JSON"),
         memberName: "parse",
       },
       arguments: argAsts,
@@ -160,7 +160,7 @@ const emitRuntimeJsonStringifyCall = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: identifierExpression("global::Tsonic.JSRuntime.JSON"),
+        expression: identifierExpression("global::Tsonic.Runtime.JSON"),
         memberName: "stringify",
       },
       arguments: argAsts,

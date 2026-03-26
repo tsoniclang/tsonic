@@ -68,19 +68,19 @@ describe("IR Builder", function () {
               bindings: {
                 console: {
                   kind: "global",
-                  assembly: "Tsonic.JSRuntime",
-                  type: "Tsonic.JSRuntime.console",
+                  assembly: "js",
+                  type: "js.console",
                 },
                 setInterval: {
                   kind: "global",
-                  assembly: "Tsonic.JSRuntime",
-                  type: "Tsonic.JSRuntime.Timers",
+                  assembly: "js",
+                  type: "js.Timers",
                   csharpName: "Timers.setInterval",
                 },
                 clearInterval: {
                   kind: "global",
-                  assembly: "Tsonic.JSRuntime",
-                  type: "Tsonic.JSRuntime.Timers",
+                  assembly: "js",
+                  type: "js.Timers",
                   csharpName: "Timers.clearInterval",
                 },
               },
@@ -172,10 +172,10 @@ describe("IR Builder", function () {
 
         expect(setIntervalCall.callee.name).to.equal("setInterval");
         expect(setIntervalCall.callee.resolvedClrType).to.equal(
-          "Tsonic.JSRuntime.Timers"
+          "js.Timers"
         );
         expect(setIntervalCall.callee.resolvedAssembly).to.equal(
-          "Tsonic.JSRuntime"
+          "js"
         );
         expect(setIntervalCall.callee.csharpName).to.equal(
           "Timers.setInterval"
@@ -292,9 +292,7 @@ describe("IR Builder", function () {
         if (regexCtor.callee.kind !== "identifier") return;
 
         expect(regexCtor.callee.name).to.equal("RegExp");
-        expect(regexCtor.callee.resolvedClrType).to.equal(
-          "Tsonic.JSRuntime.RegExp"
-        );
+        expect(regexCtor.callee.resolvedClrType).to.equal("js.RegExp");
         expect(regexCtor.arguments).to.deep.equal([
           {
             kind: "literal",

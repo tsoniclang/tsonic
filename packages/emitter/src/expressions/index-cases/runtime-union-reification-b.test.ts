@@ -319,7 +319,7 @@ describe("Expression Emission", () => {
               {
                 kind: "referenceType",
                 name: "Uint8Array",
-                resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+                resolvedClrType: "global::js.Uint8Array",
               },
             ],
           },
@@ -329,8 +329,8 @@ describe("Expression Emission", () => {
           name: "Uint8Array",
           inferredType: {
             kind: "referenceType",
-            name: "Uint8ArrayConstructor",
-            resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+            name: "Uint8Array",
+            resolvedClrType: "global::js.Uint8Array",
           },
         },
         inferredType: { kind: "primitiveType", name: "boolean" },
@@ -356,7 +356,7 @@ describe("Expression Emission", () => {
                 {
                   kind: "referenceType",
                   name: "Uint8Array",
-                  resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+                  resolvedClrType: "global::js.Uint8Array",
                 },
               ],
             },
@@ -372,7 +372,7 @@ describe("Expression Emission", () => {
                 {
                   kind: "referenceType",
                   name: "Uint8Array",
-                  resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+                  resolvedClrType: "global::js.Uint8Array",
                 },
               ],
             },
@@ -385,7 +385,7 @@ describe("Expression Emission", () => {
     expect(rendered).to.include("result.Is2()");
     expect(rendered).to.include("!= null");
     expect(rendered).to.not.include(
-      "result is global::Tsonic.JSRuntime.Uint8Array"
+      "result is global::js.Uint8Array"
     );
   });
 
@@ -659,7 +659,7 @@ describe("Expression Emission", () => {
     expect(text).to.include(
       "global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>.From3"
     );
-    expect(text).to.include("global::Tsonic.JSRuntime.JSArrayStatics.isArray");
+    expect(text).to.include("global::Tsonic.Runtime.JSArrayStatics.isArray");
   });
 
   it("should lower zero-arg tuple-rest function value calls without synthetic arrays", () => {

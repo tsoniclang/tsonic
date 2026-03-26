@@ -161,12 +161,12 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js-runtime.json", {
+      bindings.addBindings("/test/js.json", {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });
@@ -205,8 +205,8 @@ describe("Binding Resolution in IR", () => {
       const consoleExpr = memberExpr.object as IrIdentifierExpression;
       expect(consoleExpr.kind).to.equal("identifier");
       expect(consoleExpr.name).to.equal("console");
-      expect(consoleExpr.resolvedClrType).to.equal("Tsonic.JSRuntime.console");
-      expect(consoleExpr.resolvedAssembly).to.equal("Tsonic.JSRuntime");
+      expect(consoleExpr.resolvedClrType).to.equal("js.console");
+      expect(consoleExpr.resolvedAssembly).to.equal("js");
     });
 
     it("should resolve global function bindings with csharpName on identifier callees", () => {
@@ -221,8 +221,8 @@ describe("Binding Resolution in IR", () => {
         bindings: {
           setInterval: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Timers",
+            assembly: "js",
+            type: "js.Timers",
             csharpName: "Timers.setInterval",
           },
         },
@@ -260,8 +260,8 @@ describe("Binding Resolution in IR", () => {
 
       expect(calleeExpr.name).to.equal("setInterval");
       expect(calleeExpr.csharpName).to.equal("Timers.setInterval");
-      expect(calleeExpr.resolvedClrType).to.equal("Tsonic.JSRuntime.Timers");
-      expect(calleeExpr.resolvedAssembly).to.equal("Tsonic.JSRuntime");
+      expect(calleeExpr.resolvedClrType).to.equal("js.Timers");
+      expect(calleeExpr.resolvedAssembly).to.equal("js");
     });
 
     it("prefers typed object overloads over erased unknown overloads for object literals", () => {

@@ -28,10 +28,16 @@ import {
   getLocalResolutionBoundary,
   resolveSourcePackageImport,
 } from "../resolver/source-package-resolution.js";
+import { resolveImport } from "../resolver.js";
 import { collectClosedWorldDynamicImportSites } from "../resolver/dynamic-import.js";
-import { loadBindings } from "./bindings.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
-import { resolveSourceBindingFiles } from "./source-binding-imports.js";
+import { scanForDeclarationFiles } from "./core-declarations.js";
+import {
+  discoverDeclarationGlobalImports,
+  discoverDeclarationModuleAliases,
+  type DeclarationModuleAlias,
+} from "./declaration-module-aliases.js";
+import { readSourcePackageMetadata } from "./source-package-metadata.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -108,6 +114,34 @@ const getModuleSpecifier = (stmt: ts.Statement): ts.StringLiteral | null => {
   }
 
   return null;
+};
+
+const collectSourcePackageModuleAliases = (
+  packageRoots: readonly string[]
+): ReadonlyMap<string, DeclarationModuleAlias> => {
+  const aliases = new Map<string, DeclarationModuleAlias>();
+
+  for (const packageRoot of packageRoots) {
+    const metadata = readSourcePackageMetadata(packageRoot);
+    if (!metadata) {
+      continue;
+    }
+
+    for (const [specifier, targetSpecifier] of Object.entries(
+      metadata.moduleAliases
+    )) {
+      if (aliases.has(specifier)) {
+        continue;
+      }
+
+      aliases.set(specifier, {
+        targetSpecifier,
+        declarationFile: resolve(metadata.packageRoot, "tsonic.package.json"),
+      });
+    }
+  }
+
+  return aliases;
 };
 
 const queueResolvedLocalDependency = (
@@ -217,24 +251,55 @@ export const buildModuleDependencyGraph = (
       isAbsolute(typeRoot) ? typeRoot : resolve(options.projectRoot, typeRoot)
     )
   );
-  const discoveryBindings = loadBindings(discoveryTypeRoots);
-  const globalSourceBindings = resolveSourceBindingFiles(
-    discoveryBindings,
-    ["global"],
-    entryAbs,
-    options.projectRoot,
-    options.surface ?? "clr"
+  const sourcePackageAmbientFiles = discoveryTypeRoots.flatMap(
+    (typeRoot) => readSourcePackageMetadata(typeRoot)?.ambientPaths ?? []
   );
-  if (!globalSourceBindings.ok) {
-    return error([globalSourceBindings.error]);
+  const declarationFiles = discoveryTypeRoots
+    .filter((typeRoot) => !readSourcePackageMetadata(typeRoot))
+    .flatMap((typeRoot) => scanForDeclarationFiles(typeRoot));
+  const ambientSupportFiles = Array.from(
+    new Set([...sourcePackageAmbientFiles, ...declarationFiles])
+  );
+  const declarationModuleAliases = new Map(
+    collectSourcePackageModuleAliases(discoveryTypeRoots)
+  );
+  for (const [specifier, alias] of discoverDeclarationModuleAliases(
+    ambientSupportFiles
+  )) {
+    if (!declarationModuleAliases.has(specifier)) {
+      declarationModuleAliases.set(specifier, alias);
+    }
+  }
+  const declarationGlobalImports =
+    discoverDeclarationGlobalImports(ambientSupportFiles);
+  const ambientGlobalSourceFiles: string[] = [];
+  for (const declarationGlobalImport of declarationGlobalImports) {
+    const resolvedGlobalImport = resolveImport(
+      declarationGlobalImport.targetSpecifier,
+      declarationGlobalImport.declarationFile,
+      sourceRootAbs,
+      {
+        bindings: undefined,
+        projectRoot: options.projectRoot,
+        surface: options.surface,
+        declarationModuleAliases,
+      }
+    );
+    if (!resolvedGlobalImport.ok) {
+      diagnostics.push(resolvedGlobalImport.error);
+      continue;
+    }
+    if (resolvedGlobalImport.value) {
+      ambientGlobalSourceFiles.push(resolvedGlobalImport.value.resolvedPath);
+    }
   }
 
   // Track all discovered files for later type checking
-  const allDiscoveredFiles: string[] = [];
+  const allDiscoveredFiles: string[] = [...ambientSupportFiles];
 
   // BFS to discover all local imports
   const visited = new Set<string>();
-  const queue: string[] = [entryAbs, ...globalSourceBindings.value];
+  const queue: string[] = [entryAbs, ...ambientGlobalSourceFiles];
 
   // First pass: discover all files
   while (queue.length > 0) {
@@ -304,13 +369,10 @@ export const buildModuleDependencyGraph = (
         continue;
       }
 
-      const moduleBinding = discoveryBindings.getBindingByKind(
-        importSpecifier,
-        "module"
-      );
-      if (moduleBinding?.kind === "module" && moduleBinding.sourceImport) {
+      const declarationAlias = declarationModuleAliases.get(importSpecifier);
+      if (declarationAlias) {
         const redirectedSourcePackage = resolveSourcePackageImport(
-          moduleBinding.sourceImport,
+          declarationAlias.targetSpecifier,
           currentFile,
           options.surface,
           options.projectRoot

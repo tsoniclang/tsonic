@@ -20,6 +20,13 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import {
+  canEmitParameterDefaultInSignature,
+  computeWrapperPrefixLengths,
+  isCSharpOptionalParameterDefaultAst,
+  RuntimeParameterDefaultInfo,
+  supportsNullCoalescingParameterDefault,
+} from "../parameter-defaults.js";
 
 /**
  * Info about a parameter that needs destructuring in the function body
@@ -38,6 +45,12 @@ export type ParameterEmissionResult = {
   readonly parameters: readonly CSharpParameterAst[];
   /** Parameters that need destructuring in the function body */
   readonly destructuringParams: readonly ParameterDestructuringInfo[];
+  /** Runtime defaults that must be applied in the body instead of the signature */
+  readonly runtimeDefaultInitializers: readonly RuntimeParameterDefaultInfo[];
+  /** Wrapper arities needed when omitted suffixes cannot be expressed in C# signatures */
+  readonly wrapperPrefixLengths: readonly number[];
+  /** Synthesized default arguments for suppressed parameters */
+  readonly suppressedDefaultArguments: readonly (CSharpExpressionAst | undefined)[];
   /** Updated context */
   readonly context: EmitterContext;
 };
@@ -70,9 +83,14 @@ export const emitParametersWithDestructuring = (
   let currentContext = context;
   const params: CSharpParameterAst[] = [];
   const destructuringParams: ParameterDestructuringInfo[] = [];
+  const runtimeDefaultInitializers: RuntimeParameterDefaultInfo[] = [];
+  const suppressedDefaultArguments: Array<CSharpExpressionAst | undefined> = [];
+  const suppressedDefaultIndexes = new Set<number>();
   let syntheticParamIndex = 0;
 
-  for (const param of parameters) {
+  for (let index = 0; index < parameters.length; index += 1) {
+    const param = parameters[index];
+    if (!param) continue;
     const isRest = param.isRest;
     const isOptional = param.isOptional;
 
@@ -138,9 +156,35 @@ export const emitParametersWithDestructuring = (
         currentContext
       );
       currentContext = newContext;
-      defaultValue = defaultAst;
+      const canEmitInSignature =
+        canEmitParameterDefaultInSignature(parameters, index) &&
+        isCSharpOptionalParameterDefaultAst(defaultAst);
+      if (canEmitInSignature) {
+        defaultValue = defaultAst;
+      } else {
+        suppressedDefaultIndexes.add(index);
+        suppressedDefaultArguments[index] = defaultAst;
+        if (!supportsNullCoalescingParameterDefault(typeAst)) {
+          throw new Error(
+            `ICE: Unsupported runtime parameter default lowering for '${paramName}'.`
+          );
+        }
+        runtimeDefaultInitializers.push({
+          paramName,
+          typeAst,
+          initializer: defaultAst,
+        });
+      }
     } else if (isOptional && !isRest) {
-      defaultValue = { kind: "defaultExpression" };
+      if (canEmitParameterDefaultInSignature(parameters, index)) {
+        defaultValue = { kind: "defaultExpression" };
+      } else {
+        suppressedDefaultIndexes.add(index);
+        suppressedDefaultArguments[index] = {
+          kind: "defaultExpression",
+          type: typeAst,
+        };
+      }
     }
 
     params.push({
@@ -155,6 +199,12 @@ export const emitParametersWithDestructuring = (
   return {
     parameters: params,
     destructuringParams,
+    runtimeDefaultInitializers,
+    wrapperPrefixLengths: computeWrapperPrefixLengths(
+      parameters,
+      suppressedDefaultIndexes
+    ),
+    suppressedDefaultArguments,
     context: currentContext,
   };
 };

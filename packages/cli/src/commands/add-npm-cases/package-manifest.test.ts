@@ -183,8 +183,6 @@ describe("add npm (package manifests)", function () {
       ]);
       expect(cfg.dotnet.packageReferences).to.deep.equal([
         { id: "Acme.Node.Runtime", version: "1.0.0" },
-        { id: "Tsonic.JSRuntime", version: "0.0.9", types: "@tsonic/js" },
-        { id: "Tsonic.Runtime", version: "0.0.3", types: "@tsonic/core" },
       ]);
 
       const normalizedManifestPath = join(

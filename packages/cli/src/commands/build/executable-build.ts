@@ -8,7 +8,10 @@ import {
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ResolvedConfig, Result } from "../../types.js";
-import { resolveNugetConfigFile } from "../../dotnet/nuget-config.js";
+import {
+  buildDotnetProcessEnv,
+  resolveNugetConfigFile,
+} from "../../dotnet/nuget-config.js";
 import { assertNoOutputAssemblyNameConflicts } from "./assets.js";
 
 export const buildExecutable = (
@@ -42,6 +45,7 @@ export const buildExecutable = (
     cwd: generatedDir,
     stdio: verbose ? "inherit" : "pipe",
     encoding: "utf-8",
+    env: buildDotnetProcessEnv(workspaceRoot),
   });
   if (publishResult.status !== 0) {
     const errorMsg = publishResult.stderr || publishResult.stdout || "Unknown error";

@@ -53,7 +53,7 @@ stabilize_tsonic_bin() {
         cat >"$snapshot_entry" <<EOF
 #!/usr/bin/env node
 process.env.TSONIC_REPO_ROOT ??= ${ROOT_DIR@Q};
-await import("./dist/index.js");
+import "./dist/index.js";
 EOF
     fi
 

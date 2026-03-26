@@ -148,9 +148,7 @@ const getSurfacePackageName = (mode: SurfaceMode): string | undefined => {
   return trimmed;
 };
 
-const findAncestorLookupRoots = (
-  workspaceRoot: string
-): readonly string[] => {
+const findAncestorLookupRoots = (workspaceRoot: string): readonly string[] => {
   const roots: string[] = [];
   let current = resolve(workspaceRoot);
   let encounteredPackageJson = false;
@@ -179,7 +177,11 @@ const tryResolveWorkspaceInstalledSurfacePackage = (
   const packagePathParts = packageName.startsWith("@")
     ? packageName.split("/")
     : [packageName];
-  const candidateRoot = join(workspaceRoot, "node_modules", ...packagePathParts);
+  const candidateRoot = join(
+    workspaceRoot,
+    "node_modules",
+    ...packagePathParts
+  );
   if (!existsSync(join(candidateRoot, "package.json"))) {
     return undefined;
   }

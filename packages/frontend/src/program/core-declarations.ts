@@ -260,27 +260,57 @@ export const scanForDeclarationFiles = (dir: string): readonly string[] => {
     return [];
   }
 
+  const scanRoot = path.resolve(dir);
+  const sourcePackageRoot = fs.existsSync(
+    path.join(scanRoot, "tsonic.package.json")
+  )
+    ? scanRoot
+    : undefined;
   const results: string[] = [];
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      // Never crawl dependency trees from a sibling checkout's node_modules.
-      // In noLib mode, accidentally pulling in TypeScript's lib.*.d.ts (or other
-      // ambient types) will silently change the language surface and break
-      // determinism (e.g., `string.indexOf` becomes JS `number` instead of CLR `int`).
-      if (entry.name === "node_modules" || entry.name === ".git") {
-        continue;
-      }
-      results.push(...scanForDeclarationFiles(fullPath));
-    } else if (
-      entry.name.endsWith(".d.ts") &&
-      entry.name !== "core-globals.d.ts"
-    ) {
-      results.push(fullPath);
+  const isLegacySourcePackageDeclaration = (candidatePath: string): boolean => {
+    if (!sourcePackageRoot) {
+      return false;
     }
-  }
+
+    const relativePath = path
+      .relative(sourcePackageRoot, candidatePath)
+      .split(path.sep)
+      .join("/");
+    return (
+      relativePath === "index/internal/index.d.ts" ||
+      relativePath.startsWith("index/internal/")
+    );
+  };
+
+  const visit = (currentDir: string): void => {
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        // Never crawl dependency trees from a sibling checkout's node_modules.
+        // In noLib mode, accidentally pulling in TypeScript's lib.*.d.ts (or other
+        // ambient types) will silently change the language surface and break
+        // determinism (e.g., `string.indexOf` becomes JS `number` instead of CLR `int`).
+        if (
+          entry.name === "node_modules" ||
+          entry.name === ".git" ||
+          isLegacySourcePackageDeclaration(fullPath)
+        ) {
+          continue;
+        }
+        visit(fullPath);
+      } else if (
+        entry.name.endsWith(".d.ts") &&
+        entry.name !== "core-globals.d.ts" &&
+        !isLegacySourcePackageDeclaration(fullPath)
+      ) {
+        results.push(fullPath);
+      }
+    }
+  };
+
+  visit(scanRoot);
 
   return results;
 };

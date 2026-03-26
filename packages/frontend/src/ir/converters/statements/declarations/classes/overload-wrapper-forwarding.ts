@@ -13,6 +13,12 @@ const undefinedExpression = (): IrExpression => ({
   inferredType: { kind: "primitiveType", name: "undefined" },
 });
 
+const defaultOfExpression = (targetType: IrType): IrExpression => ({
+  kind: "defaultof",
+  targetType,
+  inferredType: targetType,
+});
+
 const numericIndexLiteral = (index: number): IrExpression => ({
   kind: "literal",
   value: index,
@@ -64,9 +70,12 @@ const coerceForwardedArgumentToTargetType = (
   expression: IrExpression,
   targetType: IrType | undefined
 ): IrExpression => {
+  if (!targetType) {
+    return expression;
+  }
+
   if (
-    !targetType ||
-    !expression.inferredType ||
+    expression.inferredType &&
     typesEqualForIsType(expression.inferredType, targetType)
   ) {
     return expression;
@@ -89,18 +98,13 @@ const buildWrapperRestElementOrUndefinedExpression = (
     parameter,
     elementIndex
   );
-  const fallbackExpression = undefinedExpression();
-  const whenTrueExpression =
-    targetType &&
-    elementExpression.inferredType &&
-    !typesEqualForIsType(elementExpression.inferredType, targetType)
-      ? ({
-          kind: "typeAssertion",
-          expression: elementExpression,
-          targetType,
-          inferredType: targetType,
-        } satisfies IrExpression)
-      : elementExpression;
+  const fallbackExpression = targetType
+    ? defaultOfExpression(targetType)
+    : undefinedExpression();
+  const whenTrueExpression = coerceForwardedArgumentToTargetType(
+    elementExpression,
+    targetType
+  );
   const whenTrueType = whenTrueExpression.inferredType;
   const fallbackType = fallbackExpression.inferredType;
   const inferredType =
@@ -126,25 +130,13 @@ const buildWrapperRestElementOrUndefinedExpression = (
     inferredType,
   };
 
-  if (
-    targetType &&
-    conditionalExpr.inferredType &&
-    !typesEqualForIsType(conditionalExpr.inferredType, targetType)
-  ) {
-    return {
-      kind: "typeAssertion",
-      expression: conditionalExpr,
-      targetType,
-      inferredType: targetType,
-    };
-  }
-
   return conditionalExpr;
 };
 
 const buildWrapperRestSliceSpread = (
   parameter: IrParameter,
-  startIndex: number
+  startIndex: number,
+  targetType: IrType | undefined
 ): IrSpreadExpression => ({
   kind: "spread",
   expression: {
@@ -158,7 +150,7 @@ const buildWrapperRestSliceSpread = (
     },
     arguments: [numericIndexLiteral(startIndex)],
     isOptional: false,
-    inferredType: parameter.type,
+    inferredType: targetType ?? parameter.type,
   },
 });
 
@@ -186,7 +178,11 @@ export const buildForwardedCallArguments = (
         const restStartIndex =
           helperIndex >= wrapperRestIndex ? helperIndex - wrapperRestIndex : 0;
         forwardedArgs.push(
-          buildWrapperRestSliceSpread(wrapperRestParameter, restStartIndex)
+          buildWrapperRestSliceSpread(
+            wrapperRestParameter,
+            restStartIndex,
+            helperParameter.type
+          )
         );
       } else if (helperIndex < wrapperParameters.length) {
         const wrapperParameter = wrapperParameters[helperIndex];

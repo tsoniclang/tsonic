@@ -1,9 +1,7 @@
 {
   "kind": "tsonic-source-package",
   "schemaVersion": 1,
-  "surfaces": [
-    "@tsonic/js"
-  ],
+  "surfaces": ["@tsonic/js"],
   "source": {
     "exports": {
       ".": "./src/index.ts",

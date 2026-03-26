@@ -289,7 +289,7 @@ describe("Module Resolver", () => {
       }
     });
 
-    it("should prefer source-package redirects over CLR module bindings", () => {
+    it("should resolve declaration-module aliases into source-package files", () => {
       const packageRoot = path.join(
         tempDir,
         "node_modules",
@@ -326,29 +326,23 @@ describe("Module Resolver", () => {
       const netEntry = path.join(packageRoot, "src", "net", "index.ts");
       fs.writeFileSync(netEntry, "export const createServer = () => ({});\n");
 
-      const bindings = new BindingRegistry();
-      bindings.addBindings("/test/nodejs-bindings.json", {
-        bindings: {
-          "node:net": {
-            kind: "module",
-            assembly: "nodejs",
-            type: "nodejs.net",
-            sourceImport: "@tsonic/nodejs/net.js",
-          },
-          net: {
-            kind: "module",
-            assembly: "nodejs",
-            type: "nodejs.net",
-            sourceImport: "@tsonic/nodejs/net.js",
-          },
-        },
-      });
-
       const result = resolveImport(
         "node:net",
         path.join(tempDir, "src", "index.ts"),
         sourceRoot,
-        { bindings, projectRoot: tempDir, surface: "@tsonic/js" }
+        {
+          projectRoot: tempDir,
+          surface: "@tsonic/js",
+          declarationModuleAliases: new Map([
+            [
+              "node:net",
+              {
+                targetSpecifier: "@tsonic/nodejs/net.js",
+                declarationFile: path.join(packageRoot, "node-aliases.d.ts"),
+              },
+            ],
+          ]),
+        }
       );
 
       expect(result.ok).to.equal(true);
@@ -933,12 +927,12 @@ describe("Module Resolver", () => {
 
     it("should resolve module imports even when a global binding shares the same alias", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js-runtime.json", {
+      bindings.addBindings("/test/js.json", {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });

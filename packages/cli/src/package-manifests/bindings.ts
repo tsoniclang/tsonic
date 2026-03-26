@@ -47,10 +47,16 @@ const shouldMergeManifestTypeRoots = (
   const workspaceRoot = options.workspaceRoot;
   if (!workspaceRoot) return true;
 
+  const surfaceCapabilities = resolveSurfaceCapabilities(config.surface, {
+    workspaceRoot,
+  });
   const surfacePackages = new Set(
-    resolveSurfaceCapabilities(config.surface, {
-      workspaceRoot,
-    }).requiredNpmPackages.map((pkg) => normalizeId(pkg))
+    [
+      ...surfaceCapabilities.resolvedModes,
+      ...surfaceCapabilities.requiredNpmPackages,
+    ]
+      .filter((value): value is string => typeof value === "string")
+      .map((pkg) => normalizeId(pkg))
   );
   return !surfacePackages.has(normalizeId(manifest.packageName));
 };

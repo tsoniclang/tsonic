@@ -39,8 +39,8 @@ describe("Shadowing member emission", () => {
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [ast] = emitMethodMember(member as any, context);
-    const code = printMember(ast, "");
+    const [asts] = emitMethodMember(member as any, context);
+    const code = printMember(asts[0]!, "");
     expect(code).to.include("public new void Foo()");
   });
 

@@ -24,6 +24,7 @@ import {
 } from "../../core/semantic/type-resolution.js";
 import { shouldEraseRecursiveRuntimeUnionArrayElement } from "../../core/semantic/runtime-unions.js";
 import { normalizeRecursiveArrayExpectedType } from "../../core/semantic/array-expected-types.js";
+import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
 
 const isExplicitNullishArgument = (arg: IrExpression): boolean =>
   (arg.kind === "literal" && (arg.value === undefined || arg.value === null)) ||
@@ -228,6 +229,21 @@ export const emitFlattenedRestArguments = (
   restElementType: IrType,
   context: EmitterContext
 ): [readonly CSharpExpressionAst[], EmitterContext] => {
+  if (restArgs.length === 1 && restArgs[0]?.kind === "spread") {
+    const spreadArg = restArgs[0];
+    const actualSpreadType = spreadArg.expression.inferredType;
+    if (
+      actualSpreadType &&
+      areIrTypesEquivalent(actualSpreadType, restArrayType, context)
+    ) {
+      const [spreadAst, spreadContext] = emitExpressionAst(
+        spreadArg.expression,
+        context
+      );
+      return [[spreadAst], spreadContext];
+    }
+  }
+
   let currentContext = context;
   const [elementTypeAst, typeContext] = emitTypeAst(
     restElementType,

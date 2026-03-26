@@ -66,7 +66,7 @@ describe("JSON NativeAOT registry", () => {
     const code = result.files.get("index.cs");
     expect(code).to.not.equal(undefined);
     expect(code).to.include(
-      'global::Tsonic.JSRuntime.JSON.parse<object>("{\\"title\\":\\"hello\\"}")'
+      'global::Tsonic.Runtime.JSON.parse<object>("{\\"title\\":\\"hello\\"}")'
     );
     expect(code).to.not.include("TsonicJson.Options");
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
@@ -197,7 +197,7 @@ describe("JSON NativeAOT registry", () => {
 
     const code = result.files.get("index.cs");
     expect(code).to.not.equal(undefined);
-    expect(code).to.include("global::Tsonic.JSRuntime.JSON.stringify(value)");
+    expect(code).to.include("global::Tsonic.Runtime.JSON.stringify(value)");
     expect(code).to.not.include("JsonSerializer.Serialize(value");
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
@@ -301,7 +301,7 @@ describe("JSON NativeAOT registry", () => {
     expect(jsonFile).to.not.equal(undefined);
     expect(code).to.include('["value"] =');
     expect(code).to.include("double)3");
-    expect(jsonFile).to.include("typeof(global::System.Double)");
+    expect(jsonFile).to.include("typeof(double)");
   });
 
   it("does not register open generic type parameters (no typeof(global::T))", () => {

@@ -255,7 +255,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include(
-        "(AddItem__Alias[])global::Tsonic.JSRuntime.JSON.parse<object>(addRaw)"
+        "(AddItem__Alias[])global::Tsonic.Runtime.JSON.parse<object>(addRaw)"
       );
       expect(csharp).to.include("bulkUpdate(addList);");
     });
@@ -898,10 +898,10 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::Tsonic.JSRuntime.Uint8Array(new byte[] { (byte)1, (byte)2, (byte)3 })"
+        "new global::Uint8Array(new byte[] { (byte)1, (byte)2, (byte)3 })"
       );
       expect(csharp).not.to.include(
-        "new global::Tsonic.JSRuntime.Uint8Array(new int[] { 1, 2, 3 })"
+        "new global::Uint8Array(new int[] { 1, 2, 3 })"
       );
     });
 
@@ -919,7 +919,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::Tsonic.JSRuntime.Uint8Array((int)(end - start))"
+        "new global::Uint8Array((int)(end - start))"
       );
     });
 
@@ -940,10 +940,10 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::Tsonic.JSRuntime.Int16Array(new short[] { (short)1, (short)2, (short)3 })"
+        "new global::Int16Array(new short[] { (short)1, (short)2, (short)3 })"
       );
       expect(csharp).to.include(
-        "new global::Tsonic.JSRuntime.Float32Array(new float[] { 1.25f, 2.5f })"
+        "new global::Float32Array(new float[] { 1.25f, 2.5f })"
       );
       expect(csharp).not.to.include(
         "new Int16Array(global::Tsonic.Runtime.Union<double[], global::System.Collections.Generic.IEnumerable<double>>"
@@ -968,7 +968,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::Tsonic.JSRuntime.Int16Array((int)(end - start))"
+        "new global::Int16Array((int)(end - start))"
       );
     });
 
@@ -1013,7 +1013,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "pos.rows = (int)global::Tsonic.JSRuntime.Math.floor(totalLength / 80);"
+        "pos.rows = (int)global::js.JSImportMath.floor(totalLength / 80);"
       );
     });
 

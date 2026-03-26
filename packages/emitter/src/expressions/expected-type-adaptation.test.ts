@@ -57,7 +57,7 @@ describe("expected-type-adaptation", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+          resolvedClrType: "global::js.RegExp",
         },
       ],
     };
@@ -280,7 +280,7 @@ describe("expected-type-adaptation", () => {
               {
                 kind: "referenceType",
                 name: "Error",
-                resolvedClrType: "global::Tsonic.JSRuntime.Error",
+                resolvedClrType: "global::js.Error",
               },
               { kind: "primitiveType", name: "undefined" },
             ],

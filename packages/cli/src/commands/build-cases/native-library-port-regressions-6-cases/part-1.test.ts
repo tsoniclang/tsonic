@@ -443,7 +443,7 @@ describe("build command (native library port regressions)", function () {
         /global::.*TransportResponse\.sendText\(string text\)/
       );
       expect(tree).to.match(
-        /global::.*TransportResponse\.sendBytes\(global::Tsonic\.JSRuntime\.Uint8Array bytes\)/
+        /global::.*TransportResponse\.sendBytes\(global::js\.Uint8Array bytes\)/
       );
       expect(tree).to.include(
         "return global::System.Threading.Tasks.Task.CompletedTask;"

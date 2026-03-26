@@ -153,6 +153,35 @@ resolve_declaration_entry_files() {
     return 0
   fi
 
+  if [ -f "$candidate/tsonic.package.json" ]; then
+    local ambient_entries
+    ambient_entries="$(
+      node - "$candidate/tsonic.package.json" <<'EOF'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const manifestPath = process.argv[2];
+try {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const ambient = Array.isArray(manifest?.source?.ambient)
+    ? manifest.source.ambient.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+  const root = path.dirname(manifestPath);
+  const resolved = ambient
+    .map((entry) => path.resolve(root, entry))
+    .filter((entry) => fs.existsSync(entry));
+  process.stdout.write(resolved.join("\n"));
+} catch {
+  process.stdout.write("");
+}
+EOF
+    )"
+    if [ -n "$ambient_entries" ]; then
+      printf '%s\n' "$ambient_entries"
+    fi
+    return 0
+  fi
+
   if [ -f "$candidate/index.d.ts" ]; then
     printf '%s\n' "$candidate/index.d.ts"
     return 0
@@ -238,6 +267,29 @@ const resolveSurfacePackageRoot = (packageName) => {
 const seen = new Set();
 const ordered = [];
 
+const resolveSurfaceEntryFiles = (packageRoot) => {
+  const manifestPath = path.join(packageRoot, "tsonic.package.json");
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+      const ambient = Array.isArray(manifest?.source?.ambient)
+        ? manifest.source.ambient.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
+        : [];
+      const resolvedAmbient = ambient
+        .map((entry) => path.resolve(packageRoot, entry))
+        .filter((entry) => fs.existsSync(entry));
+      if (resolvedAmbient.length > 0) {
+        return resolvedAmbient;
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [path.join(packageRoot, "index.d.ts")];
+};
+
 const visit = (mode) => {
   if (!mode || seen.has(mode)) return;
   seen.add(mode);
@@ -246,7 +298,7 @@ const visit = (mode) => {
     if (!globalsRoot) {
       throw new Error("missing @tsonic/globals");
     }
-    ordered.push(path.join(globalsRoot, "index.d.ts"));
+    ordered.push(...resolveSurfaceEntryFiles(globalsRoot));
     return;
   }
 
@@ -266,7 +318,7 @@ const visit = (mode) => {
     }
   }
 
-  ordered.push(path.join(packageRoot, "index.d.ts"));
+  ordered.push(...resolveSurfaceEntryFiles(packageRoot));
 };
 
 visit(surfaceMode);
@@ -424,6 +476,102 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   # - Includes the exact surface root explicitly (no automatic @types/* pickup)
   # - Prefers sibling checkouts for @tsonic/* when present
   tsconfig_file="$tmp_dir/$fixture_name.tsconfig.json"
+  paths_json="$(
+    node - "$ROOT_DIR" <<'EOF'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const rootDir = process.argv[2];
+
+const paths = {
+  "@tsonic/core/*": ["../core/versions/10/*"],
+  "@tsonic/dotnet/*": ["../dotnet/versions/10/*"],
+  "@tsonic/globals": ["../globals/versions/10/index.d.ts"],
+  "@tsonic/aspnetcore/*": ["../aspnetcore/*"],
+  "@tsonic/efcore/*": ["../efcore/*"],
+  "@tsonic/efcore-sqlite/*": ["../efcore-sqlite/*"],
+  "@tsonic/microsoft-extensions/*": ["../microsoft-extensions/*"],
+};
+
+const addExportMappedPackage = (packageName, packageRootRelative) => {
+  const packageRoot = path.resolve(rootDir, packageRootRelative);
+  const packageJsonPath = path.join(packageRoot, "package.json");
+  if (!fs.existsSync(packageJsonPath)) {
+    return;
+  }
+
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  const exportsField = packageJson.exports;
+  if (!exportsField || typeof exportsField !== "object") {
+    return;
+  }
+
+  const toRelativeTarget = (target) =>
+    path
+      .relative(rootDir, path.resolve(packageRoot, target))
+      .replace(/\\/g, "/");
+
+  const addEntry = (specifier, target) => {
+    if (typeof target !== "string" || target.length === 0) {
+      return;
+    }
+
+    if (!paths[specifier]) {
+      paths[specifier] = [toRelativeTarget(target)];
+    }
+  };
+
+  for (const [exportKey, exportValue] of Object.entries(exportsField)) {
+    if (exportKey === ".") {
+      if (typeof exportValue === "string") {
+        addEntry(packageName, exportValue);
+        continue;
+      }
+
+      if (exportValue && typeof exportValue === "object") {
+        const target =
+          typeof exportValue.types === "string"
+            ? exportValue.types
+            : typeof exportValue.default === "string"
+              ? exportValue.default
+              : undefined;
+        if (target) {
+          addEntry(packageName, target);
+        }
+      }
+      continue;
+    }
+
+    if (!exportKey.startsWith("./")) {
+      continue;
+    }
+
+    const specifier = `${packageName}/${exportKey.slice(2)}`;
+    if (typeof exportValue === "string") {
+      addEntry(specifier, exportValue);
+      continue;
+    }
+
+    if (exportValue && typeof exportValue === "object") {
+      const target =
+        typeof exportValue.types === "string"
+          ? exportValue.types
+          : typeof exportValue.default === "string"
+            ? exportValue.default
+            : undefined;
+      if (target) {
+        addEntry(specifier, target);
+      }
+    }
+  }
+};
+
+addExportMappedPackage("@tsonic/js", "../js/versions/10");
+addExportMappedPackage("@tsonic/nodejs", "../nodejs/versions/10");
+
+console.log(JSON.stringify(paths, null, 6));
+EOF
+  )"
 
   cat >"$tsconfig_file" <<EOF
 {
@@ -445,19 +593,7 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
     "verbatimModuleSyntax": false,
     "allowImportingTsExtensions": true,
     "baseUrl": "$ROOT_DIR",
-    "paths": {
-      "@tsonic/core/*": ["../core/versions/10/*"],
-      "@tsonic/dotnet/*": ["../dotnet/versions/10/*"],
-      "@tsonic/globals": ["../globals/versions/10/index.d.ts"],
-      "@tsonic/js": ["../js/versions/10/index.d.ts"],
-      "@tsonic/js/*": ["../js/versions/10/*"],
-      "@tsonic/nodejs": ["../nodejs/versions/10/index.d.ts"],
-      "@tsonic/nodejs/*": ["../nodejs/versions/10/*"],
-      "@tsonic/aspnetcore/*": ["../aspnetcore/*"],
-      "@tsonic/efcore/*": ["../efcore/*"],
-      "@tsonic/efcore-sqlite/*": ["../efcore-sqlite/*"],
-      "@tsonic/microsoft-extensions/*": ["../microsoft-extensions/*"]
-    }
+    "paths": $paths_json
   },
   "files": [
 $(for declaration_file in "${declaration_files[@]}"; do

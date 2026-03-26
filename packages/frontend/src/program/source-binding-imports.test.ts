@@ -80,8 +80,8 @@ describe("resolveSourceBindingFiles", () => {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
             sourceImport: "@tsonic/js/console.js",
           },
         },

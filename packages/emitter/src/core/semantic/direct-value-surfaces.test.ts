@@ -50,7 +50,7 @@ describe("direct-value-surfaces", () => {
     const narrowedStringType: IrType = {
       kind: "referenceType",
       name: "Uint8Array",
-      resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+      resolvedClrType: "js.Uint8Array",
     };
     const context = {
       ...createContext({ rootNamespace: "Test" }),

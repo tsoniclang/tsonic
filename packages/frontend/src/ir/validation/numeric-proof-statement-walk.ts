@@ -145,8 +145,32 @@ const processStatement = <T extends IrStatement>(
             body: processStatement(m.body, methodCtx),
           };
         }
-        if (m.kind === "propertyDeclaration" && m.initializer) {
-          return { ...m, initializer: processExpr(m.initializer, ctx) };
+        if (m.kind === "propertyDeclaration") {
+          const setterCtx: ProofContext = {
+            ...ctx,
+            provenParameters: new Map(ctx.provenParameters),
+            provenVariables: new Map(ctx.provenVariables),
+          };
+
+          if (m.setterParamName) {
+            const setterKind = getNumericKindFromType(m.type);
+            if (setterKind !== undefined) {
+              setterCtx.provenParameters.set(m.setterParamName, setterKind);
+            }
+          }
+
+          return {
+            ...m,
+            initializer: m.initializer
+              ? processExpr(m.initializer, ctx)
+              : undefined,
+            getterBody: m.getterBody
+              ? processStatement(m.getterBody, ctx)
+              : undefined,
+            setterBody: m.setterBody
+              ? processStatement(m.setterBody, setterCtx)
+              : undefined,
+          };
         }
         if (m.kind === "constructorDeclaration" && m.body) {
           const [parameters, ctorCtx] = processParameters(m.parameters);

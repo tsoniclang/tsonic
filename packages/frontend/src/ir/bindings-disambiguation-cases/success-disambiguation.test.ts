@@ -22,32 +22,13 @@ import { createClrBindingsResolver } from "../../resolver/clr-bindings-resolver.
 import { createBinding } from "../binding/index.js";
 
 describe("CLR member binding disambiguation (success)", () => {
-  it("should disambiguate collisions by nearest simple bindings.json (Console.log)", () => {
+  it("should disambiguate collisions when a simple global binding selects the CLR owner (Console.log)", () => {
     const tmpRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-bindings-disambiguation-")
     );
 
     const dtsDir = path.join(tmpRoot, "js");
     fs.mkdirSync(dtsDir, { recursive: true });
-
-    const bindingsJsonPath = path.join(dtsDir, "bindings.json");
-    fs.writeFileSync(
-      bindingsJsonPath,
-      JSON.stringify(
-        {
-          bindings: {
-            console: {
-              kind: "global",
-              assembly: "Tsonic.JSRuntime",
-              type: "Tsonic.JSRuntime.console",
-            },
-          },
-        },
-        null,
-        2
-      ),
-      "utf8"
-    );
 
     const dtsFileName = path.join(dtsDir, "globals.d.ts");
     const dtsSource = `
@@ -129,20 +110,29 @@ describe("CLR member binding disambiguation (success)", () => {
     const checker = program.getTypeChecker();
 
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/jsruntime.json", {
-      namespace: "Tsonic.JSRuntime",
+    bindings.addBindings("/test/js-simple.json", {
+      bindings: {
+        console: {
+          kind: "global",
+          assembly: "Acme.Js",
+          type: "Acme.Js.console",
+        },
+      },
+    });
+    bindings.addBindings("/test/js.json", {
+      namespace: "Acme.Js",
       types: [
         {
-          clrName: "Tsonic.JSRuntime.console",
-          assemblyName: "Tsonic.JSRuntime",
+          clrName: "Acme.Js.console",
+          assemblyName: "Acme.Js",
           methods: [
             {
               clrName: "log",
               normalizedSignature:
                 "log|(System.String):System.Void|static=false",
               parameterCount: 1,
-              declaringClrType: "Tsonic.JSRuntime.console",
-              declaringAssemblyName: "Tsonic.JSRuntime",
+              declaringClrType: "Acme.Js.console",
+              declaringAssemblyName: "Acme.Js",
             },
           ],
           properties: [],
@@ -228,7 +218,7 @@ describe("CLR member binding disambiguation (success)", () => {
     }
 
     expect(callee.memberBinding).to.not.equal(undefined);
-    expect(callee.memberBinding?.type).to.equal("Tsonic.JSRuntime.console");
+    expect(callee.memberBinding?.type).to.equal("Acme.Js.console");
     expect(callee.memberBinding?.member).to.equal("log");
   });
 

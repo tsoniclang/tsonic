@@ -173,3 +173,20 @@ vite.config.ts.timestamp-*
 test/fixtures/**/generated/
 test/fixtures/**/out/
 test/fixtures/**/package-lock.json
+
+# .NET build artifacts (per-project)
+packages/*/generated/bin/
+packages/*/generated/obj/
+
+# Optional: Uncomment to ignore generated C# files
+# packages/*/generated/**/*.cs
+
+# Output executables
+packages/*/out/
+packages/*/*.exe
+
+# Dependencies
+node_modules/
+
+# Internal tooling artifacts (restore scratch, caches)
+.tsonic/

@@ -311,7 +311,7 @@ describe("IR Builder", function () {
 
         expect(keysCall.inferredType?.kind).to.equal("referenceType");
         if (keysCall.inferredType?.kind !== "referenceType") return;
-        expect(["Iterable", "IEnumerable_1"]).to.include(
+        expect(["Iterable", "IterableIterator", "IEnumerable_1"]).to.include(
           keysCall.inferredType.name
         );
         expect(keysCall.inferredType.typeArguments).to.deep.equal([
@@ -327,7 +327,7 @@ describe("IR Builder", function () {
         expect(callee.inferredType.parameters).to.deep.equal([]);
         expect(callee.inferredType.returnType.kind).to.equal("referenceType");
         if (callee.inferredType.returnType.kind !== "referenceType") return;
-        expect(["Iterable", "IEnumerable_1"]).to.include(
+        expect(["Iterable", "IterableIterator", "IEnumerable_1"]).to.include(
           callee.inferredType.returnType.name
         );
         if (callee.inferredType.returnType.typeArguments) {

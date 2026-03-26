@@ -6,8 +6,6 @@
  */
 
 import * as ts from "typescript";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type {
   IrExpression,
   IrNumericNarrowingExpression,
@@ -48,13 +46,13 @@ import {
 } from "./converters/expressions/import-meta.js";
 import { getSourceSpan } from "./converters/expressions/helpers.js";
 import { shouldWrapExpressionWithAssertion } from "./converters/assertion-wrapping.js";
-import { loadBindingsFromPath } from "../program/bindings.js";
 import {
   getNumericKindFromTypeNode,
   inferThisType,
   getIdentifierStorageType,
   stripNullish,
 } from "./expression-converter-helpers.js";
+import { resolveAmbientGlobalSourceOwner } from "./converters/expressions/ambient-global-source-owner.js";
 
 const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
   ts.isImportClause(decl) ||
@@ -80,23 +78,13 @@ const isDeclarationModuleGlobal = (decl: ts.Declaration): boolean => {
   return false;
 };
 
-const findNearestBindingsJson = (
-  sourceFilePath: string
-): string | undefined => {
-  let currentDir = path.dirname(path.resolve(sourceFilePath));
-
-  for (;;) {
-    const candidate = path.join(currentDir, "bindings.json");
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) {
-      return undefined;
-    }
-    currentDir = parentDir;
-  }
+const isAmbientGlobalDeclaration = (decl: ts.Declaration): boolean => {
+  const sourceFile = decl.getSourceFile();
+  return (
+    (sourceFile.isDeclarationFile &&
+      (!ts.isExternalModule(sourceFile) || isDeclarationModuleGlobal(decl))) ||
+    (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient) !== 0
+  );
 };
 
 /**
@@ -208,34 +196,17 @@ export const convertExpression = (
     const hasImportLikeDeclaration = symbolDeclarations.some(
       isImportLikeDeclaration
     );
-    const isAmbientDeclarationFileGlobal =
+    const isAmbientGlobal =
       symbolDeclarations.length > 0 &&
       !hasImportLikeDeclaration &&
-      symbolDeclarations.every((decl: ts.Declaration) => {
-        const sourceFile = decl.getSourceFile();
-        return (
-          sourceFile.isDeclarationFile &&
-          (!ts.isExternalModule(sourceFile) || isDeclarationModuleGlobal(decl))
-        );
-      });
+      symbolDeclarations.every(isAmbientGlobalDeclaration);
 
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
-    let clrBinding = ctx.bindings.getExactBindingByKind(node.text, "global");
-    if (!clrBinding && isAmbientDeclarationFileGlobal) {
-      for (const decl of symbolDeclarations) {
-        const bindingsPath = findNearestBindingsJson(
-          decl.getSourceFile().fileName
-        );
-        if (bindingsPath) {
-          loadBindingsFromPath(ctx.bindings, bindingsPath);
-        }
-      }
-      clrBinding = ctx.bindings.getExactBindingByKind(node.text, "global");
-    }
+    const clrBinding = ctx.bindings.getExactBindingByKind(node.text, "global");
     if (
       clrBinding &&
       clrBinding.kind === "global" &&
-      (!declId || isAmbientDeclarationFileGlobal)
+      (!declId || isAmbientGlobal)
     ) {
       const baseIdentifier: IrExpression = {
         kind: "identifier",
@@ -262,11 +233,16 @@ export const convertExpression = (
       }
       return baseIdentifier;
     }
+    const ambientSourceOwner =
+      !clrBinding && isAmbientGlobal
+        ? resolveAmbientGlobalSourceOwner(symbolDeclarations, ctx)
+        : undefined;
     const baseIdentifier: IrExpression = {
       kind: "identifier",
       name: node.text,
       inferredType: identifierStorageType,
       sourceSpan: getSourceSpan(node),
+      resolvedClrType: ambientSourceOwner,
       originalName,
       declId,
     };

@@ -143,6 +143,7 @@ export type TypeRegistryEntry = {
   readonly kind: "class" | "interface" | "typeAlias";
   readonly name: string;
   readonly fullyQualifiedName: string;
+  readonly ownerIdentity?: string;
   readonly typeParameters: readonly TypeParameterEntry[];
   readonly members: ReadonlyMap<string, TypeRegistryMemberInfo>;
 };

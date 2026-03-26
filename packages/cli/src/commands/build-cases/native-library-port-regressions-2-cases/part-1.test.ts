@@ -190,7 +190,7 @@ describe("build command (native library port regressions)", function () {
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       const unionMatches = Array.from(
         tree.matchAll(
-          /global::Tsonic\.Runtime\.Union<[^>]*global::Tsonic\.JSRuntime\.RegExp[^>]*>/g
+          /global::Tsonic\.Runtime\.Union<[^>]*global::js\.RegExp[^>]*>/g
         ),
         (match) => match[0]
       );

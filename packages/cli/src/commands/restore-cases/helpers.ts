@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildDotnetProcessEnv } from "../../dotnet/nuget-config.js";
 
 export {
   copyFileSync,
@@ -35,7 +36,11 @@ export const run = (
   command: string,
   args: readonly string[]
 ): void => {
-  const result = spawnSync(command, args, { cwd, encoding: "utf-8" });
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: "utf-8",
+    env: command === "dotnet" ? buildDotnetProcessEnv(cwd) : process.env,
+  });
   if (result.status !== 0) {
     const msg = result.stderr || result.stdout || `Exit code ${result.status}`;
     throw new Error(`${command} ${args.join(" ")} failed:\n${msg}`);

@@ -5,7 +5,6 @@
  * - Explicit interface view properties (As_IInterface)
  * - Dictionary pseudo-members (Keys, Values, Count)
  * - Array/tuple length access
- * - JS-surface array wrapper method calls
  * - Regular property access with member name resolution
  */
 
@@ -20,7 +19,6 @@ import { emitTypeAst } from "../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
-  resolveArrayLikeReceiverType,
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
@@ -29,7 +27,6 @@ import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   type MemberAccessUsage,
   createStringLiteralExpression,
-  emitArrayWrapperElementTypeAst,
   maybeReifyStorageErasedMemberRead,
   resolveEmittedReceiverTypeAst,
   emitMemberName,
@@ -209,35 +206,6 @@ export const emitPropertyAccess = (
     context,
     usage
   );
-
-  if (
-    context.options.surface === "@tsonic/js" &&
-    !expr.memberBinding &&
-    usage === "call"
-  ) {
-    const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
-    if (arrayLikeReceiver) {
-      const [elementTypeAst, typeCtx] = emitArrayWrapperElementTypeAst(
-        objectType,
-        arrayLikeReceiver.elementType,
-        context
-      );
-      return [
-        {
-          kind: "memberAccessExpression",
-          expression: {
-            kind: "objectCreationExpression",
-            type: identifierType("global::Tsonic.JSRuntime.JSArray", [
-              elementTypeAst,
-            ]),
-            arguments: [objectAst],
-          },
-          memberName: emitCSharpName(prop, "methods", typeCtx),
-        },
-        typeCtx,
-      ];
-    }
-  }
 
   if (usage === "value") {
     if (

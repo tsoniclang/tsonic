@@ -13,7 +13,6 @@ import type {
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
-import { getIdentifierTypeLeafName } from "../../core/format/backend-ast/utils.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { resolveArrayLikeReceiverType } from "../../core/semantic/type-resolution.js";
 import { needsIntCast } from "./call-analysis.js";
@@ -30,6 +29,14 @@ import {
 
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
+
+const getJsArrayWrapperTypeName = (bindingType: string): string => {
+  const stripped = stripClrGenericArity(bindingType);
+  const leaf = stripped.split(".").pop();
+  return leaf === "JSArray"
+    ? "global::Tsonic.Runtime.JSArray"
+    : `global::${stripped}`;
+};
 
 const isArrayLikeIrType = (type: IrType | undefined): boolean => {
   if (!type) return false;
@@ -99,49 +106,6 @@ const shouldNormalizeNativeArrayWrapperResult = (
   return binding.kind === "method";
 };
 
-const isJsArrayObjectCreationAst = (
-  expr: CSharpExpressionAst
-): expr is Extract<CSharpExpressionAst, { kind: "objectCreationExpression" }> =>
-  expr.kind === "objectCreationExpression" &&
-  getIdentifierTypeLeafName(expr.type) === "JSArray";
-
-export const shouldNormalizeUnboundJsArrayWrapperResult = (
-  expr: Extract<IrExpression, { kind: "call" }>,
-  calleeAst: CSharpExpressionAst,
-  expectedType: IrType | undefined,
-  context: EmitterContext
-): boolean => {
-  if (!shouldNormalizeArrayLikeInteropResult(expr.inferredType, expectedType)) {
-    return false;
-  }
-  if (expr.callee.kind !== "memberAccess") {
-    return false;
-  }
-  if (typeof expr.callee.property !== "string") {
-    return false;
-  }
-  if (!nativeArrayReturningInteropMembers.has(expr.callee.property)) {
-    return false;
-  }
-  if (expr.callee.memberBinding) {
-    return false;
-  }
-
-  const receiverType =
-    resolveEffectiveExpressionType(expr.callee.object, context) ??
-    expr.callee.object.inferredType;
-  if (!hasDirectNativeArrayLikeInteropShape(receiverType)) {
-    return false;
-  }
-
-  return (
-    (calleeAst.kind === "memberAccessExpression" &&
-      isJsArrayObjectCreationAst(calleeAst.expression)) ||
-    (calleeAst.kind === "conditionalMemberAccessExpression" &&
-      isJsArrayObjectCreationAst(calleeAst.expression))
-  );
-};
-
 export const emitArrayWrapperInteropCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext,
@@ -208,10 +172,7 @@ export const emitArrayWrapperInteropCall = (
 
   const wrapperAst: CSharpExpressionAst = {
     kind: "objectCreationExpression",
-    type: identifierType(
-      `global::${stripClrGenericArity(bindingType)}`,
-      typeArguments
-    ),
+    type: identifierType(getJsArrayWrapperTypeName(bindingType), typeArguments),
     arguments: [receiverAst],
   };
 

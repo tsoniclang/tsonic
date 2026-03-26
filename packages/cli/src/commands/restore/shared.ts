@@ -1,11 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import type { Result } from "../../types.js";
-import {
-  defaultExec,
-  type AddCommandOptions,
-  type Exec,
-} from "../add-common.js";
+import { buildDotnetProcessEnv } from "../../dotnet/nuget-config.js";
+import { type AddCommandOptions } from "../add-common.js";
 
 export type RestoreOptions = AddCommandOptions;
 
@@ -152,14 +150,18 @@ export const dotnetRestore = (
   restoreProjectPath: string,
   nugetConfigFile: string,
   options: RestoreOptions,
-  exec: Exec = defaultExec
+  workspaceRoot: string
 ): Result<string, string> => {
   const restoreDir = dirname(restoreProjectPath);
-  const result = exec(
+  const result = spawnSync(
     "dotnet",
     ["restore", restoreProjectPath, "--configfile", nugetConfigFile],
-    restoreDir,
-    options.verbose ? "inherit" : "pipe"
+    {
+      cwd: restoreDir,
+      stdio: options.verbose ? "inherit" : "pipe",
+      encoding: "utf-8",
+      env: buildDotnetProcessEnv(workspaceRoot),
+    }
   );
   if (result.status !== 0) {
     const msg = result.stderr || result.stdout || "Unknown error";

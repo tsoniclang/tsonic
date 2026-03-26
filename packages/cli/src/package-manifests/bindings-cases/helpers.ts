@@ -68,10 +68,7 @@ export const writeInstalledPackage = (
   }
 
   if (opts.packageManifest !== undefined) {
-    writeJson(
-      join(pkgRoot, "tsonic.package.json"),
-      opts.packageManifest
-    );
+    writeJson(join(pkgRoot, "tsonic.package.json"), opts.packageManifest);
   }
 
   return pkgRoot;

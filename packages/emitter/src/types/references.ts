@@ -68,6 +68,26 @@ const EXACT_BCL_VALUE_TYPE_MAP = new Map<string, string>([
 
 const POLYMORPHIC_THIS_MARKER = "__tsonic_polymorphic_this";
 
+const isQualifiedClrIdentity = (name: string | undefined): boolean => {
+  if (!name) {
+    return false;
+  }
+
+  const trimmed = name.trim();
+  return (
+    trimmed.startsWith("global::") ||
+    trimmed.includes(".") ||
+    trimmed.includes("+")
+  );
+};
+
+const getDeclaringTypeParameterAsts = (
+  context: EmitterContext
+): readonly CSharpTypeAst[] =>
+  (context.declaringTypeParameterNames ?? []).map((name) =>
+    identifierType(context.declaringTypeParameterNameMap?.get(name) ?? name)
+  );
+
 /**
  * Emit reference types as CSharpTypeAst
  */
@@ -78,10 +98,18 @@ export const emitReferenceType = (
   const { name, typeArguments, resolvedClrType, typeId } = type;
 
   if (name === POLYMORPHIC_THIS_MARKER && context.declaringTypeName) {
+    const declaringTypeParameterAsts = getDeclaringTypeParameterAsts(context);
     return emitReferenceType(
       {
         ...type,
         name: context.declaringTypeName,
+        typeArguments:
+          declaringTypeParameterAsts.length > 0
+            ? (context.declaringTypeParameterNames ?? []).map((paramName) => ({
+                kind: "typeParameterType" as const,
+                name: paramName,
+              }))
+            : undefined,
         resolvedClrType: undefined,
         typeId: undefined,
       },
@@ -132,61 +160,6 @@ export const emitReferenceType = (
     // rewritten to `__Alias` in the local-type handling below.
   }
 
-  // If the type has a pre-resolved CLR type (from IR), use it
-  if (resolvedClrType) {
-    const typeAst = clrTypeNameToTypeAst(toGlobalClr(resolvedClrType));
-    if (typeArguments && typeArguments.length > 0) {
-      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
-      if (
-        typeAst.kind === "identifierType" ||
-        typeAst.kind === "qualifiedIdentifierType"
-      ) {
-        return [withTypeArguments(typeAst, typeArgAsts), newContext];
-      }
-      return [typeAst, newContext];
-    }
-    return [typeAst, context];
-  }
-
-  // Check if this type is imported - use pre-computed type AST directly.
-  // This includes canonicalization for tsbindgen instance aliases (Foo$instance)
-  // so imported type identity remains stable even when global aliases collide.
-  const importedTypeAst = resolveImportedTypeAst(name, context);
-  if (importedTypeAst) {
-    if (typeArguments && typeArguments.length > 0) {
-      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
-      if (
-        importedTypeAst.kind === "identifierType" ||
-        importedTypeAst.kind === "qualifiedIdentifierType"
-      ) {
-        return [withTypeArguments(importedTypeAst, typeArgAsts), newContext];
-      }
-      return [importedTypeAst, newContext];
-    }
-    return [importedTypeAst, context];
-  }
-
-  const bindingBackedStructuralTypeAst = resolveBindingBackedStructuralTypeAst(
-    type,
-    context
-  );
-  if (bindingBackedStructuralTypeAst) {
-    if (typeArguments && typeArguments.length > 0) {
-      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
-      if (
-        bindingBackedStructuralTypeAst.kind === "identifierType" ||
-        bindingBackedStructuralTypeAst.kind === "qualifiedIdentifierType"
-      ) {
-        return [
-          withTypeArguments(bindingBackedStructuralTypeAst, typeArgAsts),
-          newContext,
-        ];
-      }
-      return [bindingBackedStructuralTypeAst, newContext];
-    }
-    return [bindingBackedStructuralTypeAst, context];
-  }
-
   // Check for unsupported support types
   const unsupportedError = checkUnsupportedSupportType(name);
   if (unsupportedError) {
@@ -197,6 +170,9 @@ export const emitReferenceType = (
   // Array-like contracts emit as native T[] arrays.
   // Users must explicitly use List<T> / collection types to get collection objects.
   if (name === "Array" || name === "ReadonlyArray" || name === "ArrayLike") {
+    if (resolvedClrType) {
+      return [clrTypeNameToTypeAst(toGlobalClr(resolvedClrType)), context];
+    }
     const firstArg = typeArguments?.[0];
     if (!firstArg) {
       return [
@@ -329,6 +305,110 @@ export const emitReferenceType = (
     return [identifierType(mappedName), context];
   }
 
+  // Source-package local types compiled in this program must win over imported CLR
+  // metadata names. Imported aliases/interfaces often carry a nominal resolvedClrType,
+  // but if their real definition is present in moduleMap we need to emit from that
+  // local definition instead of treating them as precompiled external CLR types.
+  //
+  // Do not route current-module locals through this path. Same-module locals need the
+  // later local-type handling because it intentionally keeps local references short
+  // unless `qualifyLocalTypes` is explicitly enabled.
+  const currentModuleLocalType = context.localTypes?.get(name);
+  if (!currentModuleLocalType) {
+    const crossModuleLocalType = resolveLocalTypeInfo(type, context);
+    if (crossModuleLocalType) {
+      const { info, namespace } = crossModuleLocalType;
+
+      if (info.kind === "typeAlias") {
+        const underlyingKind = info.type.kind;
+        if (underlyingKind !== "objectType") {
+          const underlyingType =
+            typeArguments && typeArguments.length > 0
+              ? substituteTypeArgs(info.type, info.typeParameters, typeArguments)
+              : info.type;
+          const aliasKey = keyForResolvedLocalType(name, namespace);
+          if (context.resolvingTypeAliases?.has(aliasKey)) {
+            return emitRecursiveAliasFallbackType(underlyingType, context);
+          }
+          const [resolvedAst, resolvedContext] = emitTypeAst(
+            underlyingType,
+            withResolvingTypeAlias(aliasKey, context)
+          );
+          return [
+            resolvedAst,
+            restoreResolvingTypeAliases(resolvedContext, context),
+          ];
+        }
+
+        return emitQualifiedLocalType(
+          namespace,
+          `${name}__Alias`,
+          typeArguments,
+          context
+        );
+      }
+
+      return emitQualifiedLocalType(namespace, name, typeArguments, context);
+    }
+  }
+
+  // If the type has a pre-resolved CLR type (from IR), use it
+  if (isQualifiedClrIdentity(resolvedClrType)) {
+    const typeAst = clrTypeNameToTypeAst(
+      toGlobalClr(resolvedClrType as string)
+    );
+    if (typeArguments && typeArguments.length > 0) {
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      if (
+        typeAst.kind === "identifierType" ||
+        typeAst.kind === "qualifiedIdentifierType"
+      ) {
+        return [withTypeArguments(typeAst, typeArgAsts), newContext];
+      }
+      return [typeAst, newContext];
+    }
+    return [typeAst, context];
+  }
+
+  // Check if this type is imported - use pre-computed type AST directly.
+  // This includes canonicalization for tsbindgen instance aliases (Foo$instance)
+  // so imported type identity remains stable even when global aliases collide.
+  const importedTypeAst = resolveImportedTypeAst(name, context);
+  if (importedTypeAst) {
+    if (typeArguments && typeArguments.length > 0) {
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      if (
+        importedTypeAst.kind === "identifierType" ||
+        importedTypeAst.kind === "qualifiedIdentifierType"
+      ) {
+        return [withTypeArguments(importedTypeAst, typeArgAsts), newContext];
+      }
+      return [importedTypeAst, newContext];
+    }
+    return [importedTypeAst, context];
+  }
+
+  const bindingBackedStructuralTypeAst = resolveBindingBackedStructuralTypeAst(
+    type,
+    context
+  );
+  if (bindingBackedStructuralTypeAst) {
+    if (typeArguments && typeArguments.length > 0) {
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      if (
+        bindingBackedStructuralTypeAst.kind === "identifierType" ||
+        bindingBackedStructuralTypeAst.kind === "qualifiedIdentifierType"
+      ) {
+        return [
+          withTypeArguments(bindingBackedStructuralTypeAst, typeArgAsts),
+          newContext,
+        ];
+      }
+      return [bindingBackedStructuralTypeAst, newContext];
+    }
+    return [bindingBackedStructuralTypeAst, context];
+  }
+
   const canonicalLocalTarget = resolveCanonicalLocalTypeTarget(name, context);
   if (canonicalLocalTarget) {
     const qualified = toGlobalClr(canonicalLocalTarget);
@@ -404,38 +484,6 @@ export const emitReferenceType = (
       identifierType(`global::${qualifiedPrefix}.${csharpName}`),
       context,
     ];
-  }
-
-  const crossModuleLocalType = resolveLocalTypeInfo(type, context);
-  if (crossModuleLocalType) {
-    const { info, namespace } = crossModuleLocalType;
-
-    if (info.kind === "typeAlias") {
-      const underlyingKind = info.type.kind;
-      if (underlyingKind !== "objectType") {
-        const underlyingType =
-          typeArguments && typeArguments.length > 0
-            ? substituteTypeArgs(info.type, info.typeParameters, typeArguments)
-            : info.type;
-        const aliasKey = keyForResolvedLocalType(name, namespace);
-        if (context.resolvingTypeAliases?.has(aliasKey)) {
-          return emitRecursiveAliasFallbackType(underlyingType, context);
-        }
-        return emitTypeAst(
-          underlyingType,
-          withResolvingTypeAlias(aliasKey, context)
-        );
-      }
-
-      return emitQualifiedLocalType(
-        namespace,
-        `${name}__Alias`,
-        typeArguments,
-        context
-      );
-    }
-
-    return emitQualifiedLocalType(namespace, name, typeArguments, context);
   }
 
   // Canonical nominal identity from the UnifiedUniverse.

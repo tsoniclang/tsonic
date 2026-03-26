@@ -29,7 +29,7 @@ import {
 } from "./references-normalize.js";
 import {
   extractStructuralMembersFromDeclarations,
-  resolveSourceBindingsClrIdentity,
+  resolveSourceClrIdentity,
   tryConvertPureIndexSignatureToDictionary,
 } from "./references-structural.js";
 import {
@@ -224,7 +224,7 @@ export const convertTypeReference = (
       .getDecl(declId);
     return declInfo?.fqName ?? typeName;
   })();
-  const resolvedClrType = resolveSourceBindingsClrIdentity(declId, binding);
+  const resolvedClrType = resolveSourceClrIdentity(declId, binding);
 
   // ExtensionMethods wrapper erasure for resolved names
   if (

@@ -166,7 +166,11 @@ describe("tsonic.package bindings", function () {
         "@acme/deps",
         "@tsonic/dotnet",
       ]);
-      expect((manifest?.nugetDependencies ?? []).map((dep) => `${dep.source}:${dep.id}@${dep.version ?? ""}`)).to.deep.equal([
+      expect(
+        (manifest?.nugetDependencies ?? []).map(
+          (dep) => `${dep.source}:${dep.id}@${dep.version ?? ""}`
+        )
+      ).to.deep.equal([
         "dotnet.framework:Microsoft.AspNetCore.App@",
         "dotnet.package:Acme.Core@1.2.3",
         "dotnet.package:Acme.Runtime@3.1.0",
@@ -273,21 +277,26 @@ describe("tsonic.package bindings", function () {
   it("errors with TSN8A02 when runtime nuget package version is invalid", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-package-runtime-version-"));
     try {
-      const pkgRoot = writeInstalledPackage(dir, "bad-runtime-version", "1.0.0", {
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-source-package",
-          surfaces: ["@tsonic/js"],
-          runtime: {
-            nugetPackages: [{ id: "Bad.Runtime", version: "" }],
-          },
-          source: {
-            exports: {
-              ".": "./src/index.ts",
+      const pkgRoot = writeInstalledPackage(
+        dir,
+        "bad-runtime-version",
+        "1.0.0",
+        {
+          packageManifest: {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            runtime: {
+              nugetPackages: [{ id: "Bad.Runtime", version: "" }],
+            },
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
             },
           },
-        },
-      });
+        }
+      );
 
       const result = resolveInstalledPackageBindingsManifest(pkgRoot);
       expect(result.ok).to.equal(false);

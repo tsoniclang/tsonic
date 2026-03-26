@@ -8,7 +8,7 @@
  * No fallback paths allowed. If a type isn't in this catalog, it doesn't exist.
  *
  * Design:
- * - Source types get stableIds generated as "{projectName}:{fullyQualifiedName}"
+ * - Source types get stableIds generated as "{ownerIdentity}:{fullyQualifiedName}"
  * - Assembly types keep their original stableIds from tsbindgen bindings
  * - Lookups by tsName, clrName, or stableId all work uniformly
  */
@@ -40,10 +40,10 @@ import type {
  * Generate stableId for a source type.
  */
 const makeSourceStableId = (
-  projectName: string,
+  ownerIdentity: string,
   fullyQualifiedName: string
 ): string => {
-  return `${projectName}:${fullyQualifiedName}`;
+  return `${ownerIdentity}:${fullyQualifiedName}`;
 };
 
 /**
@@ -136,21 +136,31 @@ const convertMemberInfo = (
  */
 const convertHeritageInfo = (
   heritageInfo: HeritageInfo,
-  projectName: string
+  ownerIdentity: string,
+  resolveSourceOwnerIdentity: (
+    fullyQualifiedName: string
+  ) => string | undefined
 ): HeritageEdge => {
-  // Determine the target type's stableId
-  // This is tricky - we need to figure out if it's a source type or assembly type
   const targetName = heritageInfo.typeName;
 
-  // Check if it's a primitive that maps to a CLR type
+  if (heritageInfo.baseType.kind === "referenceType" && heritageInfo.baseType.typeId) {
+    return {
+      kind: heritageInfo.kind,
+      targetStableId: heritageInfo.baseType.typeId.stableId,
+      typeArguments: heritageInfo.baseType.typeArguments ?? [],
+    };
+  }
+
   const primitiveStableId = PRIMITIVE_TO_STABLE_ID.get(
     targetName.toLowerCase()
   );
 
-  // For now, assume source types for unresolved names
   const targetStableId = primitiveStableId
     ? primitiveStableId
-    : makeSourceStableId(projectName, targetName);
+    : makeSourceStableId(
+        resolveSourceOwnerIdentity(targetName) ?? ownerIdentity,
+        targetName
+      );
 
   // Extract type arguments from the baseType if it's a reference type
   const typeArguments: IrType[] = [];
@@ -173,9 +183,14 @@ const convertHeritageInfo = (
  */
 const convertRegistryEntry = (
   entry: TypeRegistryEntry,
-  projectName: string
+  resolveSourceOwnerIdentity: (
+    fullyQualifiedName: string
+  ) => string | undefined
 ): NominalEntry => {
-  const stableId = makeSourceStableId(projectName, entry.fullyQualifiedName);
+  const stableId = makeSourceStableId(
+    entry.ownerIdentity,
+    entry.fullyQualifiedName
+  );
 
   // C# has no type-alias syntax at use sites. For `type X = { ... }` (objectType),
   // the emitter materializes a concrete CLR class named `X__Alias`.
@@ -189,7 +204,7 @@ const convertRegistryEntry = (
   const typeId = makeTypeId(
     stableId,
     clrName,
-    projectName,
+    entry.ownerIdentity,
     entry.name // TS name = simple name
   );
 
@@ -209,7 +224,7 @@ const convertRegistryEntry = (
 
   // Convert heritage
   const heritage = entry.heritage.map((h) =>
-    convertHeritageInfo(h, projectName)
+    convertHeritageInfo(h, entry.ownerIdentity, resolveSourceOwnerIdentity)
   );
 
   // Convert type parameters
@@ -247,7 +262,7 @@ const convertRegistryEntry = (
  *
  * @param sourceRegistry - TypeRegistry containing source-authored types
  * @param assemblyCatalog - AssemblyTypeCatalog containing CLR metadata types
- * @param projectName - Project name for generating source type stableIds
+ * @param projectName - Fallback owner identity for local project source types
  * @returns UnifiedTypeCatalog with merged type information
  */
 export const buildUnifiedUniverse = (
@@ -266,11 +281,22 @@ export const buildUnifiedUniverse = (
 
   // Add source types if registry is provided
   if (sourceRegistry) {
+    const resolveSourceOwnerIdentity = (
+      fullyQualifiedName: string
+    ): string | undefined =>
+      sourceRegistry.resolveNominal(fullyQualifiedName)?.ownerIdentity;
+
     for (const fqName of sourceRegistry.getAllTypeNames()) {
       const entry = sourceRegistry.resolveNominal(fqName);
       if (!entry) continue;
 
-      const nominalEntry = convertRegistryEntry(entry, projectName);
+      const nominalEntry = convertRegistryEntry(
+        {
+          ...entry,
+          ownerIdentity: entry.ownerIdentity || projectName,
+        },
+        resolveSourceOwnerIdentity
+      );
       const preserveAssemblyIdentity =
         entry.isDeclarationFile &&
         assemblyCatalog.tsNameToTypeId.has(entry.name);

@@ -76,7 +76,7 @@ const buildJsStringCoercionExpr = (
 ): CSharpExpressionAst => ({
   kind: "invocationExpression",
   expression: {
-    ...identifierExpression("global::Tsonic.JSRuntime.Globals.String"),
+    ...identifierExpression("global::Tsonic.Runtime.JsValue.Stringify"),
   },
   arguments: [exprAst],
 });

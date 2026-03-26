@@ -101,7 +101,7 @@ describe("End-to-End Integration", () => {
         "for (int index = 0; index < (handler.As1()).Length; index += (int)1)"
       );
       expect(csharp).to.not.include(
-        "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"
+        "new global::Tsonic.Runtime.JSArray<global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"
       );
       expect(csharp).to.not.include("isMiddlewareHandler(handler.Match(");
       expect(csharp).to.include(
@@ -137,6 +137,44 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("actual.Match(");
       expect(csharp).to.not.include(")).Match(");
       expect(csharp).to.include("consume(actual);");
+    });
+
+    it("preserves exact rest arrays when forwarding single spreads into params calls", () => {
+      const source = `
+        type Handler = () => void;
+
+        class Router {
+          get(path: string, ...handlers: Handler[]): this {
+            void path;
+            void handlers;
+            return this;
+          }
+
+          use(path: string, ...handlers: Handler[]): this {
+            void path;
+            void handlers;
+            return this;
+          }
+        }
+
+        export class App extends Router {
+          override get(path: string, ...handlers: Handler[]): this {
+            return super.get(path, ...handlers);
+          }
+
+          override use(path: string, ...handlers: Handler[]): this {
+            const args = [path, ...handlers] as [string, ...Handler[]];
+            return super.use(...args);
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("base.get(path, handlers)");
+      expect(csharp).to.not.include("ToArray((object[])(object)handlers)");
+      expect(csharp).to.not.include(
+        "new global::Tsonic.Runtime.JSArray<object>(args).slice(1).toArray()"
+      );
     });
 
     it("narrows reassigned locals before native array mutation interop calls", () => {

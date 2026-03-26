@@ -92,8 +92,8 @@ export const buildUnionNarrowAst = (
 });
 
 export const buildSubsetUnionType = (
-  members: readonly import("@tsonic/frontend").IrType[]
-): import("@tsonic/frontend").IrType | undefined => {
+  members: readonly IrType[]
+): IrType | undefined => {
   if (members.length === 0) return undefined;
   if (members.length === 1) return members[0];
   return normalizedUnionType(members);
@@ -103,10 +103,10 @@ export const buildComplementNarrowedBinding = (
   receiver: string | CSharpExpressionAst,
   runtimeUnionArity: number,
   candidateMemberNs: readonly number[],
-  candidateMembers: readonly import("@tsonic/frontend").IrType[],
+  candidateMembers: readonly IrType[],
   selectedMemberN: number,
-  sourceType?: import("@tsonic/frontend").IrType,
-  sourceMembers?: readonly import("@tsonic/frontend").IrType[],
+  sourceType?: IrType,
+  sourceMembers?: readonly IrType[],
   sourceCandidateMemberNs?: readonly number[]
 ): NarrowedBinding | undefined => {
   const remainingPairs = candidateMemberNs.flatMap((runtimeMemberN, index) => {
@@ -155,10 +155,10 @@ export const buildComplementNarrowedBindingForMembers = (
   receiver: string | CSharpExpressionAst,
   runtimeUnionArity: number,
   candidateMemberNs: readonly number[],
-  candidateMembers: readonly import("@tsonic/frontend").IrType[],
+  candidateMembers: readonly IrType[],
   selectedMemberNs: readonly number[],
-  sourceType?: import("@tsonic/frontend").IrType,
-  sourceMembers?: readonly import("@tsonic/frontend").IrType[],
+  sourceType?: IrType,
+  sourceMembers?: readonly IrType[],
   sourceCandidateMemberNs?: readonly number[]
 ): NarrowedBinding | undefined => {
   const selectedSet = new Set(selectedMemberNs);
@@ -258,7 +258,7 @@ export const withComplementNarrowing = (
   receiver: string | CSharpExpressionAst,
   runtimeUnionArity: number,
   candidateMemberNs: readonly number[],
-  candidateMembers: readonly import("@tsonic/frontend").IrType[],
+  candidateMembers: readonly IrType[],
   selectedMemberN: number,
   baseContext: EmitterContext
 ): EmitterContext => {
@@ -306,7 +306,7 @@ export const withComplementNarrowingForMembers = (
   receiver: string | CSharpExpressionAst,
   runtimeUnionArity: number,
   candidateMemberNs: readonly number[],
-  candidateMembers: readonly import("@tsonic/frontend").IrType[],
+  candidateMembers: readonly IrType[],
   selectedMemberNs: readonly number[],
   baseContext: EmitterContext
 ): EmitterContext => {
@@ -353,8 +353,8 @@ export const withRuntimeUnionMemberNarrowing = (
   originalName: string,
   receiver: string | CSharpExpressionAst,
   memberN: number,
-  memberType: import("@tsonic/frontend").IrType,
-  sourceType: import("@tsonic/frontend").IrType | undefined,
+  memberType: IrType,
+  sourceType: IrType | undefined,
   baseContext: EmitterContext
 ): EmitterContext => {
   const narrowedBindings = new Map(baseContext.narrowedBindings ?? []);

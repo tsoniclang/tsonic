@@ -14,6 +14,7 @@ import {
   getDeclaredPropertyType,
   classifyComputedAccess,
   deriveElementType,
+  hasDeclaredMemberByName,
 } from "./member-resolution.js";
 import {
   getCurrentTypeForAccessExpression,
@@ -30,7 +31,10 @@ import {
   SUPPORTED_IMPORT_META_FIELDS,
   tryConvertImportMetaProperty,
 } from "../import-meta.js";
-import { tryResolveDeterministicPropertyNameFromExpression } from "../../../syntax/property-names.js";
+import {
+  isWellKnownSymbolPropertyName,
+  tryResolveDeterministicPropertyNameFromExpression,
+} from "../../../syntax/property-names.js";
 import {
   tryGetObjectLiteralMethodArgumentCapture,
   tryGetObjectLiteralMethodArgumentsLength,
@@ -219,20 +223,34 @@ export const convertMemberExpression = (
 
     const computedAccessKind = classifyComputedAccess(object.inferredType, ctx);
 
+    const deterministicSymbolAccess =
+      deterministicPropertyName !== undefined &&
+      isWellKnownSymbolPropertyName(deterministicPropertyName);
+    const hasDeterministicMember =
+      deterministicPropertyName !== undefined &&
+      hasDeclaredMemberByName(object.inferredType, deterministicPropertyName, ctx);
+
     if (
       deterministicPropertyName !== undefined &&
-      object.inferredType !== undefined &&
-      computedAccessKind !== "dictionary"
+      computedAccessKind !== "dictionary" &&
+      (deterministicSymbolAccess || object.inferredType !== undefined)
     ) {
       const currentAccessType =
         hasAccessPathNarrowing(node, ctx) || object.inferredType !== undefined
           ? getCurrentTypeForAccessExpression(node, ctx)
           : undefined;
-      const declaredType = ctx.typeSystem.typeOfMember(object.inferredType, {
-        kind: "byName",
-        name: deterministicPropertyName,
-      });
-      if (declaredType.kind !== "unknownType") {
+      const declaredType =
+        object.inferredType !== undefined
+          ? ctx.typeSystem.typeOfMember(object.inferredType, {
+              kind: "byName",
+              name: deterministicPropertyName,
+            })
+          : { kind: "unknownType" as const };
+      if (
+        declaredType.kind !== "unknownType" ||
+        deterministicSymbolAccess ||
+        hasDeterministicMember
+      ) {
         const memberBinding = resolveHierarchicalBinding(
           object,
           deterministicPropertyName,
@@ -245,6 +263,7 @@ export const convertMemberExpression = (
           isComputed: false,
           isOptional,
           inferredType: declaredType,
+          allowUnknownInferredType: declaredType.kind === "unknownType",
           sourceSpan,
           memberBinding,
         };
@@ -285,7 +304,8 @@ export const convertMemberExpression = (
 
     // Derive element type from object type
     const elementType =
-      narrowedAccessType ?? deriveElementType(objectType, ctx);
+      narrowedAccessType ??
+      deriveElementType(objectType, ctx, node.argumentExpression);
     const allowUnknownInferredType =
       elementType?.kind === "unknownType" &&
       accessKind !== "unknown" &&
@@ -298,7 +318,11 @@ export const convertMemberExpression = (
       property: convertExpression(node.argumentExpression, ctx, undefined),
       isComputed: true,
       isOptional,
-      inferredType: deriveElementType(objectType, ctx),
+      inferredType: deriveElementType(
+        objectType,
+        ctx,
+        node.argumentExpression
+      ),
       allowUnknownInferredType,
       sourceSpan,
       accessKind,
@@ -307,7 +331,7 @@ export const convertMemberExpression = (
       narrowedAccessType &&
       shouldWrapExpressionWithAssertion(
         ctx,
-        deriveElementType(objectType, ctx),
+        deriveElementType(objectType, ctx, node.argumentExpression),
         narrowedAccessType
       )
     ) {

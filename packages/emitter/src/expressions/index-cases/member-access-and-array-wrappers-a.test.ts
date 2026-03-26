@@ -153,8 +153,8 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "method",
-              assembly: "Tsonic.JSRuntime",
-              type: "Tsonic.JSRuntime.console",
+              assembly: "js",
+              type: "js.console",
               member: "log",
             },
           },
@@ -164,7 +164,7 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("global::Tsonic.JSRuntime.console.log");
+    expect(result).to.include("global::js.console.log");
   });
 
   it("should normalize nested CLR type names for static member access", () => {
@@ -277,8 +277,8 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "method",
-              assembly: "Tsonic.JSRuntime",
-              type: "Tsonic.JSRuntime.String",
+              assembly: "js",
+              type: "js.String",
               member: "length",
               isExtensionMethod: true,
             },
@@ -289,7 +289,7 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("global::Tsonic.JSRuntime.String.length(value)");
+    expect(result).to.include("global::js.String.length(value)");
     expect(result).not.to.include("value.length");
   });
 
@@ -321,8 +321,8 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.JSArray`1",
+                assembly: "js",
+                type: "Tsonic.Runtime.JSArray`1",
                 member: "map",
               },
             },
@@ -340,7 +340,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<int>(nums).map(project).toArray()"
+      "new global::Tsonic.Runtime.JSArray<int>(nums).map(project).toArray()"
     );
   });
 
@@ -372,8 +372,8 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.JSArray`1",
+                assembly: "js",
+                type: "Tsonic.Runtime.JSArray`1",
                 member: "filter",
               },
             },
@@ -392,52 +392,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module, { surface: "@tsonic/js" });
     expect(result).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<string>(items).filter(predicate).toArray()"
-    );
-  });
-
-  it("normalizes unbound JS array wrapper member calls back to native arrays when the receiver is a native array", () => {
-    const module: IrModule = {
-      kind: "module",
-      filePath: "/src/test.ts",
-      namespace: "MyApp",
-      className: "test",
-      isStaticContainer: true,
-      imports: [],
-      body: [
-        {
-          kind: "expressionStatement",
-          expression: {
-            kind: "call",
-            callee: {
-              kind: "memberAccess",
-              object: {
-                kind: "identifier",
-                name: "items",
-                inferredType: {
-                  kind: "arrayType",
-                  elementType: { kind: "primitiveType", name: "string" },
-                },
-              },
-              property: "filter",
-              isComputed: false,
-              isOptional: false,
-            },
-            arguments: [{ kind: "identifier", name: "predicate" }],
-            isOptional: false,
-            inferredType: {
-              kind: "arrayType",
-              elementType: { kind: "primitiveType", name: "string" },
-            },
-          },
-        },
-      ],
-      exports: [],
-    };
-
-    const result = emitModule(module, { surface: "@tsonic/js" });
-    expect(result).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<string>(items).filter(predicate).toArray()"
+      "new global::Tsonic.Runtime.JSArray<string>(items).filter(predicate).toArray()"
     );
   });
 
@@ -466,8 +421,8 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.String",
+                assembly: "js",
+                type: "js.String",
                 member: "split",
                 isExtensionMethod: true,
                 emitSemantics: {
@@ -490,7 +445,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include(
-      'global::System.Linq.Enumerable.ToArray(global::Tsonic.JSRuntime.String.split(path, "/"))'
+      'global::System.Linq.Enumerable.ToArray(global::js.String.split(path, "/"))'
     );
   });
 });

@@ -171,19 +171,11 @@ describe("build command (native source-package libraries)", function () {
       const result = buildCommand(config);
       expect(result.ok).to.equal(true);
 
-      expect(existsSync(join(dir, "packages", "lib", "dist", "package.json"))).to.equal(
-        true
-      );
       expect(
-        existsSync(
-          join(
-            dir,
-            "packages",
-            "lib",
-            "dist",
-            "tsonic.package.json"
-          )
-        )
+        existsSync(join(dir, "packages", "lib", "dist", "package.json"))
+      ).to.equal(true);
+      expect(
+        existsSync(join(dir, "packages", "lib", "dist", "tsonic.package.json"))
       ).to.equal(true);
       expect(
         existsSync(join(dir, "packages", "lib", "dist", "src", "index.ts"))
@@ -197,13 +189,7 @@ describe("build command (native source-package libraries)", function () {
 
       const manifest = JSON.parse(
         readFileSync(
-          join(
-            dir,
-            "packages",
-            "lib",
-            "dist",
-            "tsonic.package.json"
-          ),
+          join(dir, "packages", "lib", "dist", "tsonic.package.json"),
           "utf-8"
         )
       ) as { readonly kind?: string };

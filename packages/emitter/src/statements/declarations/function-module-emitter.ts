@@ -3,9 +3,11 @@ import { EmitterContext, withAsync, withStatic } from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitBlockStatementAst } from "../blocks.js";
 import {
+  buildGeneratorHelperTypeArguments,
   needsBidirectionalSupport,
   hasGeneratorReturnType,
   extractGeneratorTypeArgs,
+  usesExchangeBasedGeneratorLowering,
 } from "../../generator-wrapper.js";
 import { emitAttributes } from "../../core/format/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
@@ -16,6 +18,7 @@ import type {
   CSharpTypeAst,
   CSharpExpressionAst,
   CSharpMemberAst,
+  CSharpParameterAst,
 } from "../../core/format/backend-ast/types.js";
 import {
   buildParameterAsts,
@@ -26,6 +29,44 @@ import {
   restoreFunctionScopeContext,
   seedLocalNameMapFromParameters,
 } from "./function-shared.js";
+
+const isVoidReturnType = (typeAst: CSharpTypeAst): boolean =>
+  (typeAst.kind === "identifierType" && typeAst.name === "void") ||
+  (typeAst.kind === "predefinedType" && typeAst.keyword === "void");
+
+const buildForwardedArguments = (
+  parameters: readonly CSharpParameterAst[],
+  suppressedDefaultArguments: readonly (CSharpExpressionAst | undefined)[],
+  prefixLength: number
+): readonly CSharpExpressionAst[] => {
+  const forwarded: CSharpExpressionAst[] = [];
+
+  for (let index = 0; index < prefixLength; index += 1) {
+    const parameter = parameters[index];
+    if (!parameter) continue;
+    forwarded.push({
+      kind: "identifierExpression",
+      identifier: parameter.name,
+    });
+  }
+
+  for (let index = prefixLength; index < parameters.length; index += 1) {
+    const parameter = parameters[index];
+    if (!parameter) continue;
+    if (parameter.modifiers?.includes("params")) {
+      break;
+    }
+    const suppressedDefault = suppressedDefaultArguments[index];
+    if (!suppressedDefault) {
+      throw new Error(
+        `ICE: Missing suppressed default argument for wrapper parameter '${parameter.name}'.`
+      );
+    }
+    forwarded.push(suppressedDefault);
+  }
+
+  return forwarded;
+};
 
 export const emitFunctionDeclaration = (
   stmt: Extract<IrStatement, { kind: "functionDeclaration" }>,
@@ -57,27 +98,64 @@ export const emitFunctionDeclaration = (
   if (context.isStatic) modifiers.push("static");
 
   const isBidirectional = needsBidirectionalSupport(stmt);
+  const usesExchangeBasedLowering = usesExchangeBasedGeneratorLowering(stmt);
   const generatorHasReturnType =
-    stmt.isGenerator && isBidirectional ? hasGeneratorReturnType(stmt) : false;
+    stmt.isGenerator && usesExchangeBasedLowering && isBidirectional
+      ? hasGeneratorReturnType(stmt)
+      : false;
+  const generatorHelperTypeArguments = stmt.isGenerator
+    ? buildGeneratorHelperTypeArguments(
+        stmt.typeParameters?.map((typeParameter) => typeParameter.name),
+        currentContext
+      )
+    : [];
 
   let returnTypeAst: CSharpTypeAst;
   if (stmt.isGenerator) {
-    if (isBidirectional) {
-      returnTypeAst = identifierType(`${csharpBaseName}_Generator`);
+    if (!usesExchangeBasedLowering) {
+      if (!stmt.returnType) {
+        throw new Error(
+          "ICE: Generator function without declared return type cannot be emitted without exchange-based lowering."
+        );
+      }
+      const [generatorReturnTypeAst, generatorReturnTypeContext] = emitTypeAst(
+        stmt.returnType,
+        currentContext
+      );
+      currentContext = generatorReturnTypeContext;
+      if (stmt.isAsync) {
+        modifiers.push("async");
+      }
+      returnTypeAst = generatorReturnTypeAst;
     } else {
-      const exchangeName = `${csharpBaseName}_exchange`;
+    const exchangeType = identifierType(
+      `${csharpBaseName}_exchange`,
+      generatorHelperTypeArguments.length > 0
+        ? generatorHelperTypeArguments
+        : undefined
+    );
+    const wrapperType = identifierType(
+      `${csharpBaseName}_Generator`,
+      generatorHelperTypeArguments.length > 0
+        ? generatorHelperTypeArguments
+        : undefined
+    );
+    if (isBidirectional) {
+      returnTypeAst = wrapperType;
+    } else {
       if (stmt.isAsync) {
         modifiers.push("async");
         returnTypeAst = identifierType(
           "global::System.Collections.Generic.IAsyncEnumerable",
-          [identifierType(exchangeName)]
+          [exchangeType]
         );
       } else {
         returnTypeAst = identifierType(
           "global::System.Collections.Generic.IEnumerable",
-          [identifierType(exchangeName)]
+          [exchangeType]
         );
       }
+    }
     }
   } else if (stmt.returnType) {
     const [retAst, retCtx] = emitTypeAst(stmt.returnType, currentContext);
@@ -114,7 +192,7 @@ export const emitFunctionDeclaration = (
   );
   const reservedLocals = reserveGeneratorLocals(
     baseBodyContext,
-    stmt.isGenerator,
+    stmt.isGenerator && usesExchangeBasedLowering,
     isBidirectional,
     generatorHasReturnType
   );
@@ -145,15 +223,27 @@ export const emitFunctionDeclaration = (
 
   let finalBody: { kind: "blockStatement"; statements: CSharpStatementAst[] };
 
-  if (stmt.isGenerator && isBidirectional) {
+  if (stmt.isGenerator && usesExchangeBasedLowering && isBidirectional) {
     const exchangeName = `${csharpBaseName}_exchange`;
     const wrapperName = `${csharpBaseName}_Generator`;
+    const exchangeType = identifierType(
+      exchangeName,
+      generatorHelperTypeArguments.length > 0
+        ? generatorHelperTypeArguments
+        : undefined
+    );
+    const wrapperType = identifierType(
+      wrapperName,
+      generatorHelperTypeArguments.length > 0
+        ? generatorHelperTypeArguments
+        : undefined
+    );
     const enumerableType: CSharpTypeAst = stmt.isAsync
       ? identifierType("global::System.Collections.Generic.IAsyncEnumerable", [
-          identifierType(exchangeName),
+          exchangeType,
         ])
       : identifierType("global::System.Collections.Generic.IEnumerable", [
-          identifierType(exchangeName),
+          exchangeType,
         ]);
 
     const wrapperBodyStatements: CSharpStatementAst[] = [
@@ -166,7 +256,7 @@ export const emitFunctionDeclaration = (
             name: reservedLocals.generatorExchangeVar,
             initializer: {
               kind: "objectCreationExpression",
-              type: identifierType(exchangeName),
+              type: exchangeType,
               arguments: [],
             },
           },
@@ -247,7 +337,7 @@ export const emitFunctionDeclaration = (
       kind: "returnStatement",
       expression: {
         kind: "objectCreationExpression",
-        type: identifierType(wrapperName),
+        type: wrapperType,
         arguments: constructorArgs,
       },
     });
@@ -261,20 +351,25 @@ export const emitFunctionDeclaration = (
       ...paramDestructuringStmts,
     ];
 
-    if (stmt.isGenerator) {
-      finalBodyStatements.push({
-        kind: "localDeclarationStatement",
+  if (stmt.isGenerator && usesExchangeBasedLowering) {
+    finalBodyStatements.push({
+      kind: "localDeclarationStatement",
         modifiers: [],
         type: { kind: "varType" },
         declarators: [
           {
-            name: reservedLocals.generatorExchangeVar,
-            initializer: {
-              kind: "objectCreationExpression",
-              type: identifierType(`${csharpBaseName}_exchange`),
-              arguments: [],
-            },
+          name: reservedLocals.generatorExchangeVar,
+          initializer: {
+            kind: "objectCreationExpression",
+            type: identifierType(
+              `${csharpBaseName}_exchange`,
+              generatorHelperTypeArguments.length > 0
+                ? generatorHelperTypeArguments
+                : undefined
+            ),
+            arguments: [],
           },
+        },
         ],
       });
     }
@@ -299,6 +394,21 @@ export const emitFunctionDeclaration = (
       }
     }
 
+    for (const runtimeDefault of paramsResult.runtimeDefaultInitializers) {
+      finalBodyStatements.push({
+        kind: "expressionStatement",
+        expression: {
+          kind: "assignmentExpression",
+          operatorToken: "??=",
+          left: {
+            kind: "identifierExpression",
+            identifier: runtimeDefault.paramName,
+          },
+          right: runtimeDefault.initializer,
+        },
+      });
+    }
+
     finalBodyStatements.push(...bodyBlock.statements);
     finalBody = {
       kind: "blockStatement",
@@ -308,13 +418,58 @@ export const emitFunctionDeclaration = (
 
   const [attrs, attrContext] = emitAttributes(stmt.attributes, currentContext);
   currentContext = attrContext;
+  const emittedName = emitCSharpName(stmt.name, "methods", context);
+  const wrapperTypeArguments =
+    typeParamAsts.length > 0
+      ? typeParamAsts.map((typeParameter) => identifierType(typeParameter.name))
+      : undefined;
+
+  const wrapperMembers: CSharpMemberAst[] = paramsResult.wrapperPrefixLengths.map(
+    (prefixLength) => {
+      const invocation: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: emittedName,
+        },
+        arguments: buildForwardedArguments(
+          paramsResult.paramAsts,
+          paramsResult.suppressedDefaultArguments,
+          prefixLength
+        ),
+        ...(wrapperTypeArguments && wrapperTypeArguments.length > 0
+          ? { typeArguments: wrapperTypeArguments }
+          : {}),
+      };
+
+      return {
+        kind: "methodDeclaration",
+        attributes: [],
+        modifiers: [...modifiers.filter((modifier) => modifier !== "async")],
+        returnType: returnTypeAst,
+        name: emittedName,
+        typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
+        constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
+        parameters: paramsResult.paramAsts.slice(0, prefixLength).map((param) => ({
+          ...param,
+          defaultValue: undefined,
+        })),
+        body: {
+          kind: "blockStatement",
+          statements: isVoidReturnType(returnTypeAst)
+            ? [{ kind: "expressionStatement", expression: invocation }]
+            : [{ kind: "returnStatement", expression: invocation }],
+        },
+      };
+    }
+  );
 
   const methodAst: CSharpMemberAst = {
     kind: "methodDeclaration",
     attributes: attrs,
     modifiers,
     returnType: returnTypeAst,
-    name: emitCSharpName(stmt.name, "methods", context),
+    name: emittedName,
     typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
     constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
     parameters: [...paramsResult.paramAsts],
@@ -322,7 +477,7 @@ export const emitFunctionDeclaration = (
   };
 
   return [
-    [methodAst],
+    [...wrapperMembers, methodAst],
     restoreFunctionScopeContext(context, bodyCtxAfter, savedScoped),
   ];
 };

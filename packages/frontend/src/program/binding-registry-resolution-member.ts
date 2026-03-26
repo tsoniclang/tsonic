@@ -94,26 +94,6 @@ export const splitSignatureTypeList = (str: string): string[] => {
 // Simple binding helpers (used by resolution)
 // ---------------------------------------------------------------------------
 
-const SIMPLE_BINDING_CONSTRUCTOR_SUFFIX = "Constructor";
-
-const getSimpleBindingConstructorBaseAlias = (
-  alias: string
-): string | undefined =>
-  alias.endsWith(SIMPLE_BINDING_CONSTRUCTOR_SUFFIX)
-    ? alias.slice(0, -SIMPLE_BINDING_CONSTRUCTOR_SUFFIX.length)
-    : undefined;
-
-const simpleBindingContributesTypeIdentity = (
-  descriptor: SimpleBindingDescriptor
-): boolean => {
-  const explicit = descriptor.typeSemantics?.contributesTypeIdentity;
-  if (explicit !== undefined) {
-    return explicit;
-  }
-
-  return false;
-};
-
 const getSimpleBindingMemberOwnerClrType = (
   descriptor: SimpleBindingDescriptor
 ): string => descriptor.type;
@@ -131,22 +111,9 @@ const resolveSimpleBindingMemberOwnerAlias = (
   state: RegistryState,
   typeAlias: string
 ): string | undefined => {
-  const directDescriptor =
+  const descriptor =
     state.simpleBindings.get(typeAlias) ??
     state.simpleBindingsLowercase.get(typeAlias.toLowerCase());
-  const descriptor =
-    directDescriptor ??
-    (() => {
-      const baseAlias = getSimpleBindingConstructorBaseAlias(typeAlias);
-      if (!baseAlias) return undefined;
-      const baseDescriptor =
-        state.simpleBindings.get(baseAlias) ??
-        state.simpleBindingsLowercase.get(baseAlias.toLowerCase());
-      if (!baseDescriptor) return undefined;
-      return simpleBindingContributesTypeIdentity(baseDescriptor)
-        ? baseDescriptor
-        : undefined;
-    })();
   if (!descriptor) return undefined;
   const mapped = tsbindgenClrTypeNameToTsTypeName(
     getSimpleBindingMemberOwnerClrType(descriptor)

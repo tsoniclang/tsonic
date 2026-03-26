@@ -223,8 +223,8 @@ describe("Module Generation", () => {
                     },
                     memberBinding: {
                       kind: "method",
-                      assembly: "Tsonic.JSRuntime",
-                      type: "Tsonic.JSRuntime.JSArray",
+                      assembly: "js",
+                      type: "Tsonic.Runtime.JSArray",
                       member: "push",
                     },
                   },

@@ -15,8 +15,6 @@ import {
 } from "../../core/semantic/type-resolution.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
-const UINT8ARRAY_CLR_NAME = "Tsonic.JSRuntime.Uint8Array";
-
 const BYTE_IR_TYPE: IrType = {
   kind: "referenceType",
   name: "byte",
@@ -43,11 +41,14 @@ export const emitAssignment = (
   const isUint8ArrayReceiverType = (type: IrType | undefined): boolean => {
     if (!type) return false;
     const resolved = resolveTypeAlias(stripNullish(type), context);
+    const clrName =
+      resolved.kind === "referenceType"
+        ? (resolved.resolvedClrType ?? resolved.typeId?.clrName)
+        : undefined;
+    const clrLeaf = clrName?.split(".").pop();
     return (
       resolved.kind === "referenceType" &&
-      (resolved.resolvedClrType === UINT8ARRAY_CLR_NAME ||
-        resolved.typeId?.clrName === UINT8ARRAY_CLR_NAME ||
-        resolved.name === "Uint8Array")
+      (resolved.name === "Uint8Array" || clrLeaf === "Uint8Array")
     );
   };
 

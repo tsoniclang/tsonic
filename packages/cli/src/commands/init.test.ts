@@ -250,9 +250,14 @@ describe("Init Command", () => {
           )
         ) as {
           readonly private?: boolean;
+          readonly exports?: Readonly<Record<string, string>>;
           readonly files?: readonly string[];
         };
         expect(projectPkg.private).to.equal(undefined);
+        expect(projectPkg.exports).to.deep.equal({
+          ".": "./src/App.ts",
+          "./index.js": "./src/App.ts",
+        });
         expect(projectPkg.files).to.deep.equal([
           "src",
           "tsonic.package.json",
@@ -261,12 +266,7 @@ describe("Init Command", () => {
 
         const manifest = JSON.parse(
           readFileSync(
-            join(
-              dir,
-              "packages",
-              workspaceName,
-              "tsonic.package.json"
-            ),
+            join(dir, "packages", workspaceName, "tsonic.package.json"),
             "utf-8"
           )
         ) as {
@@ -279,6 +279,9 @@ describe("Init Command", () => {
         expect(manifest.kind).to.equal("tsonic-source-package");
         expect(manifest.surfaces).to.deep.equal(["clr"]);
         expect(manifest.source?.exports?.["."]).to.equal("./src/App.ts");
+        expect(manifest.source?.exports?.["./index.js"]).to.equal(
+          "./src/App.ts"
+        );
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -322,12 +325,7 @@ describe("Init Command", () => {
 
         const manifest = JSON.parse(
           readFileSync(
-            join(
-              dir,
-              "packages",
-              workspaceName,
-              "tsonic.package.json"
-            ),
+            join(dir, "packages", workspaceName, "tsonic.package.json"),
             "utf-8"
           )
         ) as {

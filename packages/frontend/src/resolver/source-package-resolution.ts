@@ -73,7 +73,7 @@ const findInstalledPackageRoot = (
   return undefined;
 };
 
-const findContainingSourcePackageRoot = (
+export const findContainingSourcePackageRoot = (
   filePath: string
 ): string | undefined => {
   const normalizedFilePath = path.resolve(filePath);
@@ -83,10 +83,7 @@ const findContainingSourcePackageRoot = (
   }
   let currentDir = path.dirname(filePath);
   for (;;) {
-    const manifestPath = path.join(
-      currentDir,
-      "tsonic.package.json"
-    );
+    const manifestPath = path.join(currentDir, "tsonic.package.json");
     const packageJsonPath = path.join(currentDir, "package.json");
     if (fs.existsSync(manifestPath) && fs.existsSync(packageJsonPath)) {
       const manifestResult = readManifest(manifestPath);
@@ -152,6 +149,9 @@ const parsePackageSpecifier = (
 
   const match = importSpecifier.match(/^([^/]+)(?:\/(.+))?$/);
   if (!match?.[1]) return undefined;
+  if (match[1].includes(":")) {
+    return undefined;
+  }
   return {
     packageName: match[1],
     subpath: match[2],
@@ -376,10 +376,7 @@ const resolveSourcePackageImportFromRoot = (
   activeSurface: SurfaceMode | undefined,
   projectRoot: string
 ): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
-  const manifestPath = path.join(
-    packageRoot,
-    "tsonic.package.json"
-  );
+  const manifestPath = path.join(packageRoot, "tsonic.package.json");
   const manifestResult = readManifest(manifestPath);
   if (!manifestResult.ok) return manifestResult;
   const manifest = manifestResult.value;

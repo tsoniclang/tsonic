@@ -309,7 +309,7 @@ export const collectNugetDependencies = (
   });
 };
 
-export const collectRuntimePackagesFromLegacy = (
+export const collectRuntimePackagesFromBindingsManifest = (
   packageName: string,
   runtimePackages: readonly string[] | undefined,
   dotnet: ManifestDotnet | undefined,

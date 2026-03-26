@@ -233,6 +233,18 @@ export const addBindingsToState = (
       for (const type of ns.types) {
         state.clrTypeNames.add(type.name);
         state.types.set(type.alias, type);
+        state.typeLookupAliasMap.set(type.name, type.alias);
+        if (!type.alias.includes(".")) {
+          state.typeLookupAliasMap.set(
+            `${ns.name}.${type.alias}`,
+            type.alias
+          );
+        }
+        const simpleClrName = type.name.split(".").pop();
+        if (simpleClrName && simpleClrName !== type.alias) {
+          state.typeLookupAliasMap.set(simpleClrName, type.alias);
+        }
+        recordClrTypeAlias(type.alias, type.name);
 
         // Index members for quick lookup (keyed by "typeAlias.memberAlias")
         for (const member of type.members) {

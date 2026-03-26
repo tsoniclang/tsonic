@@ -181,6 +181,23 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("takeTyped(query.limit.Value)");
     });
 
+    it("emits IterableIterator generic class methods as direct enumerable yields", () => {
+      const source = `
+        export class Box<T> {
+          *values(value: T): IterableIterator<T> {
+            yield value;
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "global::System.Collections.Generic.IEnumerable<T> values(T value)"
+      );
+      expect(csharp).to.include("yield return value;");
+      expect(csharp).not.to.include("Box__values_exchange");
+    });
+
     it("keeps nullable value unwraps on the raw local instead of layering casts before .Value", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";

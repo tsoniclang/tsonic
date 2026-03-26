@@ -30,6 +30,7 @@ export const extractImport = (
       projectRoot: program.options.projectRoot,
       surface: program.options.surface,
       authoritativeTsonicPackageRoots: program.authoritativeTsonicPackageRoots,
+      declarationModuleAliases: program.declarationModuleAliases,
     }
   );
 

@@ -127,6 +127,23 @@ export const resolveHierarchicalBinding = (
       return candidates;
     }
 
+    if (inferredType.kind === "referenceType") {
+      const simpleName =
+        inferredType.name.split(".").pop() ?? inferredType.name;
+      if (
+        simpleName === "Array" ||
+        simpleName === "ReadonlyArray" ||
+        simpleName === "ArrayLike" ||
+        simpleName === "JSArray"
+      ) {
+        if (ctx.surface === "@tsonic/js") {
+          pushCandidate("JSArray");
+        }
+        pushCandidate("Array");
+        return candidates;
+      }
+    }
+
     if (inferredType.kind === "primitiveType") {
       if (inferredType.name === "string") {
         pushCandidate("String");

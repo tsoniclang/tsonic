@@ -141,7 +141,7 @@ describe("Type Assertion Emission", () => {
     expect(code).to.include("return input");
   });
 
-  it("erases dictionary assertions without forcing CLR dictionary casts", () => {
+  it("preserves dictionary assertions as runtime dictionary casts", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/test/dictionaryAssert.ts",
@@ -200,10 +200,8 @@ describe("Type Assertion Emission", () => {
 
     const code = emitModule(module);
 
-    expect(code).to.include("return input");
-    expect(code).to.not.include("Dictionary<string, object?>");
-    expect(code).to.not.match(
-      /\(global::System\.Collections\.Generic\.Dictionary/
+    expect(code).to.match(
+      /return \(global::System\.Collections\.Generic\.Dictionary<string, object\?>\)input;/
     );
   });
 

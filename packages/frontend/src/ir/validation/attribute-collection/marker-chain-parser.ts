@@ -13,6 +13,7 @@ import {
   IrCallExpression,
   IrMemberExpression,
   IrIdentifierExpression,
+  IrAttributeTarget,
   IrAttributeArg,
   IrObjectExpression,
 } from "../../types.js";
@@ -60,7 +61,7 @@ export const tryDetectAttributeMarker = (
   if (outerMember.property !== "add") return { kind: "notMatch" };
 
   // Optional `.target(...)` before `.add(...)`
-  let attributeTarget: import("../../types.js").IrAttributeTarget | undefined;
+  let attributeTarget: IrAttributeTarget | undefined;
   let selectorRoot: IrExpression = outerMember.object;
 
   if (selectorRoot.kind === "call") {

@@ -71,7 +71,7 @@ export const buildArrayShapeCondition = (
 ): CSharpExpressionAst => ({
   kind: "invocationExpression",
   expression: identifierExpression(
-    "global::Tsonic.JSRuntime.JSArrayStatics.isArray"
+    "global::Tsonic.Runtime.JSArrayStatics.isArray"
   ),
   arguments: [boxValueAst(valueAst)],
 });

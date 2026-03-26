@@ -63,9 +63,9 @@ describe("tsonic.package bindings", function () {
       requiredTypeRoots: ["node_modules/@tsonic/js"],
       runtimePackages: ["@tsonic/js"],
       nugetDependencies: [],
-      assemblyName: "Tsonic.JSRuntime",
+      assemblyName: "js",
       dotnet: {
-        packageReferences: [{ id: "Tsonic.JSRuntime", version: "0.0.4" }],
+        packageReferences: [{ id: "js", version: "0.0.4" }],
       },
     };
 
@@ -85,7 +85,7 @@ describe("tsonic.package bindings", function () {
     expect(merged.ok).to.equal(true);
     if (!merged.ok) return;
     expect(merged.value.dotnet?.packageReferences).to.deep.equal([
-      { id: "Tsonic.JSRuntime", version: "0.0.4" },
+      { id: "js", version: "0.0.4" },
     ]);
   });
 

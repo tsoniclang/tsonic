@@ -27,7 +27,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+              resolvedClrType: "js.Uint8Array",
             },
           ],
         },
@@ -74,9 +74,7 @@ describe("Expression Emission", () => {
     };
 
     const [result] = emitMemberAccess(expr, context);
-    expect(printExpression(result)).to.equal(
-      "global::Tsonic.JSRuntime.String.length((value.As1()))"
-    );
+    expect(printExpression(result)).to.equal("(value.As1()).Length");
   });
 
   it("should recover JS string length fallback when narrowed runtime-union bindings omit the narrowed type", () => {
@@ -92,7 +90,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+              resolvedClrType: "js.Uint8Array",
             },
           ],
         },
@@ -134,9 +132,7 @@ describe("Expression Emission", () => {
     };
 
     const [result] = emitMemberAccess(expr, context);
-    expect(printExpression(result)).to.equal(
-      "global::Tsonic.JSRuntime.String.length((value.As1()))"
-    );
+    expect(printExpression(result)).to.equal("(value.As1()).Length");
   });
 
   it("should recover JS string length fallback before CLR member-binding access on narrowed strings", () => {
@@ -152,7 +148,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+              resolvedClrType: "js.Uint8Array",
             },
           ],
         },
@@ -201,9 +197,7 @@ describe("Expression Emission", () => {
     };
 
     const [result] = emitMemberAccess(expr, context);
-    expect(printExpression(result)).to.equal(
-      "global::Tsonic.JSRuntime.String.length((value.As1()))"
-    );
+    expect(printExpression(result)).to.equal("(value.As1()).Length");
   });
 
   it("should recover JS array method fallback under JS surface when member binding is missing", () => {
@@ -265,7 +259,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module, { surface: "@tsonic/js" });
     expect(result).to.include(
-      'new global::Tsonic.JSRuntime.JSArray<string>(items).includes("x")'
+      'new global::Tsonic.Runtime.JSArray<string>(items).includes("x")'
     );
   });
 });

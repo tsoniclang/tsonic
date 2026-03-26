@@ -37,8 +37,8 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "Tsonic.JSRuntime",
-              type: "Tsonic.JSRuntime.JSArray`1",
+              assembly: "js",
+              type: "Tsonic.Runtime.JSArray`1",
               member: "length",
             },
           },
@@ -49,7 +49,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<int>(nums).length"
+      "new global::Tsonic.Runtime.JSArray<int>(nums).length"
     );
   });
 
@@ -85,8 +85,8 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "Tsonic.JSRuntime",
-              type: "Tsonic.JSRuntime.JSArray`1",
+              assembly: "js",
+              type: "Tsonic.Runtime.JSArray`1",
               member: "length",
             },
           },
@@ -97,7 +97,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<int>(maybeNums).length"
+      "new global::Tsonic.Runtime.JSArray<int>(maybeNums).length"
     );
   });
 
@@ -131,8 +131,8 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "Tsonic.JSRuntime",
-              type: "Tsonic.JSRuntime.JSArray`1",
+              assembly: "js",
+              type: "Tsonic.Runtime.JSArray`1",
               member: "length",
             },
           },
@@ -143,7 +143,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::Acme.Core.Attachment>(attachments).length"
+      "new global::Tsonic.Runtime.JSArray<global::Acme.Core.Attachment>(attachments).length"
     );
   });
 
@@ -174,8 +174,8 @@ describe("Expression Emission", () => {
             isOptional: false,
             memberBinding: {
               kind: "property",
-              assembly: "Tsonic.JSRuntime",
-              type: "Tsonic.JSRuntime.JSArray`1",
+              assembly: "js",
+              type: "Tsonic.Runtime.JSArray`1",
               member: "length",
             },
           },
@@ -186,7 +186,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
     expect(result).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<int>(nums).length"
+      "new global::Tsonic.Runtime.JSArray<int>(nums).length"
     );
   });
 
@@ -243,8 +243,8 @@ describe("Expression Emission", () => {
       inferredType: { kind: "primitiveType", name: "int" },
       memberBinding: {
         kind: "property",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.JSArray`1",
+        assembly: "js",
+        type: "Tsonic.Runtime.JSArray`1",
         member: "length",
       },
     };
@@ -277,7 +277,7 @@ describe("Expression Emission", () => {
 
     const text = printExpression(result);
     expect(text).to.equal("entries.Length");
-    expect(text).to.not.include("new global::Tsonic.JSRuntime.JSArray");
+    expect(text).to.not.include("new global::Tsonic.Runtime.JSArray");
   });
 
   it("uses storage-erased element types for JS array mutation wrappers on recursive union arrays", () => {
@@ -334,8 +334,8 @@ describe("Expression Emission", () => {
         isOptional: false,
         memberBinding: {
           kind: "method",
-          assembly: "Tsonic.JSRuntime",
-          type: "Tsonic.JSRuntime.JSArray`1",
+          assembly: "js",
+          type: "Tsonic.Runtime.JSArray`1",
           member: "push",
         },
       },
@@ -378,10 +378,10 @@ describe("Expression Emission", () => {
 
     const text = printExpression(result);
     expect(text).to.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::System.Object>(result)"
+      "new global::Tsonic.Runtime.JSArray<object>(result)"
     );
     expect(text).to.not.include(
-      "new global::Tsonic.JSRuntime.JSArray<global::Tsonic.Runtime.Union"
+      "new global::Tsonic.Runtime.JSArray<global::Tsonic.Runtime.Union"
     );
   });
 });

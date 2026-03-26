@@ -20,7 +20,11 @@ import {
   hasResolvedSurfaceProfile,
   resolveSurfaceCapabilities,
 } from "../surface/profiles.js";
-import { resolveSourcePackageImport } from "../resolver/source-package-resolution.js";
+import {
+  findContainingSourcePackageRoot,
+  resolveSourcePackageImport,
+  resolveSourcePackageImportFromPackageRoot,
+} from "../resolver/source-package-resolution.js";
 import {
   addDiagnostic,
   createDiagnostic,
@@ -36,7 +40,6 @@ import {
   createResolveModuleFromPackageRoot,
 } from "./module-resolution.js";
 import { discoverProgramInputs } from "./program-input-discovery.js";
-import { resolveSourceBindingFiles } from "./source-binding-imports.js";
 
 const resolveMonorepoRoot = (): string => {
   const envRoot = process.env.TSONIC_REPO_ROOT?.trim();
@@ -120,6 +123,30 @@ const createSourceFilePathSet = (
   return canonicalPaths;
 };
 
+const findAuthoritativePackageRootForImport = (
+  importSpecifier: string,
+  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
+): string | undefined => {
+  let bestMatch: string | undefined;
+
+  for (const [packageName, packageRoot] of authoritativeTsonicPackageRoots) {
+    if (
+      importSpecifier === packageName ||
+      importSpecifier.startsWith(`${packageName}/`)
+    ) {
+      if (!bestMatch || packageName.length > bestMatch.length) {
+        bestMatch = packageName;
+      }
+
+      if (packageName === importSpecifier) {
+        return packageRoot;
+      }
+    }
+  }
+
+  return bestMatch ? authoritativeTsonicPackageRoots.get(bestMatch) : undefined;
+};
+
 /**
  * Create a Tsonic program from TypeScript source files
  */
@@ -187,6 +214,7 @@ export const createProgram = (
     typeRoots,
     authoritativeTsonicPackageRoots,
     namespaceIndexFiles,
+    declarationModuleAliases,
     virtualDeclarationSources,
     allFiles: discoveredAllFiles,
     tsOptions,
@@ -197,30 +225,8 @@ export const createProgram = (
     (pkgDirName) => resolveCompilerOwnedTsonicPackageRoot(pkgDirName) ?? null
   );
   const bindings = loadBindings(typeRoots);
-  const resolutionAnchorFile =
-    discoveredAbsolutePaths[0] ??
-    path.join(options.projectRoot, "__tsonic_resolver__.ts");
-  const globalSourceBindings = resolveSourceBindingFiles(
-    bindings,
-    ["global"],
-    resolutionAnchorFile,
-    options.projectRoot,
-    surface,
-    authoritativeTsonicPackageRoots
-  );
-  if (!globalSourceBindings.ok) {
-    return error(
-      addDiagnostic(createDiagnosticsCollector(), globalSourceBindings.error)
-    );
-  }
-  const absolutePaths = dedupeCanonicalFilePaths([
-    ...discoveredAbsolutePaths,
-    ...globalSourceBindings.value,
-  ]);
-  const allFiles = dedupeCanonicalFilePaths([
-    ...discoveredAllFiles,
-    ...globalSourceBindings.value,
-  ]);
+  const absolutePaths = dedupeCanonicalFilePaths(discoveredAbsolutePaths);
+  const allFiles = dedupeCanonicalFilePaths(discoveredAllFiles);
   if (typeof tsOptions.rootDir === "string" && absolutePaths.length > 0) {
     tsOptions.rootDir = resolveCommonRootDir([
       tsOptions.rootDir,
@@ -478,12 +484,24 @@ export const createProgram = (
         return undefined;
       }
 
-      const sourcePackage = resolveSourcePackageImport(
+      const authoritativePackageRoot = findAuthoritativePackageRootForImport(
         moduleName,
-        containingFile,
-        options.surface,
-        options.projectRoot
+        authoritativeTsonicPackageRoots
       );
+      const sourcePackage =
+        authoritativePackageRoot !== undefined
+          ? resolveSourcePackageImportFromPackageRoot(
+              moduleName,
+              authoritativePackageRoot,
+              options.surface,
+              options.projectRoot
+            )
+          : resolveSourcePackageImport(
+              moduleName,
+              containingFile,
+              options.surface,
+              options.projectRoot
+            );
       if (!sourcePackage.ok) {
         return undefined;
       }
@@ -499,14 +517,26 @@ export const createProgram = (
         };
       }
 
-      const moduleBinding = bindings.getBindingByKind(moduleName, "module");
-      if (moduleBinding?.kind === "module" && moduleBinding.sourceImport) {
-        const redirectedSourcePackage = resolveSourcePackageImport(
-          moduleBinding.sourceImport,
-          containingFile,
-          options.surface,
-          options.projectRoot
+      const declarationAlias = declarationModuleAliases.get(moduleName);
+      if (declarationAlias) {
+        const authoritativeAliasRoot = findAuthoritativePackageRootForImport(
+          declarationAlias.targetSpecifier,
+          authoritativeTsonicPackageRoots
         );
+        const redirectedSourcePackage =
+          authoritativeAliasRoot !== undefined
+            ? resolveSourcePackageImportFromPackageRoot(
+                declarationAlias.targetSpecifier,
+                authoritativeAliasRoot,
+                options.surface,
+                options.projectRoot
+              )
+            : resolveSourcePackageImport(
+                declarationAlias.targetSpecifier,
+                containingFile,
+                options.surface,
+                options.projectRoot
+              );
         if (redirectedSourcePackage.ok && redirectedSourcePackage.value) {
           return {
             resolvedFileName: redirectedSourcePackage.value.resolvedPath,
@@ -544,12 +574,33 @@ export const createProgram = (
 
   // User source files (non-declaration files from input paths)
   const sourceFilePaths = createSourceFilePathSet(absolutePaths);
+  const isImportedSourcePackageSourceFile = (filePath: string): boolean => {
+    const normalizedFilePath = canonicalizeFilePath(filePath);
+    if (sourceFilePaths.has(normalizedFilePath)) {
+      return true;
+    }
+
+    return findContainingSourcePackageRoot(normalizedFilePath) !== undefined;
+  };
+  const seenSourceFilePaths = new Set<string>();
   const sourceFiles = program
     .getSourceFiles()
-    .filter(
-      (sf) =>
-        !sf.isDeclarationFile && sourceFilePaths.has(path.resolve(sf.fileName))
-    );
+    .filter((sf) => {
+      if (
+        sf.isDeclarationFile ||
+        !isImportedSourcePackageSourceFile(sf.fileName)
+      ) {
+        return false;
+      }
+
+      const canonicalFileName = canonicalizeFilePath(sf.fileName);
+      if (seenSourceFilePaths.has(canonicalFileName)) {
+        return false;
+      }
+
+      seenSourceFilePaths.add(canonicalFileName);
+      return true;
+    });
 
   // Declaration files for TypeRegistry:
   // include all declarations in the program. ProgramContext later filters out
@@ -596,6 +647,7 @@ export const createProgram = (
     checker,
     options,
     authoritativeTsonicPackageRoots,
+    declarationModuleAliases,
     sourceFiles,
     declarationSourceFiles,
     metadata,

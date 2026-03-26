@@ -97,7 +97,7 @@ describe("Reference Type Emission", () => {
       });
 
       const errorBinding: FrontendTypeBinding = {
-        name: "Tsonic.JSRuntime.Error",
+        name: "js.Error",
         alias: "Error",
         kind: "class",
         members: [],
@@ -107,7 +107,7 @@ describe("Reference Type Emission", () => {
         clrBindings: new Map([["Error", errorBinding]]),
       });
 
-      expect(result).to.include("global::Tsonic.JSRuntime.Error x");
+      expect(result).to.include("global::js.Error x");
     });
   });
 });

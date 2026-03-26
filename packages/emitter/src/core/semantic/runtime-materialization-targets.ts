@@ -6,6 +6,7 @@ import {
   resolveTypeAlias,
   substituteTypeArgs,
 } from "./type-resolution.js";
+import { expandRuntimeUnionMembers } from "./runtime-union-expansion.js";
 
 export const resolveRuntimeMaterializationTargetType = (
   target: IrType,
@@ -60,6 +61,22 @@ export const resolveRuntimeMaterializationTargetType = (
     return fallback
       ? resolveRuntimeMaterializationTargetType(fallback, context)
       : target;
+  }
+
+  if (target.kind === "unionType") {
+    const expandedMembers = expandRuntimeUnionMembers(target, context);
+    if (expandedMembers.length === 0) {
+      return target;
+    }
+
+    if (expandedMembers.length === 1) {
+      return expandedMembers[0] ?? target;
+    }
+
+    return {
+      kind: "unionType",
+      types: expandedMembers,
+    };
   }
 
   const resolved = resolveTypeAlias(target, context);

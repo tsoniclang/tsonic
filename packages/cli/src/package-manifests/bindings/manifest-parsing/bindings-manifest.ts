@@ -15,7 +15,7 @@ import type {
 import {
   canonicalizeManifestDotnet,
   collectNugetDependencies,
-  collectRuntimePackagesFromLegacy,
+  collectRuntimePackagesFromBindingsManifest,
   parseManifestDotnet,
   parseRequiredTypeRoots,
 } from "./dotnet.js";
@@ -123,7 +123,7 @@ export const resolveFromBindingsManifest = (
         typeof manifest.targetFramework === "string"
           ? manifest.targetFramework
           : undefined,
-      runtimePackages: collectRuntimePackagesFromLegacy(
+      runtimePackages: collectRuntimePackagesFromBindingsManifest(
         packageName,
         runtimePackages,
         dotnet,

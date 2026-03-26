@@ -73,11 +73,7 @@ describe("discoverProgramInputs", () => {
       const projectRoot = path.join(workspaceRoot, "packages", "app");
       const sourceRoot = path.join(projectRoot, "src");
       const entryFile = path.join(sourceRoot, "App.ts");
-      const externalPackageRoot = path.join(
-        tempDir,
-        "external",
-        "nodejs-next"
-      );
+      const externalPackageRoot = path.join(tempDir, "external", "nodejs-next");
       const externalPackageFile = path.join(
         externalPackageRoot,
         "src",
@@ -164,12 +160,19 @@ describe("discoverProgramInputs", () => {
         "versions",
         "10"
       );
-      const jsSiblingRoot = path.join(workspaceRoot, "js-next", "versions", "10");
+      const jsSiblingRoot = path.join(
+        workspaceRoot,
+        "js-next",
+        "versions",
+        "10"
+      );
 
       fs.mkdirSync(path.dirname(entryFile), { recursive: true });
       fs.mkdirSync(path.dirname(installedNodejsRoot), { recursive: true });
       fs.mkdirSync(installedJsRoot, { recursive: true });
-      fs.mkdirSync(path.join(nodejsExternalRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(nodejsExternalRoot, "tsonic"), {
+        recursive: true,
+      });
       fs.mkdirSync(path.join(jsSiblingRoot, "tsonic"), { recursive: true });
       fs.writeFileSync(entryFile, "export {};\n");
 
@@ -271,7 +274,7 @@ describe("discoverProgramInputs", () => {
 
       expect(
         discovery.authoritativeTsonicPackageRoots.get("@tsonic/nodejs")
-      ).to.equal(installedNodejsRoot);
+      ).to.equal(fs.realpathSync(installedNodejsRoot));
       expect(
         discovery.authoritativeTsonicPackageRoots.get("@tsonic/js")
       ).to.equal(jsSiblingRoot);

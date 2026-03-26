@@ -6,7 +6,6 @@
  * discovery.
  */
 
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 
@@ -183,22 +182,6 @@ export class ClrBindingsResolver {
       if (compilerDirect) {
         this.resolvedPathCache.set(specifier, compilerDirect);
         return compilerDirect;
-      }
-    }
-
-    // Last-resort fallback for sibling checkouts of compiler-owned packages
-    const pkgRoot = resolvePkgRoot(
-      packageName,
-      this.pkgRootCache,
-      this.require,
-      this.compilerRequire
-    );
-    if (pkgRoot) {
-      const sub = specifier.slice(packageName.length + 1);
-      const candidate = join(pkgRoot, sub);
-      if (existsSync(candidate)) {
-        this.resolvedPathCache.set(specifier, candidate);
-        return candidate;
       }
     }
 

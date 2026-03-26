@@ -42,7 +42,11 @@ describe("generated bindings package install", () => {
       const existingTarget = join(dir, "node_modules", "nodejs-types");
       mkdirSync(existingTarget, { recursive: true });
       writeFileSync(join(existingTarget, "families.json"), "{}\n", "utf-8");
-      writeFileSync(join(existingTarget, "index.d.ts"), "export {};\n", "utf-8");
+      writeFileSync(
+        join(existingTarget, "index.d.ts"),
+        "export {};\n",
+        "utf-8"
+      );
 
       const result = installGeneratedBindingsPackage(
         dir,

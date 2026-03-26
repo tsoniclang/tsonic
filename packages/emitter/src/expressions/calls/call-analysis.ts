@@ -101,11 +101,11 @@ export const isGlobalJsonCall = (
 };
 
 /**
- * Heuristic: Determine if a member access is an instance-style access (receiver.value)
+ * Determine if a member access is an instance-style access (receiver.value)
  * vs a static type reference (Type.Member).
  *
- * This mirrors the logic in emitMemberAccess; extension-method lowering only applies
- * to instance-style member accesses.
+ * Extension-method lowering only applies to instance-style member accesses.
+ * If the frontend did not attach a receiver type, do not guess.
  */
 export const isInstanceMemberAccess = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
@@ -117,13 +117,6 @@ export const isInstanceMemberAccess = (
     const importBinding = context.importBindings?.get(expr.object.name);
     if (importBinding?.kind === "type") {
       return false;
-    }
-
-    // If this isn't an import and we don't have a receiver type, default to instance.
-    // This matches emitMemberAccess's behavior and prevents local variables from being
-    // misclassified as static type receivers (which breaks extension method lowering).
-    if (!expr.object.inferredType) {
-      return true;
     }
   }
 
@@ -397,13 +390,17 @@ export const needsIntCast = (
   expr: Extract<IrExpression, { kind: "call" }>,
   calleeName: string
 ): boolean => {
-  // Check if the inferred type is int (a reference type from @tsonic/core)
+  // Check if the inferred type is int.
   const inferredType = expr.inferredType;
-  if (
-    !inferredType ||
-    inferredType.kind !== "referenceType" ||
-    inferredType.name !== "int"
-  ) {
+  if (!inferredType) {
+    return false;
+  }
+
+  const returnsInt =
+    (inferredType.kind === "primitiveType" && inferredType.name === "int") ||
+    (inferredType.kind === "referenceType" && inferredType.name === "int");
+
+  if (!returnsInt) {
     return false;
   }
 

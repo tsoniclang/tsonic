@@ -61,7 +61,7 @@ const withSimpleTypeAliases = (
  * This factory is the ONLY place that wires together the internal registries.
  * It performs the full setup:
  * 1. Build SourceCatalog / TypeRegistry using two-pass builder
- * 2. Build CLR catalog from node_modules
+ * 2. Build CLR catalog from explicit participating CLR packages
  * 3. Build UnifiedUniverse merging source and CLR types
  * 4. Build NominalEnv from UnifiedTypeCatalog (TypeId-based)
  * 5. Construct TypeSystem as single source of truth
@@ -126,7 +126,8 @@ export const createProgramContext = (
     binding: program.binding,
   });
 
-  // Load assembly type catalog for CLR stdlib types.
+  // Load assembly type catalog only from CLR packages that actually participate
+  // in this compilation. Airplane-grade: do not crawl node_modules opportunistically.
   const nodeModulesPath = path.resolve(
     program.options.projectRoot,
     "node_modules"
@@ -190,24 +191,13 @@ export const createProgramContext = (
 
   const extraPackageRoots: string[] = [];
 
-  // Ensure stdlib metadata is available even when the project has no node_modules
-  // (e.g., in a multi-repo workspace). dotnet provides CLR surface area for
-  // primitives (System.String, etc.) and core provides @tsonic/core aliases.
-  const dotnetInstalled = fs.existsSync(
-    path.join(nodeModulesPath, "@tsonic", "dotnet", "package.json")
-  );
-  if (!dotnetInstalled) {
-    const dotnetRoot = resolveTsonicPackageRoot("dotnet", "@tsonic/dotnet");
-    if (dotnetRoot) extraPackageRoots.push(dotnetRoot);
-  }
+  // Ensure stdlib CLR metadata is available even when these packages resolve
+  // from sibling checkouts instead of the active project's node_modules.
+  const dotnetRoot = resolveTsonicPackageRoot("dotnet", "@tsonic/dotnet");
+  if (dotnetRoot) extraPackageRoots.push(dotnetRoot);
 
-  const coreInstalled = fs.existsSync(
-    path.join(nodeModulesPath, "@tsonic", "core", "package.json")
-  );
-  if (!coreInstalled) {
-    const coreRoot = resolveTsonicPackageRoot("core", "@tsonic/core");
-    if (coreRoot) extraPackageRoots.push(coreRoot);
-  }
+  const coreRoot = resolveTsonicPackageRoot("core", "@tsonic/core");
+  if (coreRoot) extraPackageRoots.push(coreRoot);
 
   // Any declaration package participating in the TypeScript program must also
   // contribute its CLR metadata to the assembly catalog. This is the generic
@@ -304,6 +294,8 @@ export const createProgramContext = (
     sourceRoot: options.sourceRoot,
     authoritativeTsonicPackageRoots:
       program.authoritativeTsonicPackageRoots ?? new Map<string, string>(),
+    declarationModuleAliases:
+      program.declarationModuleAliases ?? new Map(),
     rootNamespace: options.rootNamespace,
     surface: program.options.surface ?? "clr",
     checker: program.checker,

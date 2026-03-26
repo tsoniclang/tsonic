@@ -165,8 +165,10 @@ This package is authored for Tsonic.
 const writeSourcePackageManifest = (
   projectRoot: string,
   surface: SurfaceMode,
-  entryPoint: string
+  entryPoint: string,
+  rootNamespace: string
 ): void => {
+  const exportTarget = `./${entryPoint}`;
   writeFileSync(
     join(projectRoot, "tsonic.package.json"),
     JSON.stringify(
@@ -175,8 +177,10 @@ const writeSourcePackageManifest = (
         kind: "tsonic-source-package",
         surfaces: [surface],
         source: {
+          namespace: rootNamespace,
           exports: {
-            ".": `./${entryPoint}`,
+            ".": exportTarget,
+            "./index.js": exportTarget,
           },
         },
       },
@@ -248,13 +252,7 @@ const npmInstallDev = (
 ): Result<void, string> => {
   const result = spawnSync(
     "npm",
-    [
-      "install",
-      "--save-dev",
-      spec,
-      "--no-fund",
-      "--no-audit",
-    ],
+    ["install", "--save-dev", spec, "--no-fund", "--no-audit"],
     {
       cwd: workspaceRoot,
       stdio: "inherit",
@@ -383,6 +381,10 @@ export const initWorkspace = (
             name,
             version: "1.0.0",
             type: "module",
+            exports: {
+              ".": "./src/App.ts",
+              "./index.js": "./src/App.ts",
+            },
             files: ["src", "tsonic.package.json", "README.md"],
           },
           null,
@@ -403,7 +405,7 @@ export const initWorkspace = (
       output: { type: "executable" },
     });
 
-    writeSourcePackageManifest(projectRoot, surface, "src/App.ts");
+    writeSourcePackageManifest(projectRoot, surface, "src/App.ts", "MyApp");
 
     // Sample source
     const appTsPath = join(projectRoot, "src", "App.ts");

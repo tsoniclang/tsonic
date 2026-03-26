@@ -9,6 +9,7 @@
 import * as ts from "typescript";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { readSourcePackageMetadata } from "./source-package-metadata.js";
 
 /**
  * Read the `name` field from a package.json file.
@@ -26,7 +27,8 @@ export const readPackageName = (pkgJsonPath: string): string | undefined => {
 };
 
 /**
- * Read the root namespace from a package's bindings.json.
+ * Read the root namespace from a package's native source-package metadata or
+ * CLR bindings payload.
  */
 export const createReadPackageRootNamespace = (
   packageRootNamespaceCache: Map<string, string | null>
@@ -37,6 +39,12 @@ export const createReadPackageRootNamespace = (
     const cached = packageRootNamespaceCache.get(packageRoot);
     if (cached !== undefined) {
       return cached ?? undefined;
+    }
+
+    const sourceMetadata = readSourcePackageMetadata(packageRoot);
+    if (sourceMetadata?.namespace) {
+      packageRootNamespaceCache.set(packageRoot, sourceMetadata.namespace);
+      return sourceMetadata.namespace;
     }
 
     const candidates = [
@@ -58,7 +66,7 @@ export const createReadPackageRootNamespace = (
           return parsed.namespace;
         }
       } catch {
-        // Ignore malformed/non-namespace bindings candidates and continue.
+        // Ignore malformed/non-namespace CLR bindings candidates and continue.
       }
     }
 
@@ -201,10 +209,7 @@ export const createResolveModuleFromPackageRoot = (
     packageRoot: string,
     subpath: string | undefined
   ): ts.ResolvedModuleFull | undefined => {
-    const manifestPath = path.join(
-      packageRoot,
-      "tsonic.package.json"
-    );
+    const manifestPath = path.join(packageRoot, "tsonic.package.json");
     if (!fs.existsSync(manifestPath)) {
       return undefined;
     }
@@ -241,12 +246,21 @@ export const createResolveModuleFromPackageRoot = (
       return cached ?? undefined;
     }
 
+    const sourcePackageMetadata = readSourcePackageMetadata(packageRoot);
     const exportedResolution =
-      tryResolveFromPackageJsonExports(packageRoot, subpath) ??
-      tryResolveFromSourceManifest(packageRoot, subpath);
+      (sourcePackageMetadata
+        ? tryResolveFromSourceManifest(packageRoot, subpath) ??
+          tryResolveFromPackageJsonExports(packageRoot, subpath)
+        : tryResolveFromPackageJsonExports(packageRoot, subpath) ??
+          tryResolveFromSourceManifest(packageRoot, subpath));
     if (exportedResolution) {
       packageRootModuleResolutionCache.set(cacheKey, exportedResolution);
       return exportedResolution;
+    }
+
+    if (sourcePackageMetadata) {
+      packageRootModuleResolutionCache.set(cacheKey, null);
+      return undefined;
     }
 
     const buildCandidates = (

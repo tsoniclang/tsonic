@@ -48,7 +48,7 @@ describe("IR Builder", function () {
         );
         fs.writeFileSync(
           path.join(jsRoot, "index", "bindings.json"),
-          JSON.stringify({ namespace: "Acme.JsRuntime", types: [] }, null, 2)
+          JSON.stringify({ namespace: "Acme.Js", types: [] }, null, 2)
         );
         fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
         fs.writeFileSync(
@@ -81,7 +81,7 @@ describe("IR Builder", function () {
         fs.writeFileSync(
           path.join(nodeRoot, "index", "internal", "index.d.ts"),
           [
-            'import type { Date } from "@tsonic/js-temp/Acme.JsRuntime/internal/index.js";',
+            'import type { Date } from "@tsonic/js-temp/Acme.Js/internal/index.js";',
             "export interface Stats$instance {",
             "  mtime: Date;",
             "}",
@@ -103,6 +103,7 @@ describe("IR Builder", function () {
         fs.writeFileSync(
           entryPath,
           [
+            'import type { Date } from "@tsonic/js-temp/index/internal/index.js";',
             'import { statSync } from "node:fs";',
             "const maybeDate: Date | undefined = undefined;",
             'export const resolved = maybeDate ?? statSync("package.json").mtime;',

@@ -47,7 +47,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+          resolvedClrType: "global::js.RegExp",
         },
       ],
     };
@@ -88,7 +88,7 @@ describe("Expression Emission", () => {
     expect(rendered).to.include("From3(__tsonic_union_member_4)");
     expect(rendered).to.include("new global::System.InvalidCastException(");
     expect(rendered).to.not.include(
-      "(global::Tsonic.Runtime.Union<object?[], string, global::Tsonic.JSRuntime.RegExp>)first"
+      "(global::Tsonic.Runtime.Union<object?[], string, global::js.RegExp>)first"
     );
   });
 
@@ -131,7 +131,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+          resolvedClrType: "global::js.RegExp",
         },
       ],
     };
@@ -217,7 +217,7 @@ describe("Expression Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+          resolvedClrType: "global::js.RegExp",
         },
       ],
     };
