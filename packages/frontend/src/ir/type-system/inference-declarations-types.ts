@@ -58,6 +58,14 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
   const effectiveValueDecl =
     (declInfo.valueDeclNode as ts.Declaration | undefined) ??
     (declInfo.declNode as ts.Declaration | undefined);
+  const effectiveFunctionValueDecl =
+    effectiveValueDecl &&
+    ts.isVariableDeclaration(effectiveValueDecl) &&
+    effectiveValueDecl.initializer &&
+    (ts.isFunctionExpression(effectiveValueDecl.initializer) ||
+      ts.isArrowFunction(effectiveValueDecl.initializer))
+      ? effectiveValueDecl.initializer
+      : effectiveValueDecl;
   const effectiveTypeDecl =
     (declInfo.typeDeclNode as ts.Declaration | undefined) ?? effectiveValueDecl;
   const effectiveDeclNode = effectiveValueDecl ?? effectiveTypeDecl;
@@ -107,20 +115,23 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
   let result: IrType;
 
   if (
-    effectiveValueDecl &&
-    (ts.isFunctionDeclaration(effectiveValueDecl) ||
-      ts.isMethodDeclaration(effectiveValueDecl) ||
-      ts.isFunctionExpression(effectiveValueDecl) ||
-      ts.isArrowFunction(effectiveValueDecl))
+    effectiveFunctionValueDecl &&
+    (ts.isFunctionDeclaration(effectiveFunctionValueDecl) ||
+      ts.isMethodDeclaration(effectiveFunctionValueDecl) ||
+      ts.isFunctionExpression(effectiveFunctionValueDecl) ||
+      ts.isArrowFunction(effectiveFunctionValueDecl))
   ) {
-    if (!effectiveValueDecl.type) {
+    if (!effectiveFunctionValueDecl.type) {
       emitDiagnostic(
         state,
         "TSN5201",
         `Function '${declInfo.fqName ?? "unknown"}' requires explicit return type`
       );
     }
-    result = buildFunctionTypeFromSignatureDeclaration(state, effectiveValueDecl);
+    result = buildFunctionTypeFromSignatureDeclaration(
+      state,
+      effectiveFunctionValueDecl
+    );
   } else if (effectiveTypeNode) {
     // Explicit type annotation - convert to IR
     result = convertTypeNode(state, effectiveTypeNode);

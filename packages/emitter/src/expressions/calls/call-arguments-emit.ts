@@ -803,19 +803,6 @@ const emitCallArguments = (
         return expectedType;
       }
 
-      const surfaceFunctionType = resolveFunctionType(expectedType, currentContext);
-      const runtimeFunctionType = resolveFunctionType(
-        normalizedRuntime,
-        currentContext
-      );
-      if (
-        surfaceFunctionType &&
-        runtimeFunctionType &&
-        surfaceFunctionType.parameters.length > runtimeFunctionType.parameters.length
-      ) {
-        return expectedType;
-      }
-
       const actualArgumentType =
         resolveEffectiveExpressionType(arg, currentContext) ?? arg.inferredType;
 

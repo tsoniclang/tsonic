@@ -219,8 +219,8 @@ export const emitStaticArrowFieldMembers = (
   const implName = `${fieldName}__Impl`;
 
   // Determine field type: delegate, Func<>, or Action<>
-  const needsOptionalArgs = arrowFunc.parameters.some(
-    (p) => p.isOptional || !!p.initializer
+  const needsCustomDelegate = arrowFunc.parameters.some(
+    (p) => p.isRest || p.isOptional || !!p.initializer
   );
   const runtimeDefaultInitializers: Array<{
     readonly paramName: string;
@@ -230,8 +230,8 @@ export const emitStaticArrowFieldMembers = (
 
   let fieldTypeAst: CSharpTypeAst;
 
-  if (needsOptionalArgs) {
-    // Custom delegate type for optional parameters
+  if (needsCustomDelegate) {
+    // Custom delegate type for rest/optional/default parameters
     if (decl.name.kind !== "identifierPattern") {
       throw new Error(
         "ICE: Arrow function value with optional params must use an identifier binding."
@@ -290,6 +290,7 @@ export const emitStaticArrowFieldMembers = (
         name: paramName,
         type: emittedParamType,
         defaultValue,
+        modifiers: param.isRest ? ["params"] : undefined,
       });
     }
     currentContext = delegateCtx;
@@ -361,6 +362,7 @@ export const emitStaticArrowFieldMembers = (
     methodParams.push({
       name: paramName,
       type: emittedParamType,
+      modifiers: param.isRest ? ["params"] : undefined,
       defaultValue: param.initializer
         ? (() => {
             const [ast, nextCtx] = emitExpressionAst(

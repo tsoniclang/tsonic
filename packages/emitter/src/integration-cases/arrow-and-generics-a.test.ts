@@ -57,7 +57,7 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("adapts function-value arguments to contextual delegates with trailing callback parameters", () => {
+    it("uses the selected overload arity for function-value callback arguments", () => {
       const source = `
         function trimValue(value: string): string {
           return value.trim();
@@ -72,12 +72,12 @@ describe("End-to-End Integration", () => {
         surface: "@tsonic/js",
       });
 
-      expect(csharp).to.include(
-        ".map((string value, int? __unused_index, string[]? __unused_array) => trimValue(value))"
-      );
+      expect(csharp).to.include(".map(trimValue)");
+      expect(csharp).to.not.include("__unused_index");
+      expect(csharp).to.not.include("__unused_array");
     });
 
-    it("extends explicit lambda parameters to the full contextual callback arity", () => {
+    it("keeps explicit lambda parameters at the selected overload arity", () => {
       const source = `
         export function main(items: string[]): string[] {
           return items.map((value) => value.trim());
@@ -88,9 +88,9 @@ describe("End-to-End Integration", () => {
         surface: "@tsonic/js",
       });
 
-      expect(csharp).to.include(
-        ".map((string value, int? __unused_index, string[]? __unused_array) =>"
-      );
+      expect(csharp).to.include(".map((string value) =>");
+      expect(csharp).to.not.include("__unused_index");
+      expect(csharp).to.not.include("__unused_array");
       expect(csharp).to.include("global::js.String.trim");
     });
 
@@ -178,6 +178,32 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(
         /consume\(\(object\?\[\] __unused_args\)\s*=>\s*\{\s*\}\)/
       );
+    });
+
+    it("emits static arrow fields with params delegates for rest parameters", () => {
+      const source = `
+        export const tick = (...args: unknown[]): void => {
+          void args;
+        };
+
+        export function main(): void {
+          tick();
+          tick("ok", 1, true);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /delegate\s+void\s+tick__Delegate\s*\(\s*params\s+object\?\[\]\s+args\s*\)/
+      );
+      expect(csharp).to.match(
+        /private\s+static\s+void\s+tick__Impl\s*\(\s*params\s+object\?\[\]\s+args\s*\)/
+      );
+      expect(csharp).to.match(
+        /tick\((?:new object\?\[0\]|new object\?\[\])\);/
+      );
+      expect(csharp).to.match(/tick\(new object\?\[\] \{ "ok", 1, true \}\);/);
     });
 
     it("emits static arrow fields with default parameter initializers through custom delegates", () => {
