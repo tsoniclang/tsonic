@@ -15,7 +15,7 @@ import type {
   CSharpTypeParameterConstraintAst,
 } from "../core/format/backend-ast/types.js";
 
-type TypeParamConstraintKind = "class" | "struct" | "unconstrained";
+type TypeParamConstraintKind = "class" | "struct" | "numeric" | "unconstrained";
 
 const NON_CONSTRAINT_REFERENCE_TYPES = new Set([
   // TS/C# primitives and aliases that cannot appear as C# generic constraints.
@@ -41,6 +41,77 @@ const NON_CONSTRAINT_REFERENCE_TYPES = new Set([
   "void",
 ]);
 
+const NUMERIC_CONSTRAINT_REFERENCE_TYPES = new Set([
+  "Number",
+  "double",
+  "float",
+  "half",
+  "decimal",
+  "int",
+  "short",
+  "long",
+  "byte",
+  "sbyte",
+  "uint",
+  "ushort",
+  "ulong",
+  "nint",
+  "nuint",
+  "int128",
+  "uint128",
+]);
+
+const NUMERIC_CONSTRAINT_CLR_TYPES = new Set([
+  "System.Double",
+  "global::System.Double",
+  "System.Single",
+  "global::System.Single",
+  "System.Half",
+  "global::System.Half",
+  "System.Decimal",
+  "global::System.Decimal",
+  "System.Int32",
+  "global::System.Int32",
+  "System.Int16",
+  "global::System.Int16",
+  "System.Int64",
+  "global::System.Int64",
+  "System.Byte",
+  "global::System.Byte",
+  "System.SByte",
+  "global::System.SByte",
+  "System.UInt32",
+  "global::System.UInt32",
+  "System.UInt16",
+  "global::System.UInt16",
+  "System.UInt64",
+  "global::System.UInt64",
+  "System.IntPtr",
+  "global::System.IntPtr",
+  "System.UIntPtr",
+  "global::System.UIntPtr",
+  "System.Int128",
+  "global::System.Int128",
+  "System.UInt128",
+  "global::System.UInt128",
+]);
+
+const isNumericConstraintType = (type: IrType): boolean => {
+  if (type.kind === "primitiveType") {
+    return type.name === "number" || NUMERIC_CONSTRAINT_REFERENCE_TYPES.has(type.name);
+  }
+
+  if (type.kind !== "referenceType") {
+    return false;
+  }
+
+  return (
+    NUMERIC_CONSTRAINT_REFERENCE_TYPES.has(type.name) ||
+    (type.resolvedClrType !== undefined &&
+      NUMERIC_CONSTRAINT_CLR_TYPES.has(type.resolvedClrType))
+  );
+};
+
 const inferTypeParamConstraintKind = (
   tp: IrTypeParameter
 ): TypeParamConstraintKind => {
@@ -49,6 +120,8 @@ const inferTypeParamConstraintKind = (
 
   // Structural constraints are object-shape constraints (reference-like).
   if (tp.isStructuralConstraint) return "class";
+
+  if (isNumericConstraintType(tp.constraint)) return "numeric";
 
   // Direct markers
   if (
@@ -232,6 +305,23 @@ export const emitTypeParametersAst = (
         constraintAsts.push({
           typeParameter: tpName,
           constraints: [{ kind: "typeConstraint", type: cAst }],
+        });
+      } else if (isNumericConstraintType(tp.constraint)) {
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: [
+            {
+              kind: "typeConstraint",
+              type: {
+                kind: "qualifiedIdentifierType",
+                name: {
+                  aliasQualifier: "global",
+                  segments: ["System", "Numerics", "INumber"],
+                },
+                typeArguments: [{ kind: "identifierType", name: tpName }],
+              },
+            },
+          ],
         });
       }
     }

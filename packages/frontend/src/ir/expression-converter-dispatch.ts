@@ -6,12 +6,15 @@
  */
 
 import * as ts from "typescript";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type {
   IrExpression,
   IrNumericNarrowingExpression,
   IrType,
 } from "./types.js";
 import type { ProgramContext } from "./program-context.js";
+import type { TypeBinding } from "../program/binding-types.js";
 
 // Import expression converters from specialized modules
 import {
@@ -53,6 +56,7 @@ import {
   stripNullish,
 } from "./expression-converter-helpers.js";
 import { resolveAmbientGlobalSourceOwner } from "./converters/expressions/ambient-global-source-owner.js";
+import type { DeclId } from "./type-system/types.js";
 
 const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
   ts.isImportClause(decl) ||
@@ -80,11 +84,151 @@ const isDeclarationModuleGlobal = (decl: ts.Declaration): boolean => {
 
 const isAmbientGlobalDeclaration = (decl: ts.Declaration): boolean => {
   const sourceFile = decl.getSourceFile();
+  if (isDeclarationModuleGlobal(decl)) {
+    return true;
+  }
   return (
-    (sourceFile.isDeclarationFile &&
-      (!ts.isExternalModule(sourceFile) || isDeclarationModuleGlobal(decl))) ||
+    (sourceFile.isDeclarationFile && !ts.isExternalModule(sourceFile)) ||
     (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient) !== 0
   );
+};
+
+const isMemberAccessReceiverExpression = (node: ts.Expression): boolean => {
+  let current: ts.Node = node;
+
+  while (ts.isParenthesizedExpression(current.parent)) {
+    current = current.parent;
+  }
+
+  const parent = current.parent;
+  return (
+    (ts.isPropertyAccessExpression(parent) ||
+      ts.isElementAccessExpression(parent)) &&
+    parent.expression === current
+  );
+};
+
+const resolveReferencedIdentifierSymbol = (
+  checker: ts.TypeChecker,
+  node: ts.Identifier
+): ts.Symbol | undefined => {
+  const symbol = checker.getSymbolAtLocation(node);
+  if (!symbol) {
+    return undefined;
+  }
+
+  if (symbol.flags & ts.SymbolFlags.Alias) {
+    return checker.getAliasedSymbol(symbol);
+  }
+
+  return symbol;
+};
+
+const findNearestBindingsJson = (filePath: string): string | undefined => {
+  let dir = dirname(filePath);
+  for (let i = 0; i < 12; i += 1) {
+    const candidate = join(dir, "bindings.json");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      return undefined;
+    }
+    dir = parent;
+  }
+  return undefined;
+};
+
+const findOwningBindingsJson = (filePath: string): string | undefined => {
+  const nearest = findNearestBindingsJson(filePath);
+  if (nearest) {
+    return nearest;
+  }
+
+  const namespaceKey = (() => {
+    if (filePath.endsWith(".d.ts")) {
+      return basename(filePath).slice(0, -".d.ts".length);
+    }
+    if (filePath.endsWith(".ts")) {
+      return basename(filePath).slice(0, -".ts".length);
+    }
+    if (filePath.endsWith(".js")) {
+      return basename(filePath).slice(0, -".js".length);
+    }
+    return undefined;
+  })();
+  if (!namespaceKey) {
+    return undefined;
+  }
+
+  const sibling = join(dirname(filePath), namespaceKey, "bindings.json");
+  return existsSync(sibling) ? sibling : undefined;
+};
+
+const readNamespaceFromBindingsJson = (
+  bindingsPath: string
+): string | undefined => {
+  try {
+    const raw = readFileSync(bindingsPath, "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { readonly namespace?: unknown }).namespace === "string"
+      ? (parsed as { readonly namespace: string }).namespace
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveImportedIdentifierClrType = (
+  declId: DeclId,
+  declarations: readonly ts.Declaration[],
+  ctx: ProgramContext
+): string | undefined => {
+  const importSpecifier = declarations.find(ts.isImportSpecifier);
+  if (!importSpecifier) {
+    return undefined;
+  }
+
+  const exportName =
+    importSpecifier.propertyName?.text ?? importSpecifier.name.text;
+  const declPath = ctx.binding.getSourceFilePathOfDecl(declId);
+  if (!declPath) {
+    return undefined;
+  }
+
+  const bindingsPath = findOwningBindingsJson(declPath);
+  if (!bindingsPath) {
+    return undefined;
+  }
+
+  const namespace = readNamespaceFromBindingsJson(bindingsPath);
+  if (!namespace) {
+    return undefined;
+  }
+
+  const namespaceBinding = ctx.bindings.getNamespace(namespace);
+  if (!namespaceBinding) {
+    return undefined;
+  }
+
+  const matchesExportName = (type: TypeBinding): boolean => {
+    if (type.alias === exportName) {
+      return true;
+    }
+
+    const arityAlias = type.alias.match(/^(.+)_(\d+)$/);
+    if (arityAlias?.[1] === exportName) {
+      return true;
+    }
+
+    const simpleClrName = type.name.split(".").pop() ?? type.name;
+    return simpleClrName.replace(/`\d+$/, "") === exportName;
+  };
+
+  return namespaceBinding.types.find(matchesExportName)?.name;
 };
 
 /**
@@ -166,6 +310,33 @@ export const convertExpression = (
     }
 
     const declId = ctx.binding.resolveIdentifier(node);
+    const referencedSymbol = resolveReferencedIdentifierSymbol(
+      ctx.checker,
+      node
+    );
+    const contextualGenericFunctionType = (() => {
+      if (
+        !expectedType ||
+        !referencedSymbol ||
+        !ctx.genericFunctionValueSymbols.has(referencedSymbol)
+      ) {
+        return undefined;
+      }
+
+      const expectedCallableType =
+        expectedType.kind === "functionType"
+          ? expectedType
+          : ctx.typeSystem.delegateToFunctionType(expectedType);
+
+      if (
+        !expectedCallableType ||
+        ctx.typeSystem.containsTypeParameter(expectedCallableType)
+      ) {
+        return undefined;
+      }
+
+      return expectedCallableType;
+    })();
 
     // DETERMINISTIC: Prefer lexical flow type (narrowing / lambda params), then decl type.
     const fromEnv = declId ? ctx.typeEnv?.get(declId.id) : undefined;
@@ -179,6 +350,8 @@ export const convertExpression = (
       fromDecl,
       fromEnv
     );
+    const effectiveIdentifierType =
+      contextualGenericFunctionType ?? identifierStorageType;
 
     // Check if this identifier is an aliased import (e.g., import { String as ClrString })
     // ALICE'S SPEC: Use TypeSystem.getFQNameOfDecl() to get the original name
@@ -200,6 +373,12 @@ export const convertExpression = (
       symbolDeclarations.length > 0 &&
       !hasImportLikeDeclaration &&
       symbolDeclarations.every(isAmbientGlobalDeclaration);
+    const importResolvedClrType =
+      declId && hasImportLikeDeclaration
+        ? resolveImportedIdentifierClrType(declId, symbolDeclarations, ctx)
+        : undefined;
+    const suppressSyntheticFlowAssertion =
+      isMemberAccessReceiverExpression(node);
 
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
     const clrBinding = ctx.bindings.getExactBindingByKind(node.text, "global");
@@ -211,7 +390,7 @@ export const convertExpression = (
       const baseIdentifier: IrExpression = {
         kind: "identifier",
         name: node.text,
-        inferredType: identifierStorageType,
+        inferredType: effectiveIdentifierType,
         sourceSpan: getSourceSpan(node),
         resolvedClrType: clrBinding.type,
         resolvedAssembly: clrBinding.assembly,
@@ -220,6 +399,7 @@ export const convertExpression = (
         declId,
       };
       if (
+        !suppressSyntheticFlowAssertion &&
         shouldWrapExpressionWithAssertion(ctx, fromDecl, fromEnv) &&
         fromEnv
       ) {
@@ -240,13 +420,17 @@ export const convertExpression = (
     const baseIdentifier: IrExpression = {
       kind: "identifier",
       name: node.text,
-      inferredType: identifierStorageType,
+      inferredType: effectiveIdentifierType,
       sourceSpan: getSourceSpan(node),
-      resolvedClrType: ambientSourceOwner,
+      resolvedClrType: importResolvedClrType ?? ambientSourceOwner,
       originalName,
       declId,
     };
-    if (shouldWrapExpressionWithAssertion(ctx, fromDecl, fromEnv) && fromEnv) {
+    if (
+      !suppressSyntheticFlowAssertion &&
+      shouldWrapExpressionWithAssertion(ctx, fromDecl, fromEnv) &&
+      fromEnv
+    ) {
       return {
         kind: "typeAssertion",
         expression: baseIdentifier,

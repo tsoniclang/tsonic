@@ -121,7 +121,7 @@ describe("call-emitter", () => {
     );
   });
 
-  it("recovers semantic receiver parameter types for imported method calls", () => {
+  it("does not invent receiver parameter types for imported method calls without explicit call metadata", () => {
     const numberType = {
       kind: "primitiveType" as const,
       name: "number" as const,
@@ -207,8 +207,105 @@ describe("call-emitter", () => {
     };
 
     const [ast] = emitCall(expr, context);
+    expect(printExpression(ast)).to.equal("promises.setImmediate(123)");
+  });
+
+  it("adapts static extension receivers to the explicit string contract", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const expr = {
+      kind: "call" as const,
+      callee: {
+        kind: "memberAccess" as const,
+        object: {
+          kind: "identifier" as const,
+          name: "ch",
+          inferredType: { kind: "primitiveType" as const, name: "char" as const },
+        },
+        property: "toString",
+        isComputed: false,
+        isOptional: false,
+        inferredType: {
+          kind: "functionType" as const,
+          parameters: [],
+          returnType: { kind: "primitiveType" as const, name: "string" as const },
+        },
+        memberBinding: {
+          kind: "method" as const,
+          assembly: "js",
+          type: "js.String",
+          member: "toString",
+          isExtensionMethod: true,
+          emitSemantics: { callStyle: "static" as const },
+          receiverExpectedType: {
+            kind: "primitiveType" as const,
+            name: "string" as const,
+          },
+        },
+      },
+      arguments: [],
+      isOptional: false,
+      inferredType: { kind: "primitiveType" as const, name: "string" as const },
+    };
+
+    const [ast] = emitCall(expr, context);
     expect(printExpression(ast)).to.equal(
-      "promises.setImmediate((object)(double)123)"
+      "global::js.String.toString(ch.ToString())"
+    );
+  });
+
+  it("adapts static extension receivers to the explicit numeric contract", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const expr = {
+      kind: "call" as const,
+      callee: {
+        kind: "memberAccess" as const,
+        object: {
+          kind: "identifier" as const,
+          name: "arch",
+          inferredType: {
+            kind: "referenceType" as const,
+            name: "Architecture" as const,
+            resolvedClrType:
+              "System.Runtime.InteropServices.Architecture",
+          },
+        },
+        property: "toString",
+        isComputed: false,
+        isOptional: false,
+        inferredType: {
+          kind: "functionType" as const,
+          parameters: [],
+          returnType: { kind: "primitiveType" as const, name: "string" as const },
+        },
+        memberBinding: {
+          kind: "method" as const,
+          assembly: "js",
+          type: "js.Number",
+          member: "toString",
+          isExtensionMethod: true,
+          emitSemantics: { callStyle: "static" as const },
+          receiverExpectedType: {
+            kind: "primitiveType" as const,
+            name: "number" as const,
+          },
+        },
+      },
+      arguments: [],
+      isOptional: false,
+      inferredType: { kind: "primitiveType" as const, name: "string" as const },
+    };
+
+    const [ast] = emitCall(expr, context);
+    expect(printExpression(ast)).to.equal(
+      "global::js.Number.toString(global::System.Convert.ToDouble(arch))"
     );
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Binding system tests — split into topic modules under bindings-cases/.
  *
- *   registry-basics.test.ts              — add / retrieve / clear / case-insensitive
+ *   registry-basics.test.ts              — add / retrieve / clear
  *   registry-member-resolution.test.ts   — overloads, CLR name, alias, extension methods
  *   load-bindings.test.ts                — filesystem manifest loading & transitive deps
  *   dotnet-payload-boundaries.test.ts    — semantic surface vs dotnet payload helpers

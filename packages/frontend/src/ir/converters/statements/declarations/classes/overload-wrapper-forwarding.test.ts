@@ -79,5 +79,106 @@ describe("overload wrapper forwarding", () => {
     expect(restArg?.kind).to.equal("spread");
     if (!restArg || restArg.kind !== "spread") return;
     expect(restArg.expression.inferredType).to.deep.equal(helperRestType);
+    expect(restArg.expression.kind).to.equal("call");
+    if (restArg.expression.kind !== "call") return;
+    expect(restArg.expression.callee.kind).to.equal("memberAccess");
+    if (restArg.expression.callee.kind !== "memberAccess") return;
+    expect(restArg.expression.callee.memberBinding).to.deep.equal({
+      kind: "method",
+      assembly: "__synthetic",
+      type: "Array",
+      member: "slice",
+      emitSemantics: {
+        callStyle: "receiver",
+      },
+    });
+  });
+
+  it("preserves implementation defaults when forwarding optional wrapper parameters", () => {
+    const intType: IrType = {
+      kind: "primitiveType",
+      name: "int",
+    };
+    const numberType: IrType = {
+      kind: "primitiveType",
+      name: "number",
+    };
+    const targetUnion: IrType = {
+      kind: "unionType",
+      types: [intType, numberType],
+    };
+
+    const wrapperParam: IrParameter = {
+      ...createParameter("offsetOrValue", intType),
+      isOptional: true,
+    };
+    const helperParam: IrParameter = {
+      ...createParameter("offsetOrValue", targetUnion),
+      initializer: {
+        kind: "literal",
+        value: 0,
+        inferredType: intType,
+      },
+    };
+
+    const forwardedArgs = buildForwardedCallArguments(
+      [createParameter("sourceOrIndex", intType), wrapperParam],
+      [createParameter("sourceOrIndex", intType), helperParam]
+    );
+
+    expect(forwardedArgs).to.have.length(2);
+
+    const arg = forwardedArgs[1];
+    expect(arg?.kind).to.equal("typeAssertion");
+    if (!arg || arg.kind !== "typeAssertion") return;
+    expect(arg.targetType).to.deep.equal(targetUnion);
+    expect(arg.expression.kind).to.equal("logical");
+    if (arg.expression.kind !== "logical") return;
+    expect(arg.expression.operator).to.equal("??");
+    expect(arg.expression.left.kind).to.equal("identifier");
+    expect(arg.expression.right.kind).to.equal("literal");
+  });
+
+  it("attaches literal numeric proof when forwarding numeric default initializers", () => {
+    const intType: IrType = {
+      kind: "primitiveType",
+      name: "int",
+    };
+
+    const forwardedArgs = buildForwardedCallArguments(
+      [
+        createParameter("source", intType),
+        {
+          ...createParameter("offset", intType),
+          isOptional: true,
+        },
+      ],
+      [
+        createParameter("source", intType),
+        {
+          ...createParameter("offset", intType),
+          initializer: {
+            kind: "numericNarrowing",
+            expression: {
+              kind: "literal",
+              value: 0,
+              inferredType: { kind: "referenceType", name: "int" },
+            },
+            targetKind: "Int32",
+            inferredType: intType,
+          },
+        },
+      ]
+    );
+
+    const arg = forwardedArgs[1];
+    expect(arg?.kind).to.equal("logical");
+    if (!arg || arg.kind !== "logical") return;
+    expect(arg.right.kind).to.equal("numericNarrowing");
+    if (arg.right.kind !== "numericNarrowing") return;
+    expect(arg.right.proof).to.deep.equal({
+      kind: "Int32",
+      source: { type: "literal", value: 0 },
+    });
   });
 });

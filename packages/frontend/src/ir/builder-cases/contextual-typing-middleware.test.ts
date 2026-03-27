@@ -305,6 +305,15 @@ describe("IR Builder", function () {
         expect(loopStmt.body.kind).to.equal("blockStatement");
         if (loopStmt.body.kind !== "blockStatement") return;
 
+        expect(loopStmt.condition?.kind).to.equal("binary");
+        if (!loopStmt.condition || loopStmt.condition.kind !== "binary") return;
+
+        expect(loopStmt.condition.right.kind).to.equal("memberAccess");
+        if (loopStmt.condition.right.kind !== "memberAccess") return;
+        expect(loopStmt.condition.right.isComputed).to.equal(false);
+        expect(loopStmt.condition.right.property).to.equal("length");
+        expect(loopStmt.condition.right.object.kind).to.equal("identifier");
+
         const appendCallStmt = loopStmt.body.statements[0];
         expect(appendCallStmt?.kind).to.equal("expressionStatement");
         if (
@@ -322,6 +331,12 @@ describe("IR Builder", function () {
           recursiveArg.inferredType.kind !== "referenceType"
         ) {
           return;
+        }
+
+        expect(recursiveArg.kind).to.not.equal("typeAssertion");
+        if (recursiveArg.kind === "memberAccess") {
+          expect(recursiveArg.isComputed).to.equal(true);
+          expect(recursiveArg.object.kind).to.equal("identifier");
         }
 
         expect(recursiveArg.inferredType.name).to.equal("MiddlewareLike");

@@ -218,8 +218,7 @@ export type ProgramInputDiscovery = {
 export const discoverProgramInputs = (
   filePaths: readonly string[],
   options: CompilerOptions,
-  surfaceCapabilities: SurfaceCapabilitiesLike,
-  resolveCompilerOwnedTsonicPackageRoot: (pkgDirName: string) => string | null
+  surfaceCapabilities: SurfaceCapabilitiesLike
 ): ProgramInputDiscovery => {
   const absolutePaths = filePaths.map((filePath) => path.resolve(filePath));
   const userTypeRoots = options.typeRoots ?? [];
@@ -251,9 +250,6 @@ export const discoverProgramInputs = (
           "installed-first"
         );
         if (projectOwned) return projectOwned;
-
-        const compilerOwned = resolveCompilerOwnedTsonicPackageRoot(pkgDirName);
-        if (compilerOwned) return compilerOwned;
       }
     }
 
@@ -264,6 +260,23 @@ export const discoverProgramInputs = (
   });
   const authoritativeTsonicPackageRoots = new Map<string, string>();
   const explicitAuthoritativeRoots = new Map<string, string>();
+  const currentProjectPackageName = readPackageName(
+    path.join(options.projectRoot, "package.json")
+  );
+  if (
+    currentProjectPackageName &&
+    readSourcePackageMetadata(options.projectRoot)
+  ) {
+    const normalizedProjectRoot = canonicalizeRootDirPath(options.projectRoot);
+    authoritativeTsonicPackageRoots.set(
+      currentProjectPackageName,
+      normalizedProjectRoot
+    );
+    explicitAuthoritativeRoots.set(
+      currentProjectPackageName,
+      normalizedProjectRoot
+    );
+  }
   for (const typeRoot of resolvedRequestedTypeRoots) {
     const packageName = readPackageName(path.join(typeRoot, "package.json"));
     if (packageName && readSourcePackageMetadata(typeRoot)) {

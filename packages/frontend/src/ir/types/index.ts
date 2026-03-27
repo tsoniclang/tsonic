@@ -87,6 +87,7 @@ export type {
   NumericProof,
   ProofSource,
   ComputedAccessKind,
+  ComputedAccessProtocol,
 } from "./expressions.js";
 
 // Type system types

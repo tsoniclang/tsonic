@@ -207,6 +207,7 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   // Use the processed modules from the attribute pass
   const emitResult = emitCSharpFiles(attributeResult.modules, {
     rootNamespace,
+    bindingRegistry: compileResult.value.program.bindings,
   });
 
   if (!emitResult.ok) {

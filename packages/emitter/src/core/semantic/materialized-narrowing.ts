@@ -26,13 +26,30 @@ const isExactExpressionToType = (
   ast: CSharpExpressionAst,
   typeAst: CSharpTypeAst
 ): boolean => {
-  if (ast.kind !== "castExpression") {
-    return false;
-  }
+  const concreteTarget =
+    typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
 
-  const castType =
-    ast.type.kind === "nullableType" ? ast.type.underlyingType : ast.type;
-  return sameConcreteTypeAstSurface(castType, typeAst);
+  switch (ast.kind) {
+    case "castExpression": {
+      const castType =
+        ast.type.kind === "nullableType" ? ast.type.underlyingType : ast.type;
+      return sameConcreteTypeAstSurface(castType, concreteTarget);
+    }
+    case "defaultExpression":
+      return (
+        ast.type !== undefined &&
+        sameConcreteTypeAstSurface(ast.type, concreteTarget)
+      );
+    case "objectCreationExpression":
+      return sameConcreteTypeAstSurface(ast.type, concreteTarget);
+    case "conditionalExpression":
+      return (
+        isExactExpressionToType(ast.whenTrue, concreteTarget) &&
+        isExactExpressionToType(ast.whenFalse, concreteTarget)
+      );
+    default:
+      return false;
+  }
 };
 
 export const materializeDirectNarrowingAst = (

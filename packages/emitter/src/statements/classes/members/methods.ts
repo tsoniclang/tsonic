@@ -21,6 +21,7 @@ import { identifierType } from "../../../core/format/backend-ast/builders.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
 import { emitCSharpName } from "../../../naming-policy.js";
 import {
+  applyRuntimeParameterDefaultShadows,
   captureFunctionScopeContext,
   getAsyncBodyReturnType,
   reserveGeneratorLocals,
@@ -262,12 +263,17 @@ export const emitMethodMember = (
 
   const body = member.body;
 
-  const baseBodyContext = seedLocalNameMapFromParameters(
+  const seededBodyContext = seedLocalNameMapFromParameters(
     member.parameters,
     withAsync(indent(currentContext), member.isAsync)
   );
+  const [runtimeDefaultShadowStmts, runtimeDefaultShadowContext] =
+    applyRuntimeParameterDefaultShadows(
+      paramsResult.runtimeDefaultInitializers,
+      seededBodyContext
+    );
   const reservedLocals = reserveGeneratorLocals(
-    baseBodyContext,
+    runtimeDefaultShadowContext,
     member.isGenerator && usesExchangeBasedLowering,
     isBidirectional,
     generatorHasReturnType
@@ -379,7 +385,11 @@ export const emitMethodMember = (
       parameters: [],
       body: {
         kind: "blockStatement",
-        statements: [...paramDestructuringStmts, ...bodyBlockAst.statements],
+        statements: [
+          ...runtimeDefaultShadowStmts,
+          ...paramDestructuringStmts,
+          ...bodyBlockAst.statements,
+        ],
       },
     });
 
@@ -424,7 +434,10 @@ export const emitMethodMember = (
       statements: wrapperBodyStatements,
     };
   } else {
-    const preamble: CSharpStatementAst[] = [...paramDestructuringStmts];
+    const preamble: CSharpStatementAst[] = [
+      ...runtimeDefaultShadowStmts,
+      ...paramDestructuringStmts,
+    ];
 
     if (member.isGenerator && usesExchangeBasedLowering) {
       if (!generatorHelperBaseName) {
@@ -478,6 +491,9 @@ export const emitMethodMember = (
     }
 
     for (const runtimeDefault of paramsResult.runtimeDefaultInitializers) {
+      if (runtimeDefault.sourceName) {
+        continue;
+      }
       preamble.push({
         kind: "expressionStatement",
         expression: {

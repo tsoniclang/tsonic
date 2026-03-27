@@ -165,6 +165,12 @@ export type IrAnyType = {
 
 export type IrUnknownType = {
   readonly kind: "unknownType";
+  /**
+   * Present only when the source program explicitly authored `unknown`.
+   *
+   * Absence means this unknown originated from an unresolved / poison path.
+   */
+  readonly explicit?: true;
 };
 
 export type IrVoidType = {

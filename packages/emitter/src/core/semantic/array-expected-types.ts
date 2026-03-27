@@ -90,8 +90,7 @@ export const normalizeRecursiveArrayExpectedType = (
   if (
     resolved.kind === "referenceType" &&
     (resolved.name === "Array" ||
-      resolved.name === "ReadonlyArray" ||
-      resolved.name === "JSArray") &&
+      resolved.name === "ReadonlyArray") &&
     resolved.typeArguments?.length === 1 &&
     resolved.typeArguments[0] &&
     shouldEraseRecursiveRuntimeUnionArrayElement(

@@ -63,6 +63,7 @@ export type TypeRegistryEntry = {
   readonly fullyQualifiedName: string; // FQ name (e.g., "MyApp.Models.User")
   readonly ownerIdentity: string;
   readonly isDeclarationFile: boolean;
+  readonly preservesAssemblyIdentity?: boolean;
   readonly typeParameters: readonly TypeParameterEntry[]; // PURE IR
   readonly members: ReadonlyMap<string, MemberInfo>; // PURE IR
   readonly heritage: readonly HeritageInfo[]; // PURE IR
@@ -84,7 +85,7 @@ export type TypeRegistry = {
 
   /**
    * Resolve a type by simple name.
-   * Returns first match if multiple types have the same simple name.
+   * Returns undefined when the simple name is ambiguous.
    */
   readonly resolveBySimpleName: (
     simpleName: string
@@ -92,9 +93,14 @@ export type TypeRegistry = {
 
   /**
    * Get the fully-qualified name for a simple name.
-   * Returns undefined if not found.
+   * Returns undefined if not found or ambiguous.
    */
   readonly getFQName: (simpleName: string) => string | undefined;
+
+  /**
+   * Get all fully-qualified names registered for a simple name.
+   */
+  readonly getFQNames: (simpleName: string) => readonly string[];
 
   /**
    * Get a member's type from a nominal type (by FQ name).

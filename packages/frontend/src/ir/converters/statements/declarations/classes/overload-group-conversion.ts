@@ -24,7 +24,9 @@ import {
 import { detectOverride } from "./override-detection.js";
 import { getClassMemberName } from "./member-names.js";
 import { convertMethod } from "./method-declaration.js";
-import { specializeStatement } from "./overload-specialization.js";
+import {
+  specializeStatement,
+} from "./overload-specialization.js";
 import {
   assertNoIsTypeCalls,
   assertNoMissingParamRefs,
@@ -121,6 +123,10 @@ export const convertMethodOverloadGroup = (
       return false;
     }
 
+    if (sigParams.length === implParams.length) {
+      return false;
+    }
+
     if (sigParams.length >= implParams.length) {
       return false;
     }
@@ -214,6 +220,9 @@ export const convertMethodOverloadGroup = (
           helperName,
           parameters,
           implMethod.parameters,
+          (implMethod.typeParameters ?? []).map(
+            (typeParameter) => typeParameter.name
+          ),
           isStatic,
           implMethod.returnType,
           returnType,

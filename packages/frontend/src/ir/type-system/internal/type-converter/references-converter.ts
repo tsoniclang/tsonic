@@ -9,6 +9,10 @@
 import * as ts from "typescript";
 import { IrType, IrDictionaryType } from "../../../types.js";
 import {
+  buildSubstitutionFromExplicitTypeArgs,
+  substituteIrType,
+} from "../../../types/ir-substitution.js";
+import {
   isPrimitiveTypeName,
   getPrimitiveType,
   isClrPrimitiveTypeName,
@@ -59,16 +63,6 @@ export const convertTypeReference = (
   // Check for CLR primitive type names (e.g., int from @tsonic/core)
   if (isClrPrimitiveTypeName(typeName)) {
     return getClrPrimitiveType(typeName);
-  }
-
-  // Check for Array<T> / ReadonlyArray<T> utility types → convert to arrayType
-  const firstTypeArg = node.typeArguments?.[0];
-  if ((typeName === "Array" || typeName === "ReadonlyArray") && firstTypeArg) {
-    return {
-      kind: "arrayType",
-      elementType: convertType(firstTypeArg, binding),
-      origin: "explicit",
-    };
   }
 
   // Check for expandable conditional utility types (NonNullable, Exclude, Extract)
@@ -158,6 +152,7 @@ export const convertTypeReference = (
 
   // DETERMINISTIC: Check if this is a type parameter or type alias using Binding
   const declId = binding.resolveTypeReference(node);
+  let resolvedDeclNode: ts.Declaration | undefined;
   if (declId) {
     const declInfo = (binding as BindingInternal)
       ._getHandleRegistry()
@@ -166,6 +161,7 @@ export const convertTypeReference = (
       const declNode = (declInfo.typeDeclNode ?? declInfo.declNode) as
         | ts.Declaration
         | undefined;
+      resolvedDeclNode = declNode;
       if (declNode && ts.isTypeParameterDeclaration(declNode)) {
         return { kind: "typeParameterType", name: typeName };
       }
@@ -215,6 +211,9 @@ export const convertTypeReference = (
     binding,
     convertType
   );
+  const convertedTypeArguments = node.typeArguments?.map((t) =>
+    convertType(t, binding)
+  );
 
   // Use resolved symbol name to keep IR nominal identity stable
   const resolvedName = (() => {
@@ -236,12 +235,72 @@ export const convertTypeReference = (
     return shape ? convertType(shape, binding) : { kind: "unknownType" };
   }
 
+  const substitutedStructuralMembers = (() => {
+    if (!structuralMembers || structuralMembers.length === 0) {
+      return structuralMembers;
+    }
+
+    const declaringType =
+      resolvedDeclNode &&
+      (ts.isClassDeclaration(resolvedDeclNode) ||
+        ts.isInterfaceDeclaration(resolvedDeclNode) ||
+        ts.isTypeAliasDeclaration(resolvedDeclNode))
+        ? resolvedDeclNode
+        : undefined;
+    const formalTypeParameters =
+      declaringType?.typeParameters?.map((parameter) => parameter.name.text) ??
+      [];
+    const substitution =
+      convertedTypeArguments && convertedTypeArguments.length > 0
+        ? buildSubstitutionFromExplicitTypeArgs(
+            convertedTypeArguments,
+            formalTypeParameters
+          )
+        : undefined;
+    if (!substitution || substitution.size === 0) {
+      return structuralMembers;
+    }
+
+    const substitutedType = substituteIrType(
+      {
+        kind: "referenceType",
+        name: resolvedName,
+        typeArguments: convertedTypeArguments,
+        structuralMembers,
+      },
+      substitution
+    );
+    return substitutedType.kind === "referenceType"
+      ? substitutedType.structuralMembers
+      : structuralMembers;
+  })();
+
+  const firstTypeArg = node.typeArguments?.[0];
+  const isConcreteClassReference =
+    !!resolvedDeclNode &&
+    (ts.isClassDeclaration(resolvedDeclNode) ||
+      ts.isClassExpression(resolvedDeclNode));
+
+  if (
+    !isConcreteClassReference &&
+    (typeName === "Array" || typeName === "ReadonlyArray") &&
+    firstTypeArg
+  ) {
+    return {
+      kind: "arrayType",
+      elementType: convertType(firstTypeArg, binding),
+      origin: "explicit",
+    };
+  }
+
   // Reference type (user-defined or library)
   return {
     kind: "referenceType",
     name: resolvedName,
-    typeArguments: node.typeArguments?.map((t) => convertType(t, binding)),
+    typeArguments: convertedTypeArguments,
     resolvedClrType,
-    structuralMembers,
+    ...(substitutedStructuralMembers
+      ? { structuralMembers: substitutedStructuralMembers }
+      : {}),
   };
 };

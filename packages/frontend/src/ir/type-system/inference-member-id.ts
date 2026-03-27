@@ -24,7 +24,10 @@ import {
 import { unknownType } from "./types.js";
 import type { MemberId } from "./types.js";
 import type { TypeSystemState, Site } from "./type-system-state.js";
-import { normalizeToNominal } from "./type-system-state.js";
+import {
+  normalizeToNominal,
+  resolveTypeIdByName,
+} from "./type-system-state.js";
 import { convertTypeNode } from "./type-system-call-resolution.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 import {
@@ -257,12 +260,33 @@ export const typeOfMemberId = (
 
       const parent = decl.parent;
       const declaringType =
-        ts.isInterfaceDeclaration(parent) ||
-        ts.isClassDeclaration(parent) ||
-        ts.isTypeAliasDeclaration(parent)
+        ts.isInterfaceDeclaration(parent) || ts.isClassDeclaration(parent)
           ? parent
           : undefined;
-      if (!declaringType?.name || !declaringType.typeParameters) {
+      if (!declaringType?.name) {
+        return undefined;
+      }
+
+      const normalizedReceiver = normalizeToNominal(state, receiverType);
+      if (normalizedReceiver) {
+        const declaringArity = declaringType.typeParameters?.length;
+        const declaringTypeId =
+          resolveTypeIdByName(state, declaringType.name.text, declaringArity) ??
+          resolveTypeIdByName(state, declaringType.name.text);
+        if (declaringTypeId) {
+          const nominalSubstitution = state.nominalEnv.getInstantiation(
+            normalizedReceiver.typeId,
+            normalizedReceiver.typeArgs,
+            declaringTypeId
+          );
+          if (nominalSubstitution) {
+            return nominalSubstitution;
+          }
+        }
+      }
+
+      const typeParams = declaringType.typeParameters;
+      if (!typeParams || typeParams.length === 0) {
         return undefined;
       }
 
@@ -272,7 +296,6 @@ export const typeOfMemberId = (
         return undefined;
       }
 
-      const typeParams = declaringType.typeParameters;
       if (typeParams.length !== receiverRef.typeArguments.length) {
         return undefined;
       }

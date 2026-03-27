@@ -325,6 +325,7 @@ export const tryEmitTypeofGuard = (
     emitExprAstCb,
     context
   );
+  const preservedNarrowedBindings = context.narrowedBindings;
 
   const thenCtx =
     truthyTypeofRefinements.length > 0
@@ -342,14 +343,14 @@ export const tryEmitTypeofGuard = (
 
   let finalContext: EmitterContext = {
     ...thenCtxAfter,
-    narrowedBindings: condCtxAfterCond.narrowedBindings,
+    narrowedBindings: preservedNarrowedBindings,
   };
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
     const elseBaseContext: EmitterContext = {
       ...finalContext,
-      narrowedBindings: condCtxAfterCond.narrowedBindings,
+      narrowedBindings: preservedNarrowedBindings,
     };
     const elseCtx =
       falsyTypeofRefinements.length > 0
@@ -367,7 +368,7 @@ export const tryEmitTypeofGuard = (
     elseStmt = wrapInBlock(elseStmts);
     finalContext = {
       ...elseCtxAfter,
-      narrowedBindings: condCtxAfterCond.narrowedBindings,
+      narrowedBindings: preservedNarrowedBindings,
     };
   }
 
@@ -381,7 +382,7 @@ export const tryEmitTypeofGuard = (
       "falsy",
       {
         ...finalContext,
-        narrowedBindings: condCtxAfterCond.narrowedBindings,
+        narrowedBindings: preservedNarrowedBindings,
       },
       emitExprAstCb
     );

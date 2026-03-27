@@ -40,6 +40,11 @@ export type LoweringContext = {
   readonly shapeToName: Map<string, string>;
   /** Existing reusable structural reference types available across the compilation, keyed by shape signature. */
   readonly shapeToExistingReference: Map<string, IrReferenceType>;
+  /** Explicit named structural aliases in the current module, keyed by exact shape signature. */
+  readonly localNamedStructuralReferences: ReadonlyMap<
+    string,
+    IrReferenceType
+  >;
   /** Module file path for unique naming */
   readonly moduleFilePath: string;
   /** Type names already declared in the compilation (avoid collisions) */

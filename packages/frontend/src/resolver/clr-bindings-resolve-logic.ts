@@ -47,13 +47,10 @@ export class ClrBindingsResolver {
 
   // require function for Node resolution from the base directory
   private readonly require: ReturnType<typeof createRequire>;
-  // Fallback require for compiler-owned @tsonic/* packages
-  private readonly compilerRequire: ReturnType<typeof createRequire>;
 
   constructor(baseDir: string) {
     // Create a require function that resolves relative to baseDir
     this.require = createRequire(join(baseDir, "package.json"));
-    this.compilerRequire = createRequire(import.meta.url);
   }
 
   /**
@@ -96,8 +93,7 @@ export class ClrBindingsResolver {
     const pkgRoot = resolvePkgRoot(
       packageName,
       this.pkgRootCache,
-      this.require,
-      this.compilerRequire
+      this.require
     );
     if (!pkgRoot) {
       return { isClr: false };
@@ -116,11 +112,10 @@ export class ClrBindingsResolver {
     }
 
     // Extract namespace from bindings.json (tsbindgen format)
-    const resolvedNamespace = extractNamespace(
-      bindingsPath,
-      namespaceKey,
-      this.namespaceCache
-    );
+    const resolvedNamespace = extractNamespace(bindingsPath, this.namespaceCache);
+    if (!resolvedNamespace) {
+      return { isClr: false };
+    }
 
     // Extract assembly name from bindings.json types
     const assembly = extractAssembly(bindingsPath, this.assemblyCache);
@@ -155,7 +150,7 @@ export class ClrBindingsResolver {
   }
 
   private resolveModulePath(
-    packageName: string,
+    _packageName: string,
     specifier: string
   ): string | null {
     const cached = this.resolvedPathCache.get(specifier);
@@ -175,14 +170,6 @@ export class ClrBindingsResolver {
     if (direct) {
       this.resolvedPathCache.set(specifier, direct);
       return direct;
-    }
-
-    if (packageName.startsWith("@tsonic/")) {
-      const compilerDirect = resolveViaRequire(this.compilerRequire);
-      if (compilerDirect) {
-        this.resolvedPathCache.set(specifier, compilerDirect);
-        return compilerDirect;
-      }
     }
 
     this.resolvedPathCache.set(specifier, null);
@@ -250,7 +237,6 @@ export class ClrBindingsResolver {
     if (!hasBindings(bindingsPath, this.bindingsExistsCache)) return false;
     const resolvedNamespace = extractNamespace(
       bindingsPath,
-      expectedNamespace,
       this.namespaceCache
     );
     return resolvedNamespace === expectedNamespace;

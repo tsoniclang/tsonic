@@ -418,27 +418,35 @@ export const matchesEmittedStorageSurface = (
   expectedType: IrType | undefined,
   context: EmitterContext
 ): [boolean, EmitterContext] => {
-  const containsRawObjectType = (type: IrType): boolean => {
+  const containsRawObjectType = (
+    type: IrType,
+    seen = new Set<IrType>()
+  ): boolean => {
+    if (seen.has(type)) {
+      return false;
+    }
+    seen.add(type);
+
     switch (type.kind) {
       case "objectType":
         return true;
       case "arrayType":
-        return containsRawObjectType(type.elementType);
+        return containsRawObjectType(type.elementType, seen);
       case "tupleType":
         return type.elementTypes.some((elementType) =>
-          containsRawObjectType(elementType)
+          containsRawObjectType(elementType, seen)
         );
       case "dictionaryType":
-        return containsRawObjectType(type.valueType);
+        return containsRawObjectType(type.valueType, seen);
       case "unionType":
       case "intersectionType":
         return type.types.some((memberType) =>
-          containsRawObjectType(memberType)
+          containsRawObjectType(memberType, seen)
         );
       case "referenceType":
         return (
           type.typeArguments?.some((typeArgument) =>
-            containsRawObjectType(typeArgument)
+            containsRawObjectType(typeArgument, seen)
           ) ?? false
         );
       default:

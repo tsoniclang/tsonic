@@ -659,7 +659,7 @@ describe("Expression Emission", () => {
     expect(text).to.include(
       "global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>.From3"
     );
-    expect(text).to.include("global::Tsonic.Runtime.JSArrayStatics.isArray");
+    expect(text).to.include("is global::System.Array");
   });
 
   it("should lower zero-arg tuple-rest function value calls without synthetic arrays", () => {

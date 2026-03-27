@@ -541,7 +541,7 @@ describe("IR Builder", function () {
       }
     });
 
-    it("prefers single-element JSArray push overloads for tuple element arrays", () => {
+    it("prefers single-element Array push overloads for tuple element arrays", () => {
       const fixture = createFilesystemTestProgram(
         {
           "src/index.ts": [
@@ -609,7 +609,7 @@ describe("IR Builder", function () {
       }
     });
 
-    it("prefers single-element JSArray push overloads for object-literal element arrays", () => {
+    it("prefers single-element Array push overloads for object-literal element arrays", () => {
       const fixture = createFilesystemTestProgram(
         {
           "src/index.ts": [

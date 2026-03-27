@@ -298,7 +298,7 @@ export const buildUnifiedUniverse = (
         resolveSourceOwnerIdentity
       );
       const preserveAssemblyIdentity =
-        entry.isDeclarationFile &&
+        entry.preservesAssemblyIdentity === true &&
         assemblyCatalog.tsNameToTypeId.has(entry.name);
 
       // Add to maps (source types won't collide with assembly types by stableId)

@@ -249,7 +249,7 @@ describe("IR Builder", function () {
         expect(initializer.inferredType).to.deep.equal({
           kind: "unionType",
           types: [
-            { kind: "unknownType" },
+            { kind: "unknownType", explicit: true },
             { kind: "primitiveType", name: "undefined" },
           ],
         });

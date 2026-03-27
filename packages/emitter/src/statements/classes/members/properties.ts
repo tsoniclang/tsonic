@@ -18,6 +18,7 @@ import type {
   CSharpBlockStatementAst,
 } from "../../../core/format/backend-ast/types.js";
 import { isMutablePropertySlot } from "../../../core/semantic/mutable-storage.js";
+import { normalizeRuntimeStorageType } from "../../../core/semantic/storage-types.js";
 
 /**
  * Emit a property declaration as a CSharpMemberAst
@@ -75,10 +76,39 @@ export const emitPropertyMember = (
 
   // Property type
   let typeAst: CSharpTypeAst = { kind: "predefinedType", keyword: "object" };
-  if (member.type) {
-    const [tAst, newContext] = emitTypeAst(member.type, currentContext);
-    typeAst = tAst;
-    currentContext = newContext;
+  const storageContext: EmitterContext = {
+    ...currentContext,
+    eraseNullableUnconstrainedTypeParameterStorage: true,
+  };
+  const emittedMemberType =
+    member.type && accessibility === "private"
+      ? (normalizeRuntimeStorageType(member.type, storageContext) ??
+          member.type)
+      : member.type;
+  if (emittedMemberType) {
+    try {
+      const [tAst, newContext] = emitTypeAst(
+        emittedMemberType,
+        currentContext
+      );
+      typeAst = tAst;
+      currentContext = newContext;
+    } catch (error) {
+      const locationBits = [
+        currentContext.options.currentModuleFilePath,
+        currentContext.moduleNamespace,
+        currentContext.declaringTypeName,
+        member.name,
+      ].filter((value): value is string => typeof value === "string");
+      const location =
+        locationBits.length > 0 ? locationBits.join(" :: ") : member.name;
+      const detail = JSON.stringify(emittedMemberType, null, 2);
+      const message =
+        error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Failed to emit property type at ${location}: ${message}\n${detail}`
+      );
+    }
   }
 
   // Property name
@@ -100,7 +130,8 @@ export const emitPropertyMember = (
   if (member.initializer) {
     const [iAst, finalContext] = emitExpressionAst(
       member.initializer,
-      currentContext
+      currentContext,
+      emittedMemberType ?? member.type
     );
     initAst = iAst;
     currentContext = finalContext;

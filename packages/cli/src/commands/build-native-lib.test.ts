@@ -206,6 +206,7 @@ describe("build command (NativeAOT library)", function () {
             schemaVersion: 1,
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Native.Lib",
               exports: {
                 ".": "./src/index.ts",
                 "./index.js": "./src/index.ts",

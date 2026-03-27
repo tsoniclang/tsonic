@@ -6,8 +6,6 @@
 import * as ts from "typescript";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import { Result, ok, error } from "../types/result.js";
 import { DiagnosticsCollector } from "../types/diagnostic.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
@@ -34,24 +32,11 @@ import { resolveDependencyPackageRoot } from "./package-roots.js";
 import {} from "./core-declarations.js";
 import {
   parseTsonicModuleRequest,
-  createResolveSiblingTsonicPackageRoot,
-  createResolveCompilerOwnedTsonicPackageRoot,
   createReadPackageRootNamespace,
   createResolveModuleFromPackageRoot,
 } from "./module-resolution.js";
 import { discoverProgramInputs } from "./program-input-discovery.js";
-
-const resolveMonorepoRoot = (): string => {
-  const envRoot = process.env.TSONIC_REPO_ROOT?.trim();
-  if (envRoot) {
-    return path.resolve(envRoot);
-  }
-
-  const compilerContainingFile = fileURLToPath(import.meta.url);
-  return path.resolve(
-    path.join(path.dirname(compilerContainingFile), "../../../..")
-  );
-};
+import { readSourcePackageMetadata } from "./source-package-metadata.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -147,6 +132,18 @@ const findAuthoritativePackageRootForImport = (
   return bestMatch ? authoritativeTsonicPackageRoots.get(bestMatch) : undefined;
 };
 
+const toTsSourceResolvedModule = (
+  resolvedPath: string
+): ts.ResolvedModuleFull => ({
+  resolvedFileName: resolvedPath,
+  extension: resolvedPath.endsWith(".mts")
+    ? ts.Extension.Mts
+    : resolvedPath.endsWith(".cts")
+      ? ts.Extension.Cts
+      : ts.Extension.Ts,
+  isExternalLibraryImport: false,
+});
+
 /**
  * Create a Tsonic program from TypeScript source files
  */
@@ -155,40 +152,18 @@ export const createProgram = (
   options: CompilerOptions
 ): Result<TsonicProgram, DiagnosticsCollector> => {
   const surface = options.surface ?? "clr";
-  if (
-    surface !== "clr" &&
-    !hasResolvedSurfaceProfile(surface, {
-      projectRoot: options.projectRoot,
-    })
-  ) {
-    return error(
-      addDiagnostic(
-        createDiagnosticsCollector(),
-        createDiagnostic(
-          "TSN1004",
-          "error",
-          `Surface '${surface}' is not a valid ambient surface package.`,
-          undefined,
-          "Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages separately."
-        )
-      )
-    );
-  }
-  const surfaceCapabilities = resolveSurfaceCapabilities(surface, {
+  const initialSurfaceResolveOptions = {
     projectRoot: options.projectRoot,
-  });
-  const compilerContainingFile = fileURLToPath(import.meta.url);
-  const repoRoot = resolveMonorepoRoot();
-
-  const require = createRequire(import.meta.url);
-
+  };
+  let surfaceCapabilities = resolveSurfaceCapabilities(
+    surface,
+    initialSurfaceResolveOptions
+  );
   const packageRootNamespaceCache = new Map<string, string | null>();
   const packageRootModuleResolutionCache = new Map<
     string,
     ts.ResolvedModuleFull | null
   >();
-  const siblingTsonicPackageRootCache = new Map<string, string | null>();
-  const compilerOwnedTsonicPackageRootCache = new Map<string, string | null>();
   const projectOwnedDependencyRootCache = new Map<string, string | null>();
 
   const readPkgRootNamespace = createReadPackageRootNamespace(
@@ -198,16 +173,55 @@ export const createProgram = (
     packageRootModuleResolutionCache,
     readPkgRootNamespace
   );
-  const resolveSiblingTsonicPackageRoot = createResolveSiblingTsonicPackageRoot(
-    siblingTsonicPackageRootCache,
-    repoRoot
+  let discovery = discoverProgramInputs(
+    filePaths,
+    options,
+    surfaceCapabilities
   );
-  const resolveCompilerOwnedTsonicPackageRoot =
-    createResolveCompilerOwnedTsonicPackageRoot(
-      compilerOwnedTsonicPackageRootCache,
-      resolveSiblingTsonicPackageRoot,
-      require
-    );
+  const resolveFinalSurfaceOptions = () => ({
+    projectRoot: options.projectRoot,
+    authoritativePackageRoots: discovery.authoritativeTsonicPackageRoots,
+  });
+
+  if (
+    surface !== "clr" &&
+    !hasResolvedSurfaceProfile(surface, initialSurfaceResolveOptions)
+  ) {
+    if (!hasResolvedSurfaceProfile(surface, resolveFinalSurfaceOptions())) {
+      return error(
+        addDiagnostic(
+          createDiagnosticsCollector(),
+          createDiagnostic(
+            "TSN1004",
+            "error",
+            `Surface '${surface}' is not a valid ambient surface package.`,
+            undefined,
+            "Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages separately."
+          )
+        )
+      );
+    }
+  }
+
+  const finalSurfaceCapabilities = resolveSurfaceCapabilities(
+    surface,
+    resolveFinalSurfaceOptions()
+  );
+  const surfaceCapabilitiesChanged =
+    JSON.stringify(finalSurfaceCapabilities.resolvedModes) !==
+      JSON.stringify(surfaceCapabilities.resolvedModes) ||
+    JSON.stringify(finalSurfaceCapabilities.requiredTypeRoots) !==
+      JSON.stringify(surfaceCapabilities.requiredTypeRoots) ||
+    finalSurfaceCapabilities.useStandardLib !==
+      surfaceCapabilities.useStandardLib ||
+    finalSurfaceCapabilities.includesClr !== surfaceCapabilities.includesClr;
+
+  if (surfaceCapabilitiesChanged) {
+    surfaceCapabilities = finalSurfaceCapabilities;
+    discovery = discoverProgramInputs(filePaths, options, surfaceCapabilities);
+  } else {
+    surfaceCapabilities = finalSurfaceCapabilities;
+  }
 
   const {
     absolutePaths: discoveredAbsolutePaths,
@@ -218,12 +232,7 @@ export const createProgram = (
     virtualDeclarationSources,
     allFiles: discoveredAllFiles,
     tsOptions,
-  } = discoverProgramInputs(
-    filePaths,
-    options,
-    surfaceCapabilities,
-    (pkgDirName) => resolveCompilerOwnedTsonicPackageRoot(pkgDirName) ?? null
-  );
+  } = discovery;
   const bindings = loadBindings(typeRoots);
   const absolutePaths = dedupeCanonicalFilePaths(discoveredAbsolutePaths);
   const allFiles = dedupeCanonicalFilePaths(discoveredAllFiles);
@@ -345,6 +354,50 @@ export const createProgram = (
     containingFile: string
   ): (ts.ResolvedModule | undefined)[] => {
     return moduleNames.map((moduleName) => {
+      const resolveSourcePackageAliasModule = (): ts.ResolvedModuleFull | undefined => {
+        const candidateRoots = new Set<string>([
+          ...authoritativeTsonicPackageRoots.values(),
+        ]);
+        const containingSourcePackageRoot =
+          findContainingSourcePackageRoot(containingFile);
+        if (containingSourcePackageRoot) {
+          candidateRoots.add(containingSourcePackageRoot);
+        }
+
+        for (const packageRoot of candidateRoots) {
+          const metadata = readSourcePackageMetadata(packageRoot);
+          const aliasTarget = metadata?.moduleAliases[moduleName];
+          if (!aliasTarget) {
+            continue;
+          }
+
+          const resolved =
+            metadata &&
+            (aliasTarget === metadata.packageName ||
+              aliasTarget.startsWith(`${metadata.packageName}/`))
+              ? resolveSourcePackageImportFromPackageRoot(
+                  aliasTarget,
+                  packageRoot,
+                  options.surface,
+                  options.projectRoot
+                )
+              : resolveSourcePackageImport(
+                  aliasTarget,
+                  path.join(packageRoot, "__tsonic_alias__.ts"),
+                  options.surface,
+                  options.projectRoot
+                );
+
+          if (!resolved.ok || !resolved.value) {
+            continue;
+          }
+
+          return toTsSourceResolvedModule(resolved.value.resolvedPath);
+        }
+
+        return undefined;
+      };
+
       // Debug log
       if (options.verbose) {
         console.log(`Resolving module: ${moduleName} from ${containingFile}`);
@@ -389,10 +442,8 @@ export const createProgram = (
           }
         }
 
-        // 2) In local monorepo / compiler-install development, prefer the
-        // project's installed source-package graph before consulting compiler-
-        // owned fallback packages. This keeps direct imports coherent with the
-        // package graph the current project actually installed and packed.
+        // 2) Prefer the project's installed source-package graph. Direct imports
+        // must resolve through the consuming project's package graph.
         const projectResolveFile = path.join(
           options.projectRoot,
           "__tsonic_resolver__.ts"
@@ -415,10 +466,8 @@ export const createProgram = (
           };
         }
 
-        // 3) Prefer the project's installed dependency graph before consulting
-        // compiler-owned sibling packages. This keeps direct source imports
-        // coherent with surface declarations that already came from installed
-        // package roots.
+        // 3) Prefer the project's installed dependency graph so direct source
+        // imports stay coherent with the package roots the consumer installed.
         if (request) {
           let projectOwnedRoot = projectOwnedDependencyRootCache.get(
             request.packageName
@@ -444,21 +493,7 @@ export const createProgram = (
           }
         }
 
-        // 4) Fall back to compiler-owned sibling / compiler-install packages.
-        if (request) {
-          const compilerOwnedRoot = resolveCompilerOwnedTsonicPackageRoot(
-            request.pkgDirName
-          );
-          if (compilerOwnedRoot) {
-            const resolved = resolveModuleFromPackageRoot(
-              compilerOwnedRoot,
-              request.subpath
-            );
-            if (resolved) return resolved;
-          }
-        }
-
-        // 5) Final project-installed resolution through TypeScript itself.
+        // 4) Final project-installed resolution through TypeScript itself.
         // Note: containingFile can be a declaration file coming from a sibling
         // checkout during development; resolving relative to that path would skip
         // the project's node_modules entirely.
@@ -470,16 +505,6 @@ export const createProgram = (
           moduleResolutionCache
         );
         if (projectResult.resolvedModule) return projectResult.resolvedModule;
-
-        // 6) Final resolution fallback through the compiler's own module graph.
-        const result = ts.resolveModuleName(
-          moduleName,
-          compilerContainingFile,
-          tsOptions,
-          host,
-          moduleResolutionCache
-        );
-        if (result.resolvedModule) return result.resolvedModule;
 
         return undefined;
       }
@@ -506,15 +531,12 @@ export const createProgram = (
         return undefined;
       }
       if (sourcePackage.value) {
-        return {
-          resolvedFileName: sourcePackage.value.resolvedPath,
-          extension: sourcePackage.value.resolvedPath.endsWith(".mts")
-            ? ts.Extension.Mts
-            : sourcePackage.value.resolvedPath.endsWith(".cts")
-              ? ts.Extension.Cts
-              : ts.Extension.Ts,
-          isExternalLibraryImport: false,
-        };
+        return toTsSourceResolvedModule(sourcePackage.value.resolvedPath);
+      }
+
+      const aliasedSourcePackage = resolveSourcePackageAliasModule();
+      if (aliasedSourcePackage) {
+        return aliasedSourcePackage;
       }
 
       const declarationAlias = declarationModuleAliases.get(moduleName);
@@ -538,17 +560,9 @@ export const createProgram = (
                 options.projectRoot
               );
         if (redirectedSourcePackage.ok && redirectedSourcePackage.value) {
-          return {
-            resolvedFileName: redirectedSourcePackage.value.resolvedPath,
-            extension: redirectedSourcePackage.value.resolvedPath.endsWith(
-              ".mts"
-            )
-              ? ts.Extension.Mts
-              : redirectedSourcePackage.value.resolvedPath.endsWith(".cts")
-                ? ts.Extension.Cts
-                : ts.Extension.Ts,
-            isExternalLibraryImport: false,
-          };
+          return toTsSourceResolvedModule(
+            redirectedSourcePackage.value.resolvedPath
+          );
         }
       }
 

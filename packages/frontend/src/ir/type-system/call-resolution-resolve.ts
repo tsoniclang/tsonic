@@ -2,7 +2,7 @@
  * Call Resolution Resolve — Main resolveCall entry point.
  *
  * Contains the resolveCall function that orchestrates signature loading,
- * receiver substitution, method type parameter inference, and CLR overload correction.
+ * receiver substitution, and method type parameter inference.
  *
  * DAG position: depends on type-system-state, type-system-relations,
  * call-resolution-utilities, call-resolution-signatures, call-resolution-inference
@@ -30,10 +30,8 @@ import {
 } from "./call-resolution-utilities.js";
 import {
   getRawSignature,
-  tryResolveCallFromUnifiedCatalog,
 } from "./call-resolution-signatures.js";
 import {
-  scoreSignatureMatch,
   refineResolvedParameterTypesForArguments,
 } from "./call-resolution-inference.js";
 import { applyReceiverSubstitution } from "./call-resolution-receiver-substitution.js";
@@ -155,20 +153,6 @@ export const resolveCall = (
       unresolved.size > 0 &&
       containsMethodTypeParameter(workingReturn, unresolved)
     ) {
-      const fallback =
-        argTypes && rawSig.declaringTypeTsName && rawSig.declaringMemberName
-          ? tryResolveCallFromUnifiedCatalog(
-              state,
-              rawSig.declaringTypeTsName,
-              rawSig.declaringMemberName,
-              query
-            )
-          : undefined;
-
-      if (fallback) {
-        return fallback;
-      }
-
       emitDiagnostic(
         state,
         "TSN5202",
@@ -180,6 +164,7 @@ export const resolveCall = (
   }
 
   const resolved: ResolvedCall = {
+    thisParameterType: workingThisParam,
     restParameter: buildResolvedRestParameter(
       rawSig.parameterFlags,
       workingParams
@@ -214,78 +199,6 @@ export const resolveCall = (
     },
     diagnostics: [],
   };
-
-  // CLR overload correction (airplane-grade determinism):
-  //
-  // TypeScript cannot always select the correct overload for CLR APIs because some
-  // Tsonic surface types intentionally erase to TS primitives (e.g., `char` is `string`
-  // in @tsonic/core for TSC compatibility). This can cause TS to resolve calls like
-  // Console.writeLine("Hello") to a `char` overload, which is semantically invalid.
-  //
-  // When we have full argument types, and the call targets an assembly-origin type,
-  // prefer the best matching overload from the UnifiedTypeCatalog if it scores higher
-  // than the TS-selected signature.
-
-  if (
-    !resolved.typePredicate &&
-    argTypes &&
-    rawSig.declaringTypeTsName &&
-    rawSig.declaringMemberName
-  ) {
-    const hasAllArgTypes =
-      argTypes.length >= argumentCount &&
-      Array.from({ length: argumentCount }, (_, i) => argTypes[i]).every(
-        (t) => t !== undefined
-      );
-
-    if (hasAllArgTypes) {
-      const catalogResolved = tryResolveCallFromUnifiedCatalog(
-        state,
-        rawSig.declaringTypeTsName,
-        rawSig.declaringMemberName,
-        query
-      );
-
-      if (catalogResolved) {
-        const currentScore = scoreSignatureMatch(
-          state,
-          resolved.parameterTypes,
-          argTypes,
-          argumentCount
-        );
-        const catalogScore = scoreSignatureMatch(
-          state,
-          catalogResolved.parameterTypes,
-          argTypes,
-          argumentCount
-        );
-
-        const currentMeta = resolved.selectionMeta;
-        const catalogMeta = catalogResolved.selectionMeta;
-        const catalogWinsTie =
-          currentMeta !== undefined &&
-          catalogMeta !== undefined &&
-          ((catalogMeta.hasRestParameter !== currentMeta.hasRestParameter &&
-            !catalogMeta.hasRestParameter) ||
-            (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
-              catalogMeta.typeParamCount < currentMeta.typeParamCount) ||
-            (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
-              catalogMeta.typeParamCount === currentMeta.typeParamCount &&
-              catalogMeta.parameterCount < currentMeta.parameterCount) ||
-            (catalogMeta.hasRestParameter === currentMeta.hasRestParameter &&
-              catalogMeta.typeParamCount === currentMeta.typeParamCount &&
-              catalogMeta.parameterCount === currentMeta.parameterCount &&
-              catalogMeta.stableId < currentMeta.stableId));
-
-        if (
-          catalogScore > currentScore ||
-          (catalogScore === currentScore && catalogWinsTie)
-        ) {
-          return catalogResolved;
-        }
-      }
-    }
-  }
 
   return resolved;
 };

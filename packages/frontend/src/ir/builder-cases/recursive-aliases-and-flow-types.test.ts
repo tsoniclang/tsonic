@@ -7,8 +7,10 @@ import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
 import {
   IrClassDeclaration,
+  IrExpression,
   IrFunctionDeclaration,
   IrMethodDeclaration,
+  IrReturnStatement,
   IrType,
 } from "../types.js";
 import { createFilesystemTestProgram } from "./_test-helpers.js";
@@ -286,6 +288,113 @@ describe("IR Builder", function () {
         expect(secondReturn.expression.targetType.name).to.equal(
           "ImageDimensions"
         );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("substitutes inherited generic member types across renamed superclass type parameters", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class Box<T> {",
+            "  value: T;",
+            "  constructor(value: T) {",
+            "    this.value = value;",
+            "  }",
+            "}",
+            "",
+            "export class WrappedBox<U> extends Box<U> {",
+            "  wrap(): Box<U> {",
+            "    return new Box(this.value);",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const wrappedBoxClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "WrappedBox"
+        );
+        expect(wrappedBoxClass).to.not.equal(undefined);
+        if (!wrappedBoxClass) return;
+
+        const wrap = wrappedBoxClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "wrap"
+        );
+        expect(wrap).to.not.equal(undefined);
+        if (!wrap) return;
+        expect(wrap.body).to.not.equal(undefined);
+        if (!wrap.body) return;
+
+        expect(wrap.returnType?.kind).to.equal("referenceType");
+        if (!wrap.returnType || wrap.returnType.kind !== "referenceType") {
+          return;
+        }
+        expect(wrap.returnType.name).to.equal("Box");
+        expect(wrap.returnType.typeArguments).to.deep.equal([
+          { kind: "typeParameterType", name: "U" },
+        ]);
+        expect(wrap.returnType.structuralMembers).to.deep.equal([
+          {
+            kind: "propertySignature",
+            name: "value",
+            type: { kind: "typeParameterType", name: "U" },
+            isOptional: false,
+            isReadonly: false,
+          },
+        ]);
+
+        const returnStmt = wrap.body.statements[0];
+        expect(returnStmt?.kind).to.equal("returnStatement");
+        if (!returnStmt || returnStmt.kind !== "returnStatement") return;
+
+        const returnExpr = (returnStmt as IrReturnStatement).expression;
+        expect(returnExpr?.kind).to.equal("new");
+        if (!returnExpr || returnExpr.kind !== "new") return;
+
+        expect(returnExpr.inferredType?.kind).to.equal("referenceType");
+        if (returnExpr.inferredType?.kind !== "referenceType") return;
+        expect(returnExpr.inferredType.name).to.equal("Box");
+        expect(returnExpr.inferredType.typeArguments).to.deep.equal([
+          { kind: "typeParameterType", name: "U" },
+        ]);
+        expect(returnExpr.typeArguments).to.deep.equal([
+          { kind: "typeParameterType", name: "U" },
+        ]);
+
+        const valueArg = returnExpr.arguments[0];
+        expect(valueArg?.kind).to.equal("memberAccess");
+        if (!valueArg || valueArg.kind !== "memberAccess") return;
+
+        expect(valueArg.inferredType).to.deep.equal({
+          kind: "typeParameterType",
+          name: "U",
+        });
+
+        const thisExpr = valueArg.object as IrExpression | undefined;
+        expect(thisExpr?.kind).to.equal("this");
+        if (!thisExpr || thisExpr.kind !== "this") return;
+
+        expect(thisExpr.inferredType).to.deep.equal({
+          kind: "referenceType",
+          name: "WrappedBox",
+          typeArguments: [{ kind: "typeParameterType", name: "U" }],
+        });
       } finally {
         fixture.cleanup();
       }

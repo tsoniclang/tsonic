@@ -101,6 +101,10 @@ export const adaptEmittedExpressionAst = (opts: {
   const exactExpectedSurface = expectedType
     ? tryEmitExactComparisonTargetAst(expectedType, castedContext)
     : undefined;
+  const matchesExactExpectedSurface =
+    !!exactExpectedSurface &&
+    (isExactExpressionToType(castedAst, exactExpectedSurface[0]) ||
+      isExactArrayCreationToType(castedAst, exactExpectedSurface[0]));
   const exactAssertedSurface =
     expr.kind === "typeAssertion"
       ? tryEmitExactComparisonTargetAst(
@@ -111,11 +115,11 @@ export const adaptEmittedExpressionAst = (opts: {
           castedContext
         )
       : undefined;
+  if (matchesExactExpectedSurface && expr.kind !== "typeAssertion") {
+    return [castedAst, exactExpectedSurface[1]];
+  }
   const preservesExpectedSurface =
-    expr.kind === "typeAssertion" &&
-    !!exactExpectedSurface &&
-    (isExactExpressionToType(castedAst, exactExpectedSurface[0]) ||
-      isExactArrayCreationToType(castedAst, exactExpectedSurface[0]));
+    expr.kind === "typeAssertion" && matchesExactExpectedSurface;
   const preservesAssertedSurface =
     expr.kind === "typeAssertion" &&
     !!exactAssertedSurface &&

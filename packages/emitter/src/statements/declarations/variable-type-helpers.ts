@@ -55,6 +55,10 @@ export const canEmitTypeExplicitly = (type: IrType): boolean => {
     return false;
   }
 
+  if (type.kind === "typeParameterType") {
+    return true;
+  }
+
   // Accept primitives
   if (type.kind === "primitiveType") {
     return true;

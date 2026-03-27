@@ -98,6 +98,14 @@ export type TypeAuthority = {
   typeOfMember(receiver: IrType, member: MemberRef, site?: Site): IrType;
 
   /**
+   * Try to get the declared type of a member without emitting diagnostics.
+   *
+   * Used by strict feature-detection paths that need to inspect explicit shape
+   * without turning absence into a speculative compiler error.
+   */
+  tryTypeOfMember(receiver: IrType, member: MemberRef): IrType | undefined;
+
+  /**
    * Get CLR indexer information for a receiver type (if any).
    *
    * Used to deterministically lower computed access (`obj[key]`) using CLR metadata

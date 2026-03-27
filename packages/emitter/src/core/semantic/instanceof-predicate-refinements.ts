@@ -27,6 +27,7 @@ import {
   currentNarrowedType,
   resolveRuntimeUnionFrame,
   resolveRuntimeSubsetSourceInfo,
+  resolveExistingNarrowingSourceType,
   buildRuntimeUnionComplementBinding,
   applyDirectTypeNarrowing,
 } from "./narrowing-builders.js";
@@ -218,7 +219,11 @@ export const applyInstanceofRefinement = (
     buildExprBinding(
       exprAst,
       guard.targetType,
-      guard.currentType,
+      resolveExistingNarrowingSourceType(
+        guard.originalName,
+        guard.currentType,
+        context
+      ),
       guard.receiverAst
     ),
     guard.contextAfter

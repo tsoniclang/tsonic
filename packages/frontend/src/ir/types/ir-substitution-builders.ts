@@ -7,6 +7,7 @@
  */
 
 import type { IrType } from "./ir-types.js";
+import { normalizedUnionType } from "./type-ops.js";
 import {
   type TypeSubstitutionMap,
   type SubstitutionResult,
@@ -46,20 +47,73 @@ export const substituteIrType = (
       // treat it as a bare type parameter (e.g., TEntity) and substitute directly.
       if (!type.typeArguments || type.typeArguments.length === 0) {
         const substituted = substitutions.get(type.name);
-        return substituted ?? type;
+        if (substituted) {
+          return substituted;
+        }
+        if (!type.structuralMembers || type.structuralMembers.length === 0) {
+          return type;
+        }
       }
-      const newArgs = type.typeArguments.map((arg) =>
+      const newArgs = type.typeArguments?.map((arg) =>
         substituteIrType(arg, substitutions)
       );
-      // Check if any args changed
-      const changed = newArgs.some((newArg, i) => {
-        const origArg = type.typeArguments?.[i];
-        return origArg ? newArg !== origArg : false;
+      const newStructuralMembers = type.structuralMembers?.map((member) => {
+        if (member.kind === "propertySignature") {
+          const substitutedType = substituteIrType(member.type, substitutions);
+          return substitutedType === member.type
+            ? member
+            : { ...member, type: substitutedType };
+        }
+
+        const substitutedReturnType = member.returnType
+          ? substituteIrType(member.returnType, substitutions)
+          : member.returnType;
+        const substitutedParameters = member.parameters.map((parameter) =>
+          parameter.type
+            ? {
+                ...parameter,
+                type: substituteIrType(parameter.type, substitutions),
+              }
+            : parameter
+        );
+
+        const unchangedParameters = substitutedParameters.every(
+          (parameter, index) => {
+            const original = member.parameters[index];
+            return original ? parameter.type === original.type : true;
+          }
+        );
+
+        if (
+          substitutedReturnType === member.returnType &&
+          unchangedParameters
+        ) {
+          return member;
+        }
+
+        return {
+          ...member,
+          returnType: substitutedReturnType,
+          parameters: substitutedParameters,
+        };
       });
-      if (!changed) return type;
+      const argsChanged =
+        newArgs?.some((newArg, i) => {
+          const origArg = type.typeArguments?.[i];
+          return origArg ? newArg !== origArg : false;
+        }) ?? false;
+      const structuralChanged =
+        newStructuralMembers?.some((member, i) => {
+          const original = type.structuralMembers?.[i];
+          return original ? member !== original : false;
+        }) ?? false;
+      if (!argsChanged && !structuralChanged) return type;
       return {
         ...type,
         typeArguments: newArgs,
+        ...(newStructuralMembers
+          ? { structuralMembers: newStructuralMembers }
+          : {}),
       };
     }
 
@@ -109,7 +163,15 @@ export const substituteIrType = (
       };
     }
 
-    case "unionType":
+    case "unionType": {
+      const newTypes = type.types.map((t) =>
+        substituteIrType(t, substitutions)
+      );
+      const changed = newTypes.some((t, i) => t !== type.types[i]);
+      if (!changed) return type;
+      return normalizedUnionType(newTypes);
+    }
+
     case "intersectionType": {
       const newTypes = type.types.map((t) =>
         substituteIrType(t, substitutions)

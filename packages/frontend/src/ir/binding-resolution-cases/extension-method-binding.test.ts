@@ -1,7 +1,7 @@
 /**
  * Tests for extension method binding resolution in IR conversion —
  * primitive wrapper methods, string extensions, object-literal receivers,
- * PascalCase folding, and ambiguous case-fold guards
+ * and strict case-sensitive member binding rules
  */
 
 import { describe, it } from "mocha";
@@ -11,6 +11,7 @@ import {
   createTestProgram,
   BindingRegistry,
 } from "./helpers.js";
+import { validateIrSoundness } from "../validation/index.js";
 
 describe("Binding Resolution in IR", () => {
   describe("Extension Method Binding Resolution", () => {
@@ -343,7 +344,7 @@ describe("Binding Resolution in IR", () => {
       );
     });
 
-    it("resolves lower-cased TS member access to a unique CLR PascalCase member", () => {
+    it("does not case-fold lower-cased TS member access to CLR PascalCase members", () => {
       const source = `
         declare class Architecture {}
         declare const current: Architecture;
@@ -403,15 +404,93 @@ describe("Binding Resolution in IR", () => {
       if (returnStmt.expression.kind !== "call") return;
       if (returnStmt.expression.callee.kind !== "memberAccess") return;
 
-      expect(returnStmt.expression.callee.memberBinding).to.not.equal(
-        undefined
+      expect(returnStmt.expression.callee.memberBinding).to.equal(undefined);
+
+      const soundness = validateIrSoundness([result.value]);
+      expect(soundness.ok).to.equal(false);
+      expect(
+        soundness.diagnostics.some(
+          (diagnostic) =>
+            diagnostic.code === "TSN5203" &&
+            diagnostic.message.includes("toString")
+        )
+      );
+      expect(
+        soundness.diagnostics.some((diagnostic) => diagnostic.code === "TSN5201")
+      ).to.equal(true);
+    });
+
+    it("binds enum lower-cased toString through js Number semantics instead of CLR case-folding", () => {
+      const source = `
+        interface Number {
+          toString(): string;
+        }
+
+        declare enum Architecture {
+          X = 1
+        }
+
+        declare const current: Architecture;
+
+        export function test(): string {
+          return current.toString();
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/runtime.json", {
+        namespace: "js",
+        types: [
+          {
+            clrName: "js.Number",
+            assemblyName: "js",
+            methods: [
+              {
+                clrName: "toString",
+                normalizedSignature: "toString|():System.String|static=true",
+                parameterCount: 0,
+                declaringClrType: "js.Number",
+                declaringAssemblyName: "js",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[0];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) {
+        return;
+      }
+      if (returnStmt.expression.kind !== "call") return;
+      if (returnStmt.expression.callee.kind !== "memberAccess") return;
+
+      expect(returnStmt.expression.callee.memberBinding).to.not.equal(undefined);
+      expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
+        "js.Number"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
-        "ToString"
+        "toString"
       );
-      expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "System.Enum"
-      );
+      expect(
+        returnStmt.expression.callee.memberBinding?.emitSemantics?.callStyle
+      ).to.equal("static");
+
+      const soundness = validateIrSoundness([result.value]);
+      expect(soundness.ok).to.equal(true);
     });
 
     it("does not case-fold member bindings when multiple CLR spellings would match", () => {

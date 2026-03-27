@@ -201,7 +201,7 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("builds JSArray push calls for tuple and object-literal element values", () => {
+  it("builds Array push calls for tuple and object-literal element values", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-push-element-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });

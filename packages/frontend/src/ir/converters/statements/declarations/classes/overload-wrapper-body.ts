@@ -4,6 +4,9 @@ import {
   IrParameter,
   IrStatement,
   IrType,
+  normalizedUnionType,
+  stableIrTypeKey,
+  substituteIrType,
 } from "../../../../types.js";
 import { getAwaitedIrType } from "../../../../types.js";
 import { buildForwardedCallArguments } from "./overload-wrapper-forwarding.js";
@@ -23,6 +26,540 @@ const resolveEffectiveReturnType = (
   }
 
   return getAwaitedIrType(targetReturnType) ?? targetReturnType;
+};
+
+const normalizeWrapperType = (type: IrType): IrType => {
+  switch (type.kind) {
+    case "unionType":
+      return normalizedUnionType(
+        type.types.map((member) => normalizeWrapperType(member))
+      );
+    case "intersectionType":
+      return {
+        ...type,
+        types: type.types.map((member) => normalizeWrapperType(member)),
+      };
+    case "arrayType":
+      return {
+        ...type,
+        elementType: normalizeWrapperType(type.elementType),
+        ...(type.tuplePrefixElementTypes
+          ? {
+              tuplePrefixElementTypes: type.tuplePrefixElementTypes.map(
+                (member) => normalizeWrapperType(member)
+              ),
+            }
+          : {}),
+        ...(type.tupleRestElementType
+          ? {
+              tupleRestElementType: normalizeWrapperType(
+                type.tupleRestElementType
+              ),
+            }
+          : {}),
+      };
+    case "tupleType":
+      return {
+        ...type,
+        elementTypes: type.elementTypes.map((member) =>
+          normalizeWrapperType(member)
+        ),
+      };
+    case "dictionaryType":
+      return {
+        ...type,
+        keyType: normalizeWrapperType(type.keyType),
+        valueType: normalizeWrapperType(type.valueType),
+      };
+    case "functionType":
+      return {
+        ...type,
+        parameters: type.parameters.map((parameter) =>
+          parameter.type
+            ? {
+                ...parameter,
+                type: normalizeWrapperType(parameter.type),
+              }
+            : parameter
+        ),
+        returnType: normalizeWrapperType(type.returnType),
+      };
+    case "referenceType":
+      return type.typeArguments?.length
+        ? {
+            ...type,
+            typeArguments: type.typeArguments.map((member) =>
+              normalizeWrapperType(member)
+            ),
+          }
+        : type;
+    case "objectType":
+      return {
+        ...type,
+        members: type.members.map((member) => {
+          if (member.kind === "propertySignature") {
+            return {
+              ...member,
+              type: normalizeWrapperType(member.type),
+            };
+          }
+
+          return {
+            ...member,
+            parameters: member.parameters.map((parameter) =>
+              parameter.type
+                ? {
+                    ...parameter,
+                    type: normalizeWrapperType(parameter.type),
+                  }
+                : parameter
+            ),
+            ...(member.returnType
+              ? { returnType: normalizeWrapperType(member.returnType) }
+              : {}),
+          };
+        }),
+      };
+    default:
+      return type;
+  }
+};
+
+const areWrapperTypesEquivalent = (left: IrType, right: IrType): boolean =>
+  stableIrTypeKey(normalizeWrapperType(left)) ===
+  stableIrTypeKey(normalizeWrapperType(right));
+
+const bindWrapperTypeParameter = (
+  name: string,
+  actual: IrType,
+  substitutions: Map<string, IrType>,
+  bindableNames: ReadonlySet<string>
+): boolean => {
+  const normalizedActual = normalizeWrapperType(actual);
+  const existing = substitutions.get(name);
+  if (!existing) {
+    if (!bindableNames.has(name)) {
+      return areWrapperTypesEquivalent(
+        {
+          kind: "typeParameterType",
+          name,
+        },
+        normalizedActual
+      );
+    }
+    substitutions.set(name, normalizedActual);
+    return true;
+  }
+
+  return areWrapperTypesEquivalent(existing, normalizedActual);
+};
+
+const bindWrapperReturnSubstitutions = (
+  formal: IrType,
+  actual: IrType,
+  substitutions: Map<string, IrType>,
+  bindableNames: ReadonlySet<string>
+): boolean => {
+  const normalizedFormal = normalizeWrapperType(
+    substituteIrType(formal, substitutions)
+  );
+  const normalizedActual = normalizeWrapperType(
+    substituteIrType(actual, substitutions)
+  );
+
+  if (areWrapperTypesEquivalent(normalizedFormal, normalizedActual)) {
+    return true;
+  }
+
+  if (normalizedFormal.kind === "typeParameterType") {
+    return bindWrapperTypeParameter(
+      normalizedFormal.name,
+      normalizedActual,
+      substitutions,
+      bindableNames
+    );
+  }
+
+  if (normalizedFormal.kind === "unionType") {
+    const actualKey = stableIrTypeKey(normalizedActual);
+    const normalizedMembers = normalizedFormal.types.map((member) =>
+      normalizeWrapperType(substituteIrType(member, substitutions))
+    );
+    if (
+      !normalizedMembers.some(
+        (member) => stableIrTypeKey(member) === actualKey
+      )
+    ) {
+      return false;
+    }
+
+    for (const member of normalizedMembers) {
+      if (member.kind === "typeParameterType") {
+        if (
+          !bindWrapperTypeParameter(
+            member.name,
+            normalizedActual,
+            substitutions,
+            bindableNames
+          )
+        ) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  if (normalizedFormal.kind !== normalizedActual.kind) {
+    return false;
+  }
+
+  switch (normalizedFormal.kind) {
+    case "primitiveType":
+    case "literalType":
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return areWrapperTypesEquivalent(normalizedFormal, normalizedActual);
+    case "referenceType": {
+      if (normalizedActual.kind !== "referenceType") {
+        return false;
+      }
+      if (normalizedFormal.name !== normalizedActual.name) {
+        return false;
+      }
+      const formalArgs = normalizedFormal.typeArguments ?? [];
+      const actualArgs = normalizedActual.typeArguments ?? [];
+      if (formalArgs.length !== actualArgs.length) {
+        return false;
+      }
+      for (let index = 0; index < formalArgs.length; index += 1) {
+        const formalArg = formalArgs[index];
+        const actualArg = actualArgs[index];
+        if (!formalArg || !actualArg) {
+          return false;
+        }
+        if (
+          !bindWrapperReturnSubstitutions(
+            formalArg,
+            actualArg,
+            substitutions,
+            bindableNames
+          )
+        ) {
+          return false;
+        }
+      }
+      return true;
+    }
+    case "arrayType":
+      if (normalizedActual.kind !== "arrayType") {
+        return false;
+      }
+      return bindWrapperReturnSubstitutions(
+        normalizedFormal.elementType,
+        normalizedActual.elementType,
+        substitutions,
+        bindableNames
+      );
+    case "tupleType":
+      if (
+        normalizedActual.kind !== "tupleType" ||
+        normalizedFormal.elementTypes.length !== normalizedActual.elementTypes.length
+      ) {
+        return false;
+      }
+      for (let index = 0; index < normalizedFormal.elementTypes.length; index += 1) {
+        const formalElement = normalizedFormal.elementTypes[index];
+        const actualElement = normalizedActual.elementTypes[index];
+        if (!formalElement || !actualElement) {
+          return false;
+        }
+        if (
+          !bindWrapperReturnSubstitutions(
+            formalElement,
+            actualElement,
+            substitutions,
+            bindableNames
+          )
+        ) {
+          return false;
+        }
+      }
+      return true;
+    case "dictionaryType":
+      if (normalizedActual.kind !== "dictionaryType") {
+        return false;
+      }
+      return (
+        bindWrapperReturnSubstitutions(
+          normalizedFormal.keyType,
+          normalizedActual.keyType,
+          substitutions,
+          bindableNames
+        ) &&
+        bindWrapperReturnSubstitutions(
+          normalizedFormal.valueType,
+          normalizedActual.valueType,
+          substitutions,
+          bindableNames
+        )
+      );
+    case "functionType":
+      if (
+        normalizedActual.kind !== "functionType" ||
+        normalizedFormal.parameters.length !== normalizedActual.parameters.length
+      ) {
+        return false;
+      }
+      for (let index = 0; index < normalizedFormal.parameters.length; index += 1) {
+        const formalParameter = normalizedFormal.parameters[index];
+        const actualParameter = normalizedActual.parameters[index];
+        if (!formalParameter || !actualParameter) {
+          return false;
+        }
+        if (!!formalParameter.type !== !!actualParameter.type) {
+          return false;
+        }
+        if (
+          formalParameter.type &&
+          actualParameter.type &&
+          !bindWrapperReturnSubstitutions(
+            formalParameter.type,
+            actualParameter.type,
+            substitutions,
+            bindableNames
+          )
+        ) {
+          return false;
+        }
+      }
+      return bindWrapperReturnSubstitutions(
+        normalizedFormal.returnType,
+        normalizedActual.returnType,
+        substitutions,
+        bindableNames
+      );
+    case "objectType":
+      return false;
+    case "intersectionType":
+      return false;
+  }
+};
+
+const specializeHelperCallShapeRequired = (
+  type: IrType,
+  substitutions: ReadonlyMap<string, IrType>
+): IrType => {
+  switch (type.kind) {
+    case "typeParameterType":
+      return substitutions.get(type.name) ?? type;
+
+    case "referenceType":
+      return {
+        ...type,
+        ...(type.typeArguments
+          ? {
+              typeArguments: type.typeArguments.map((member) =>
+                specializeHelperCallShapeRequired(member, substitutions)
+              ),
+            }
+          : {}),
+        ...(type.structuralMembers
+          ? {
+              structuralMembers: type.structuralMembers.map((member) => {
+                if (member.kind === "propertySignature") {
+                  return {
+                    ...member,
+                    type: specializeHelperCallShapeRequired(
+                      member.type,
+                      substitutions
+                    ),
+                  };
+                }
+
+                return {
+                  ...member,
+                  parameters: member.parameters.map((parameter) =>
+                    parameter.type
+                      ? {
+                          ...parameter,
+                          type: specializeHelperCallShapeRequired(
+                            parameter.type,
+                            substitutions
+                          ),
+                        }
+                      : parameter
+                  ),
+                  ...(member.returnType
+                    ? {
+                        returnType: specializeHelperCallShapeRequired(
+                          member.returnType,
+                          substitutions
+                        ),
+                      }
+                    : {}),
+                };
+              }),
+            }
+          : {}),
+      };
+
+    case "arrayType":
+      return {
+        ...type,
+        elementType: specializeHelperCallShapeRequired(
+          type.elementType,
+          substitutions
+        ),
+        ...(type.tuplePrefixElementTypes
+          ? {
+              tuplePrefixElementTypes: type.tuplePrefixElementTypes.map(
+                (member) =>
+                  specializeHelperCallShapeRequired(member, substitutions)
+              ),
+            }
+          : {}),
+        ...(type.tupleRestElementType
+          ? {
+              tupleRestElementType: specializeHelperCallShapeRequired(
+                type.tupleRestElementType,
+                substitutions
+              ),
+            }
+          : {}),
+      };
+
+    case "tupleType":
+      return {
+        ...type,
+        elementTypes: type.elementTypes.map(
+          (member) => specializeHelperCallShapeRequired(member, substitutions)
+        ),
+      };
+
+    case "unionType":
+      return {
+        ...type,
+        types: type.types.map(
+          (member) => specializeHelperCallShapeRequired(member, substitutions)
+        ),
+      };
+
+    case "intersectionType":
+      return {
+        ...type,
+        types: type.types.map(
+          (member) => specializeHelperCallShapeRequired(member, substitutions)
+        ),
+      };
+
+    case "dictionaryType":
+      return {
+        ...type,
+        keyType: specializeHelperCallShapeRequired(
+          type.keyType,
+          substitutions
+        ),
+        valueType: specializeHelperCallShapeRequired(
+          type.valueType,
+          substitutions
+        ),
+      };
+
+    case "functionType":
+      return {
+        ...type,
+        parameters: type.parameters.map((parameter) =>
+          parameter.type
+            ? {
+                ...parameter,
+                type: specializeHelperCallShapeRequired(
+                  parameter.type,
+                  substitutions
+                ),
+              }
+            : parameter
+        ),
+        returnType: specializeHelperCallShapeRequired(
+          type.returnType,
+          substitutions
+        ),
+      };
+
+    case "objectType":
+      return {
+        ...type,
+        members: type.members.map((member) => {
+          if (member.kind === "propertySignature") {
+            return {
+              ...member,
+              type: specializeHelperCallShapeRequired(
+                member.type,
+                substitutions
+              ),
+            };
+          }
+
+          return {
+            ...member,
+            parameters: member.parameters.map((parameter) =>
+              parameter.type
+                ? {
+                    ...parameter,
+                    type: specializeHelperCallShapeRequired(
+                      parameter.type,
+                      substitutions
+                    ),
+                  }
+                : parameter
+            ),
+            ...(member.returnType
+              ? {
+                  returnType: specializeHelperCallShapeRequired(
+                    member.returnType,
+                    substitutions
+                  ),
+                }
+              : {}),
+          };
+        }),
+      };
+
+    default:
+      return type;
+  }
+};
+
+const specializeHelperCallShapeType = (
+  type: IrType | undefined,
+  substitutions: ReadonlyMap<string, IrType>
+): IrType | undefined =>
+  type ? specializeHelperCallShapeRequired(type, substitutions) : undefined;
+
+const trimTrailingOptionalHelperParameters = (
+  wrapperParameters: readonly IrParameter[],
+  helperParameters: readonly IrParameter[]
+): readonly IrParameter[] => {
+  if (wrapperParameters.some((parameter) => parameter.isRest)) {
+    return helperParameters;
+  }
+
+  let end = helperParameters.length;
+  while (end > wrapperParameters.length) {
+    const helperParameter = helperParameters[end - 1];
+    if (
+      helperParameter?.isOptional ||
+      helperParameter?.initializer !== undefined
+    ) {
+      end -= 1;
+      continue;
+    }
+    break;
+  }
+
+  return helperParameters.slice(0, end);
 };
 
 export const needsAsyncWrapperReturnAdaptation = (
@@ -241,16 +778,56 @@ export const createWrapperBody = (
   helperName: string,
   parameters: readonly IrParameter[],
   helperParameters: readonly IrParameter[],
+  helperTypeParameterNames: readonly string[],
   isStatic: boolean,
   implReturnType: IrType | undefined,
   wrapperReturnType: IrType | undefined,
-  typeParameterNames: readonly string[],
+  wrapperTypeParameterNames: readonly string[],
   wrapperIsAsync = false
 ): IrBlockStatement => {
+  const substitutions = new Map<string, IrType>();
+  const bindableNames = new Set<string>([
+    ...helperTypeParameterNames,
+    ...wrapperTypeParameterNames,
+  ]);
+  for (const typeParameterName of wrapperTypeParameterNames) {
+    substitutions.set(typeParameterName, {
+      kind: "typeParameterType",
+      name: typeParameterName,
+    });
+  }
+  if (implReturnType && wrapperReturnType) {
+    bindWrapperReturnSubstitutions(
+      implReturnType,
+      wrapperReturnType,
+      substitutions,
+      bindableNames
+    );
+  }
+
+  const specializedHelperParameters = helperParameters.map((parameter) => ({
+    ...parameter,
+    type: specializeHelperCallShapeType(parameter.type, substitutions),
+  }));
+  const effectiveHelperParameters = trimTrailingOptionalHelperParameters(
+    parameters,
+    specializedHelperParameters
+  );
   const forwardedArgs = buildForwardedCallArguments(
     parameters,
-    helperParameters
+    effectiveHelperParameters
   );
+  const specializedImplReturnType = specializeHelperCallShapeType(
+    implReturnType,
+    substitutions
+  );
+  const helperTypeArguments =
+    helperTypeParameterNames.length > 0 &&
+    helperTypeParameterNames.every((name) => substitutions.has(name))
+      ? helperTypeParameterNames.map(
+          (name) => substitutions.get(name) as IrType
+        )
+      : undefined;
 
   const callee: IrExpression = isStatic
     ? {
@@ -272,21 +849,17 @@ export const createWrapperBody = (
     callee,
     arguments: forwardedArgs,
     isOptional: false,
-    inferredType: implReturnType ?? wrapperReturnType,
+    inferredType: specializedImplReturnType ?? wrapperReturnType,
     allowUnknownInferredType: true,
-    ...(typeParameterNames.length > 0
+    ...(helperTypeArguments && helperTypeArguments.length > 0
       ? {
-          typeArguments: typeParameterNames.map(
-            (name) =>
-              ({
-                kind: "typeParameterType",
-                name,
-              }) satisfies IrType
-          ),
+          typeArguments: helperTypeArguments,
         }
       : {}),
-    parameterTypes: helperParameters.map((parameter) => parameter.type),
-    argumentPassing: helperParameters.map((parameter) => parameter.passing),
+    parameterTypes: effectiveHelperParameters.map((parameter) => parameter.type),
+    argumentPassing: effectiveHelperParameters.map(
+      (parameter) => parameter.passing
+    ),
   };
 
   const awaitableReturnAdaptation =
@@ -294,8 +867,8 @@ export const createWrapperBody = (
       ? getAwaitedIrType(wrapperReturnType)
       : undefined;
   const implAwaitedReturnType =
-    wrapperIsAsync && implReturnType
-      ? getAwaitedIrType(implReturnType)
+    wrapperIsAsync && specializedImplReturnType
+      ? getAwaitedIrType(specializedImplReturnType)
       : undefined;
   const awaitedReturnExpression =
     wrapperIsAsync && awaitableReturnAdaptation
@@ -314,7 +887,7 @@ export const createWrapperBody = (
         )
       : substitutePolymorphicReturn(
           callExpr,
-          implReturnType,
+          specializedImplReturnType,
           wrapperReturnType
         );
   const hasReturnValue =

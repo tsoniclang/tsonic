@@ -6,6 +6,9 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitCSharpFiles } from "./emitter.js";
 import type { IrModule } from "@tsonic/frontend";
+import { createJsSurfaceBindingRegistry } from "./expressions/index-cases/helpers.js";
+
+const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
 
 describe("JSON NativeAOT registry", () => {
   it("routes untyped global JSON.parse through JSON runtime support without AOT metadata", () => {
@@ -35,6 +38,12 @@ describe("JSON NativeAOT registry", () => {
                     property: "parse",
                     isComputed: false,
                     isOptional: false,
+                    memberBinding: {
+                      kind: "method",
+                      assembly: "js",
+                      type: "js.JSON",
+                      member: "parse",
+                    },
                   },
                   arguments: [
                     {
@@ -59,6 +68,8 @@ describe("JSON NativeAOT registry", () => {
     const result = emitCSharpFiles([module], {
       rootNamespace: "MyApp",
       enableJsonAot: true,
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result.ok).to.equal(true);
     if (!result.ok) return;
@@ -66,7 +77,7 @@ describe("JSON NativeAOT registry", () => {
     const code = result.files.get("index.cs");
     expect(code).to.not.equal(undefined);
     expect(code).to.include(
-      'global::Tsonic.Runtime.JSON.parse<object>("{\\"title\\":\\"hello\\"}")'
+      'global::js.JSON.parse<object>("{\\"title\\":\\"hello\\"}")'
     );
     expect(code).to.not.include("TsonicJson.Options");
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
@@ -99,6 +110,12 @@ describe("JSON NativeAOT registry", () => {
                     property: "parse",
                     isComputed: false,
                     isOptional: false,
+                    memberBinding: {
+                      kind: "method",
+                      assembly: "js",
+                      type: "js.JSON",
+                      member: "parse",
+                    },
                   },
                   arguments: [{ kind: "literal", value: "123" }],
                   isOptional: false,
@@ -118,6 +135,8 @@ describe("JSON NativeAOT registry", () => {
     const result = emitCSharpFiles([module], {
       rootNamespace: "MyApp",
       enableJsonAot: true,
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result.ok).to.equal(true);
     if (!result.ok) return;
@@ -166,6 +185,12 @@ describe("JSON NativeAOT registry", () => {
                     property: "stringify",
                     isComputed: false,
                     isOptional: false,
+                    memberBinding: {
+                      kind: "method",
+                      assembly: "js",
+                      type: "js.JSON",
+                      member: "stringify",
+                    },
                   },
                   arguments: [
                     {
@@ -191,13 +216,15 @@ describe("JSON NativeAOT registry", () => {
     const result = emitCSharpFiles([module], {
       rootNamespace: "MyApp",
       enableJsonAot: true,
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result.ok).to.equal(true);
     if (!result.ok) return;
 
     const code = result.files.get("index.cs");
     expect(code).to.not.equal(undefined);
-    expect(code).to.include("global::Tsonic.Runtime.JSON.stringify(value)");
+    expect(code).to.include("global::js.JSON.stringify(value)");
     expect(code).to.not.include("JsonSerializer.Serialize(value");
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
@@ -229,6 +256,12 @@ describe("JSON NativeAOT registry", () => {
                     property: "stringify",
                     isComputed: false,
                     isOptional: false,
+                    memberBinding: {
+                      kind: "method",
+                      assembly: "js",
+                      type: "js.JSON",
+                      member: "stringify",
+                    },
                   },
                   arguments: [
                     {
@@ -291,6 +324,7 @@ describe("JSON NativeAOT registry", () => {
       rootNamespace: "MyApp",
       enableJsonAot: true,
       surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result.ok).to.equal(true);
     if (!result.ok) return;
@@ -382,6 +416,8 @@ describe("JSON NativeAOT registry", () => {
     const result = emitCSharpFiles([module], {
       rootNamespace: "MyApp",
       enableJsonAot: true,
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result.ok).to.equal(true);
     if (!result.ok) return;

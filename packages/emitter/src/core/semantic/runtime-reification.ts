@@ -520,8 +520,7 @@ export const tryBuildRuntimeReificationPlan = (
     resolvedExpected.kind === "tupleType" ||
     (resolvedExpected.kind === "referenceType" &&
       (resolvedExpected.name === "Array" ||
-        resolvedExpected.name === "ReadonlyArray" ||
-        resolvedExpected.name === "JSArray"))
+        resolvedExpected.name === "ReadonlyArray"))
   ) {
     if (directValueSurfaceType) {
       const elementMaterialization = tryBuildArrayElementMaterializationAst(

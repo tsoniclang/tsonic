@@ -16,7 +16,7 @@ type RawSourcePackageManifest = {
 export type SourcePackageMetadata = {
   readonly packageName: string;
   readonly packageRoot: string;
-  readonly namespace: string | undefined;
+  readonly namespace: string;
   readonly exports: Readonly<Record<string, string>>;
   readonly exportPaths: readonly string[];
   readonly ambient: readonly string[];
@@ -46,23 +46,6 @@ const readPackageName = (packageRoot: string): string | undefined => {
   } catch {
     return undefined;
   }
-};
-
-const sanitizeNamespaceSegment = (segment: string): string => {
-  const cleaned = segment.replace(/[^a-zA-Z0-9_]/g, "");
-  if (cleaned.length === 0) return "_";
-  return /^\d/.test(cleaned) ? `_${cleaned}` : cleaned;
-};
-
-export const deriveSourcePackageFallbackNamespace = (
-  packageName: string
-): string => {
-  const segments = packageName
-    .split("/")
-    .filter((segment) => segment.length > 0)
-    .map((segment) => sanitizeNamespaceSegment(segment.replace(/^@/, "")));
-
-  return segments.length > 0 ? segments.join(".") : "External";
 };
 
 const parseExports = (
@@ -318,12 +301,17 @@ export const readSourcePackageMetadata = (
       metadataCache.set(normalizedRoot, null);
       return null;
     }
+    const namespace = parseNamespace(source.namespace);
+    if (!namespace) {
+      metadataCache.set(normalizedRoot, null);
+      return null;
+    }
 
     const exportPaths = resolveExportPaths(normalizedRoot, exportsMap);
     const metadata: SourcePackageMetadata = {
       packageName,
       packageRoot: normalizedRoot,
-      namespace: parseNamespace(source.namespace),
+      namespace,
       exports: exportsMap,
       exportPaths,
       ambient,

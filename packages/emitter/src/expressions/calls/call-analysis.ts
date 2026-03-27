@@ -82,13 +82,20 @@ export const isJsonSerializerCall = (
  * These global JSON methods compile to JsonSerializer
  */
 export const isGlobalJsonCall = (
-  callee: IrExpression
+  callee: IrExpression,
+  context: EmitterContext
 ): { method: "Serialize" | "Deserialize" } | null => {
   if (callee.kind !== "memberAccess") return null;
+  if (!callee.memberBinding) return null;
 
-  // Check if object is the global JSON identifier
-  const obj = callee.object;
-  if (obj.kind !== "identifier" || obj.name !== "JSON") return null;
+  const descriptor = context.bindingRegistry?.getExactBindingByKind(
+    "JSON",
+    "global"
+  );
+  if (!descriptor) return null;
+
+  const expectedOwnerType = descriptor.staticType ?? descriptor.type;
+  if (callee.memberBinding.type !== expectedOwnerType) return null;
 
   // Check property name
   const prop = callee.property;

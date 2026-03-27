@@ -2,7 +2,6 @@ import type { SurfaceMode } from "../program/types.js";
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 type SurfaceProfile = {
   readonly mode: SurfaceMode;
@@ -29,6 +28,7 @@ type SurfaceManifest = {
 
 type ResolveSurfaceOptions = {
   readonly projectRoot?: string;
+  readonly authoritativePackageRoots?: ReadonlyMap<string, string>;
 };
 
 const BUILTIN_SURFACE_PROFILES: Readonly<Record<string, SurfaceProfile>> = {
@@ -68,6 +68,20 @@ type ResolvedSurfacePackage = {
   readonly packageRoot: string;
 };
 
+const isSourceSurfacePackageRoot = (packageRoot: string): boolean => {
+  const manifestPath = join(packageRoot, "tsonic.package.json");
+  if (!existsSync(manifestPath)) return false;
+
+  try {
+    const parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+      readonly kind?: unknown;
+    };
+    return parsed.kind === "tsonic-source-package";
+  } catch {
+    return false;
+  }
+};
+
 const readPackageName = (pkgJsonPath: string): string | undefined => {
   if (!existsSync(pkgJsonPath)) return undefined;
   try {
@@ -93,48 +107,53 @@ const sortVersionDirs = (dirs: readonly string[]): readonly string[] => {
   });
 };
 
-const resolveMonorepoRoot = (): string => {
-  const envRoot = process.env.TSONIC_REPO_ROOT?.trim();
-  if (envRoot) {
-    return resolve(envRoot);
+const resolveSiblingSearchRoots = (
+  projectRoot: string
+): readonly string[] => {
+  const roots = new Set<string>();
+  for (const candidateRoot of findAncestorLookupRoots(projectRoot)) {
+    roots.add(resolve(candidateRoot));
+    roots.add(resolve(candidateRoot, ".."));
   }
-
-  const here = fileURLToPath(import.meta.url);
-  return resolve(dirname(here), "../../../../");
+  return Array.from(roots);
 };
 
 const tryResolveSiblingSurfacePackage = (
-  candidate: string
+  candidate: string,
+  projectRoot: string
 ): ResolvedSurfacePackage | undefined => {
   const scoped = candidate.match(/^@tsonic\/([^/]+)$/);
   if (!scoped) return undefined;
   const pkgDirName = scoped[1];
   if (!pkgDirName) return undefined;
 
-  const repoRoot = resolveMonorepoRoot();
-  const siblingRepoRoot = resolve(repoRoot, "..", pkgDirName);
+  for (const searchRoot of resolveSiblingSearchRoots(projectRoot)) {
+    const siblingRepoRoot = join(searchRoot, pkgDirName);
 
-  const repoPackageName = readPackageName(
-    join(siblingRepoRoot, "package.json")
-  );
-  if (repoPackageName === candidate) {
-    return { packageName: candidate, packageRoot: siblingRepoRoot };
-  }
+    const repoPackageName = readPackageName(
+      join(siblingRepoRoot, "package.json")
+    );
+    if (repoPackageName === candidate) {
+      return { packageName: candidate, packageRoot: siblingRepoRoot };
+    }
 
-  const versionsRoot = join(siblingRepoRoot, "versions");
-  if (!existsSync(versionsRoot)) return undefined;
+    const versionsRoot = join(siblingRepoRoot, "versions");
+    if (!existsSync(versionsRoot)) {
+      continue;
+    }
 
-  const versionDirs = sortVersionDirs(
-    readdirSync(versionsRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-  );
+    const versionDirs = sortVersionDirs(
+      readdirSync(versionsRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+    );
 
-  for (const versionDir of versionDirs) {
-    const candidateRoot = join(versionsRoot, versionDir);
-    const name = readPackageName(join(candidateRoot, "package.json"));
-    if (name === candidate) {
-      return { packageName: candidate, packageRoot: candidateRoot };
+    for (const versionDir of versionDirs) {
+      const candidateRoot = join(versionsRoot, versionDir);
+      const name = readPackageName(join(candidateRoot, "package.json"));
+      if (name === candidate) {
+        return { packageName: candidate, packageRoot: candidateRoot };
+      }
     }
   }
 
@@ -213,11 +232,26 @@ const tryResolveProjectInstalledSurfacePackage = (
 
 const resolveSurfacePackage = (
   mode: SurfaceMode,
-  projectRoot: string
+  projectRoot: string,
+  options: ResolveSurfaceOptions
 ): ResolvedSurfacePackage | undefined => {
   const req = createRequire(join(projectRoot, "package.json"));
   const packageName = getSurfacePackageName(mode);
   if (!packageName) return undefined;
+
+  const authoritativePackageRoot =
+    options.authoritativePackageRoots?.get(packageName);
+  if (authoritativePackageRoot) {
+    return {
+      packageName,
+      packageRoot: authoritativePackageRoot,
+    };
+  }
+
+  const sibling = tryResolveSiblingSurfacePackage(packageName, projectRoot);
+  if (sibling && isSourceSurfacePackageRoot(sibling.packageRoot)) {
+    return sibling;
+  }
 
   const workspaceInstalled = tryResolveProjectInstalledSurfacePackage(
     packageName,
@@ -225,16 +259,26 @@ const resolveSurfacePackage = (
   );
   if (
     workspaceInstalled &&
+    isSourceSurfacePackageRoot(workspaceInstalled.packageRoot)
+  ) {
+    return workspaceInstalled;
+  }
+  if (
+    workspaceInstalled &&
     existsSync(join(workspaceInstalled.packageRoot, "tsonic.surface.json"))
   ) {
     return workspaceInstalled;
   }
 
-  const sibling = tryResolveSiblingSurfacePackage(packageName);
-
   try {
     const pkgJsonPath = req.resolve(`${packageName}/package.json`);
     const installed = { packageName, packageRoot: dirname(pkgJsonPath) };
+    if (sibling && isSourceSurfacePackageRoot(sibling.packageRoot)) {
+      return sibling;
+    }
+    if (isSourceSurfacePackageRoot(installed.packageRoot)) {
+      return installed;
+    }
     if (
       sibling &&
       existsSync(join(sibling.packageRoot, "tsonic.surface.json"))
@@ -299,11 +343,25 @@ const resolveManifestTypeRoots = (
 
 const loadCustomSurfaceProfile = (
   mode: SurfaceMode,
-  projectRoot: string
+  options: ResolveSurfaceOptions
 ): SurfaceProfile | undefined => {
-  const resolvedPackage = resolveSurfacePackage(mode, projectRoot);
+  const projectRoot = options.projectRoot;
+  if (!projectRoot) {
+    return undefined;
+  }
+
+  const resolvedPackage = resolveSurfacePackage(mode, projectRoot, options);
   if (!resolvedPackage) return undefined;
   const packageRoot = resolvedPackage.packageRoot;
+
+  if (isSourceSurfacePackageRoot(packageRoot)) {
+    return {
+      mode,
+      extends: [],
+      requiredTypeRoots: [packageRoot],
+      useStandardLib: false,
+    };
+  }
 
   const manifestPath = join(packageRoot, "tsonic.surface.json");
   if (!existsSync(manifestPath)) return undefined;
@@ -338,7 +396,7 @@ const getSurfaceProfile = (
 ): SurfaceProfile => {
   const projectRoot = options.projectRoot;
   if (projectRoot) {
-    const custom = loadCustomSurfaceProfile(mode, projectRoot);
+    const custom = loadCustomSurfaceProfile(mode, options);
     if (custom) return custom;
   }
 
@@ -399,7 +457,5 @@ export const hasResolvedSurfaceProfile = (
   const normalizedMode = normalizeSurfaceMode(mode);
   if (BUILTIN_SURFACE_MODE_SET.has(normalizedMode)) return true;
   if (!options.projectRoot) return false;
-  return (
-    loadCustomSurfaceProfile(normalizedMode, options.projectRoot) !== undefined
-  );
+  return loadCustomSurfaceProfile(normalizedMode, options) !== undefined;
 };

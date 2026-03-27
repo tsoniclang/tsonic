@@ -42,38 +42,7 @@ const collectMessages = (source: string): readonly string[] => {
 };
 
 describe("TypeScript Diagnostics Conversion", () => {
-  it("ignores TS18046 for Record.Keys pseudo-member flows", () => {
-    const messages = collectMessages(`
-      function f(settings: Record<string, unknown>) {
-        const settingsKeys = settings.Keys;
-        for (let i = 0; i < settingsKeys.Length; i++) {
-          const key = settingsKeys[i];
-          void key;
-        }
-      }
-    `);
-
-    expect(messages.some((m) => m.includes("is of type 'unknown'"))).to.equal(
-      false
-    );
-  });
-
-  it("ignores TS18046 for Record.Values pseudo-member flows", () => {
-    const messages = collectMessages(`
-      function f(settings: Record<string, unknown>) {
-        const values = settings.Values;
-        for (let i = 0; i < values.Length; i++) {
-          void values[i];
-        }
-      }
-    `);
-
-    expect(messages.some((m) => m.includes("is of type 'unknown'"))).to.equal(
-      false
-    );
-  });
-
-  it("does not ignore unrelated TS18046 unknown diagnostics", () => {
+  it("ignores TypeScript semantic diagnostics", () => {
     const messages = collectMessages(`
       function f(value: unknown) {
         const copy = value;
@@ -81,8 +50,16 @@ describe("TypeScript Diagnostics Conversion", () => {
       }
     `);
 
-    expect(messages.some((m) => m.includes("is of type 'unknown'"))).to.equal(
-      true
-    );
+    expect(messages).to.deep.equal([]);
+  });
+
+  it("still reports syntactic diagnostics", () => {
+    const messages = collectMessages(`
+      function f( {
+        return 1;
+      }
+    `);
+
+    expect(messages.length).to.be.greaterThan(0);
   });
 });

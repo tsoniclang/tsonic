@@ -98,7 +98,7 @@ describe("IR Builder", function () {
       if (!valuesInit || valuesInit.kind !== "memberAccess") return;
       expect(valuesInit.inferredType).to.deep.equal({
         kind: "arrayType",
-        elementType: { kind: "unknownType" },
+        elementType: { kind: "unknownType", explicit: true },
       });
     });
 
@@ -127,6 +127,26 @@ describe("IR Builder", function () {
           rawUpdates: { stream_id: string; property: string; value: unknown }[]
         ): string[] {
           return rawUpdates.map((update) => String(update.value ?? ""));
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
+    });
+
+    it("allows explicitly unknown nominal members without poisoning property access", () => {
+      const source = `
+        class Box {
+          public value: unknown = undefined;
+        }
+
+        export function read(box: Box): string {
+          return String(box.value ?? "");
         }
       `;
 
@@ -186,19 +206,19 @@ describe("IR Builder", function () {
       );
       expect(dataDecl).to.not.equal(undefined);
       const dataInit = dataDecl?.declarations[0]?.initializer;
-      expect(dataInit?.kind).to.equal("memberAccess");
-      if (!dataInit || dataInit.kind !== "memberAccess") return;
-      expect(dataInit.inferredType?.kind).to.equal("arrayType");
-      if (
-        !dataInit.inferredType ||
-        dataInit.inferredType.kind !== "arrayType"
-      ) {
+      expect(
+        dataInit?.kind === "typeAssertion" ? dataInit.expression.kind : dataInit?.kind
+      ).to.equal("memberAccess");
+      const narrowedDataType =
+        dataInit?.kind === "typeAssertion" ? dataInit.inferredType : dataInit?.inferredType;
+      expect(narrowedDataType?.kind).to.equal("arrayType");
+      if (!narrowedDataType || narrowedDataType.kind !== "arrayType") {
         return;
       }
-      expect(dataInit.inferredType.elementType.kind).to.equal("objectType");
-      if (dataInit.inferredType.elementType.kind !== "objectType") return;
-      expect(dataInit.inferredType.elementType.members).to.have.length(1);
-      const idMember = dataInit.inferredType.elementType.members[0];
+      expect(narrowedDataType.elementType.kind).to.equal("objectType");
+      if (narrowedDataType.elementType.kind !== "objectType") return;
+      expect(narrowedDataType.elementType.members).to.have.length(1);
+      const idMember = narrowedDataType.elementType.members[0];
       expect(idMember?.kind).to.equal("propertySignature");
       if (!idMember || idMember.kind !== "propertySignature") return;
       expect(idMember.name).to.equal("Id");

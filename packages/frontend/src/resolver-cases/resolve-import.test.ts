@@ -221,6 +221,49 @@ describe("Module Resolver", () => {
       }
     });
 
+    it("should resolve installed declaration package module imports", () => {
+      const packageRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@tsonic",
+        "dotnet"
+      );
+      fs.mkdirSync(packageRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/dotnet", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "System.js"),
+        "throw new Error('stub');\n"
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "System.d.ts"),
+        "export declare class StringBuilder {}\n"
+      );
+
+      const result = resolveImport(
+        "@tsonic/dotnet/System.js",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        { projectRoot: tempDir, surface: "@tsonic/js" }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.isLocal).to.equal(true);
+        expect(result.value.isClr).to.equal(false);
+        expect(result.value.isSourcePackage).to.equal(undefined);
+        expect(result.value.resolvedPath).to.equal(
+          path.join(packageRoot, "System.d.ts")
+        );
+      }
+    });
+
     it("should prefer direct source-package imports over CLR resolution", () => {
       const packageRoot = path.join(
         tempDir,

@@ -54,6 +54,7 @@ import {
   hasTypeParameters as infHasTypeParameters,
   typeFromSyntax as infTypeFromSyntax,
 } from "./type-system-inference.js";
+import { resolveMemberTypeNoDiag } from "./inference-member-lookup.js";
 
 import { expandUtility as utExpandUtility } from "./type-system-utilities.js";
 
@@ -172,6 +173,12 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     // Member types (inference module)
     typeOfMember: (receiver, member, site) =>
       infTypeOfMember(state, receiver, member, site),
+    tryTypeOfMember: (receiver, member) =>
+      resolveMemberTypeNoDiag(
+        state,
+        receiver,
+        member.kind === "byName" ? member.name : "unknown"
+      ),
     getIndexerInfo: (receiver, site) =>
       infGetIndexerInfo(state, receiver, site),
 

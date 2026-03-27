@@ -6,7 +6,10 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "./emitter.js";
-import { IrModule } from "@tsonic/frontend";
+import { IrModule, IrType } from "@tsonic/frontend";
+import { createContext } from "./emitter-types/context.js";
+import { emitAssignment } from "./expressions/operators/assignment-emitter.js";
+import { printExpression } from "./core/format/backend-ast/printer.js";
 
 describe("Type Assertion Emission", () => {
   it("should strip 'as' type assertions", () => {
@@ -141,7 +144,7 @@ describe("Type Assertion Emission", () => {
     expect(code).to.include("return input");
   });
 
-  it("preserves dictionary assertions as runtime dictionary casts", () => {
+  it("preserves dictionary assertions as runtime casts", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/test/dictionaryAssert.ts",
@@ -200,8 +203,8 @@ describe("Type Assertion Emission", () => {
 
     const code = emitModule(module);
 
-    expect(code).to.match(
-      /return \(global::System\.Collections\.Generic\.Dictionary<string, object\?>\)input;/
+    expect(code).to.include(
+      "return (global::System.Collections.Generic.Dictionary<string, object?>)input;"
     );
   });
 
@@ -248,5 +251,102 @@ describe("Type Assertion Emission", () => {
     const code = emitModule(module);
 
     expect(code).to.not.include("(void)default");
+  });
+
+  it("threads narrowed typeof assertions into union assignments without re-widening the narrowed member", () => {
+    const numberType: IrType = { kind: "primitiveType", name: "number" };
+    const stringType: IrType = { kind: "primitiveType", name: "string" };
+    const nullType: IrType = { kind: "primitiveType", name: "null" };
+    const undefinedType: IrType = {
+      kind: "primitiveType",
+      name: "undefined",
+    };
+    const callbackType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+    const hostnameType: IrType = {
+      kind: "unionType",
+      types: [callbackType, nullType, numberType, stringType, undefinedType],
+    };
+    const backlogType: IrType = {
+      kind: "unionType",
+      types: [callbackType, nullType, numberType, undefinedType],
+    };
+
+    const context = {
+      ...createContext({ rootNamespace: "Test" }),
+      localSemanticTypes: new Map<string, IrType>([
+        ["hostname", hostnameType],
+        ["backlog", backlogType],
+      ]),
+      localValueTypes: new Map<string, IrType>([
+        ["hostname", hostnameType],
+        ["backlog", backlogType],
+      ]),
+      narrowedBindings: new Map([
+        [
+          "hostname",
+          {
+            kind: "expr" as const,
+            exprAst: {
+              kind: "parenthesizedExpression" as const,
+              expression: {
+                kind: "invocationExpression" as const,
+                expression: {
+                  kind: "memberAccessExpression" as const,
+                  expression: {
+                    kind: "identifierExpression" as const,
+                    identifier: "hostname",
+                  },
+                  memberName: "As2",
+                },
+                arguments: [],
+              },
+            },
+            storageExprAst: {
+              kind: "identifierExpression" as const,
+              identifier: "hostname",
+            },
+            type: numberType,
+            sourceType: hostnameType,
+          },
+        ],
+      ]),
+    };
+
+    const [assignmentAst] = emitAssignment(
+      {
+        kind: "assignment",
+        operator: "=",
+        left: {
+          kind: "identifier",
+          name: "backlog",
+          inferredType: backlogType,
+        },
+        right: {
+          kind: "typeAssertion",
+          expression: {
+            kind: "identifier",
+            name: "hostname",
+            inferredType: hostnameType,
+          },
+          targetType: numberType,
+          inferredType: numberType,
+        },
+        inferredType: backlogType,
+      },
+      context
+    );
+
+    const emitted = printExpression(assignmentAst);
+
+    expect(emitted).to.not.include(
+      "(global::Tsonic.Runtime.Union<global::System.Action, double>"
+    );
+    expect(emitted).to.not.include(".Match(");
+    expect(emitted).to.include(".From2(");
+    expect(emitted).to.include("hostname.As2()");
   });
 });

@@ -7,6 +7,9 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "./emitter.js";
 import { IrModule } from "@tsonic/frontend";
+import { createJsSurfaceBindingRegistry } from "./expressions/index-cases/helpers.js";
+
+const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
 
 describe("Array Emission", () => {
   it("should emit basic array literal with correct type", () => {
@@ -224,7 +227,7 @@ describe("Array Emission", () => {
               memberBinding: {
                 kind: "method",
                 assembly: "js",
-                type: "Tsonic.Runtime.JSArray`1",
+                type: "js.Array",
                 member: "push",
                 isExtensionMethod: false,
               },
@@ -237,7 +240,10 @@ describe("Array Emission", () => {
       ],
     };
 
-    const code = emitModule(module);
+    const code = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
 
     expect(code).to.include("arr = __tsonic_arrayWrapper.toArray()");
     expect(code).not.to.include("arr.push(3)");
@@ -276,7 +282,7 @@ describe("Array Emission", () => {
               memberBinding: {
                 kind: "method",
                 assembly: "js",
-                type: "Tsonic.Runtime.JSArray`1",
+                type: "js.Array",
                 member: "push",
                 isExtensionMethod: false,
               },
@@ -289,7 +295,10 @@ describe("Array Emission", () => {
       ],
     };
 
-    const code = emitModule(module);
+    const code = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
 
     expect(code).to.include("var __tsonic_arrayTarget = box;");
     expect(code).to.include(
@@ -384,7 +393,7 @@ describe("Array Emission", () => {
                     memberBinding: {
                       kind: "method",
                       assembly: "js",
-                      type: "Tsonic.Runtime.JSArray`1",
+                      type: "js.Array",
                       member: "push",
                       isExtensionMethod: true,
                     },
@@ -403,11 +412,14 @@ describe("Array Emission", () => {
       ],
     };
 
-    const code = emitModule(module);
+    const code = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
 
     expect(code).to.include("observers = __tsonic_arrayWrapper.toArray()");
     expect(code).to.not.include(
-      "new global::Tsonic.Runtime.JSArray<global::Test.PerformanceObserver>(observers).push(observer)"
+      "new global::js.Array<global::Test.PerformanceObserver>(observers).push(observer)"
     );
   });
 
@@ -465,7 +477,7 @@ describe("Array Emission", () => {
                           memberBinding: {
                             kind: "method",
                             assembly: "js",
-                            type: "Tsonic.Runtime.JSArray`1",
+                            type: "js.Array",
                             member: "includes",
                             isExtensionMethod: true,
                           },
@@ -506,7 +518,7 @@ describe("Array Emission", () => {
                               memberBinding: {
                                 kind: "method",
                                 assembly: "js",
-                                type: "Tsonic.Runtime.JSArray`1",
+                                type: "js.Array",
                                 member: "push",
                                 isExtensionMethod: true,
                               },
@@ -556,13 +568,16 @@ describe("Array Emission", () => {
       ],
     };
 
-    const code = emitModule(module);
+    const code = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
 
     expect(code).to.include(
       "moduleArrayClassMutation.observers = __tsonic_arrayWrapper.toArray()"
     );
     expect(code).to.not.include(
-      "new global::Tsonic.Runtime.JSArray<Test.PerformanceObserver>(moduleArrayClassMutation.observers).push(this)"
+      "new global::js.Array<Test.PerformanceObserver>(moduleArrayClassMutation.observers).push(this)"
     );
   });
 

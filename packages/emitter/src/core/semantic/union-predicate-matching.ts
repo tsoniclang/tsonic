@@ -8,6 +8,7 @@
 import type { IrType } from "@tsonic/frontend";
 import { normalizedUnionType, stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
+import { isAssignable } from "./type-compatibility.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -282,7 +283,10 @@ export const findUnionMemberIndex = (
 
     if (resolvedMember.kind === "primitiveType") {
       if (resolvedCandidate.kind === "primitiveType") {
-        return resolvedMember.name === resolvedCandidate.name;
+        return (
+          resolvedMember.name === resolvedCandidate.name ||
+          isAssignable(resolvedMember, resolvedCandidate)
+        );
       }
       if (resolvedCandidate.kind === "literalType") {
         return matchesPredicateTarget(resolvedCandidate, resolvedMember);

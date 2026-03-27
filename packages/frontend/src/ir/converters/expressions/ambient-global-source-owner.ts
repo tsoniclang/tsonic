@@ -36,30 +36,77 @@ const extractImportTypeTarget = (
   declaration: ts.Declaration
 ): { readonly specifier: string; readonly exportName: string } | undefined => {
   const typeNode = getDeclarationTypeNode(declaration);
-  if (!typeNode || !ts.isImportTypeNode(typeNode) || !typeNode.isTypeOf) {
+  if (!typeNode) {
     return undefined;
   }
 
-  const literal =
-    ts.isLiteralTypeNode(typeNode.argument) &&
-    ts.isStringLiteral(typeNode.argument.literal)
-      ? typeNode.argument.literal
+  if (ts.isImportTypeNode(typeNode) && typeNode.isTypeOf) {
+    const literal =
+      ts.isLiteralTypeNode(typeNode.argument) &&
+      ts.isStringLiteral(typeNode.argument.literal)
+        ? typeNode.argument.literal
+        : undefined;
+    if (!literal) {
+      return undefined;
+    }
+
+    const exportName = typeNode.qualifier
+      ? readEntityNameText(typeNode.qualifier).trim()
       : undefined;
-  if (!literal) {
+    if (!exportName) {
+      return undefined;
+    }
+
+    return {
+      specifier: literal.text,
+      exportName,
+    };
+  }
+
+  if (!ts.isTypeQueryNode(typeNode)) {
     return undefined;
   }
 
-  const exportName = typeNode.qualifier
-    ? readEntityNameText(typeNode.qualifier).trim()
-    : undefined;
-  if (!exportName) {
+  const exprName = typeNode.exprName;
+  const rootIdentifier = ts.isIdentifier(exprName)
+    ? exprName
+    : ts.isQualifiedName(exprName)
+      ? exprName.left
+      : undefined;
+  if (!rootIdentifier || !ts.isIdentifier(rootIdentifier)) {
     return undefined;
   }
 
-  return {
-    specifier: literal.text,
-    exportName,
-  };
+  const sourceFile = declaration.getSourceFile();
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !statement.importClause ||
+      !statement.moduleSpecifier ||
+      !ts.isStringLiteral(statement.moduleSpecifier)
+    ) {
+      continue;
+    }
+
+    const namedBindings = statement.importClause.namedBindings;
+    if (
+      namedBindings &&
+      ts.isNamedImports(namedBindings)
+    ) {
+      for (const element of namedBindings.elements) {
+        if (element.name.text !== rootIdentifier.text) {
+          continue;
+        }
+
+        return {
+          specifier: statement.moduleSpecifier.text,
+          exportName: element.propertyName?.text ?? element.name.text,
+        };
+      }
+    }
+  }
+
+  return undefined;
 };
 
 const resolveTopLevelLocalOwner = (

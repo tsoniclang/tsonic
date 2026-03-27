@@ -37,6 +37,13 @@ describe("Program Creation – package resolution", function () {
         "@tsonic",
         "nodejs"
       );
+      const authoritativeJsRoot = path.resolve(
+        process.cwd(),
+        "../../../js/versions/10"
+      );
+      expect(
+        fs.existsSync(path.join(authoritativeJsRoot, "package.json"))
+      ).to.equal(true);
       fs.mkdirSync(path.join(nodejsRoot, "src"), { recursive: true });
       fs.mkdirSync(path.join(nodejsRoot, "tsonic"), { recursive: true });
       fs.writeFileSync(
@@ -64,6 +71,7 @@ describe("Program Creation – package resolution", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "nodejs",
               exports: {
                 ".": "./src/index.ts",
                 "./path.js": "./src/path-module.ts",
@@ -100,7 +108,7 @@ describe("Program Creation – package resolution", function () {
         sourceRoot: srcDir,
         rootNamespace: "Test",
         surface: "@tsonic/js",
-        typeRoots: [path.join(tempDir, "node_modules", "@tsonic", "nodejs")],
+        typeRoots: [authoritativeJsRoot, nodejsRoot],
       });
 
       expect(result.ok).to.equal(true);
@@ -148,6 +156,13 @@ describe("Program Creation – package resolution", function () {
         "nodejs"
       );
       fs.mkdirSync(path.dirname(nodejsRoot), { recursive: true });
+      const authoritativeJsRoot = path.resolve(
+        process.cwd(),
+        "../../../js/versions/10"
+      );
+      expect(
+        fs.existsSync(path.join(authoritativeJsRoot, "package.json"))
+      ).to.equal(true);
 
       fs.mkdirSync(path.join(externalRoot, "src"), { recursive: true });
       fs.mkdirSync(path.join(externalRoot, "tsonic"), { recursive: true });
@@ -175,6 +190,7 @@ describe("Program Creation – package resolution", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "nodejs",
               exports: {
                 ".": "./src/index.ts",
                 "./path.js": "./src/path-module.ts",
@@ -209,7 +225,7 @@ describe("Program Creation – package resolution", function () {
         sourceRoot: srcDir,
         rootNamespace: "Test",
         surface: "@tsonic/js",
-        typeRoots: [nodejsRoot],
+        typeRoots: [authoritativeJsRoot, nodejsRoot],
       });
 
       expect(result.ok).to.equal(true);

@@ -18,6 +18,42 @@ import {
   writeWorkspaceConfig,
 } from "./helpers.js";
 
+const installJsSurface = (workspaceRoot: string): void => {
+  const jsRoot = writeInstalledSurfacePackage(workspaceRoot, {
+    name: "@tsonic/js",
+    surfaceManifest: {
+      schemaVersion: 1,
+      id: "@tsonic/js",
+      extends: [],
+      requiredTypeRoots: ["."],
+      requiredNpmPackages: ["@tsonic/js"],
+      useStandardLib: false,
+    },
+  });
+  writeFileSync(
+    join(jsRoot, "tsonic.package.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        kind: "tsonic-source-package",
+        surfaces: ["@tsonic/js"],
+        source: {
+          namespace: "js",
+          exports: {
+            ".": "./src/index.ts",
+            "./index.js": "./src/index.ts",
+          },
+        },
+      },
+      null,
+      2
+    ) + "\n",
+    "utf-8"
+  );
+  mkdirSync(join(jsRoot, "src"), { recursive: true });
+  writeFileSync(join(jsRoot, "src", "index.ts"), "export const ok = true;\n");
+};
+
 describe("add npm (package manifests)", function () {
   this.timeout(3 * 60 * 1000);
 
@@ -43,6 +79,7 @@ describe("add npm (package manifests)", function () {
             mode: "tsonic-firstparty",
           },
           source: {
+            namespace: "Acme.Node",
             exports: {
               ".": "./src/index.ts",
             },
@@ -96,6 +133,7 @@ describe("add npm (package manifests)", function () {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-source-package-"));
     try {
       const configPath = writeWorkspaceConfig(dir, { surface: "@tsonic/js" });
+      installJsSurface(dir);
       const pkgName = "@acme/math";
       writeLocalNpmPackage(dir, "local/acme-math", {
         name: pkgName,
@@ -103,7 +141,10 @@ describe("add npm (package manifests)", function () {
           schemaVersion: 1,
           kind: "tsonic-source-package",
           surfaces: ["@tsonic/js"],
-          source: { exports: { ".": "./src/index.ts" } },
+          source: {
+            namespace: "Acme.Math",
+            exports: { ".": "./src/index.ts" },
+          },
         },
       });
       mkdirSync(join(dir, "local/acme-math", "src"), { recursive: true });
@@ -141,6 +182,7 @@ describe("add npm (package manifests)", function () {
     );
     try {
       const configPath = writeWorkspaceConfig(dir, { surface: "@tsonic/js" });
+      installJsSurface(dir);
       const pkgName = "@acme/node";
       writeLocalNpmPackage(dir, "local/acme-node", {
         name: pkgName,
@@ -156,6 +198,7 @@ describe("add npm (package manifests)", function () {
             packageReferences: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
           },
           source: {
+            namespace: "Acme.Node",
             exports: {
               ".": "./src/index.ts",
               "./fs.js": "./src/fs.ts",

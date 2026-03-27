@@ -200,27 +200,9 @@ describe("Destructuring Pattern Lowering", () => {
     });
 
     it("should handle object destructuring in function parameters", () => {
-      // Use referenceType with structuralMembers (not raw objectType)
       const personType: IrType = {
         kind: "referenceType",
         name: "Person",
-        resolvedClrType: "Person",
-        structuralMembers: [
-          {
-            kind: "propertySignature",
-            name: "name",
-            type: stringType,
-            isOptional: false,
-            isReadonly: false,
-          },
-          {
-            kind: "propertySignature",
-            name: "age",
-            type: numberType,
-            isOptional: false,
-            isReadonly: false,
-          },
-        ],
       };
 
       const module: IrModule = {
@@ -231,6 +213,31 @@ describe("Destructuring Pattern Lowering", () => {
         isStaticContainer: true,
         imports: [],
         body: [
+          {
+            kind: "classDeclaration",
+            name: "Person",
+            members: [
+              {
+                kind: "propertyDeclaration",
+                name: "name",
+                type: stringType,
+                accessibility: "public",
+                isStatic: false,
+                isReadonly: false,
+              },
+              {
+                kind: "propertyDeclaration",
+                name: "age",
+                type: numberType,
+                accessibility: "public",
+                isStatic: false,
+                isReadonly: false,
+              },
+            ],
+            isStruct: false,
+            isExported: false,
+            implements: [],
+          },
           {
             kind: "functionDeclaration",
             name: "greet",

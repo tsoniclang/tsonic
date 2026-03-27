@@ -2,7 +2,10 @@
  * Core emitter types
  */
 
-import type { TypeBinding as FrontendTypeBinding } from "@tsonic/frontend";
+import type {
+  BindingRegistry as FrontendBindingRegistry,
+  TypeBinding as FrontendTypeBinding,
+} from "@tsonic/frontend";
 import type {
   IrType,
   IrInterfaceMember,
@@ -96,8 +99,6 @@ export type TypeAliasIndexEntry = {
  * such aliases deterministically to support features like `"prop" in x` union narrowing.
  */
 export type TypeAliasIndex = {
-  /** Lookup by unqualified alias name (may be ambiguous across modules). */
-  readonly byName: ReadonlyMap<string, readonly TypeAliasIndexEntry[]>;
   /** Lookup by fully-qualified alias name. */
   readonly byFqn: ReadonlyMap<string, TypeAliasIndexEntry>;
 };
@@ -176,6 +177,8 @@ export type EmitterOptions = {
    * Values must have either `clrName` or `name` property containing the CLR type name.
    */
   readonly clrBindings?: ReadonlyMap<string, FrontendTypeBinding>;
+  /** Full frontend binding registry for exact source/global/module binding lookups during emission. */
+  readonly bindingRegistry?: FrontendBindingRegistry;
 };
 
 /**
@@ -263,6 +266,7 @@ export type NarrowedBinding =
       readonly kind: "expr";
       readonly exprAst: CSharpExpressionAst;
       readonly storageExprAst?: CSharpExpressionAst;
+      readonly storageType?: IrType;
       readonly type?: IrType;
       readonly sourceType?: IrType;
     }
@@ -314,6 +318,8 @@ export type EmitterContext = {
   readonly hasInheritance?: boolean;
   /** Registry mapping TypeScript emit names to type bindings */
   readonly bindingsRegistry?: ReadonlyMap<string, FrontendTypeBinding>;
+  /** Full frontend binding registry for exact source/global/module binding lookups during emission. */
+  readonly bindingRegistry?: FrontendBindingRegistry;
   /** Map of local names to import binding info (for qualifying imported identifiers) */
   readonly importBindings?: ReadonlyMap<string, ImportBinding>;
   /** Set of variable names known to be int (from canonical for-loop counters) */
@@ -323,8 +329,14 @@ export type EmitterContext = {
   /** Type parameter constraint kinds in current scope (for nullable emission decisions) */
   readonly typeParamConstraints?: ReadonlyMap<
     string,
-    "class" | "struct" | "unconstrained"
+    "class" | "struct" | "numeric" | "unconstrained"
   >;
+  /**
+   * When true, storage normalization may erase nullable unconstrained type
+   * parameters to `object?` for storage declarations that cannot faithfully
+   * represent `T | null` in C#.
+   */
+  readonly eraseNullableUnconstrainedTypeParameterStorage?: boolean;
   /**
    * Map from source type-parameter names to their emitted C# identifiers.
    *

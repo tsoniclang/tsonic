@@ -67,7 +67,7 @@ describe("Expression Emission", () => {
       memberBinding: {
         kind: "property",
         assembly: "js",
-        type: "Tsonic.Runtime.JSArray`1",
+        type: "js.Array`1",
         member: "length",
       },
     };
@@ -145,7 +145,7 @@ describe("Expression Emission", () => {
       memberBinding: {
         kind: "property",
         assembly: "js",
-        type: "Tsonic.Runtime.JSArray`1",
+        type: "js.Array`1",
         member: "length",
       },
     };
@@ -165,7 +165,7 @@ describe("Expression Emission", () => {
     const text = printExpression(result);
     expect(text).to.include("handlerArray.Match(");
     expect(text).to.include(".Length");
-    expect(text).to.not.include("new global::Tsonic.Runtime.JSArray<");
+    expect(text).to.not.include("new global::js.Array<");
   });
 
   it("uses storage-erased wrapper element types for narrowed recursive union arrays", () => {
@@ -218,7 +218,7 @@ describe("Expression Emission", () => {
       memberBinding: {
         kind: "property",
         assembly: "js",
-        type: "Tsonic.Runtime.JSArray`1",
+        type: "js.Array`1",
         member: "length",
       },
     };

@@ -74,11 +74,18 @@ export const usesExchangeBasedGeneratorLowering = (
     return false;
   }
   if (!generator.returnType || generator.returnType.kind !== "referenceType") {
-    return true;
+    return false;
   }
+
+  if (
+    generator.returnType.name !== "Generator" &&
+    generator.returnType.name !== "AsyncGenerator"
+  ) {
+    return false;
+  }
+
   return (
-    generator.returnType.name === "Generator" ||
-    generator.returnType.name === "AsyncGenerator"
+    hasGeneratorReturnType(generator) || needsBidirectionalSupport(generator)
   );
 };
 

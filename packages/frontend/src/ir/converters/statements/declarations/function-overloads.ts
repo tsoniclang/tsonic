@@ -187,6 +187,9 @@ export const convertFunctionOverloadGroup = (
           helperName,
           parameters,
           implFunction.parameters,
+          (implFunction.typeParameters ?? []).map(
+            (typeParameter) => typeParameter.name
+          ),
           true,
           implFunction.returnType,
           returnType,

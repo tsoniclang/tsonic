@@ -183,6 +183,44 @@ export const processImports = (
     };
   };
 
+  const createBindingsBackedImportBinding = (
+    spec: IrImportSpecifier,
+    resolvedNamespace: string | undefined
+  ): { localName: string; importBinding: ImportBinding } | null => {
+    const inferredNamespace =
+      resolvedNamespace ??
+      (spec.kind === "named" && spec.resolvedClrType
+        ? (() => {
+            const lastDot = spec.resolvedClrType.lastIndexOf(".");
+            return lastDot > 0
+              ? spec.resolvedClrType.slice(0, lastDot)
+              : undefined;
+          })()
+        : undefined) ??
+      (spec.kind === "named" && spec.resolvedClrValue
+        ? (() => {
+            const lastDot =
+              spec.resolvedClrValue.declaringClrType.lastIndexOf(".");
+            return lastDot > 0
+              ? spec.resolvedClrValue.declaringClrType.slice(0, lastDot)
+              : undefined;
+          })()
+        : undefined);
+
+    if (!inferredNamespace) {
+      return null;
+    }
+
+    if (spec.kind === "named") {
+      const isType = spec.isType === true;
+      if (!isType && !spec.resolvedClrType && !spec.resolvedClrValue) {
+        return null;
+      }
+    }
+
+    return createClrImportBinding(spec, inferredNamespace);
+  };
+
   const updatedContext = imports.reduce((ctx, imp) => {
     // Pure module bindings (for example bare `node:fs`) still bypass local
     // module-map resolution and bind directly to their CLR container/type.
@@ -209,6 +247,7 @@ export const processImports = (
       // NO using directive for local modules
       const moduleMap = ctx.options.moduleMap;
       const exportMap = ctx.options.exportMap;
+      let resolvedFromModuleMap = false;
       if (moduleMap) {
         const resolvedTarget = resolveLocalTarget(
           moduleMap,
@@ -238,6 +277,7 @@ export const processImports = (
             : resolvedTarget?.module;
 
           if (targetModule) {
+            resolvedFromModuleMap = true;
             const binding = createImportBinding(
               spec,
               targetModule.namespace,
@@ -252,6 +292,16 @@ export const processImports = (
           }
         }
         // If module not found in map, it's a compilation error - will be caught elsewhere
+      }
+
+      if (!resolvedFromModuleMap) {
+        for (const spec of imp.specifiers) {
+          const binding = createBindingsBackedImportBinding(
+            spec,
+            imp.resolvedNamespace
+          );
+          registerImportBinding(spec, binding);
+        }
       }
       // No module map = single file compilation, no import bindings needed
     }
@@ -401,9 +451,7 @@ const createImportBinding = (
         }
 
         if (localType.typeParameters.length > 0) {
-          throw new Error(
-            `ICE: Cannot import generic type alias '${resolvedExportName}' from '${namespace}'. Use a class/interface instead.`
-          );
+          return null;
         }
 
         const [typeAst] = emitTypeAst(localType.type, {

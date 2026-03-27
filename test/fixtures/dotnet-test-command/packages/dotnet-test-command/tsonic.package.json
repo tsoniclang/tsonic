@@ -3,6 +3,7 @@
   "schemaVersion": 1,
   "surfaces": ["@tsonic/js"],
   "source": {
+    "namespace": "dotnet.test.command",
     "exports": {
       ".": "./src/index.ts",
       "./index.js": "./src/index.ts"

@@ -8,6 +8,7 @@
  */
 
 import type { IrType } from "../../types/index.js";
+import { normalizedUnionType } from "../../types/type-ops.js";
 import type {
   UnifiedTypeCatalog,
   TypeId,
@@ -142,10 +143,9 @@ export const substituteIrType = (
     }
 
     case "unionType": {
-      return {
-        ...type,
-        types: type.types.map((t) => substituteIrType(t, subst)),
-      };
+      return normalizedUnionType(
+        type.types.map((t) => substituteIrType(t, subst))
+      );
     }
 
     case "tupleType": {

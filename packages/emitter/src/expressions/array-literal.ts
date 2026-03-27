@@ -189,8 +189,7 @@ export const emitArray = (
       }
     } else if (
       resolvedExpected.kind === "referenceType" &&
-      (resolvedExpected.name === "ArrayLike" ||
-        resolvedExpected.name === "JSArray") &&
+      resolvedExpected.name === "ArrayLike" &&
       resolvedExpected.typeArguments &&
       resolvedExpected.typeArguments.length > 0
     ) {

@@ -44,10 +44,15 @@ const getNominalReferenceIdentity = (
   const resolvedLocal = resolveLocalTypeInfo(type, context);
   if (resolvedLocal) {
     const localName = type.name.split(".").pop() ?? type.name;
+    const emittedLocalName =
+      resolvedLocal.info.kind === "typeAlias" &&
+      resolvedLocal.info.type.kind === "objectType"
+        ? `${localName}__Alias`
+        : localName;
     const canonicalTarget = context.options.canonicalLocalTypeTargets?.get(
       `${resolvedLocal.namespace}::${localName}`
     );
-    return canonicalTarget ?? `${resolvedLocal.namespace}.${localName}`;
+    return canonicalTarget ?? `${resolvedLocal.namespace}.${emittedLocalName}`;
   }
 
   return type.name;
@@ -105,8 +110,7 @@ export const getArrayElementType = (
   if (
     resolved.kind === "referenceType" &&
     (resolved.name === "Array" ||
-      resolved.name === "ReadonlyArray" ||
-      resolved.name === "JSArray") &&
+      resolved.name === "ReadonlyArray") &&
     resolved.typeArguments?.length === 1
   ) {
     return resolved.typeArguments[0];

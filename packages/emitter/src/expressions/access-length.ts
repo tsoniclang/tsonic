@@ -34,6 +34,26 @@ import {
   emitStorageCompatibleArrayWrapperElementTypeAst,
   resolveEmittedReceiverTypeAst,
 } from "./access-resolution.js";
+import { buildExactGlobalBindingType } from "./exact-global-bindings.js";
+
+const isRuntimeUnionMemberProjectionAst = (
+  exprAst: CSharpExpressionAst
+): boolean => {
+  let target = exprAst;
+  while (
+    target.kind === "parenthesizedExpression" ||
+    target.kind === "castExpression"
+  ) {
+    target = target.expression;
+  }
+
+  return (
+    target.kind === "invocationExpression" &&
+    target.arguments.length === 0 &&
+    target.expression.kind === "memberAccessExpression" &&
+    /^As\d+$/.test(target.expression.memberName)
+  );
+};
 
 export const isStringReceiverType = (
   type: IrType | undefined,
@@ -256,6 +276,37 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
     return undefined;
   }
 
+  const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
+  if (arrayLikeReceiver && isRuntimeUnionMemberProjectionAst(objectAst)) {
+    return [
+      expr.isOptional
+        ? {
+            kind: "conditionalExpression",
+            condition: {
+              kind: "binaryExpression",
+              operatorToken: "==",
+              left: objectAst,
+              right: nullLiteral(),
+            },
+            whenTrue: {
+              kind: "defaultExpression",
+              type: nullableType({ kind: "predefinedType", keyword: "int" }),
+            },
+            whenFalse: {
+              kind: "memberAccessExpression",
+              expression: objectAst,
+              memberName: "Length",
+            },
+          }
+        : {
+            kind: "memberAccessExpression",
+            expression: objectAst,
+            memberName: "Length",
+          },
+      context,
+    ];
+  }
+
   const [receiverTypeAst, receiverTypeContext] = resolveEmittedReceiverTypeAst(
     expr.object,
     context
@@ -281,25 +332,29 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
             kind: "defaultExpression",
             type: nullableType({ kind: "predefinedType", keyword: "int" }),
           },
-          whenFalse: {
-            kind: "memberAccessExpression",
-            expression: {
-              kind: "objectCreationExpression",
-              type: identifierType("global::Tsonic.Runtime.JSArray", [
-                elementTypeAst,
-              ]),
-              arguments: [objectAst],
-            },
-            memberName: "length",
+            whenFalse: {
+              kind: "memberAccessExpression",
+              expression: {
+                kind: "objectCreationExpression",
+                type: buildExactGlobalBindingType(
+                  "Array",
+                  [elementTypeAst],
+                  nextContext
+                ),
+                arguments: [objectAst],
+              },
+              memberName: "length",
           },
         }
       : {
           kind: "memberAccessExpression",
           expression: {
-          kind: "objectCreationExpression",
-            type: identifierType("global::Tsonic.Runtime.JSArray", [
-              elementTypeAst,
-            ]),
+            kind: "objectCreationExpression",
+            type: buildExactGlobalBindingType(
+              "Array",
+              [elementTypeAst],
+              nextContext
+            ),
             arguments: [objectAst],
           },
           memberName: "length",
@@ -337,7 +392,6 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
     ];
   }
 
-  const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
   if (!arrayLikeReceiver) {
     return undefined;
   }

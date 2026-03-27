@@ -441,7 +441,7 @@ describe("Expression Emission", () => {
     expect(text).to.include(
       "global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From3"
     );
-    expect(text).to.include("global::Tsonic.Runtime.JSArrayStatics.isArray");
+    expect(text).to.include("is global::System.Array");
     expect(text).to.not.equal("(handler.As1())[index]");
   });
 });

@@ -432,5 +432,64 @@ describe("Numeric Proof Invariants", () => {
         true
       );
     });
+
+    it("proves numeric narrowings from explicit type-predicate guards", () => {
+      const guardedCondition: IrExpression = {
+        kind: "call",
+        callee: ident("isInt32"),
+        arguments: [ident("value")],
+        isOptional: false,
+        inferredType: booleanType,
+        narrowing: {
+          kind: "typePredicate",
+          argIndex: 0,
+          targetType: { kind: "primitiveType", name: "int" },
+        },
+      };
+
+      const module = createModule([
+        {
+          kind: "functionDeclaration",
+          name: "toInt32",
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+          parameters: [
+            parameter("value", { kind: "primitiveType", name: "number" }),
+          ],
+          returnType: {
+            kind: "unionType",
+            types: [
+              { kind: "primitiveType", name: "int" },
+              { kind: "primitiveType", name: "undefined" },
+            ],
+          },
+          body: block([
+            {
+              kind: "ifStatement",
+              condition: guardedCondition,
+              thenStatement: block([
+                {
+                  kind: "returnStatement",
+                  expression: narrowTo(ident("value"), "Int32"),
+                },
+              ]),
+            },
+            {
+              kind: "returnStatement",
+              expression: {
+                kind: "literal",
+                value: undefined,
+                inferredType: { kind: "primitiveType", name: "undefined" },
+              },
+            },
+          ]),
+        },
+      ]);
+
+      const result = runNumericProofPass([module]);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+    });
   });
 });

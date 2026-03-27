@@ -17,6 +17,7 @@ import type {
 } from "../../core/format/backend-ast/types.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 import { emitTypeArgumentsAst } from "../identifiers.js";
+import { buildExactGlobalBindingReference } from "../exact-global-bindings.js";
 
 const getRuntimeObjectHelperParameterOverrides = (
   expr: Extract<IrExpression, { kind: "call" }>,
@@ -122,7 +123,7 @@ const emitRuntimeJsonParseCall = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: identifierExpression("global::Tsonic.Runtime.JSON"),
+        expression: buildExactGlobalBindingReference("JSON", context),
         memberName: "parse",
       },
       arguments: argAsts,
@@ -160,7 +161,7 @@ const emitRuntimeJsonStringifyCall = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: identifierExpression("global::Tsonic.Runtime.JSON"),
+        expression: buildExactGlobalBindingReference("JSON", context),
         memberName: "stringify",
       },
       arguments: argAsts,

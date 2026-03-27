@@ -1,4 +1,13 @@
-import { describe, it, expect, emitModule, type IrModule } from "./helpers.js";
+import {
+  describe,
+  it,
+  expect,
+  emitModule,
+  createJsSurfaceBindingRegistry,
+  type IrModule,
+} from "./helpers.js";
+
+const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
 
 describe("Expression Emission", () => {
   it("should emit hierarchical member bindings without emitting intermediate objects", () => {
@@ -322,7 +331,7 @@ describe("Expression Emission", () => {
               memberBinding: {
                 kind: "method",
                 assembly: "js",
-                type: "Tsonic.Runtime.JSArray`1",
+                type: "js.Array",
                 member: "map",
               },
             },
@@ -338,9 +347,12 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module);
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
     expect(result).to.include(
-      "new global::Tsonic.Runtime.JSArray<int>(nums).map(project).toArray()"
+      "new global::js.Array<int>(nums).map(project).toArray()"
     );
   });
 
@@ -373,7 +385,7 @@ describe("Expression Emission", () => {
               memberBinding: {
                 kind: "method",
                 assembly: "js",
-                type: "Tsonic.Runtime.JSArray`1",
+                type: "js.Array",
                 member: "filter",
               },
             },
@@ -390,9 +402,12 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module, { surface: "@tsonic/js" });
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
     expect(result).to.include(
-      "new global::Tsonic.Runtime.JSArray<string>(items).filter(predicate).toArray()"
+      "new global::js.Array<string>(items).filter(predicate).toArray()"
     );
   });
 

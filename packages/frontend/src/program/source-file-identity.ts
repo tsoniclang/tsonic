@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { getClassNameFromPath } from "../resolver/naming.js";
 import { getNamespaceFromPath } from "../resolver/namespace.js";
@@ -11,6 +12,9 @@ type SourceFileIdentity = {
 };
 
 const sourcePackageRootCache = new Map<string, string | null>();
+
+const sourcePackageManifestPath = (dirPath: string): string =>
+  path.join(dirPath, "tsonic.package.json");
 
 const normalizeAbsolutePath = (filePath: string): string =>
   path.resolve(filePath);
@@ -40,9 +44,16 @@ const findContainingSourcePackageRoot = (
 
   let currentDir = path.dirname(normalizedFilePath);
   for (;;) {
-    if (readSourcePackageMetadata(currentDir)) {
+    const manifestPath = sourcePackageManifestPath(currentDir);
+    const metadata = readSourcePackageMetadata(currentDir);
+    if (metadata) {
       sourcePackageRootCache.set(normalizedFilePath, currentDir);
       return currentDir;
+    }
+    if (fs.existsSync(manifestPath)) {
+      throw new Error(
+        `Invalid native source package metadata at ${manifestPath}.`
+      );
     }
 
     const parentDir = path.dirname(currentDir);
@@ -52,21 +63,6 @@ const findContainingSourcePackageRoot = (
     }
     currentDir = parentDir;
   }
-};
-
-const sanitizeNamespaceSegment = (segment: string): string => {
-  const cleaned = segment.replace(/[^a-zA-Z0-9_]/g, "");
-  if (cleaned.length === 0) return "_";
-  return /^\d/.test(cleaned) ? `_${cleaned}` : cleaned;
-};
-
-const derivePackageFallbackNamespace = (packageName: string): string => {
-  const segments = packageName
-    .split("/")
-    .filter((segment) => segment.length > 0)
-    .map((segment) => sanitizeNamespaceSegment(segment.replace(/^@/, "")));
-
-  return segments.length > 0 ? segments.join(".") : "External";
 };
 
 const defaultSourceFileIdentity = (
@@ -83,14 +79,6 @@ const defaultSourceFileIdentity = (
   namespace: getNamespaceFromPath(filePath, sourceRoot, rootNamespace),
   className: getClassNameFromPath(filePath),
 });
-
-const resolveInstalledSourcePackageRootNamespace = (
-  packageRoot: string,
-  packageName: string
-): string => {
-  const metadata = readSourcePackageMetadata(packageRoot);
-  return metadata?.namespace ?? derivePackageFallbackNamespace(packageName);
-};
 
 export const resolveSourceFileIdentity = (
   filePath: string,
@@ -120,10 +108,8 @@ export const resolveSourceFileIdentity = (
   const metadata = readSourcePackageMetadata(packageRoot);
   const packageName = readPackageName(path.join(packageRoot, "package.json"));
   if (!metadata || !packageName) {
-    return defaultSourceFileIdentity(
-      normalizedFilePath,
-      normalizedSourceRoot,
-      rootNamespace
+    throw new Error(
+      `Installed source package at ${packageRoot} is missing valid package metadata.`
     );
   }
 
@@ -143,7 +129,7 @@ export const resolveSourceFileIdentity = (
     namespace: getNamespaceFromPath(
       normalizedFilePath,
       metadata.sourceRoot,
-      resolveInstalledSourcePackageRootNamespace(packageRoot, packageName)
+      metadata.namespace
     ),
     className: getClassNameFromPath(normalizedFilePath),
   };
@@ -164,15 +150,14 @@ export const resolveInstalledSourcePackageNamespace = (
   }
 
   const metadata = readSourcePackageMetadata(packageRoot);
-  const packageName = readPackageName(path.join(packageRoot, "package.json"));
-  if (!metadata || !packageName) {
+  if (!metadata) {
     return undefined;
   }
 
   return getNamespaceFromPath(
     normalizedFilePath,
     metadata.sourceRoot,
-    resolveInstalledSourcePackageRootNamespace(packageRoot, packageName)
+    metadata.namespace
   );
 };
 
@@ -202,7 +187,9 @@ export const resolveSourceFileOwnerIdentity = (
 
   const packageName = readPackageName(path.join(packageRoot, "package.json"));
   if (!packageName) {
-    return rootNamespace;
+    throw new Error(
+      `Installed source package at ${packageRoot} is missing package.json name.`
+    );
   }
 
   return packageName;

@@ -13,6 +13,8 @@ import { ResolvedModule } from "./types.js";
 import {
   getLocalResolutionBoundary,
   isPathWithinBoundary,
+  resolveInstalledPackageImport,
+  resolveInstalledPackageImportFromPackageRoot,
   resolveSourcePackageImport,
   resolveSourcePackageImportFromPackageRoot,
 } from "./source-package-resolution.js";
@@ -201,6 +203,23 @@ export const resolveImport = (
         resolvedPath: sourcePackage.value.resolvedPath,
         isLocal: true,
         isSourcePackage: true,
+        isClr: false,
+        originalSpecifier: importSpecifier,
+      });
+    }
+
+    const installedPackage =
+      authoritativePackageRoot !== undefined
+        ? resolveInstalledPackageImportFromPackageRoot(
+            canonicalImportSpecifier,
+            authoritativePackageRoot
+          )
+        : resolveInstalledPackageImport(canonicalImportSpecifier, containingFile);
+    if (!installedPackage.ok) return installedPackage;
+    if (installedPackage.value) {
+      return ok({
+        resolvedPath: installedPackage.value.resolvedPath,
+        isLocal: true,
         isClr: false,
         originalSpecifier: importSpecifier,
       });

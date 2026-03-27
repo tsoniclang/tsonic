@@ -17,6 +17,7 @@ export type {
   IrFunctionExpression,
   IrArrowFunctionExpression,
   ComputedAccessKind,
+  ComputedAccessProtocol,
   IrMemberExpression,
   IrCallExpression,
   IrNewExpression,

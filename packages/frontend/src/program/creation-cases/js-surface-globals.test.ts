@@ -105,7 +105,7 @@ describe("Program Creation – JS surface globals", function () {
 
       expect(
         result.value.bindings.resolveExtensionMethodByKey(
-          "Tsonic_js",
+          "js",
           "String",
           "trim",
           0

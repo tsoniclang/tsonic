@@ -10,10 +10,68 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createProgram } from "../creation.js";
 
+const writeFixtureJsSurface = (
+  tempDir: string,
+  exportEntries: Record<string, string>,
+  sourceFiles: Readonly<Record<string, string>>,
+  ambientSource = "export {};\n"
+): string => {
+  const surfaceRoot = path.join(tempDir, "node_modules", "@fixture", "js");
+  fs.mkdirSync(path.join(surfaceRoot, "src"), { recursive: true });
+  fs.writeFileSync(
+    path.join(surfaceRoot, "package.json"),
+    JSON.stringify(
+      { name: "@fixture/js", version: "1.0.0", type: "module" },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(
+    path.join(surfaceRoot, "tsonic.surface.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        id: "@fixture/js",
+        extends: [],
+        requiredTypeRoots: ["."],
+        useStandardLib: false,
+      },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(path.join(surfaceRoot, "globals.ts"), ambientSource);
+  fs.writeFileSync(
+    path.join(surfaceRoot, "tsonic.package.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        kind: "tsonic-source-package",
+        surfaces: ["@fixture/js"],
+        source: {
+          namespace: "fixture.js",
+          ambient: ["./globals.ts"],
+          exports: exportEntries,
+        },
+      },
+      null,
+      2
+    )
+  );
+
+  for (const [relativePath, contents] of Object.entries(sourceFiles)) {
+    const absolutePath = path.join(surfaceRoot, relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, contents);
+  }
+
+  return surfaceRoot;
+};
+
 describe("Program Creation – module bindings", function () {
   this.timeout(90_000);
 
-  it("should resolve node module imports from package-provided declarations and bindings", () => {
+  it("should resolve node module imports from installed source-package module aliases", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-js-surface-")
     );
@@ -30,9 +88,18 @@ describe("Program Creation – module bindings", function () {
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
+      writeFixtureJsSurface(
+        tempDir,
+        {
+          "./Globals.js": "./src/Globals.ts",
+        },
+        {
+          "src/Globals.ts": "export const noop = 0;\n",
+        }
+      );
 
       const nodejsRoot = path.join(tempDir, "node_modules/@tsonic/nodejs");
-      fs.mkdirSync(nodejsRoot, { recursive: true });
+      fs.mkdirSync(path.join(nodejsRoot, "src"), { recursive: true });
       fs.writeFileSync(
         path.join(nodejsRoot, "package.json"),
         JSON.stringify(
@@ -42,35 +109,30 @@ describe("Program Creation – module bindings", function () {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsRoot, "index.d.ts"),
-        'declare module "node:fs" { export const readFileSync: (path: string) => string; }\n'
-      );
-      fs.writeFileSync(
-        path.join(nodejsRoot, "index.js"),
-        "export const fs = {};\n"
-      );
-      const nodejsInternalDir = path.join(nodejsRoot, "index");
-      fs.mkdirSync(nodejsInternalDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(nodejsRoot, "bindings.json"),
+        path.join(nodejsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
-            bindings: {
-              "node:fs": {
-                kind: "module",
-                assembly: "nodejs",
-                type: "nodejs.fs",
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@fixture/js"],
+            source: {
+              namespace: "nodejs",
+              moduleAliases: {
+                "node:fs": "./fs.js",
               },
-              fs: {
-                kind: "module",
-                assembly: "nodejs",
-                type: "nodejs.fs",
+              exports: {
+                "./fs.js": "./src/fs.ts",
               },
             },
           },
           null,
           2
         )
+      );
+      const packageEntry = path.join(nodejsRoot, "src", "fs.ts");
+      fs.writeFileSync(
+        packageEntry,
+        'export const readFileSync = (filePath: string): string => filePath;\n'
       );
 
       const entryPath = path.join(srcDir, "index.ts");
@@ -83,18 +145,21 @@ describe("Program Creation – module bindings", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "@tsonic/js",
+        surface: "@fixture/js",
         typeRoots: ["node_modules/@tsonic/nodejs"],
+        useStandardLib: false,
       });
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const nodeFs = result.value.bindings.getBinding("node:fs");
-      expect(nodeFs?.kind).to.equal("module");
-      if (nodeFs?.kind === "module") {
-        expect(nodeFs.type).to.equal("nodejs.fs");
-      }
+      expect(result.value.program.getSourceFile(packageEntry)).to.not.equal(
+        undefined
+      );
+      const moduleResolutionErrors = result.value.program
+        .getSemanticDiagnostics()
+        .filter((diagnostic) => diagnostic.code === 2307);
+      expect(moduleResolutionErrors).to.deep.equal([]);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -117,6 +182,15 @@ describe("Program Creation – module bindings", function () {
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
+      writeFixtureJsSurface(
+        tempDir,
+        {
+          "./Globals.js": "./src/Globals.ts",
+        },
+        {
+          "src/Globals.ts": "export const noop = 0;\n",
+        }
+      );
 
       const nodejsRoot = path.join(tempDir, "node_modules/@tsonic/nodejs");
       fs.mkdirSync(path.join(nodejsRoot, "tsonic"), { recursive: true });
@@ -137,8 +211,9 @@ describe("Program Creation – module bindings", function () {
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
+            surfaces: ["@fixture/js"],
             source: {
+              namespace: "nodejs",
               moduleAliases: {
                 "node:http": "./http.js",
               },
@@ -167,8 +242,9 @@ describe("Program Creation – module bindings", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "@tsonic/js",
+        surface: "@fixture/js",
         typeRoots: ["node_modules/@tsonic/nodejs"],
+        useStandardLib: false,
       });
 
       expect(result.ok).to.equal(true);
@@ -182,6 +258,10 @@ describe("Program Creation – module bindings", function () {
           (sourceFile) => path.resolve(sourceFile.fileName) === packageEntry
         )
       ).to.equal(true);
+      const moduleResolutionErrors = result.value.program
+        .getSemanticDiagnostics()
+        .filter((diagnostic) => diagnostic.code === 2307);
+      expect(moduleResolutionErrors).to.deep.equal([]);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -496,6 +576,15 @@ describe("Program Creation – module bindings", function () {
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
+      writeFixtureJsSurface(
+        tempDir,
+        {
+          "./Globals.js": "./src/Globals.ts",
+        },
+        {
+          "src/Globals.ts": "export const noop = 0;\n",
+        }
+      );
 
       const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
       fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
@@ -514,8 +603,9 @@ describe("Program Creation – module bindings", function () {
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
+            surfaces: ["@fixture/js"],
             source: {
+              namespace: "acme.math",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -541,7 +631,8 @@ describe("Program Creation – module bindings", function () {
         projectRoot: tempDir,
         sourceRoot: srcDir,
         rootNamespace: "Test",
-        surface: "@tsonic/js",
+        surface: "@fixture/js",
+        useStandardLib: false,
       });
 
       expect(result.ok).to.equal(true);

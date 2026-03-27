@@ -133,6 +133,7 @@ export const generateCommand = (
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries,
       clrBindings: bindings,
+      bindingRegistry: graphResult.value.bindingRegistry,
       enableJsonAot: config.outputConfig.nativeAot ?? false,
     });
     if (!emitResult.ok) {

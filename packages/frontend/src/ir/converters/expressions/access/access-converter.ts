@@ -15,6 +15,7 @@ import {
   classifyComputedAccess,
   deriveElementType,
   hasDeclaredMemberByName,
+  resolveComputedAccessProtocol,
 } from "./member-resolution.js";
 import {
   getCurrentTypeForAccessExpression,
@@ -98,6 +99,22 @@ export const convertMemberExpression = (
       currentReceiverType !== undefined
         ? { ...object, inferredType: currentReceiverType }
         : object;
+    const exactMemberId = ctx.binding.resolvePropertyAccess(node);
+    const exactDeclaringTypeName =
+      exactMemberId !== undefined
+        ? ctx.binding.getDeclaringTypeNameOfMember(exactMemberId)
+        : undefined;
+    const exactMemberBinding =
+      exactMemberId !== undefined &&
+      !exactDeclaringTypeName?.startsWith("__Ext_") &&
+      !exactDeclaringTypeName?.startsWith("__TsonicExtMethods_")
+        ? resolveHierarchicalBindingFromMemberId(
+            node,
+            propertyName,
+            bindingResolutionObject,
+            ctx
+          )
+        : undefined;
 
     // Try to resolve hierarchical binding
     const memberBinding =
@@ -107,12 +124,12 @@ export const convertMemberExpression = (
         bindingResolutionObject,
         ctx
       ) ??
-      resolveHierarchicalBinding(bindingResolutionObject, propertyName, ctx) ??
-      resolveHierarchicalBindingFromMemberId(node, propertyName, ctx);
+      exactMemberBinding ??
+      (exactMemberId === undefined
+        ? resolveHierarchicalBinding(bindingResolutionObject, propertyName, ctx)
+        : undefined);
 
-    // DETERMINISTIC TYPING: Property type comes from NominalEnv + TypeRegistry for
-    // user-defined types (including inherited members), with fallback to Binding layer
-    // for built-ins and CLR types.
+    // DETERMINISTIC TYPING: Property type comes from explicit TypeSystem queries only.
     //
     // The receiver's inferredType enables NominalEnv to walk inheritance chains
     // and substitute type parameters correctly for inherited generic members.
@@ -288,14 +305,15 @@ export const convertMemberExpression = (
     }
 
     // DETERMINISTIC TYPING: Use object's inferredType (not getInferredType)
-    const objectType = object.inferredType;
+    const currentReceiverType = getCurrentTypeForAccessExpression(
+      node.expression,
+      ctx
+    );
+    const objectType = currentReceiverType ?? object.inferredType;
 
     // Classify the access kind for proof pass
     // This determines whether Int32 proof is required for the index
-    const accessKind =
-      objectType === object.inferredType
-        ? computedAccessKind
-        : classifyComputedAccess(objectType, ctx);
+    const accessKind = classifyComputedAccess(objectType, ctx);
 
     const narrowedAccessType =
       hasAccessPathNarrowing(node, ctx) || objectType !== undefined
@@ -311,6 +329,7 @@ export const convertMemberExpression = (
       accessKind !== "unknown" &&
       objectType !== undefined &&
       objectType.kind !== "unknownType";
+    const accessProtocol = resolveComputedAccessProtocol(objectType, ctx);
 
     const baseElementAccess: IrExpression = {
       kind: "memberAccess",
@@ -326,6 +345,7 @@ export const convertMemberExpression = (
       allowUnknownInferredType,
       sourceSpan,
       accessKind,
+      accessProtocol,
     };
     if (
       narrowedAccessType &&

@@ -1,5 +1,4 @@
 import {
-  identifierExpression,
   identifierType,
   stringLiteral,
 } from "../format/backend-ast/builders.js";
@@ -69,11 +68,12 @@ export const isRuntimeUnionTypeAst = (type: CSharpTypeAst): boolean => {
 export const buildArrayShapeCondition = (
   valueAst: CSharpExpressionAst
 ): CSharpExpressionAst => ({
-  kind: "invocationExpression",
-  expression: identifierExpression(
-    "global::Tsonic.Runtime.JSArrayStatics.isArray"
-  ),
-  arguments: [boxValueAst(valueAst)],
+  kind: "isExpression",
+  expression: boxValueAst(valueAst),
+  pattern: {
+    kind: "typePattern",
+    type: identifierType("global::System.Array"),
+  },
 });
 
 export const buildInvalidReificationExpression = (

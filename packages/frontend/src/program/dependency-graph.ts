@@ -11,7 +11,7 @@ import { IrModule, IrStatement } from "../ir/types.js";
 import { buildIr } from "../ir/builder/orchestrator.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
 import type { CompilerOptions } from "./types.js";
-import type { TypeBinding } from "./bindings.js";
+import type { BindingRegistry, TypeBinding } from "./bindings.js";
 import { discoverAndLoadClrBindings } from "./clr-bindings-discovery.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
@@ -26,6 +26,7 @@ import { runVirtualMarkingPass } from "../ir/validation/virtual-marking-pass.js"
 import { validateProgram } from "../validation/orchestrator.js";
 import {
   getLocalResolutionBoundary,
+  resolveInstalledPackageImport,
   resolveSourcePackageImport,
 } from "../resolver/source-package-resolution.js";
 import { resolveImport } from "../resolver.js";
@@ -44,6 +45,8 @@ export type ModuleDependencyGraphResult = {
   readonly entryModule: IrModule;
   /** Type bindings loaded from CLR packages (for emitter bindingsRegistry) */
   readonly bindings: ReadonlyMap<string, TypeBinding>;
+  /** Full binding registry for exact global/module/source binding lookups during emission. */
+  readonly bindingRegistry: BindingRegistry;
 };
 
 /**
@@ -214,6 +217,14 @@ const queueResolvedLocalDependency = (
     )
   );
 };
+
+const isQueueableTsSourceDependency = (resolvedPath: string): boolean =>
+  (resolvedPath.endsWith(".ts") ||
+    resolvedPath.endsWith(".mts") ||
+    resolvedPath.endsWith(".cts")) &&
+  !resolvedPath.endsWith(".d.ts") &&
+  !resolvedPath.endsWith(".d.mts") &&
+  !resolvedPath.endsWith(".d.cts");
 
 /**
  * Build complete module dependency graph from entry point
@@ -415,6 +426,30 @@ export const buildModuleDependencyGraph = (
       }
       if (sourcePackage.value) {
         queue.push(sourcePackage.value.resolvedPath);
+        continue;
+      }
+
+      const installedPackage = resolveInstalledPackageImport(
+        importSpecifier,
+        currentFile
+      );
+      if (!installedPackage.ok) {
+        diagnostics.push({
+          ...installedPackage.error,
+          location: {
+            file: currentFile,
+            line: stmt.getStart(sourceFile),
+            column: 1,
+            length: importSpecifier.length,
+          },
+        });
+        continue;
+      }
+      if (installedPackage.value) {
+        if (isQueueableTsSourceDependency(installedPackage.value.resolvedPath)) {
+          queue.push(installedPackage.value.resolvedPath);
+        }
+        continue;
       }
     }
 
@@ -596,5 +631,6 @@ export const buildModuleDependencyGraph = (
     modules: processedModules,
     entryModule,
     bindings: tsonicProgram.bindings.getEmitterTypeMap(),
+    bindingRegistry: tsonicProgram.bindings,
   });
 };

@@ -25,6 +25,9 @@ describe("IR Builder", function () {
       );
 
       try {
+        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
+        expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
+
         fs.writeFileSync(
           path.join(tempDir, "package.json"),
           JSON.stringify(
@@ -70,6 +73,7 @@ describe("IR Builder", function () {
               kind: "tsonic-source-package",
               surfaces: ["@tsonic/js"],
               source: {
+                namespace: "nodejs",
                 exports: {
                   ".": "./src/index.ts",
                   "./path.js": "./src/path-module.ts",
@@ -112,7 +116,7 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@tsonic/js",
-          typeRoots: [packageRoot],
+          typeRoots: [jsRoot, packageRoot],
         });
 
         expect(programResult.ok).to.equal(true);
@@ -384,6 +388,288 @@ describe("IR Builder", function () {
         });
       } finally {
         fixture.cleanup();
+      }
+    });
+
+    it("preserves instanceof narrowing for imported constructor-typed values", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/crypto.ts": [
+            "export interface RSA {",
+            "  Encrypt(data: string): string;",
+            "}",
+            "export const RSA: (abstract new() => RSA) & {",
+            "  Create(): RSA;",
+            "} = undefined as unknown as (abstract new() => RSA) & {",
+            "  Create(): RSA;",
+            "};",
+          ].join("\n"),
+          "src/index.ts": [
+            'import { RSA } from "./crypto.js";',
+            'import type { RSA as RsaInstance } from "./crypto.js";',
+            "declare function takesRsa(value: RsaInstance): void;",
+            "",
+            "export function encrypt(value: RsaInstance | string): string {",
+            "  if (value instanceof RSA) {",
+            "    takesRsa(value);",
+            '    return value.Encrypt("payload");',
+            "  }",
+            "  return value;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "encrypt"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const ifStmt = fn.body.statements.find(
+          (
+            stmt
+          ): stmt is Extract<
+            IrFunctionDeclaration["body"]["statements"][number],
+            { kind: "ifStatement" }
+          > => stmt.kind === "ifStatement"
+        );
+        expect(ifStmt?.kind).to.equal("ifStatement");
+        if (
+          !ifStmt ||
+          ifStmt.kind !== "ifStatement" ||
+          ifStmt.thenStatement.kind !== "blockStatement"
+        ) {
+          return;
+        }
+
+        const thenStatements = ifStmt.thenStatement.statements;
+
+        const callStmt = thenStatements.find(
+          (
+            stmt: IrFunctionDeclaration["body"]["statements"][number]
+          ): stmt is Extract<
+            IrFunctionDeclaration["body"]["statements"][number],
+            { kind: "expressionStatement" }
+          > => stmt.kind === "expressionStatement"
+        );
+        expect(callStmt?.kind).to.equal("expressionStatement");
+        if (
+          !callStmt ||
+          callStmt.kind !== "expressionStatement" ||
+          callStmt.expression.kind !== "call"
+        ) {
+          return;
+        }
+
+        const narrowedArg = callStmt.expression.arguments[0];
+        expect(narrowedArg?.inferredType?.kind).to.equal("referenceType");
+        if (narrowedArg?.inferredType?.kind !== "referenceType") {
+          return;
+        }
+        expect(narrowedArg.inferredType.name).to.equal("RSA");
+
+        const returnStmt = thenStatements.find(
+          (
+            stmt: IrFunctionDeclaration["body"]["statements"][number]
+          ): stmt is Extract<
+            IrFunctionDeclaration["body"]["statements"][number],
+            { kind: "returnStatement" }
+          > => stmt.kind === "returnStatement"
+        );
+        expect(returnStmt?.kind).to.equal("returnStatement");
+        if (
+          !returnStmt ||
+          returnStmt.kind !== "returnStatement" ||
+          !returnStmt.expression ||
+          returnStmt.expression.kind !== "call"
+        ) {
+          return;
+        }
+
+        const callee = returnStmt.expression.callee;
+        expect(callee.kind).to.equal("memberAccess");
+        if (callee.kind !== "memberAccess") {
+          return;
+        }
+
+        expect(callee.object.inferredType?.kind).to.equal("referenceType");
+        if (callee.object.inferredType?.kind !== "referenceType") {
+          return;
+        }
+        expect(callee.object.inferredType.name).to.equal("RSA");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves instanceof narrowing for imported constructor values with alias-backed instance types", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/crypto.ts": [
+            "export interface RSA$instance {",
+            "  Encrypt(data: string): string;",
+            "}",
+            "export interface __RSA$views {",
+            "  AsKey(): RSA$instance;",
+            "}",
+            "export type RSA = RSA$instance & __RSA$views;",
+            "export const RSA: (abstract new() => RSA) & {",
+            "  Create(): RSA;",
+            "} = undefined as unknown as (abstract new() => RSA) & {",
+            "  Create(): RSA;",
+            "};",
+          ].join("\n"),
+          "src/index.ts": [
+            'import { RSA } from "./crypto.js";',
+            'import type { RSA as RsaInstance } from "./crypto.js";',
+            "declare function takesRsa(value: RsaInstance): void;",
+            "",
+            "export function encrypt(value: RsaInstance | string): string {",
+            "  if (value instanceof RSA) {",
+            "    takesRsa(value);",
+            '    return value.Encrypt("payload");',
+            "  }",
+            "  return value;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves instanceof narrowing for declaration-package constructor values", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-instanceof-decl-package-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const packageRoot = path.join(tempDir, "node_modules", "@acme", "crypto");
+        fs.mkdirSync(packageRoot, { recursive: true });
+        fs.writeFileSync(
+          path.join(packageRoot, "package.json"),
+          JSON.stringify(
+            {
+              name: "@acme/crypto",
+              version: "0.0.0",
+              type: "module",
+              exports: {
+                ".": "./index.d.ts",
+                "./index.js": "./index.d.ts",
+              },
+            },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(
+          path.join(packageRoot, "index.d.ts"),
+          [
+            "export interface RSA$instance {",
+            "  Encrypt(data: string): string;",
+            "}",
+            "export interface __RSA$views {",
+            "  AsKey(): RSA$instance;",
+            "}",
+            "export type RSA = RSA$instance & __RSA$views;",
+            "export const RSA: (abstract new() => RSA) & {",
+            "  Create(): RSA;",
+            "};",
+          ].join("\n")
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            'import { RSA } from "@acme/crypto/index.js";',
+            'import type { RSA as RsaInstance } from "@acme/crypto/index.js";',
+            "declare function takesRsa(value: RsaInstance): void;",
+            "",
+            "export function encrypt(value: RsaInstance | string): string {",
+            "  if (value instanceof RSA) {",
+            "    takesRsa(value);",
+            '    return value.Encrypt("payload");',
+            "  }",
+            "  return value;",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          useStandardLib: true,
+          typeRoots: [packageRoot],
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const result = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(result.ok).to.equal(true);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
 

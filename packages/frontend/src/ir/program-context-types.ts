@@ -65,6 +65,14 @@ export type ProgramContext = {
   readonly checker: ts.TypeChecker;
 
   /**
+   * Supported generic function value symbols for deterministic monomorphic callable contexts.
+   *
+   * These are collected once for the whole compilation so expression conversion can
+   * reuse the same authoritative symbol set without re-scanning source files.
+   */
+  readonly genericFunctionValueSymbols: ReadonlySet<ts.Symbol>;
+
+  /**
    * Raw TypeScript compiler options for syntax-level module resolution helpers.
    */
   readonly tsCompilerOptions: ts.CompilerOptions;

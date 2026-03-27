@@ -157,6 +157,13 @@ export const buildExprBinding = (
   sourceType,
 });
 
+export const resolveExistingNarrowingSourceType = (
+  bindingKey: string,
+  currentType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined =>
+  context.narrowedBindings?.get(bindingKey)?.sourceType ?? currentType;
+
 export const buildRuntimeSubsetExpressionAst = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   narrowed: Extract<NarrowedBinding, { kind: "runtimeSubset" }>,
@@ -267,8 +274,7 @@ export const isArrayLikeNarrowingCandidate = (
   if (
     resolved.kind === "referenceType" &&
     (resolved.name === "Array" ||
-      resolved.name === "ReadonlyArray" ||
-      resolved.name === "JSArray")
+      resolved.name === "ReadonlyArray")
   ) {
     return true;
   }

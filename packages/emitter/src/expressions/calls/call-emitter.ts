@@ -28,6 +28,7 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 // Import from split modules
 import { emitDynamicImportCall } from "./call-dynamic-import.js";
 import {
@@ -38,6 +39,7 @@ import {
 import {
   emitPromiseStaticCall,
   emitPromiseThenCatchFinally,
+  buildDelegateType,
 } from "./call-promise.js";
 import {
   emitArrayMutationInteropCall,
@@ -46,7 +48,6 @@ import {
 import { emitRuntimeUnionArrayIsArrayCall } from "./call-runtime-union-guards.js";
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { tryEmitExtensionMethodCall } from "./call-extension-methods.js";
-import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 
 const buildCallTargetExpectedType = (
   expr: Extract<IrExpression, { kind: "call" }>
@@ -99,101 +100,104 @@ const extractTransparentIdentifier = (
   return current.kind === "identifier" ? current : undefined;
 };
 
-const tryEmitArrayStaticBuiltinCall = (
+const castInvokedLambdaTarget = (
+  calleeExpr: CSharpExpressionAst,
+  calleeType: IrType | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (calleeExpr.kind !== "lambdaExpression") {
+    return [calleeExpr, context];
+  }
+  if (!calleeType || calleeType.kind !== "functionType") {
+    throw new Error(
+      "Internal Compiler Error: Immediately-invoked function expression reached call emission without a concrete function type."
+    );
+  }
+
+  let currentContext = context;
+  const parameterTypeAsts: CSharpTypeAst[] = [];
+  for (const parameter of calleeType.parameters) {
+    if (!parameter?.type) {
+      throw new Error(
+        "Internal Compiler Error: Function-expression invocation parameter is missing a concrete type."
+      );
+    }
+    const [parameterTypeAst, parameterTypeContext] = emitTypeAst(
+      parameter.type,
+      currentContext
+    );
+    parameterTypeAsts.push(parameterTypeAst);
+    currentContext = parameterTypeContext;
+  }
+
+  const [returnTypeAst, returnTypeContext] = emitTypeAst(
+    calleeType.returnType,
+    currentContext
+  );
+
+  return [
+    {
+      kind: "parenthesizedExpression",
+      expression: {
+        kind: "castExpression",
+        type: buildDelegateType(parameterTypeAsts, returnTypeAst),
+        expression: {
+          kind: "parenthesizedExpression",
+          expression: calleeExpr,
+        },
+      },
+    },
+    returnTypeContext,
+  ];
+};
+
+const emitSyntheticArraySliceCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (expr.callee.kind !== "memberAccess") {
+    return undefined;
+  }
+
+  const binding = expr.callee.memberBinding;
   if (
-    expr.callee.kind !== "memberAccess" ||
-    expr.callee.isComputed ||
-    expr.callee.object.kind !== "identifier" ||
-    expr.callee.object.name !== "Array" ||
-    typeof expr.callee.property !== "string"
+    binding?.assembly !== "__synthetic" ||
+    binding.type !== "Array" ||
+    binding.member !== "slice" ||
+    expr.arguments.length !== 1
   ) {
     return undefined;
   }
 
-  switch (expr.callee.property) {
-    case "isArray": {
-      if (expr.arguments.length !== 1) {
-        return undefined;
-      }
-
-      const [argument] = expr.arguments;
-      if (!argument || argument.kind === "spread") {
-        return undefined;
-      }
-
-      const [argumentAst, argumentContext] = emitExpressionAst(argument, context);
-      return [
-        {
-          kind: "invocationExpression",
-          expression: identifierExpression(
-            "global::Tsonic.Runtime.JSArrayStatics.isArray"
-          ),
-          arguments: [
-            {
-              kind: "castExpression",
-              type: { kind: "predefinedType", keyword: "object" },
-              expression: argumentAst,
-            },
-          ],
-        },
-        argumentContext,
-      ];
-    }
-
-    case "from": {
-      const [argAsts, argContext] = emitCallArguments(
-        expr.arguments,
-        expr,
-        context
-      );
-      return [
-        {
-          kind: "invocationExpression",
-          expression: identifierExpression(
-            "global::Tsonic.Runtime.JSArrayStatics.from"
-          ),
-          arguments: argAsts,
-        },
-        argContext,
-      ];
-    }
-
-    case "of": {
-      if (expr.arguments.length === 0) {
-        return [
-          {
-            kind: "invocationExpression",
-            expression: identifierExpression("global::System.Array.Empty"),
-            typeArguments: [{ kind: "predefinedType", keyword: "object" }],
-            arguments: [],
-          },
-          context,
-        ];
-      }
-
-      const [argAsts, argContext] = emitCallArguments(
-        expr.arguments,
-        expr,
-        context
-      );
-      return [
-        {
-          kind: "invocationExpression",
-          expression: identifierExpression(
-            "global::Tsonic.Runtime.JSArrayStatics.of"
-          ),
-          arguments: argAsts,
-        },
-        argContext,
-      ];
-    }
-
-    default:
-      return undefined;
+  const startIndex = expr.arguments[0];
+  if (!startIndex || startIndex.kind === "spread") {
+    return undefined;
   }
+
+  const [receiverAst, receiverContext] = emitExpressionAst(
+    expr.callee.object,
+    context
+  );
+  const [startAst, startContext] = emitExpressionAst(
+    startIndex,
+    receiverContext,
+    { kind: "primitiveType", name: "int" }
+  );
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: identifierExpression("global::System.Linq.Enumerable.ToArray"),
+      arguments: [
+        {
+          kind: "invocationExpression",
+          expression: identifierExpression("global::System.Linq.Enumerable.Skip"),
+          arguments: [receiverAst, startAst],
+        },
+      ],
+    },
+    startContext,
+  ];
 };
 
 /**
@@ -204,6 +208,11 @@ export const emitCall = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const syntheticArraySlice = emitSyntheticArraySliceCall(expr, context);
+  if (syntheticArraySlice) {
+    return syntheticArraySlice;
+  }
+
   const dynamicImport = emitDynamicImportCall(expr, context);
   if (dynamicImport) return dynamicImport;
 
@@ -219,11 +228,6 @@ export const emitCall = (
   );
   if (runtimeUnionArrayIsArray) {
     return runtimeUnionArrayIsArray;
-  }
-
-  const arrayStaticBuiltinCall = tryEmitArrayStaticBuiltinCall(expr, context);
-  if (arrayStaticBuiltinCall) {
-    return arrayStaticBuiltinCall;
   }
 
   // Void promise resolve: emit as zero-arg call when safe.
@@ -261,7 +265,7 @@ export const emitCall = (
   }
 
   // Check for global JSON.stringify/parse calls
-  const globalJsonCall = isGlobalJsonCall(expr.callee);
+  const globalJsonCall = isGlobalJsonCall(expr.callee, context);
   if (globalJsonCall) {
     return emitGlobalJsonCall(expr, context, globalJsonCall.method);
   }
@@ -326,7 +330,7 @@ export const emitCall = (
 
   // Extension method lowering — delegated to call-extension-methods.ts
   // Keep this after native array interop so lifted/static container array
-  // mutation calls cannot fall through to copy-based JSArray extension syntax.
+  // mutation calls cannot fall through to copy-based source-owned array syntax.
   const extensionResult = tryEmitExtensionMethodCall(
     expr,
     context,
@@ -350,6 +354,15 @@ export const emitCall = (
 
   let calleeExpr: CSharpExpressionAst = calleeAst;
   let typeArgAsts: readonly CSharpTypeAst[] = [];
+  if (calleeExpr.kind === "lambdaExpression") {
+    const castedLambdaTarget = castInvokedLambdaTarget(
+      calleeExpr,
+      calleeExpectedType,
+      currentContext
+    );
+    calleeExpr = castedLambdaTarget[0];
+    currentContext = castedLambdaTarget[1];
+  }
 
   if (expr.typeArguments && expr.typeArguments.length > 0) {
     if (expr.requiresSpecialization) {

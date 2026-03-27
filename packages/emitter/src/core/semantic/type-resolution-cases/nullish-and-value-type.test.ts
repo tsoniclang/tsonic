@@ -59,7 +59,7 @@ describe("type-resolution", () => {
       });
     });
 
-    it("returns original union when multiple non-nullish types", () => {
+    it("strips nullish members while preserving multi-member unions", () => {
       const type: IrType = {
         kind: "unionType",
         types: [
@@ -68,9 +68,14 @@ describe("type-resolution", () => {
           { kind: "primitiveType", name: "null" },
         ],
       };
-      // string | number | null -> still has two non-nullish types
       const result = stripNullish(type);
-      expect(result).to.deep.equal(type);
+      expect(result).to.deep.equal({
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "number" },
+          { kind: "primitiveType", name: "string" },
+        ],
+      });
     });
   });
 

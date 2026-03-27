@@ -5,13 +5,16 @@ import {
   emitModule,
   emitExpressionAst,
   printExpression,
+  createJsSurfaceBindingRegistry,
   type IrExpression,
   type IrModule,
   type IrType,
 } from "./helpers.js";
 
+const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
+
 describe("Expression Emission", () => {
-  it("should emit array wrapper property access for non-System.Array member bindings", () => {
+  it("should lower JS-surface array length to native CLR Length", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -38,7 +41,7 @@ describe("Expression Emission", () => {
             memberBinding: {
               kind: "property",
               assembly: "js",
-              type: "Tsonic.Runtime.JSArray`1",
+              type: "js.Array",
               member: "length",
             },
           },
@@ -47,13 +50,14 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module);
-    expect(result).to.include(
-      "new global::Tsonic.Runtime.JSArray<int>(nums).length"
-    );
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
+    expect(result).to.include("nums.Length");
   });
 
-  it("should emit array wrapper property access for nullable array receivers", () => {
+  it("should lower nullable JS-surface array length to native CLR Length", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -86,7 +90,7 @@ describe("Expression Emission", () => {
             memberBinding: {
               kind: "property",
               assembly: "js",
-              type: "Tsonic.Runtime.JSArray`1",
+              type: "js.Array",
               member: "length",
             },
           },
@@ -95,13 +99,14 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module);
-    expect(result).to.include(
-      "new global::Tsonic.Runtime.JSArray<int>(maybeNums).length"
-    );
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
+    expect(result).to.include("maybeNums.Length");
   });
 
-  it("should preserve resolved CLR identity for source-bound array element types", () => {
+  it("should preserve resolved CLR identity while lowering array length natively", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -132,7 +137,7 @@ describe("Expression Emission", () => {
             memberBinding: {
               kind: "property",
               assembly: "js",
-              type: "Tsonic.Runtime.JSArray`1",
+              type: "js.Array",
               member: "length",
             },
           },
@@ -141,13 +146,14 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module);
-    expect(result).to.include(
-      "new global::Tsonic.Runtime.JSArray<global::Acme.Core.Attachment>(attachments).length"
-    );
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
+    expect(result).to.include("attachments.Length");
   });
 
-  it("should emit array wrapper property access for ReadonlyArray receivers", () => {
+  it("should lower ReadonlyArray length to native CLR Length", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -175,7 +181,7 @@ describe("Expression Emission", () => {
             memberBinding: {
               kind: "property",
               assembly: "js",
-              type: "Tsonic.Runtime.JSArray`1",
+              type: "js.ReadonlyArray",
               member: "length",
             },
           },
@@ -184,10 +190,11 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module);
-    expect(result).to.include(
-      "new global::Tsonic.Runtime.JSArray<int>(nums).length"
-    );
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
+    expect(result).to.include("nums.Length");
   });
 
   it("uses storage-erased element types for JS array wrapper property access on recursive union arrays", () => {
@@ -244,7 +251,7 @@ describe("Expression Emission", () => {
       memberBinding: {
         kind: "property",
         assembly: "js",
-        type: "Tsonic.Runtime.JSArray`1",
+        type: "js.Array",
         member: "length",
       },
     };
@@ -259,6 +266,7 @@ describe("Expression Emission", () => {
       isStatic: false,
       isAsync: false,
       usings: new Set<string>(),
+      bindingRegistry: jsSurfaceBindingRegistry,
       localValueTypes: new Map([
         [
           "entries",
@@ -277,7 +285,7 @@ describe("Expression Emission", () => {
 
     const text = printExpression(result);
     expect(text).to.equal("entries.Length");
-    expect(text).to.not.include("new global::Tsonic.Runtime.JSArray");
+    expect(text).to.not.include("new global::js.Array");
   });
 
   it("uses storage-erased element types for JS array mutation wrappers on recursive union arrays", () => {
@@ -335,7 +343,7 @@ describe("Expression Emission", () => {
         memberBinding: {
           kind: "method",
           assembly: "js",
-          type: "Tsonic.Runtime.JSArray`1",
+          type: "js.Array",
           member: "push",
         },
       },
@@ -360,6 +368,7 @@ describe("Expression Emission", () => {
       isStatic: false,
       isAsync: false,
       usings: new Set<string>(),
+      bindingRegistry: jsSurfaceBindingRegistry,
       localValueTypes: new Map([
         [
           "result",
@@ -377,11 +386,9 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include(
-      "new global::Tsonic.Runtime.JSArray<object>(result)"
-    );
+    expect(text).to.include("new global::js.Array<object>(result)");
     expect(text).to.not.include(
-      "new global::Tsonic.Runtime.JSArray<global::Tsonic.Runtime.Union"
+      "new global::js.Array<global::Tsonic.Runtime.Union"
     );
   });
 });

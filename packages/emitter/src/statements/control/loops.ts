@@ -13,6 +13,7 @@ import {
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { deriveForOfElementType } from "../../core/semantic/iteration-types.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
 import {
   allocateLocalName,
@@ -215,7 +216,14 @@ export const emitForOfStatementAst = (
   stmt: Extract<IrStatement, { kind: "forOfStatement" }>,
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
-  const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
+  const iterableExpressionType =
+    resolveEffectiveExpressionType(stmt.expression, context) ??
+    stmt.expression.inferredType;
+  const [exprAst, exprContext] = emitExpressionAst(
+    stmt.expression,
+    context,
+    iterableExpressionType
+  );
   const outerNameMap = exprContext.localNameMap;
   const outerSemanticTypes = exprContext.localSemanticTypes;
   const outerValueTypes = exprContext.localValueTypes;
@@ -225,7 +233,7 @@ export const emitForOfStatementAst = (
   };
 
   const semanticElementType = deriveForOfElementType(
-    stmt.expression.inferredType,
+    iterableExpressionType,
     loopContext
   );
 
@@ -240,7 +248,7 @@ export const emitForOfStatementAst = (
     );
     loopContext = registerForOfElementSymbolTypes(
       originalName,
-      stmt.expression.inferredType,
+      iterableExpressionType,
       loopContext
     );
     const varName = alloc.emittedName;

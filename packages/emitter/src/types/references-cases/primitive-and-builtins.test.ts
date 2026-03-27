@@ -9,6 +9,7 @@ import {
   printType,
 } from "./helpers.js";
 import type { FrontendTypeBinding } from "./helpers.js";
+import type { LocalTypeInfo } from "../../emitter-types/core.js";
 describe("Reference Type Emission", () => {
   describe("C# Primitive Types", () => {
     it("should emit every real C# predefined reference keyword without qualification", () => {
@@ -76,6 +77,32 @@ describe("Reference Type Emission", () => {
 
       expect(result).to.include("double[]");
       expect(result).not.to.include("List");
+    });
+
+    it("should let a concrete local Array<T> class win over builtin array lowering", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "Array",
+          typeArguments: [{ kind: "primitiveType", name: "number" }],
+        },
+        {
+          ...baseContext,
+          localTypes: new Map<string, LocalTypeInfo>([
+            [
+              "Array",
+              {
+                kind: "class",
+                typeParameters: ["T"],
+                members: [],
+                implements: [],
+              },
+            ],
+          ]),
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("Array<double>");
     });
 
     it("should emit Promise<T> as Task<T>", () => {

@@ -101,7 +101,7 @@ describe("End-to-End Integration", () => {
         "for (int index = 0; index < (handler.As1()).Length; index += (int)1)"
       );
       expect(csharp).to.not.include(
-        "new global::Tsonic.Runtime.JSArray<global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"
+        "new global::js.Array<global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"
       );
       expect(csharp).to.not.include("isMiddlewareHandler(handler.Match(");
       expect(csharp).to.include(
@@ -173,8 +173,28 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("base.get(path, handlers)");
       expect(csharp).to.not.include("ToArray((object[])(object)handlers)");
       expect(csharp).to.not.include(
-        "new global::Tsonic.Runtime.JSArray<object>(args).slice(1).toArray()"
+        "new global::js.Array<object>(args).slice(1).toArray()"
       );
+    });
+
+    it("slices overload-wrapper rest tails through raw array storage instead of js.Array wrappers", () => {
+      const source = `
+        export class Values<T> {
+          constructor();
+          constructor(...items: T[]);
+          constructor(firstOrNothing?: T, ...rest: T[]) {
+            void firstOrNothing;
+            void rest;
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.match(
+        /global::System\.Linq\.Enumerable\.Skip\([A-Za-z_][A-Za-z0-9_]*, 1\)/
+      );
+      expect(csharp).to.include("global::System.Linq.Enumerable.ToArray(");
+      expect(csharp).to.not.include("new global::js.Array<T>(");
     });
 
     it("narrows reassigned locals before native array mutation interop calls", () => {

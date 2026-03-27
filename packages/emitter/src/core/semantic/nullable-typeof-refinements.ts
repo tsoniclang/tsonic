@@ -29,10 +29,12 @@ import {
   currentNarrowedType,
   resolveRuntimeUnionFrame,
   resolveRuntimeSubsetSourceInfo,
+  resolveExistingNarrowingSourceType,
   isNullOrUndefined,
   buildRuntimeUnionComplementBinding,
   applyDirectTypeNarrowing,
 } from "./narrowing-builders.js";
+import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 
 export const applySimpleNullableRefinement = (
   condition: IrExpression,
@@ -113,19 +115,25 @@ export const applySimpleNullableRefinement = (
     context
   );
 
-  const exprAst =
+  const [materializedExprAst, materializedContext] =
     nullableGuard.isValueType || isDefinitelyValueType(strippedType)
-      ? {
-          kind: "memberAccessExpression" as const,
-          expression: rawTargetAst,
-          memberName: "Value",
-        }
-      : (tryStripConditionalNullishGuardAst(rawTargetAst) ?? rawTargetAst);
+      ? materializeDirectNarrowingAst(
+          rawTargetAst,
+          currentType,
+          strippedType,
+          rawTargetContext
+        )
+      : [tryStripConditionalNullishGuardAst(rawTargetAst) ?? rawTargetAst, rawTargetContext];
 
   return applyBinding(
     nullableGuard.key,
-    buildExprBinding(exprAst, strippedType, currentType, rawTargetAst),
-    rawTargetContext
+    buildExprBinding(
+      materializedExprAst,
+      strippedType,
+      currentType,
+      materializedExprAst
+    ),
+    materializedContext
   );
 };
 
@@ -198,9 +206,13 @@ export const applyDirectTypeofRefinement = (
     return undefined;
   }
 
+  const rawCarrierContext = withoutNarrowedBinding(
+    context,
+    directGuard.bindingKey
+  );
   const [rawTargetAst, rawTargetContext] = emitExprAst(
     directGuard.targetExpr,
-    withoutNarrowedBinding(context, directGuard.bindingKey)
+    rawCarrierContext
   );
 
   const runtimeFrameContext = {
@@ -238,7 +250,11 @@ export const applyDirectTypeofRefinement = (
         buildExprBinding(
           buildUnionNarrowAst(rawTargetAst, memberN),
           narrowedType,
-          currentType,
+          resolveExistingNarrowingSourceType(
+            directGuard.bindingKey,
+            currentType,
+            context
+          ),
           rawTargetAst
         ),
         rawTargetContext
@@ -378,7 +394,11 @@ export const applyArrayIsArrayRefinement = (
         buildExprBinding(
           buildUnionNarrowAst(rawTargetAst, runtimeArrayPair.runtimeMemberN),
           narrowedType,
-          currentType,
+          resolveExistingNarrowingSourceType(
+            direct.bindingKey,
+            currentType,
+            context
+          ),
           rawTargetAst
         ),
         rawTargetContext

@@ -19,6 +19,7 @@ import type {
   CSharpParameterAst,
 } from "../../core/format/backend-ast/types.js";
 import {
+  applyRuntimeParameterDefaultShadows,
   buildParameterAsts,
   captureFunctionScopeContext,
   generateParameterDestructuringAst,
@@ -189,12 +190,17 @@ export const emitFunctionDeclarationAst = (
   const paramsResult = buildParameterAsts(stmt.parameters, currentContext);
   currentContext = paramsResult.context;
 
-  const baseBodyContext = seedLocalNameMapFromParameters(
+  const seededBodyContext = seedLocalNameMapFromParameters(
     stmt.parameters,
     withAsync(withStatic(currentContext, false), stmt.isAsync)
   );
+  const [runtimeDefaultShadowStmts, runtimeDefaultShadowContext] =
+    applyRuntimeParameterDefaultShadows(
+      paramsResult.runtimeDefaultInitializers,
+      seededBodyContext
+    );
   const reservedLocals = reserveGeneratorLocals(
-    baseBodyContext,
+    runtimeDefaultShadowContext,
     stmt.isGenerator && usesExchangeBasedLowering,
     isBidirectional,
     generatorHasReturnType
@@ -360,6 +366,7 @@ export const emitFunctionDeclarationAst = (
   }
 
   const finalBodyStatements: CSharpStatementAst[] = [
+    ...runtimeDefaultShadowStmts,
     ...paramDestructuringStmts,
   ];
 
@@ -404,6 +411,9 @@ export const emitFunctionDeclarationAst = (
   }
 
   for (const runtimeDefault of paramsResult.runtimeDefaultInitializers) {
+    if (runtimeDefault.sourceName) {
+      continue;
+    }
     finalBodyStatements.push({
       kind: "expressionStatement",
       expression: {

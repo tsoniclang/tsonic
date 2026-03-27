@@ -81,7 +81,13 @@ describe("IR Builder", function () {
         if (!firstElement || firstElement.kind !== "typeAssertion") return;
 
         expect(firstElement.expression.inferredType?.kind).to.equal(
-          "unionType"
+          "referenceType"
+        );
+        if (firstElement.expression.inferredType?.kind !== "referenceType") {
+          return;
+        }
+        expect(stableIrTypeKey(firstElement.expression.inferredType)).to.include(
+          "MiddlewareLike"
         );
 
         const narrowedType = firstElement.targetType;

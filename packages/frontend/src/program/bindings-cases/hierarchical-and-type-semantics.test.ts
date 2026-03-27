@@ -157,6 +157,95 @@ describe("Binding System", () => {
       expect(registry.getNamespace("systemLinq")).to.not.equal(undefined);
     });
 
+    it("merges shared namespaces from multiple manifests", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/efcore.bindings.json", {
+        namespace: "Microsoft.EntityFrameworkCore",
+        types: [
+          {
+            clrName: "Microsoft.EntityFrameworkCore.DbContext",
+            assemblyName: "Microsoft.EntityFrameworkCore",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "Microsoft.EntityFrameworkCore.DbSet`1",
+            assemblyName: "Microsoft.EntityFrameworkCore",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      registry.addBindings("/test/efcore-sqlite.bindings.json", {
+        namespace: "Microsoft.EntityFrameworkCore",
+        types: [
+          {
+            clrName: "Microsoft.EntityFrameworkCore.SqliteDbContextOptionsBuilderExtensions",
+            assemblyName: "Microsoft.EntityFrameworkCore.Sqlite",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const namespace = registry.getNamespace("Microsoft.EntityFrameworkCore");
+      expect(namespace).to.not.equal(undefined);
+      expect(namespace?.types.map((type) => type.alias)).to.deep.equal([
+        "DbContext",
+        "DbSet_1",
+        "SqliteDbContextOptionsBuilderExtensions",
+      ]);
+      expect(registry.getType("DbContext")?.name).to.equal(
+        "Microsoft.EntityFrameworkCore.DbContext"
+      );
+      expect(registry.getType("DbSet_1")?.name).to.equal(
+        "Microsoft.EntityFrameworkCore.DbSet`1"
+      );
+    });
+
+    it("rejects conflicting shared namespace aliases", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/first.bindings.json", {
+        namespace: "Acme.Tools",
+        types: [
+          {
+            clrName: "Acme.Tools.Widget",
+            assemblyName: "Acme.Tools",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      expect(() =>
+        registry.addBindings("/test/second.bindings.json", {
+          namespace: "Acme.Tools",
+          types: [
+            {
+              clrName: "Acme.Tools.OtherWidget",
+              alias: "Widget",
+              assemblyName: "Acme.Tools",
+              kind: "Class",
+              methods: [],
+              properties: [],
+              fields: [],
+            },
+          ],
+        })
+      ).to.throw("Conflicting type binding");
+    });
+
     it("should return undefined for non-existent hierarchical bindings", () => {
       const registry = new BindingRegistry();
 

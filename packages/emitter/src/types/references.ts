@@ -9,6 +9,7 @@ import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitTypeAst } from "./emitter.js";
 import {
+  resolveStructuralReferenceType,
   resolveLocalTypeInfo,
   substituteTypeArgs,
 } from "../core/semantic/type-resolution.js";
@@ -95,6 +96,17 @@ export const emitReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
+  const structuralReference = resolveStructuralReferenceType(type, context);
+  if (
+    structuralReference &&
+    structuralReference.kind === "referenceType" &&
+    (structuralReference.name !== type.name ||
+      structuralReference.resolvedClrType !== type.resolvedClrType ||
+      structuralReference.typeArguments !== type.typeArguments)
+  ) {
+    return emitReferenceType(structuralReference, context);
+  }
+
   const { name, typeArguments, resolvedClrType, typeId } = type;
 
   if (name === POLYMORPHIC_THIS_MARKER && context.declaringTypeName) {
@@ -166,31 +178,6 @@ export const emitReferenceType = (
     throw new Error(`[Tsonic] ${unsupportedError}`);
   }
 
-  // Handle built-in types
-  // Array-like contracts emit as native T[] arrays.
-  // Users must explicitly use List<T> / collection types to get collection objects.
-  if (name === "Array" || name === "ReadonlyArray" || name === "ArrayLike") {
-    if (resolvedClrType) {
-      return [clrTypeNameToTypeAst(toGlobalClr(resolvedClrType)), context];
-    }
-    const firstArg = typeArguments?.[0];
-    if (!firstArg) {
-      return [
-        {
-          kind: "arrayType",
-          elementType: { kind: "predefinedType", keyword: "object" },
-          rank: 1,
-        },
-        context,
-      ];
-    }
-    const [elementTypeAst, newContext] = emitTypeAst(firstArg, context);
-    return [
-      { kind: "arrayType", elementType: elementTypeAst, rank: 1 },
-      newContext,
-    ];
-  }
-
   if (name === "Promise" && typeArguments && typeArguments.length > 0) {
     const firstArg = typeArguments[0];
     if (!firstArg) {
@@ -217,7 +204,11 @@ export const emitReferenceType = (
     return [identifierType("global::System.Threading.Tasks.Task"), context];
   }
 
-  if (name === "Iterable" || name === "IterableIterator") {
+  if (
+    name === "Iterable" ||
+    name === "IterableIterator" ||
+    name === "Generator"
+  ) {
     const elementType = typeArguments?.[0] ?? { kind: "unknownType" };
     const [elementTypeAst, newContext] = emitTypeAst(elementType, context);
     return [
@@ -483,6 +474,31 @@ export const emitReferenceType = (
     return [
       identifierType(`global::${qualifiedPrefix}.${csharpName}`),
       context,
+    ];
+  }
+
+  // Handle built-in array-like contracts only after giving concrete local/source
+  // declarations a chance to win. Source packages such as @tsonic/js are allowed
+  // to define a real exported class named Array, and that must not be erased to T[].
+  if (name === "Array" || name === "ReadonlyArray" || name === "ArrayLike") {
+    if (resolvedClrType) {
+      return [clrTypeNameToTypeAst(toGlobalClr(resolvedClrType)), context];
+    }
+    const firstArg = typeArguments?.[0];
+    if (!firstArg) {
+      return [
+        {
+          kind: "arrayType",
+          elementType: { kind: "predefinedType", keyword: "object" },
+          rank: 1,
+        },
+        context,
+      ];
+    }
+    const [elementTypeAst, newContext] = emitTypeAst(firstArg, context);
+    return [
+      { kind: "arrayType", elementType: elementTypeAst, rank: 1 },
+      newContext,
     ];
   }
 

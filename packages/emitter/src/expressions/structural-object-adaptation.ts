@@ -16,6 +16,7 @@ import {
   stripNullish,
   getPropertyType,
 } from "../core/semantic/type-resolution.js";
+import { resolveStructuralReferenceType } from "../core/semantic/structural-resolution.js";
 import {
   sameTypeAstSurface,
   getIdentifierTypeLeafName,
@@ -78,18 +79,30 @@ export const tryAdaptStructuralObjectExpressionAst = (
     return [emittedAst, context];
   }
 
-  const anonymousStructuralTarget = canPreferAnonymousStructuralTarget(
-    expectedType
-  )
-    ? resolveAnonymousStructuralReferenceType(expectedType, context)
-    : undefined;
+  const canonicalStructuralTarget = resolveStructuralReferenceType(
+    expectedType,
+    context
+  );
+  const anonymousStructuralTarget =
+    canonicalStructuralTarget ||
+    !canPreferAnonymousStructuralTarget(expectedType)
+      ? undefined
+      : resolveAnonymousStructuralReferenceType(expectedType, context);
   const targetStructuralType =
+    canonicalStructuralTarget ??
     anonymousStructuralTarget ?? resolvedExpectedType;
   const targetEmissionType =
+    canonicalStructuralTarget ??
     anonymousStructuralTarget ??
     (strippedExpectedType.kind === "referenceType"
       ? strippedExpectedType
       : undefined);
+  if (
+    targetEmissionType &&
+    isSameNominalType(sourceType, targetEmissionType, context)
+  ) {
+    return [emittedAst, context];
+  }
   const targetProps = collectStructuralProperties(
     targetStructuralType,
     context

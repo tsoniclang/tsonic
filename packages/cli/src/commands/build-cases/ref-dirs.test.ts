@@ -222,6 +222,7 @@ describe("build command (library ref dirs)", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Acme.Math",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -421,6 +422,7 @@ describe("build command (library ref dirs)", function () {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             source: {
+              namespace: "Acme.App",
               exports: {
                 ".": "./src/index.ts",
                 "./index.js": "./src/index.ts",
@@ -562,6 +564,7 @@ describe("build command (library ref dirs)", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Acme.Runtime",
               exports: {
                 "./client.js": "./src/client.ts",
               },
@@ -635,6 +638,7 @@ describe("build command (library ref dirs)", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Acme.App",
               exports: {
                 ".": "./src/index.ts",
                 "./index.js": "./src/index.ts",

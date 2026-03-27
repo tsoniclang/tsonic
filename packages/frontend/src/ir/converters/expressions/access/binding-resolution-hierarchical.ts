@@ -92,17 +92,41 @@ export const resolveHierarchicalBinding = (
 
   const tryResolveOwnerMemberBinding = (
     ownerAliasOrClrType: string | undefined,
-    allowCaseInsensitiveFallback = true
+    preferredClrOwner?: string
   ): IrMemberExpression["memberBinding"] => {
     if (!ownerAliasOrClrType) return undefined;
     const overloads = registry.getMemberOverloads(
       ownerAliasOrClrType,
       propertyName,
-      allowCaseInsensitiveFallback,
-      ownerAliasOrClrType
+      preferredClrOwner ?? ownerAliasOrClrType
     );
     if (!overloads || overloads.length === 0) return undefined;
     return toIrMemberBinding(overloads);
+  };
+
+  const getAliasesForExactClrType = (
+    clrType: string,
+    preference: "instance" | "static"
+  ): readonly string[] => {
+    const aliases = [...ctx.bindings.getTypesMap().values()]
+      .filter((type) => type.name === clrType)
+      .map((type) => type.alias)
+      .sort((left, right) => {
+        const leftStatic = left.endsWith("$static");
+        const rightStatic = right.endsWith("$static");
+        if (leftStatic !== rightStatic) {
+          return preference === "static"
+            ? leftStatic
+              ? -1
+              : 1
+            : leftStatic
+              ? 1
+              : -1;
+        }
+        return left.localeCompare(right);
+      });
+
+    return [...new Set(aliases)];
   };
 
   const getWrapperBindingCandidates = (): readonly string[] => {
@@ -120,9 +144,6 @@ export const resolveHierarchicalBinding = (
       inferredType.kind === "arrayType" ||
       inferredType.kind === "tupleType"
     ) {
-      if (ctx.surface === "@tsonic/js") {
-        pushCandidate("JSArray");
-      }
       pushCandidate("Array");
       return candidates;
     }
@@ -133,12 +154,8 @@ export const resolveHierarchicalBinding = (
       if (
         simpleName === "Array" ||
         simpleName === "ReadonlyArray" ||
-        simpleName === "ArrayLike" ||
-        simpleName === "JSArray"
+        simpleName === "ArrayLike"
       ) {
-        if (ctx.surface === "@tsonic/js") {
-          pushCandidate("JSArray");
-        }
         pushCandidate("Array");
         return candidates;
       }
@@ -175,6 +192,11 @@ export const resolveHierarchicalBinding = (
   const getPreferredInstanceOwnerClrType = (
     ownerAlias: string
   ): string | undefined => {
+    const type = registry.getType(ownerAlias);
+    if (type) {
+      return type.name;
+    }
+
     const descriptor = registry.getExactBinding(ownerAlias);
     if (!descriptor) return undefined;
     return descriptor.type;
@@ -214,6 +236,7 @@ export const resolveHierarchicalBinding = (
       assembly: first.binding.assembly,
       type: first.binding.type,
       member: first.binding.member,
+      receiverExpectedType: first.receiverExpectedType,
       // IMPORTANT: Only attach parameterModifiers if consistent across all overloads.
       // Overloads can differ in ref/out/in, and those must be selected at call time.
       parameterModifiers:
@@ -236,26 +259,38 @@ export const resolveHierarchicalBinding = (
       );
 
       if (simpleBinding?.staticType) {
-        const staticBinding =
-          tryResolveOwnerMemberBinding(simpleBinding.staticType, false) ??
-          tryResolveOwnerMemberBinding(
-            tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
-            false
+        const staticCandidates = [
+          ...getAliasesForExactClrType(simpleBinding.staticType, "static"),
+          simpleBinding.staticType,
+          tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
+        ].filter((candidate): candidate is string => typeof candidate === "string");
+
+        for (const candidate of staticCandidates) {
+          const staticBinding = tryResolveOwnerMemberBinding(
+            candidate,
+            simpleBinding.staticType
           );
-        if (staticBinding) {
-          return staticBinding;
+          if (staticBinding) {
+            return staticBinding;
+          }
         }
       }
 
       if (simpleBinding) {
-        const instanceBinding =
-          tryResolveOwnerMemberBinding(simpleBinding.type, false) ??
-          tryResolveOwnerMemberBinding(
-            tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
-            false
+        const instanceCandidates = [
+          ...getAliasesForExactClrType(simpleBinding.type, "instance"),
+          simpleBinding.type,
+          tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
+        ].filter((candidate): candidate is string => typeof candidate === "string");
+
+        for (const candidate of instanceCandidates) {
+          const instanceBinding = tryResolveOwnerMemberBinding(
+            candidate,
+            simpleBinding.type
           );
-        if (instanceBinding) {
-          return instanceBinding;
+          if (instanceBinding) {
+            return instanceBinding;
+          }
         }
       }
     }
@@ -335,7 +370,6 @@ export const resolveHierarchicalBinding = (
     const overloads = registry.getMemberOverloads(
       objectTypeName,
       propertyName,
-      true,
       getPreferredInstanceOwnerClrType(objectTypeName)
     );
     if (!overloads || overloads.length === 0) continue;
@@ -351,10 +385,7 @@ export const resolveExpectedClrTypeFromBindings = (
 ): string | undefined => {
   const matchesDeclaringTsName = (clrTypeName: string): boolean => {
     const tsName = tsbindgenClrTypeNameToTsTypeName(clrTypeName);
-    return (
-      tsName === declaringTypeTsName ||
-      tsName.toLowerCase() === declaringTypeTsName.toLowerCase()
-    );
+    return tsName === declaringTypeTsName;
   };
 
   // tsbindgen/full manifest shape

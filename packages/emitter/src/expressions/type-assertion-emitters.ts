@@ -30,6 +30,10 @@ import {
   buildRuntimeUnionLayout,
   emitRuntimeCarrierTypeAst,
 } from "../core/semantic/runtime-unions.js";
+import {
+  buildRuntimeUnionFactoryCallAst,
+  buildRuntimeUnionMatchAst,
+} from "../core/semantic/runtime-union-projection.js";
 import { resolveIdentifierValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
@@ -41,11 +45,16 @@ import {
   stripNullableTypeAst,
   getIdentifierTypeName,
 } from "../core/format/backend-ast/utils.js";
-import { stringLiteral } from "../core/format/backend-ast/builders.js";
+import {
+  identifierType,
+  stringLiteral,
+} from "../core/format/backend-ast/builders.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { matchesEmittedStorageSurface } from "./identifier-storage.js";
 import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
+import { isExactArrayCreationToType } from "./exact-comparison.js";
+import { tryAdaptStructuralCollectionExpressionAst } from "./structural-collection-adaptation.js";
 
 // ---------------------------------------------------------------------------
 // Polymorphic-this helpers (used by orchestrator and emitTypeAssertion)
@@ -168,6 +177,78 @@ export const emitTypeAssertion = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const isDegenerateDuplicateUnion = (
+    type: IrType | undefined
+  ): type is Extract<IrType, { kind: "unionType" }> => {
+    if (!type || type.kind !== "unionType" || type.types.length < 2) {
+      return false;
+    }
+
+    const [first, ...rest] = type.types;
+    if (!first) {
+      return false;
+    }
+
+    return rest.every((member) =>
+      areIrTypesEquivalent(member, first, context)
+    );
+  };
+
+  const maybeAdaptDegenerateDuplicateUnion = (
+    valueAst: CSharpExpressionAst,
+    actualType: IrType | undefined,
+    targetType: IrType
+  ): [CSharpExpressionAst, EmitterContext] | undefined => {
+    if (
+      isDegenerateDuplicateUnion(actualType) &&
+      actualType.types.every((member) =>
+        areIrTypesEquivalent(member, targetType, context)
+      )
+    ) {
+      const lambdaArgs = actualType.types.map((_, index) => {
+        const parameterName = `__tsonic_union_member_${index + 1}`;
+        return {
+          kind: "lambdaExpression" as const,
+          isAsync: false,
+          parameters: [{ name: parameterName }],
+          body: {
+            kind: "identifierExpression" as const,
+            identifier: parameterName,
+          },
+        };
+      });
+
+      return [buildRuntimeUnionMatchAst(valueAst, lambdaArgs), context];
+    }
+
+    if (
+      isDegenerateDuplicateUnion(targetType) &&
+      targetType.types.every((member) =>
+        actualType ? areIrTypesEquivalent(member, actualType, context) : false
+      )
+    ) {
+      const memberTypeAsts = [];
+      let nextContext = context;
+      for (const member of targetType.types) {
+        const [memberTypeAst, memberContext] = emitTypeAst(member, nextContext);
+        memberTypeAsts.push(memberTypeAst);
+        nextContext = memberContext;
+      }
+
+      const unionTypeAst = identifierType(
+        "global::Tsonic.Runtime.Union",
+        memberTypeAsts
+      );
+
+      return [
+        buildRuntimeUnionFactoryCallAst(unionTypeAst, 1, valueAst),
+        nextContext,
+      ];
+    }
+
+    return undefined;
+  };
+
   const transparentSourceExpression = unwrapTransparentExpression(
     expr.expression
   );
@@ -210,11 +291,32 @@ export const emitTypeAssertion = (
     return target;
   };
 
-  const shouldEraseTypeAssertion = (resolved: IrType): boolean => {
-    if (isTypeOnlyStructuralTarget(resolved, context)) {
-      return true;
-    }
+  const hasConcreteRuntimeCastTarget = (target: IrType): boolean => {
+    try {
+      const [targetAst] = emitTypeAst(target, context);
+      const concreteTargetAst = stripNullableTypeAst(targetAst);
 
+      switch (concreteTargetAst.kind) {
+        case "identifierType":
+        case "qualifiedIdentifierType":
+        case "arrayType":
+        case "pointerType":
+        case "tupleType":
+          return true;
+        case "predefinedType":
+          return (
+            concreteTargetAst.keyword !== "object" &&
+            concreteTargetAst.keyword !== "void"
+          );
+        default:
+          return false;
+      }
+    } catch {
+      return false;
+    }
+  };
+
+  const shouldEraseTypeAssertion = (resolved: IrType): boolean => {
     if (resolved.kind === "unknownType") {
       return true;
     }
@@ -240,6 +342,10 @@ export const emitTypeAssertion = (
       );
     }
 
+    if (isTypeOnlyStructuralTarget(resolved, context)) {
+      return !hasConcreteRuntimeCastTarget(resolved);
+    }
+
     return false;
   };
 
@@ -248,10 +354,52 @@ export const emitTypeAssertion = (
     resolvedAssertionTarget,
     context
   );
-  const sourceStorageTypeAtEntry =
-    transparentSourceExpression.kind === "identifier"
-      ? resolveIdentifierValueSurfaceType(transparentSourceExpression, context)
+  const involvesDegenerateDuplicateUnion =
+    isDegenerateDuplicateUnion(resolvedAssertionTarget) ||
+    isDegenerateDuplicateUnion(runtimeAssertionTarget) ||
+    isDegenerateDuplicateUnion(sourceExpressionTypeAtEntry) ||
+    isDegenerateDuplicateUnion(expectedType);
+  const currentTransparentSourceType =
+    resolveEffectiveExpressionType(expr.expression, context) ??
+    sourceExpressionTypeAtEntry;
+  const sourceNarrowedBinding =
+    expr.expression.kind === "identifier" ||
+    expr.expression.kind === "memberAccess"
+      ? getNarrowedBindingForExpression(expr.expression, context)
       : undefined;
+  const narrowedSourceAlreadyMatches =
+    !!sourceNarrowedBinding &&
+    !!currentTransparentSourceType &&
+    (areIrTypesEquivalent(
+      currentTransparentSourceType,
+      runtimeAssertionTarget,
+      context
+    ) ||
+      matchesExpectedEmissionType(
+        currentTransparentSourceType,
+        runtimeAssertionTarget,
+        context
+      ));
+  const narrowedArrayCarrierAssertion =
+    narrowedSourceAlreadyMatches &&
+    sourceNarrowedBinding?.kind === "expr" &&
+    runtimeAssertionTarget.kind === "arrayType";
+  const transparentPreservesStorageSurface =
+    !!currentTransparentSourceType &&
+    matchesEmittedStorageSurface(
+      currentTransparentSourceType,
+      runtimeAssertionTarget,
+      context
+    )[0];
+  const mustPreserveExplicitRuntimeAssertion =
+    !!currentTransparentSourceType &&
+    willCarryAsRuntimeUnion(currentTransparentSourceType, context) &&
+    !willCarryAsRuntimeUnion(runtimeAssertionTarget, context);
+  const sourceStorageTypeAtEntry =
+    sourceNarrowedBinding?.sourceType ??
+    (transparentSourceExpression.kind === "identifier"
+      ? resolveIdentifierValueSurfaceType(transparentSourceExpression, context)
+      : undefined);
   const preservesStorageSurfaceAtEntry =
     !sourceStorageTypeAtEntry ||
     areIrTypesEquivalent(
@@ -272,6 +420,41 @@ export const emitTypeAssertion = (
       resolvedAssertionTarget.name === "char")
   ) {
     return emitExpressionAst(expr.expression, context, resolvedAssertionTarget);
+  }
+
+  if (
+    narrowedArrayCarrierAssertion &&
+    !involvesDegenerateDuplicateUnion
+  ) {
+    return emitExpressionAst(expr.expression, context, expectedType);
+  }
+
+  if (
+    narrowedSourceAlreadyMatches &&
+    !mustPreserveExplicitRuntimeAssertion &&
+    !involvesDegenerateDuplicateUnion
+  ) {
+    return emitExpressionAst(expr.expression, context, expectedType);
+  }
+
+  if (
+    currentTransparentSourceType &&
+    transparentPreservesStorageSurface &&
+    preservesStorageSurfaceAtEntry &&
+    !mustPreserveExplicitRuntimeAssertion &&
+    !involvesDegenerateDuplicateUnion &&
+    (areIrTypesEquivalent(
+      currentTransparentSourceType,
+      runtimeAssertionTarget,
+      context
+    ) ||
+      matchesExpectedEmissionType(
+        currentTransparentSourceType,
+        runtimeAssertionTarget,
+        context
+      ))
+  ) {
+    return emitExpressionAst(expr.expression, context, expectedType);
   }
 
   if (shouldEraseTypeAssertion(resolvedAssertionTarget)) {
@@ -306,13 +489,47 @@ export const emitTypeAssertion = (
   }
 
   if (isTransparentFlowAssertion) {
-    return emitExpressionAst(expr.expression, context, expectedType);
+    const transparentSourceType =
+      resolveEffectiveExpressionType(expr.expression, context) ??
+      sourceExpressionTypeAtEntry;
+    const transparentAlreadyMatches =
+      !!transparentSourceType &&
+      (areIrTypesEquivalent(
+        transparentSourceType,
+        runtimeAssertionTarget,
+        context
+      ) ||
+        matchesExpectedEmissionType(
+          transparentSourceType,
+          runtimeAssertionTarget,
+          context
+        ));
+
+    if (
+      transparentAlreadyMatches &&
+      !mustPreserveExplicitRuntimeAssertion &&
+      !involvesDegenerateDuplicateUnion
+    ) {
+      return emitExpressionAst(expr.expression, context, expectedType);
+    }
   }
+
+  const expectedPreservesStorageSurface =
+    !!expectedType &&
+    !!sourceExpressionTypeAtEntry &&
+    matchesEmittedStorageSurface(
+      sourceExpressionTypeAtEntry,
+      expectedType,
+      context
+    )[0];
 
   if (
     expectedType &&
     sourceExpressionTypeAtEntry &&
+    expectedPreservesStorageSurface &&
+    !mustPreserveExplicitRuntimeAssertion &&
     preservesStorageSurfaceAtEntry &&
+    !involvesDegenerateDuplicateUnion &&
     (areIrTypesEquivalent(sourceExpressionTypeAtEntry, expectedType, context) ||
       matchesExpectedEmissionType(
         sourceExpressionTypeAtEntry,
@@ -327,15 +544,13 @@ export const emitTypeAssertion = (
     expr.targetType,
     context
   );
-  const sourceNarrowedBinding =
-    expr.expression.kind === "identifier" ||
-    expr.expression.kind === "memberAccess"
-      ? getNarrowedBindingForExpression(expr.expression, context)
-      : undefined;
+  const preserveTransparentFlowNarrowing =
+    !!sourceNarrowedBinding && isTransparentFlowAssertion;
   const preserveNarrowedSourceStorage =
-    !!sourceNarrowedBinding &&
-    sourceNarrowedBinding.kind !== "runtimeSubset" &&
-    willCarryAsRuntimeUnion(runtimeEmissionTarget, context);
+    preserveTransparentFlowNarrowing ||
+    (!!sourceNarrowedBinding &&
+      sourceNarrowedBinding.kind !== "runtimeSubset" &&
+      willCarryAsRuntimeUnion(runtimeEmissionTarget, context));
   const rawSourceContext =
     expr.expression.kind === "identifier" ||
     expr.expression.kind === "memberAccess"
@@ -418,14 +633,19 @@ export const emitTypeAssertion = (
     !sourceRuntimeUnionLayout &&
     !runtimeTargetUnionLayout &&
     !areIrTypesEquivalent(sourceExpressionType, runtimeTarget, ctx1);
+  const castSourceAst = innerAst;
 
   if (
     isExactExpressionToType(
-      innerAst,
+      castSourceAst,
+      stripNullableTypeAst(runtimeTargetTypeAst)
+    ) ||
+    isExactArrayCreationToType(
+      castSourceAst,
       stripNullableTypeAst(runtimeTargetTypeAst)
     )
   ) {
-    return [innerAst, runtimeTargetTypeContext];
+    return [castSourceAst, runtimeTargetTypeContext];
   }
 
   if (mustPreserveNominalCast) {
@@ -433,16 +653,25 @@ export const emitTypeAssertion = (
       {
         kind: "castExpression",
         type: runtimeTargetTypeAst,
-        expression: innerAst,
+        expression: castSourceAst,
       },
       runtimeTargetTypeContext,
     ];
   }
 
+  const degenerateDuplicateUnionAst = maybeAdaptDegenerateDuplicateUnion(
+    castSourceAst,
+    actualExpressionType,
+    resolvedAssertionTarget
+  );
+  if (degenerateDuplicateUnionAst) {
+    return degenerateDuplicateUnionAst;
+  }
+
   const adaptedUnionAst = mustPreserveDirectStorageCast
     ? undefined
     : adaptValueToExpectedTypeAst({
-        valueAst: innerAst,
+        valueAst: castSourceAst,
         actualType: actualExpressionType,
         context: sourceLayoutContext,
         expectedType: runtimeTarget,
@@ -451,12 +680,54 @@ export const emitTypeAssertion = (
     return adaptedUnionAst;
   }
 
+  const assertedCollectionAdaptation =
+    actualExpressionType && runtimeTarget.kind === "arrayType"
+      ? tryAdaptStructuralCollectionExpressionAst(
+          castSourceAst,
+          actualExpressionType,
+          sourceLayoutContext,
+          runtimeTarget,
+          (_ast, actualType, adaptationContext, expectedType) => {
+            if (!actualType || !expectedType) {
+              return undefined;
+            }
+
+            if (
+              areIrTypesEquivalent(actualType, expectedType, adaptationContext) ||
+              matchesExpectedEmissionType(
+                actualType,
+                expectedType,
+                adaptationContext
+              )
+            ) {
+              return [_ast, adaptationContext];
+            }
+
+            const [expectedTypeAst, nextContext] = emitTypeAst(
+              expectedType,
+              adaptationContext
+            );
+            return [
+              {
+                kind: "castExpression",
+                type: expectedTypeAst,
+                expression: _ast,
+              },
+              nextContext,
+            ];
+          }
+        )
+      : undefined;
+  if (assertedCollectionAdaptation) {
+    return assertedCollectionAdaptation;
+  }
+
   if (mustPreserveFlowStorageCast) {
     return [
       {
         kind: "castExpression",
         type: runtimeTargetTypeAst,
-        expression: innerAst,
+        expression: castSourceAst,
       },
       runtimeTargetTypeContext,
     ];
@@ -466,7 +737,7 @@ export const emitTypeAssertion = (
     {
       kind: "castExpression",
       type: runtimeTargetTypeAst,
-      expression: innerAst,
+      expression: castSourceAst,
     },
     runtimeTargetTypeContext,
   ];

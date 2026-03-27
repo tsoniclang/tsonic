@@ -20,6 +20,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
+import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { stripNullableTypeAst } from "../core/format/backend-ast/utils.js";
@@ -36,6 +37,7 @@ import {
   tryEmitErasedLengthAccess,
   tryEmitConcreteReceiverLengthAccess,
 } from "./access-length.js";
+import { isExactExpressionToType } from "./exact-comparison.js";
 
 /**
  * Emit a non-computed property member access expression as CSharpExpressionAst.
@@ -51,9 +53,43 @@ export const emitPropertyAccess = (
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   const prop = expr.property as string;
+  let receiverAst = objectAst;
+  let receiverContext = context;
   const resolvedObjectType = objectType
     ? resolveTypeAlias(stripNullish(objectType), context)
     : undefined;
+
+  if (
+    expr.object.kind === "typeAssertion" ||
+    expr.object.kind === "asinterface" ||
+    expr.object.kind === "trycast"
+  ) {
+    const assertionTargetAlreadyMatchesReceiver =
+      expr.object.kind === "typeAssertion" &&
+      !!resolvedObjectType &&
+      areIrTypesEquivalent(
+        resolvedObjectType,
+        resolveTypeAlias(stripNullish(expr.object.targetType), context),
+        context
+      );
+    const [emittedReceiverTypeAst, emittedReceiverContext] =
+      resolveEmittedReceiverTypeAst(expr.object, context);
+    if (
+      !assertionTargetAlreadyMatchesReceiver &&
+      emittedReceiverTypeAst &&
+      !isExactExpressionToType(
+        receiverAst,
+        stripNullableTypeAst(emittedReceiverTypeAst)
+      )
+    ) {
+      receiverAst = {
+        kind: "castExpression",
+        type: emittedReceiverTypeAst,
+        expression: receiverAst,
+      };
+      receiverContext = emittedReceiverContext;
+    }
+  }
 
   if (
     usage === "value" &&
@@ -70,7 +106,7 @@ export const emitPropertyAccess = (
           kind: expr.isOptional
             ? "conditionalMemberAccessExpression"
             : "memberAccessExpression",
-          expression: objectAst,
+          expression: receiverAst,
           memberName: "Length",
         },
         storageContext,
@@ -95,7 +131,7 @@ export const emitPropertyAccess = (
         {
           kind: "castExpression",
           type: interfaceTypeAst,
-          expression: objectAst,
+          expression: receiverAst,
         },
         ctxAfterType,
       ];
@@ -113,7 +149,7 @@ export const emitPropertyAccess = (
       const collectionMemberName = emitCSharpName(prop, "properties", context);
       const sourceCollectionAst: CSharpExpressionAst = {
         kind: "memberAccessExpression",
-        expression: objectAst,
+        expression: receiverAst,
         memberName: collectionMemberName,
       };
 
@@ -154,10 +190,10 @@ export const emitPropertyAccess = (
           kind: expr.isOptional
             ? "conditionalMemberAccessExpression"
             : "memberAccessExpression",
-          expression: objectAst,
+          expression: receiverAst,
           memberName: "Count",
         },
-        context,
+        receiverContext,
       ];
     }
 
@@ -168,7 +204,7 @@ export const emitPropertyAccess = (
       const [resultTypeAst, typeContext] = emitTypeAst(fallbackType, context);
       return [
         buildJsSafeDictionaryReadAst(
-          objectAst,
+          receiverAst,
           keyAst,
           expr.isOptional,
           resultTypeAst
@@ -181,20 +217,20 @@ export const emitPropertyAccess = (
       return [
         {
           kind: "conditionalElementAccessExpression",
-          expression: objectAst,
+          expression: receiverAst,
           arguments: [keyAst],
         },
-        context,
+        receiverContext,
       ];
     }
 
     return [
       {
         kind: "elementAccessExpression",
-        expression: objectAst,
+        expression: receiverAst,
         arguments: [keyAst],
       },
-      context,
+      receiverContext,
     ];
   }
 
@@ -218,10 +254,10 @@ export const emitPropertyAccess = (
             kind: expr.isOptional
               ? "conditionalMemberAccessExpression"
               : "memberAccessExpression",
-            expression: objectAst,
+            expression: receiverAst,
             memberName: "Length",
           },
-          context,
+          receiverContext,
         ];
       }
     }
@@ -229,8 +265,8 @@ export const emitPropertyAccess = (
 
   const concreteReceiverLengthAccess = tryEmitConcreteReceiverLengthAccess(
     expr,
-    objectAst,
-    context
+    receiverAst,
+    receiverContext
   );
   if (concreteReceiverLengthAccess) {
     return concreteReceiverLengthAccess;
@@ -238,9 +274,9 @@ export const emitPropertyAccess = (
 
   const erasedLengthAccess = tryEmitErasedLengthAccess(
     expr,
-    objectAst,
+    receiverAst,
     objectType,
-    context
+    receiverContext
   );
   if (erasedLengthAccess) {
     return erasedLengthAccess;
@@ -250,21 +286,21 @@ export const emitPropertyAccess = (
     return [
       {
         kind: "conditionalMemberAccessExpression",
-        expression: objectAst,
+        expression: receiverAst,
         memberName,
       },
-      context,
+      receiverContext,
     ];
   }
 
   return maybeReifyStorageErasedMemberRead(
     {
       kind: "memberAccessExpression",
-      expression: objectAst,
+      expression: receiverAst,
       memberName,
     },
     expr,
-    context,
+    receiverContext,
     expectedType
   );
 };

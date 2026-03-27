@@ -50,6 +50,7 @@ describe("build command (native source-package libraries)", function () {
           {
             $schema: "https://tsonic.org/schema/workspace/v1.json",
             dotnetVersion: "net10.0",
+            surface: "@tsonic/js",
           },
           null,
           2
@@ -85,6 +86,7 @@ describe("build command (native source-package libraries)", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Acme.Lib",
               exports: {
                 ".": "./src/index.ts",
                 "./index.js": "./src/index.ts",
@@ -144,10 +146,15 @@ describe("build command (native source-package libraries)", function () {
         join(repoRoot, "node_modules/@tsonic/globals"),
         join(dir, "node_modules/@tsonic/globals")
       );
+      linkDir(
+        join(repoRoot, "..", "js", "versions", "10"),
+        join(dir, "node_modules/@tsonic/js")
+      );
 
       const config = resolveConfig(
         {
           dotnetVersion: "net10.0",
+          surface: "@tsonic/js",
         },
         {
           rootNamespace: "Acme.Lib",

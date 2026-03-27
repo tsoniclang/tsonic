@@ -199,6 +199,44 @@ describe("type-resolution", () => {
       });
     });
 
+    it("preserves generic type arguments when rebinding compiler-generated structural references", () => {
+      const localTypes = new Map<string, LocalTypeInfo>([
+        [
+          "__Anon_wrap",
+          {
+            kind: "class",
+            typeParameters: ["T"],
+            members: [
+              {
+                kind: "propertyDeclaration",
+                name: "value",
+                type: { kind: "typeParameterType", name: "T" },
+                accessibility: "public",
+                isStatic: false,
+                isReadonly: false,
+              },
+            ],
+            implements: [],
+          },
+        ],
+      ]);
+
+      const result = resolveStructuralReferenceType(
+        {
+          kind: "referenceType",
+          name: "__Anon_wrap",
+          typeArguments: [{ kind: "primitiveType", name: "int" }],
+        },
+        makeContext(localTypes)
+      );
+
+      expect(result).to.deep.equal({
+        kind: "referenceType",
+        name: "__Anon_wrap",
+        typeArguments: [{ kind: "primitiveType", name: "int" }],
+      });
+    });
+
     it("prefers direct local structural identities over binding-backed name collisions", () => {
       const localTypes = new Map<string, LocalTypeInfo>([
         [

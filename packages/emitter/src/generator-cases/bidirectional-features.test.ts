@@ -174,8 +174,6 @@ describe("Generator Emission", () => {
 
       it("should emit object destructuring from yield", () => {
         // const {x, y} = yield expr;
-        // Note: We use a reference type (Point) for TNext since inline object types
-        // are not supported by the emitter (TSN7403)
         const module: IrModule = {
           kind: "module",
           filePath: "/test/objectPattern.ts",
@@ -186,6 +184,31 @@ describe("Generator Emission", () => {
           exports: [],
           body: [
             {
+              kind: "classDeclaration",
+              name: "Point",
+              members: [
+                {
+                  kind: "propertyDeclaration",
+                  name: "x",
+                  type: { kind: "primitiveType", name: "number" },
+                  accessibility: "public",
+                  isStatic: false,
+                  isReadonly: false,
+                },
+                {
+                  kind: "propertyDeclaration",
+                  name: "y",
+                  type: { kind: "primitiveType", name: "number" },
+                  accessibility: "public",
+                  isStatic: false,
+                  isReadonly: false,
+                },
+              ],
+              isStruct: false,
+              isExported: false,
+              implements: [],
+            },
+            {
               kind: "functionDeclaration",
               name: "objectDestructure",
               parameters: [],
@@ -195,14 +218,10 @@ describe("Generator Emission", () => {
                 typeArguments: [
                   { kind: "primitiveType", name: "number" },
                   { kind: "voidType" },
-                  // Use a reference type for TNext since inline object types
-                  // aren't supported. The test focuses on pattern emission,
-                  // not type resolution.
                   {
                     kind: "referenceType",
                     name: "Point",
                     typeArguments: [],
-                    resolvedClrType: "Point",
                   },
                 ],
               },

@@ -34,6 +34,35 @@ import { typeOfDecl } from "./inference-declarations.js";
 import { typeOfMember, getIndexerInfo } from "./inference-member-resolution.js";
 import { tryInferReturnTypeFromCallExpression } from "./inference-initializers.js";
 
+const inferEnclosingThisType = (node: ts.Node): IrType | undefined => {
+  let current: ts.Node | undefined = node;
+
+  while (current) {
+    if (ts.isClassDeclaration(current) || ts.isClassExpression(current)) {
+      const className = current.name?.text;
+      if (!className) return undefined;
+
+      const typeArguments =
+        current.typeParameters?.map(
+          (typeParameter): IrType => ({
+            kind: "typeParameterType",
+            name: typeParameter.name.text,
+          })
+        ) ?? [];
+
+      return {
+        kind: "referenceType",
+        name: className,
+        ...(typeArguments.length > 0 ? { typeArguments } : {}),
+      };
+    }
+
+    current = current.parent;
+  }
+
+  return undefined;
+};
+
 /**
  * Deterministically infer an expression's type using only:
  * - local lambda parameter environment
@@ -285,6 +314,10 @@ export const inferExpressionType = (
 
   if (unwrapped.kind === ts.SyntaxKind.NullKeyword) {
     return { kind: "primitiveType", name: "null" };
+  }
+
+  if (unwrapped.kind === ts.SyntaxKind.ThisKeyword) {
+    return inferEnclosingThisType(unwrapped);
   }
 
   if (ts.isCallExpression(unwrapped)) {

@@ -140,7 +140,11 @@ export const isArrayConstructorCall = (
     return false;
   }
 
-  return !!expr.typeArguments && expr.typeArguments.length === 1;
+  return (
+    expr.inferredType?.kind === "arrayType" &&
+    !!expr.typeArguments &&
+    expr.typeArguments.length === 1
+  );
 };
 
 const makeClrValueArrayType = (
@@ -214,6 +218,61 @@ const typedArrayNumericLengthClrNames = new Set([
   "ArrayBuffer",
 ]);
 
+const getTypedArrayLeafName = (type: IrType | undefined): string | undefined => {
+  if (!type || type.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const candidates = [
+    type.resolvedClrType,
+    type.typeId?.clrName,
+    type.typeId?.tsName,
+    type.name,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    const leaf = candidate.split(".").pop() ?? candidate;
+    if (typedArrayArgumentTypes.has(leaf)) {
+      return leaf;
+    }
+    if (leaf === "ArrayBuffer") {
+      return leaf;
+    }
+  }
+
+  return undefined;
+};
+
+const getReferenceTypeIdentity = (
+  type: IrType | undefined
+): string | undefined => {
+  if (!type || type.kind !== "referenceType") {
+    return undefined;
+  }
+
+  return (
+    type.resolvedClrType ??
+    type.typeId?.clrName ??
+    type.typeId?.tsName ??
+    type.name
+  );
+};
+
+export const getTypedArrayStorageElementType = (
+  type: IrType | undefined
+): IrType | undefined => {
+  const leaf = getTypedArrayLeafName(type);
+  if (!leaf) {
+    return undefined;
+  }
+
+  const arrayType = typedArrayArgumentTypes.get(leaf);
+  return arrayType?.kind === "arrayType" ? arrayType.elementType : undefined;
+};
+
 const isQualifiedConstructorIdentity = (
   name: string | undefined
 ): name is string => {
@@ -237,26 +296,21 @@ const INT_IR_TYPE: IrType = {
 const getConstructorKey = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): string | undefined => {
-  const calleeKey =
-    expr.callee.kind === "identifier"
-      ? (expr.callee.name ?? expr.callee.resolvedClrType)
-      : undefined;
-  if (calleeKey) {
-    return calleeKey;
+  const inferredTypeKey = getReferenceTypeIdentity(expr.inferredType);
+  if (inferredTypeKey) {
+    return inferredTypeKey;
   }
 
-  const inferredType = expr.inferredType;
-  if (!inferredType || inferredType.kind !== "referenceType") {
-    return undefined;
+  const calleeTypeKey = getReferenceTypeIdentity(expr.callee.inferredType);
+  if (calleeTypeKey) {
+    return calleeTypeKey;
   }
 
-  const referenceType = inferredType as Extract<IrType, { kind: "referenceType" }>;
-  return (
-    referenceType.name ??
-    referenceType.resolvedClrType ??
-    referenceType.typeId?.tsName ??
-    referenceType.typeId?.clrName
-  );
+  if (expr.callee.kind === "identifier") {
+    return expr.callee.resolvedClrType ?? expr.callee.name;
+  }
+
+  return undefined;
 };
 
 const getConstructorGlobalTypeName = (
@@ -264,8 +318,7 @@ const getConstructorGlobalTypeName = (
 ): string | undefined => {
   const key = getConstructorKey(expr);
   if (!isQualifiedConstructorIdentity(key)) return undefined;
-  const leaf = key.split(".").pop();
-  return leaf ? normalizeClrQualifiedName(leaf, true) : undefined;
+  return normalizeClrQualifiedName(key, true);
 };
 
 const getConstructorTypeAst = (

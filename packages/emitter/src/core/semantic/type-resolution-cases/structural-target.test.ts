@@ -107,7 +107,7 @@ describe("type-resolution", () => {
       ).to.equal(false);
     });
 
-    it("treats dictionary targets as structural runtime-erased assertion targets", () => {
+    it("preserves dictionary targets as runtime cast targets", () => {
       const context = createContext(new Map());
 
       expect(
@@ -119,7 +119,7 @@ describe("type-resolution", () => {
           },
           context
         )
-      ).to.equal(true);
+      ).to.equal(false);
     });
   });
 });

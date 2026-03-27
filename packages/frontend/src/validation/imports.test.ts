@@ -188,7 +188,7 @@ describe("validateImports", () => {
     expect(codes(result).includes("TSN1004")).to.equal(true);
   });
 
-  it("warns on default imports from local modules", () => {
+  it("rejects default imports from local modules without explicit default export", () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tsonic-imports-"));
     const sourceDir = path.join(tempRoot, "src");
     const sourceFile = path.join(sourceDir, "main.ts");
@@ -206,11 +206,33 @@ describe("validateImports", () => {
         tempRoot
       );
 
+      expect(result.hasErrors).to.equal(true);
+      expect(codes(result)).to.include("TSN2002");
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("allows default imports from local modules with explicit default export", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tsonic-imports-"));
+    const sourceDir = path.join(tempRoot, "src");
+    const sourceFile = path.join(sourceDir, "main.ts");
+    const importedModule = path.join(sourceDir, "module.ts");
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(importedModule, "export default 1;\n", "utf-8");
+
+    try {
+      const result = runValidation(
+        `
+          import value from "./module.js";
+          void value;
+        `,
+        sourceFile,
+        tempRoot
+      );
+
       expect(result.hasErrors).to.equal(false);
-      const warningCodes = result.diagnostics
-        .filter((diag) => diag.severity === "warning")
-        .map((diag) => diag.code);
-      expect(warningCodes.includes("TSN2001")).to.equal(true);
+      expect(codes(result)).to.not.include("TSN2002");
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -329,7 +351,7 @@ describe("validateImports", () => {
     expect(codes(result)).to.deep.equal([]);
   });
 
-  it("allows default imports from node aliases when module bindings exist", () => {
+  it("rejects default imports from node aliases without explicit default exports", () => {
     const testProgram = createTestProgram(
       `
         import fs from "node:fs";
@@ -347,8 +369,8 @@ describe("validateImports", () => {
       createDiagnosticsCollector()
     );
 
-    expect(result.hasErrors).to.equal(false);
-    expect(codes(result)).to.deep.equal([]);
+    expect(result.hasErrors).to.equal(true);
+    expect(codes(result)).to.include("TSN2002");
   });
 
   it("allows named member imports from bare node aliases when module bindings exist", () => {
@@ -395,7 +417,7 @@ describe("validateImports", () => {
     expect(codes(result)).to.deep.equal([]);
   });
 
-  it("allows node default imports in one pass", () => {
+  it("rejects node default imports in one pass", () => {
     const testProgram = createTestProgram(
       `
         import badPath from "node:path";
@@ -413,8 +435,8 @@ describe("validateImports", () => {
       createDiagnosticsCollector()
     );
 
-    expect(result.hasErrors).to.equal(false);
-    expect(codes(result)).to.deep.equal([]);
+    expect(result.hasErrors).to.equal(true);
+    expect(codes(result)).to.include("TSN2002");
   });
 
   it("rejects node aliases when module bindings are missing", () => {

@@ -71,9 +71,7 @@ const getExpandedRestArgumentType = (
   if (
     restType.kind === "referenceType" &&
     (restType.name === "Array" ||
-      restType.name === "ReadonlyArray" ||
-      restType.name === "JSArray" ||
-      restType.name === "JSArray_1")
+      restType.name === "ReadonlyArray")
   ) {
     const onlyTypeArgument = restType.typeArguments?.[0];
     if (onlyTypeArgument) {
@@ -152,8 +150,7 @@ export const buildResolvedRestParameter = (
       ? arrayType.elementType
       : arrayType.kind === "referenceType" &&
           (arrayType.name === "Array" ||
-            arrayType.name === "ReadonlyArray" ||
-            arrayType.name === "JSArray") &&
+            arrayType.name === "ReadonlyArray") &&
           arrayType.typeArguments?.length === 1
         ? arrayType.typeArguments[0]
         : undefined;

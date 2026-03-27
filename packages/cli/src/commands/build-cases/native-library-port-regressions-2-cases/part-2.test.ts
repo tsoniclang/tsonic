@@ -278,10 +278,10 @@ describe("build command (native library port regressions)", function () {
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       expect(tree).to.match(
-        /new global::js\.JSArray<(?:global::App\.)?Todo(?:__Alias)?>\(todos\)\.find\(/
+        /new global::js\.Array<(?:global::App\.)?Todo(?:__Alias)?>\(todos\)\.find\(/
       );
       expect(tree).to.match(
-        /new global::js\.JSArray<(?:global::App\.)?Todo(?:__Alias)?>\(todos\)\.findIndex\(/
+        /new global::js\.Array<(?:global::App\.)?Todo(?:__Alias)?>\(todos\)\.findIndex\(/
       );
       expect(tree).to.include(
         "global::js.Timers.setInterval(() =>"

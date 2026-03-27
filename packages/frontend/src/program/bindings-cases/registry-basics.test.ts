@@ -1,6 +1,6 @@
 /**
  * Tests for BindingRegistry core CRUD operations:
- * add / retrieve / clear / case-insensitive lookup / multiple manifests.
+ * add / retrieve / clear / multiple manifests.
  */
 
 import { describe, it } from "mocha";
@@ -132,7 +132,7 @@ describe("Binding System", () => {
       const overloads = registry.getMemberOverloads(
         "js.console",
         "error",
-        false
+        "js.console"
       );
 
       expect(overloads?.map((binding) => binding.binding.type)).to.deep.equal([
@@ -186,27 +186,6 @@ describe("Binding System", () => {
       expect(registry.getAllBindings()).to.have.lengthOf(2);
       expect(registry.getBinding("console")).not.to.equal(undefined);
       expect(registry.getBinding("fs")).not.to.equal(undefined);
-    });
-
-    it("should resolve simple bindings case-insensitively", () => {
-      const registry = new BindingRegistry();
-
-      registry.addBindings("/test/manifest.json", {
-        bindings: {
-          console: {
-            kind: "global",
-            assembly: "Tsonic.Runtime",
-            type: "Tsonic.Runtime.console",
-          },
-        },
-      });
-
-      const upper = registry.getBinding("Console");
-      expect(upper).to.deep.equal({
-        kind: "global",
-        assembly: "Tsonic.Runtime",
-        type: "Tsonic.Runtime.console",
-      });
     });
 
     it("should retain both global and module bindings for the same alias", () => {

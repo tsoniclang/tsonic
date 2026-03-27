@@ -6,7 +6,6 @@
  */
 
 import * as fs from "node:fs";
-import { createRequire } from "node:module";
 import * as path from "path";
 import * as ts from "typescript";
 import type { BindingInternal } from "./binding/index.js";
@@ -29,6 +28,10 @@ import {
   findPackageRootForFile,
   packageHasClrMetadata,
 } from "./program-context-types.js";
+import {
+  collectSupportedGenericFunctionValueSymbols,
+  collectWrittenSymbols,
+} from "../generic-function-values.js";
 
 const withSimpleTypeAliases = (
   assemblyCatalog: AssemblyTypeCatalog,
@@ -73,6 +76,23 @@ export const createProgramContext = (
   program: TsonicProgram,
   options: IrBuildOptions
 ): ProgramContext => {
+  const genericFunctionValueSymbols = (() => {
+    const symbols = new Set<ts.Symbol>();
+
+    for (const sourceFile of program.sourceFiles) {
+      const writtenSymbols = collectWrittenSymbols(sourceFile, program.checker);
+      for (const symbol of collectSupportedGenericFunctionValueSymbols(
+        sourceFile,
+        program.checker,
+        writtenSymbols
+      )) {
+        symbols.add(symbol);
+      }
+    }
+
+    return symbols as ReadonlySet<ts.Symbol>;
+  })();
+
   const sourceFilesByPath = new Map<string, ts.SourceFile>(
     program.sourceFiles.map((sourceFile) => [
       sourceFile.fileName.replace(/\\/g, "/"),
@@ -132,72 +152,7 @@ export const createProgramContext = (
     program.options.projectRoot,
     "node_modules"
   );
-  const require = createRequire(import.meta.url);
-  const findSiblingTsonicPackage = (
-    startDir: string,
-    dirName: string,
-    expectedPackageName: string
-  ): string | undefined => {
-    let dir = startDir;
-    while (true) {
-      const candidateRoot = path.join(dir, dirName);
-      const pkgJson = path.join(candidateRoot, "package.json");
-      if (fs.existsSync(pkgJson)) {
-        try {
-          const parsed = JSON.parse(fs.readFileSync(pkgJson, "utf-8")) as {
-            readonly name?: unknown;
-          };
-          if (parsed.name === expectedPackageName) {
-            return candidateRoot;
-          }
-        } catch {
-          // Ignore invalid package.json and keep searching.
-        }
-      }
-
-      const parent = path.dirname(dir);
-      if (parent === dir) return undefined;
-      dir = parent;
-    }
-  };
-
-  const resolveTsonicPackageRoot = (
-    dirName: string,
-    expectedPackageName: string
-  ): string | undefined => {
-    const projectPkgJson = path.join(
-      nodeModulesPath,
-      "@tsonic",
-      dirName,
-      "package.json"
-    );
-    if (fs.existsSync(projectPkgJson)) {
-      return path.dirname(projectPkgJson);
-    }
-
-    try {
-      const pkgJson = require.resolve(`@tsonic/${dirName}/package.json`);
-      return path.dirname(pkgJson);
-    } catch {
-      // Fall through to sibling lookup.
-    }
-
-    return findSiblingTsonicPackage(
-      program.options.projectRoot,
-      dirName,
-      expectedPackageName
-    );
-  };
-
   const extraPackageRoots: string[] = [];
-
-  // Ensure stdlib CLR metadata is available even when these packages resolve
-  // from sibling checkouts instead of the active project's node_modules.
-  const dotnetRoot = resolveTsonicPackageRoot("dotnet", "@tsonic/dotnet");
-  if (dotnetRoot) extraPackageRoots.push(dotnetRoot);
-
-  const coreRoot = resolveTsonicPackageRoot("core", "@tsonic/core");
-  if (coreRoot) extraPackageRoots.push(coreRoot);
 
   // Any declaration package participating in the TypeScript program must also
   // contribute its CLR metadata to the assembly catalog. This is the generic
@@ -299,6 +254,7 @@ export const createProgramContext = (
     rootNamespace: options.rootNamespace,
     surface: program.options.surface ?? "clr",
     checker: program.checker,
+    genericFunctionValueSymbols,
     tsCompilerOptions: program.program.getCompilerOptions(),
     sourceFilesByPath,
     binding: program.binding,

@@ -19,8 +19,10 @@ const getDirectYieldExpectedType = (
   switch (returnType.name) {
     case "Iterable":
     case "IterableIterator":
+    case "Generator":
     case "AsyncIterable":
     case "AsyncIterableIterator":
+    case "AsyncGenerator":
       return returnType.typeArguments?.[0];
     default:
       return undefined;

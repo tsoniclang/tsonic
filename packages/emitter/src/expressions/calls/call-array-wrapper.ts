@@ -1,18 +1,14 @@
 /**
  * Native array wrapper interop for non-mutation call expressions.
  *
- * Handles JSArray wrapping for non-mutating calls and result normalization
+ * Handles source-owned array wrapping for non-mutating calls and result normalization
  * (toArray) when the caller expects a native array type.
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import type {
-  CSharpExpressionAst,
-  CSharpTypeAst,
-} from "../../core/format/backend-ast/types.js";
-import { identifierType } from "../../core/format/backend-ast/builders.js";
+import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { resolveArrayLikeReceiverType } from "../../core/semantic/type-resolution.js";
 import { needsIntCast } from "./call-analysis.js";
@@ -22,21 +18,11 @@ import {
   emitArrayWrapperElementTypeAst,
 } from "./call-arguments.js";
 import {
-  isJsArrayWrapperBindingType,
+  isArrayWrapperBindingType,
   hasDirectNativeArrayLikeInteropShape,
   nativeArrayReturningInteropMembers,
 } from "./call-array-mutation.js";
-
-const stripClrGenericArity = (typeName: string): string =>
-  typeName.replace(/`\d+$/, "");
-
-const getJsArrayWrapperTypeName = (bindingType: string): string => {
-  const stripped = stripClrGenericArity(bindingType);
-  const leaf = stripped.split(".").pop();
-  return leaf === "JSArray"
-    ? "global::Tsonic.Runtime.JSArray"
-    : `global::${stripped}`;
-};
+import { buildExactGlobalBindingType } from "../exact-global-bindings.js";
 
 const isArrayLikeIrType = (type: IrType | undefined): boolean => {
   if (!type) return false;
@@ -58,7 +44,6 @@ const isArrayLikeIrType = (type: IrType | undefined): boolean => {
     simpleName === "Array" ||
     simpleName === "ReadonlyArray" ||
     simpleName === "ArrayLike" ||
-    simpleName === "JSArray" ||
     simpleName === "Iterable" ||
     simpleName === "IterableIterator" ||
     simpleName === "IEnumerable" ||
@@ -119,7 +104,7 @@ export const emitArrayWrapperInteropCall = (
   const binding = expr.callee.memberBinding;
   if (
     !binding ||
-    (binding.isExtensionMethod && !isJsArrayWrapperBindingType(binding.type))
+    (binding.isExtensionMethod && !isArrayWrapperBindingType(binding.type))
   ) {
     return undefined;
   }
@@ -135,19 +120,14 @@ export const emitArrayWrapperInteropCall = (
     return undefined;
   }
 
-  const bindingType = binding.type;
   if (
-    bindingType === "System.Array" ||
-    bindingType === "global::System.Array" ||
-    bindingType.startsWith("System.Array`") ||
-    bindingType.startsWith("global::System.Array`")
+    binding.type === "System.Array" ||
+    binding.type === "global::System.Array" ||
+    binding.type.startsWith("System.Array`") ||
+    binding.type.startsWith("global::System.Array`")
   ) {
     return undefined;
   }
-
-  const arityText = bindingType.match(/`(\d+)$/)?.[1];
-  const genericArity = arityText ? Number.parseInt(arityText, 10) : 0;
-  if (genericArity > 1) return undefined;
 
   let currentContext = context;
   const [receiverAst, receiverContext] = emitExpressionAst(
@@ -156,23 +136,19 @@ export const emitArrayWrapperInteropCall = (
   );
   currentContext = receiverContext;
 
-  let typeArguments: readonly CSharpTypeAst[] | undefined;
-  if (genericArity === 1) {
-    const [elementTypeAst, elementTypeContext] = emitArrayWrapperElementTypeAst(
-      receiverType ?? {
-        kind: "arrayType",
-        elementType: receiverElementType,
-        origin: "explicit",
-      },
-      currentContext
-    );
-    currentContext = elementTypeContext;
-    typeArguments = [elementTypeAst];
-  }
+  const [elementTypeAst, elementTypeContext] = emitArrayWrapperElementTypeAst(
+    receiverType ?? {
+      kind: "arrayType",
+      elementType: receiverElementType,
+      origin: "explicit",
+    },
+    currentContext
+  );
+  currentContext = elementTypeContext;
 
   const wrapperAst: CSharpExpressionAst = {
     kind: "objectCreationExpression",
-    type: identifierType(getJsArrayWrapperTypeName(bindingType), typeArguments),
+    type: buildExactGlobalBindingType("Array", [elementTypeAst], currentContext),
     arguments: [receiverAst],
   };
 

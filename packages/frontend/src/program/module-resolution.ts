@@ -2,8 +2,7 @@
  * Module resolution helpers for Tsonic program creation.
  *
  * Provides package-root resolution, @tsonic/* module resolution,
- * sibling and compiler-owned package discovery, and namespace
- * remapping logic.
+ * and namespace remapping logic.
  */
 
 import * as ts from "typescript";
@@ -343,105 +342,4 @@ export const createResolveModuleFromPackageRoot = (
   };
 
   return resolveModuleFromPackageRoot;
-};
-
-/**
- * Resolve a sibling @tsonic package root from monorepo layout.
- */
-export const createResolveSiblingTsonicPackageRoot = (
-  siblingTsonicPackageRootCache: Map<string, string | null>,
-  repoRoot: string
-): ((pkgDirName: string) => string | undefined) => {
-  const resolveSiblingTsonicPackageRoot = (
-    pkgDirName: string
-  ): string | undefined => {
-    const cached = siblingTsonicPackageRootCache.get(pkgDirName);
-    if (cached !== undefined) {
-      return cached ?? undefined;
-    }
-    const expectedName = `@tsonic/${pkgDirName}`;
-    const siblingRepoRoot = path.resolve(path.join(repoRoot, "..", pkgDirName));
-
-    const repoPackageName = readPackageName(
-      path.join(siblingRepoRoot, "package.json")
-    );
-    if (repoPackageName === expectedName) {
-      siblingTsonicPackageRootCache.set(pkgDirName, siblingRepoRoot);
-      return siblingRepoRoot;
-    }
-
-    const versionsRoot = path.join(siblingRepoRoot, "versions");
-    if (!fs.existsSync(versionsRoot)) return undefined;
-
-    const versionDirs = fs
-      .readdirSync(versionsRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort((left, right) => {
-        const leftNum = Number.parseInt(left, 10);
-        const rightNum = Number.parseInt(right, 10);
-        const leftIsNum = Number.isFinite(leftNum);
-        const rightIsNum = Number.isFinite(rightNum);
-        if (leftIsNum && rightIsNum) return rightNum - leftNum;
-        if (leftIsNum) return -1;
-        if (rightIsNum) return 1;
-        return right.localeCompare(left);
-      });
-
-    for (const versionDir of versionDirs) {
-      const candidateRoot = path.join(versionsRoot, versionDir);
-      const candidateName = readPackageName(
-        path.join(candidateRoot, "package.json")
-      );
-      if (candidateName === expectedName) {
-        siblingTsonicPackageRootCache.set(pkgDirName, candidateRoot);
-        return candidateRoot;
-      }
-    }
-
-    siblingTsonicPackageRootCache.set(pkgDirName, null);
-    return undefined;
-  };
-
-  return resolveSiblingTsonicPackageRoot;
-};
-
-/**
- * Resolve a compiler-owned @tsonic package root (sibling first, then installed).
- */
-export const createResolveCompilerOwnedTsonicPackageRoot = (
-  compilerOwnedTsonicPackageRootCache: Map<string, string | null>,
-  resolveSiblingTsonicPackageRoot: (pkgDirName: string) => string | undefined,
-  require: NodeRequire
-): ((pkgDirName: string) => string | undefined) => {
-  const resolveCompilerOwnedTsonicPackageRoot = (
-    pkgDirName: string
-  ): string | undefined => {
-    const cached = compilerOwnedTsonicPackageRootCache.get(pkgDirName);
-    if (cached !== undefined) {
-      return cached ?? undefined;
-    }
-    const siblingRoot = resolveSiblingTsonicPackageRoot(pkgDirName);
-    if (siblingRoot) {
-      compilerOwnedTsonicPackageRootCache.set(pkgDirName, siblingRoot);
-      return siblingRoot;
-    }
-
-    // Fall back to compiler-owned installation (keeps stdlib typings coherent)
-    try {
-      const installedPkgJson = require.resolve(
-        `@tsonic/${pkgDirName}/package.json`
-      );
-      const resolvedRoot = path.dirname(installedPkgJson);
-      compilerOwnedTsonicPackageRootCache.set(pkgDirName, resolvedRoot);
-      return resolvedRoot;
-    } catch {
-      // Package not found.
-    }
-
-    compilerOwnedTsonicPackageRootCache.set(pkgDirName, null);
-    return undefined;
-  };
-
-  return resolveCompilerOwnedTsonicPackageRoot;
 };

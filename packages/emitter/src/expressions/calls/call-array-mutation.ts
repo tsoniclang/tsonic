@@ -1,7 +1,7 @@
 /**
  * Native array mutation interop for call expressions.
  *
- * Handles JSArray wrapping for mutation calls (push, pop, shift, unshift,
+ * Handles source-owned array wrapping for mutation calls (push, pop, shift, unshift,
  * splice, sort, reverse, fill, copyWithin) that modify arrays in place
  * and need to write back the mutated array.
  */
@@ -14,7 +14,6 @@ import type {
   CSharpExpressionAst,
   CSharpStatementAst,
 } from "../../core/format/backend-ast/types.js";
-import { identifierType } from "../../core/format/backend-ast/builders.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { resolveArrayLikeReceiverType } from "../../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
@@ -25,6 +24,7 @@ import {
   emitArrayWrapperElementTypeAst,
 } from "./call-arguments.js";
 import { buildDelegateType } from "./call-promise.js";
+import { buildExactGlobalBindingType } from "../exact-global-bindings.js";
 
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
@@ -41,8 +41,10 @@ const nativeArrayMutationMembers = new Set([
   "copyWithin",
 ]);
 
-export const isJsArrayWrapperBindingType = (bindingType: string): boolean =>
-  stripClrGenericArity(bindingType).split(".").pop() === "JSArray";
+export const isArrayWrapperBindingType = (bindingType: string): boolean => {
+  const leaf = stripClrGenericArity(bindingType).split(".").pop();
+  return leaf === "Array" || leaf === "ReadonlyArray";
+};
 
 export const shouldPreferNativeArrayWrapperInterop = (
   binding:
@@ -54,7 +56,7 @@ export const shouldPreferNativeArrayWrapperInterop = (
   context: EmitterContext
 ): boolean =>
   !!binding &&
-  isJsArrayWrapperBindingType(binding.type) &&
+  isArrayWrapperBindingType(binding.type) &&
   !!resolveArrayLikeReceiverType(receiverType, context)?.elementType;
 
 export const hasDirectNativeArrayLikeInteropShape = (
@@ -220,7 +222,7 @@ export const emitArrayMutationInteropCall = (
   const binding = expr.callee.memberBinding;
   if (
     !binding ||
-    (binding.isExtensionMethod && !isJsArrayWrapperBindingType(binding.type))
+    (binding.isExtensionMethod && !isArrayWrapperBindingType(binding.type))
   ) {
     return undefined;
   }
@@ -330,9 +332,11 @@ export const emitArrayMutationInteropCall = (
         ...captured.setupStatements,
         createVarLocal(wrapperTemp.emittedName, {
           kind: "objectCreationExpression",
-          type: identifierType("global::Tsonic.Runtime.JSArray", [
-            elementTypeAst,
-          ]),
+          type: buildExactGlobalBindingType(
+            "Array",
+            [elementTypeAst],
+            currentContext
+          ),
           arguments: [captured.readExpression],
         }),
         createVarLocal(resultTemp.emittedName, mutationCall),

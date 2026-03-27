@@ -99,15 +99,16 @@ export const getIdentifierStorageType = (
   fromDecl: IrType | undefined,
   fromEnv: IrType | undefined
 ): IrType | undefined => {
+  if (fromEnv) {
+    return fromEnv;
+  }
   if (!fromDecl) return fromEnv;
-  if (fromDecl.kind !== "unknownType") return fromDecl;
-  if (!fromEnv) return fromDecl;
-  if (!declId) return fromEnv;
+  if (!declId) return fromEnv ?? fromDecl;
 
   const declInfo = (ctx.binding as BindingInternal)
     ._getHandleRegistry()
     .getDecl(declId);
-  if (!declInfo) return fromEnv;
+  if (!declInfo) return fromEnv ?? fromDecl;
   if (declInfo.typeNode) return fromDecl;
 
   const declNode = declInfo.declNode as ts.Node | undefined;
@@ -123,7 +124,7 @@ export const getIdentifierStorageType = (
     }
   }
 
-  return fromEnv;
+  return fromEnv ?? fromDecl;
 };
 
 export const stripNullish = (type: IrType | undefined): IrType | undefined => {

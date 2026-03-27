@@ -233,9 +233,8 @@ describe("Expression Emission", () => {
                   kind: "referenceType",
                   name: "ArrayConstructor",
                 },
-                resolvedClrType: "Tsonic.Runtime.JSArray`1",
+                resolvedClrType: "js.Array",
                 resolvedAssembly: "js",
-                csharpName: "JSArray",
               },
               property: "from",
               isComputed: false,
@@ -243,7 +242,7 @@ describe("Expression Emission", () => {
               memberBinding: {
                 kind: "method",
                 assembly: "js",
-                type: "Tsonic.Runtime.JSArrayStatics",
+                type: "js.Array",
                 member: "from",
                 isExtensionMethod: false,
               },
@@ -258,11 +257,10 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include('global::Tsonic.Runtime.JSArrayStatics.from("abc")');
-    expect(result).not.to.include("global::js.JSImportArray.from");
+    expect(result).to.include('global::js.Array.from("abc")');
   });
 
-  it("should lower Array.of through the runtime builtin helper", () => {
+  it("should lower Array.of through exact surface-owned binding metadata", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -284,10 +282,19 @@ describe("Expression Emission", () => {
                   kind: "referenceType",
                   name: "ArrayConstructor",
                 },
+                resolvedClrType: "js.Array",
+                resolvedAssembly: "js",
               },
               property: "of",
               isComputed: false,
               isOptional: false,
+              memberBinding: {
+                kind: "method",
+                assembly: "js",
+                type: "js.Array",
+                member: "of",
+                isExtensionMethod: false,
+              },
             },
             arguments: [
               {
@@ -316,8 +323,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("global::Tsonic.Runtime.JSArrayStatics.of");
-    expect(result).not.to.include("global::js.JSImportArray.of");
+    expect(result).to.include("global::js.Array.of");
   });
 
   it("should escape C# keywords in hierarchical member bindings", () => {

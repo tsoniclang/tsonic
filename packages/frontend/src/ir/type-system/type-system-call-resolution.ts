@@ -6,7 +6,7 @@
  * Sub-modules:
  * - call-resolution-utilities: Pure type helpers, type ID attachment, parameter expansion
  * - call-resolution-signatures: Signature extraction, structural lookup, delegate conversion,
- *   receiver substitution, unified-catalog overload resolution
+ *   receiver substitution
  * - call-resolution-inference: Generic type argument inference, overload scoring, parameter refinement
  * - call-resolution-resolve: Main resolveCall entry point
  */
@@ -36,7 +36,6 @@ export {
   getRawSignature,
   lookupStructuralMember,
   computeReceiverSubstitution,
-  tryResolveCallFromUnifiedCatalog,
 } from "./call-resolution-signatures.js";
 
 export {

@@ -237,17 +237,18 @@ describe("Generator Emission", () => {
 
       const code = emitModule(module);
 
-      // Should NOT generate wrapper class for unidirectional
+      // Should NOT generate wrapper or exchange helpers for unidirectional generators
       expect(code).to.not.include("Range_Generator");
+      expect(code).to.not.include("range_exchange");
       expect(code).to.not.include("IteratorResult<");
 
       // Should use IEnumerable return type
       expect(code).to.include(
-        "global::System.Collections.Generic.IEnumerable<range_exchange> range()"
+        "public static global::System.Collections.Generic.IEnumerable<double> range()"
       );
 
-      // Should generate exchange class
-      expect(code).to.include("public sealed class range_exchange");
+      // Should emit direct yield values
+      expect(code).to.include("yield return 1;");
     });
 
     it("should handle async bidirectional generator", () => {

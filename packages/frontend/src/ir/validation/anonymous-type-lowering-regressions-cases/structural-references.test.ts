@@ -177,4 +177,92 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
       false
     );
   });
+
+  it("reuses exact local structural aliases instead of generating anonymous carriers", () => {
+    const createInputType: IrType = {
+      kind: "objectType",
+      members: [
+        {
+          kind: "propertySignature",
+          name: "fullName",
+          type: { kind: "primitiveType", name: "string" },
+          isOptional: false,
+          isReadonly: false,
+        },
+        {
+          kind: "propertySignature",
+          name: "shortName",
+          type: { kind: "primitiveType", name: "string" },
+          isOptional: false,
+          isReadonly: false,
+        },
+        {
+          kind: "propertySignature",
+          name: "botType",
+          type: { kind: "primitiveType", name: "int" },
+          isOptional: true,
+          isReadonly: false,
+        },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "bot.ts",
+      namespace: "Test",
+      className: "Bot",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "typeAliasDeclaration",
+          name: "CreateInput",
+          type: createInputType,
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "createBotDomain",
+          typeParameters: undefined,
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "input" },
+              type: createInputType,
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+    };
+
+    const lowered = runAnonymousTypeLoweringPass([module]);
+    const loweredModule = lowered.modules.find((entry) => entry.filePath === "bot.ts");
+    const functionDecl = loweredModule?.body.find(
+      (stmt): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
+        stmt.kind === "functionDeclaration" && stmt.name === "createBotDomain"
+    );
+    const parameterType = functionDecl?.parameters[0]?.type;
+
+    expect(parameterType?.kind).to.equal("referenceType");
+    if (parameterType?.kind !== "referenceType") {
+      throw new Error("Expected lowered parameter type to be a referenceType");
+    }
+    expect(parameterType.name).to.equal("CreateInput");
+    expect(parameterType.typeArguments).to.equal(undefined);
+    expect(parameterType.structuralMembers).to.deep.equal(createInputType.members);
+    expect(
+      lowered.modules.some((entry) => entry.filePath === "__tsonic/__tsonic_anonymous_types.g.ts")
+    ).to.equal(false);
+  });
 });

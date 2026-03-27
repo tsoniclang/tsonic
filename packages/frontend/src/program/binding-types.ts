@@ -45,6 +45,7 @@ export type MemberBinding = {
   readonly semanticType?: IrType;
   readonly semanticOptional?: boolean;
   readonly semanticSignature?: BindingSemanticSignature;
+  readonly receiverExpectedType?: IrType;
   readonly overloadFamily?: BindingOverloadFamily;
   /** Total CLR parameter count (includes extension receiver for extension methods). */
   readonly parameterCount?: number;
@@ -61,6 +62,11 @@ export type MemberBinding = {
   // Used by the emitter to lower instance-style calls to explicit static calls.
   readonly isExtensionMethod?: boolean;
   readonly emitSemantics?: EmitSemantics;
+  readonly sourceOrigin?: {
+    readonly filePath: string;
+    readonly exportName: string;
+    readonly memberName?: string;
+  };
 };
 
 /**

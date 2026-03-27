@@ -130,7 +130,7 @@ describe("Expression Emission", () => {
     expect(result).to.not.include("process.argv.length");
   });
 
-  it("should emit JSArray length for imported array references on the JS surface", () => {
+  it("should emit Array length for imported array references on the JS surface", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -174,7 +174,7 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module, { surface: "@tsonic/js" });
     expect(result).to.include("process.argv.Length");
-    expect(result).to.not.include("new global::Tsonic.Runtime.JSArray<");
+    expect(result).to.not.include("new global::js.Array<");
   });
 
   it("should lower js-surface string length to CLR Length when narrowing lost the original binding", () => {

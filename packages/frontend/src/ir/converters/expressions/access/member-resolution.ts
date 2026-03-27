@@ -2,14 +2,38 @@
  * Member access property type resolution and name extraction helpers
  *
  * ALICE'S SPEC: All member type queries go through TypeSystem.typeOfMember().
- * Falls back to Binding-resolved MemberId only when the receiver type cannot
- * be normalized nominally (e.g., tsbindgen `$instance & __views` intersections).
  */
 
 import * as ts from "typescript";
-import { IrType, ComputedAccessKind } from "../../../types.js";
+import {
+  IrType,
+  ComputedAccessKind,
+  ComputedAccessProtocol,
+} from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
-import type { BindingInternal } from "../../../binding/binding-types.js";
+import type { BindingInternal } from "../../../binding/index.js";
+import { getNumericKindFromIrType } from "../../../type-system/inference-utilities.js";
+
+const memberHasExplicitUnknownAnnotation = (
+  node: ts.PropertyAccessExpression,
+  ctx: ProgramContext
+): boolean => {
+  const memberId = ctx.binding.resolvePropertyAccess(node);
+  if (!memberId) {
+    return false;
+  }
+
+  const memberInfo = (ctx.binding as BindingInternal)
+    ._getHandleRegistry()
+    .getMember(memberId);
+  const typeNode = memberInfo?.typeNode;
+  return (
+    !!typeNode &&
+    typeof typeNode === "object" &&
+    "kind" in typeNode &&
+    typeNode.kind === ts.SyntaxKind.UnknownKeyword
+  );
+};
 
 export const hasDeclaredMemberByName = (
   receiverIrType: IrType | undefined,
@@ -41,8 +65,7 @@ export const hasDeclaredMemberByName = (
   if (receiverIrType.kind === "referenceType") {
     const indexer = ctx.typeSystem.getIndexerInfo(receiverIrType);
     return (
-      indexer?.keyClrType === "System.String" ||
-      indexer?.keyClrType === "System.Object"
+      indexer !== undefined && isDictionaryKeyTypeName(indexer.keyClrType)
     );
   }
 
@@ -50,47 +73,11 @@ export const hasDeclaredMemberByName = (
 };
 
 /**
- * Fallback for getDeclaredPropertyType when TypeSystem can't resolve the member.
- * Uses TypeSystem.typeOfMemberId() to get member types for:
- * - Built-in types from globals (Array.Length, string.Length, etc.)
- * - CLR-bound types from tsbindgen
- * - Types with inherited members not in TypeRegistry
- *
- * ALICE'S SPEC: Uses TypeSystem as single source of truth.
- */
-const getDeclaredPropertyTypeFallback = (
-  node: ts.PropertyAccessExpression,
-  receiverIrType: IrType | undefined,
-  ctx: ProgramContext
-): IrType | undefined => {
-  // ALICE'S SPEC: Use TypeSystem.typeOfMemberId() to get member type
-  const typeSystem = ctx.typeSystem;
-
-  // Resolve property member through Binding layer
-  const memberId = ctx.binding.resolvePropertyAccess(node);
-  if (!memberId) return undefined;
-
-  // Use TypeSystem.typeOfMemberId() to get the member's declared type
-  const memberType = typeSystem.typeOfMemberId(memberId, receiverIrType);
-
-  if (memberType.kind === "unknownType") {
-    const memberInfo = (ctx.binding as BindingInternal)
-      ._getHandleRegistry()
-      .getMember(memberId);
-    if (memberInfo?.typeNode) {
-      return memberType;
-    }
-    return undefined;
-  }
-
-  return memberType;
-};
-
-/**
  * Get the declared property type from a property access expression.
  *
- * ALICE'S SPEC: Uses TypeSystem.typeOfMember() as primary source.
- * Falls back to Binding for inherited members not in TypeRegistry.
+ * ALICE'S SPEC: Uses explicit TypeSystem queries only.
+ * Prefer exact member-handle typing when Binding resolved the property access to a
+ * concrete declaration; otherwise use receiver+member TypeSystem lookup.
  *
  * @param node - Property access expression node
  * @param receiverIrType - Already-computed IR type of the receiver (object) expression
@@ -114,8 +101,26 @@ export const getDeclaredPropertyType = (
     );
   }
 
-  // Try TypeSystem.typeOfMember() first
   const typeSystem = ctx.typeSystem;
+  const memberId = ctx.binding.resolvePropertyAccess(node);
+  if (memberId) {
+    const exactMemberType = typeSystem.typeOfMemberId(memberId, receiverIrType);
+    if (DEBUG) {
+      console.log(
+        "[getDeclaredPropertyType]",
+        propertyName,
+        "TypeSystem memberId returned:",
+        exactMemberType
+      );
+    }
+    if (exactMemberType.kind !== "unknownType") {
+      return exactMemberType;
+    }
+    if (memberHasExplicitUnknownAnnotation(node, ctx)) {
+      return exactMemberType;
+    }
+  }
+
   if (receiverIrType && receiverIrType.kind !== "unknownType") {
     const memberType = typeSystem.typeOfMember(receiverIrType, {
       kind: "byName",
@@ -136,25 +141,8 @@ export const getDeclaredPropertyType = (
     if (hasDeclaredMemberByName(receiverIrType, propertyName, ctx)) {
       return memberType;
     }
-    // Fall through to Binding fallback
   }
-
-  // Fallback: Use Binding for inherited members not in TypeRegistry
-  // (e.g., Array.Length from Array$instance)
-  const fallbackResult = getDeclaredPropertyTypeFallback(
-    node,
-    receiverIrType,
-    ctx
-  );
-  if (DEBUG) {
-    console.log(
-      "[getDeclaredPropertyType]",
-      propertyName,
-      "fallback returned:",
-      fallbackResult
-    );
-  }
-  return fallbackResult;
+  return undefined;
 };
 
 /**
@@ -199,6 +187,174 @@ export const normalizeForComputedAccess = (
   }
 
   return type;
+};
+
+const isNumericIndexerKeyTypeName = (keyTypeName: string): boolean =>
+  new Set([
+    "number",
+    "int",
+    "byte",
+    "sbyte",
+    "short",
+    "ushort",
+    "uint",
+    "long",
+    "ulong",
+    "float",
+    "double",
+    "decimal",
+    "System.SByte",
+    "System.Byte",
+    "System.Int16",
+    "System.UInt16",
+    "System.Int32",
+    "System.UInt32",
+    "System.Int64",
+    "System.UInt64",
+    "System.IntPtr",
+    "System.UIntPtr",
+    "System.Int128",
+    "System.UInt128",
+    "System.Half",
+    "System.Single",
+    "System.Double",
+    "System.Decimal",
+  ]).has(keyTypeName);
+
+const isDictionaryKeyTypeName = (keyTypeName: string): boolean =>
+  new Set([
+    "string",
+    "object",
+    "unknown",
+    "System.String",
+    "System.Object",
+  ]).has(keyTypeName);
+
+const INT_IR_TYPE: IrType = { kind: "primitiveType", name: "int" };
+
+const getCallableSignatures = (
+  type: IrType | undefined
+): readonly Extract<IrType, { kind: "functionType" }>[] => {
+  if (!type) {
+    return [];
+  }
+
+  if (type.kind === "functionType") {
+    return [type];
+  }
+
+  if (type.kind === "intersectionType") {
+    return type.types.filter(
+      (member): member is Extract<IrType, { kind: "functionType" }> =>
+        member.kind === "functionType"
+    );
+  }
+
+  return [];
+};
+
+const stripUndefinedFromType = (type: IrType): IrType => {
+  if (type.kind !== "unionType") {
+    return type;
+  }
+
+  const nonUndefined = type.types.filter(
+    (member) =>
+      !(member.kind === "primitiveType" && member.name === "undefined")
+  );
+
+  if (nonUndefined.length === 1 && nonUndefined[0]) {
+    return nonUndefined[0];
+  }
+
+  return {
+    kind: "unionType",
+    types: nonUndefined,
+  };
+};
+
+const hasGetterProtocol = (
+  objectType: IrType,
+  indexerValueType: IrType,
+  ctx: ProgramContext
+): boolean => {
+  const memberType = ctx.typeSystem.tryTypeOfMember(objectType, {
+    kind: "byName",
+    name: "at",
+  });
+
+  return getCallableSignatures(memberType).some((signature) => {
+    const [indexParam] = signature.parameters;
+    if (!indexParam?.type) {
+      return false;
+    }
+
+    if (!ctx.typeSystem.isAssignableTo(INT_IR_TYPE, indexParam.type)) {
+      return false;
+    }
+
+    const returnType = stripUndefinedFromType(signature.returnType);
+    return (
+      ctx.typeSystem.isAssignableTo(indexerValueType, returnType) ||
+      ctx.typeSystem.typesEqual(indexerValueType, returnType)
+    );
+  });
+};
+
+const hasSetterProtocol = (
+  objectType: IrType,
+  indexerValueType: IrType,
+  ctx: ProgramContext
+): boolean => {
+  const memberType = ctx.typeSystem.tryTypeOfMember(objectType, {
+    kind: "byName",
+    name: "set",
+  });
+
+  return getCallableSignatures(memberType).some((signature) => {
+    const [indexParam, valueParam] = signature.parameters;
+    if (!indexParam?.type || !valueParam?.type) {
+      return false;
+    }
+
+    if (!ctx.typeSystem.isAssignableTo(INT_IR_TYPE, indexParam.type)) {
+      return false;
+    }
+
+    const setterValueNumericKind = getNumericKindFromIrType(valueParam.type);
+    const indexerValueNumericKind = getNumericKindFromIrType(indexerValueType);
+
+    return (
+      ctx.typeSystem.isAssignableTo(indexerValueType, valueParam.type) ||
+      ctx.typeSystem.isAssignableTo(valueParam.type, indexerValueType) ||
+      ctx.typeSystem.typesEqual(indexerValueType, valueParam.type) ||
+      (setterValueNumericKind !== undefined &&
+        indexerValueNumericKind !== undefined)
+    );
+  });
+};
+
+export const resolveComputedAccessProtocol = (
+  objectType: IrType | undefined,
+  ctx: ProgramContext
+): ComputedAccessProtocol | undefined => {
+  const normalized = normalizeForComputedAccess(objectType);
+  if (!normalized || normalized.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const indexer = ctx.typeSystem.getIndexerInfo(normalized);
+  if (!indexer || !isNumericIndexerKeyTypeName(indexer.keyClrType)) {
+    return undefined;
+  }
+
+  if (!hasGetterProtocol(normalized, indexer.valueType, ctx)) {
+    return undefined;
+  }
+
+  return hasSetterProtocol(normalized, indexer.valueType, ctx)
+    ? { getterMember: "at", setterMember: "set" }
+    : { getterMember: "at" };
 };
 
 /**
@@ -247,7 +403,9 @@ export const classifyComputedAccess = (
   if (objectType.kind === "referenceType") {
     const indexer = ctx.typeSystem.getIndexerInfo(objectType);
     if (!indexer) return "clrIndexer";
-    return indexer.keyClrType === "System.Int32" ? "clrIndexer" : "dictionary";
+    return isNumericIndexerKeyTypeName(indexer.keyClrType)
+      ? "clrIndexer"
+      : "dictionary";
   }
 
   return "unknown";
@@ -298,45 +456,16 @@ export const extractTypeName = (
     }
   }
 
-  // Handle primitive types - map to their CLR type names for binding lookup
-  // This enables binding resolution for methods like string.Split(), number.ToString()
   if (inferredType.kind === "primitiveType") {
-    switch (inferredType.name) {
-      case "string":
-        return "String"; // System.String
-      case "number":
-        return "Double"; // System.Double (TS number is double)
-      case "boolean":
-        return "Boolean"; // System.Boolean
-      case "char":
-        return "Char"; // System.Char
-      default:
-        return undefined;
-    }
+    return undefined;
   }
 
-  // Handle literal types - determine the CLR type from the value type
-  // This enables binding resolution for string literals like "hello".Split(" ")
   if (inferredType.kind === "literalType") {
-    const valueType = typeof inferredType.value;
-    switch (valueType) {
-      case "string":
-        return "String"; // System.String
-      case "number":
-        return "Double"; // System.Double
-      case "boolean":
-        return "Boolean"; // System.Boolean
-      default:
-        return undefined;
-    }
+    return undefined;
   }
 
   if (inferredType.kind === "referenceType") {
     const name = inferredType.name;
-
-    if (name === "Array" || name === "ReadonlyArray") {
-      return "Array";
-    }
 
     // Strip $instance suffix from tsbindgen-generated type names
     // e.g., "List_1$instance" → "List_1" for binding lookup

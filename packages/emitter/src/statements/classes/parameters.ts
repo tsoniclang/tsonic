@@ -13,7 +13,9 @@ import { emitParameterType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPatternAst } from "../../patterns.js";
 import { emitParameterAttributes } from "../../core/format/attributes.js";
+import { allocateLocalName, registerLocalName } from "../../core/format/local-names.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
+import { stripNullableTypeAst } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpParameterAst,
@@ -21,12 +23,16 @@ import type {
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import {
+  canLowerParameterDefaultViaWrapper,
   canEmitParameterDefaultInSignature,
   computeWrapperPrefixLengths,
   isCSharpOptionalParameterDefaultAst,
+  preservesNullableShadowType,
   RuntimeParameterDefaultInfo,
+  signatureDefaultForInitializedParameter,
   supportsNullCoalescingParameterDefault,
 } from "../parameter-defaults.js";
+import { registerParameterTypes } from "../../core/semantic/symbol-types.js";
 
 /**
  * Info about a parameter that needs destructuring in the function body
@@ -53,6 +59,62 @@ export type ParameterEmissionResult = {
   readonly suppressedDefaultArguments: readonly (CSharpExpressionAst | undefined)[];
   /** Updated context */
   readonly context: EmitterContext;
+};
+
+export const applyRuntimeParameterDefaultShadows = (
+  runtimeDefaults: readonly RuntimeParameterDefaultInfo[],
+  context: EmitterContext
+): [readonly CSharpStatementAst[], EmitterContext] => {
+  let currentContext = context;
+  const statements: CSharpStatementAst[] = [];
+
+  for (const runtimeDefault of runtimeDefaults) {
+    if (!runtimeDefault.sourceName) {
+      continue;
+    }
+
+    const allocated = allocateLocalName(
+      `__defaulted_${runtimeDefault.sourceName}`,
+      currentContext
+    );
+    currentContext = registerLocalName(
+      runtimeDefault.sourceName,
+      allocated.emittedName,
+      allocated.context
+    );
+    currentContext = registerParameterTypes(
+      runtimeDefault.sourceName,
+      runtimeDefault.semanticType,
+      false,
+      currentContext
+    );
+
+    statements.push({
+      kind: "localDeclarationStatement",
+      modifiers: [],
+      type:
+        runtimeDefault.typeAst.kind === "nullableType" &&
+        preservesNullableShadowType(runtimeDefault.initializer)
+          ? runtimeDefault.typeAst
+          : stripNullableTypeAst(runtimeDefault.typeAst),
+      declarators: [
+        {
+          name: allocated.emittedName,
+          initializer: {
+            kind: "binaryExpression",
+            operatorToken: "??",
+            left: {
+              kind: "identifierExpression",
+              identifier: runtimeDefault.paramName,
+            },
+            right: runtimeDefault.initializer,
+          },
+        },
+      ],
+    });
+  }
+
+  return [statements, currentContext];
 };
 
 /**
@@ -92,7 +154,8 @@ export const emitParametersWithDestructuring = (
     const param = parameters[index];
     if (!param) continue;
     const isRest = param.isRest;
-    const isOptional = param.isOptional;
+    const acceptsExplicitUndefined =
+      (param.isOptional || param.initializer !== undefined) && !param.isRest;
 
     const [paramAttrs, attrContext] = emitParameterAttributes(
       param.attributes,
@@ -119,7 +182,7 @@ export const emitParametersWithDestructuring = (
     if (actualType) {
       const [tAst, newContext] = emitParameterType(
         actualType,
-        isOptional,
+        acceptsExplicitUndefined,
         currentContext
       );
       currentContext = newContext;
@@ -159,23 +222,34 @@ export const emitParametersWithDestructuring = (
       const canEmitInSignature =
         canEmitParameterDefaultInSignature(parameters, index) &&
         isCSharpOptionalParameterDefaultAst(defaultAst);
-      if (canEmitInSignature) {
-        defaultValue = defaultAst;
-      } else {
-        suppressedDefaultIndexes.add(index);
-        suppressedDefaultArguments[index] = defaultAst;
-        if (!supportsNullCoalescingParameterDefault(typeAst)) {
-          throw new Error(
-            `ICE: Unsupported runtime parameter default lowering for '${paramName}'.`
-          );
-        }
+      defaultValue = signatureDefaultForInitializedParameter(
+        parameters,
+        index,
+        typeAst,
+        defaultAst
+      );
+
+      if (supportsNullCoalescingParameterDefault(typeAst)) {
         runtimeDefaultInitializers.push({
           paramName,
           typeAst,
           initializer: defaultAst,
+          sourceName:
+            param.pattern.kind === "identifierPattern"
+              ? param.pattern.name
+              : undefined,
+          semanticType: param.type,
         });
+      } else if (!canEmitInSignature) {
+        suppressedDefaultIndexes.add(index);
+        suppressedDefaultArguments[index] = defaultAst;
+        if (!canLowerParameterDefaultViaWrapper(parameters, index)) {
+          throw new Error(
+            `ICE: Unsupported runtime parameter default lowering for '${paramName}'.`
+          );
+        }
       }
-    } else if (isOptional && !isRest) {
+    } else if (param.isOptional && !isRest) {
       if (canEmitParameterDefaultInSignature(parameters, index)) {
         defaultValue = { kind: "defaultExpression" };
       } else {

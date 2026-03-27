@@ -55,26 +55,15 @@ const getSimpleBindingIdentityClrType = (
  */
 export class BindingRegistry {
   private readonly loadedBindingFiles = new Set<string>();
+  private readonly sourceOwnedTypeAliases = new Set<string>();
 
   // Simple format: global/module bindings for identifiers like console, Math, fs
   private readonly simpleBindings = new Map<string, SimpleBindingDescriptor>();
-  private readonly simpleBindingsLowercase = new Map<
-    string,
-    SimpleBindingDescriptor
-  >();
   private readonly simpleGlobalBindings = new Map<
     string,
     SimpleBindingDescriptor
   >();
-  private readonly simpleGlobalBindingsLowercase = new Map<
-    string,
-    SimpleBindingDescriptor
-  >();
   private readonly simpleModuleBindings = new Map<
-    string,
-    SimpleBindingDescriptor
-  >();
-  private readonly simpleModuleBindingsLowercase = new Map<
     string,
     SimpleBindingDescriptor
   >();
@@ -120,11 +109,8 @@ export class BindingRegistry {
       tsSupertypes: this.tsSupertypes,
       tsBaseTypes: this.tsBaseTypes,
       simpleBindings: this.simpleBindings,
-      simpleBindingsLowercase: this.simpleBindingsLowercase,
       simpleGlobalBindings: this.simpleGlobalBindings,
-      simpleGlobalBindingsLowercase: this.simpleGlobalBindingsLowercase,
       simpleModuleBindings: this.simpleModuleBindings,
-      simpleModuleBindingsLowercase: this.simpleModuleBindingsLowercase,
       typeLookupAliasMap: this.typeLookupAliasMap,
       clrTypeNames: this.clrTypeNames,
     };
@@ -138,12 +124,10 @@ export class BindingRegistry {
     addBindingsToState(
       {
         loadedBindingFiles: this.loadedBindingFiles,
+        sourceOwnedTypeAliases: this.sourceOwnedTypeAliases,
         simpleBindings: this.simpleBindings,
-        simpleBindingsLowercase: this.simpleBindingsLowercase,
         simpleGlobalBindings: this.simpleGlobalBindings,
-        simpleGlobalBindingsLowercase: this.simpleGlobalBindingsLowercase,
         simpleModuleBindings: this.simpleModuleBindings,
-        simpleModuleBindingsLowercase: this.simpleModuleBindingsLowercase,
         namespaces: this.namespaces,
         types: this.types,
         typeLookupAliasMap: this.typeLookupAliasMap,
@@ -179,18 +163,10 @@ export class BindingRegistry {
   }
 
   /**
-   * Look up a simple global/module binding.
-   *
-   * This API preserves the historical case-insensitive convenience behavior for
-   * registry queries. Compiler resolution of authored identifiers should prefer
-   * `getExactBinding()` so local/imported symbols are not polluted by
-   * differently-cased globals (for example `Console` vs `console`).
+   * Look up a simple global/module binding by exact authored name.
    */
   getBinding(name: string): SimpleBindingDescriptor | undefined {
-    return (
-      this.simpleBindings.get(name) ??
-      this.simpleBindingsLowercase.get(name.toLowerCase())
-    );
+    return this.simpleBindings.get(name);
   }
 
   getBindingByKind(
@@ -198,10 +174,8 @@ export class BindingRegistry {
     kind: SimpleBindingDescriptor["kind"]
   ): SimpleBindingDescriptor | undefined {
     return kind === "global"
-      ? (this.simpleGlobalBindings.get(name) ??
-          this.simpleGlobalBindingsLowercase.get(name.toLowerCase()))
-      : (this.simpleModuleBindings.get(name) ??
-          this.simpleModuleBindingsLowercase.get(name.toLowerCase()));
+      ? this.simpleGlobalBindings.get(name)
+      : this.simpleModuleBindings.get(name);
   }
 
   /**
@@ -243,14 +217,12 @@ export class BindingRegistry {
   getMemberOverloads(
     typeAlias: string,
     memberAlias: string,
-    allowCaseInsensitiveFallback = true,
     preferredClrOwner?: string
   ): readonly MemberBinding[] | undefined {
     return resolveMemberOverloads(
       this.state,
       typeAlias,
       memberAlias,
-      allowCaseInsensitiveFallback,
       preferredClrOwner
     );
   }
@@ -385,11 +357,8 @@ export class BindingRegistry {
   clear(): void {
     this.loadedBindingFiles.clear();
     this.simpleBindings.clear();
-    this.simpleBindingsLowercase.clear();
     this.simpleGlobalBindings.clear();
-    this.simpleGlobalBindingsLowercase.clear();
     this.simpleModuleBindings.clear();
-    this.simpleModuleBindingsLowercase.clear();
     this.namespaces.clear();
     this.types.clear();
     this.typeLookupAliasMap.clear();

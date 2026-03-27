@@ -44,8 +44,7 @@ export const isArrayLikeNarrowingCandidate = (
   if (
     resolved.kind === "referenceType" &&
     (resolved.name === "Array" ||
-      resolved.name === "ReadonlyArray" ||
-      resolved.name === "JSArray")
+      resolved.name === "ReadonlyArray")
   ) {
     return true;
   }

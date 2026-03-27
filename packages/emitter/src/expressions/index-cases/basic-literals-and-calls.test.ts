@@ -3,6 +3,7 @@ import {
   it,
   expect,
   emitModule,
+  createExactGlobalBindingRegistry,
   type IrExpression,
   type IrModule,
 } from "./helpers.js";
@@ -158,10 +159,19 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module, { surface: "@tsonic/js" });
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: createExactGlobalBindingRegistry({
+        String: {
+          kind: "global",
+          assembly: "js",
+          type: "js.Globals.String",
+        },
+      }),
+    });
 
     expect(result).to.include(
-      "global::Tsonic.Runtime.JsValue.Stringify(flag)"
+      "global::js.Globals.String(flag)"
     );
     expect(result).not.to.include('$"flag={flag}"');
   });

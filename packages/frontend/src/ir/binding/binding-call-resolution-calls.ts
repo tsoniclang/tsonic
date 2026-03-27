@@ -37,46 +37,6 @@ export const resolveCallSignature = (
     if (node.expression.kind === ts.SyntaxKind.SuperKeyword) {
       return getOrCreateSignatureId(ctx, signature);
     }
-
-    // Recovery: calls through variables/properties typed as functions can
-    // yield signatures without declarations. Attempt to re-anchor to a
-    // function-like declaration we can capture syntactically.
-    const symbol = (() => {
-      const expr = node.expression;
-      if (ts.isIdentifier(expr)) return ctx.checker.getSymbolAtLocation(expr);
-      if (ts.isPropertyAccessExpression(expr)) {
-        return ctx.checker.getSymbolAtLocation(expr.name);
-      }
-      return undefined;
-    })();
-
-    const resolvedSymbol =
-      symbol && symbol.flags & ts.SymbolFlags.Alias
-        ? ctx.checker.getAliasedSymbol(symbol)
-        : symbol;
-
-    const decls = resolvedSymbol?.getDeclarations() ?? [];
-    for (const decl of decls) {
-      // Direct function-like declarations (function/method/signature)
-      if (ts.isFunctionLike(decl)) {
-        const sig = ctx.checker.getSignatureFromDeclaration(decl);
-        if (sig) return getOrCreateSignatureId(ctx, sig);
-        continue;
-      }
-
-      // Variable initializers: const f = (x) => ...
-      if (ts.isVariableDeclaration(decl)) {
-        const init = decl.initializer;
-        if (
-          init &&
-          (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
-        ) {
-          const sig = ctx.checker.getSignatureFromDeclaration(init);
-          if (sig) return getOrCreateSignatureId(ctx, sig);
-        }
-      }
-    }
-
     return undefined;
   }
 
@@ -102,13 +62,45 @@ export const resolveCallSignature = (
     return current;
   };
 
-  const isCharTypeNode = (typeNode: ts.TypeNode): boolean => {
-    if (ts.isTypeReferenceNode(typeNode)) {
-      const tn = typeNode.typeName;
-      if (ts.isIdentifier(tn)) return tn.text === "char";
-      return tn.right.text === "char";
+  const CLR_NUMERIC_ALIAS_NAMES = new Set([
+    "sbyte",
+    "short",
+    "int",
+    "long",
+    "nint",
+    "int128",
+    "byte",
+    "ushort",
+    "uint",
+    "ulong",
+    "nuint",
+    "uint128",
+    "half",
+    "float",
+    "double",
+    "decimal",
+  ]);
+
+  const getEntityNameLeaf = (name: ts.EntityName): string =>
+    ts.isIdentifier(name) ? name.text : name.right.text;
+
+  const getExplicitClrPrimitiveAlias = (
+    typeNode: ts.TypeNode | undefined
+  ): string | undefined => {
+    if (!typeNode) return undefined;
+    const node = ts.isParenthesizedTypeNode(typeNode) ? typeNode.type : typeNode;
+    if (!ts.isTypeReferenceNode(node)) return undefined;
+
+    const alias = getEntityNameLeaf(node.typeName);
+    if (alias === "char" || CLR_NUMERIC_ALIAS_NAMES.has(alias)) {
+      return alias;
     }
-    return false;
+
+    return undefined;
+  };
+
+  const isCharTypeNode = (typeNode: ts.TypeNode): boolean => {
+    return getExplicitClrPrimitiveAlias(typeNode) === "char";
   };
 
   const isCharishArgument = (arg: ts.Expression): boolean => {
@@ -135,6 +127,37 @@ export const resolveCallSignature = (
     }
 
     return false;
+  };
+
+  const getExplicitArgumentClrPrimitiveAlias = (
+    arg: ts.Expression
+  ): string | undefined => {
+    const expr = stripParens(arg);
+
+    if (ts.isAsExpression(expr) || ts.isTypeAssertionExpression(expr)) {
+      return getExplicitClrPrimitiveAlias(expr.type);
+    }
+
+    if (ts.isIdentifier(expr)) {
+      const sym = ctx.checker.getSymbolAtLocation(expr);
+      if (!sym) return undefined;
+      const resolvedSym =
+        sym.flags & ts.SymbolFlags.Alias
+          ? ctx.checker.getAliasedSymbol(sym)
+          : sym;
+      const aliases = new Set<string>();
+      for (const decl of resolvedSym.getDeclarations() ?? []) {
+        const typeNode = getTypeNodeFromDeclaration(decl);
+        const alias = getExplicitClrPrimitiveAlias(typeNode);
+        if (alias) {
+          aliases.add(alias);
+        }
+      }
+
+      return aliases.size === 1 ? Array.from(aliases)[0] : undefined;
+    }
+
+    return undefined;
   };
 
   const stringType = ctx.checker.getStringType();
@@ -368,9 +391,22 @@ export const resolveCallSignature = (
     return "other";
   };
 
+  const paramClrAliasForArgIndex = (
+    entry: SignatureEntry,
+    argIndex: number
+  ): string | undefined => {
+    const params = entry.parameters;
+    const direct = params[argIndex];
+    const param = direct ?? params[params.length - 1];
+    if (!param) return undefined;
+    if (!direct && !param.isRest) return undefined;
+    return getExplicitClrPrimitiveAlias(param.typeNode as ts.TypeNode | undefined);
+  };
+
   const args = node.arguments;
   const wantsStringAt: number[] = [];
   const wantsCharAt: number[] = [];
+  const wantsExactClrAliasAt = new Map<number, string>();
   const objectLiteralArgs = new Map<number, readonly string[]>();
 
   for (let i = 0; i < args.length; i++) {
@@ -384,6 +420,15 @@ export const resolveCallSignature = (
       wantsStringAt.push(i);
     }
 
+    const exactClrAlias = getExplicitArgumentClrPrimitiveAlias(arg);
+    if (
+      exactClrAlias &&
+      exactClrAlias !== "char" &&
+      CLR_NUMERIC_ALIAS_NAMES.has(exactClrAlias)
+    ) {
+      wantsExactClrAliasAt.set(i, exactClrAlias);
+    }
+
     const objectKeys = getObjectLiteralKeys(arg);
     if (objectKeys && objectKeys.length > 0) {
       objectLiteralArgs.set(i, objectKeys);
@@ -393,6 +438,7 @@ export const resolveCallSignature = (
   if (
     wantsStringAt.length === 0 &&
     wantsCharAt.length === 0 &&
+    wantsExactClrAliasAt.size === 0 &&
     objectLiteralArgs.size === 0
   ) {
     return resolvedId;
@@ -442,6 +488,17 @@ export const resolveCallSignature = (
       const pc = paramClassForArgIndex(entry, i);
       if (pc === "char") score += 2;
       if (pc === "string") score -= 2;
+    }
+    for (const [argIndex, exactClrAlias] of wantsExactClrAliasAt) {
+      const parameterAlias = paramClrAliasForArgIndex(entry, argIndex);
+      if (!parameterAlias) continue;
+      if (parameterAlias === exactClrAlias) {
+        score += 4;
+        continue;
+      }
+      if (CLR_NUMERIC_ALIAS_NAMES.has(parameterAlias)) {
+        score -= 4;
+      }
     }
     for (const [argIndex, keys] of objectLiteralArgs) {
       score += objectLiteralScoreForArg(entry, argIndex, keys);

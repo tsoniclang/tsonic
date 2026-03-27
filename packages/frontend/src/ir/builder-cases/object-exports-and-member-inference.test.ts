@@ -25,6 +25,9 @@ describe("IR Builder", function () {
       );
 
       try {
+        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
+        expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
+
         fs.writeFileSync(
           path.join(tempDir, "package.json"),
           JSON.stringify(
@@ -64,6 +67,7 @@ describe("IR Builder", function () {
               kind: "tsonic-source-package",
               surfaces: ["@tsonic/js"],
               source: {
+                namespace: "demo.pkg",
                 exports: {
                   ".": "./src/index.ts",
                 },
@@ -105,7 +109,7 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@tsonic/js",
-          typeRoots: [packageRoot],
+          typeRoots: [jsRoot, packageRoot],
         });
 
         expect(programResult.ok).to.equal(true);

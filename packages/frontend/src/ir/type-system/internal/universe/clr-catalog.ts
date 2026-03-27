@@ -196,39 +196,34 @@ export const loadClrCatalog = (
     const bindingsFiles = findBindingsFiles(packagePath);
 
     for (const bindingsPath of bindingsFiles) {
-      try {
-        const internalDtsPath = resolveExistingCompanionDts(bindingsPath);
-        if (internalDtsPath) {
-          dtsFiles.add(internalDtsPath);
-        }
+      const internalDtsPath = resolveExistingCompanionDts(bindingsPath);
+      if (internalDtsPath) {
+        dtsFiles.add(internalDtsPath);
+      }
 
-        const content = fs.readFileSync(bindingsPath, "utf-8");
-        const parsed = JSON.parse(content) as unknown;
-        const bindings = extractRawDotnetBindingsPayload(parsed) as
-          | RawBindingsPayload
-          | undefined;
-        if (!bindings) {
-          continue;
-        }
+      const content = fs.readFileSync(bindingsPath, "utf-8");
+      const parsed = JSON.parse(content) as unknown;
+      const bindings = extractRawDotnetBindingsPayload(parsed) as
+        | RawBindingsPayload
+        | undefined;
+      if (!bindings) {
+        continue;
+      }
 
-        for (const rawType of bindings.types) {
-          const entry = convertRawType(rawType, bindings.namespace);
+      for (const rawType of bindings.types) {
+        const entry = convertRawType(rawType, bindings.namespace);
 
-          // Add to entries map
-          entries.set(entry.typeId.stableId, entry);
+        // Add to entries map
+        entries.set(entry.typeId.stableId, entry);
 
-          // Add to name lookup maps
-          tsNameToTypeId.set(entry.typeId.tsName, entry.typeId);
-          clrNameToTypeId.set(entry.typeId.clrName, entry.typeId);
+        // Add to name lookup maps
+        tsNameToTypeId.set(entry.typeId.tsName, entry.typeId);
+        clrNameToTypeId.set(entry.typeId.clrName, entry.typeId);
 
-          // Add to namespace map
-          const nsTypes = namespaceToTypeIds.get(bindings.namespace) ?? [];
-          nsTypes.push(entry.typeId);
-          namespaceToTypeIds.set(bindings.namespace, nsTypes);
-        }
-      } catch (e) {
-        // Log but continue - don't fail on malformed files
-        console.warn(`Failed to load metadata from ${bindingsPath}:`, e);
+        // Add to namespace map
+        const nsTypes = namespaceToTypeIds.get(bindings.namespace) ?? [];
+        nsTypes.push(entry.typeId);
+        namespaceToTypeIds.set(bindings.namespace, nsTypes);
       }
     }
   }

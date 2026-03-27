@@ -57,6 +57,43 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("adapts function-value arguments to contextual delegates with trailing callback parameters", () => {
+      const source = `
+        function trimValue(value: string): string {
+          return value.trim();
+        }
+
+        export function main(items: string[]): string[] {
+          return items.map(trimValue);
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include(
+        ".map((string value, int? __unused_index, string[]? __unused_array) => trimValue(value))"
+      );
+    });
+
+    it("extends explicit lambda parameters to the full contextual callback arity", () => {
+      const source = `
+        export function main(items: string[]): string[] {
+          return items.map((value) => value.trim());
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include(
+        ".map((string value, int? __unused_index, string[]? __unused_array) =>"
+      );
+      expect(csharp).to.include("global::js.String.trim");
+    });
+
     it("lowers rest-only contextual callbacks through a synthesized rest carrier", () => {
       const source = `
         type Tick = (...args: unknown[]) => void;
@@ -308,6 +345,24 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.match(/where\s+\w+\s*:\s*string/);
       expect(csharp).to.not.include("where K : string");
       expect(csharp).to.not.include("where T : string");
+    });
+
+    it("emits numeric generic constraints and numeric return adaptation for extends number", () => {
+      const source = `
+        export function numericIdentity<T extends number>(value: T): number {
+          return value;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(/public\s+static\s+double\s+numericIdentity<T>\s*\(T value\)/);
+      expect(csharp).to.include(
+        "where T : global::System.Numerics.INumber<T>"
+      );
+      expect(csharp).to.include(
+        "return global::System.Double.CreateChecked(value);"
+      );
     });
   });
 

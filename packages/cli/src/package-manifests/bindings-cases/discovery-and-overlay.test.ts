@@ -20,6 +20,7 @@ const createSourcePackageManifest = (
   kind: "tsonic-source-package",
   surfaces: ["@tsonic/js"],
   source: {
+    namespace: "Acme.Package",
     exports: {
       ".": "./src/index.ts",
     },

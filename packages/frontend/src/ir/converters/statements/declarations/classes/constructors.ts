@@ -217,6 +217,7 @@ export const convertConstructorOverloadGroup = (
         CONSTRUCTOR_IMPL_METHOD_NAME,
         parameters,
         implParams,
+        [],
         false,
         VOID_TYPE,
         VOID_TYPE,

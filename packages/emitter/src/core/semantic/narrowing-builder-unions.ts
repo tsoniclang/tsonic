@@ -354,6 +354,19 @@ export const applyDirectTypeNarrowing = (
         ? resolveRuntimeUnionFrame(bindingKey, currentType, context)
         : undefined;
       if (existingBinding.storageExprAst && exprCarrierFrame) {
+        const existingBindingTypeKey = existingBinding.type
+          ? stableIrTypeKey(resolveTypeAlias(existingBinding.type, context))
+          : undefined;
+        const currentTypeKey = currentType
+          ? stableIrTypeKey(resolveTypeAlias(currentType, context))
+          : undefined;
+        if (
+          existingBindingTypeKey !== undefined &&
+          currentTypeKey !== undefined &&
+          existingBindingTypeKey === currentTypeKey
+        ) {
+          return [existingBinding.exprAst, context, exprCarrierType] as const;
+        }
         return [
           existingBinding.storageExprAst,
           context,

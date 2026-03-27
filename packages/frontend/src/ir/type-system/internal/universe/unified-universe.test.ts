@@ -33,6 +33,8 @@ const makeRegistry = (entry: TypeRegistryEntry): TypeRegistry => ({
     simpleName === entry.name ? entry : undefined,
   getFQName: (simpleName) =>
     simpleName === entry.name ? entry.fullyQualifiedName : undefined,
+  getFQNames: (simpleName) =>
+    simpleName === entry.name ? [entry.fullyQualifiedName] : [],
   getMemberType: (fqNominal, memberName) => {
     if (fqNominal !== entry.fullyQualifiedName) return undefined;
     return entry.members.get(memberName)?.type;
@@ -138,13 +140,14 @@ describe("buildUnifiedUniverse", () => {
     }
   });
 
-  it("keeps assembly identity for declaration-file globals with matching TS names", () => {
+  it("keeps assembly identity for entries explicitly marked to preserve it", () => {
     const entry: TypeRegistryEntry = {
       kind: "class",
       name: "Error",
       fullyQualifiedName: "Error",
       ownerIdentity: "project",
       isDeclarationFile: true,
+      preservesAssemblyIdentity: true,
       typeParameters: [],
       members: new Map(),
       heritage: [],

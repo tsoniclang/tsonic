@@ -369,7 +369,7 @@ describe("expected-type-adaptation", () => {
     expect(printExpression(castAst)).to.equal("(int)value");
   });
 
-  it("casts JS numeric expressions into byte expected slots", () => {
+  it("does not cast representable integral literals into byte expected slots", () => {
     const context = createContext({
       rootNamespace: "Test",
       surface: "@tsonic/js",
@@ -391,7 +391,62 @@ describe("expected-type-adaptation", () => {
       }
     );
 
-    expect(printExpression(castAst)).to.equal("(byte)255");
+    expect(printExpression(castAst)).to.equal("255");
+  });
+
+  it("does not cast representable negative integral literals into exact int slots", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [castAst] = maybeCastNumericToExpectedIntegralAst(
+      {
+        kind: "prefixUnaryExpression",
+        operatorToken: "-",
+        operand: parseNumericLiteral("1"),
+      },
+      { kind: "primitiveType", name: "number" },
+      context,
+      { kind: "primitiveType", name: "int" }
+    );
+
+    expect(printExpression(castAst)).to.equal("-1");
+  });
+
+  it("does not layer an identical nullable exact-int cast twice", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [castAst] = maybeCastNumericToExpectedIntegralAst(
+      {
+        kind: "castExpression",
+        type: {
+          kind: "nullableType",
+          underlyingType: { kind: "predefinedType", keyword: "int" },
+        },
+        expression: identifierExpression("query.limit"),
+      },
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      },
+      context,
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      }
+    );
+
+    expect(printExpression(castAst)).to.equal("(int?)query.limit");
   });
 
   it("does not append .Value when the emitted AST already casts to a concrete value type", () => {

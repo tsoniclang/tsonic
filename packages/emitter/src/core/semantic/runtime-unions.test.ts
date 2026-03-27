@@ -428,19 +428,6 @@ describe("runtime-unions", () => {
 
       // Context WITH typeAliasIndex: PathSpec can be expanded
       const typeAliasIndex: TypeAliasIndex = {
-        byName: new Map([
-          [
-            "PathSpec",
-            [
-              {
-                name: "PathSpec",
-                fqn: "Other.PathSpec",
-                type: pathSpecUnderlying,
-                typeParameters: [],
-              },
-            ],
-          ],
-        ]),
         byFqn: new Map([
           [
             "Other.PathSpec",

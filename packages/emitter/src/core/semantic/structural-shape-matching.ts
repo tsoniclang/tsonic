@@ -124,7 +124,23 @@ type StructuralReferenceCandidate = {
   readonly dedupeKey: string;
   readonly isCurrentLocal: boolean;
   readonly isCurrentNamespace: boolean;
+  readonly isCompilerGenerated: boolean;
   readonly ref: Extract<IrType, { kind: "referenceType" }>;
+};
+
+const isCompilerGeneratedStructuralName = (
+  name: string | undefined
+): boolean => !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
+
+const isCompilerGeneratedStructuralReference = (
+  type: Extract<IrType, { kind: "referenceType" }>
+): boolean => {
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  const clrSimpleName = type.resolvedClrType?.split(".").pop();
+  return (
+    isCompilerGeneratedStructuralName(simpleName) ||
+    isCompilerGeneratedStructuralName(clrSimpleName)
+  );
 };
 
 const isStructurallyEmittedLocalTypeInfo = (
@@ -148,12 +164,36 @@ const isStructurallyEmittedLocalTypeInfo = (
   }
 };
 
+const sanitizeTypeArguments = (
+  typeArguments: readonly IrType[] | undefined
+): readonly IrType[] | undefined => {
+  if (!typeArguments || typeArguments.length === 0) {
+    return undefined;
+  }
+
+  const filtered = typeArguments.filter(
+    (typeArgument): typeArgument is IrType => typeArgument !== undefined
+  );
+  return filtered.length > 0 ? filtered : undefined;
+};
+
+const buildReferenceType = (
+  name: string,
+  resolvedClrType: string | undefined,
+  typeArguments: readonly IrType[] | undefined
+): Extract<IrType, { kind: "referenceType" }> => ({
+  kind: "referenceType",
+  name,
+  ...(resolvedClrType ? { resolvedClrType } : {}),
+  ...(typeArguments ? { typeArguments: [...typeArguments] } : {}),
+});
+
 /**
  * Resolve an inline/object structural type to a canonical emitted nominal reference
  * when the current compilation already declares an equivalent structural type.
  *
  * This is used in emitter-side contextual type paths that must emit a CLR type name
- * (for example JSArray<T> wrapper element types or nominal object construction),
+ * (for example array-wrapper element types or nominal object construction),
  * but sometimes receive an objectType after alias resolution. When we can prove that
  * object shape matches an existing structural alias/interface/class, we preserve the
  * canonical emitted reference instead of letting raw objectType reach type emission.
@@ -163,33 +203,53 @@ export const resolveStructuralReferenceType = (
   context: EmitterContext
 ): IrType | undefined => {
   const stripped = stripNullish(type);
+  let targetShape: readonly StructuralShapeMember[] | undefined;
+  let preservedTypeArguments: readonly IrType[] | undefined;
 
   if (stripped.kind === "referenceType") {
+    preservedTypeArguments = sanitizeTypeArguments(stripped.typeArguments);
     const directLocalType = resolveLocalTypeInfoWithoutBindings(
       stripped,
       context
     )?.info;
     if (isStructurallyEmittedLocalTypeInfo(directLocalType)) {
-      return stripped;
+      const directShape = getLocalTypeInfoStructuralShape(
+        directLocalType!,
+        context
+      );
+      targetShape = directShape;
+      if (!isCompilerGeneratedStructuralReference(stripped)) {
+        return stripped;
+      }
     }
 
     const rebound = resolveBindingBackedReferenceType(stripped, context);
+    preservedTypeArguments ??= sanitizeTypeArguments(rebound?.typeArguments);
     const reboundLocalType = rebound
       ? resolveLocalTypeInfoWithoutBindings(rebound, context)?.info
       : undefined;
     if (rebound && isStructurallyEmittedLocalTypeInfo(reboundLocalType)) {
-      return rebound;
+      const reboundShape = getLocalTypeInfoStructuralShape(
+        reboundLocalType!,
+        context
+      );
+      targetShape ??= reboundShape;
+      if (!isCompilerGeneratedStructuralReference(rebound)) {
+        return rebound;
+      }
     }
   }
 
-  const resolved = resolveTypeAlias(stripped, context);
-  if (resolved.kind !== "objectType") {
-    return undefined;
-  }
+  if (!targetShape) {
+    const resolved = resolveTypeAlias(stripped, context);
+    if (resolved.kind !== "objectType") {
+      return undefined;
+    }
 
-  const targetShape = getObjectTypeStructuralShape(resolved);
-  if (!targetShape || targetShape.length === 0) {
-    return undefined;
+    targetShape = getObjectTypeStructuralShape(resolved);
+    if (!targetShape || targetShape.length === 0) {
+      return undefined;
+    }
   }
 
   const currentNamespace =
@@ -224,16 +284,18 @@ export const resolveStructuralReferenceType = (
       dedupeKey,
       isCurrentLocal,
       isCurrentNamespace: namespace === currentNamespace,
-      ref: resolvedClrType
-        ? {
-            kind: "referenceType",
-            name: typeName,
-            resolvedClrType,
-          }
-        : {
-            kind: "referenceType",
-            name: typeName,
-          },
+      isCompilerGenerated:
+        isCompilerGeneratedStructuralName(typeName) ||
+        isCompilerGeneratedStructuralName(emittedName),
+      ref: buildReferenceType(
+        typeName,
+        resolvedClrType,
+        info.kind !== "enum" &&
+          preservedTypeArguments &&
+          preservedTypeArguments.length === info.typeParameters.length
+          ? preservedTypeArguments
+          : undefined
+      ),
     });
   };
 
@@ -252,11 +314,62 @@ export const resolveStructuralReferenceType = (
     }
   }
 
+  const aliasIndex = context.options.typeAliasIndex;
+  if (aliasIndex) {
+    for (const entry of aliasIndex.byFqn.values()) {
+      const aliasShape =
+        entry.type.kind === "objectType"
+          ? getObjectTypeStructuralShape(entry.type)
+          : undefined;
+      if (!aliasShape || !structuralShapesEqual(aliasShape, targetShape)) {
+        continue;
+      }
+
+      const lastDot = entry.fqn.lastIndexOf(".");
+      const namespace =
+        lastDot === -1 ? currentNamespace : entry.fqn.slice(0, lastDot);
+      const emittedName = `${entry.name}__Alias`;
+      const resolvedClrType =
+        namespace === currentNamespace
+          ? undefined
+          : `${namespace}.${emittedName}`;
+      const dedupeKey = resolvedClrType ?? `${namespace}.${emittedName}`;
+      if (seenKeys.has(dedupeKey)) {
+        continue;
+      }
+      seenKeys.add(dedupeKey);
+
+      candidates.push({
+        dedupeKey,
+        isCurrentLocal: namespace === currentNamespace,
+        isCurrentNamespace: namespace === currentNamespace,
+        isCompilerGenerated:
+          isCompilerGeneratedStructuralName(entry.name) ||
+          isCompilerGeneratedStructuralName(emittedName),
+        ref: buildReferenceType(entry.name, resolvedClrType, undefined),
+      });
+    }
+  }
+
+  const selectCandidate = (
+    options: readonly StructuralReferenceCandidate[]
+  ): IrType | undefined => {
+    const explicit = options.filter((candidate) => !candidate.isCompilerGenerated);
+    if (explicit.length === 1) {
+      return explicit[0]?.ref;
+    }
+    if (explicit.length > 1) {
+      return undefined;
+    }
+    return options.length === 1 ? options[0]?.ref : undefined;
+  };
+
   const currentLocalMatches = candidates.filter(
     (candidate) => candidate.isCurrentLocal
   );
-  if (currentLocalMatches.length === 1) {
-    return currentLocalMatches[0]?.ref;
+  const currentLocalSelection = selectCandidate(currentLocalMatches);
+  if (currentLocalSelection) {
+    return currentLocalSelection;
   }
   if (currentLocalMatches.length > 1) {
     return undefined;
@@ -265,14 +378,15 @@ export const resolveStructuralReferenceType = (
   const currentNamespaceMatches = candidates.filter(
     (candidate) => candidate.isCurrentNamespace
   );
-  if (currentNamespaceMatches.length === 1) {
-    return currentNamespaceMatches[0]?.ref;
+  const currentNamespaceSelection = selectCandidate(currentNamespaceMatches);
+  if (currentNamespaceSelection) {
+    return currentNamespaceSelection;
   }
   if (currentNamespaceMatches.length > 1) {
     return undefined;
   }
 
-  return candidates.length === 1 ? candidates[0]?.ref : undefined;
+  return selectCandidate(candidates);
 };
 
 export const normalizeStructuralEmissionType = (

@@ -40,6 +40,9 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 
 ## Testing Workflow
 
+- Never add code branches, heuristics, compatibility shims, or special cases just to make tests pass.
+- When a test fails, fix the underlying compiler/runtime/package root cause or remove the invalid assumption from the test.
+
 Fast iteration (OK while developing / on external testbed projects):
 
 - Run a focused unit/golden subset (Mocha `--grep` works):

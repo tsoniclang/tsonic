@@ -1,7 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as ts from "typescript";
 import type { SurfaceMode } from "../program/types.js";
 import { resolveDependencyPackageRoot } from "../program/package-roots.js";
+import {
+  createReadPackageRootNamespace,
+  createResolveModuleFromPackageRoot,
+} from "../program/module-resolution.js";
 import { createDiagnostic, type Diagnostic } from "../types/diagnostic.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import { error, ok, type Result } from "../types/result.js";
@@ -23,13 +28,37 @@ export type ResolvedSourcePackageImport = {
   readonly resolvedPath: string;
 };
 
+export type ParsedPackageSpecifier = {
+  readonly packageName: string;
+  readonly subpath: string | undefined;
+};
+
+export type ResolvedInstalledPackageImport = {
+  readonly packageName: string;
+  readonly packageRoot: string;
+  readonly resolvedPath: string;
+  readonly isDeclarationFile: boolean;
+};
+
 const installedPackageRootCache = new Map<string, string | null>();
 const containingSourcePackageRootCache = new Map<string, string>();
+const packageRootNamespaceCache = new Map<string, string | null>();
+const packageRootModuleResolutionCache = new Map<
+  string,
+  ts.ResolvedModuleFull | null
+>();
+const readPackageRootNamespace = createReadPackageRootNamespace(
+  packageRootNamespaceCache
+);
+const resolveModuleFromPackageRoot = createResolveModuleFromPackageRoot(
+  packageRootModuleResolutionCache,
+  readPackageRootNamespace
+);
 
 const splitPackageNameSegments = (packageName: string): readonly string[] =>
   packageName.startsWith("@") ? packageName.split("/") : [packageName];
 
-const findInstalledPackageRoot = (
+export const findInstalledPackageRoot = (
   packageName: string,
   containingFile: string
 ): string | undefined => {
@@ -126,14 +155,9 @@ export const getLocalResolutionBoundary = (
   return findContainingSourcePackageRoot(containingFile) ?? defaultSourceRoot;
 };
 
-const parsePackageSpecifier = (
+export const parsePackageSpecifier = (
   importSpecifier: string
-):
-  | {
-      readonly packageName: string;
-      readonly subpath: string | undefined;
-    }
-  | undefined => {
+): ParsedPackageSpecifier | undefined => {
   if (importSpecifier.startsWith(".") || importSpecifier.startsWith("/")) {
     return undefined;
   }
@@ -156,6 +180,54 @@ const parsePackageSpecifier = (
     packageName: match[1],
     subpath: match[2],
   };
+};
+
+export const resolveInstalledPackageImportFromPackageRoot = (
+  importSpecifier: string,
+  packageRoot: string
+): Result<ResolvedInstalledPackageImport | null, Diagnostic> => {
+  const parsedSpecifier = parsePackageSpecifier(importSpecifier);
+  if (!parsedSpecifier) {
+    return ok(null);
+  }
+
+  const resolved = resolveModuleFromPackageRoot(
+    packageRoot,
+    parsedSpecifier.subpath
+  );
+  if (!resolved?.resolvedFileName) {
+    return ok(null);
+  }
+
+  return ok({
+    packageName: parsedSpecifier.packageName,
+    packageRoot,
+    resolvedPath: resolved.resolvedFileName,
+    isDeclarationFile: resolved.extension === ts.Extension.Dts,
+  });
+};
+
+export const resolveInstalledPackageImport = (
+  importSpecifier: string,
+  containingFile: string
+): Result<ResolvedInstalledPackageImport | null, Diagnostic> => {
+  const parsedSpecifier = parsePackageSpecifier(importSpecifier);
+  if (!parsedSpecifier) {
+    return ok(null);
+  }
+
+  const packageRoot = findInstalledPackageRoot(
+    parsedSpecifier.packageName,
+    containingFile
+  );
+  if (!packageRoot) {
+    return ok(null);
+  }
+
+  return resolveInstalledPackageImportFromPackageRoot(
+    importSpecifier,
+    packageRoot
+  );
 };
 
 const readManifest = (
@@ -528,4 +600,6 @@ export const resolveSourcePackageImport = (
 export const __resetSourcePackageResolutionCachesForTests = (): void => {
   installedPackageRootCache.clear();
   containingSourcePackageRootCache.clear();
+  packageRootNamespaceCache.clear();
+  packageRootModuleResolutionCache.clear();
 };

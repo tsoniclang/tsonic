@@ -72,31 +72,6 @@ export const emitIdentifier = (
   if (context.narrowedBindings) {
     const narrowed = context.narrowedBindings.get(expr.name);
     if (narrowed) {
-      // Storage-compatible fast paths must NOT bypass runtimeSubset
-      // narrowing. When a branch context carries a runtimeSubset binding,
-      // the variable is semantically narrowed to a subset of the carrier
-      // (e.g., first: PathSpec slots within Union<5 members>). Emitting
-      // the raw storage identifier would lose that subset information and
-      // cause incorrect carrier-shape adaptation downstream.
-      if (narrowed.kind !== "runtimeSubset") {
-        const storageFallback = tryEmitStorageCompatibleIdentifier(
-          expr,
-          context,
-          expectedType
-        );
-        if (storageFallback) {
-          return [storageFallback, context];
-        }
-
-        const collapsedStorage = tryEmitCollapsedStorageIdentifier(
-          expr,
-          context
-        );
-        if (collapsedStorage) {
-          return collapsedStorage;
-        }
-      }
-
       if (narrowed.kind === "rename") {
         return [
           identifierExpression(escapeCSharpIdentifier(narrowed.name)),
@@ -194,6 +169,20 @@ export const emitIdentifier = (
 
       return [identifierExpression(escapeCSharpIdentifier(expr.name)), context];
     }
+  }
+
+  const storageFallback = tryEmitStorageCompatibleIdentifier(
+    expr,
+    context,
+    expectedType
+  );
+  if (storageFallback) {
+    return [storageFallback, context];
+  }
+
+  const collapsedStorage = tryEmitCollapsedStorageIdentifier(expr, context);
+  if (collapsedStorage) {
+    return collapsedStorage;
   }
 
   // Lexical remap for locals/parameters (prevents C# CS0136 shadowing errors).

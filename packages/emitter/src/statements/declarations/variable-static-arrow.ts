@@ -272,7 +272,11 @@ export const emitStaticArrowFieldMembers = (
           isCSharpOptionalParameterDefaultAst(ast)
         ) {
           defaultValue = ast;
-        } else if (supportsNullCoalescingParameterDefault(emittedParamType)) {
+        }
+        if (
+          defaultValue === undefined &&
+          supportsNullCoalescingParameterDefault(emittedParamType)
+        ) {
           defaultValue = { kind: "defaultExpression" };
         }
         delegateCtx = nextCtx;

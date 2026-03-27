@@ -493,6 +493,39 @@ const paths = {
   "@tsonic/microsoft-extensions/*": ["../microsoft-extensions/*"],
 };
 
+const readJson = (jsonPath) => {
+  if (!fs.existsSync(jsonPath)) {
+    return undefined;
+  }
+  return JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+};
+
+const resolvePackageExportTarget = (exportsField, exportKey) => {
+  if (!exportsField || typeof exportsField !== "object") {
+    return undefined;
+  }
+
+  if (!(exportKey in exportsField)) {
+    return undefined;
+  }
+
+  const exportValue = exportsField[exportKey];
+  if (typeof exportValue === "string") {
+    return exportValue;
+  }
+
+  if (exportValue && typeof exportValue === "object") {
+    if (typeof exportValue.types === "string") {
+      return exportValue.types;
+    }
+    if (typeof exportValue.default === "string") {
+      return exportValue.default;
+    }
+  }
+
+  return undefined;
+};
+
 const addExportMappedPackage = (packageName, packageRootRelative) => {
   const packageRoot = path.resolve(rootDir, packageRootRelative);
   const packageJsonPath = path.join(packageRoot, "package.json");
@@ -500,8 +533,17 @@ const addExportMappedPackage = (packageName, packageRootRelative) => {
     return;
   }
 
-  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  const packageJson = readJson(packageJsonPath);
+  const tsonicPackage = readJson(path.join(packageRoot, "tsonic.package.json"));
   const exportsField = packageJson.exports;
+  const sourceExports =
+    tsonicPackage?.source?.exports && typeof tsonicPackage.source.exports === "object"
+      ? tsonicPackage.source.exports
+      : undefined;
+  const moduleAliases =
+    tsonicPackage?.source?.moduleAliases && typeof tsonicPackage.source.moduleAliases === "object"
+      ? tsonicPackage.source.moduleAliases
+      : undefined;
   if (!exportsField || typeof exportsField !== "object") {
     return;
   }
@@ -521,7 +563,12 @@ const addExportMappedPackage = (packageName, packageRootRelative) => {
     }
   };
 
-  for (const [exportKey, exportValue] of Object.entries(exportsField)) {
+  const exportEntries =
+    sourceExports && Object.keys(sourceExports).length > 0
+      ? Object.entries(sourceExports)
+      : Object.entries(exportsField);
+
+  for (const [exportKey, exportValue] of exportEntries) {
     if (exportKey === ".") {
       if (typeof exportValue === "string") {
         addEntry(packageName, exportValue);
@@ -563,6 +610,29 @@ const addExportMappedPackage = (packageName, packageRootRelative) => {
         addEntry(specifier, target);
       }
     }
+  }
+
+  if (!moduleAliases) {
+    return;
+  }
+
+  for (const [aliasSpecifier, aliasTarget] of Object.entries(moduleAliases)) {
+    if (typeof aliasSpecifier !== "string" || typeof aliasTarget !== "string") {
+      continue;
+    }
+
+    const resolvedTarget =
+      (sourceExports && typeof sourceExports[aliasTarget] === "string"
+        ? sourceExports[aliasTarget]
+        : undefined) ??
+      resolvePackageExportTarget(exportsField, aliasTarget) ??
+      (aliasTarget.startsWith("./") ? aliasTarget : undefined);
+
+    if (!resolvedTarget) {
+      continue;
+    }
+
+    addEntry(aliasSpecifier, resolvedTarget);
   }
 };
 

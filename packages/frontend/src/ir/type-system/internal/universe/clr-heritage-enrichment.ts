@@ -23,43 +23,36 @@ export const enrichAssemblyEntriesFromTsBindgenDts = (
   >();
 
   for (const dtsPath of dtsPaths) {
-    try {
-      const info = extractHeritageFromTsBindgenDts(
-        dtsPath,
-        tsNameToTypeId,
-        entries
-      );
+    const info = extractHeritageFromTsBindgenDts(
+      dtsPath,
+      tsNameToTypeId,
+      entries
+    );
 
-      for (const [tsName, memberTypes] of info.memberTypesByTsName) {
-        const merged =
-          mergedMemberTypes.get(tsName) ?? new Map<string, IrType>();
-        for (const [memberName, type] of memberTypes) {
-          if (!merged.has(memberName)) {
-            merged.set(memberName, type);
-          }
+    for (const [tsName, memberTypes] of info.memberTypesByTsName) {
+      const merged =
+        mergedMemberTypes.get(tsName) ?? new Map<string, IrType>();
+      for (const [memberName, type] of memberTypes) {
+        if (!merged.has(memberName)) {
+          merged.set(memberName, type);
         }
-        mergedMemberTypes.set(tsName, merged);
       }
+      mergedMemberTypes.set(tsName, merged);
+    }
 
-      for (const [
-        tsName,
-        signatureOptionals,
-      ] of info.methodSignatureOptionalsByTsName) {
-        const merged =
-          mergedMethodSignatureOptionals.get(tsName) ??
-          new Map<string, readonly boolean[]>();
-        for (const [sigKey, optionals] of signatureOptionals) {
-          if (!merged.has(sigKey)) {
-            merged.set(sigKey, optionals);
-          }
+    for (const [
+      tsName,
+      signatureOptionals,
+    ] of info.methodSignatureOptionalsByTsName) {
+      const merged =
+        mergedMethodSignatureOptionals.get(tsName) ??
+        new Map<string, readonly boolean[]>();
+      for (const [sigKey, optionals] of signatureOptionals) {
+        if (!merged.has(sigKey)) {
+          merged.set(sigKey, optionals);
         }
-        mergedMethodSignatureOptionals.set(tsName, merged);
       }
-    } catch (e) {
-      console.warn(
-        `Failed to parse tsbindgen d.ts for enrichment: ${dtsPath}`,
-        e
-      );
+      mergedMethodSignatureOptionals.set(tsName, merged);
     }
   }
 

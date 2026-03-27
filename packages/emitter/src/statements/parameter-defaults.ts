@@ -1,4 +1,4 @@
-import type { IrParameter } from "@tsonic/frontend";
+import type { IrParameter, IrType } from "@tsonic/frontend";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -8,6 +8,8 @@ export type RuntimeParameterDefaultInfo = {
   readonly paramName: string;
   readonly typeAst: CSharpTypeAst;
   readonly initializer: CSharpExpressionAst;
+  readonly sourceName?: string;
+  readonly semanticType?: IrType;
 };
 
 export const isCSharpOptionalParameterDefaultAst = (
@@ -46,6 +48,47 @@ export const supportsNullCoalescingParameterDefault = (
     default:
       return false;
   }
+};
+
+export const preservesNullableShadowType = (
+  initializer: CSharpExpressionAst
+): boolean => {
+  switch (initializer.kind) {
+    case "nullLiteralExpression":
+      return true;
+    case "defaultExpression":
+      return (
+        initializer.type === undefined || initializer.type.kind === "nullableType"
+      );
+    case "parenthesizedExpression":
+    case "castExpression":
+    case "asExpression":
+    case "suppressNullableWarningExpression":
+      return preservesNullableShadowType(initializer.expression);
+    default:
+      return false;
+  }
+};
+
+export const signatureDefaultForInitializedParameter = (
+  parameters: readonly IrParameter[],
+  parameterIndex: number,
+  typeAst: CSharpTypeAst,
+  initializer: CSharpExpressionAst
+): CSharpExpressionAst | undefined => {
+  if (!canEmitParameterDefaultInSignature(parameters, parameterIndex)) {
+    return undefined;
+  }
+
+  if (supportsNullCoalescingParameterDefault(typeAst)) {
+    return { kind: "defaultExpression" };
+  }
+
+  if (isCSharpOptionalParameterDefaultAst(initializer)) {
+    return initializer;
+  }
+
+  return undefined;
 };
 
 export const canEmitParameterDefaultInSignature = (
@@ -97,4 +140,31 @@ export const computeWrapperPrefixLengths = (
 
   prefixLengths.reverse();
   return prefixLengths;
+};
+
+export const canLowerParameterDefaultViaWrapper = (
+  parameters: readonly IrParameter[],
+  parameterIndex: number
+): boolean => {
+  const parameter = parameters[parameterIndex];
+  if (!parameter) return false;
+  if (parameter.isRest) return false;
+  if (!parameter.isOptional && !parameter.initializer) {
+    return false;
+  }
+
+  let suffixIsOmittable = true;
+
+  for (let index = parameters.length - 1; index >= parameterIndex; index -= 1) {
+    const current = parameters[index];
+    if (!current) continue;
+
+    const isTailOmittable =
+      current.isOptional ||
+      current.initializer !== undefined ||
+      (current.isRest && index === parameters.length - 1);
+    suffixIsOmittable = suffixIsOmittable && isTailOmittable;
+  }
+
+  return suffixIsOmittable;
 };

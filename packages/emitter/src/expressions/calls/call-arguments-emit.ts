@@ -3,18 +3,28 @@
  * Handles the main emitCallArguments function and function-value call argument emission.
  */
 
-import { IrExpression, IrType } from "@tsonic/frontend";
+import { IrExpression, IrType, IrParameter } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import type {
   CSharpExpressionAst,
+  CSharpLambdaParameterAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
-import { getArrayLikeElementType } from "../../core/semantic/type-resolution.js";
+import {
+  containsTypeParameter,
+  getArrayLikeElementType,
+} from "../../core/semantic/type-resolution.js";
 import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import { getAcceptedParameterType } from "../../core/semantic/defaults.js";
+import { unwrapParameterModifierType } from "../../core/semantic/parameter-modifier-types.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
 import { getPassingModifierFromCast, isLValue } from "./call-analysis.js";
 import { shouldPreferRuntimeExpectedType } from "./runtime-expected-type-preference.js";
 import {
@@ -63,6 +73,325 @@ const emitOutDiscardArgument = (
       tempVarId: nextId,
     },
   ];
+};
+
+const resolveFunctionType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): Extract<IrType, { kind: "functionType" }> | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const unwrapped = unwrapParameterModifierType(type) ?? type;
+  const resolved = resolveTypeAlias(stripNullish(unwrapped), context);
+  return resolved.kind === "functionType" ? resolved : undefined;
+};
+
+const countRequiredParameters = (parameters: readonly IrParameter[]): number => {
+  let required = 0;
+  for (const parameter of parameters) {
+    if (!parameter) continue;
+    if (
+      parameter.isRest ||
+      parameter.isOptional ||
+      parameter.initializer !== undefined
+    ) {
+      break;
+    }
+    required += 1;
+  }
+  return required;
+};
+
+const requiresDelegateArityAdaptation = (
+  actualType: Extract<IrType, { kind: "functionType" }>,
+  expectedType: Extract<IrType, { kind: "functionType" }>
+): boolean => {
+  const actualHasRest = actualType.parameters.some(
+    (parameter) => parameter?.isRest
+  );
+  const expectedHasRest = expectedType.parameters.some(
+    (parameter) => parameter?.isRest
+  );
+
+  if (actualHasRest || expectedHasRest) {
+    return false;
+  }
+
+  if (actualType.parameters.length === expectedType.parameters.length) {
+    return false;
+  }
+
+  const actualRequired = countRequiredParameters(actualType.parameters);
+  return actualRequired <= expectedType.parameters.length;
+};
+
+const getExpectedParameterBaseName = (
+  parameter: IrParameter | undefined,
+  index: number
+): string => {
+  if (parameter?.pattern.kind === "identifierPattern") {
+    return escapeCSharpIdentifier(parameter.pattern.name);
+  }
+  return `arg${index}`;
+};
+
+const buildDelegateAdapterParameterName = (
+  parameter: IrParameter | undefined,
+  index: number,
+  preserveExisting: boolean
+): string =>
+  preserveExisting
+    ? getExpectedParameterBaseName(parameter, index)
+    : `__unused_${getExpectedParameterBaseName(parameter, index)}`;
+
+const shouldEmitExplicitDelegateAdapterTypes = (
+  expectedType: Extract<IrType, { kind: "functionType" }>
+): boolean =>
+  expectedType.parameters.every(
+    (parameter) =>
+      parameter?.type !== undefined &&
+      parameter.type.kind !== "unknownType" &&
+      parameter.type.kind !== "anyType" &&
+      !containsTypeParameter(parameter.type)
+  );
+
+const wrapOptionalDelegateParameterTypeAst = (
+  typeAst: CSharpTypeAst,
+  parameter: IrParameter | undefined
+): CSharpTypeAst =>
+  parameter?.isOptional && typeAst.kind !== "nullableType"
+    ? { kind: "nullableType", underlyingType: typeAst }
+    : typeAst;
+
+const emitDelegateAdapterParameters = (
+  expectedType: Extract<IrType, { kind: "functionType" }>,
+  parameterNames: readonly string[],
+  context: EmitterContext
+): [readonly CSharpLambdaParameterAst[], EmitterContext] => {
+  let currentContext = context;
+  const emitExplicitTypes = shouldEmitExplicitDelegateAdapterTypes(expectedType);
+  const emitted: CSharpLambdaParameterAst[] = [];
+
+  for (let index = 0; index < expectedType.parameters.length; index += 1) {
+    const parameter = expectedType.parameters[index];
+    if (!parameter) continue;
+
+    const modifier = parameter.passing !== "value" ? parameter.passing : undefined;
+    if (emitExplicitTypes && parameter.type) {
+      const [typeAst, nextContext] = emitTypeAst(parameter.type, currentContext);
+      currentContext = nextContext;
+      emitted.push(
+        modifier
+          ? {
+              name: parameterNames[index] ?? `__arg${index}`,
+              modifier,
+              type: wrapOptionalDelegateParameterTypeAst(typeAst, parameter),
+            }
+          : {
+              name: parameterNames[index] ?? `__arg${index}`,
+              type: wrapOptionalDelegateParameterTypeAst(typeAst, parameter),
+            }
+      );
+      continue;
+    }
+
+    emitted.push(
+      modifier
+        ? { name: parameterNames[index] ?? `__arg${index}`, modifier }
+        : { name: parameterNames[index] ?? `__arg${index}` }
+    );
+  }
+
+  return [emitted, currentContext];
+};
+
+const adaptLambdaArgumentAst = (
+  lambdaAst: Extract<CSharpExpressionAst, { kind: "lambdaExpression" }>,
+  expectedType: Extract<IrType, { kind: "functionType" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const parameterNames = expectedType.parameters.map((parameter, index) =>
+    index < lambdaAst.parameters.length
+      ? (lambdaAst.parameters[index]?.name ?? `__arg${index}`)
+      : buildDelegateAdapterParameterName(parameter, index, false)
+  );
+  const [parameters, nextContext] = emitDelegateAdapterParameters(
+    expectedType,
+    parameterNames,
+    context
+  );
+
+  return [
+    {
+      ...lambdaAst,
+      parameters,
+    },
+    nextContext,
+  ];
+};
+
+const wrapFunctionValueArgumentAst = (
+  originalAst: CSharpExpressionAst,
+  actualType: Extract<IrType, { kind: "functionType" }>,
+  expectedType: Extract<IrType, { kind: "functionType" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const parameterNames = expectedType.parameters.map((parameter, index) =>
+    buildDelegateAdapterParameterName(
+      parameter,
+      index,
+      index < actualType.parameters.length
+    )
+  );
+  const [parameters, nextContext] = emitDelegateAdapterParameters(
+    expectedType,
+    parameterNames,
+    context
+  );
+
+  return [
+    {
+      kind: "lambdaExpression",
+      isAsync: false,
+      parameters,
+      body: {
+        kind: "invocationExpression",
+        expression: originalAst,
+        arguments: parameterNames
+          .slice(0, actualType.parameters.length)
+          .map((name) => ({
+            kind: "identifierExpression",
+            identifier: name,
+          })),
+      },
+    },
+    nextContext,
+  ];
+};
+
+const findMemberBindingExpectedType = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  argIndex: number,
+  context: EmitterContext
+): IrType | undefined => {
+  if (expr.callee.kind !== "memberAccess" || !expr.callee.memberBinding) {
+    return undefined;
+  }
+
+  const calleeBinding = expr.callee.memberBinding;
+  const preferredOwner = calleeBinding.type;
+  const overloads = context.bindingRegistry?.getMemberOverloads(
+    preferredOwner,
+    calleeBinding.member,
+    preferredOwner
+  );
+  if (!overloads || overloads.length === 0) {
+    return undefined;
+  }
+
+  const matching = overloads.find((overload) => {
+    if (
+      overload.binding.assembly !== calleeBinding.assembly ||
+      overload.binding.type !== calleeBinding.type ||
+      overload.binding.member !== calleeBinding.member
+    ) {
+      return false;
+    }
+
+    const parameters = overload.semanticSignature?.parameters;
+    if (!parameters) {
+      return false;
+    }
+
+    const parameterOffset = overload.isExtensionMethod ? 1 : 0;
+    const required = countRequiredParameters(parameters);
+    const visibleRequired = Math.max(0, required - parameterOffset);
+    if (expr.arguments.length < visibleRequired) {
+      return false;
+    }
+
+    const hasRest = parameters.some((parameter) => parameter?.isRest);
+    const visibleParameterCount = Math.max(0, parameters.length - parameterOffset);
+    if (!hasRest && expr.arguments.length > visibleParameterCount) {
+      return false;
+    }
+
+    return parameters[argIndex + parameterOffset]?.type !== undefined;
+  });
+
+  if (!matching?.semanticSignature?.parameters) {
+    return undefined;
+  }
+
+  const parameterOffset = matching.isExtensionMethod ? 1 : 0;
+  return matching.semanticSignature.parameters[argIndex + parameterOffset]?.type;
+};
+
+const resolveExpectedFunctionTypeForArgument = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  argIndex: number,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): Extract<IrType, { kind: "functionType" }> | undefined =>
+  resolveFunctionType(expectedType, context) ??
+  resolveFunctionType(findMemberBindingExpectedType(expr, argIndex, context), context);
+
+const resolveActualFunctionTypeForArgument = (
+  arg: IrExpression,
+  context: EmitterContext
+): Extract<IrType, { kind: "functionType" }> | undefined => {
+  if (arg.kind === "identifier") {
+    return resolveFunctionType(
+      context.localSemanticTypes?.get(arg.name) ??
+        context.localValueTypes?.get(arg.name) ??
+        context.valueSymbols?.get(arg.name)?.type ??
+        arg.inferredType,
+      context
+    );
+  }
+
+  return resolveFunctionType(
+    resolveEffectiveExpressionType(arg, context) ?? arg.inferredType,
+    context
+  );
+};
+
+const adaptFunctionArgumentAst = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  arg: IrExpression,
+  argIndex: number,
+  argAst: CSharpExpressionAst,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const expectedFunctionType = resolveExpectedFunctionTypeForArgument(
+    expr,
+    argIndex,
+    expectedType,
+    context
+  );
+  const actualFunctionType = resolveActualFunctionTypeForArgument(arg, context);
+
+  if (
+    !expectedFunctionType ||
+    !actualFunctionType ||
+    !requiresDelegateArityAdaptation(actualFunctionType, expectedFunctionType)
+  ) {
+    return [argAst, context];
+  }
+
+  if (argAst.kind === "lambdaExpression") {
+    return adaptLambdaArgumentAst(argAst, expectedFunctionType, context);
+  }
+
+  return wrapFunctionValueArgumentAst(
+    argAst,
+    actualFunctionType,
+    expectedFunctionType,
+    context
+  );
 };
 
 const emitFunctionValueCallArguments = (
@@ -474,6 +803,19 @@ const emitCallArguments = (
         return expectedType;
       }
 
+      const surfaceFunctionType = resolveFunctionType(expectedType, currentContext);
+      const runtimeFunctionType = resolveFunctionType(
+        normalizedRuntime,
+        currentContext
+      );
+      if (
+        surfaceFunctionType &&
+        runtimeFunctionType &&
+        surfaceFunctionType.parameters.length > runtimeFunctionType.parameters.length
+      ) {
+        return expectedType;
+      }
+
       const actualArgumentType =
         resolveEffectiveExpressionType(arg, currentContext) ?? arg.inferredType;
 
@@ -538,16 +880,24 @@ const emitCallArguments = (
           currentContext = discardCtx;
           continue;
         }
-        const [argAst, ctx] = emitExpressionAst(
+        const [argAst, emittedContext] = emitExpressionAst(
           arg,
           currentContext,
           effectiveExpectedType
+        );
+        const [adaptedArgAst, ctx] = adaptFunctionArgumentAst(
+          expr,
+          arg,
+          i,
+          argAst,
+          effectiveExpectedType,
+          emittedContext
         );
         const modifier =
           passingMode && passingMode !== "value" && isLValue(arg)
             ? passingMode
             : undefined;
-        argAsts.push(wrapArgModifier(modifier, argAst));
+        argAsts.push(wrapArgModifier(modifier, adaptedArgAst));
         currentContext = ctx;
       }
     }

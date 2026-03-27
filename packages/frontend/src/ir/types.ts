@@ -79,6 +79,7 @@ export type {
   NumericProof,
   ProofSource,
   ComputedAccessKind,
+  ComputedAccessProtocol,
   // Type system types
   IrType,
   IrPrimitiveType,
@@ -137,6 +138,7 @@ export {
   stableIrTypeKey,
   irTypesEqual,
   normalizedUnionType,
+  substituteIrType,
   // Numeric helpers (literal type inference)
   isValidIntegerLexeme,
   parseBigIntFromRaw,

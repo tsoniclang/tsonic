@@ -564,7 +564,7 @@ describe("Statement Emission", () => {
     expect(result).to.include("value.Is3()");
     expect(result).to.include(".Is1())");
     expect(result).to.not.include("@typeof(value)");
-    expect(result).to.not.include("JSArrayStatics.isArray(");
+    expect(result).to.not.include("Array.isArray(");
   });
 
   it("does not emit runtime-union slot guards for concretely stored locals", () => {
@@ -837,6 +837,6 @@ describe("Statement Emission", () => {
 
     expect(result).to.include(".Is1())");
     expect(result).to.not.include("(pathSpec.As1()).Is1()");
-    expect(result).to.not.include("JSArrayStatics.isArray(pathSpec)");
+    expect(result).to.not.include("Array.isArray(pathSpec)");
   });
 });

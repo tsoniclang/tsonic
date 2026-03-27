@@ -32,7 +32,10 @@ export const stripNullish = (type: IrType): IrType => {
     return nonNullish[0];
   }
 
-  // Multi-type union or no non-nullish types: return original
+  if (nonNullish.length > 1) {
+    return normalizedUnionType(nonNullish);
+  }
+
   return type;
 };
 
@@ -209,10 +212,10 @@ export const getArrayLikeElementType = (
   }
   if (
     resolved.kind === "referenceType" &&
+    context.localTypes?.get(resolved.name)?.kind !== "class" &&
     (resolved.name === "Array" ||
       resolved.name === "ReadonlyArray" ||
-      resolved.name === "ArrayLike" ||
-      resolved.name === "JSArray") &&
+      resolved.name === "ArrayLike") &&
     resolved.typeArguments?.length === 1
   ) {
     return resolved.typeArguments[0];
@@ -260,7 +263,10 @@ export const resolveArrayLikeReceiverType = (
  */
 export const resolveTypeAlias = (
   type: IrType,
-  context: EmitterContext
+  context: EmitterContext,
+  options: {
+    readonly preserveObjectTypeAliases?: boolean;
+  } = {}
 ): IrType => {
   if (type.kind !== "referenceType") {
     return type;
@@ -268,6 +274,13 @@ export const resolveTypeAlias = (
 
   const localTypeInfo = context.localTypes?.get(type.name);
   if (localTypeInfo?.kind === "typeAlias") {
+    if (
+      options.preserveObjectTypeAliases &&
+      localTypeInfo.type.kind === "objectType"
+    ) {
+      return type;
+    }
+
     // Substitute type arguments if present
     if (type.typeArguments && type.typeArguments.length > 0) {
       return substituteTypeArgs(
@@ -288,25 +301,15 @@ export const resolveTypeAlias = (
   const stripGlobalPrefix = (name: string): string =>
     name.startsWith("global::") ? name.slice("global::".length) : name;
 
-  const name = stripGlobalPrefix(type.name);
-  const aliasEntry = name.includes(".")
-    ? aliasIndex.byFqn.get(name)
-    : (() => {
-        const matches = aliasIndex.byName.get(name) ?? [];
-
-        if (matches.length === 0) return undefined;
-        if (matches.length === 1) return matches[0];
-
-        const candidates = matches
-          .map((m) => m.fqn)
-          .sort()
-          .join(", ");
-        throw new Error(
-          `ICE: Ambiguous type alias reference '${name}'. Candidates: ${candidates}`
-        );
-      })();
+  const qualifiedAliasName =
+    type.resolvedClrType ?? stripGlobalPrefix(type.name);
+  const aliasEntry = aliasIndex.byFqn.get(qualifiedAliasName);
 
   if (!aliasEntry) {
+    return type;
+  }
+
+  if (options.preserveObjectTypeAliases && aliasEntry.type.kind === "objectType") {
     return type;
   }
 

@@ -293,6 +293,144 @@ describe("IR Builder", function () {
       }
     });
 
+    it("attaches CLR identities for installed declaration-package facade imports", () => {
+      const {
+        tempDir,
+        sourceFile,
+        testProgram,
+        ctx,
+        options,
+        cleanup,
+      } = createFilesystemTestProgram(
+        {
+          "src/test.ts": `
+            import { Console as DotnetConsole, DateTimeOffset } from "@tsonic/dotnet/System.js";
+            void DotnetConsole;
+            void DateTimeOffset;
+          `,
+          "node_modules/@tsonic/dotnet/package.json": JSON.stringify(
+            {
+              name: "@tsonic/dotnet",
+              type: "module",
+            },
+            null,
+            2
+          ),
+          "node_modules/@tsonic/dotnet/System.js": "export {};\n",
+          "node_modules/@tsonic/dotnet/System.d.ts": `
+            export { Console$instance as Console, DateTimeOffset } from "./System/internal/index.js";
+          `,
+          "node_modules/@tsonic/dotnet/System/internal/index.d.ts": `
+            export declare const Console$instance: { WriteLine(value: string): void };
+            export declare class DateTimeOffset {}
+          `,
+          "node_modules/@tsonic/dotnet/System/bindings.json": JSON.stringify(
+            {
+              namespace: "System",
+              types: [
+                {
+                  alias: "Console",
+                  stableId: "System.Console:System.Console",
+                  clrName: "System.Console",
+                  assemblyName: "System.Console",
+                  kind: "Class",
+                  accessibility: "Public",
+                  isAbstract: false,
+                  isSealed: false,
+                  isStatic: true,
+                  arity: 0,
+                  methods: [],
+                  properties: [],
+                  fields: [],
+                  constructors: [],
+                },
+                {
+                  alias: "DateTimeOffset",
+                  stableId: "System.Runtime:System.DateTimeOffset",
+                  clrName: "System.DateTimeOffset",
+                  assemblyName: "System.Runtime",
+                  kind: "Class",
+                  accessibility: "Public",
+                  isAbstract: false,
+                  isSealed: true,
+                  isStatic: false,
+                  arity: 0,
+                  methods: [],
+                  properties: [],
+                  fields: [],
+                  constructors: [],
+                },
+              ],
+            },
+            null,
+            2
+          ),
+        },
+        "src/test.ts"
+      );
+
+      const systemBindingsPath = path.join(
+        tempDir,
+        "node_modules/@tsonic/dotnet/System/bindings.json"
+      );
+      ctx.bindings.addBindings(
+        systemBindingsPath,
+        {
+          namespace: "System",
+          types: [
+            {
+              alias: "Console",
+              clrName: "System.Console",
+              assemblyName: "System.Console",
+              kind: "Class",
+              methods: [],
+              properties: [],
+              fields: [],
+            },
+            {
+              alias: "DateTimeOffset",
+              clrName: "System.DateTimeOffset",
+              assemblyName: "System.Runtime",
+              kind: "Class",
+              methods: [],
+              properties: [],
+              fields: [],
+            },
+          ],
+        } as any
+      );
+
+      try {
+        const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const imp = result.value.imports[0];
+        if (!imp) throw new Error("Missing import");
+
+        expect(imp.isLocal).to.equal(true);
+        expect(imp.isClr).to.equal(false);
+        expect(imp.resolvedNamespace).to.equal("System");
+
+        const consoleImport = imp.specifiers[0];
+        const dateImport = imp.specifiers[1];
+        if (!consoleImport || consoleImport.kind !== "named") {
+          throw new Error("Missing Console named import");
+        }
+        if (!dateImport || dateImport.kind !== "named") {
+          throw new Error("Missing DateTimeOffset named import");
+        }
+
+        expect(consoleImport.localName).to.equal("DotnetConsole");
+        expect(consoleImport.resolvedClrType).to.equal("System.Console");
+        expect(consoleImport.resolvedClrValue).to.equal(undefined);
+        expect(dateImport.resolvedClrType).to.equal("System.DateTimeOffset");
+      } finally {
+        cleanup();
+      }
+    });
+
     it("should error if a CLR namespace value import lacks tsbindgen exports mapping", () => {
       const source = `
         import { buildSite } from "@demo/pkg/Demo.js";
@@ -541,6 +679,7 @@ describe("IR Builder", function () {
               kind: "tsonic-source-package",
               surfaces: ["@tsonic/js"],
               source: {
+                namespace: "nodejs",
                 exports: {
                   "./process.js": "./src/process-module.ts",
                 },
@@ -704,6 +843,14 @@ describe("IR Builder", function () {
       );
 
       try {
+        const authoritativeJsRoot = path.resolve(
+          process.cwd(),
+          "../../../js/versions/10"
+        );
+        expect(
+          fs.existsSync(path.join(authoritativeJsRoot, "package.json"))
+        ).to.equal(true);
+
         fs.writeFileSync(
           path.join(tempDir, "package.json"),
           JSON.stringify(
@@ -727,53 +874,6 @@ describe("IR Builder", function () {
           ].join("\n")
         );
 
-        const jsRoot = path.join(tempDir, "node_modules", "@tsonic", "js");
-        fs.mkdirSync(path.join(jsRoot, "src"), { recursive: true });
-        fs.writeFileSync(
-          path.join(jsRoot, "package.json"),
-          JSON.stringify(
-            {
-              name: "@tsonic/js",
-              version: "1.0.0",
-              type: "module",
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(jsRoot, "tsonic.surface.json"),
-          JSON.stringify(
-            {
-              schemaVersion: 1,
-              id: "@tsonic/js",
-              extends: [],
-              requiredTypeRoots: ["."],
-              useStandardLib: true,
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(jsRoot, "tsonic.package.json"),
-          JSON.stringify(
-            {
-              schemaVersion: 1,
-              kind: "tsonic-source-package",
-              surfaces: ["@tsonic/js"],
-              source: {
-                exports: {
-                  ".": "./src/index.ts",
-                },
-              },
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(path.join(jsRoot, "src", "index.ts"), "export {};\n");
-
         const nodejsRoot = path.join(tempDir, "node_modules", "@tsonic", "nodejs");
         fs.mkdirSync(path.join(nodejsRoot, "src", "http"), { recursive: true });
         fs.writeFileSync(
@@ -796,6 +896,7 @@ describe("IR Builder", function () {
               kind: "tsonic-source-package",
               surfaces: ["@tsonic/js"],
               source: {
+                namespace: "nodejs",
                 moduleAliases: {
                   "node:http": "./http.js",
                 },
@@ -821,6 +922,7 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@tsonic/js",
+          typeRoots: [authoritativeJsRoot, nodejsRoot],
         });
         expect(programResult.ok).to.equal(true);
         if (!programResult.ok) return;
@@ -893,6 +995,14 @@ describe("IR Builder", function () {
       );
 
       try {
+        const authoritativeJsRoot = path.resolve(
+          process.cwd(),
+          "../../../js/versions/10"
+        );
+        expect(
+          fs.existsSync(path.join(authoritativeJsRoot, "package.json"))
+        ).to.equal(true);
+
         fs.writeFileSync(
           path.join(tempDir, "package.json"),
           JSON.stringify(
@@ -927,53 +1037,6 @@ describe("IR Builder", function () {
           ].join("\n")
         );
 
-        const jsRoot = path.join(tempDir, "node_modules", "@tsonic", "js");
-        fs.mkdirSync(path.join(jsRoot, "src"), { recursive: true });
-        fs.writeFileSync(
-          path.join(jsRoot, "package.json"),
-          JSON.stringify(
-            {
-              name: "@tsonic/js",
-              version: "1.0.0",
-              type: "module",
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(jsRoot, "tsonic.surface.json"),
-          JSON.stringify(
-            {
-              schemaVersion: 1,
-              id: "@tsonic/js",
-              extends: [],
-              requiredTypeRoots: ["."],
-              useStandardLib: true,
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(jsRoot, "tsonic.package.json"),
-          JSON.stringify(
-            {
-              schemaVersion: 1,
-              kind: "tsonic-source-package",
-              surfaces: ["@tsonic/js"],
-              source: {
-                exports: {
-                  ".": "./src/index.ts",
-                },
-              },
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(path.join(jsRoot, "src", "index.ts"), "export {};\n");
-
         const nodejsRoot = path.join(tempDir, "node_modules", "@tsonic", "nodejs");
         fs.mkdirSync(path.join(nodejsRoot, "src", "http"), { recursive: true });
         fs.writeFileSync(
@@ -996,6 +1059,7 @@ describe("IR Builder", function () {
               kind: "tsonic-source-package",
               surfaces: ["@tsonic/js"],
               source: {
+                namespace: "nodejs",
                 moduleAliases: {
                   "node:http": "./http.js",
                   "node:path": "./path.js",
@@ -1029,6 +1093,7 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@tsonic/js",
+          typeRoots: [authoritativeJsRoot, nodejsRoot],
         });
         expect(programResult.ok).to.equal(true);
         if (!programResult.ok) return;

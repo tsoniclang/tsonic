@@ -21,6 +21,7 @@ import type {
 } from "../../../core/format/backend-ast/types.js";
 import { emitStatementAst } from "../../../statement-emitter.js";
 import { withScoped } from "../../../emitter-types/context.js";
+import { normalizeRuntimeStorageType } from "../../../core/semantic/storage-types.js";
 
 export type EmitExprAstFn = (
   e: IrExpression,
@@ -63,11 +64,13 @@ export const buildExprBinding = (
   exprAst: CSharpExpressionAst,
   type: IrType | undefined,
   sourceType: IrType | undefined,
-  storageExprAst?: CSharpExpressionAst
+  storageExprAst?: CSharpExpressionAst,
+  storageType?: IrType
 ): Extract<NarrowedBinding, { kind: "expr" }> => ({
   kind: "expr",
   exprAst,
   storageExprAst,
+  storageType,
   type,
   sourceType,
 });
@@ -364,7 +367,8 @@ export const withRuntimeUnionMemberNarrowing = (
       buildUnionNarrowAst(receiver, memberN),
       memberType,
       sourceType,
-      toReceiverAst(receiver)
+      toReceiverAst(receiver),
+      normalizeRuntimeStorageType(memberType, baseContext) ?? memberType
     )
   );
   return { ...baseContext, narrowedBindings };

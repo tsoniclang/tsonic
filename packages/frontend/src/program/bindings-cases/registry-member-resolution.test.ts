@@ -58,7 +58,7 @@ describe("Binding System", () => {
           Array: {
             kind: "global",
             assembly: "Acme.Runtime",
-            type: "Acme.Runtime.JSArray`1",
+            type: "Acme.Runtime.Array`1",
           },
         },
       });
@@ -67,19 +67,19 @@ describe("Binding System", () => {
         namespace: "Acme.Runtime",
         types: [
           {
-            clrName: "Acme.Runtime.JSArray`1",
+            clrName: "Acme.Runtime.Array`1",
             assemblyName: "Acme.Runtime",
             methods: [
               {
                 clrName: "map",
-                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringClrType: "Acme.Runtime.Array`1",
                 declaringAssemblyName: "Acme.Runtime",
               },
             ],
             properties: [
               {
                 clrName: "length",
-                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringClrType: "Acme.Runtime.Array`1",
                 declaringAssemblyName: "Acme.Runtime",
               },
             ],
@@ -91,7 +91,7 @@ describe("Binding System", () => {
       const mapOverloads = registry.getMemberOverloads("Array", "map");
       expect(mapOverloads).to.not.equal(undefined);
       expect(mapOverloads?.[0]?.binding.type).to.equal(
-        "Acme.Runtime.JSArray`1"
+        "Acme.Runtime.Array`1"
       );
 
       const lengthOverloads = registry.getMemberOverloads("Array", "length");
@@ -107,8 +107,8 @@ describe("Binding System", () => {
           Array: {
             kind: "global",
             assembly: "Acme.Runtime",
-            type: "Acme.Runtime.JSArray`1",
-            staticType: "Acme.Runtime.JSArrayStatics",
+            type: "Acme.Runtime.Array`1",
+            staticType: "Acme.Runtime.ArrayStatics",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
@@ -120,17 +120,17 @@ describe("Binding System", () => {
         namespace: "Acme.Runtime",
         types: [
           {
-            clrName: "Acme.Runtime.JSArray`1",
+            clrName: "Acme.Runtime.Array`1",
             assemblyName: "Acme.Runtime",
             methods: [
               {
                 clrName: "push",
-                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringClrType: "Acme.Runtime.Array`1",
                 declaringAssemblyName: "Acme.Runtime",
               },
               {
                 clrName: "join",
-                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringClrType: "Acme.Runtime.Array`1",
                 declaringAssemblyName: "Acme.Runtime",
               },
             ],
@@ -138,12 +138,12 @@ describe("Binding System", () => {
             fields: [],
           },
           {
-            clrName: "Acme.Runtime.JSArrayStatics",
+            clrName: "Acme.Runtime.ArrayStatics",
             assemblyName: "Acme.Runtime",
             methods: [
               {
                 clrName: "from",
-                declaringClrType: "Acme.Runtime.JSArrayStatics",
+                declaringClrType: "Acme.Runtime.ArrayStatics",
                 declaringAssemblyName: "Acme.Runtime",
               },
             ],
@@ -156,13 +156,13 @@ describe("Binding System", () => {
       const pushOverloads = registry.getMemberOverloads("Array", "push");
       expect(pushOverloads).to.not.equal(undefined);
       expect(pushOverloads?.[0]?.binding.type).to.equal(
-        "Acme.Runtime.JSArray`1"
+        "Acme.Runtime.Array`1"
       );
 
       const joinOverloads = registry.getMemberOverloads("Array", "join");
       expect(joinOverloads).to.not.equal(undefined);
       expect(joinOverloads?.[0]?.binding.type).to.equal(
-        "Acme.Runtime.JSArray`1"
+        "Acme.Runtime.Array`1"
       );
     });
 

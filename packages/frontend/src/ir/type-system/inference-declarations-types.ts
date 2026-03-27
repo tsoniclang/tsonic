@@ -7,7 +7,7 @@
  *               type-system-state
  */
 
-import type { IrType, IrReferenceType } from "../types/index.js";
+import type { IrType, IrReferenceType, IrFunctionType } from "../types/index.js";
 import * as ts from "typescript";
 import type { DeclId } from "./types.js";
 import { unknownType } from "./types.js";
@@ -16,6 +16,27 @@ import { emitDiagnostic } from "./type-system-state.js";
 import { convertTypeNode } from "./type-system-call-resolution.js";
 import { makeOptionalReadType } from "./inference-utilities.js";
 import { tryInferTypeFromInitializer } from "./inference-initializers.js";
+
+const buildFunctionTypeFromSignatureDeclaration = (
+  state: TypeSystemState,
+  declaration: ts.SignatureDeclarationBase
+): IrFunctionType => ({
+  kind: "functionType",
+  parameters: declaration.parameters.map((parameter) => ({
+    kind: "parameter",
+    pattern: ts.isIdentifier(parameter.name)
+      ? { kind: "identifierPattern", name: parameter.name.text }
+      : { kind: "identifierPattern", name: `p${parameter.pos}` },
+    type: parameter.type ? convertTypeNode(state, parameter.type) : unknownType,
+    initializer: undefined,
+    isOptional: !!parameter.questionToken || !!parameter.initializer,
+    isRest: !!parameter.dotDotDotToken,
+    passing: "value",
+  })),
+  returnType: declaration.type
+    ? convertTypeNode(state, declaration.type)
+    : unknownType,
+});
 
 // ─────────────────────────────────────────────────────────────────────────
 // typeOfDecl — Get declared type of a declaration
@@ -85,7 +106,22 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
 
   let result: IrType;
 
-  if (effectiveTypeNode) {
+  if (
+    effectiveValueDecl &&
+    (ts.isFunctionDeclaration(effectiveValueDecl) ||
+      ts.isMethodDeclaration(effectiveValueDecl) ||
+      ts.isFunctionExpression(effectiveValueDecl) ||
+      ts.isArrowFunction(effectiveValueDecl))
+  ) {
+    if (!effectiveValueDecl.type) {
+      emitDiagnostic(
+        state,
+        "TSN5201",
+        `Function '${declInfo.fqName ?? "unknown"}' requires explicit return type`
+      );
+    }
+    result = buildFunctionTypeFromSignatureDeclaration(state, effectiveValueDecl);
+  } else if (effectiveTypeNode) {
     // Explicit type annotation - convert to IR
     result = convertTypeNode(state, effectiveTypeNode);
   } else if (

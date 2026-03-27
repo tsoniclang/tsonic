@@ -5,6 +5,33 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { buildModuleDependencyGraph } from "./dependency-graph.js";
 
+const installMinimalJsSurface = (projectRoot: string): void => {
+  const jsRoot = path.join(projectRoot, "node_modules", "@tsonic", "js");
+  fs.mkdirSync(jsRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(jsRoot, "package.json"),
+    JSON.stringify(
+      { name: "@tsonic/js", version: "1.0.0", type: "module" },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(
+    path.join(jsRoot, "tsonic.surface.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        id: "@tsonic/js",
+        extends: [],
+        requiredTypeRoots: [],
+        useStandardLib: true,
+      },
+      null,
+      2
+    )
+  );
+};
+
 describe("Dependency Graph", function () {
   this.timeout(60_000);
   it("should traverse imports from installed tsonic source packages", () => {
@@ -21,6 +48,7 @@ describe("Dependency Graph", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
@@ -116,13 +144,14 @@ describe("Dependency Graph", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
       const entryPath = path.join(srcDir, "index.ts");
       fs.writeFileSync(
         entryPath,
-        'import { createServer } from "node:http";\nexport const value = createServer();\n'
+        'import { createServer } from "demo:http";\nexport const value = createServer();\n'
       );
 
       const packageRoot = path.join(
@@ -151,7 +180,7 @@ describe("Dependency Graph", function () {
             source: {
               namespace: "nodejs",
               moduleAliases: {
-                "node:http": "./http.js",
+                "demo:http": "./http.js",
               },
               exports: {
                 "./http.js": "./src/http/index.ts",
@@ -230,6 +259,7 @@ describe("Dependency Graph", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
@@ -358,6 +388,7 @@ describe("Dependency Graph", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
@@ -487,6 +518,7 @@ describe("Dependency Graph", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
@@ -587,13 +619,14 @@ describe("Dependency Graph", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
       const entryPath = path.join(srcDir, "index.ts");
       fs.writeFileSync(
         entryPath,
-        'import { Buffer } from "node:buffer";\nexport const value = Buffer;\n'
+        'import { createBuffer } from "demo:buffer";\nexport const value = createBuffer();\n'
       );
 
       const packageRoot = path.join(
@@ -624,7 +657,7 @@ describe("Dependency Graph", function () {
             source: {
               namespace: "nodejs",
               moduleAliases: {
-                "node:buffer": "./buffer.js",
+                "demo:buffer": "./buffer.js",
               },
               exports: {
                 "./buffer.js": "./src/buffer/index.ts",
@@ -637,11 +670,11 @@ describe("Dependency Graph", function () {
       );
       fs.writeFileSync(
         path.join(packageRoot, "src", "buffer", "index.ts"),
-        'export { Buffer } from "./buffer.ts";\n'
+        'export { createBuffer } from "./buffer.ts";\n'
       );
       fs.writeFileSync(
         path.join(packageRoot, "src", "buffer", "buffer.ts"),
-        "export class Buffer {}\n"
+        "export const createBuffer = (): number => 42;\n"
       );
 
       const result = buildModuleDependencyGraph(entryPath, {
@@ -687,13 +720,14 @@ describe("Dependency Graph", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
       const entryPath = path.join(srcDir, "index.ts");
       fs.writeFileSync(
         entryPath,
-        'import { process } from "node:process";\nexport const value = process.version;\n'
+        'import { process } from "demo:process";\nexport const value = process.version;\n'
       );
 
       const packageRoot = path.join(
@@ -723,7 +757,7 @@ describe("Dependency Graph", function () {
             source: {
               namespace: "nodejs",
               moduleAliases: {
-                "node:process": "./process.js",
+                "demo:process": "./process.js",
               },
               exports: {
                 "./process.js": "./src/process-module.ts",
@@ -776,6 +810,7 @@ describe("Dependency Graph", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
@@ -833,6 +868,7 @@ describe("Dependency Graph", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(path.join(srcDir, "nested"), { recursive: true });
@@ -886,6 +922,7 @@ describe("Dependency Graph", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(path.join(srcDir, "nested"), { recursive: true });

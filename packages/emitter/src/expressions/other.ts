@@ -14,6 +14,7 @@ import type {
   CSharpInterpolatedStringPart,
 } from "../core/format/backend-ast/types.js";
 import { emitNormalizedAwaitTaskAst } from "./await-normalization.js";
+import { buildExactGlobalBindingReference } from "./exact-global-bindings.js";
 
 const typeMayBeNullish = (type: IrType | undefined): boolean => {
   if (!type) return false;
@@ -72,12 +73,11 @@ const buildNullishSafeExpr = (
 });
 
 const buildJsStringCoercionExpr = (
-  exprAst: CSharpExpressionAst
+  exprAst: CSharpExpressionAst,
+  context: EmitterContext
 ): CSharpExpressionAst => ({
   kind: "invocationExpression",
-  expression: {
-    ...identifierExpression("global::Tsonic.Runtime.JsValue.Stringify"),
-  },
+  expression: buildExactGlobalBindingReference("String", context),
   arguments: [exprAst],
 });
 
@@ -116,7 +116,7 @@ export const emitTemplateLiteral = (
 
       const interpolationExpr =
         currentContext.options.surface === "@tsonic/js"
-          ? buildJsStringCoercionExpr(exprAst)
+          ? buildJsStringCoercionExpr(exprAst, currentContext)
           : typeMayBeNullish(exprAtIndex.inferredType)
             ? buildNullishSafeExpr(exprAst)
             : exprAst;

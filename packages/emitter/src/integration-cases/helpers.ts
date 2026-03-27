@@ -343,6 +343,7 @@ export const compileToCSharp = (
 
   const emitResult = emitCSharpFiles(attributeResult.modules, {
     rootNamespace: "Test",
+    bindingRegistry: tsonicProgram.bindings,
     ...emitOptions,
   });
   if (!emitResult.ok) {
