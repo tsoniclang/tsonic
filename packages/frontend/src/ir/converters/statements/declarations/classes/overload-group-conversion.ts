@@ -26,6 +26,7 @@ import { getClassMemberName } from "./member-names.js";
 import { convertMethod } from "./method-declaration.js";
 import {
   specializeStatement,
+  typesEqualForIsType,
 } from "./overload-specialization.js";
 import {
   assertNoIsTypeCalls,
@@ -48,6 +49,23 @@ export const convertMethodOverloadGroup = (
   ctx: ProgramContext,
   superClass: ts.ExpressionWithTypeArguments | undefined
 ): readonly IrMethodDeclaration[] => {
+  const countRequiredFunctionParameters = (
+    parameters: readonly IrParameter[]
+  ): number => {
+    let required = 0;
+    for (const parameter of parameters) {
+      if (
+        parameter.isRest ||
+        parameter.isOptional ||
+        parameter.initializer !== undefined
+      ) {
+        break;
+      }
+      required += 1;
+    }
+    return required;
+  };
+
   const impls = nodes.filter((n) => !!n.body);
   if (impls.length !== 1) {
     throw new Error(
@@ -121,6 +139,52 @@ export const convertMethodOverloadGroup = (
     const specialized = specializeStatement(implBody, paramTypesByDeclId);
     if (!assertNoIsTypeCalls(specialized)) {
       return false;
+    }
+
+    const requiresCallableAdapter = sigParams.some((parameter, index) => {
+      const implParameter = implParams[index];
+      const sigType = parameter.type;
+      const implType = implParameter?.type;
+      if (!sigType || !implType) {
+        return false;
+      }
+      const sigCallable =
+        sigType.kind === "functionType"
+          ? sigType
+          : ctx.typeSystem.delegateToFunctionType(sigType);
+      const implCallable =
+        implType.kind === "functionType"
+          ? implType
+          : ctx.typeSystem.delegateToFunctionType(implType);
+      if (!sigCallable && !implCallable) {
+        return false;
+      }
+      if (!sigCallable || !implCallable) {
+        return true;
+      }
+      if (
+        sigCallable.parameters.length !== implCallable.parameters.length ||
+        countRequiredFunctionParameters(sigCallable.parameters) !==
+          countRequiredFunctionParameters(implCallable.parameters)
+      ) {
+        return true;
+      }
+      return !typesEqualForIsType(sigType, implType);
+    });
+    if (requiresCallableAdapter) {
+      return true;
+    }
+
+    const requiresDefaultForwarding = sigParams.some((parameter, index) => {
+      const implParameter = implParams[index];
+      if (!implParameter?.initializer) {
+        return false;
+      }
+
+      return parameter.isOptional && parameter.initializer === undefined;
+    });
+    if (requiresDefaultForwarding) {
+      return true;
     }
 
     if (sigParams.length === implParams.length) {

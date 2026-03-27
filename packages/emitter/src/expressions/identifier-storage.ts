@@ -321,8 +321,35 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   context: EmitterContext,
   expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  if (!narrowed.storageExprAst || !narrowed.type) {
+  if (!narrowed.type && !expectedType) {
     return undefined;
+  }
+
+  const remappedLocal = context.localNameMap?.get(expr.name);
+  const storageType = context.localValueTypes?.get(expr.name);
+  if (!storageType) {
+    return undefined;
+  }
+
+  const targetType = expectedType ?? narrowed.type;
+  if (!targetType) {
+    return undefined;
+  }
+
+  const [sameSurface, nextContext] = matchesEmittedStorageSurface(
+    storageType,
+    targetType,
+    context
+  );
+  if (!sameSurface) {
+    return undefined;
+  }
+
+  if (!narrowed.storageExprAst) {
+    if (!remappedLocal) {
+      return undefined;
+    }
+    return [identifierExpression(remappedLocal), nextContext];
   }
 
   if (
@@ -333,11 +360,6 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     return undefined;
   }
 
-  const storageType = context.localValueTypes?.get(expr.name);
-  if (!storageType) {
-    return undefined;
-  }
-
   if (
     expectedType &&
     narrowed.type &&
@@ -345,16 +367,6 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     willCarryAsRuntimeUnion(storageType, context) &&
     !willCarryAsRuntimeUnion(narrowed.type, context)
   ) {
-    return undefined;
-  }
-
-  const targetType = expectedType ?? narrowed.type;
-  const [sameSurface, nextContext] = matchesEmittedStorageSurface(
-    storageType,
-    targetType,
-    context
-  );
-  if (!sameSurface) {
     return undefined;
   }
 
@@ -418,6 +430,23 @@ export const matchesEmittedStorageSurface = (
   expectedType: IrType | undefined,
   context: EmitterContext
 ): [boolean, EmitterContext] => {
+  const tryEmitSurfaceTypeAst = (
+    type: IrType,
+    currentContext: EmitterContext
+  ): [ReturnType<typeof emitTypeAst>[0], EmitterContext] | undefined => {
+    try {
+      return emitTypeAst(type, currentContext);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.startsWith("ICE: Unresolved reference type ")
+      ) {
+        return undefined;
+      }
+      throw err;
+    }
+  };
+
   const containsRawObjectType = (
     type: IrType,
     seen = new Set<IrType>()
@@ -478,14 +507,19 @@ export const matchesEmittedStorageSurface = (
   ) {
     return [false, context];
   }
-  const [actualTypeAst, actualTypeContext] = emitTypeAst(
-    strippedActual,
-    context
-  );
-  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+  const actualSurface = tryEmitSurfaceTypeAst(strippedActual, context);
+  if (!actualSurface) {
+    return [false, context];
+  }
+  const [actualTypeAst, actualTypeContext] = actualSurface;
+  const expectedSurface = tryEmitSurfaceTypeAst(
     strippedExpected,
     actualTypeContext
   );
+  if (!expectedSurface) {
+    return [false, context];
+  }
+  const [expectedTypeAst, expectedTypeContext] = expectedSurface;
 
   return [
     stableTypeKeyFromAst(actualTypeAst) ===

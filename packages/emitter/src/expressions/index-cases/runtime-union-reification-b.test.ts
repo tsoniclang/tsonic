@@ -215,6 +215,36 @@ describe("Expression Emission", () => {
     expect(printExpression(result)).to.equal("e");
   });
 
+  it("does not ICE when storage-surface reuse sees unresolved reference locals", () => {
+    const unresolvedTypedArrayType: IrType = {
+      kind: "referenceType",
+      name: "Uint8Array",
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "identifier",
+        name: "bytes",
+        inferredType: unresolvedTypedArrayType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["bytes", "bytes"]]),
+        localValueTypes: new Map([["bytes", unresolvedTypedArrayType]]),
+      }
+    );
+
+    expect(printExpression(result)).to.equal("bytes");
+  });
+
   it("reifies broad object arrays into runtime-union element arrays during assertions", () => {
     const streamType: IrType = {
       kind: "referenceType",

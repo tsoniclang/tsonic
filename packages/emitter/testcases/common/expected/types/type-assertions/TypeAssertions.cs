@@ -15,11 +15,11 @@ namespace TestCases.common.types.typeassertions
     {
         public static readonly int intFromLiteral = 1000;
 
-        public static readonly byte byteFromLiteral = (byte)255;
+        public static readonly byte byteFromLiteral = 255;
 
-        public static readonly short shortFromLiteral = (short)1000;
+        public static readonly short shortFromLiteral = 1000;
 
-        public static readonly long longFromLiteral = (long)1000000L;
+        public static readonly long longFromLiteral = 1000000L;
 
         public static readonly float floatFromLiteral = 1.5f;
 

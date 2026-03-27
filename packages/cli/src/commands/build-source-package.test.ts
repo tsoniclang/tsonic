@@ -189,7 +189,7 @@ describe("build command (native source-package libraries)", function () {
       ).to.equal(true);
       expect(
         existsSync(join(dir, "packages", "lib", "dist", "src", "index.d.ts"))
-      ).to.equal(true);
+      ).to.equal(false);
       expect(
         existsSync(join(dir, "packages", "lib", "dist", "tsonic", "bindings"))
       ).to.equal(false);

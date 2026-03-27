@@ -245,6 +245,70 @@ describe("Maximus Validation Coverage", () => {
           `,
         },
       },
+      {
+        name: "recursive self-typed base constructors keep super-call typing deterministic",
+        source: `
+          import { numericIdentity } from "/test/lib.ts";
+
+          type TypedInput<
+            TElement extends number,
+            TSelf extends TypedArrayBase<TElement, TSelf>
+          > =
+            | TElement[]
+            | TSelf
+            | Iterable<number>;
+
+          class TypedArrayBase<
+            TElement extends number,
+            TSelf extends TypedArrayBase<TElement, TSelf>
+          > {
+            public constructor(
+              lengthOrValues: number | TypedInput<TElement, TSelf>,
+              zeroValue: TElement,
+              normalizeElement: (value: number) => TElement,
+              toNumericValue: (value: TElement) => number,
+              wrap: (values: TElement[]) => TSelf
+            ) {
+              void lengthOrValues;
+              void zeroValue;
+              void normalizeElement;
+              void toNumericValue;
+              void wrap;
+            }
+          }
+
+          function normalizeUint8(value: number): number {
+            return value;
+          }
+
+          function wrapUint8Array(values: number[]): Uint8ArrayLike {
+            void values;
+            return undefined as unknown as Uint8ArrayLike;
+          }
+
+          class Uint8ArrayLike extends TypedArrayBase<number, Uint8ArrayLike> {
+            public static readonly BYTES_PER_ELEMENT: number = 1;
+
+            public constructor(lengthOrValues: number | TypedInput<number, Uint8ArrayLike>) {
+              super(
+                lengthOrValues,
+                Uint8ArrayLike.BYTES_PER_ELEMENT,
+                0,
+                normalizeUint8,
+                numericIdentity,
+                wrapUint8Array
+              );
+            }
+          }
+
+          void Uint8ArrayLike;
+        `,
+        extraFiles: {
+          "/test/lib.ts": `
+            export const numericIdentity = <T extends number>(value: T): number => value;
+          `,
+        },
+      },
     ];
 
     for (const c of allowCases) {

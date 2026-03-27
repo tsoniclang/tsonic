@@ -36,6 +36,15 @@ type TypePackageInfo = {
   readonly typeRoots: readonly string[];
 };
 
+const bootstrapInitSurfaceTypeRoots = (
+  surface: SurfaceMode
+): readonly string[] => {
+  if (surface === "@tsonic/js") {
+    return ["node_modules/@tsonic/js"];
+  }
+  return [];
+};
+
 const readExistingPackageSpecs = (
   workspaceRoot: string | undefined
 ): ReadonlyMap<string, string> => {
@@ -330,11 +339,27 @@ export const initWorkspace = (
       surface !== "clr" &&
       !hasResolvedSurfaceProfile(surface, { workspaceRoot })
     ) {
-      return {
-        ok: false,
-        error:
-          `Surface '${surface}' is not a valid ambient surface package.\n` +
-          `Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages (for example '@tsonic/nodejs') separately.`,
+      const bootstrapTypeRoots =
+        shouldInstallTypes !== true
+          ? bootstrapInitSurfaceTypeRoots(surface)
+          : [];
+
+      if (bootstrapTypeRoots.length === 0) {
+        return {
+          ok: false,
+          error:
+            `Surface '${surface}' is not a valid ambient surface package.\n` +
+            `Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages (for example '@tsonic/nodejs') separately.`,
+        };
+      }
+
+      surfaceCapabilities = {
+        mode: surface,
+        includesClr: false,
+        resolvedModes: [surface],
+        requiredTypeRoots: bootstrapTypeRoots,
+        requiredNpmPackages: [surface],
+        useStandardLib: false,
       };
     }
 

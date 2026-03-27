@@ -98,7 +98,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("if (handler.Is1())");
       expect(csharp).to.include(
-        "for (int index = 0; index < (handler.As1()).Length; index += (int)1)"
+        "for (int index = 0; index < (handler.As1()).Length; index += 1)"
       );
       expect(csharp).to.not.include(
         "new global::js.Array<global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"

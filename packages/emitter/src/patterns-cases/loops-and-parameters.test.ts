@@ -57,10 +57,12 @@ describe("Destructuring Pattern Lowering", () => {
 
       const result = emitModule(module);
 
-      // Should use temp variable in foreach
-      expect(result).to.include("foreach (var __item in entries)");
+      const loopTempMatch = result.match(/foreach \(var (__item(?:__\d+)?) in entries\)/);
+      expect(loopTempMatch?.[1]).to.not.equal(undefined);
+      const loopTemp = loopTempMatch?.[1] ?? "__item";
+
       // Should destructure inside the loop (with types from element type)
-      expect(result).to.include("var __arr0 = __item;");
+      expect(result).to.include(`var __arr0 = ${loopTemp};`);
       expect(result).to.include("string key = __arr0[0];");
       expect(result).to.include("string value = __arr0[1];");
     });
@@ -123,7 +125,7 @@ describe("Destructuring Pattern Lowering", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("foreach (var __item in entries)");
+      expect(result).to.match(/foreach \(var __item(?:__\d+)? in entries\)/);
       expect(result).to.include("Item1");
       expect(result).to.include("Item2");
       expect(result).to.not.include("[0]");

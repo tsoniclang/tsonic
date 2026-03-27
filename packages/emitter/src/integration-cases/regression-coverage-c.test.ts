@@ -134,9 +134,9 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("portOrOptionsOrPath.Is2()");
       expect(csharp).to.include("portOrOptionsOrPath.Is1()");
-      expect(csharp).to.include("portOrOptionsOrPath.Match(");
-      expect(csharp).to.include(").port");
-      expect(csharp).to.include(").host");
+      expect(csharp).to.include(
+        "return connectPort((portOrOptionsOrPath.As3()).port, (portOrOptionsOrPath.As3()).host);"
+      );
       expect(csharp).not.to.include("portOrOptionsOrPath.As2()).port");
       expect(csharp).not.to.include("portOrOptionsOrPath.As2()).host");
     });
@@ -169,7 +169,7 @@ describe("End-to-End Integration", () => {
         "else if (((global::System.Object)(generatorOrEncodingStr)) != null && generatorOrEncodingStr.Is2())"
       );
       expect(csharp).to.include(
-        'decodeInputBytes((string)(generatorOrEncodingStr.As2()), generatorEncoding ?? "base64");'
+        'decodeInputBytes(generatorOrEncodingStr, generatorEncoding ?? "base64");'
       );
       expect(csharp).not.to.include(
         "default(string) : (generatorOrEncodingStr.As2())).As2()"
@@ -373,7 +373,7 @@ describe("End-to-End Integration", () => {
         "public static async global::System.Threading.Tasks.Task<bool> readValue(bool flag)"
       );
       expect(csharp).to.include(
-        "await __tsonic_overload_impl_readValue(flag, default(string))).Match("
+        "await __tsonic_overload_impl_readValue(flag)).Match("
       );
       expect(csharp).not.to.include(
         ".Match(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2).Match("
@@ -402,7 +402,7 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "return (await __tsonic_overload_impl_readFile(path, default(string))).Match("
+        "return (await __tsonic_overload_impl_readFile(path)).Match("
       );
       expect(csharp).to.not.include(
         '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match('
@@ -655,13 +655,13 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "return __tsonic_overload_impl_readFileSync(path, default(string)).Match("
+        "return __tsonic_overload_impl_readFileSync(path).Match("
       );
       expect(csharp).to.not.include(
         '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match('
       );
       expect(csharp).to.include(
-        "return this.__tsonic_overload_impl_readFileSync(path, default(string)).Match("
+        "return this.__tsonic_overload_impl_readFileSync(path).Match("
       );
     });
 
@@ -690,7 +690,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "(values == null ? default(int?) : values.Length)"
       );
-      expect(csharp).to.include("?? (int)0");
+      expect(csharp).to.include("?? 0");
     });
 
     it("keeps unknown spread-array conditionals on object arrays instead of numeric unions", () => {
@@ -959,7 +959,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::js.Uint8Array(new byte[] { (byte)1, (byte)2, (byte)3 })"
+        "new global::js.Uint8Array(new byte[] { 1, 2, 3 })"
       );
       expect(csharp).not.to.include(
         "new global::js.Uint8Array(new int[] { 1, 2, 3 })"
@@ -1001,7 +1001,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::js.Int16Array(new short[] { (short)1, (short)2, (short)3 })"
+        "new global::js.Int16Array(new short[] { 1, 2, 3 })"
       );
       expect(csharp).to.include(
         "new global::js.Float32Array(new float[] { 1.25f, 2.5f })"
@@ -1049,7 +1049,7 @@ describe("End-to-End Integration", () => {
         }
       );
 
-      expect(csharp).to.include("data[i] = (byte)255;");
+      expect(csharp).to.include("data[i] = 255;");
     });
 
     it("casts JS numeric expressions when assigning into int slots", () => {

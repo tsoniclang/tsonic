@@ -54,6 +54,35 @@ const stripParentheses = (expr: ts.Expression): ts.Expression => {
   return current;
 };
 
+const getEnclosingClassSuperType = (
+  node: ts.CallExpression,
+  ctx: ProgramContext
+): IrType | undefined => {
+  if (node.expression.kind !== ts.SyntaxKind.SuperKeyword) {
+    return undefined;
+  }
+
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (ts.isClassDeclaration(current) || ts.isClassExpression(current)) {
+      const superClass = current.heritageClauses?.find(
+        (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword
+      )?.types[0];
+      if (!superClass) {
+        return undefined;
+      }
+
+      return ctx.typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(superClass as unknown as ts.TypeNode)
+      );
+    }
+
+    current = current.parent;
+  }
+
+  return undefined;
+};
+
 type SourceTopLevelSymbolKind =
   | "class"
   | "enum"
@@ -919,7 +948,9 @@ export const convertCallExpression = (
 
   // Extract receiver type for member method calls (e.g., dict.get() -> dict's type)
   const receiverIrType =
-    callee.kind === "memberAccess" ? callee.object.inferredType : undefined;
+    callee.kind === "memberAccess"
+      ? callee.object.inferredType
+      : getEnclosingClassSuperType(node, ctx);
 
   // Resolve call (two-pass):
   // 1) Resolve parameter types (for expectedType threading)

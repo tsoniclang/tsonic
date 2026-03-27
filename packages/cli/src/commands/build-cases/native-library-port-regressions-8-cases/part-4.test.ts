@@ -17,7 +17,7 @@ import { applyPackageManifestWorkspaceOverlay } from "../../../package-manifests
 import { buildCommand } from "../../build.js";
 
 const repoRoot = resolve(
-  join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
+  join(dirname(fileURLToPath(import.meta.url)), "../../../../../..")
 );
 const localJsPackageRoot = resolve(
   join(repoRoot, "..", "js", "versions", "10")

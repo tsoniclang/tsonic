@@ -49,6 +49,71 @@ export type ModuleDependencyGraphResult = {
   readonly bindingRegistry: BindingRegistry;
 };
 
+const tryConvertProgramBuildExceptionToDiagnostics = (
+  err: unknown
+): readonly Diagnostic[] | undefined => {
+  if (!(err instanceof Error)) {
+    return undefined;
+  }
+
+  const invalidNativeMetadataPrefix = "Invalid native source package metadata at ";
+  if (err.message.startsWith(invalidNativeMetadataPrefix)) {
+    const manifestPath = err.message
+      .slice(invalidNativeMetadataPrefix.length)
+      .replace(/\.$/, "");
+    return [
+      createDiagnostic(
+        "TSN1004",
+        "error",
+        `Invalid source package manifest: ${manifestPath}`,
+        undefined,
+        "Native source packages must declare valid source metadata in tsonic.package.json, including source.namespace and source.exports."
+      ),
+    ];
+  }
+
+  const missingPackageMetadataPrefix = "Installed source package at ";
+  if (
+    err.message.startsWith(missingPackageMetadataPrefix) &&
+    err.message.endsWith(" is missing valid package metadata.")
+  ) {
+    const packageRoot = err.message.slice(
+      missingPackageMetadataPrefix.length,
+      -" is missing valid package metadata.".length
+    );
+    return [
+      createDiagnostic(
+        "TSN1004",
+        "error",
+        `Installed source package at ${packageRoot} is missing valid package metadata.`,
+        undefined,
+        "Native source packages must include package.json name plus valid source.namespace and source.exports in tsonic.package.json."
+      ),
+    ];
+  }
+
+  if (
+    err.message.startsWith(missingPackageMetadataPrefix) &&
+    err.message.endsWith(" is missing package.json name.")
+  ) {
+    const packageRoot = err.message.slice(
+      missingPackageMetadataPrefix.length,
+      -" is missing package.json name.".length
+    );
+    return [
+      createDiagnostic(
+        "TSN1004",
+        "error",
+        `Installed source package at ${packageRoot} is missing package.json name.`,
+        undefined,
+        "Native source packages must include a package.json with a valid name."
+      ),
+    ];
+  }
+
+  return undefined;
+};
+
 /**
  * Collect compiler-synthesized type names that may be referenced across IR modules.
  *
@@ -516,10 +581,19 @@ export const buildModuleDependencyGraph = (
   // Third pass: Build IR for all discovered modules
   // Phase 5 Step 4: Use buildIr() which creates a single ProgramContext for the entire program
   // This ensures no global singleton state and enables parallel compilation safety
-  const irResult = buildIr(tsonicProgram, {
-    sourceRoot: sourceRootAbs,
-    rootNamespace: options.rootNamespace,
-  });
+  let irResult: ReturnType<typeof buildIr>;
+  try {
+    irResult = buildIr(tsonicProgram, {
+      sourceRoot: sourceRootAbs,
+      rootNamespace: options.rootNamespace,
+    });
+  } catch (err) {
+    const converted = tryConvertProgramBuildExceptionToDiagnostics(err);
+    if (converted) {
+      return error([...converted]);
+    }
+    throw err;
+  }
 
   if (!irResult.ok) {
     return error(irResult.error);

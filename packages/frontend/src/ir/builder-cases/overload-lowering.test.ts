@@ -225,6 +225,62 @@ describe("IR Builder", function () {
       }
     });
 
+    it("uses wrapper lowering when callback overloads narrow the implementation delegate arity", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "export class Arrayish<T> {",
+            "  every(callback: (value: T) => boolean): boolean;",
+            "  every(callback: (value: T, index: number) => boolean): boolean;",
+            "  every(callback: (value: T, index?: number, array?: T[]) => boolean): boolean {",
+            "    return callback(undefined as T, 0, []);",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const arrayishClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "Arrayish"
+        );
+        expect(arrayishClass).to.not.equal(undefined);
+        if (!arrayishClass) return;
+
+        const everyMethods = arrayishClass.members.filter(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "every"
+        );
+        expect(everyMethods.length).to.equal(2);
+
+        const helperMethod = arrayishClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" &&
+            member.name === "__tsonic_overload_impl_every"
+        );
+        expect(helperMethod).to.not.equal(undefined);
+        if (!helperMethod) return;
+
+        expect(helperMethod.parameters[0]?.type?.kind).to.equal("functionType");
+        if (helperMethod.parameters[0]?.type?.kind !== "functionType") return;
+        expect(helperMethod.parameters[0].type.parameters.length).to.equal(3);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("preserves defaulted trailing parameters in direct .ts overload implementations", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -269,6 +325,64 @@ describe("IR Builder", function () {
             member.name === "__tsonic_overload_impl_parse"
         );
         expect(implMethod).to.not.equal(undefined);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("uses wrapper lowering when overload signatures make initialized implementation parameters optional", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            'import type { int } from "@tsonic/core/types.js";',
+            "",
+            "export class BufferLike {",
+            "  set(index: int, value: number): void;",
+            "  set(values: Iterable<number>, offset?: int): void;",
+            "  set(sourceOrIndex: int | Iterable<number>, offsetOrValue: int | number = 0 as int): void {",
+            '    if (typeof sourceOrIndex === "number") {',
+            "      void offsetOrValue;",
+            "      return;",
+            "    }",
+            "    const start = offsetOrValue;",
+            "    void start;",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const bufferLikeClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "BufferLike"
+        );
+        expect(bufferLikeClass).to.not.equal(undefined);
+        if (!bufferLikeClass) return;
+
+        const setMethods = bufferLikeClass.members.filter(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "set"
+        );
+        expect(setMethods.length).to.equal(2);
+
+        const helperMethod = bufferLikeClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" &&
+            member.name === "__tsonic_overload_impl_set"
+        );
+        expect(helperMethod).to.not.equal(undefined);
       } finally {
         fixture.cleanup();
       }

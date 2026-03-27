@@ -130,6 +130,87 @@ describe("Dependency Graph", function () {
     }
   });
 
+  it("reports invalid native source package metadata as TSN1004 diagnostics", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-dependency-graph-invalid-source-package-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      installMinimalJsSurface(tempDir);
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        'import { clamp } from "@acme/math";\nexport const value = clamp(10, 0, 5);\n'
+      );
+
+      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/math", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "src", "index.ts"),
+        "export const clamp = (x: number, min: number, max: number): number => x < min ? min : x > max ? max : x;\n"
+      );
+
+      const result = buildModuleDependencyGraph(entryPath, {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+
+      expect(result.ok).to.equal(false);
+      if (result.ok) return;
+
+      expect(result.error.some((diag) => diag.code === "TSN1004")).to.equal(
+        true
+      );
+      expect(
+        result.error.some(
+          (diag) =>
+            diag.message ===
+            `Invalid source package manifest: ${path.join(packageRoot, "tsonic.package.json")}`
+        )
+      ).to.equal(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("should traverse source-package modules behind declaration aliases", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-dependency-graph-module-redirect-")

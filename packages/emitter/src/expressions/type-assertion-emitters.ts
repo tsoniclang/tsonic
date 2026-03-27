@@ -412,6 +412,12 @@ export const emitTypeAssertion = (
       runtimeAssertionTarget,
       context
     )[0];
+  const canPreserveNarrowedProjectionAtEntry =
+    !!sourceNarrowedBinding &&
+    !preservesStorageSurfaceAtEntry &&
+    runtimeAssertionTarget.kind !== "arrayType" &&
+    runtimeAssertionTarget.kind !== "dictionaryType" &&
+    !willCarryAsRuntimeUnion(runtimeAssertionTarget, context);
 
   if (
     (resolvedAssertionTarget.kind === "primitiveType" &&
@@ -424,6 +430,7 @@ export const emitTypeAssertion = (
 
   if (
     narrowedArrayCarrierAssertion &&
+    preservesStorageSurfaceAtEntry &&
     !involvesDegenerateDuplicateUnion
   ) {
     return emitExpressionAst(expr.expression, context, expectedType);
@@ -431,6 +438,8 @@ export const emitTypeAssertion = (
 
   if (
     narrowedSourceAlreadyMatches &&
+    (preservesStorageSurfaceAtEntry ||
+      canPreserveNarrowedProjectionAtEntry) &&
     !mustPreserveExplicitRuntimeAssertion &&
     !involvesDegenerateDuplicateUnion
   ) {
@@ -507,6 +516,7 @@ export const emitTypeAssertion = (
 
     if (
       transparentAlreadyMatches &&
+      preservesStorageSurfaceAtEntry &&
       !mustPreserveExplicitRuntimeAssertion &&
       !involvesDegenerateDuplicateUnion
     ) {

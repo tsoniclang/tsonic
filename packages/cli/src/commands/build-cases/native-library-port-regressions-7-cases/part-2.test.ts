@@ -20,7 +20,7 @@ import { applyPackageManifestWorkspaceOverlay } from "../../../package-manifests
 import { buildCommand } from "../../build.js";
 
 const repoRoot = resolve(
-  join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
+  join(dirname(fileURLToPath(import.meta.url)), "../../../../../..")
 );
 const localJsPackageRoot = resolve(
   join(repoRoot, "..", "js", "versions", "10")
@@ -132,6 +132,7 @@ describe("build command (native library port regressions)", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Demo.Pkg",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -282,6 +283,7 @@ describe("build command (native library port regressions)", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Demo.Pkg",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -436,6 +438,7 @@ describe("build command (native library port regressions)", function () {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js", "@tsonic/core"],
             source: {
+              namespace: "Demo.Pkg",
               exports: {
                 ".": "./src/index.ts",
               },

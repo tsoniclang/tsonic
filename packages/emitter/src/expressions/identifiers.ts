@@ -180,11 +180,6 @@ export const emitIdentifier = (
     return [storageFallback, context];
   }
 
-  const collapsedStorage = tryEmitCollapsedStorageIdentifier(expr, context);
-  if (collapsedStorage) {
-    return collapsedStorage;
-  }
-
   // Lexical remap for locals/parameters (prevents C# CS0136 shadowing errors).
   const reifiedStorage = tryEmitReifiedStorageIdentifier(
     expr,
@@ -193,6 +188,14 @@ export const emitIdentifier = (
   );
   if (reifiedStorage) {
     return reifiedStorage;
+  }
+
+  const collapsedStorage =
+    expectedType === undefined
+      ? tryEmitCollapsedStorageIdentifier(expr, context)
+      : undefined;
+  if (collapsedStorage) {
+    return collapsedStorage;
   }
 
   const remappedLocal = context.localNameMap?.get(expr.name);

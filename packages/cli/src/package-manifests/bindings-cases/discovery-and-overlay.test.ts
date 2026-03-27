@@ -230,7 +230,7 @@ describe("tsonic.package bindings", function () {
     }
   });
 
-  it("discovers installed custom surface chains even when not listed in workspace package.json", () => {
+  it("discovers installed custom surface runtime packages without fabricating missing parent surfaces", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-package-surface-chain-"));
     try {
       writeJson(join(dir, "package.json"), {
@@ -262,7 +262,7 @@ describe("tsonic.package bindings", function () {
       expect(manifests.ok).to.equal(true);
       expect(
         (manifests.ok ? manifests.value : []).map((x) => x.packageName)
-      ).to.deep.equal(["@tsonic/js", "acme-runtime"]);
+      ).to.deep.equal(["acme-runtime"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

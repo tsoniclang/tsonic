@@ -389,7 +389,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.not.include(".Value");
       expect(csharp).to.include(
-        'return ((global::System.Object)(lengthOrEncoding)) == null || ((global::System.Object)(lengthOrEncoding)) != null && lengthOrEncoding.Is2() ? (int)0 : (int)(lengthOrEncoding.As1());'
+        'return ((global::System.Object)(lengthOrEncoding)) == null || ((global::System.Object)(lengthOrEncoding)) != null && lengthOrEncoding.Is2() ? 0 : (int)(lengthOrEncoding.As1());'
       );
     });
 
@@ -435,7 +435,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("public int wait(int? delay = default)");
-      expect(csharp).to.include("int __defaulted_delay = delay ?? (int)1;");
+      expect(csharp).to.include("int __defaulted_delay = delay ?? 1;");
       expect(csharp).to.include("return __defaulted_delay;");
       expect(csharp).to.include("return new DelayBox().wait((int?)delay);");
     });
@@ -455,7 +455,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("public int wait(int? delay = default)");
-      expect(csharp).to.include("return this.__tsonic_overload_impl_wait(delay ?? (int)1);");
+      expect(csharp).to.include("return this.__tsonic_overload_impl_wait(delay ?? 1);");
       expect(csharp).to.not.include("return this.__tsonic_overload_impl_wait(delay);");
     });
 

@@ -480,10 +480,10 @@ describe("build command (library ref dirs)", function () {
         existsSync(join(projectRoot, "dist", "tsonic", "bindings"))
       ).to.equal(false);
       const declarationPath = join(projectRoot, "dist", "src", "index.d.ts");
-      expect(existsSync(declarationPath)).to.equal(true);
-      const declarationText = readFileSync(declarationPath, "utf-8");
-      expect(declarationText).to.include(
-        "export declare function main(): void;"
+      expect(existsSync(declarationPath)).to.equal(false);
+      const copiedSourcePath = join(projectRoot, "dist", "src", "index.ts");
+      expect(readFileSync(copiedSourcePath, "utf-8")).to.include(
+        "export function main(): void {"
       );
 
       const packageManifestPath = join(
@@ -687,8 +687,8 @@ describe("build command (library ref dirs)", function () {
       expect(build.ok).to.equal(true);
 
       const declarationPath = join(projectRoot, "dist", "src", "index.d.ts");
-      expect(existsSync(declarationPath)).to.equal(true);
-      expect(readFileSync(declarationPath, "utf-8")).to.include(
+      expect(existsSync(declarationPath)).to.equal(false);
+      expect(readFileSync(join(projectRoot, "dist", "src", "index.ts"), "utf-8")).to.include(
         'from "@acme/runtime/client.js"'
       );
       expect(readFileSync(importedDeclarationPath, "utf-8")).to.equal(
