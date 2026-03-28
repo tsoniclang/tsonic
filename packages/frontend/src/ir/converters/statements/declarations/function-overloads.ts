@@ -23,6 +23,7 @@ import {
   getOverloadImplementationName,
   needsAsyncReturnStatementAdaptation,
   needsAsyncWrapperReturnAdaptation,
+  preserveTopLevelRuntimeLayout,
   specializeStatement,
 } from "./overload-lowering.js";
 
@@ -146,11 +147,15 @@ export const convertFunctionOverloadGroup = (
         implFunction.body,
         implFunction.returnType
       );
+    const helperReturnType = preserveTopLevelRuntimeLayout(
+      implFunction.returnType
+    );
     const helperFunction: IrFunctionDeclaration = {
       ...implFunction,
       name: helperName,
       isExported: false,
       isAsync: helperIsAsync,
+      returnType: helperReturnType,
       overloadFamily: buildImplementationOverloadFamilyMember({
         ownerKind: "function",
         publicName: memberName,
@@ -160,7 +165,7 @@ export const convertFunctionOverloadGroup = (
       }),
       body: adaptReturnStatements(
         implFunction.body,
-        implFunction.returnType,
+        helperReturnType,
         helperIsAsync
       ) as IrBlockStatement,
     };
@@ -191,7 +196,7 @@ export const convertFunctionOverloadGroup = (
             (typeParameter) => typeParameter.name
           ),
           true,
-          implFunction.returnType,
+          helperReturnType,
           returnType,
           (sig.typeParameters ?? []).map(
             (typeParameter) => typeParameter.name.text

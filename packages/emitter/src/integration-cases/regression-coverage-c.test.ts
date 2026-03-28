@@ -706,6 +706,46 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("keeps sync overload helper runtime layout aligned for structural nominal unions", () => {
+      const csharp = compileToCSharp(`
+        declare class Buffer {
+          readonly length: number;
+        }
+
+        declare function implBytes(path: string): Buffer;
+        declare function implText(path: string, encoding: string): string;
+
+        export function readFileSync(path: string): Buffer;
+        export function readFileSync(path: string, encoding: string): string;
+        export function readFileSync(
+          path: string,
+          encoding?: string
+        ): string | Buffer {
+          if (encoding === undefined) {
+            return implBytes(path);
+          }
+
+          return implText(path, encoding);
+        }
+      `);
+
+      expect(csharp).to.include(
+        "internal static global::Tsonic.Runtime.Union<string, global::Test.Buffer> __tsonic_overload_impl_readFileSync"
+      );
+      expect(csharp).to.include(
+        "return global::Tsonic.Runtime.Union<string, global::Test.Buffer>.From2(implBytes(path));"
+      );
+      expect(csharp).to.include(
+        "return global::Tsonic.Runtime.Union<string, global::Test.Buffer>.From1(implText(path, encoding));"
+      );
+      expect(csharp).to.include(
+        "__tsonic_union_member_1 => throw new global::System.InvalidCastException"
+      );
+      expect(csharp).to.include(
+        "__tsonic_union_member_2 => __tsonic_union_member_2"
+      );
+    });
+
     it("null-checks optional Array.isArray runtime-union guards before member tests", () => {
       const csharp = compileToCSharp(`
         export function hasArray(values?: string[] | number): boolean {

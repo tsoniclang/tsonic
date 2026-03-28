@@ -104,5 +104,65 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
+
+    it("marks top-level union-return overload helpers as runtime-layout-preserving", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare class Buffer {",
+            "  readonly length: number;",
+            "}",
+            "",
+            "declare function implBytes(path: string): Buffer;",
+            "declare function implText(path: string, encoding: string): string;",
+            "",
+            "export function readFileSync(path: string): Buffer;",
+            "export function readFileSync(path: string, encoding: string): string;",
+            "export function readFileSync(path: string, encoding?: string): string | Buffer {",
+            "  if (encoding === undefined) {",
+            "    return implBytes(path);",
+            "  }",
+            "  return implText(path, encoding);",
+            "}",
+            "",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const helper = result.value.body.find(
+          (statement): statement is IrFunctionDeclaration =>
+            statement.kind === "functionDeclaration" &&
+            statement.name === "__tsonic_overload_impl_readFileSync"
+        );
+        expect(helper).to.not.equal(undefined);
+        if (!helper?.returnType) return;
+
+        expect(helper.returnType.kind).to.equal("unionType");
+        if (helper.returnType.kind !== "unionType") return;
+
+        expect(helper.returnType.preserveRuntimeLayout).to.equal(true);
+        expect(helper.returnType.types[0]).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+        expect(helper.returnType.types[1]?.kind).to.equal("referenceType");
+        if (helper.returnType.types[1]?.kind !== "referenceType") return;
+        expect(helper.returnType.types[1].name).to.equal("Buffer");
+      } finally {
+        fixture.cleanup();
+      }
+    });
   });
 });

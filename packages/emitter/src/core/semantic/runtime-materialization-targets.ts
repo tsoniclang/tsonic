@@ -6,7 +6,10 @@ import {
   resolveTypeAlias,
   substituteTypeArgs,
 } from "./type-resolution.js";
-import { expandRuntimeUnionMembers } from "./runtime-union-expansion.js";
+import {
+  collectRuntimeUnionRawMembers,
+  expandRuntimeUnionMembers,
+} from "./runtime-union-expansion.js";
 
 export const resolveRuntimeMaterializationTargetType = (
   target: IrType,
@@ -64,7 +67,10 @@ export const resolveRuntimeMaterializationTargetType = (
   }
 
   if (target.kind === "unionType") {
-    const expandedMembers = expandRuntimeUnionMembers(target, context);
+    const expandedMembers =
+      target.preserveRuntimeLayout === true
+        ? collectRuntimeUnionRawMembers(target, context)
+        : expandRuntimeUnionMembers(target, context);
     if (expandedMembers.length === 0) {
       return target;
     }
@@ -76,6 +82,9 @@ export const resolveRuntimeMaterializationTargetType = (
     return {
       kind: "unionType",
       types: expandedMembers,
+      ...(target.preserveRuntimeLayout === true
+        ? { preserveRuntimeLayout: true as const }
+        : {}),
     };
   }
 

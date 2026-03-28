@@ -879,5 +879,73 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
+
+    it("marks method union-return overload helpers as runtime-layout-preserving", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare class Buffer {",
+            "  readonly length: number;",
+            "}",
+            "",
+            "declare function implBytes(path: string): Buffer;",
+            "declare function implText(path: string, encoding: string): string;",
+            "",
+            "export class FsModule {",
+            "  readFileSync(path: string): Buffer;",
+            "  readFileSync(path: string, encoding: string): string;",
+            "  readFileSync(path: string, encoding?: string): string | Buffer {",
+            "    if (encoding === undefined) {",
+            "      return implBytes(path);",
+            "    }",
+            "    return implText(path, encoding);",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fsModule = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "FsModule"
+        );
+        expect(fsModule).to.not.equal(undefined);
+        if (!fsModule) return;
+
+        const helper = fsModule.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" &&
+            member.name === "__tsonic_overload_impl_readFileSync"
+        );
+        expect(helper).to.not.equal(undefined);
+        if (!helper?.returnType) return;
+
+        expect(helper.returnType.kind).to.equal("unionType");
+        if (helper.returnType.kind !== "unionType") return;
+
+        expect(helper.returnType.preserveRuntimeLayout).to.equal(true);
+        expect(helper.returnType.types[0]).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+        expect(helper.returnType.types[1]?.kind).to.equal("referenceType");
+        if (helper.returnType.types[1]?.kind !== "referenceType") return;
+        expect(helper.returnType.types[1].name).to.equal("Buffer");
+      } finally {
+        fixture.cleanup();
+      }
+    });
   });
 });

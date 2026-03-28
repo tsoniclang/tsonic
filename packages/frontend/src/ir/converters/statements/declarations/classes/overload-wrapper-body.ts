@@ -538,6 +538,19 @@ const specializeHelperCallShapeType = (
 ): IrType | undefined =>
   type ? specializeHelperCallShapeRequired(type, substitutions) : undefined;
 
+export const preserveTopLevelRuntimeLayout = (
+  type: IrType | undefined
+): IrType | undefined => {
+  if (!type || type.kind !== "unionType" || type.preserveRuntimeLayout) {
+    return type;
+  }
+
+  return {
+    ...type,
+    preserveRuntimeLayout: true,
+  };
+};
+
 const specializeHelperCallReturnType = (
   type: IrType | undefined,
   substitutions: ReadonlyMap<string, IrType>
@@ -547,7 +560,11 @@ const specializeHelperCallReturnType = (
   }
 
   const specialized = specializeHelperCallShapeRequired(type, substitutions);
-  if (type.kind === "unionType" && specialized.kind === "unionType") {
+  if (
+    type.kind === "unionType" &&
+    type.preserveRuntimeLayout === true &&
+    specialized.kind === "unionType"
+  ) {
     return {
       ...specialized,
       preserveRuntimeLayout: true,

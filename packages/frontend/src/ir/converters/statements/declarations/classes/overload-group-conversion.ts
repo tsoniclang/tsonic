@@ -40,6 +40,7 @@ import {
   createWrapperBody,
   needsAsyncReturnStatementAdaptation,
   needsAsyncWrapperReturnAdaptation,
+  preserveTopLevelRuntimeLayout,
 } from "./overload-wrapper-helpers.js";
 import type { ProgramContext } from "../../../../program-context.js";
 
@@ -217,9 +218,13 @@ export const convertMethodOverloadGroup = (
           implMethod.body,
           implMethod.returnType
         ));
+    const helperReturnType = preserveTopLevelRuntimeLayout(
+      implMethod.returnType
+    );
     const helperMethod: IrMethodDeclaration = {
       ...implMethod,
       name: helperName,
+      returnType: helperReturnType,
       isAsync: helperIsAsync,
       overloadFamily: buildImplementationOverloadFamilyMember({
         ownerKind: "method",
@@ -231,7 +236,7 @@ export const convertMethodOverloadGroup = (
       body: implMethod.body
         ? (adaptReturnStatements(
             implMethod.body,
-            implMethod.returnType,
+            helperReturnType,
             helperIsAsync
           ) as IrBlockStatement)
         : undefined,
@@ -288,7 +293,7 @@ export const convertMethodOverloadGroup = (
             (typeParameter) => typeParameter.name
           ),
           isStatic,
-          implMethod.returnType,
+          helperReturnType,
           returnType,
           (sig.typeParameters ?? []).map((tp) => tp.name.text),
           wrapperIsAsync
