@@ -11,6 +11,34 @@ import type { EmitterContext } from "../types.js";
 import type { LocalTypeInfo } from "../emitter-types/core.js";
 import { parseBindingPropertyType } from "./structural-property-model.js";
 
+const stableOptionalPropertyTypeKey = (type: IrType): string => {
+  if (type.kind !== "unionType") {
+    return stableIrTypeKey(type);
+  }
+
+  const nonUndefinedMembers = type.types.filter(
+    (member) =>
+      !(member.kind === "primitiveType" && member.name === "undefined")
+  );
+  if (nonUndefinedMembers.length === 0) {
+    return stableIrTypeKey(type);
+  }
+  const firstNonUndefinedMember = nonUndefinedMembers[0];
+  if (!firstNonUndefinedMember) {
+    return stableIrTypeKey(type);
+  }
+  return stableIrTypeKey(
+    nonUndefinedMembers.length === type.types.length
+      ? type
+      : nonUndefinedMembers.length === 1
+        ? firstNonUndefinedMember
+        : {
+            ...type,
+            types: nonUndefinedMembers,
+          }
+  );
+};
+
 export const resolveAnonymousStructuralReferenceType = (
   type: IrType,
   context: EmitterContext
@@ -46,7 +74,7 @@ export const resolveAnonymousStructuralReferenceType = (
     .map((member) => ({
       name: member.name,
       isOptional: member.isOptional,
-      typeKey: stableIrTypeKey(member.type),
+      typeKey: stableOptionalPropertyTypeKey(member.type),
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
 
@@ -71,8 +99,8 @@ export const resolveAnonymousStructuralReferenceType = (
         )
         .map((member) => ({
           name: member.name,
-          isOptional: false,
-          typeKey: stableIrTypeKey(member.type),
+          isOptional: !member.isRequired,
+          typeKey: stableOptionalPropertyTypeKey(member.type),
         }))
         .sort((left, right) => left.name.localeCompare(right.name));
       if (
@@ -130,7 +158,7 @@ export const resolveAnonymousStructuralReferenceType = (
         .map((member) => ({
           name: member.alias,
           isOptional: member.semanticOptional === true,
-          typeKey: stableIrTypeKey(
+          typeKey: stableOptionalPropertyTypeKey(
             member.semanticType ?? parseBindingPropertyType(member.signature)
           ),
         }))

@@ -102,6 +102,12 @@ export const resolveCallSignature = (
     return node.kind === ts.SyntaxKind.StringKeyword;
   };
 
+  const isNumberTypeNode = (typeNode: ts.TypeNode | undefined): boolean => {
+    if (!typeNode) return false;
+    const node = ts.isParenthesizedTypeNode(typeNode) ? typeNode.type : typeNode;
+    return node.kind === ts.SyntaxKind.NumberKeyword;
+  };
+
   const getExplicitStringEvidence = (
     arg: ts.Expression,
     seen = new Set<ts.Node>()
@@ -247,6 +253,89 @@ export const resolveCallSignature = (
     }
 
     return undefined;
+  };
+
+  const hasBroadNumberEvidence = (
+    arg: ts.Expression,
+    seen = new Set<ts.Node>()
+  ): boolean => {
+    const expr = stripParens(arg);
+    if (seen.has(expr)) return false;
+    seen.add(expr);
+
+    if (getExplicitArgumentClrPrimitiveAlias(expr)) {
+      return false;
+    }
+
+    if (ts.isNumericLiteral(expr)) {
+      return false;
+    }
+
+    if (
+      ts.isPrefixUnaryExpression(expr) &&
+      expr.operator === ts.SyntaxKind.MinusToken &&
+      ts.isNumericLiteral(expr.operand)
+    ) {
+      return false;
+    }
+
+    if (ts.isAsExpression(expr) || ts.isTypeAssertionExpression(expr)) {
+      if (isNumberTypeNode(expr.type)) {
+        return true;
+      }
+      return hasBroadNumberEvidence(expr.expression, seen);
+    }
+
+    if (ts.isIdentifier(expr)) {
+      const symbol = ctx.checker.getSymbolAtLocation(expr);
+      if (!symbol) return false;
+      const resolvedSymbol =
+        symbol.flags & ts.SymbolFlags.Alias
+          ? ctx.checker.getAliasedSymbol(symbol)
+          : symbol;
+      const kinds = new Set<"number">();
+      for (const decl of resolvedSymbol.getDeclarations() ?? []) {
+        if (isNumberTypeNode(getTypeNodeFromDeclaration(decl))) {
+          kinds.add("number");
+        }
+      }
+      if (kinds.size === 1) {
+        return true;
+      }
+    }
+
+    if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
+      const lookupNode = ts.isPropertyAccessExpression(expr)
+        ? expr.name
+        : expr.argumentExpression ?? expr.expression;
+      const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
+      if (!symbol) return false;
+      const resolvedSymbol =
+        symbol.flags & ts.SymbolFlags.Alias
+          ? ctx.checker.getAliasedSymbol(symbol)
+          : symbol;
+      const kinds = new Set<"number">();
+      for (const decl of resolvedSymbol.getDeclarations() ?? []) {
+        if (isNumberTypeNode(getTypeNodeFromDeclaration(decl))) {
+          kinds.add("number");
+        }
+      }
+      if (kinds.size === 1) {
+        return true;
+      }
+    }
+
+    if (ts.isCallExpression(expr)) {
+      const signature = ctx.checker.getResolvedSignature(expr);
+      const returnTypeNode = getReturnTypeNode(
+        signature?.getDeclaration() as ts.SignatureDeclaration | undefined
+      );
+      if (isNumberTypeNode(returnTypeNode)) {
+        return true;
+      }
+    }
+
+    return ctx.checker.typeToString(ctx.checker.getTypeAtLocation(expr)) === "number";
   };
 
   const getStaticPropertyNameLocal = (
@@ -450,6 +539,24 @@ export const resolveCallSignature = (
     return getExplicitClrPrimitiveAlias(param.typeNode as ts.TypeNode | undefined);
   };
 
+  const preservesBroadNumberForArgIndex = (
+    entry: SignatureEntry,
+    argIndex: number
+  ): boolean => {
+    const params = entry.parameters;
+    const direct = params[argIndex];
+    const param = direct ?? params[params.length - 1];
+    if (!param) return false;
+    if (!direct && !param.isRest) return false;
+
+    const typeNode = param.typeNode as ts.TypeNode | undefined;
+    if (isNumberTypeNode(typeNode)) {
+      return true;
+    }
+
+    return getExplicitClrPrimitiveAlias(typeNode) === "double";
+  };
+
   const paramClassForArgIndex = (
     entry: SignatureEntry,
     argIndex: number
@@ -530,6 +637,7 @@ export const resolveCallSignature = (
 
   const args = node.arguments;
   const wantsStringAt: number[] = [];
+  const wantsBroadNumberAt: number[] = [];
   const wantsExactClrAliasAt = new Map<number, string>();
   const objectLiteralArgs = new Map<number, readonly string[]>();
 
@@ -545,6 +653,8 @@ export const resolveCallSignature = (
     const exactClrAlias = getExplicitArgumentClrPrimitiveAlias(arg);
     if (exactClrAlias) {
       wantsExactClrAliasAt.set(i, exactClrAlias);
+    } else if (hasBroadNumberEvidence(arg)) {
+      wantsBroadNumberAt.push(i);
     }
 
     const objectKeys = getObjectLiteralKeys(arg);
@@ -555,6 +665,7 @@ export const resolveCallSignature = (
 
   if (
     wantsStringAt.length === 0 &&
+    wantsBroadNumberAt.length === 0 &&
     wantsExactClrAliasAt.size === 0 &&
     objectLiteralArgs.size === 0
   ) {
@@ -664,6 +775,22 @@ export const resolveCallSignature = (
   }
   if (remaining.length === 1) {
     return remaining[0]!;
+  }
+
+  for (const argIndex of wantsBroadNumberAt) {
+    const matching = remaining.filter((candidate) => {
+      const entry = ctx.signatureMap.get(candidate.id);
+      return (
+        entry !== undefined &&
+        preservesBroadNumberForArgIndex(entry, argIndex)
+      );
+    });
+    if (matching.length > 0 && matching.length < remaining.length) {
+      remaining = matching;
+    }
+    if (remaining.length === 1) {
+      return remaining[0]!;
+    }
   }
 
   for (const [argIndex, exactClrAlias] of wantsExactClrAliasAt) {

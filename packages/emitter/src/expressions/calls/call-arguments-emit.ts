@@ -3,7 +3,12 @@
  * Handles the main emitCallArguments function and function-value call argument emission.
  */
 
-import { IrExpression, IrType, IrParameter } from "@tsonic/frontend";
+import {
+  IrExpression,
+  IrType,
+  IrParameter,
+  stableIrTypeKey,
+} from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
@@ -103,6 +108,74 @@ const countRequiredParameters = (parameters: readonly IrParameter[]): number => 
     required += 1;
   }
   return required;
+};
+
+const isNumericBindingParameterType = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "primitiveType") {
+    return resolved.name === "number" || resolved.name === "int";
+  }
+
+  if (resolved.kind === "literalType") {
+    return typeof resolved.value === "number";
+  }
+
+  if (resolved.kind !== "referenceType") {
+    return false;
+  }
+
+  return (
+    resolved.name === "sbyte" ||
+    resolved.name === "byte" ||
+    resolved.name === "short" ||
+    resolved.name === "ushort" ||
+    resolved.name === "int" ||
+    resolved.name === "uint" ||
+    resolved.name === "long" ||
+    resolved.name === "ulong" ||
+    resolved.name === "float" ||
+    resolved.name === "double" ||
+    resolved.name === "decimal" ||
+    resolved.name === "Half" ||
+    resolved.name === "SByte" ||
+    resolved.name === "Byte" ||
+    resolved.name === "Int16" ||
+    resolved.name === "UInt16" ||
+    resolved.name === "Int32" ||
+    resolved.name === "UInt32" ||
+    resolved.name === "Int64" ||
+    resolved.name === "UInt64" ||
+    resolved.name === "Single" ||
+    resolved.name === "Double" ||
+    resolved.name === "Decimal" ||
+    resolved.resolvedClrType === "System.SByte" ||
+    resolved.resolvedClrType === "System.Byte" ||
+    resolved.resolvedClrType === "System.Int16" ||
+    resolved.resolvedClrType === "System.UInt16" ||
+    resolved.resolvedClrType === "System.Int32" ||
+    resolved.resolvedClrType === "System.UInt32" ||
+    resolved.resolvedClrType === "System.Int64" ||
+    resolved.resolvedClrType === "System.UInt64" ||
+    resolved.resolvedClrType === "System.Single" ||
+    resolved.resolvedClrType === "System.Double" ||
+    resolved.resolvedClrType === "System.Decimal" ||
+    resolved.resolvedClrType === "System.Half" ||
+    resolved.resolvedClrType === "global::System.SByte" ||
+    resolved.resolvedClrType === "global::System.Byte" ||
+    resolved.resolvedClrType === "global::System.Int16" ||
+    resolved.resolvedClrType === "global::System.UInt16" ||
+    resolved.resolvedClrType === "global::System.Int32" ||
+    resolved.resolvedClrType === "global::System.UInt32" ||
+    resolved.resolvedClrType === "global::System.Int64" ||
+    resolved.resolvedClrType === "global::System.UInt64" ||
+    resolved.resolvedClrType === "global::System.Single" ||
+    resolved.resolvedClrType === "global::System.Double" ||
+    resolved.resolvedClrType === "global::System.Decimal" ||
+    resolved.resolvedClrType === "global::System.Half"
+  );
 };
 
 const requiresDelegateArityAdaptation = (
@@ -292,42 +365,76 @@ const findMemberBindingExpectedType = (
     return undefined;
   }
 
-  const matching = overloads.find((overload) => {
-    if (
-      overload.binding.assembly !== calleeBinding.assembly ||
-      overload.binding.type !== calleeBinding.type ||
-      overload.binding.member !== calleeBinding.member
-    ) {
-      return false;
-    }
+  const matchingParameterTypes = overloads
+    .filter((overload) => {
+      if (
+        overload.binding.assembly !== calleeBinding.assembly ||
+        overload.binding.type !== calleeBinding.type ||
+        overload.binding.member !== calleeBinding.member
+      ) {
+        return false;
+      }
 
-    const parameters = overload.semanticSignature?.parameters;
-    if (!parameters) {
-      return false;
-    }
+      const parameters = overload.semanticSignature?.parameters;
+      if (!parameters) {
+        return false;
+      }
 
-    const parameterOffset = overload.isExtensionMethod ? 1 : 0;
-    const required = countRequiredParameters(parameters);
-    const visibleRequired = Math.max(0, required - parameterOffset);
-    if (expr.arguments.length < visibleRequired) {
-      return false;
-    }
+      const parameterOffset = overload.isExtensionMethod ? 1 : 0;
+      const required = countRequiredParameters(parameters);
+      const visibleRequired = Math.max(0, required - parameterOffset);
+      if (expr.arguments.length < visibleRequired) {
+        return false;
+      }
 
-    const hasRest = parameters.some((parameter) => parameter?.isRest);
-    const visibleParameterCount = Math.max(0, parameters.length - parameterOffset);
-    if (!hasRest && expr.arguments.length > visibleParameterCount) {
-      return false;
-    }
+      const hasRest = parameters.some((parameter) => parameter?.isRest);
+      const visibleParameterCount = Math.max(
+        0,
+        parameters.length - parameterOffset
+      );
+      if (!hasRest && expr.arguments.length > visibleParameterCount) {
+        return false;
+      }
 
-    return parameters[argIndex + parameterOffset]?.type !== undefined;
-  });
+      return parameters[argIndex + parameterOffset]?.type !== undefined;
+    })
+    .map((overload) => {
+      const parameters = overload.semanticSignature?.parameters;
+      const parameterOffset = overload.isExtensionMethod ? 1 : 0;
+      return parameters?.[argIndex + parameterOffset]?.type;
+    })
+    .filter((parameterType): parameterType is IrType => parameterType !== undefined);
 
-  if (!matching?.semanticSignature?.parameters) {
+  if (matchingParameterTypes.length === 0) {
     return undefined;
   }
 
-  const parameterOffset = matching.isExtensionMethod ? 1 : 0;
-  return matching.semanticSignature.parameters[argIndex + parameterOffset]?.type;
+  const uniqueParameterTypes = new Map<string, IrType>();
+  for (const parameterType of matchingParameterTypes) {
+    uniqueParameterTypes.set(
+      stableIrTypeKey(stripNullish(parameterType)),
+      parameterType
+    );
+  }
+
+  if (uniqueParameterTypes.size === 1) {
+    return [...uniqueParameterTypes.values()][0];
+  }
+
+  const uniqueNumericParameterTypes = new Map<string, IrType>();
+  for (const parameterType of uniqueParameterTypes.values()) {
+    if (!isNumericBindingParameterType(parameterType, context)) {
+      continue;
+    }
+    uniqueNumericParameterTypes.set(
+      stableIrTypeKey(stripNullish(parameterType)),
+      parameterType
+    );
+  }
+
+  return uniqueNumericParameterTypes.size === 1
+    ? [...uniqueNumericParameterTypes.values()][0]
+    : undefined;
 };
 
 const resolveExpectedFunctionTypeForArgument = (
@@ -965,6 +1072,13 @@ const emitCallArguments = (
           currentContext
         )
       ) {
+        if (
+          expectedType &&
+          isNumericBindingParameterType(expectedType, currentContext) &&
+          isNumericBindingParameterType(normalizedRuntime, currentContext)
+        ) {
+          return expectedType;
+        }
         return normalizedRuntime;
       }
 

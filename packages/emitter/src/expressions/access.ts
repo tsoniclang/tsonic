@@ -31,6 +31,7 @@ import {
   isRuntimeUnionTypeName,
 } from "../core/semantic/runtime-unions.js";
 import { isSemanticUnion } from "../core/semantic/union-semantics.js";
+import { resolveIteratorResultReferenceType } from "../core/semantic/structural-resolution.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   type MemberAccessUsage,
@@ -100,7 +101,12 @@ export const emitMemberAccess = (
     !expr.isOptional &&
     (propertyName === "done" || propertyName === "value")
   ) {
-    if (objectType?.kind === "referenceType" && objectType.name === "IteratorResult") {
+    if (
+      (objectType?.kind === "referenceType" &&
+        objectType.name === "IteratorResult") ||
+      (objectType &&
+        resolveIteratorResultReferenceType(objectType, context) !== undefined)
+    ) {
       const [objectAst, newContext] = emitExpressionAst(expr.object, context);
       return [
         {

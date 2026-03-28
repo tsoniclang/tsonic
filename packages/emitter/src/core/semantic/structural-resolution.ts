@@ -14,6 +14,7 @@ export {
 
 export {
   isCompilerGeneratedStructuralReferenceType,
+  resolveIteratorResultReferenceType,
   resolveStructuralReferenceType,
   normalizeStructuralEmissionType,
 } from "./structural-shape-matching.js";

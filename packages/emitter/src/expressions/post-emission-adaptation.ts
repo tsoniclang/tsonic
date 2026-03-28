@@ -408,7 +408,7 @@ const INTEGRAL_EXPECTED_TYPE_NAMES = new Set([
   "System.UIntPtr",
 ]);
 
-const isExpectedIntegralIrType = (
+export const isExpectedIntegralIrType = (
   type: IrType | undefined,
   context: EmitterContext
 ): boolean => {

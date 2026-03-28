@@ -29,7 +29,10 @@ import {
 } from "./identifier-storage.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
-import { maybeCastNumericToExpectedIntegralAst } from "./post-emission-adaptation.js";
+import {
+  isExpectedIntegralIrType,
+  maybeCastNumericToExpectedIntegralAst,
+} from "./post-emission-adaptation.js";
 
 /**
  * Emit an identifier as CSharpExpressionAst
@@ -43,7 +46,10 @@ export const emitIdentifier = (
     identifierAst: CSharpExpressionAst,
     currentContext: EmitterContext
   ): [CSharpExpressionAst, EmitterContext] => {
-    if (!expectedType) {
+    if (
+      !expectedType ||
+      !isExpectedIntegralIrType(expectedType, currentContext)
+    ) {
       return [identifierAst, currentContext];
     }
 

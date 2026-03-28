@@ -264,6 +264,89 @@ const buildReferenceType = (
   ...(typeArguments ? { typeArguments: [...typeArguments] } : {}),
 });
 
+type IteratorResultVariant = {
+  readonly done: boolean;
+  readonly valueType: IrType;
+};
+
+const tryResolveIteratorResultVariant = (
+  type: IrType,
+  context: EmitterContext
+): IteratorResultVariant | undefined => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  const members =
+    resolved.kind === "objectType"
+      ? resolved.members
+      : resolved.kind === "referenceType"
+        ? resolved.structuralMembers
+        : undefined;
+  if (!members || members.length !== 2) {
+    return undefined;
+  }
+
+  const properties = members.filter(
+    (
+      member
+    ): member is Extract<typeof member, { kind: "propertySignature" }> =>
+      member.kind === "propertySignature"
+  );
+  if (properties.length !== 2) {
+    return undefined;
+  }
+
+  const doneProperty = properties.find((member) => member.name === "done");
+  const valueProperty = properties.find((member) => member.name === "value");
+  if (
+    !doneProperty ||
+    !valueProperty ||
+    doneProperty.isOptional ||
+    valueProperty.isOptional
+  ) {
+    return undefined;
+  }
+
+  if (
+    doneProperty.type.kind !== "literalType" ||
+    typeof doneProperty.type.value !== "boolean"
+  ) {
+    return undefined;
+  }
+
+  return {
+    done: doneProperty.type.value,
+    valueType: valueProperty.type,
+  };
+};
+
+export const resolveIteratorResultReferenceType = (
+  type: IrType,
+  context: EmitterContext
+): Extract<IrType, { kind: "referenceType" }> | undefined => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind !== "unionType" || resolved.types.length !== 2) {
+    return undefined;
+  }
+
+  const variants = resolved.types
+    .map((member) => tryResolveIteratorResultVariant(member, context))
+    .filter((variant): variant is IteratorResultVariant => variant !== undefined);
+  if (variants.length !== 2) {
+    return undefined;
+  }
+
+  const doneFalseVariant = variants.find((variant) => variant.done === false);
+  const doneTrueVariant = variants.find((variant) => variant.done === true);
+  if (!doneFalseVariant || !doneTrueVariant) {
+    return undefined;
+  }
+
+  return buildReferenceType(
+    "IteratorResult",
+    "global::Tsonic.Runtime.IteratorResult",
+    [doneFalseVariant.valueType]
+  );
+};
+
 /**
  * Resolve an inline/object structural type to a canonical emitted nominal reference
  * when the current compilation already declares an equivalent structural type.
@@ -279,6 +362,13 @@ export const resolveStructuralReferenceType = (
   context: EmitterContext
 ): IrType | undefined => {
   const stripped = stripNullish(type);
+  const iteratorResultReference = resolveIteratorResultReferenceType(
+    stripped,
+    context
+  );
+  if (iteratorResultReference) {
+    return iteratorResultReference;
+  }
   const preserveCompilerGeneratedReference =
     stripped.kind === "referenceType" &&
     isCompilerGeneratedStructuralReferenceType(stripped);
