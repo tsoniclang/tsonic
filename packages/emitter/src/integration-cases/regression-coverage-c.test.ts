@@ -352,6 +352,23 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("preserves compiler-generated anonymous carriers over unrelated structural globals", () => {
+      const csharp = compileToCSharp(`
+        declare function deepEqual(left: unknown, right: unknown): void;
+
+        export function run(): void {
+          const first = { user: { name: "Alice" } };
+          const second = { user: { name: "Alice" } };
+          deepEqual(first, second);
+        }
+      `);
+
+      expect(csharp).to.match(
+        /new global::Test\.__Anon_[A-Za-z0-9_]+ \{ user = new global::Test\.__Anon_[A-Za-z0-9_]+ \{ name = "Alice" \} \}/
+      );
+      expect(csharp).not.to.include("new global::js.RangeError { name = \"Alice\" }");
+    });
+
     it("reuses structural alias carrier members in typeof checks over boolean unions", () => {
       const csharp = compileToCSharp(`
         import type { int } from "@tsonic/core/types.js";
@@ -787,6 +804,27 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "return global::System.Convert.ToInt32((byte)(month + 1));"
       );
+    });
+
+    it("casts broad JS numbers to imported CLR integral overload parameters", () => {
+      const csharp = compileToCSharp(`
+        import type { int } from "@tsonic/core/types.js";
+        import { Process } from "@tsonic/dotnet/System.Diagnostics.js";
+
+        declare const process: Process;
+
+        class ExecOptions {
+          public timeout: number = 0;
+        }
+
+        export function run(options?: ExecOptions | null): boolean {
+          const timeout = options?.timeout ?? 0;
+          return process.WaitForExit(timeout);
+        }
+      `);
+
+      expect(csharp).to.include("return process.WaitForExit((int)timeout);");
+      expect(csharp).not.to.include("return process.WaitForExit(timeout);");
     });
 
     it("null-checks optional Array.isArray runtime-union guards before member tests", () => {

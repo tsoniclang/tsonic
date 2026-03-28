@@ -688,24 +688,81 @@ const resolveCallArgumentExpectedType = (
     arg,
     context
   );
+  const bindingExpectedType = (() => {
+    const candidate = findMemberBindingExpectedType(expr, argIndex, context);
+    return candidate
+      ? normalizeCallArgumentExpectedType(candidate, arg, context)
+      : undefined;
+  })();
+
+  const prefersBindingNumericType = (() => {
+    if (!expectedType || !bindingExpectedType) {
+      return false;
+    }
+
+    const resolvedExpected = resolveTypeAlias(stripNullish(expectedType), context);
+    const resolvedBinding = resolveTypeAlias(
+      stripNullish(bindingExpectedType),
+      context
+    );
+
+    const isBroadNumber =
+      resolvedExpected.kind === "primitiveType" &&
+      resolvedExpected.name === "number";
+    if (!isBroadNumber) {
+      return false;
+    }
+
+    if (resolvedBinding.kind === "primitiveType") {
+      return resolvedBinding.name === "int";
+    }
+
+    if (resolvedBinding.kind !== "referenceType") {
+      return false;
+    }
+
+    return (
+      resolvedBinding.name === "sbyte" ||
+      resolvedBinding.name === "byte" ||
+      resolvedBinding.name === "short" ||
+      resolvedBinding.name === "ushort" ||
+      resolvedBinding.name === "int" ||
+      resolvedBinding.name === "uint" ||
+      resolvedBinding.name === "long" ||
+      resolvedBinding.name === "ulong" ||
+      resolvedBinding.name === "SByte" ||
+      resolvedBinding.name === "Byte" ||
+      resolvedBinding.name === "Int16" ||
+      resolvedBinding.name === "UInt16" ||
+      resolvedBinding.name === "Int32" ||
+      resolvedBinding.name === "UInt32" ||
+      resolvedBinding.name === "Int64" ||
+      resolvedBinding.name === "UInt64"
+    );
+  })();
+
+  const narrowedExpectedType =
+    !expectedType || prefersBindingNumericType
+      ? bindingExpectedType ?? expectedType
+      : expectedType;
 
   if (
     shouldPreferZeroArgJsTimerCallback(
       expr,
       arg,
       argIndex,
-      expectedType,
+      narrowedExpectedType,
       context
     )
   ) {
     return {
       kind: "functionType",
       parameters: [],
-      returnType: expectedType.returnType,
+      returnType: narrowedExpectedType.returnType,
     };
   }
 
-  return expectedType;
+  return narrowedExpectedType;
 };
 
 /**

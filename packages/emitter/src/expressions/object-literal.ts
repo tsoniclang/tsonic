@@ -31,6 +31,8 @@ import {
   emitDictionaryLiteral,
   emitDictionaryLiteralWithSpreads,
 } from "./dictionary-literal.js";
+import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
+import { canPreferAnonymousStructuralTarget } from "./structural-type-shapes.js";
 import {
   emitObjectWithSpreads,
   resolveBehavioralObjectLiteralType,
@@ -241,8 +243,14 @@ const resolveContextualTypeAst = (
     return [undefined, context];
   }
 
+  const anonymousEmissionType =
+    canPreferAnonymousStructuralTarget(contextualType)
+      ? resolveAnonymousStructuralReferenceType(contextualType, context)
+      : undefined;
   const emissionType =
-    resolveStructuralReferenceType(contextualType, context) ?? contextualType;
+    anonymousEmissionType ??
+    resolveStructuralReferenceType(contextualType, context) ??
+    contextualType;
 
   if (emissionType.kind === "referenceType") {
     const typeName = emissionType.name;

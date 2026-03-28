@@ -15,7 +15,21 @@ export const resolveAnonymousStructuralReferenceType = (
   type: IrType,
   context: EmitterContext
 ): IrType | undefined => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
+  const stripped = stripNullish(type);
+  if (stripped.kind === "referenceType") {
+    const simpleName = stripped.name.split(".").pop() ?? stripped.name;
+    const clrSimpleName = stripped.resolvedClrType?.split(".").pop();
+    const isCompilerGeneratedCarrier = (name: string | undefined): boolean =>
+      !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
+    if (
+      isCompilerGeneratedCarrier(simpleName) ||
+      isCompilerGeneratedCarrier(clrSimpleName)
+    ) {
+      return stripped;
+    }
+  }
+
+  const resolved = resolveTypeAlias(stripped, context);
   if (resolved.kind !== "objectType") return undefined;
 
   const currentNamespace =
