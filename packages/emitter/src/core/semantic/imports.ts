@@ -448,6 +448,8 @@ const createImportBinding = (
               typeAst: identifierType(
                 `global::${namespace}.${resolvedExportName}__Alias`
               ),
+              aliasType: localType.type,
+              aliasTypeParameters: localType.typeParameters,
             },
           };
         }
@@ -470,6 +472,8 @@ const createImportBinding = (
           importBinding: {
             kind: "type",
             typeAst: globallyQualifyTypeAst(typeAst),
+            aliasType: localType.type,
+            aliasTypeParameters: localType.typeParameters,
           },
         };
       }

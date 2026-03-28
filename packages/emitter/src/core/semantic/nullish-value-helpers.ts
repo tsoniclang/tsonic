@@ -285,7 +285,15 @@ export const resolveTypeAlias = (
     return type;
   }
 
-  const localTypeInfo = context.localTypes?.get(type.name);
+  const stripGlobalPrefix = (name: string): string =>
+    name.startsWith("global::") ? name.slice("global::".length) : name;
+
+  const lookupName = type.name.includes(".")
+    ? (type.name.split(".").pop() ?? type.name)
+    : type.name;
+
+  const localTypeInfo =
+    context.localTypes?.get(type.name) ?? context.localTypes?.get(lookupName);
   if (localTypeInfo?.kind === "typeAlias") {
     if (
       options.preserveObjectTypeAliases &&
@@ -306,17 +314,46 @@ export const resolveTypeAlias = (
     return localTypeInfo.type;
   }
 
+  const importedAliasBinding =
+    context.importBindings?.get(type.name) ??
+    context.importBindings?.get(lookupName);
+  if (
+    importedAliasBinding?.kind === "type" &&
+    importedAliasBinding.aliasType !== undefined
+  ) {
+    if (
+      options.preserveObjectTypeAliases &&
+      importedAliasBinding.aliasType.kind === "objectType"
+    ) {
+      return type;
+    }
+
+    if (type.typeArguments && type.typeArguments.length > 0) {
+      return substituteTypeArgs(
+        importedAliasBinding.aliasType,
+        importedAliasBinding.aliasTypeParameters ?? [],
+        type.typeArguments
+      );
+    }
+
+    return importedAliasBinding.aliasType;
+  }
+
   const aliasIndex = context.options.typeAliasIndex;
   if (!aliasIndex) {
     return type;
   }
 
-  const stripGlobalPrefix = (name: string): string =>
-    name.startsWith("global::") ? name.slice("global::".length) : name;
-
-  const qualifiedAliasName =
-    type.resolvedClrType ?? stripGlobalPrefix(type.name);
-  const aliasEntry = aliasIndex.byFqn.get(qualifiedAliasName);
+  const qualifiedAliasCandidates = [
+    type.resolvedClrType,
+    type.typeId?.clrName,
+    stripGlobalPrefix(type.name),
+  ]
+    .filter((candidate): candidate is string => !!candidate)
+    .map(stripGlobalPrefix);
+  const aliasEntry = qualifiedAliasCandidates
+    .map((candidate) => aliasIndex.byFqn.get(candidate))
+    .find((entry) => entry !== undefined);
 
   if (!aliasEntry) {
     return type;

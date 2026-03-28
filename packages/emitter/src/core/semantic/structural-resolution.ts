@@ -13,6 +13,7 @@ export {
 } from "./type-param-substitution.js";
 
 export {
+  isCompilerGeneratedStructuralReferenceType,
   resolveStructuralReferenceType,
   normalizeStructuralEmissionType,
 } from "./structural-shape-matching.js";

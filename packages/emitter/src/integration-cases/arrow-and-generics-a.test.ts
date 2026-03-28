@@ -132,6 +132,27 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("synthesizes contextual parameters for zero-arg lambdas passed through rest callback parameters", () => {
+      const source = `
+        type Handler = (req: string) => void;
+
+        function consume(...handlers: Handler[]): void {
+          const first = handlers[0]!;
+          first("ok");
+        }
+
+        export function main(): void {
+          consume(() => undefined);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /consume\(\(string __unused_req\)\s*=>\s*\{\s*\}\)/
+      );
+    });
+
     it("binds explicit lambda parameters from synthesized rest carriers", () => {
       const source = `
         type Tick = (...args: unknown[]) => void;

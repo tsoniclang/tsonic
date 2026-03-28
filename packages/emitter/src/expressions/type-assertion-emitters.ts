@@ -20,7 +20,9 @@ import { emitExpressionAst } from "../expression-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
   substituteTypeArgs,
+  isCompilerGeneratedStructuralReferenceType,
   isTypeOnlyStructuralTarget,
+  resolveStructuralReferenceType,
 } from "../core/semantic/type-resolution.js";
 import {
   isSemanticUnion,
@@ -292,6 +294,17 @@ export const emitTypeAssertion = (
   };
 
   const hasConcreteRuntimeCastTarget = (target: IrType): boolean => {
+    const structuralReferenceTarget =
+      target.kind === "referenceType"
+        ? target
+        : resolveStructuralReferenceType(target, context);
+    if (
+      structuralReferenceTarget?.kind === "referenceType" &&
+      isCompilerGeneratedStructuralReferenceType(structuralReferenceTarget)
+    ) {
+      return false;
+    }
+
     try {
       const [targetAst] = emitTypeAst(target, context);
       const concreteTargetAst = stripNullableTypeAst(targetAst);
@@ -467,16 +480,14 @@ export const emitTypeAssertion = (
   }
 
   if (shouldEraseTypeAssertion(resolvedAssertionTarget)) {
-    const transparentSourceExpression = unwrapTransparentExpression(
-      expr.expression
-    );
+    const erasedSourceExpression = transparentSourceExpression;
     const sourceExpressionType =
-      transparentSourceExpression.kind === "identifier"
-        ? (context.localSemanticTypes?.get(transparentSourceExpression.name) ??
-          transparentSourceExpression.inferredType)
-        : transparentSourceExpression.inferredType;
+      erasedSourceExpression.kind === "identifier"
+        ? (context.localSemanticTypes?.get(erasedSourceExpression.name) ??
+          erasedSourceExpression.inferredType)
+        : erasedSourceExpression.inferredType;
     const effectiveExpressionType = resolveEffectiveExpressionType(
-      expr.expression,
+      erasedSourceExpression,
       context
     );
     const preserveNarrowedRuntimeMember =
@@ -491,7 +502,7 @@ export const emitTypeAssertion = (
       !willCarryAsRuntimeUnion(effectiveExpressionType, context);
 
     return emitExpressionAst(
-      expr.expression,
+      erasedSourceExpression,
       context,
       preserveNarrowedRuntimeMember ? effectiveExpressionType : expectedType
     );

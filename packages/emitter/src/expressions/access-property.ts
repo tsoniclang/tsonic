@@ -20,7 +20,6 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
-import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { stripNullableTypeAst } from "../core/format/backend-ast/utils.js";
@@ -32,6 +31,9 @@ import {
   resolveEmittedReceiverTypeAst,
   emitMemberName,
 } from "./access-resolution.js";
+import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import { resolveTypeMemberKind } from "../core/semantic/member-surfaces.js";
+import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { buildJsSafeDictionaryReadAst } from "./dictionary-safe-access.js";
 import {
   tryEmitErasedLengthAccess,
@@ -64,18 +66,18 @@ export const emitPropertyAccess = (
     expr.object.kind === "asinterface" ||
     expr.object.kind === "trycast"
   ) {
-    const assertionTargetAlreadyMatchesReceiver =
-      expr.object.kind === "typeAssertion" &&
-      !!resolvedObjectType &&
-      areIrTypesEquivalent(
-        resolvedObjectType,
-        resolveTypeAlias(stripNullish(expr.object.targetType), context),
-        context
-      );
+    const transparentReceiver = unwrapTransparentExpression(expr.object.expression);
+    const transparentReceiverType =
+      resolveEffectiveExpressionType(transparentReceiver, context) ??
+      transparentReceiver.inferredType;
+    const receiverAlreadyExposesMember =
+      !!transparentReceiverType &&
+      resolveTypeMemberKind(transparentReceiverType, prop, context) !==
+        undefined;
     const [emittedReceiverTypeAst, emittedReceiverContext] =
       resolveEmittedReceiverTypeAst(expr.object, context);
     if (
-      !assertionTargetAlreadyMatchesReceiver &&
+      !receiverAlreadyExposesMember &&
       emittedReceiverTypeAst &&
       !isExactExpressionToType(
         receiverAst,

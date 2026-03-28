@@ -1816,5 +1816,62 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("return global::Test.sign.signBytes();");
       expect(csharp).not.to.include("return sign.signBytes();");
     });
+
+    it("materializes narrower function arrays into union-element arrays at call sites", () => {
+      const csharp = compileToCSharp(`
+        type RouteHandler = (req: string) => unknown;
+        type ErrorHandler = (error: unknown, req: string) => unknown;
+        type Handler = RouteHandler | ErrorHandler;
+
+        class RouteBox {
+          constructor(readonly handlers: Handler[]) {}
+        }
+
+        function flatten(handlers: RouteHandler[]): RouteHandler[] {
+          return handlers;
+        }
+
+        export function main(handler: RouteHandler): RouteBox {
+          return new RouteBox(flatten([handler]));
+        }
+      `);
+
+      expect(csharp).to.include("global::System.Linq.Enumerable.Select");
+      expect(csharp).to.match(/\.From1\(__item\)/);
+    });
+
+    it("erases compiler-generated structural assertion casts for nominal receivers", () => {
+      const csharp = compileToCSharp(`
+        class Server {
+          listen(path: string, callback: () => void): void {
+            callback();
+          }
+        }
+
+        class Request {
+          on(name: string, listener: (chunk?: string) => void): void {
+            listener(name);
+          }
+        }
+
+        export function main(server: Server, request: Request): void {
+          (
+            server as object as {
+              listen(path: string, callback: () => void): void;
+            }
+          ).listen("/tmp/socket", () => undefined);
+
+          (
+            request as object as {
+              on(name: string, listener: (chunk?: string) => void): void;
+            }
+          ).on("data", (_chunk) => undefined);
+        }
+      `);
+
+      expect(csharp).to.not.match(/\(\(global::js\.__Anon_/);
+      expect(csharp).to.include('server.listen("/tmp/socket"');
+      expect(csharp).to.include('request.on("data"');
+    });
   });
 });

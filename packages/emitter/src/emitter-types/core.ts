@@ -203,6 +203,14 @@ export type ImportBinding =
       readonly kind: "type";
       /** Fully-qualified or keyword-preserving type AST */
       readonly typeAst: CSharpTypeAst;
+      /**
+       * Exact imported type-alias body when the imported symbol is a type alias.
+       * This lets semantic helpers resolve imported aliases deterministically
+       * from the import contract instead of guessing by leaf name.
+       */
+      readonly aliasType?: IrType;
+      /** Declared type parameters for aliasType when present. */
+      readonly aliasTypeParameters?: readonly string[];
     }
   | {
       /** Value import (function/variable) */

@@ -37,6 +37,7 @@ export {
 export {
   containsTypeParameter,
   substituteTypeArgs,
+  isCompilerGeneratedStructuralReferenceType,
   resolveStructuralReferenceType,
   normalizeStructuralEmissionType,
 } from "./structural-resolution.js";

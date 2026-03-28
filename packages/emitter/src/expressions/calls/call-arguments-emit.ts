@@ -902,8 +902,13 @@ const emitCallArguments = (
       break;
     }
 
+    const surfaceRestElementType =
+      restParameter && i >= restParameter.index
+        ? restParameter.elementType
+        : undefined;
     const expectedType =
-      restInfo && i >= restInfo.index
+      surfaceRestElementType ??
+      (restInfo && i >= restInfo.index
         ? restInfo.elementType
         : resolveCallArgumentExpectedType(
             expr,
@@ -911,12 +916,18 @@ const emitCallArguments = (
             i,
             parameterTypes[i],
             currentContext
-          );
+          ));
 
+    const runtimeRestElementType =
+      !parameterTypeOverrides &&
+      expr.restParameter &&
+      i >= expr.restParameter.index
+        ? expr.restParameter.elementType
+        : undefined;
     const runtimeParameterType =
       parameterTypeOverrides && parameterTypeOverrides.length > 0
         ? parameterTypeOverrides[i]
-        : expr.parameterTypes?.[i];
+        : runtimeRestElementType ?? expr.parameterTypes?.[i];
     const effectiveExpectedType = (() => {
       const normalizedRuntime =
         runtimeParameterType === undefined

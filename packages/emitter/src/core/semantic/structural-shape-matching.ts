@@ -208,7 +208,7 @@ const isCompilerGeneratedStructuralName = (
   name: string | undefined
 ): boolean => !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
 
-const isCompilerGeneratedStructuralReference = (
+export const isCompilerGeneratedStructuralReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>
 ): boolean => {
   const simpleName = type.name.split(".").pop() ?? type.name;
@@ -281,7 +281,7 @@ export const resolveStructuralReferenceType = (
   const stripped = stripNullish(type);
   const preserveCompilerGeneratedReference =
     stripped.kind === "referenceType" &&
-    isCompilerGeneratedStructuralReference(stripped);
+    isCompilerGeneratedStructuralReferenceType(stripped);
   let targetShape: readonly StructuralShapeMember[] | undefined;
   let preservedTypeArguments: readonly IrType[] | undefined;
 
@@ -297,7 +297,7 @@ export const resolveStructuralReferenceType = (
         context
       );
       targetShape = directShape;
-      if (!isCompilerGeneratedStructuralReference(stripped)) {
+      if (!isCompilerGeneratedStructuralReferenceType(stripped)) {
         return stripped;
       }
     }
@@ -313,7 +313,7 @@ export const resolveStructuralReferenceType = (
         context
       );
       targetShape ??= reboundShape;
-      if (!isCompilerGeneratedStructuralReference(rebound)) {
+      if (!isCompilerGeneratedStructuralReferenceType(rebound)) {
         return rebound;
       }
     }
