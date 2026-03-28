@@ -70,9 +70,13 @@ export const emitPropertyAccess = (
     const transparentReceiverType =
       resolveEffectiveExpressionType(transparentReceiver, context) ??
       transparentReceiver.inferredType;
+    const transparentMemberResolutionType =
+      expr.isOptional && transparentReceiverType
+        ? stripNullish(transparentReceiverType)
+        : transparentReceiverType;
     const receiverAlreadyExposesMember =
-      !!transparentReceiverType &&
-      resolveTypeMemberKind(transparentReceiverType, prop, context) !==
+      !!transparentMemberResolutionType &&
+      resolveTypeMemberKind(transparentMemberResolutionType, prop, context) !==
         undefined;
     const [emittedReceiverTypeAst, emittedReceiverContext] =
       resolveEmittedReceiverTypeAst(expr.object, context);

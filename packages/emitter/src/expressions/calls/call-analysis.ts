@@ -184,6 +184,7 @@ export const registerJsonAotType = (
 ): void => {
   if (!type) return;
   if (!context.options.jsonAotRegistry) return;
+  if (!context.options.enableJsonAot) return;
 
   // NativeAOT JSON source generation requires CLOSED types.
   // If the type contains any generic parameters in the current scope (T, U, ...),
@@ -207,6 +208,16 @@ export const registerJsonAotType = (
     normalizedTypeAst
   );
   registry.needsJsonAot = true;
+};
+
+export const registerJsonRuntimeSupport = (
+  context: EmitterContext
+): void => {
+  const registry = context.options.jsonAotRegistry;
+  if (!registry) {
+    return;
+  }
+  registry.needsRuntimeJsonSupport = true;
 };
 
 const boxedJsNumberJsonType: IrType = {

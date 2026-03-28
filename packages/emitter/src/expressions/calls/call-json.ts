@@ -9,6 +9,7 @@ import { emitExpressionAst } from "../../expression-emitter.js";
 import {
   registerJsonAotExpressionTypes,
   registerJsonAotType,
+  registerJsonRuntimeSupport,
 } from "./call-analysis.js";
 import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
 import type {
@@ -137,6 +138,7 @@ const emitRuntimeJsonStringifyCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
+  registerJsonRuntimeSupport(context);
   let currentContext = context;
   const argAsts: CSharpExpressionAst[] = [];
 
@@ -161,8 +163,10 @@ const emitRuntimeJsonStringifyCall = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: buildExactGlobalBindingReference("JSON", context),
-        memberName: "stringify",
+        expression: identifierExpression(
+          `global::${context.options.rootNamespace ?? "TsonicApp"}.TsonicJsonRuntime`
+        ),
+        memberName: "Stringify",
       },
       arguments: argAsts,
     },

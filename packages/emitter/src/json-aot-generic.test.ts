@@ -223,9 +223,13 @@ describe("JSON NativeAOT registry", () => {
     if (!result.ok) return;
 
     const code = result.files.get("index.cs");
+    const runtimeFile = result.files.get("__tsonic_json_runtime.g.cs");
     expect(code).to.not.equal(undefined);
-    expect(code).to.include("global::js.JSON.stringify(value)");
+    expect(code).to.include("global::MyApp.TsonicJsonRuntime.Stringify(value)");
     expect(code).to.not.include("JsonSerializer.Serialize(value");
+    expect(runtimeFile).to.not.equal(undefined);
+    expect(runtimeFile).to.include("internal static class TsonicJsonRuntime");
+    expect(runtimeFile).to.include("TryWriteRuntimeUnion");
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
 

@@ -466,8 +466,7 @@ export type EmitResult = {
 };
 
 /**
- * Registry for collecting types used with JsonSerializer.
- * Used to generate NativeAOT-compatible JsonSerializerContext.
+ * Registry for collecting generated JSON support requirements.
  * This is a mutable structure shared across all modules during emission.
  */
 export type JsonAotRegistry = {
@@ -475,4 +474,6 @@ export type JsonAotRegistry = {
   readonly rootTypes: Map<string, CSharpTypeAst>;
   /** Whether any JsonSerializer calls were detected */
   needsJsonAot: boolean;
+  /** Whether any dynamic JS JSON runtime helper calls were emitted */
+  needsRuntimeJsonSupport: boolean;
 };
