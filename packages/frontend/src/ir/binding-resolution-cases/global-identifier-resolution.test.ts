@@ -315,6 +315,68 @@ describe("Binding Resolution in IR", () => {
       });
     });
 
+    it("does not let broad-number evidence override a distinct first-argument shape", () => {
+      const source = `
+        type int = number;
+
+        declare const values: Iterable<number>;
+
+        declare class BufferLike {
+          set(index: int, value: number): void;
+          set(values: Iterable<number>, offset?: int): void;
+        }
+
+        declare const buffer: BufferLike;
+
+        export function test(length: number): void {
+          buffer.set(values, length);
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body.find(
+        (stmt) => stmt.kind === "functionDeclaration" && stmt.name === "test"
+      );
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements.find(
+        (stmt) => stmt.kind === "expressionStatement"
+      );
+      expect(exprStmt?.kind).to.equal("expressionStatement");
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+      if (callExpr.kind !== "call") return;
+
+      expect(callExpr.parameterTypes?.[1]).to.deep.equal({
+        kind: "unionType",
+        types: [
+          {
+            kind: "primitiveType",
+            name: "int",
+          },
+          {
+            kind: "primitiveType",
+            name: "undefined",
+          },
+        ],
+      });
+      expect(callExpr.parameterTypes?.[0]).to.not.deep.equal({
+        kind: "primitiveType",
+        name: "int",
+      });
+    });
+
     it("keeps explicit string-return overloads over sibling char overloads", () => {
       const source = `
         type char = string;
@@ -330,6 +392,99 @@ describe("Binding Resolution in IR", () => {
 
         export function test(): void {
           Console.WriteLine(formatArgs());
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body.find(
+        (stmt) => stmt.kind === "functionDeclaration" && stmt.name === "test"
+      );
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements.find(
+        (stmt) => stmt.kind === "expressionStatement"
+      );
+      expect(exprStmt?.kind).to.equal("expressionStatement");
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+      if (callExpr.kind !== "call") return;
+
+      expect(callExpr.parameterTypes?.[0]).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+    });
+
+    it("keeps string overloads for multi-character ternary expressions", () => {
+      const source = `
+        type char = string;
+
+        declare const Console: {
+          WriteLine(value: char): void;
+          WriteLine(value: string): void;
+        };
+
+        declare const ok: boolean;
+
+        export function test(): void {
+          Console.WriteLine(ok ? "READY" : "WAIT");
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body.find(
+        (stmt) => stmt.kind === "functionDeclaration" && stmt.name === "test"
+      );
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements.find(
+        (stmt) => stmt.kind === "expressionStatement"
+      );
+      expect(exprStmt?.kind).to.equal("expressionStatement");
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+      if (callExpr.kind !== "call") return;
+
+      expect(callExpr.parameterTypes?.[0]).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+    });
+
+    it("keeps string overloads for identifiers inferred from multi-character literals", () => {
+      const source = `
+        type char = string;
+
+        declare const Console: {
+          WriteLine(value: char): void;
+          WriteLine(value: string): void;
+        };
+
+        export function test(): void {
+          const message = "inner";
+          Console.WriteLine(message);
         }
       `;
 

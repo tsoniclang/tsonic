@@ -704,6 +704,7 @@ const substituteSourceReceiverTypeParameters = (
 };
 
 const getSourceBackedCallParameterTypes = (
+  node: ts.CallExpression,
   callee: IrCallExpression["callee"],
   receiverType: IrType | undefined,
   argumentCount: number,
@@ -759,6 +760,10 @@ const getSourceBackedCallParameterTypes = (
     return undefined;
   }
 
+  const resolvedSignatureDeclaration = ctx.checker
+    .getResolvedSignature(node)
+    ?.getDeclaration();
+
   const resolveSignatureDeclaration = ():
     | {
         readonly declaration:
@@ -770,9 +775,14 @@ const getSourceBackedCallParameterTypes = (
       }
     | undefined => {
     if (!sourceOrigin.memberName) {
-      if (exportedSymbol.kind === "function") {
+      if (
+        exportedSymbol.kind === "function" &&
+        resolvedSignatureDeclaration &&
+        ts.isFunctionDeclaration(resolvedSignatureDeclaration) &&
+        resolvedSignatureDeclaration.name?.text === sourceOrigin.exportName
+      ) {
         return {
-          declaration: exportedSymbol.node as ts.FunctionDeclaration,
+          declaration: resolvedSignatureDeclaration,
           ownerTypeParameterNames: [],
         };
       }
@@ -782,6 +792,8 @@ const getSourceBackedCallParameterTypes = (
           .initializer;
         if (
           initializer &&
+          resolvedSignatureDeclaration &&
+          resolvedSignatureDeclaration === initializer &&
           (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))
         ) {
           return {
@@ -794,31 +806,30 @@ const getSourceBackedCallParameterTypes = (
       return undefined;
     }
 
+    if (
+      !resolvedSignatureDeclaration ||
+      !ts.isMethodDeclaration(resolvedSignatureDeclaration) ||
+      resolvedSignatureDeclaration.name === undefined ||
+      !(
+        ts.isIdentifier(resolvedSignatureDeclaration.name) ||
+        ts.isStringLiteral(resolvedSignatureDeclaration.name)
+      ) ||
+      resolvedSignatureDeclaration.name.text !== sourceOrigin.memberName
+    ) {
+      return undefined;
+    }
+
     if (exportedSymbol.kind !== "class") {
       return undefined;
     }
 
     const declaration = exportedSymbol.node as ts.ClassDeclaration;
-    const methodDeclarations = declaration.members.filter(
-      (member): member is ts.MethodDeclaration =>
-        ts.isMethodDeclaration(member) &&
-        member.name !== undefined &&
-        (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)) &&
-        member.name.text === sourceOrigin.memberName
-    );
-    if (methodDeclarations.length === 0) {
-      return undefined;
-    }
-
-    const implementation =
-      methodDeclarations.find((member) => member.body !== undefined) ??
-      methodDeclarations[methodDeclarations.length - 1];
-    if (!implementation) {
+    if (resolvedSignatureDeclaration.parent !== declaration) {
       return undefined;
     }
 
     return {
-      declaration: implementation,
+      declaration: resolvedSignatureDeclaration,
       ownerTypeParameterNames:
         declaration.typeParameters?.map((parameter) => parameter.name.text) ?? [],
     };
@@ -968,6 +979,7 @@ export const convertCallExpression = (
       )
     : undefined;
   const sourceBackedCallParameterTypes = getSourceBackedCallParameterTypes(
+    node,
     callee,
     receiverIrType,
     argumentCount,

@@ -108,6 +108,66 @@ export const resolveCallSignature = (
     return node.kind === ts.SyntaxKind.NumberKeyword;
   };
 
+  const getCheckerStringEvidence = (
+    type: ts.Type | undefined,
+    seen = new Set<ts.Type>()
+  ): "string" | undefined => {
+    if (!type || seen.has(type)) {
+      return undefined;
+    }
+    seen.add(type);
+
+    if ((type.flags & ts.TypeFlags.StringLike) !== 0) {
+      return "string";
+    }
+
+    if (type.isUnion()) {
+      return type.types.length > 0 &&
+        type.types.every(
+          (member) => getCheckerStringEvidence(member, seen) === "string"
+        )
+        ? "string"
+        : undefined;
+    }
+
+    return undefined;
+  };
+
+  const getDeclarationStringClass = (
+    declarations: readonly ts.Declaration[] | undefined
+  ): "char" | "string" | undefined => {
+    if (!declarations || declarations.length === 0) {
+      return undefined;
+    }
+
+    const classes = new Set<"char" | "string">();
+    for (const decl of declarations) {
+      const typeNode = getTypeNodeFromDeclaration(decl);
+      if (!typeNode) {
+        continue;
+      }
+
+      if (isStringTypeNode(typeNode)) {
+        classes.add("string");
+        continue;
+      }
+
+      if (getExplicitClrPrimitiveAlias(typeNode) === "char") {
+        classes.add("char");
+        continue;
+      }
+
+      if (
+        ts.isArrayTypeNode(typeNode) &&
+        getExplicitClrPrimitiveAlias(typeNode.elementType) === "char"
+      ) {
+        classes.add("char");
+      }
+    }
+
+    return classes.size === 1 ? [...classes][0] : undefined;
+  };
+
   const getExplicitStringEvidence = (
     arg: ts.Expression,
     seen = new Set<ts.Node>()
@@ -124,10 +184,9 @@ export const resolveCallSignature = (
       return "string";
     }
 
-    const checkerStringEvidence =
-      ctx.checker.typeToString(ctx.checker.getTypeAtLocation(expr)) === "string"
-        ? "string"
-        : undefined;
+    const checkerStringEvidence = getCheckerStringEvidence(
+      ctx.checker.getTypeAtLocation(expr)
+    );
 
     if (ts.isAsExpression(expr) || ts.isTypeAssertionExpression(expr)) {
       if (isStringTypeNode(expr.type)) {
@@ -143,13 +202,16 @@ export const resolveCallSignature = (
         symbol.flags & ts.SymbolFlags.Alias
           ? ctx.checker.getAliasedSymbol(symbol)
           : symbol;
-      const kinds = new Set<"string">();
-      for (const decl of resolvedSymbol.getDeclarations() ?? []) {
-        if (isStringTypeNode(getTypeNodeFromDeclaration(decl))) {
-          kinds.add("string");
-        }
+      const declarationClass = getDeclarationStringClass(
+        resolvedSymbol.getDeclarations()
+      );
+      if (declarationClass === "string") {
+        return "string";
       }
-      return kinds.size === 1 ? "string" : checkerStringEvidence;
+      if (declarationClass === "char") {
+        return undefined;
+      }
+      return checkerStringEvidence;
     }
 
     if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
@@ -162,13 +224,16 @@ export const resolveCallSignature = (
         symbol.flags & ts.SymbolFlags.Alias
           ? ctx.checker.getAliasedSymbol(symbol)
           : symbol;
-      const kinds = new Set<"string">();
-      for (const decl of resolvedSymbol.getDeclarations() ?? []) {
-        if (isStringTypeNode(getTypeNodeFromDeclaration(decl))) {
-          kinds.add("string");
-        }
+      const declarationClass = getDeclarationStringClass(
+        resolvedSymbol.getDeclarations()
+      );
+      if (declarationClass === "string") {
+        return "string";
       }
-      return kinds.size === 1 ? "string" : checkerStringEvidence;
+      if (declarationClass === "char") {
+        return undefined;
+      }
+      return checkerStringEvidence;
     }
 
     if (ts.isCallExpression(expr)) {
@@ -176,7 +241,20 @@ export const resolveCallSignature = (
       const returnTypeNode = getReturnTypeNode(
         signature?.getDeclaration() as ts.SignatureDeclaration | undefined
       );
-      return isStringTypeNode(returnTypeNode) ? "string" : checkerStringEvidence;
+      if (isStringTypeNode(returnTypeNode)) {
+        return "string";
+      }
+      if (getExplicitClrPrimitiveAlias(returnTypeNode) === "char") {
+        return undefined;
+      }
+      return checkerStringEvidence;
+    }
+
+    if (ts.isConditionalExpression(expr)) {
+      return getExplicitStringEvidence(expr.whenTrue, seen) === "string" &&
+        getExplicitStringEvidence(expr.whenFalse, seen) === "string"
+        ? "string"
+        : checkerStringEvidence;
     }
 
     if (
@@ -621,6 +699,54 @@ export const resolveCallSignature = (
     return undefined;
   };
 
+  const getParameterDisplayTextForArgIndex = (
+    entry: SignatureEntry,
+    argIndex: number
+  ): string | undefined => {
+    const params = entry.parameters;
+    const direct = params[argIndex];
+    const param = direct ?? params[params.length - 1];
+    if (!param) return undefined;
+    if (!direct && !param.isRest) return undefined;
+    return getTypeNodeDisplayText(param.typeNode as ts.TypeNode | undefined);
+  };
+
+  const candidatesShareNonTargetParameterShape = (
+    candidates: readonly SignatureId[],
+    argIndex: number
+  ): boolean => {
+    if (candidates.length < 2) {
+      return false;
+    }
+
+    for (let index = 0; index < args.length; index += 1) {
+      if (index === argIndex) {
+        continue;
+      }
+
+      let expectedText: string | undefined;
+      for (const candidate of candidates) {
+        const entry = ctx.signatureMap.get(candidate.id);
+        if (!entry) {
+          return false;
+        }
+        const displayText = getParameterDisplayTextForArgIndex(entry, index);
+        if (!displayText) {
+          return false;
+        }
+        if (expectedText === undefined) {
+          expectedText = displayText;
+          continue;
+        }
+        if (expectedText !== displayText) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
   const getResolvedSignatureParameterDisplayTexts = (): readonly string[] => {
     return signature.getParameters().map((parameter) =>
       ctx.checker.typeToString(
@@ -778,6 +904,9 @@ export const resolveCallSignature = (
   }
 
   for (const argIndex of wantsBroadNumberAt) {
+    if (!candidatesShareNonTargetParameterShape(remaining, argIndex)) {
+      continue;
+    }
     const matching = remaining.filter((candidate) => {
       const entry = ctx.signatureMap.get(candidate.id);
       return (
