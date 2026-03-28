@@ -1265,5 +1265,68 @@ describe("IR Builder", function () {
         expect(firstImport.resolvedNamespace).to.equal(undefined);
       }
     });
+
+    it("keeps exact imported source type identity in overload return syntax when sibling modules share a simple name", () => {
+      const { sourceFile, testProgram, ctx, options, cleanup } =
+        createFilesystemTestProgram(
+          {
+            "src/http/server.ts": `
+              export class Server {
+                public end(): Server {
+                  return this;
+                }
+              }
+            `,
+            "src/net/server.ts": `
+              export class Server {
+                public close(): Server {
+                  return this;
+                }
+              }
+            `,
+            "src/net/index.ts": `
+              import { Server } from "./server.ts";
+
+              export function createServer(): Server;
+              export function createServer(seed: boolean): Server;
+              export function createServer(seed?: boolean): Server {
+                if (seed) {
+                  return new Server().close();
+                }
+                return new Server();
+              }
+            `,
+          },
+          "src/net/index.ts"
+        );
+
+      try {
+        const result = buildIrModule(sourceFile, testProgram, options, ctx);
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const overloads = result.value.body.filter(
+          (stmt): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
+            stmt.kind === "functionDeclaration" && stmt.name === "createServer"
+        );
+        expect(overloads.length).to.be.greaterThan(0);
+
+        for (const overload of overloads) {
+          expect(overload.returnType?.kind).to.equal("referenceType");
+          if (
+            !overload.returnType ||
+            overload.returnType.kind !== "referenceType"
+          ) {
+            throw new Error("Expected referenceType return");
+          }
+
+          expect(overload.returnType.typeId?.clrName).to.equal(
+            "TestApp.net.Server"
+          );
+        }
+      } finally {
+        cleanup();
+      }
+    });
   });
 });

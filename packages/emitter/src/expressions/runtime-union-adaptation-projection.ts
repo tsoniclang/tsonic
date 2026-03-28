@@ -143,7 +143,12 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     return undefined;
   }
 
-  const actualTypeContext = actualLayoutContext;
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    expectedType,
+    actualLayoutContext
+  );
+
+  const actualTypeContext = expectedTypeContext;
 
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = actualTypeContext;
@@ -202,6 +207,7 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
         expression: ast,
         memberName: "Match",
       },
+      typeArguments: [expectedTypeAst],
       arguments: lambdaArgs,
     },
     currentContext,

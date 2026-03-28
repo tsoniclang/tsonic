@@ -163,7 +163,7 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include("handlerArray.Match(");
+    expect(text).to.include("handlerArray.Match");
     expect(text).to.include(".Length");
     expect(text).to.not.include("new global::js.Array<");
   });

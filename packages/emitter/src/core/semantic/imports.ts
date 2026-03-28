@@ -486,6 +486,11 @@ const createImportBinding = (
     } else {
       const valueKind = exportedValueKinds?.get(resolvedExportName);
       const bucket = valueKind === "variable" ? "fields" : "methods";
+      const localType = targetLocalTypes?.get(resolvedExportName);
+      const typeAst =
+        localType?.kind === "class" || localType?.kind === "enum"
+          ? identifierType(`global::${namespace}.${resolvedExportName}`)
+          : undefined;
       // Value import: clrName is the value container, member is the export name
       return {
         localName,
@@ -494,6 +499,7 @@ const createImportBinding = (
           clrName: valueContainerFqn,
           member: emitCSharpName(resolvedExportName, bucket, context),
           valueKind,
+          typeAst,
           runtimeOmittableCallArities:
             exportedValueCallArities?.get(resolvedExportName),
         },

@@ -349,6 +349,8 @@ export type TypeAuthority = {
  * Configuration for creating a TypeSystem instance.
  */
 export type TypeSystemConfig = {
+  readonly sourceRoot: string;
+  readonly rootNamespace: string;
   /**
    * Handle registry for looking up declarations and signatures.
    *

@@ -212,6 +212,8 @@ export const createProgramContext = (
   // TypeSystem encapsulates HandleRegistry, TypeRegistry, NominalEnv and type conversion
   const bindingInternal = program.binding as BindingInternal;
   const typeSystem = createTypeSystem({
+    sourceRoot: options.sourceRoot,
+    rootNamespace: options.rootNamespace,
     handleRegistry: bindingInternal._getHandleRegistry(),
     typeRegistry,
     nominalEnv,

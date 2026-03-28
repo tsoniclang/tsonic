@@ -216,6 +216,8 @@ export type ImportBinding =
       readonly member: string;
       /** Original exported value category when known (function vs variable/function-value). */
       readonly valueKind?: ValueSymbolKind;
+      /** Type surface for class/enum values that are also valid in type positions. */
+      readonly typeAst?: CSharpTypeAst;
       /** True when this value comes from a module-object/source-surface export. */
       readonly moduleObject?: boolean;
       /** Supported argument counts that can omit trailing args at runtime. */
@@ -286,6 +288,7 @@ export type NarrowedBinding =
       readonly kind: "runtimeSubset";
       readonly runtimeMemberNs: readonly number[];
       readonly runtimeUnionArity: number;
+      readonly storageExprAst?: CSharpExpressionAst;
       readonly sourceMembers?: readonly IrType[];
       readonly sourceCandidateMemberNs?: readonly number[];
       readonly type?: IrType;
@@ -375,6 +378,14 @@ export type EmitterContext = {
   readonly moduleStaticClassName?: string;
   /** When true, fully qualify local types with module namespace/container */
   readonly qualifyLocalTypes?: boolean;
+  /**
+   * When true, same-module nominal references may emit their explicit
+   * `resolvedClrType` identity instead of the short local name.
+   *
+   * Used only in contexts that require canonical emitted member surfaces,
+   * such as runtime-union carrier layout construction.
+   */
+  readonly preferResolvedLocalClrIdentity?: boolean;
   /** Map of module static members (functions/fields) by original TS name */
   readonly valueSymbols?: ReadonlyMap<string, ValueSymbolInfo>;
   /** Type aliases currently being expanded to prevent recursive alias blowups. */

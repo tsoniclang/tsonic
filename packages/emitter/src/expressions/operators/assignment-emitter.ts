@@ -12,6 +12,7 @@ import { hasInt32Proof } from "./helpers.js";
 import { emitWritableTargetAst } from "./write-targets.js";
 import { getTypedArrayStorageElementType } from "../calls/new-emitter-collections.js";
 import { maybeCastNumericToExpectedIntegralAst } from "../post-emission-adaptation.js";
+import { resolveWritableTargetStorageType } from "../../core/semantic/assignment-flow.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 
@@ -210,7 +211,15 @@ export const emitAssignment = (
     const [emittedLeftAst, ctx] = emitWritableTargetAst(leftExpr, context);
     leftAst = emittedLeftAst;
     leftContext = ctx;
-    leftType = leftExpr.inferredType;
+    if (leftExpr.kind === "identifier") {
+      leftType =
+        resolveWritableTargetStorageType(leftExpr, ctx) ?? leftExpr.inferredType;
+    } else if (leftExpr.kind === "memberAccess" && !leftExpr.isComputed) {
+      leftType =
+        resolveWritableTargetStorageType(leftExpr, ctx) ?? leftExpr.inferredType;
+    } else {
+      leftType = leftExpr.inferredType;
+    }
   }
 
   // Pass LHS type as expected type to RHS for proper integer handling

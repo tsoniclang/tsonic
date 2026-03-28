@@ -110,10 +110,28 @@ export const applySimpleNullableRefinement = (
     return undefined;
   }
 
-  const [rawTargetAst, rawTargetContext] = emitExprAst(
+  const existingBinding = context.narrowedBindings?.get(nullableGuard.key);
+  const [projectedTargetAst, projectedTargetContext] = emitExprAst(
     nullableGuard.targetExpr,
     context
   );
+  const [rawTargetAst, rawTargetContext] = emitExprAst(
+    nullableGuard.targetExpr,
+    withoutNarrowedBinding(context, nullableGuard.key)
+  );
+  const sourceType = resolveExistingNarrowingSourceType(
+    nullableGuard.key,
+    currentType,
+    context
+  );
+  const storageExprAst =
+    existingBinding?.kind === "expr"
+      ? (existingBinding.storageExprAst ?? rawTargetAst)
+      : rawTargetAst;
+  const projectedExprAst =
+    existingBinding?.kind === "expr"
+      ? existingBinding.exprAst
+      : projectedTargetAst;
 
   const [materializedExprAst, materializedContext] =
     nullableGuard.isValueType || isDefinitelyValueType(strippedType)
@@ -123,15 +141,19 @@ export const applySimpleNullableRefinement = (
           strippedType,
           rawTargetContext
         )
-      : [tryStripConditionalNullishGuardAst(rawTargetAst) ?? rawTargetAst, rawTargetContext];
+      : [
+          tryStripConditionalNullishGuardAst(projectedExprAst) ??
+            projectedExprAst,
+          projectedTargetContext,
+        ];
 
   return applyBinding(
     nullableGuard.key,
     buildExprBinding(
       materializedExprAst,
       strippedType,
-      currentType,
-      materializedExprAst
+      sourceType,
+      storageExprAst
     ),
     materializedContext
   );

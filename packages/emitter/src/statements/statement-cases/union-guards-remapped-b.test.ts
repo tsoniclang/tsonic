@@ -189,7 +189,7 @@ describe("Statement Emission", () => {
     expect(result).to.include("if (s.Is1())");
     expect(result).to.include("if (s.Is2())");
     expect(result).to.include("if (true)");
-    expect(result).to.not.include("s.Match(");
+    expect(result).to.not.include("s.Match");
   });
 
   it("maps discriminant guards through transparent assertion wrappers after earlier narrowing", () => {
@@ -401,6 +401,6 @@ describe("Statement Emission", () => {
     expect(result).to.include("if (s.Is1())");
     expect(result).to.include("if (s.Is2())");
     expect(result).to.include('if ((s.As3()).kind == "c")');
-    expect(result).to.not.include("s.Match(");
+    expect(result).to.not.include("s.Match");
   });
 });

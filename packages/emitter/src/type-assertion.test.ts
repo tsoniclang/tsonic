@@ -10,6 +10,7 @@ import { IrModule, IrType } from "@tsonic/frontend";
 import { createContext } from "./emitter-types/context.js";
 import { emitAssignment } from "./expressions/operators/assignment-emitter.js";
 import { printExpression } from "./core/format/backend-ast/printer.js";
+import { emitExpressionAst } from "./expression-emitter.js";
 
 describe("Type Assertion Emission", () => {
   it("should strip 'as' type assertions", () => {
@@ -253,6 +254,64 @@ describe("Type Assertion Emission", () => {
     expect(code).to.not.include("(void)default");
   });
 
+  it("projects duplicate runtime-union assertions to a single Match", () => {
+    const memberType: IrType = { kind: "typeParameterType", name: "T" };
+    const duplicatedCarrier: IrType = {
+      kind: "unionType",
+      preserveRuntimeLayout: true,
+      types: [memberType, memberType],
+    };
+    const context = createContext({ rootNamespace: "Test" });
+
+    const [ast] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "value",
+          inferredType: duplicatedCarrier,
+        },
+        targetType: memberType,
+        inferredType: memberType,
+      },
+      context,
+      memberType
+    );
+
+    expect(printExpression(ast)).to.match(
+      /^value\.Match(?:<.*?>)?\(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2\)$/
+    );
+  });
+
+  it("lifts duplicate runtime-union assertions with a single factory call", () => {
+    const memberType: IrType = { kind: "typeParameterType", name: "T" };
+    const duplicatedCarrier: IrType = {
+      kind: "unionType",
+      preserveRuntimeLayout: true,
+      types: [memberType, memberType],
+    };
+    const context = createContext({ rootNamespace: "Test" });
+
+    const [ast] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "value",
+          inferredType: memberType,
+        },
+        targetType: duplicatedCarrier,
+        inferredType: duplicatedCarrier,
+      },
+      context,
+      duplicatedCarrier
+    );
+
+    expect(printExpression(ast)).to.equal(
+      "global::Tsonic.Runtime.Union<T, T>.From1(value)"
+    );
+  });
+
   it("threads narrowed typeof assertions into union assignments without re-widening the narrowed member", () => {
     const numberType: IrType = { kind: "primitiveType", name: "number" };
     const stringType: IrType = { kind: "primitiveType", name: "string" };
@@ -345,7 +404,7 @@ describe("Type Assertion Emission", () => {
     expect(emitted).to.not.include(
       "(global::Tsonic.Runtime.Union<global::System.Action, double>"
     );
-    expect(emitted).to.not.include(".Match(");
+    expect(emitted).to.not.include(".Match");
     expect(emitted).to.include(".From2(");
     expect(emitted).to.include("hostname.As2()");
   });

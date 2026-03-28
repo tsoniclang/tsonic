@@ -39,6 +39,10 @@ export const mergeBranchContextMeta = (
   ...preferred,
   tempVarId: Math.max(preferred.tempVarId ?? 0, alternate.tempVarId ?? 0),
   usings: new Set([...(preferred.usings ?? []), ...(alternate.usings ?? [])]),
+  usedLocalNames: new Set([
+    ...(preferred.usedLocalNames ?? []),
+    ...(alternate.usedLocalNames ?? []),
+  ]),
 });
 
 export const resetBranchFlowState = (
@@ -145,6 +149,7 @@ export const buildComplementNarrowedBinding = (
     kind: "runtimeSubset",
     runtimeMemberNs: remainingPairs.map((pair) => pair.runtimeMemberN),
     runtimeUnionArity,
+    storageExprAst: toReceiverAst(receiver),
     sourceMembers: [...(sourceMembers ?? candidateMembers)],
     sourceCandidateMemberNs: [
       ...(sourceCandidateMemberNs ?? candidateMemberNs),
@@ -198,6 +203,7 @@ export const buildComplementNarrowedBindingForMembers = (
     kind: "runtimeSubset",
     runtimeMemberNs: remainingPairs.map((pair) => pair.runtimeMemberN),
     runtimeUnionArity,
+    storageExprAst: toReceiverAst(receiver),
     sourceMembers: [...(sourceMembers ?? candidateMembers)],
     sourceCandidateMemberNs: [
       ...(sourceCandidateMemberNs ?? candidateMemberNs),

@@ -538,6 +538,25 @@ const specializeHelperCallShapeType = (
 ): IrType | undefined =>
   type ? specializeHelperCallShapeRequired(type, substitutions) : undefined;
 
+const specializeHelperCallReturnType = (
+  type: IrType | undefined,
+  substitutions: ReadonlyMap<string, IrType>
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const specialized = specializeHelperCallShapeRequired(type, substitutions);
+  if (type.kind === "unionType" && specialized.kind === "unionType") {
+    return {
+      ...specialized,
+      preserveRuntimeLayout: true,
+    };
+  }
+
+  return specialized;
+};
+
 const trimTrailingOptionalHelperParameters = (
   wrapperParameters: readonly IrParameter[],
   helperParameters: readonly IrParameter[]
@@ -804,6 +823,13 @@ export const createWrapperBody = (
       bindableNames
     );
   }
+  for (const helperTypeParameterName of helperTypeParameterNames) {
+    if (!substitutions.has(helperTypeParameterName)) {
+      substitutions.set(helperTypeParameterName, {
+        kind: "unknownType",
+      });
+    }
+  }
 
   const specializedHelperParameters = helperParameters.map((parameter) => ({
     ...parameter,
@@ -817,13 +843,12 @@ export const createWrapperBody = (
     parameters,
     effectiveHelperParameters
   );
-  const specializedImplReturnType = specializeHelperCallShapeType(
+  const specializedImplReturnType = specializeHelperCallReturnType(
     implReturnType,
     substitutions
   );
   const helperTypeArguments =
-    helperTypeParameterNames.length > 0 &&
-    helperTypeParameterNames.every((name) => substitutions.has(name))
+    helperTypeParameterNames.length > 0
       ? helperTypeParameterNames.map(
           (name) => substitutions.get(name) as IrType
         )

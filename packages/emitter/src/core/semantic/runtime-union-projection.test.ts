@@ -59,6 +59,17 @@ describe("runtime-union-projection", () => {
         expression: identifierExpression("value"),
         memberName: "Match",
       },
+      typeArguments: [
+        identifierType("global::Tsonic.Runtime.Union", [
+          {
+            kind: "arrayType",
+            rank: 1,
+            elementType: identifierType("object"),
+          },
+          { kind: "predefinedType", keyword: "string" },
+          identifierType("global::js.RegExp"),
+        ]),
+      ],
       arguments: [
         {
           kind: "lambdaExpression",
@@ -154,6 +165,12 @@ describe("runtime-union-projection", () => {
         expression: identifierExpression("value"),
         memberName: "Match",
       },
+      typeArguments: [
+        identifierType("global::Tsonic.Runtime.Union", [
+          { kind: "predefinedType", keyword: "string" },
+          identifierType("global::js.RegExp"),
+        ]),
+      ],
       arguments: [
         {
           kind: "lambdaExpression",

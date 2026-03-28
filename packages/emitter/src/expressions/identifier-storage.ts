@@ -151,9 +151,11 @@ export const buildRuntimeSubsetExpressionAst = (
           candidateMemberNs: narrowed.sourceCandidateMemberNs,
         }
       : undefined;
+  const sourceValueAst =
+    narrowed.storageExprAst ?? identifierExpression(escapeCSharpIdentifier(expr.name));
 
   const materialized = tryBuildRuntimeMaterializationAst(
-    identifierExpression(escapeCSharpIdentifier(expr.name)),
+    sourceValueAst,
     sourceType,
     targetType,
     context,
@@ -376,6 +378,18 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   const shouldAvoidStorageReuse =
     shouldAvoidBroadStorageReuse ||
     shouldAvoidProjectedRuntimeUnionStorageReuse;
+  const canReuseOriginalRuntimeCarrier =
+    !!expectedType &&
+    !!narrowed.storageExprAst &&
+    !!narrowed.sourceType &&
+    willCarryAsRuntimeUnion(expectedType, context) &&
+    matchesExpectedEmissionType(
+      stripNullish(narrowed.sourceType),
+      expectedType,
+      context
+    ) &&
+    !!narrowedProjectionType &&
+    !willCarryAsRuntimeUnion(narrowedProjectionType, context);
   if (
     expectedType &&
     isBroadStorageTarget(expectedType, context) &&
@@ -388,6 +402,9 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     if (remappedLocal) {
       return [identifierExpression(remappedLocal), context];
     }
+  }
+  if (canReuseOriginalRuntimeCarrier) {
+    return [narrowed.storageExprAst, context];
   }
 
   const [sameSurface, nextContext] = matchesEmittedStorageSurface(

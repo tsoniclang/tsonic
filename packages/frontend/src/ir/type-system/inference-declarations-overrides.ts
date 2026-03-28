@@ -15,9 +15,13 @@ import {
 } from "../types/ir-substitution.js";
 import type { DeclId, SignatureId, TypeSyntaxId } from "./types.js";
 import type { TypeSystemState } from "./type-system-state.js";
-import { normalizeToNominal } from "./type-system-state.js";
+import {
+  normalizeToNominal,
+  resolveTypeIdByName,
+} from "./type-system-state.js";
 import { typesEqual } from "./type-system-relations.js";
 import { convertTypeNode } from "./type-system-call-resolution.js";
+import { resolveSourceFileIdentity } from "../../program/source-file-identity.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // signatureHasConditionalReturn — Check for conditional return type
@@ -273,6 +277,64 @@ export const typeFromSyntax = (
     // Invalid handle - return unknownType
     return { kind: "unknownType" };
   }
-  // Phase 5: convertTypeNode accepts unknown, cast is inside type-system/internal
-  return convertTypeNode(state, syntaxInfo.typeNode);
+
+  const rawType = state.convertTypeNodeRaw(syntaxInfo.typeNode);
+  if (
+    rawType.kind !== "referenceType" ||
+    !syntaxInfo.referenceDeclId
+  ) {
+    return convertTypeNode(state, syntaxInfo.typeNode);
+  }
+
+  const declInfo = state.handleRegistry.getDecl(syntaxInfo.referenceDeclId);
+  const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
+    | ts.Declaration
+    | undefined;
+  if (!declNode || declNode.getSourceFile().isDeclarationFile) {
+    return convertTypeNode(state, syntaxInfo.typeNode);
+  }
+
+  const namedDecl = declNode as ts.NamedDeclaration;
+  const declName =
+    namedDecl.name && ts.isIdentifier(namedDecl.name)
+      ? namedDecl.name.text
+      : undefined;
+  if (!declName) {
+    return convertTypeNode(state, syntaxInfo.typeNode);
+  }
+
+  const sourceIdentity = resolveSourceFileIdentity(
+    declNode.getSourceFile().fileName,
+    state.sourceRoot,
+    state.rootNamespace
+  );
+  const fqName = `${sourceIdentity.namespace}.${declName}`;
+  const nominalEntry = state.typeRegistry.resolveNominal(fqName);
+  if (!nominalEntry) {
+    return convertTypeNode(state, syntaxInfo.typeNode);
+  }
+
+  const exactClrName =
+    ts.isTypeAliasDeclaration(declNode) &&
+    ts.isTypeLiteralNode(declNode.type)
+      ? `${nominalEntry.fullyQualifiedName}__Alias`
+      : nominalEntry.fullyQualifiedName;
+  const exactTypeId = resolveTypeIdByName(
+    state,
+    exactClrName,
+    rawType.typeArguments?.length
+  );
+  if (!exactTypeId) {
+    return convertTypeNode(state, syntaxInfo.typeNode);
+  }
+
+  const converted = convertTypeNode(state, syntaxInfo.typeNode);
+  if (converted.kind !== "referenceType") {
+    return converted;
+  }
+
+  return {
+    ...converted,
+    typeId: exactTypeId,
+  };
 };

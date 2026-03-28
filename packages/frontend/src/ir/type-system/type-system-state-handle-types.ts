@@ -37,6 +37,7 @@ export type HandleRegistry = {
 
 export type TypeSyntaxInfo = {
   readonly typeNode: unknown;
+  readonly referenceDeclId?: DeclId;
 };
 
 export type ClassMemberNames = {

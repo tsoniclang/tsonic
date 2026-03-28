@@ -10,6 +10,7 @@ import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
 import { registerParameterTypes } from "../../../core/semantic/symbol-types.js";
 import {
+  applyRuntimeParameterDefaultShadows,
   emitParametersWithDestructuring,
   generateParameterDestructuringAst,
 } from "../parameters.js";
@@ -135,6 +136,13 @@ export const emitConstructorMember = (
     statements: bodyStatements,
   };
 
+  const [runtimeDefaultShadowStmts, runtimeDefaultShadowContext] =
+    applyRuntimeParameterDefaultShadows(
+      paramsResult.runtimeDefaultInitializers,
+      bodyContext
+    );
+  bodyContext = runtimeDefaultShadowContext;
+
   // Generate parameter destructuring as AST
   const [paramDestructuringStmts, destructuringContext] =
     paramsResult.destructuringParams.length > 0
@@ -152,10 +160,14 @@ export const emitConstructorMember = (
 
   // Merge destructuring preamble into body
   const mergedBody: CSharpBlockStatementAst =
-    paramDestructuringStmts.length > 0
+    runtimeDefaultShadowStmts.length > 0 || paramDestructuringStmts.length > 0
       ? {
           kind: "blockStatement",
-          statements: [...paramDestructuringStmts, ...bodyBlockAst.statements],
+          statements: [
+            ...runtimeDefaultShadowStmts,
+            ...paramDestructuringStmts,
+            ...bodyBlockAst.statements,
+          ],
         }
       : bodyBlockAst;
 

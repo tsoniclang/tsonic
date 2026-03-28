@@ -82,7 +82,7 @@ describe("Expression Emission", () => {
     );
 
     const rendered = printExpression(result);
-    expect(rendered).to.include("first.Match(");
+    expect(rendered).to.include("first.Match");
     expect(rendered).to.include("From1(__tsonic_union_member_1)");
     expect(rendered).to.include("From2(__tsonic_union_member_3)");
     expect(rendered).to.include("From3(__tsonic_union_member_4)");
@@ -173,7 +173,7 @@ describe("Expression Emission", () => {
     );
 
     const rendered = printExpression(result);
-    expect(rendered).to.include("first.Match(");
+    expect(rendered).to.include("first.Match");
     expect(rendered).to.include("__tsonic_union_member_5");
     expect(rendered).to.include("new global::System.InvalidCastException(");
   });
@@ -253,9 +253,9 @@ describe("Expression Emission", () => {
     );
 
     const rendered = printExpression(result);
-    const matchCount = rendered.match(/\.Match\(/g)?.length ?? 0;
+    const matchCount = rendered.match(/\.Match(?:<|\()/g)?.length ?? 0;
     expect(matchCount).to.equal(1);
-    expect(rendered).to.not.include(")).Match(");
+    expect(rendered).to.not.include(")).Match");
   });
 
   it("preserves source carrier storage when expr-narrowed assertions emit the original identifier", () => {
@@ -337,9 +337,9 @@ describe("Expression Emission", () => {
     );
 
     const rendered = printExpression(result);
-    expect(rendered).to.include("value.Match(");
+    expect(rendered).to.include("value.Match");
     expect(rendered).to.not.include(
-      "((global::Tsonic.Runtime.Union<int, Test.BindOptions>?)value).Match("
+      "((global::Tsonic.Runtime.Union<int, Test.BindOptions>?)value).Match"
     );
   });
 
@@ -427,9 +427,9 @@ describe("Expression Emission", () => {
     );
 
     const rendered = printExpression(result);
-    expect(rendered).to.include("value.Match(");
+    expect(rendered).to.include("value.Match");
     expect(rendered).to.not.include(
-      "((global::Tsonic.Runtime.Union<int, Test.BindOptions>?)value).Match("
+      "((global::Tsonic.Runtime.Union<int, Test.BindOptions>?)value).Match"
     );
   });
 });

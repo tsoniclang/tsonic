@@ -211,7 +211,7 @@ describe("build command (native library port regressions)", function () {
       expect(tree).to.not.include("handler == null");
       expect(tree).to.not.include("candidate is Application");
       expect(tree).to.include(
-        "candidate.As2()) is global::App.Application candidate__is_1"
+        "candidate.As2()) is Application candidate__is_1"
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

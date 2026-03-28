@@ -69,7 +69,7 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.include("__tsonic_union_compare_1.Is1()");
       expect(csharp).to.include("__tsonic_union_compare_1.As1() == true");
-      expect(csharp).not.to.include("options?.sameSite.Match(");
+      expect(csharp).not.to.include("options?.sameSite.Match");
     });
 
     it("aligns typeof guards with emitted overload carrier slots when nested aliases include nullish members", () => {
@@ -174,6 +174,47 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "default(string) : (generatorOrEncodingStr.As2())).As2()"
       );
+    });
+
+    it("preserves method-wide local-name reservations across terminating typeof branches", () => {
+      const csharp = compileToCSharp(`
+        declare function connectPath(path: string, listener?: () => void): string;
+        declare function connectPort(
+          port: number,
+          host?: string,
+          listener?: () => void
+        ): string;
+
+        export function connect(
+          portOrOptionsOrPath: number | string,
+          hostOrListener?: string | (() => void),
+          connectionListener?: () => void
+        ): string {
+          if (typeof portOrOptionsOrPath === "string") {
+            const listener =
+              typeof hostOrListener === "function" ? hostOrListener : undefined;
+            return connectPath(portOrOptionsOrPath, listener);
+          }
+
+          if (typeof portOrOptionsOrPath === "number") {
+            const host =
+              typeof hostOrListener === "string" ? hostOrListener : undefined;
+            const listener =
+              typeof hostOrListener === "function"
+                ? hostOrListener
+                : connectionListener;
+            return connectPort(portOrOptionsOrPath, host, listener);
+          }
+
+          const listener =
+            typeof hostOrListener === "function" ? hostOrListener : undefined;
+          return connectPath("fallback", listener);
+        }
+      `);
+
+      expect(csharp).to.include("var listener =");
+      expect(csharp).to.include("var listener__1 =");
+      expect(csharp).to.include("var listener__2 =");
     });
 
     it("uses declared out locals instead of bare discards for non-lvalue out arguments", () => {
@@ -373,10 +414,10 @@ describe("End-to-End Integration", () => {
         "public static async global::System.Threading.Tasks.Task<bool> readValue(bool flag)"
       );
       expect(csharp).to.include(
-        "await __tsonic_overload_impl_readValue(flag)).Match("
+        "await __tsonic_overload_impl_readValue(flag)).Match"
       );
       expect(csharp).not.to.include(
-        ".Match(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2).Match("
+        "__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2).Match"
       );
     });
 
@@ -402,10 +443,10 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "return (await __tsonic_overload_impl_readFile(path)).Match("
+        "return (await __tsonic_overload_impl_readFile(path)).Match"
       );
       expect(csharp).to.not.include(
-        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match('
+        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match'
       );
     });
 
@@ -655,13 +696,13 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "return __tsonic_overload_impl_readFileSync(path).Match("
+        "return __tsonic_overload_impl_readFileSync(path).Match"
       );
       expect(csharp).to.not.include(
-        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match('
+        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match'
       );
       expect(csharp).to.include(
-        "return this.__tsonic_overload_impl_readFileSync(path).Match("
+        "return this.__tsonic_overload_impl_readFileSync(path).Match"
       );
     });
 
@@ -726,7 +767,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("return normalizeSignal(signal);");
-      expect(csharp).not.to.include("signal.Match(");
+      expect(csharp).not.to.include("signal.Match");
     });
 
     it("widens narrowed runtime-subset handlers without re-matching extracted members", () => {
@@ -753,7 +794,7 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include("From1((handler.As1()))");
-      expect(csharp).not.to.include("(handler.As1()).Match(");
+      expect(csharp).not.to.include("(handler.As1()).Match");
     });
 
     it("preserves original carrier slot numbering across chained guard refinements", () => {
@@ -818,9 +859,9 @@ describe("End-to-End Integration", () => {
         }
       `);
 
-      expect(csharp).to.include("entry.Match(");
-      expect(csharp).not.to.include("(entry.As1()).Match(");
-      expect(csharp).not.to.include("(entry.As2()).Match(");
+      expect(csharp).to.include("entry.Match");
+      expect(csharp).not.to.include("(entry.As1()).Match");
+      expect(csharp).not.to.include("(entry.As2()).Match");
       expect(csharp).not.to.include(
         "((global::System.Func<string, object?>)entry)"
       );
@@ -1141,6 +1182,34 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("casts JS numeric expressions when assigning through exact int property slots", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+
+          class Counter {
+            private _value: int = 0;
+
+            public set value(v: number) {
+              const offset = 123;
+              this._value = v + offset;
+            }
+          }
+
+          export function run(value: number): void {
+            const counter = new Counter();
+            counter.value = value;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include("this._value = (int)(v + offset);");
+    });
+
     it("materializes inline object-type elements through generic List<T>.Add", () => {
       const source = `
         declare class List<T> {
@@ -1294,6 +1363,172 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("keeps prior typeof complements alive across later undefined guards", () => {
+      const csharp = compileToCSharp(
+        `
+          type TlsOptions = {
+            readonly allowHalfOpen?: boolean;
+          };
+
+          export function run(
+            optionsOrListener?: TlsOptions | (() => void),
+          ): boolean {
+            if (typeof optionsOrListener === "function") {
+              return false;
+            }
+
+            if (optionsOrListener !== undefined) {
+              return optionsOrListener.allowHalfOpen ?? false;
+            }
+
+            return false;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "if (((global::System.Object)(optionsOrListener)) != null)"
+      );
+      expect(csharp).to.include(
+        "return (optionsOrListener.As2()).allowHalfOpen ?? false;"
+      );
+      expect(csharp).not.to.include(
+        "return optionsOrListener.allowHalfOpen ?? false;"
+      );
+    });
+
+    it("materializes typeof complements before later constructor arguments", () => {
+      const csharp = compileToCSharp(
+        `
+          type TlsOptions = {
+            readonly allowHalfOpen?: boolean;
+          };
+
+          class TLSSocket {}
+
+          class TLSServer {
+            constructor(listener?: ((socket: TLSSocket) => void) | null);
+            constructor(
+              options?: TlsOptions | null,
+              listener?: ((socket: TLSSocket) => void) | null,
+            );
+            constructor(_a?: unknown, _b?: unknown) {}
+          }
+
+          export const createServer = (
+            optionsOrListener?: TlsOptions | ((socket: TLSSocket) => void),
+            secureConnectionListener?: (socket: TLSSocket) => void,
+          ): TLSServer => {
+            if (typeof optionsOrListener === "function") {
+              return new TLSServer(optionsOrListener);
+            }
+
+            if (optionsOrListener !== undefined) {
+              return new TLSServer(
+                optionsOrListener,
+                secureConnectionListener ?? null,
+              );
+            }
+
+            return new TLSServer();
+          };
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "if (((global::System.Object)(optionsOrListener)) != null)"
+      );
+      expect(csharp).to.include(
+        "return new TLSServer((TlsOptions__Alias)(optionsOrListener.As2()), secureConnectionListener ?? null);"
+      );
+      expect(csharp).not.to.include(
+        "return new TLSServer((TlsOptions__Alias)optionsOrListener, secureConnectionListener ?? null);"
+      );
+    });
+
+    it("materializes typeof complements before later local initializers in nested nullish guards", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { byte } from "@tsonic/core/types.js";
+
+          declare class Buffer {}
+          declare class Uint8Array {}
+
+          export function probe(
+            chunkOrCallback?:
+              | string
+              | Buffer
+              | byte[]
+              | Uint8Array
+              | (() => void)
+              | null,
+          ): void {
+            if (typeof chunkOrCallback === "function") {
+              return;
+            }
+
+            if (
+              chunkOrCallback !== undefined &&
+              chunkOrCallback !== null &&
+              typeof chunkOrCallback !== "function"
+            ) {
+              const value = chunkOrCallback;
+              void value;
+            }
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("var value = chunkOrCallback.Match");
+      expect(csharp).to.include(
+        "__tsonic_union_member_1 => global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer, global::Uint8Array>.From1(__tsonic_union_member_1)"
+      );
+      expect(csharp).not.to.include(
+        "var value = (global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer, global::Uint8Array>)chunkOrCallback;"
+      );
+    });
+
+    it("wraps narrowed typeof members before union-typed call arguments", () => {
+      const csharp = compileToCSharp(
+        `
+          declare function decodeInputBytes(
+            data: string | Uint8Array,
+            encoding?: string,
+          ): Uint8Array;
+
+          class Hmac {
+            constructor(algorithm: string, key: Uint8Array) {}
+          }
+
+          export const createHmac = (
+            algorithm: string,
+            key: string | Uint8Array,
+          ): Hmac => {
+            if (typeof key === "string") {
+              return new Hmac(algorithm, decodeInputBytes(key, "utf8"));
+            }
+
+            return new Hmac(algorithm, key);
+          };
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        'return new Hmac(algorithm, decodeInputBytes(global::Tsonic.Runtime.Union<string, global::Uint8Array>.From1((key.As1())), "utf8"));'
+      );
+      expect(csharp).not.to.include(
+        'decodeInputBytes(global::Tsonic.Runtime.Union<string, global::Uint8Array>.From1(key), "utf8")'
+      );
+    });
+
     it("materializes explicit string assertions before wrapping union return arms", () => {
       const csharp = compileToCSharp(
         `
@@ -1317,7 +1552,9 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include("encodeOutputBytes(publicKey, encoding).Match(");
+      expect(csharp).to.include(
+        "encodeOutputBytes(publicKey, encoding).Match"
+      );
       expect(csharp).not.to.include(
         "global::Tsonic.Runtime.Union<string, global::Uint8Array>.From1(encodeOutputBytes(publicKey, encoding))"
       );

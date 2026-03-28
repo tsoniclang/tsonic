@@ -238,7 +238,13 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
    */
   const captureTypeSyntax = (node: ts.TypeNode): TypeSyntaxId => {
     const id = makeTypeSyntaxId(ctx.nextTypeSyntaxId.value++);
-    ctx.typeSyntaxMap.set(id.id, { typeNode: node });
+    const referenceDeclId = ts.isTypeReferenceNode(node)
+      ? resolveTypeReferenceImpl(ctx, node)
+      : undefined;
+    ctx.typeSyntaxMap.set(id.id, {
+      typeNode: node,
+      ...(referenceDeclId ? { referenceDeclId } : {}),
+    });
     return id;
   };
 

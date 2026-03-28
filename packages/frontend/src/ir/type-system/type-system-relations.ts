@@ -229,20 +229,106 @@ const isAssignableToInternal = (
   if (source.kind === "referenceType" && target.kind === "referenceType") {
     const sourceNominal = normalizeToNominal(state, source);
     const targetNominal = normalizeToNominal(state, target);
-    if (!sourceNominal || !targetNominal) return false;
+    if (sourceNominal && targetNominal) {
+      if (sourceNominal.typeId.stableId === targetNominal.typeId.stableId) {
+        const sourceArgs = sourceNominal.typeArgs;
+        const targetArgs = targetNominal.typeArgs;
+        if (sourceArgs.length !== targetArgs.length) return false;
+        return sourceArgs.every((sa, i) => {
+          const ta = targetArgs[i];
+          return ta ? typesEqual(sa, ta) : false;
+        });
+      }
 
-    if (sourceNominal.typeId.stableId === targetNominal.typeId.stableId) {
-      const sourceArgs = sourceNominal.typeArgs;
-      const targetArgs = targetNominal.typeArgs;
-      if (sourceArgs.length !== targetArgs.length) return false;
-      return sourceArgs.every((sa, i) => {
-        const ta = targetArgs[i];
-        return ta ? typesEqual(sa, ta) : false;
-      });
+      const chain = state.nominalEnv.getInheritanceChain(sourceNominal.typeId);
+      if (chain.some((t) => t.stableId === targetNominal.typeId.stableId)) {
+        return true;
+      }
     }
 
-    const chain = state.nominalEnv.getInheritanceChain(sourceNominal.typeId);
-    return chain.some((t) => t.stableId === targetNominal.typeId.stableId);
+    const sourceMembers = source.structuralMembers ?? [];
+    const targetMembers = target.structuralMembers ?? [];
+    if (sourceMembers.length === 0 || targetMembers.length === 0) {
+      return false;
+    }
+
+    return targetMembers.every((targetMember) => {
+      if (targetMember.kind === "propertySignature") {
+        const matches = sourceMembers.filter(
+          (
+            candidate
+          ): candidate is Extract<
+            typeof candidate,
+            { readonly kind: "propertySignature" }
+          > =>
+            candidate.kind === "propertySignature" &&
+            candidate.name === targetMember.name
+        );
+        if (matches.length !== 1) {
+          return false;
+        }
+        const match = matches[0];
+        return (
+          !!match &&
+          isAssignableToInternal(state, match.type, targetMember.type, activeAliases)
+        );
+      }
+
+      if (targetMember.kind === "methodSignature") {
+        const matches = sourceMembers.filter(
+          (
+            candidate
+          ): candidate is Extract<
+            typeof candidate,
+            { readonly kind: "methodSignature" }
+          > =>
+            candidate.kind === "methodSignature" &&
+            candidate.name === targetMember.name &&
+            candidate.parameters.length === targetMember.parameters.length
+        );
+        if (matches.length !== 1) {
+          return false;
+        }
+
+        const match = matches[0];
+        if (!match || match.kind !== "methodSignature") {
+          return false;
+        }
+
+        for (
+          let parameterIndex = 0;
+          parameterIndex < targetMember.parameters.length;
+          parameterIndex += 1
+        ) {
+          const sourceParameter = match.parameters[parameterIndex];
+          const targetParameter = targetMember.parameters[parameterIndex];
+          const sourceParameterType = sourceParameter?.type;
+          const targetParameterType = targetParameter?.type;
+          if (!sourceParameterType || !targetParameterType) {
+            continue;
+          }
+          if (
+            !isAssignableToInternal(
+              state,
+              targetParameterType,
+              sourceParameterType,
+              activeAliases
+            )
+          ) {
+            return false;
+          }
+        }
+
+        return isAssignableToInternal(
+          state,
+          match.returnType ?? unknownType,
+          targetMember.returnType ?? unknownType,
+          activeAliases
+        );
+      }
+
+      return false;
+    });
   }
 
   // Conservative - return false if unsure

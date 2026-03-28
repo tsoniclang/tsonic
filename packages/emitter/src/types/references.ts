@@ -4,7 +4,7 @@
  * All types are emitted with global:: prefix for unambiguous resolution.
  */
 
-import { IrType } from "@tsonic/frontend";
+import { IrType, stableIrTypeKey } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitTypeAst } from "./emitter.js";
@@ -96,18 +96,37 @@ export const emitReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
+  const { name, typeArguments, resolvedClrType, typeId } = type;
+  const currentModuleLocalType = context.localTypes?.get(name);
+
+  // Explicit import contracts are authoritative and must win before any
+  // structural or binding-backed rebound. Otherwise same-named sibling types
+  // can be reattached to an unrelated owner through registry aliasing.
+  const importedTypeAst = !currentModuleLocalType
+    ? resolveImportedTypeAst(name, context)
+    : undefined;
+  if (importedTypeAst) {
+    if (typeArguments && typeArguments.length > 0) {
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      if (
+        importedTypeAst.kind === "identifierType" ||
+        importedTypeAst.kind === "qualifiedIdentifierType"
+      ) {
+        return [withTypeArguments(importedTypeAst, typeArgAsts), newContext];
+      }
+      return [importedTypeAst, newContext];
+    }
+    return [importedTypeAst, context];
+  }
+
   const structuralReference = resolveStructuralReferenceType(type, context);
   if (
     structuralReference &&
     structuralReference.kind === "referenceType" &&
-    (structuralReference.name !== type.name ||
-      structuralReference.resolvedClrType !== type.resolvedClrType ||
-      structuralReference.typeArguments !== type.typeArguments)
+    stableIrTypeKey(structuralReference) !== stableIrTypeKey(type)
   ) {
     return emitReferenceType(structuralReference, context);
   }
-
-  const { name, typeArguments, resolvedClrType, typeId } = type;
 
   if (name === POLYMORPHIC_THIS_MARKER && context.declaringTypeName) {
     const declaringTypeParameterAsts = getDeclaringTypeParameterAsts(context);
@@ -304,7 +323,6 @@ export const emitReferenceType = (
   // Do not route current-module locals through this path. Same-module locals need the
   // later local-type handling because it intentionally keeps local references short
   // unless `qualifyLocalTypes` is explicitly enabled.
-  const currentModuleLocalType = context.localTypes?.get(name);
   if (!currentModuleLocalType) {
     const crossModuleLocalType = resolveLocalTypeInfo(type, context);
     if (crossModuleLocalType) {
@@ -343,8 +361,19 @@ export const emitReferenceType = (
     }
   }
 
+  // Check if this type is imported - use pre-computed type AST directly.
+  // Exact source/CLR import bindings are authoritative for imported simple names.
+  // resolvedClrType can carry stale nominal identity when frontend/binding paths
+  // collapse same-named exported types from sibling modules; the explicit import
+  // contract must win in that case.
+  //
+  // This includes canonicalization for tsbindgen instance aliases (Foo$instance)
+  // so imported type identity remains stable even when global aliases collide.
   // If the type has a pre-resolved CLR type (from IR), use it
-  if (isQualifiedClrIdentity(resolvedClrType)) {
+  if (
+    (!currentModuleLocalType || context.preferResolvedLocalClrIdentity) &&
+    isQualifiedClrIdentity(resolvedClrType)
+  ) {
     const typeAst = clrTypeNameToTypeAst(
       toGlobalClr(resolvedClrType as string)
     );
@@ -361,28 +390,9 @@ export const emitReferenceType = (
     return [typeAst, context];
   }
 
-  // Check if this type is imported - use pre-computed type AST directly.
-  // This includes canonicalization for tsbindgen instance aliases (Foo$instance)
-  // so imported type identity remains stable even when global aliases collide.
-  const importedTypeAst = resolveImportedTypeAst(name, context);
-  if (importedTypeAst) {
-    if (typeArguments && typeArguments.length > 0) {
-      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
-      if (
-        importedTypeAst.kind === "identifierType" ||
-        importedTypeAst.kind === "qualifiedIdentifierType"
-      ) {
-        return [withTypeArguments(importedTypeAst, typeArgAsts), newContext];
-      }
-      return [importedTypeAst, newContext];
-    }
-    return [importedTypeAst, context];
-  }
-
-  const bindingBackedStructuralTypeAst = resolveBindingBackedStructuralTypeAst(
-    type,
-    context
-  );
+  const bindingBackedStructuralTypeAst = !currentModuleLocalType
+    ? resolveBindingBackedStructuralTypeAst(type, context)
+    : undefined;
   if (bindingBackedStructuralTypeAst) {
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
@@ -414,7 +424,7 @@ export const emitReferenceType = (
   // Local types take precedence over .NET types with the same name.
   // This ensures that a locally defined `Container<T>` is not resolved
   // to `System.ComponentModel.Container` from the binding registry.
-  const localTypeInfo = context.localTypes?.get(name);
+  const localTypeInfo = currentModuleLocalType;
   if (localTypeInfo) {
     let csharpName = name;
 

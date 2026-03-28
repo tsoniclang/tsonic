@@ -76,6 +76,7 @@ export const tryEmitPredicateGuard = (
             kind: "runtimeSubset",
             runtimeMemberNs: memberNs,
             runtimeUnionArity,
+            storageExprAst: receiverAst,
             sourceMembers: sourceMembers ? [...sourceMembers] : undefined,
             sourceCandidateMemberNs: sourceCandidateMemberNs
               ? [...sourceCandidateMemberNs]

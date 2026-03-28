@@ -43,6 +43,7 @@ export type HandleRegistry = {
  */
 export type TypeSyntaxInfo = {
   readonly typeNode: unknown; // ts.TypeNode — INTERNAL ONLY
+  readonly referenceDeclId?: DeclId;
 };
 
 /**

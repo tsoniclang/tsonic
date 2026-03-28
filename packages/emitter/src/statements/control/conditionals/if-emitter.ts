@@ -187,11 +187,15 @@ export const emitIfStatementAst = (
     emitExprAstCb,
     context
   );
+  const semanticCondContext: EmitterContext = {
+    ...condCtxAfterCond,
+    narrowedBindings: context.narrowedBindings,
+  };
 
   const thenCtx = applyConditionBranchNarrowing(
     stmt.condition,
     "truthy",
-    condCtxAfterCond,
+    semanticCondContext,
     emitExprAstCb
   );
   const [thenStmts, thenContext] = emitStatementAst(
@@ -200,7 +204,7 @@ export const emitIfStatementAst = (
   );
   const thenTerminates = isDefinitelyTerminating(stmt.thenStatement);
   const basePostConditionContext = resetBranchFlowState(
-    condCtxAfterCond,
+    semanticCondContext,
     thenContext
   );
   let finalContext: EmitterContext = thenTerminates
@@ -218,8 +222,10 @@ export const emitIfStatementAst = (
       stmt.condition,
       "falsy",
       {
-        ...basePostConditionContext,
-        narrowedBindings: condCtxAfterCond.narrowedBindings,
+        ...semanticCondContext,
+        tempVarId: basePostConditionContext.tempVarId,
+        usings: basePostConditionContext.usings,
+        usedLocalNames: basePostConditionContext.usedLocalNames,
       },
       emitExprAstCb
     );
@@ -236,7 +242,7 @@ export const emitIfStatementAst = (
       finalContext = mergeBranchContextMeta(thenContext, elseContext);
     } else {
       finalContext = mergeBranchContextMeta(
-        resetBranchFlowState(condCtxAfterCond, elseContext),
+        resetBranchFlowState(semanticCondContext, elseContext),
         thenContext
       );
     }

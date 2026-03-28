@@ -333,7 +333,10 @@ export const tryBuildRuntimeMaterializationAst = (
     });
   }
 
-  return [buildRuntimeUnionMatchAst(valueAst, lambdaArgs), nextContext];
+  return [
+    buildRuntimeUnionMatchAst(valueAst, lambdaArgs, [concreteTargetTypeAst]),
+    nextContext,
+  ];
 };
 
 export const tryBuildRuntimeReificationPlan = (

@@ -78,6 +78,8 @@ import type { IrType } from "../types/index.js";
  */
 export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
   const {
+    sourceRoot,
+    rootNamespace,
     handleRegistry,
     typeRegistry,
     nominalEnv,
@@ -138,6 +140,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
   // ─────────────────────────────────────────────────────────────────────────
 
   const state: TypeSystemState = {
+    sourceRoot,
+    rootNamespace,
     handleRegistry,
     typeRegistry,
     nominalEnv,

@@ -33,6 +33,12 @@ export const stripNullish = (type: IrType): IrType => {
   }
 
   if (nonNullish.length > 1) {
+    if (type.preserveRuntimeLayout === true) {
+      return {
+        ...type,
+        types: nonNullish,
+      };
+    }
     return normalizedUnionType(nonNullish);
   }
 
@@ -83,6 +89,13 @@ export const splitRuntimeNullishUnionMembers = (
   const nonNullishMembers = type.types.filter((member) => {
     return !isRuntimeNullishType(member);
   });
+
+  if (type.preserveRuntimeLayout === true) {
+    return {
+      hasRuntimeNullish: nonNullishMembers.length !== type.types.length,
+      nonNullishMembers,
+    };
+  }
 
   const canonicalUnion =
     nonNullishMembers.length <= 1

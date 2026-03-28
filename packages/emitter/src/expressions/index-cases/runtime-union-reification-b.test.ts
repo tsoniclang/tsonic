@@ -149,7 +149,7 @@ describe("Expression Emission", () => {
     expect(rendered).to.include("global::System.Linq.Enumerable.Select");
     expect(rendered).to.include("global::System.Linq.Enumerable.ToArray");
     expect(rendered).to.include("rest");
-    expect(rendered).to.include(".Match(");
+    expect(rendered).to.include(".Match");
     expect(rendered).to.not.equal("rest");
   });
 

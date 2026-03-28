@@ -195,10 +195,7 @@ export const tryResolvePredicateGuard = (
     nextId
   );
   const rawContext = withoutNarrowedBinding(context, originalName);
-  const [argAst] =
-    target.kind === "identifier"
-      ? emitIdentifier(target, rawContext)
-      : emitExpressionAst(target, rawContext);
+  const [argAst] = emitExpressionAst(target, rawContext, unionSourceType);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const narrowedMap = buildRenameNarrowedMap(
     originalName,

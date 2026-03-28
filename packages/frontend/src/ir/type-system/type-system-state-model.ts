@@ -17,6 +17,8 @@ export { unknownType, neverType, voidType };
 
 export type TypeSystemState = {
   // From TypeSystemConfig
+  readonly sourceRoot: string;
+  readonly rootNamespace: string;
   readonly handleRegistry: HandleRegistry;
   readonly typeRegistry: TypeRegistryAPI;
   readonly nominalEnv: NominalEnvAPI;

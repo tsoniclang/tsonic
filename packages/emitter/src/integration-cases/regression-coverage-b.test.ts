@@ -103,9 +103,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include(
         "new global::js.Array<global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>>((handler.As1())).length"
       );
-      expect(csharp).to.not.include("isMiddlewareHandler(handler.Match(");
+      expect(csharp).to.not.include("isMiddlewareHandler(handler.Match");
       expect(csharp).to.include(
-        "if (!isMiddlewareHandler(global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, Router>.From2((handler.As2()))))"
+        "if (!isMiddlewareHandler(global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From2((handler.As2()))))"
       );
       expect(csharp).to.include(
         'throw new Error("middleware handlers must be functions");'
@@ -134,8 +134,8 @@ describe("End-to-End Integration", () => {
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.not.include("actual.Match(");
-      expect(csharp).to.not.include(")).Match(");
+      expect(csharp).to.not.include("actual.Match");
+      expect(csharp).to.not.include(")).Match");
       expect(csharp).to.include("consume(actual);");
     });
 

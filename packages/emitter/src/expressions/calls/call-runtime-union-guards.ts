@@ -96,6 +96,17 @@ const buildRuntimeUnionMemberCheck = (opts: {
   ];
 };
 
+const buildSystemArrayCheck = (
+  expression: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "isExpression",
+  expression,
+  pattern: {
+    kind: "typePattern",
+    type: identifierType("global::System.Array"),
+  },
+});
+
 export const emitRuntimeUnionArrayIsArrayCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
@@ -170,7 +181,7 @@ export const emitRuntimeUnionArrayIsArrayCall = (
       ? effectiveType
       : undefined;
   if (!runtimeCarrierType) {
-    return undefined;
+    return [buildSystemArrayCheck(argumentAst), argumentContext];
   }
 
   const [runtimeLayout, layoutContext] = buildRuntimeUnionLayout(
@@ -179,7 +190,7 @@ export const emitRuntimeUnionArrayIsArrayCall = (
     emitTypeAst
   );
   if (!runtimeLayout) {
-    return undefined;
+    return [buildSystemArrayCheck(argumentAst), argumentContext];
   }
   const runtimeMembers = runtimeLayout.members;
 

@@ -30,6 +30,7 @@ import { shouldPreferRuntimeExpectedType } from "./runtime-expected-type-prefere
 import {
   normalizeCallArgumentExpectedType,
   expandTupleLikeSpreadArguments,
+  getTransparentRestSpreadPassthroughExpression,
   wrapArgModifier,
   emitFlattenedRestArguments,
 } from "./call-arguments-helpers.js";
@@ -506,10 +507,21 @@ const emitFunctionValueCallArguments = (
 
       const spreadArg = args[i];
       if (args.length === i + 1 && spreadArg && spreadArg.kind === "spread") {
+        const transparentPassthrough =
+          getTransparentRestSpreadPassthroughExpression(
+            spreadArg,
+            parameter.type,
+            currentContext
+          );
+        const passthroughContext: EmitterContext = {
+          ...currentContext,
+          localSemanticTypes: undefined,
+          localValueTypes: undefined,
+        };
         const [spreadAst, spreadCtx] = emitExpressionAst(
-          spreadArg.expression,
-          currentContext,
-          parameter.type
+          transparentPassthrough ?? spreadArg.expression,
+          transparentPassthrough ? passthroughContext : currentContext,
+          transparentPassthrough ? undefined : parameter.type
         );
         argAsts.push(spreadAst);
         currentContext = spreadCtx;
@@ -537,10 +549,21 @@ const emitFunctionValueCallArguments = (
         const arg = args[j];
         if (!arg) continue;
         if (arg.kind === "spread") {
+          const transparentPassthrough =
+            getTransparentRestSpreadPassthroughExpression(
+              arg,
+              parameter.type,
+              currentContext
+            );
+          const passthroughContext: EmitterContext = {
+            ...currentContext,
+            localSemanticTypes: undefined,
+            localValueTypes: undefined,
+          };
           const [spreadAst, spreadCtx] = emitExpressionAst(
-            arg.expression,
-            currentContext,
-            parameter.type
+            transparentPassthrough ?? arg.expression,
+            transparentPassthrough ? passthroughContext : currentContext,
+            transparentPassthrough ? undefined : parameter.type
           );
           argAsts.push(spreadAst);
           currentContext = spreadCtx;
@@ -759,7 +782,26 @@ const emitCallArguments = (
               valueSymbolSignature?.parameters
             )?.map((parameter) => parameter?.type) ?? []);
   const restParameter = expr.surfaceRestParameter ?? expr.restParameter;
-  const normalizedArgs = expandTupleLikeSpreadArguments(args);
+  const transparentRestPassthroughExpression =
+    restParameter?.arrayType &&
+    args.length === (restParameter.index ?? 0) + 1
+      ? getTransparentRestSpreadPassthroughExpression(
+          args[restParameter.index],
+          restParameter.arrayType,
+          context
+        )
+      : undefined;
+  const normalizedArgs = transparentRestPassthroughExpression
+    ? args.map((arg, index) =>
+        index === restParameter?.index && arg?.kind === "spread"
+          ? {
+              kind: "spread" as const,
+              expression: transparentRestPassthroughExpression,
+              inferredType: transparentRestPassthroughExpression.inferredType,
+            }
+          : arg
+      )
+    : expandTupleLikeSpreadArguments(args);
   const restInfo:
     | {
         readonly index: number;

@@ -5,7 +5,10 @@ import {
   identifierType,
   stringLiteral,
 } from "../format/backend-ast/builders.js";
-import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../format/backend-ast/types.js";
 import {
   buildRuntimeUnionTypeAst,
   type RuntimeUnionLayout,
@@ -34,7 +37,8 @@ export const buildRuntimeUnionFactoryCallAst = (
 
 export const buildRuntimeUnionMatchAst = (
   valueAst: CSharpExpressionAst,
-  lambdaArgs: readonly CSharpExpressionAst[]
+  lambdaArgs: readonly CSharpExpressionAst[],
+  typeArguments?: readonly CSharpTypeAst[]
 ): CSharpExpressionAst => ({
   kind: "invocationExpression",
   expression: {
@@ -42,6 +46,7 @@ export const buildRuntimeUnionMatchAst = (
     expression: valueAst,
     memberName: "Match",
   },
+  ...(typeArguments && typeArguments.length > 0 ? { typeArguments } : {}),
   arguments: [...lambdaArgs],
 });
 
@@ -203,5 +208,8 @@ export const tryBuildRuntimeUnionProjectionToLayoutAst = (opts: {
     currentContext = mappedValue[1];
   }
 
-  return [buildRuntimeUnionMatchAst(opts.valueAst, lambdaArgs), currentContext];
+  return [
+    buildRuntimeUnionMatchAst(opts.valueAst, lambdaArgs, [targetUnionTypeAst]),
+    currentContext,
+  ];
 };

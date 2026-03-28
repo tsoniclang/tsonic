@@ -183,9 +183,8 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include(
-      "result.Match(__m1 => __m1.success, __m2 => __m2.success)"
-    );
+    expect(result).to.include("result.Match");
+    expect(result).to.include("__m1 => __m1.success, __m2 => __m2.success");
     expect(result).to.include("result.As2().error");
     expect(result).to.include("result.As1().data");
   });

@@ -413,6 +413,94 @@ describe("IR Builder", function () {
       }
     });
 
+    it("infers Array.from element types from js-source generators that are structurally iterable", () => {
+      const fixtureRoot = path.resolve(
+        "..",
+        "..",
+        "test/fixtures/js-surface-array-from-map-keys/packages/js-surface-array-from-map-keys"
+      );
+      const entryPath = path.join(fixtureRoot, "src/index.ts");
+      const sourceRoot = path.join(fixtureRoot, "src");
+
+      const programResult = createProgram([entryPath], {
+        projectRoot: fixtureRoot,
+        sourceRoot,
+        rootNamespace: "JsSurfaceArrayFromMapKeys",
+        surface: "@tsonic/js",
+      });
+
+      expect(programResult.ok).to.equal(true);
+      if (!programResult.ok) return;
+
+      const program = programResult.value;
+      const sourceFile =
+        program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        ) ??
+        program.sourceFiles.find((file) =>
+          file.fileName.endsWith("/src/index.ts")
+        );
+      expect(sourceFile).to.not.equal(undefined);
+      if (!sourceFile) return;
+
+      const ctx = createProgramContext(program, {
+        sourceRoot,
+        rootNamespace: "JsSurfaceArrayFromMapKeys",
+      });
+
+      const moduleResult = buildIrModule(
+        sourceFile,
+        program,
+        {
+          sourceRoot,
+          rootNamespace: "JsSurfaceArrayFromMapKeys",
+        },
+        ctx
+      );
+
+      expect(moduleResult.ok).to.equal(true);
+      if (!moduleResult.ok) return;
+
+      const mainDecl = moduleResult.value.body.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
+          stmt.kind === "functionDeclaration" && stmt.name === "main"
+      );
+      expect(mainDecl).to.not.equal(undefined);
+      if (!mainDecl) return;
+
+      const keysDecl = mainDecl.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration" &&
+          stmt.declarations[0]?.name.kind === "identifierPattern" &&
+          stmt.declarations[0]?.name.name === "keys"
+      );
+      expect(keysDecl).to.not.equal(undefined);
+      if (!keysDecl) return;
+
+      const initializer = keysDecl.declarations[0]?.initializer;
+      expect(initializer?.kind).to.equal("call");
+      if (!initializer || initializer.kind !== "call") return;
+
+      expect(initializer.inferredType).to.deep.equal({
+        kind: "arrayType",
+        elementType: { kind: "primitiveType", name: "string" },
+        origin: "explicit",
+      });
+
+      const keysCall = initializer.arguments[0];
+      expect(keysCall?.kind).to.equal("call");
+      if (!keysCall || keysCall.kind !== "call") return;
+
+      expect(keysCall.inferredType?.kind).to.equal("referenceType");
+      if (keysCall.inferredType?.kind !== "referenceType") return;
+      expect(keysCall.inferredType.name).to.equal("Generator");
+      expect(keysCall.inferredType.typeArguments).to.deep.equal([
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "undefined" },
+        { kind: "primitiveType", name: "undefined" },
+      ]);
+    });
+
     it("preserves receiver substitutions for locals derived from this-owned generic members", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tsonic-builder-this-member-generics-")

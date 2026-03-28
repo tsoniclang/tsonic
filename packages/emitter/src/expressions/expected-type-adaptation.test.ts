@@ -80,7 +80,7 @@ describe("expected-type-adaptation", () => {
     });
 
     expect(result).to.not.equal(undefined);
-    expect(printExpression(result![0])).to.include("first.Match(");
+    expect(printExpression(result![0])).to.include("first.Match");
   });
 
   it("boxes JS numbers as doubles when adapting into unknown/object slots", () => {
@@ -247,7 +247,7 @@ describe("expected-type-adaptation", () => {
     });
 
     expect(result).to.not.equal(undefined);
-    expect(printExpression(result![0])).to.include("handler.Match(");
+    expect(printExpression(result![0])).to.include("handler.Match");
   });
 
   it("does not re-project asserted arrays when the emitted cast already matches the expected surface", () => {

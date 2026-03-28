@@ -9,6 +9,8 @@
 
 import type { IrType, IrReferenceType } from "../types/index.js";
 import { unwrapAsyncWrapperType } from "../types/type-ops.js";
+import { stableIrTypeKey } from "../types/type-ops.js";
+import { unknownType } from "./types.js";
 import type { TypeParameterInfo } from "./types.js";
 import type { TypeSystemState } from "./type-system-state.js";
 import { normalizeToNominal, isNullishPrimitive } from "./type-system-state.js";
@@ -37,12 +39,123 @@ export const inferMethodTypeArgsFromArguments = (
 
   const methodTypeParamNames = new Set(methodTypeParams.map((p) => p.name));
   const substitution = new Map<string, IrType>();
+  const activeStructuralPairs = new Set<string>();
 
   const tryUnify = (
     parameterType: IrType,
     argumentType: IrType,
     currentSubstitution: Map<string, IrType>
   ): boolean => {
+    const tryUnifyStructuralReferenceMembers = (
+      parameterRef: IrReferenceType,
+      argumentRef: IrReferenceType
+    ): boolean => {
+      const parameterMembers = parameterRef.structuralMembers ?? [];
+      const argumentMembers = argumentRef.structuralMembers ?? [];
+      if (parameterMembers.length === 0 || argumentMembers.length === 0) {
+        return true;
+      }
+
+      const pairKey = `${stableIrTypeKey(parameterRef)}=>${stableIrTypeKey(argumentRef)}`;
+      if (activeStructuralPairs.has(pairKey)) {
+        return true;
+      }
+
+      activeStructuralPairs.add(pairKey);
+      try {
+        for (const parameterMember of parameterMembers) {
+          if (parameterMember.kind === "propertySignature") {
+            const matches = argumentMembers.filter(
+              (
+                candidate
+              ): candidate is Extract<
+                typeof candidate,
+                { readonly kind: "propertySignature" }
+              > =>
+                candidate.kind === "propertySignature" &&
+                candidate.name === parameterMember.name
+            );
+            if (matches.length !== 1) {
+              return true;
+            }
+
+            const match = matches[0];
+            if (
+              !match ||
+              !tryUnify(
+                parameterMember.type,
+                match.type,
+                currentSubstitution
+              )
+            ) {
+              return false;
+            }
+            continue;
+          }
+
+          if (parameterMember.kind === "methodSignature") {
+            const matches = argumentMembers.filter(
+              (
+                candidate
+              ): candidate is Extract<
+                typeof candidate,
+                { readonly kind: "methodSignature" }
+              > =>
+                candidate.kind === "methodSignature" &&
+                candidate.name === parameterMember.name &&
+                candidate.parameters.length === parameterMember.parameters.length
+            );
+            if (matches.length !== 1) {
+              return true;
+            }
+
+            const match = matches[0];
+            if (!match || match.kind !== "methodSignature") {
+              return true;
+            }
+
+            for (
+              let parameterIndex = 0;
+              parameterIndex < parameterMember.parameters.length;
+              parameterIndex += 1
+            ) {
+              const parameterParameter =
+                parameterMember.parameters[parameterIndex];
+              const argumentParameter = match.parameters[parameterIndex];
+              const parameterParameterType = parameterParameter?.type;
+              const argumentParameterType = argumentParameter?.type;
+              if (!parameterParameterType || !argumentParameterType) {
+                continue;
+              }
+              if (
+                !tryUnify(
+                  parameterParameterType,
+                  argumentParameterType,
+                  currentSubstitution
+                )
+              ) {
+                return false;
+              }
+            }
+
+            if (
+              !tryUnify(
+                parameterMember.returnType ?? unknownType,
+                match.returnType ?? unknownType,
+                currentSubstitution
+              )
+            ) {
+              return false;
+            }
+          }
+        }
+
+        return true;
+      } finally {
+        activeStructuralPairs.delete(pairKey);
+      }
+    };
+
     // Method type parameter position: infer directly
     if (parameterType.kind === "typeParameterType") {
       if (!methodTypeParamNames.has(parameterType.name)) {
@@ -350,7 +463,7 @@ export const inferMethodTypeArgsFromArguments = (
           }
         }
 
-        return true;
+        return tryUnifyStructuralReferenceMembers(parameterType, argRef);
       }
 
       case "arrayType":

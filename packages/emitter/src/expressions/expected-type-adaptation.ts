@@ -141,6 +141,7 @@ export const adaptEmittedExpressionAst = (opts: {
       : expr;
   const actualType =
     preservedTypeForAdaptation ??
+    (expr.kind === "typeAssertion" ? expr.targetType : undefined) ??
     tryResolveRuntimeUnionMemberType(
       resolveDirectStorageExpressionType(
         adaptationSourceExpr,

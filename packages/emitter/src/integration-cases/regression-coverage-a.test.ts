@@ -505,6 +505,27 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("return (int?)__defaulted_position;");
     });
 
+    it("applies authored constructor defaults before body assignments", () => {
+      const source = `
+        class PatternBox {
+          readonly flags: string;
+
+          constructor(flags: string = "") {
+            this.flags = flags;
+          }
+        }
+
+        export function run(): string {
+          return new PatternBox().flags;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include('public PatternBox(string? flags = default)');
+      expect(csharp).to.include('string __defaulted_flags = flags ?? "";');
+      expect(csharp).to.include("this.flags = __defaulted_flags;");
+    });
+
     it("single-evaluates generic nullish fallbacks instead of emitting raw ??", () => {
       const source = `
         export class Box<T> {

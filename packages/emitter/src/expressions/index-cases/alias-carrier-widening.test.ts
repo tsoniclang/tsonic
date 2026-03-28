@@ -87,7 +87,7 @@ describe("Expression Emission", () => {
     // The projection must not produce type mismatches.
     // Each From() call must receive the correct type from the corresponding
     // Match lambda parameter.
-    if (rendered.includes(".Match(")) {
+    if (rendered.includes(".Match")) {
       // If Match is used, verify no object→string or string→RegExp misrouting.
       // The actual carrier members (object?[], string, RegExp) should map
       // to the matching expected carrier slots.
@@ -251,7 +251,7 @@ describe("Expression Emission", () => {
     // Incorrect behavior: object→string or string→RegExp in Match() lambdas.
     // Correct behavior: each actual carrier member maps to the matching
     // expected carrier slot without type coercion errors.
-    if (rendered.includes(".Match(")) {
+    if (rendered.includes(".Match")) {
       // Verify no wrong-slot routing that would cause C# compile errors
       expect(rendered).to.not.include(
         "new global::System.InvalidCastException"
@@ -398,9 +398,9 @@ describe("Expression Emission", () => {
     );
 
     const rendered = printExpression(result);
-    const matchCount = rendered.split(".Match(").length - 1;
+    const matchCount = rendered.match(/\.Match(?:<|\()/g)?.length ?? 0;
 
     expect(matchCount).to.equal(1);
-    expect(rendered).to.not.include(")).Match(");
+    expect(rendered).to.not.include(")).Match");
   });
 });

@@ -510,6 +510,7 @@ export const tryEmitNegatedPredicateGuard = (
               kind: "runtimeSubset",
               runtimeMemberNs: memberNs,
               runtimeUnionArity,
+              storageExprAst: receiverAst,
               sourceMembers: sourceMembers ? [...sourceMembers] : undefined,
               sourceCandidateMemberNs: sourceCandidateMemberNs
                 ? [...sourceCandidateMemberNs]
@@ -569,6 +570,7 @@ export const tryEmitNegatedPredicateGuard = (
         kind: "runtimeSubset",
         runtimeMemberNs: memberNs,
         runtimeUnionArity,
+        storageExprAst: receiverAst,
         sourceMembers: sourceMembers ? [...sourceMembers] : undefined,
         sourceCandidateMemberNs: sourceCandidateMemberNs
           ? [...sourceCandidateMemberNs]

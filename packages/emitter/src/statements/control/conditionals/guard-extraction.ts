@@ -336,6 +336,15 @@ export const applyTypeofGuardRefinements = (
         const existingBinding = currentContext.narrowedBindings?.get(
           refinement.bindingKey
         );
+        const sourceInfo =
+          currentType && runtimeUnionFrame
+            ? resolveRuntimeSubsetSourceInfo(
+                refinement.bindingKey,
+                currentType,
+                runtimeUnionFrame,
+                currentContext
+              )
+            : undefined;
         const subsetBinding = buildRuntimeUnionSubsetBinding(
           rawTargetAst,
           runtimeUnionFrame,
@@ -344,7 +353,8 @@ export const applyTypeofGuardRefinements = (
             currentType ??
             narrowedType,
           narrowedType,
-          rawTargetContext
+          rawTargetContext,
+          sourceInfo
         );
         if (subsetBinding) {
           const [binding, subsetContext] = subsetBinding;

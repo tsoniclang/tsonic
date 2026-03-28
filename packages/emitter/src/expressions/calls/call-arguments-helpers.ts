@@ -25,6 +25,8 @@ import {
 import { shouldEraseRecursiveRuntimeUnionArrayElement } from "../../core/semantic/runtime-unions.js";
 import { normalizeRecursiveArrayExpectedType } from "../../core/semantic/array-expected-types.js";
 import { areIrTypesEquivalent } from "../../core/semantic/type-equivalence.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
+import { unwrapTransparentExpression } from "../../core/semantic/transparent-expressions.js";
 
 const isExplicitNullishArgument = (arg: IrExpression): boolean =>
   (arg.kind === "literal" && (arg.value === undefined || arg.value === null)) ||
@@ -206,6 +208,29 @@ export const expandTupleLikeSpreadArguments = (
   return expanded;
 };
 
+export const getTransparentRestSpreadPassthroughExpression = (
+  arg: IrExpression | undefined,
+  restArrayType: IrType | undefined,
+  context: EmitterContext
+): IrExpression | undefined => {
+  if (!arg || arg.kind !== "spread" || !restArrayType) {
+    return undefined;
+  }
+
+  const transparentSpreadExpr = unwrapTransparentExpression(arg.expression);
+  const transparentSpreadType =
+    resolveEffectiveExpressionType(transparentSpreadExpr, context) ??
+    transparentSpreadExpr.inferredType;
+  if (
+    transparentSpreadType &&
+    areIrTypesEquivalent(transparentSpreadType, restArrayType, context)
+  ) {
+    return transparentSpreadExpr;
+  }
+
+  return undefined;
+};
+
 /**
  * Wrap an expression AST with an optional argument modifier (ref/out/in).
  */
@@ -238,16 +263,33 @@ export const emitFlattenedRestArguments = (
   restElementType: IrType,
   context: EmitterContext
 ): [readonly CSharpExpressionAst[], EmitterContext] => {
+  const passthroughContext: EmitterContext = {
+    ...context,
+    localSemanticTypes: undefined,
+    localValueTypes: undefined,
+  };
   if (restArgs.length === 1 && restArgs[0]?.kind === "spread") {
     const spreadArg = restArgs[0];
     const actualSpreadType = spreadArg.expression.inferredType;
+    const transparentSpreadExpr = getTransparentRestSpreadPassthroughExpression(
+      spreadArg,
+      restArrayType,
+      context
+    );
     if (
       actualSpreadType &&
       areIrTypesEquivalent(actualSpreadType, restArrayType, context)
     ) {
       const [spreadAst, spreadContext] = emitExpressionAst(
         spreadArg.expression,
-        context
+        passthroughContext
+      );
+      return [[spreadAst], spreadContext];
+    }
+    if (transparentSpreadExpr) {
+      const [spreadAst, spreadContext] = emitExpressionAst(
+        transparentSpreadExpr,
+        passthroughContext
       );
       return [[spreadAst], spreadContext];
     }

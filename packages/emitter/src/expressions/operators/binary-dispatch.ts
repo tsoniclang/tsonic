@@ -14,6 +14,7 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
+import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -38,6 +39,7 @@ import {
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import {
   getTransparentComparisonTarget,
+  getNarrowingTargetKey,
   resolveComparisonOperandType,
   isNumericOperandType,
   chooseComparisonExpectedType,
@@ -327,8 +329,26 @@ export const emitBinary = (
       resultContext
     );
     const base = inferred ? stripNullish(inferred) : undefined;
+    const emissionType =
+      resolveEffectiveExpressionType(nonNullishTarget, nonNullishContext) ??
+      nonNullishTarget.inferredType;
+    const emissionBase = emissionType ? stripNullish(emissionType) : undefined;
+    const activeNarrowedBinding = (() => {
+      const targetKey = getNarrowingTargetKey(nonNullishTarget);
+      return targetKey ? context.narrowedBindings?.get(targetKey) : undefined;
+    })();
     const hasRuntimeUnionCarrier =
-      base !== undefined && willCarryAsRuntimeUnion(base, resultContext);
+      emissionBase !== undefined &&
+      willCarryAsRuntimeUnion(emissionBase, resultContext);
+    const hasNarrowedRuntimeUnionStorageCarrier =
+      activeNarrowedBinding?.kind === "expr" &&
+      activeNarrowedBinding.storageExprAst !== undefined &&
+      activeNarrowedBinding.storageExprAst !== activeNarrowedBinding.exprAst &&
+      activeNarrowedBinding.sourceType !== undefined &&
+      willCarryAsRuntimeUnion(
+        stripNullish(activeNarrowedBinding.sourceType),
+        resultContext
+      );
     const bareTypeParamName = (() => {
       if (!base) return undefined;
       if (base.kind === "typeParameterType") return base.name;
@@ -358,7 +378,8 @@ export const emitBinary = (
       (typeParamConstraint === "unconstrained" ||
         typeParamConstraint === "struct");
     const needsObjectCastForValueType = isDefiniteNonUnionValueType;
-    const needsObjectCastForRuntimeUnion = hasRuntimeUnionCarrier;
+    const needsObjectCastForRuntimeUnion =
+      hasRuntimeUnionCarrier || hasNarrowedRuntimeUnionStorageCarrier;
 
     const nullLiteralAst = nullLiteral();
     const nullOp = op === "==" ? "==" : "!=";
