@@ -746,6 +746,49 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("prefers deterministic numeric overloads for erased number arguments", () => {
+      const csharp = compileToCSharp(`
+        import type { byte, double, int, long } from "@tsonic/core/types.js";
+
+        declare class Convert {
+          static ToInt32(value: byte): int;
+          static ToInt32(value: double): int;
+          static ToInt64(value: byte): long;
+          static ToInt64(value: double): long;
+        }
+
+        declare const holder: { readonly TotalMilliseconds: double };
+
+        export function fromMember(): long {
+          return Convert.ToInt64(holder.TotalMilliseconds);
+        }
+
+        export function fromBinary(month: number): int {
+          return Convert.ToInt32(month + 1);
+        }
+
+        export function fromExplicit(value: byte): int {
+          return Convert.ToInt32(value);
+        }
+      `);
+
+      expect(csharp).to.include(
+        "return global::System.Convert.ToInt64(holder.TotalMilliseconds);"
+      );
+      expect(csharp).to.include(
+        "return global::System.Convert.ToInt32(month + 1);"
+      );
+      expect(csharp).to.include(
+        "return global::System.Convert.ToInt32(value);"
+      );
+      expect(csharp).not.to.include(
+        "return global::System.Convert.ToInt64((byte)holder.TotalMilliseconds);"
+      );
+      expect(csharp).not.to.include(
+        "return global::System.Convert.ToInt32((byte)(month + 1));"
+      );
+    });
+
     it("null-checks optional Array.isArray runtime-union guards before member tests", () => {
       const csharp = compileToCSharp(`
         export function hasArray(values?: string[] | number): boolean {
