@@ -71,5 +71,100 @@ describe("type-resolution", () => {
 
       expect(result).to.equal(1);
     });
+
+    it("matches function union members when signatures include unknown slots", () => {
+      const requestType: IrType = {
+        kind: "referenceType",
+        name: "Request",
+      };
+      const responseType: IrType = {
+        kind: "referenceType",
+        name: "Response",
+      };
+      const nextType: IrType = {
+        kind: "functionType",
+        parameters: [],
+        returnType: { kind: "voidType" },
+      };
+      const requestHandlerType: IrType = {
+        kind: "functionType",
+        parameters: [
+          {
+            kind: "parameter",
+            pattern: { kind: "identifierPattern", name: "request" },
+            type: requestType,
+            isOptional: false,
+            isRest: false,
+            passing: "value",
+          },
+          {
+            kind: "parameter",
+            pattern: { kind: "identifierPattern", name: "response" },
+            type: responseType,
+            isOptional: false,
+            isRest: false,
+            passing: "value",
+          },
+          {
+            kind: "parameter",
+            pattern: { kind: "identifierPattern", name: "next" },
+            type: nextType,
+            isOptional: false,
+            isRest: false,
+            passing: "value",
+          },
+        ],
+        returnType: { kind: "unknownType" },
+      };
+      const errorHandlerType: IrType = {
+        kind: "functionType",
+        parameters: [
+          {
+            kind: "parameter",
+            pattern: { kind: "identifierPattern", name: "error" },
+            type: { kind: "unknownType" },
+            isOptional: false,
+            isRest: false,
+            passing: "value",
+          },
+          {
+            kind: "parameter",
+            pattern: { kind: "identifierPattern", name: "request" },
+            type: requestType,
+            isOptional: false,
+            isRest: false,
+            passing: "value",
+          },
+          {
+            kind: "parameter",
+            pattern: { kind: "identifierPattern", name: "response" },
+            type: responseType,
+            isOptional: false,
+            isRest: false,
+            passing: "value",
+          },
+          {
+            kind: "parameter",
+            pattern: { kind: "identifierPattern", name: "next" },
+            type: nextType,
+            isOptional: false,
+            isRest: false,
+            passing: "value",
+          },
+        ],
+        returnType: { kind: "unknownType" },
+      };
+
+      const result = findUnionMemberIndex(
+        {
+          kind: "unionType",
+          types: [requestHandlerType, errorHandlerType],
+        },
+        errorHandlerType,
+        createContext(new Map())
+      );
+
+      expect(result).to.equal(1);
+    });
   });
 });

@@ -157,10 +157,10 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
       expect(generatedText).to.include(
-        'global::js.console.error("bad")'
+        'global::js.ConsoleModule.error("bad")'
       );
       expect(generatedText).to.include(
-        'global::js.console.log("ok")'
+        'global::js.ConsoleModule.log("ok")'
       );
       expect(generatedText).to.not.include("global::System.Console.Error");
     } finally {

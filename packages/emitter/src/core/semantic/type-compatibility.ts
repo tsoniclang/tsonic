@@ -11,7 +11,7 @@
  * These are distinct primitive types in the IR, not decorated versions of each other.
  */
 
-import type { IrType } from "@tsonic/frontend";
+import { stableIrTypeKey, type IrType } from "@tsonic/frontend";
 
 /**
  * Integer type names that map to C# integer types
@@ -88,16 +88,23 @@ export const isAssignable = (
     }
 
     if (fromType.kind === "referenceType" && toType.kind === "referenceType") {
-      // Exact name match
-      if (fromType.name === toType.name) {
-        return true;
-      }
-      // Check resolved CLR type match
-      if (
-        fromType.resolvedClrType &&
-        fromType.resolvedClrType === toType.resolvedClrType
-      ) {
-        return true;
+      const sameDeclaredName = fromType.name === toType.name;
+      const sameResolvedClrType =
+        !!fromType.resolvedClrType &&
+        fromType.resolvedClrType === toType.resolvedClrType;
+
+      if (sameDeclaredName || sameResolvedClrType) {
+        const fromTypeArguments = fromType.typeArguments ?? [];
+        const toTypeArguments = toType.typeArguments ?? [];
+        if (fromTypeArguments.length !== toTypeArguments.length) {
+          return false;
+        }
+
+        return fromTypeArguments.every(
+          (fromTypeArgument, index) =>
+            stableIrTypeKey(fromTypeArgument) ===
+            stableIrTypeKey(toTypeArguments[index] ?? fromTypeArgument)
+        );
       }
     }
   }

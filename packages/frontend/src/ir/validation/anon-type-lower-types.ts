@@ -45,6 +45,8 @@ export type LoweringContext = {
     string,
     IrReferenceType
   >;
+  /** Local named type declarations in the current module, keyed by authored type name. */
+  readonly localDeclaredTypeReferences: ReadonlyMap<string, IrReferenceType>;
   /** Module file path for unique naming */
   readonly moduleFilePath: string;
   /** Type names already declared in the compilation (avoid collisions) */
@@ -174,6 +176,10 @@ export const lowerType = (
       })();
 
     case "referenceType": {
+      const localDeclaredReference =
+        type.resolvedClrType === undefined
+          ? ctx.localDeclaredTypeReferences.get(type.name)
+          : undefined;
       const cachedByIdentity = ctx.loweredTypeByIdentity.get(type);
       if (cachedByIdentity) {
         return cachedByIdentity;
@@ -196,12 +202,14 @@ export const lowerType = (
       const hasStructuralMembers =
         structuralMembers !== undefined && structuralMembers.length > 0;
 
-      if (!hasTypeArgs && !hasStructuralMembers) {
+      if (!hasTypeArgs && !hasStructuralMembers && !localDeclaredReference) {
         return type;
       }
 
       const loweredReference: IrReferenceType = {
         ...type,
+        resolvedClrType:
+          type.resolvedClrType ?? localDeclaredReference?.resolvedClrType,
         typeArguments: hasTypeArgs
           ? typeArgs.map((ta) => lowerType(ta, ctx))
           : undefined,

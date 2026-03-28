@@ -36,6 +36,14 @@ export type ModuleIdentity = {
    */
   readonly exportedValueKinds?: ReadonlyMap<string, "function" | "variable">;
   /**
+   * Call arities that can omit trailing authored arguments at runtime.
+   *
+   * Key: exported value name
+   * Value: supported argument counts for direct invocation without emitter-
+   * synthesized default/rest materialization.
+   */
+  readonly exportedValueCallArities?: ReadonlyMap<string, readonly number[]>;
+  /**
    * Local type index for this module.
    *
    * Used for import resolution of local type aliases:
@@ -210,6 +218,8 @@ export type ImportBinding =
       readonly valueKind?: ValueSymbolKind;
       /** True when this value comes from a module-object/source-surface export. */
       readonly moduleObject?: boolean;
+      /** Supported argument counts that can omit trailing args at runtime. */
+      readonly runtimeOmittableCallArities?: readonly number[];
     }
   | {
       /** Namespace/module-object import (import * as x / canonical module object) */
@@ -218,6 +228,8 @@ export type ImportBinding =
       readonly clrName: string;
       /** Exported value categories for namespace members when known. */
       readonly memberKinds?: ReadonlyMap<string, ValueSymbolKind>;
+      /** Runtime-omittable call arities for namespace members when known. */
+      readonly memberCallArities?: ReadonlyMap<string, readonly number[]>;
       /** True when this namespace represents a module-object/source-surface container. */
       readonly moduleObject?: boolean;
     };

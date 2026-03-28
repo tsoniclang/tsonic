@@ -20,7 +20,6 @@ import {
 } from "../../../core/semantic/boolean-context.js";
 import { applyConditionBranchNarrowing } from "../../../core/semantic/condition-branch-narrowing.js";
 import {
-  tryResolvePredicateGuard,
   tryResolveInstanceofGuard,
   isDefinitelyTerminating,
 } from "./guard-analysis.js";
@@ -31,16 +30,12 @@ import {
   mergeBranchContextMeta,
   resetBranchFlowState,
   wrapInBlock,
-  buildCastLocalDecl,
-  buildIsNCondition,
   buildIsPatternCondition,
 } from "./branch-context.js";
 import {
-  tryEmitPredicateGuard,
   tryEmitInGuard,
   tryEmitPropertyTruthinessGuard,
   tryEmitDiscriminantEqualityGuard,
-  tryEmitNegatedPredicateGuard,
 } from "./if-emit-union-guards.js";
 import {
   tryEmitInstanceofGuard,
@@ -87,116 +82,16 @@ export const emitIfStatementAst = (
     if (result) return result;
   }
 
-  // Case A: Predicate guard (isUser(account))
-  if (stmt.condition.kind === "call") {
-    const result = tryEmitPredicateGuard(stmt, context);
-    if (result) return result;
-  }
-
-  // Case B: Negated predicate guard (!isUser(account))
-  {
-    const result = tryEmitNegatedPredicateGuard(stmt, context);
-    if (result) return result;
-  }
-
   // Case B2: Negated instanceof guard (!(x instanceof Foo))
   {
     const result = tryEmitNegatedInstanceofGuard(stmt, context);
     if (result) return result;
   }
 
-  // Case C: Logical AND with predicate guard (isUser(a) && a.foo)
+  // Case C: Logical AND with instanceof (x instanceof Foo && x.foo)
   if (stmt.condition.kind === "logical" && stmt.condition.operator === "&&") {
     const left = stmt.condition.left;
     const right = stmt.condition.right;
-
-    if (left.kind === "call") {
-      const guard = tryResolvePredicateGuard(left, context);
-      if (guard && guard.memberN !== undefined) {
-        const { memberN, ctxWithId, receiverAst, escapedNarrow, narrowedMap } =
-          guard;
-
-        const outerCondAst = buildIsNCondition(receiverAst, memberN, false);
-        const castStmt = buildCastLocalDecl(
-          escapedNarrow,
-          receiverAst,
-          memberN
-        );
-
-        const outerThenCtx: EmitterContext = {
-          ...ctxWithId,
-          narrowedBindings: narrowedMap,
-        };
-
-        const [rhsAst, rhsCtxAfterEmit] = emitExpressionAst(
-          right,
-          outerThenCtx
-        );
-        const [rhsCondAst, rhsCtxAfterCond] = toBooleanConditionAst(
-          right,
-          rhsAst,
-          rhsCtxAfterEmit
-        );
-
-        const [thenStmts, thenCtxAfter] = emitStatementAst(
-          stmt.thenStatement,
-          rhsCtxAfterCond
-        );
-
-        const clearNarrowing = (ctx: EmitterContext): EmitterContext => ({
-          ...ctx,
-          narrowedBindings: ctxWithId.narrowedBindings,
-        });
-
-        let innerElse: CSharpStatementAst | undefined;
-        let currentCtx = thenCtxAfter;
-        if (stmt.elseStatement) {
-          const [innerElseStmts, innerElseCtx] = emitStatementAst(
-            stmt.elseStatement,
-            clearNarrowing(currentCtx)
-          );
-          innerElse = wrapInBlock(innerElseStmts);
-          currentCtx = innerElseCtx;
-        }
-
-        const innerIf: CSharpStatementAst = {
-          kind: "ifStatement",
-          condition: rhsCondAst,
-          thenStatement: wrapInBlock(thenStmts),
-          elseStatement: innerElse,
-        };
-
-        const outerThenBlock: CSharpStatementAst = {
-          kind: "blockStatement",
-          statements: [castStmt, innerIf],
-        };
-
-        let outerElse: CSharpStatementAst | undefined;
-        let finalContext = clearNarrowing(currentCtx);
-        if (stmt.elseStatement) {
-          const [outerElseStmts, outerElseCtx] = emitStatementAst(
-            stmt.elseStatement,
-            finalContext
-          );
-          outerElse = wrapInBlock(outerElseStmts);
-          finalContext = outerElseCtx;
-        }
-
-        return [
-          [
-            {
-              kind: "ifStatement",
-              condition: outerCondAst,
-              thenStatement: outerThenBlock,
-              elseStatement: outerElse,
-            },
-          ],
-          finalContext,
-        ];
-      }
-    }
-
-    // Case C2: Logical AND with instanceof (x instanceof Foo && x.foo)
     if (left.kind === "binary" && left.operator === "instanceof") {
       const guard = tryResolveInstanceofGuard(left, context);
       if (guard) {

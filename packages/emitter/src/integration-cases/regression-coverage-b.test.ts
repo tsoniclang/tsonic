@@ -175,6 +175,8 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include(
         "new global::js.Array<object>(args).slice(1).toArray()"
       );
+      expect(csharp).to.not.include("args.slice(1)");
+      expect(csharp).to.include("global::System.Linq.Enumerable.Skip(args, 1)");
     });
 
     it("slices overload-wrapper rest tails through raw array storage instead of js.Array wrappers", () => {

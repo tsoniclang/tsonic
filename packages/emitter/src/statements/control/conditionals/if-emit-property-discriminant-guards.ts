@@ -385,19 +385,22 @@ export const tryEmitDiscriminantEqualityGuard = (
 
 /**
  * Try to emit a negated predicate guard narrowing for
- * `if (!isUser(account)) { ... } else { ... }`.
- * Returns undefined if the condition is not a matching negated predicate call
- * or if there is no else branch.
+ * `if (!isUser(account)) { ... }`.
+ * Returns undefined if the condition is not a matching negated predicate call.
  */
 export const tryEmitNegatedPredicateGuard = (
   stmt: IfStatement,
   context: EmitterContext
 ): GuardResult => {
+  const thenStatement = stmt.thenStatement;
+  if (!thenStatement) {
+    return undefined;
+  }
+
   if (
     stmt.condition.kind !== "unary" ||
     stmt.condition.operator !== "!" ||
-    stmt.condition.expression.kind !== "call" ||
-    !stmt.elseStatement
+    stmt.condition.expression.kind !== "call"
   ) {
     return undefined;
   }
@@ -471,14 +474,14 @@ export const tryEmitNegatedPredicateGuard = (
 
     const [thenBlock, thenBlockCtx] = emitForcedBlockWithPreambleAst(
       [thenCastStmt],
-      stmt.thenStatement,
+      thenStatement,
       { ...thenCtxWithId, narrowedBindings: thenNarrowedMap }
     );
     thenStmt = thenBlock;
     thenCtx = thenBlockCtx;
   } else {
     const [thenStmts, thenCtxAfter] = emitStatementAst(
-      stmt.thenStatement,
+      thenStatement,
       withComplementNarrowingForMembers(
         originalName,
         receiverAst,
@@ -493,46 +496,101 @@ export const tryEmitNegatedPredicateGuard = (
     thenCtx = thenCtxAfter;
   }
 
-  // ELSE branch: narrowing applies (to guard's target type)
-  const [elseBlock, _elseBodyCtx] =
-    memberN !== undefined
-      ? emitForcedBlockWithPreambleAst(
-          [buildCastLocalDecl(escapedNarrow, receiverAst, memberN)],
-          stmt.elseStatement,
-          { ...ctxWithId, narrowedBindings: narrowedMap }
-        )
-      : (() => {
-          const narrowedBindings = new Map(ctxWithId.narrowedBindings ?? []);
-          narrowedBindings.set(originalName, {
-            kind: "runtimeSubset",
-            runtimeMemberNs: memberNs,
-            runtimeUnionArity,
-            sourceMembers: sourceMembers ? [...sourceMembers] : undefined,
-            sourceCandidateMemberNs: sourceCandidateMemberNs
-              ? [...sourceCandidateMemberNs]
-              : undefined,
-            type: targetType,
-            sourceType: sourceType ?? buildSubsetUnionType(candidateMembers),
-          });
-          const [elseStmts, nextElseCtx] = emitStatementAst(
+  if (stmt.elseStatement) {
+    const [elseBlock, _elseBodyCtx] =
+      memberN !== undefined
+        ? emitForcedBlockWithPreambleAst(
+            [buildCastLocalDecl(escapedNarrow, receiverAst, memberN)],
             stmt.elseStatement,
-            {
-              ...ctxWithId,
-              narrowedBindings,
-            }
-          );
-          return [wrapInBlock(elseStmts), nextElseCtx] as const;
-        })();
+            { ...ctxWithId, narrowedBindings: narrowedMap }
+          )
+        : (() => {
+            const narrowedBindings = new Map(ctxWithId.narrowedBindings ?? []);
+            narrowedBindings.set(originalName, {
+              kind: "runtimeSubset",
+              runtimeMemberNs: memberNs,
+              runtimeUnionArity,
+              sourceMembers: sourceMembers ? [...sourceMembers] : undefined,
+              sourceCandidateMemberNs: sourceCandidateMemberNs
+                ? [...sourceCandidateMemberNs]
+                : undefined,
+              type: targetType,
+              sourceType: sourceType ?? buildSubsetUnionType(candidateMembers),
+            });
+            const [elseStmts, nextElseCtx] = emitStatementAst(
+              stmt.elseStatement,
+              {
+                ...ctxWithId,
+                narrowedBindings,
+              }
+            );
+            return [wrapInBlock(elseStmts), nextElseCtx] as const;
+          })();
 
+    return [
+      [
+        {
+          kind: "ifStatement",
+          condition: condAst,
+          thenStatement: thenStmt,
+          elseStatement: elseBlock,
+        },
+      ],
+      thenCtx,
+    ];
+  }
+
+  let finalContext = thenCtx;
+  if (isDefinitelyTerminating(thenStatement)) {
+    const narrowedBindings = new Map(finalContext.narrowedBindings ?? []);
+    if (memberN !== undefined) {
+      const selectedIndex = candidateMemberNs.findIndex(
+        (runtimeMemberN) => runtimeMemberN === memberN
+      );
+      const selectedMemberType =
+        selectedIndex >= 0 ? candidateMembers[selectedIndex] : undefined;
+      if (!selectedMemberType) {
+        throw new Error(
+          "ICE: Failed to resolve predicate target runtime union member for negated predicate fallthrough."
+        );
+      }
+
+      narrowedBindings.set(
+        originalName,
+        buildExprBinding(
+          buildUnionNarrowAst(receiverAst, memberN),
+          selectedMemberType,
+          sourceType,
+          toReceiverAst(receiverAst)
+        )
+      );
+    } else {
+      narrowedBindings.set(originalName, {
+        kind: "runtimeSubset",
+        runtimeMemberNs: memberNs,
+        runtimeUnionArity,
+        sourceMembers: sourceMembers ? [...sourceMembers] : undefined,
+        sourceCandidateMemberNs: sourceCandidateMemberNs
+          ? [...sourceCandidateMemberNs]
+          : undefined,
+        type: targetType,
+        sourceType: sourceType ?? buildSubsetUnionType(candidateMembers),
+      });
+    }
+
+    finalContext = { ...finalContext, narrowedBindings };
+    return [
+      [{ kind: "ifStatement", condition: condAst, thenStatement: thenStmt }],
+      finalContext,
+    ];
+  }
+
+  finalContext = {
+    ...finalContext,
+    narrowedBindings: ctxWithId.narrowedBindings,
+  };
   return [
-    [
-      {
-        kind: "ifStatement",
-        condition: condAst,
-        thenStatement: thenStmt,
-        elseStatement: elseBlock,
-      },
-    ],
-    thenCtx,
+    [{ kind: "ifStatement", condition: condAst, thenStatement: thenStmt }],
+    finalContext,
   ];
 };

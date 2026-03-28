@@ -14,13 +14,17 @@ import {
   requiresValueTypeMaterialization,
 } from "./expected-type-matching.js";
 import { unwrapParameterModifierType } from "./parameter-modifier-types.js";
-import { tryBuildRuntimeMaterializationAst } from "./runtime-reification.js";
+import {
+  tryBuildRuntimeMaterializationAst,
+  tryBuildRuntimeReificationPlan,
+} from "./runtime-reification.js";
 import {
   isDefinitelyValueType,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "./type-resolution.js";
+import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 
 const isExactExpressionToType = (
   ast: CSharpExpressionAst,
@@ -104,6 +108,24 @@ export const materializeDirectNarrowingAst = (
     stripNullish(comparableSourceType),
     context
   );
+  const shouldReifyBroadSourceToRuntimeUnion =
+    (resolvedSource.kind === "unknownType" ||
+      resolvedSource.kind === "anyType" ||
+      resolvedSource.kind === "objectType" ||
+      (resolvedSource.kind === "referenceType" &&
+        resolvedSource.name === "object")) &&
+    willCarryAsRuntimeUnion(comparableNarrowedType, context);
+  if (shouldReifyBroadSourceToRuntimeUnion) {
+    const reificationPlan = tryBuildRuntimeReificationPlan(
+      sourceAst,
+      comparableNarrowedType,
+      context,
+      emitTypeAst
+    );
+    if (reificationPlan) {
+      return [reificationPlan.value, reificationPlan.context];
+    }
+  }
   const canReuseAssignableSurface =
     resolvedSource.kind !== "unknownType" &&
     resolvedSource.kind !== "anyType" &&

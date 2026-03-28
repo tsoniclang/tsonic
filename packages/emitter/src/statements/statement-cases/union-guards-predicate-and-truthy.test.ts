@@ -144,8 +144,10 @@ describe("Statement Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("if (s.Is1())");
-    expect(result).to.include("if (s.Is2())");
+    expect(result).to.include("if (isA(s))");
+    expect(result).to.include("if (isB(s.Match(");
+    expect(result).to.not.include("if (s.Is1())");
+    expect(result).to.not.include("if (s.Is2())");
   });
 
   it("uses the raw carrier for predicate guards wrapped in transparent subset assertions", () => {
@@ -290,7 +292,8 @@ describe("Statement Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("if (s.Is2())");
+    expect(result).to.include("if (isB(s.Match(");
+    expect(result).to.not.include("if (s.Is2())");
     expect(result).to.not.include("As2()).Is2()");
   });
 

@@ -28,7 +28,10 @@ import {
   normalizeToNominal,
   resolveTypeIdByName,
 } from "./type-system-state.js";
-import { convertTypeNode } from "./type-system-call-resolution.js";
+import {
+  attachTypeIds,
+  convertTypeNode,
+} from "./type-system-call-resolution.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 import {
   buildFunctionTypeFromSignatureShape,
@@ -147,6 +150,60 @@ export const typeOfMemberId = (
   const memberInfo = state.handleRegistry.getMember(memberId);
   if (!memberInfo) {
     return unknownType;
+  }
+
+  if (receiverType) {
+    const normalizedReceiver = normalizeToNominal(state, receiverType);
+    if (normalizedReceiver) {
+      const lookupResult = state.nominalEnv.findMemberDeclaringType(
+        normalizedReceiver.typeId,
+        normalizedReceiver.typeArgs,
+        memberInfo.name
+      );
+
+      if (lookupResult) {
+        const catalogMember = state.unifiedCatalog.getMember(
+          lookupResult.declaringTypeId,
+          memberInfo.name
+        );
+
+        if (catalogMember?.type) {
+          return attachTypeIds(
+            state,
+            irSubstitute(
+              catalogMember.type,
+              lookupResult.substitution as IrSubstitutionMap
+            )
+          );
+        }
+
+        const signatures = catalogMember?.signatures ?? [];
+        if (signatures.length > 0) {
+          const overloadFamily = buildCallableOverloadFamilyType(
+            signatures.map((signature) =>
+              buildFunctionTypeFromSignatureShape(
+                signature.parameters.map((parameter) => ({
+                  name: parameter.name,
+                  type: parameter.type,
+                  isOptional: parameter.isOptional,
+                  isRest: parameter.isRest,
+                  mode: parameter.mode,
+                })),
+                signature.returnType
+              )
+            )
+          );
+
+          return attachTypeIds(
+            state,
+            irSubstitute(
+              overloadFamily,
+              lookupResult.substitution as IrSubstitutionMap
+            )
+          );
+        }
+      }
+    }
   }
 
   // Otherwise, attempt to recover type deterministically from the member declaration.

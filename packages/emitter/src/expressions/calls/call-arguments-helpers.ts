@@ -121,6 +121,15 @@ const buildTupleSpreadSlice = (
     property: "slice",
     isComputed: false,
     isOptional: false,
+    memberBinding: {
+      kind: "method",
+      assembly: "__synthetic",
+      type: "Array",
+      member: "slice",
+      emitSemantics: {
+        callStyle: "receiver",
+      },
+    },
   },
   arguments: [
     {

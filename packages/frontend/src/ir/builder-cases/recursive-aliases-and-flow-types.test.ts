@@ -12,6 +12,7 @@ import {
   IrMethodDeclaration,
   IrReturnStatement,
   IrType,
+  IrVariableDeclaration,
 } from "../types.js";
 import { createFilesystemTestProgram } from "./_test-helpers.js";
 
@@ -395,6 +396,93 @@ describe("IR Builder", function () {
           name: "WrappedBox",
           typeArguments: [{ kind: "typeParameterType", name: "U" }],
         });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("substitutes inherited generic member types for locals outside the class body", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class Item {",
+            "  readonly name: string;",
+            "  constructor(name: string) {",
+            "    this.name = name;",
+            "  }",
+            "}",
+            "",
+            "class GenericArrayValue<T> {",
+            "  readonly value: T[];",
+            "  constructor(value: T[]) {",
+            "    this.value = value;",
+            "  }",
+            "}",
+            "",
+            "class ItemArrayValue extends GenericArrayValue<Item> {}",
+            "",
+            "export function firstLength(value: ItemArrayValue): int {",
+            "  const items = value.value;",
+            "  if (items.length === 0) return 0 as int;",
+            "  const item = items[0]!;",
+            "  return item.name.length;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "firstLength"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn || !fn.body) return;
+
+        const itemsDecl = fn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0]?.name.name === "items"
+        );
+
+        const itemDecl = fn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0]?.name.name === "item"
+        );
+
+        expect(itemsDecl).to.not.equal(undefined);
+        expect(itemDecl).to.not.equal(undefined);
+        if (!itemsDecl || !itemDecl) return;
+
+        const itemsInitializer = itemsDecl.declarations[0]?.initializer;
+        expect(itemsInitializer?.inferredType?.kind).to.equal("arrayType");
+        if (itemsInitializer?.inferredType?.kind !== "arrayType") return;
+        expect(itemsInitializer.inferredType.elementType.kind).to.equal(
+          "referenceType"
+        );
+        if (itemsInitializer.inferredType.elementType.kind !== "referenceType") {
+          return;
+        }
+        expect(itemsInitializer.inferredType.elementType.name).to.equal("Item");
+
+        const itemInitializer = itemDecl.declarations[0]?.initializer;
+        expect(itemInitializer?.inferredType?.kind).to.equal("referenceType");
+        if (itemInitializer?.inferredType?.kind !== "referenceType") return;
+        expect(itemInitializer.inferredType.name).to.equal("Item");
       } finally {
         fixture.cleanup();
       }

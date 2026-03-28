@@ -236,6 +236,11 @@ export const findUnionMemberIndex = (
       stripNullish(candidate),
       context
     );
+    if (
+      stableIrTypeKey(resolvedMember) === stableIrTypeKey(resolvedCandidate)
+    ) {
+      return true;
+    }
     const visitedKey = `${stableIrTypeKey(resolvedMember)}=>${stableIrTypeKey(
       resolvedCandidate
     )}`;
@@ -262,6 +267,16 @@ export const findUnionMemberIndex = (
       resolvedCandidate.kind === "anyType"
     ) {
       return true;
+    }
+
+    if (
+      resolvedMember.kind === "unknownType" ||
+      resolvedCandidate.kind === "unknownType"
+    ) {
+      return (
+        resolvedMember.kind === "unknownType" &&
+        resolvedCandidate.kind === "unknownType"
+      );
     }
 
     if (resolvedMember.kind === "literalType") {

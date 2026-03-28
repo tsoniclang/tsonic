@@ -190,12 +190,15 @@ describe("build command (native library port regressions)", function () {
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       const unionMatches = Array.from(
         tree.matchAll(
-          /global::Tsonic\.Runtime\.Union<[^>]*global::js\.RegExp[^>]*>/g
+          /global::Tsonic\.Runtime\.Union<[^>]*string\[\][^>]*global::js\.RegExp[^>]*string[^>]*>/g
         ),
         (match) => match[0]
       );
       expect(unionMatches.length).to.be.greaterThan(0);
       expect(new Set(unionMatches).size).to.equal(1);
+      expect(unionMatches[0]).to.equal(
+        "global::Tsonic.Runtime.Union<string[], global::js.RegExp, string>"
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

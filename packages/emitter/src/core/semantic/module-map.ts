@@ -10,6 +10,10 @@ import type {
   ExportMap,
 } from "../../emitter-types/core.js";
 import { buildLocalTypes } from "./local-types.js";
+import {
+  computeDeclarationRuntimeOmittableCallArities,
+  computeFunctionValueRuntimeOmittableCallArities,
+} from "./runtime-call-arities.js";
 
 // Re-export types from barrel
 export type { ModuleIdentity, ModuleMap, ExportSource, ExportMap };
@@ -167,6 +171,84 @@ export const buildModuleMap = (
       return kinds;
     })();
 
+    const exportedValueCallArities = (() => {
+      const arities = new Map<string, readonly number[]>();
+
+      const findLocalValueCallArities = (
+        localName: string
+      ): readonly number[] | undefined => {
+        for (const stmt of module.body) {
+          if (stmt.kind === "functionDeclaration" && stmt.name === localName) {
+            return computeDeclarationRuntimeOmittableCallArities(
+              stmt.parameters
+            );
+          }
+          if (stmt.kind !== "variableDeclaration") {
+            continue;
+          }
+          for (const decl of stmt.declarations) {
+            if (decl.name.kind !== "identifierPattern") {
+              continue;
+            }
+            if (decl.name.name !== localName) {
+              continue;
+            }
+            if (
+              decl.initializer &&
+              (decl.initializer.kind === "arrowFunction" ||
+                decl.initializer.kind === "functionExpression")
+            ) {
+              return computeFunctionValueRuntimeOmittableCallArities(
+                decl.initializer.parameters
+              );
+            }
+            return undefined;
+          }
+        }
+        return undefined;
+      };
+
+      for (const exp of module.exports) {
+        if (exp.kind === "declaration") {
+          const decl = exp.declaration;
+          if (decl.kind === "functionDeclaration") {
+            arities.set(
+              decl.name,
+              computeDeclarationRuntimeOmittableCallArities(decl.parameters)
+            );
+          } else if (decl.kind === "variableDeclaration") {
+            for (const d of decl.declarations) {
+              if (d.name.kind !== "identifierPattern") {
+                continue;
+              }
+              if (
+                d.initializer &&
+                (d.initializer.kind === "arrowFunction" ||
+                  d.initializer.kind === "functionExpression")
+              ) {
+                arities.set(
+                  d.name.name,
+                  computeFunctionValueRuntimeOmittableCallArities(
+                    d.initializer.parameters
+                  )
+                );
+              }
+            }
+          }
+          continue;
+        }
+
+        if (exp.kind === "named") {
+          const supportedArities = findLocalValueCallArities(exp.localName);
+          if (supportedArities) {
+            arities.set(exp.name, supportedArities);
+          }
+        }
+      }
+
+      return arities;
+    })();
+
     map.set(canonicalPath, {
       namespace: module.namespace,
       className: module.className,
@@ -174,6 +256,7 @@ export const buildModuleMap = (
       hasRuntimeContainer,
       hasTypeCollision,
       exportedValueKinds,
+      exportedValueCallArities,
       localTypes: buildLocalTypes(module),
     });
   }

@@ -107,6 +107,35 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("settings.waiting_period_threshold");
     });
 
+    it("passes broad object call expectations through narrowed record locals without storage casts", () => {
+      const source = `
+        const isObject = (value: unknown): value is Record<string, unknown> => {
+          return value !== null && typeof value === "object" && !Array.isArray(value);
+        };
+
+        export function main(): void {
+          const root = JSON.parse("{\\"title\\":\\"hello\\",\\"count\\":2}");
+          if (!isObject(root)) return;
+          const first = Object.entries(root)[0];
+          if (first === undefined) return;
+          const [key, value] = first;
+          if (typeof value === "number") {
+            console.log(key, value.toString());
+          } else if (typeof value === "string") {
+            console.log(key, value.toUpperCase());
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("global::js.Object.entries(root)");
+      expect(csharp).not.to.include(
+        "(global::System.Collections.Generic.Dictionary<string, object?>)root"
+      );
+    });
+
     it("emits object literals with exact numeric properties after nullish fallback narrowing", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
@@ -262,7 +291,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include(
-        "foreach (var value in (global::System.Collections.Generic.IEnumerable<T>)(global::System.Collections.Generic.IEnumerable<object?>)item)"
+        "foreach (var value in (global::System.Collections.Generic.IEnumerable<T>)item)"
       );
     });
 
@@ -286,7 +315,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include(
-        "foreach (var value in (global::System.Collections.Generic.IEnumerable<T>)(global::System.Collections.Generic.IEnumerable<object?>)item)"
+        "foreach (var value in (global::System.Collections.Generic.IEnumerable<T>)item)"
       );
     });
 
@@ -312,7 +341,7 @@ describe("End-to-End Integration", () => {
         surface: "@tsonic/js",
       });
       expect(csharp).to.include(
-        "foreach (var value in (global::System.Collections.Generic.IEnumerable<T>)(global::System.Collections.Generic.IEnumerable<object?>)item)"
+        "foreach (var value in (global::System.Collections.Generic.IEnumerable<T>)item)"
       );
     });
 

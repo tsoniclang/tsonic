@@ -403,6 +403,32 @@ const emitFunctionValueCallArguments = (
   let currentContext = context;
   const argAsts: CSharpExpressionAst[] = [];
   const parameters = signature.parameters;
+  const runtimeOmittableCallArities = (() => {
+    if (expr.callee.kind === "identifier") {
+      const importBinding = context.importBindings?.get(expr.callee.name);
+      if (importBinding?.kind === "value") {
+        return new Set(importBinding.runtimeOmittableCallArities ?? []);
+      }
+      return undefined;
+    }
+
+    if (
+      expr.callee.kind === "memberAccess" &&
+      expr.callee.object.kind === "identifier" &&
+      !expr.callee.isComputed &&
+      typeof expr.callee.property === "string"
+    ) {
+      const importBinding = context.importBindings?.get(expr.callee.object.name);
+      if (importBinding?.kind === "namespace") {
+        return new Set(
+          importBinding.memberCallArities?.get(expr.callee.property) ?? []
+        );
+      }
+    }
+
+    return undefined;
+  })();
+  const providedArgumentCount = args.length;
 
   const extractTupleRestCandidates = (
     type: IrType | undefined
@@ -564,6 +590,10 @@ const emitFunctionValueCallArguments = (
       argAsts.push(wrapArgModifier(modifier, argAst));
       currentContext = argCtx;
       continue;
+    }
+
+    if (runtimeOmittableCallArities?.has(providedArgumentCount)) {
+      return [argAsts, currentContext];
     }
 
     if (parameter.initializer) {

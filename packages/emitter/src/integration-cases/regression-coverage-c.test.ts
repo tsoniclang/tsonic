@@ -829,6 +829,69 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("invokes predicate-fallthrough callable subsets through their projected member slot", () => {
+      const csharp = compileToCSharp(`
+        type Request = { readonly path: string };
+        type Response = { send(text: string): void };
+        type NextControl = "route" | "router" | string | null | undefined;
+        type NextFunction = (value?: NextControl) => void | Promise<void>;
+        type RequestHandler = (
+          request: Request,
+          response: Response,
+          next: NextFunction
+        ) => unknown | Promise<unknown>;
+        type ErrorRequestHandler = (
+          error: unknown,
+          request: Request,
+          response: Response,
+          next: NextFunction
+        ) => unknown | Promise<unknown>;
+        type MiddlewareHandler = RequestHandler | ErrorRequestHandler;
+
+        declare function isMiddlewareHandler(value: unknown): value is MiddlewareHandler;
+        declare function isErrorHandler(
+          value: MiddlewareHandler,
+          treatAsError: boolean
+        ): value is ErrorRequestHandler;
+
+        export async function run(
+          handlers: unknown[],
+          request: Request,
+          response: Response,
+          currentError: unknown
+        ): Promise<void> {
+          let error = currentError;
+          const next = async (_value?: NextControl): Promise<void> => {};
+
+          for (const handler of handlers) {
+            if (!isMiddlewareHandler(handler)) {
+              continue;
+            }
+
+            if (error === undefined) {
+              if (isErrorHandler(handler, false)) {
+                continue;
+              }
+              await handler(request, response, next);
+            } else {
+              if (!isErrorHandler(handler, true)) {
+                continue;
+              }
+              await handler(error, request, response, next);
+            }
+          }
+        }
+      `);
+
+      expect(csharp).to.include("isErrorHandler(");
+      expect(csharp).to.match(
+        /await \(\(global::System\.Func<object\?,[\s\S]*?\.As2\(\)\)\)\(error, request, response, next\)\.Match\(/
+      );
+      expect(csharp).to.include(".From2(");
+      expect(csharp).not.to.include("handler.As2()");
+      expect(csharp).not.to.include("handler.Is2()");
+    });
+
     it("keeps recursive Array.isArray fallthrough guards on the original runtime carrier", () => {
       const csharp = compileToCSharp(`
         import { FileInfo } from "@tsonic/dotnet/System.IO.js";
@@ -1281,7 +1344,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "foreach (var value in (global::System.Collections.Generic.IEnumerable<T>)(global::System.Collections.Generic.IEnumerable<object?>)item)"
+        "foreach (var value in (global::System.Collections.Generic.IEnumerable<T>)item)"
       );
       expect(csharp).not.to.include(
         "foreach (var value in (global::System.Collections.Generic.IEnumerable<object?>)item)"

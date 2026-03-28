@@ -178,6 +178,79 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     );
   });
 
+  it("preserves local class references when anonymous modules fall back to the empty common namespace", () => {
+    const applicationType: IrType = {
+      kind: "referenceType",
+      name: "Application",
+    };
+
+    const moduleA: IrModule = {
+      kind: "module",
+      filePath: "application.ts",
+      namespace: "Demo.ExpressLike",
+      className: "ApplicationModule",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "classDeclaration",
+          name: "Application",
+          members: [],
+          isExported: true,
+          isStruct: false,
+          implements: [],
+          superClass: undefined,
+        },
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "state" },
+              initializer: {
+                kind: "object",
+                properties: [],
+                inferredType: {
+                  kind: "objectType",
+                  members: [
+                    {
+                      kind: "propertySignature",
+                      name: "owner",
+                      type: applicationType,
+                      isOptional: false,
+                      isReadonly: false,
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const moduleB: IrModule = {
+      kind: "module",
+      filePath: "entry.ts",
+      namespace: "App",
+      className: "Entry",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [],
+    };
+
+    const lowered = runAnonymousTypeLoweringPass([moduleA, moduleB]);
+    const soundness = validateIrSoundness(lowered.modules);
+
+    expect(soundness.diagnostics.some((d) => d.code === "TSN7414")).to.equal(
+      false
+    );
+  });
+
   it("reuses exact local structural aliases instead of generating anonymous carriers", () => {
     const createInputType: IrType = {
       kind: "objectType",

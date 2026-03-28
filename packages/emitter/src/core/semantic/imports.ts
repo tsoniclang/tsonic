@@ -285,6 +285,7 @@ export const processImports = (
               actualExportName,
               targetModule.hasTypeCollision,
               targetModule.exportedValueKinds,
+              targetModule.exportedValueCallArities,
               targetModule.localTypes,
               ctx
             );
@@ -417,6 +418,7 @@ const createImportBinding = (
   resolvedExportName: string,
   hasTypeCollision: boolean = false,
   exportedValueKinds: ReadonlyMap<string, "function" | "variable"> | undefined,
+  exportedValueCallArities: ReadonlyMap<string, readonly number[]> | undefined,
   targetLocalTypes: ReadonlyMap<string, LocalTypeInfo> | undefined,
   context: EmitterContext
 ): { localName: string; importBinding: ImportBinding } | null => {
@@ -492,6 +494,8 @@ const createImportBinding = (
           clrName: valueContainerFqn,
           member: emitCSharpName(resolvedExportName, bucket, context),
           valueKind,
+          runtimeOmittableCallArities:
+            exportedValueCallArities?.get(resolvedExportName),
         },
       };
     }
@@ -504,6 +508,7 @@ const createImportBinding = (
         kind: "namespace",
         clrName: valueContainerFqn,
         memberKinds: exportedValueKinds,
+        memberCallArities: exportedValueCallArities,
         moduleObject: true,
       },
     };
@@ -517,6 +522,7 @@ const createImportBinding = (
         kind: "namespace",
         clrName: valueContainerFqn,
         memberKinds: exportedValueKinds,
+        memberCallArities: exportedValueCallArities,
         moduleObject: true,
       },
     };

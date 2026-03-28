@@ -12,7 +12,22 @@ export const shouldWrapExpressionWithAssertion = (
 ): boolean => {
   if (!fromEnv) return false;
   if (!fromDecl || fromDecl.kind === "unknownType") {
-    return fromEnv.kind !== "unknownType";
+    if (fromEnv.kind === "unknownType") {
+      return false;
+    }
+    if (fromEnv.kind === "unionType") {
+      return true;
+    }
+    if (isExactNumericIrType(fromEnv)) {
+      return true;
+    }
+    if (fromEnv.kind === "arrayType") {
+      return true;
+    }
+    if (fromEnv.kind === "functionType") {
+      return true;
+    }
+    return false;
   }
   if (ctx.typeSystem.typesEqual(fromEnv, fromDecl)) return false;
 

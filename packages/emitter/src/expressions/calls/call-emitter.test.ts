@@ -121,6 +121,59 @@ describe("call-emitter", () => {
     );
   });
 
+  it("omits authored defaults for imported function-value identifiers when runtime arity metadata is available", () => {
+    const stringType = {
+      kind: "primitiveType" as const,
+      name: "string" as const,
+    };
+    const functionType = {
+      kind: "functionType" as const,
+      parameters: [
+        {
+          kind: "parameter" as const,
+          pattern: { kind: "identifierPattern" as const, name: "label" },
+          type: stringType,
+          initializer: { kind: "literal" as const, value: "default" },
+          isRest: false,
+          isOptional: false,
+          passing: "value" as const,
+        },
+      ],
+      returnType: stringType,
+    };
+
+    const context = {
+      ...createContext({ rootNamespace: "Test" }),
+      importBindings: new Map([
+        [
+          "formatLabel",
+          {
+            kind: "value" as const,
+            clrName: "global::nodejs.labels",
+            member: "formatLabel",
+            valueKind: "variable" as const,
+            runtimeOmittableCallArities: [0, 1],
+          },
+        ],
+      ]),
+    };
+
+    const expr = {
+      kind: "call" as const,
+      callee: {
+        kind: "identifier" as const,
+        name: "formatLabel",
+        inferredType: functionType,
+      },
+      arguments: [],
+      isOptional: false,
+      inferredType: stringType,
+    };
+
+    const [ast] = emitCall(expr, context);
+    expect(printExpression(ast)).to.equal("global::nodejs.labels.formatLabel()");
+  });
+
   it("does not invent receiver parameter types for imported method calls without explicit call metadata", () => {
     const numberType = {
       kind: "primitiveType" as const,

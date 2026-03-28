@@ -253,6 +253,23 @@ export const tryEmitImplicitNarrowedStorageIdentifier = (
     return undefined;
   }
 
+  const narrowedProjectionType =
+    narrowed.type ??
+    tryResolveRuntimeUnionMemberType(
+      narrowed.sourceType ?? storageType,
+      narrowed.exprAst,
+      context
+    );
+  const shouldAvoidProjectedRuntimeUnionStorageReuse =
+    narrowed.storageExprAst !== undefined &&
+    narrowed.storageExprAst !== narrowed.exprAst &&
+    willCarryAsRuntimeUnion(storageType, context) &&
+    !!narrowedProjectionType &&
+    !willCarryAsRuntimeUnion(narrowedProjectionType, context);
+  if (shouldAvoidProjectedRuntimeUnionStorageReuse) {
+    return undefined;
+  }
+
   const [sameSurface, nextContext] = matchesEmittedStorageSurface(
     storageType,
     narrowed.type,
@@ -336,6 +353,43 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     return undefined;
   }
 
+  const narrowedProjectionType =
+    narrowed.type ??
+    tryResolveRuntimeUnionMemberType(
+      narrowed.sourceType ?? storageType,
+      narrowed.exprAst,
+      context
+    );
+  const shouldAvoidProjectedRuntimeUnionStorageReuse =
+    narrowed.storageExprAst !== undefined &&
+    narrowed.storageExprAst !== narrowed.exprAst &&
+    willCarryAsRuntimeUnion(storageType, context) &&
+    !!narrowedProjectionType &&
+    !willCarryAsRuntimeUnion(narrowedProjectionType, context);
+
+  const shouldAvoidBroadStorageReuse =
+    !!expectedType &&
+    !!narrowed.type &&
+    isBroadStorageTarget(expectedType, context) &&
+    willCarryAsRuntimeUnion(storageType, context) &&
+    !willCarryAsRuntimeUnion(narrowed.type, context);
+  const shouldAvoidStorageReuse =
+    shouldAvoidBroadStorageReuse ||
+    shouldAvoidProjectedRuntimeUnionStorageReuse;
+  if (
+    expectedType &&
+    isBroadStorageTarget(expectedType, context) &&
+    matchesExpectedEmissionType(storageType, expectedType, context) &&
+    !shouldAvoidStorageReuse
+  ) {
+    if (narrowed.storageExprAst) {
+      return [narrowed.storageExprAst, context];
+    }
+    if (remappedLocal) {
+      return [identifierExpression(remappedLocal), context];
+    }
+  }
+
   const [sameSurface, nextContext] = matchesEmittedStorageSurface(
     storageType,
     targetType,
@@ -361,11 +415,7 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   }
 
   if (
-    expectedType &&
-    narrowed.type &&
-    isBroadStorageTarget(expectedType, context) &&
-    willCarryAsRuntimeUnion(storageType, context) &&
-    !willCarryAsRuntimeUnion(narrowed.type, context)
+    shouldAvoidStorageReuse
   ) {
     return undefined;
   }

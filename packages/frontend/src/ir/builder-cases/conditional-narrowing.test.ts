@@ -208,6 +208,66 @@ describe("IR Builder", function () {
       }
     });
 
+    it("keeps broad unknown call arguments as storage identifiers after record narrowing", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare function takeUnknown(value: unknown): void;",
+            "const isObject = (value: unknown): value is Record<string, unknown> => {",
+            '  return value !== null && typeof value === "object";',
+            "};",
+            "export function run(root: unknown): void {",
+            "  if (!isObject(root)) return;",
+            "  takeUnknown(root);",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const callStmt = runFn.body.statements.find(
+          (stmt) =>
+            stmt.kind === "expressionStatement" &&
+            stmt.expression.kind === "call"
+        );
+        expect(callStmt).to.not.equal(undefined);
+        if (
+          !callStmt ||
+          callStmt.kind !== "expressionStatement" ||
+          callStmt.expression.kind !== "call"
+        ) {
+          return;
+        }
+
+        const arg = callStmt.expression.arguments[0];
+        expect(arg?.kind).to.equal("identifier");
+        if (!arg || arg.kind !== "identifier") return;
+
+        expect(arg.name).to.equal("root");
+        expect(arg.inferredType?.kind).to.equal("dictionaryType");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("prefers the assignable common nominal supertype for conditional expressions", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -479,6 +539,70 @@ describe("IR Builder", function () {
         expect(access.object.inferredType?.kind).to.equal("primitiveType");
         if (access.object.inferredType?.kind !== "primitiveType") return;
         expect(access.object.inferredType.name).to.equal("string");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("collapses predicate-narrowed conditionals to recursive alias targets when fallback branches are assignable", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type RequestHandler = (value: string) => void;",
+            "type PathSpec = string | RegExp | readonly PathSpec[] | null | undefined;",
+            "type MiddlewareLike = RequestHandler | Router | readonly MiddlewareLike[];",
+            "class Router {}",
+            "function isPathSpec(value: PathSpec | MiddlewareLike): value is PathSpec {",
+            '  return value == null || typeof value === "string" || value instanceof RegExp || Array.isArray(value);',
+            "}",
+            "export function collect(first: PathSpec | MiddlewareLike, rest: readonly MiddlewareLike[]) {",
+            '  const mountedAt = isPathSpec(first) ? first : "/";',
+            "  void rest;",
+            "  return mountedAt;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const collectFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "collect"
+        );
+        expect(collectFn).to.not.equal(undefined);
+        if (!collectFn) return;
+
+        const mountedAtDecl = collectFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "mountedAt"
+            )
+        );
+        expect(mountedAtDecl).to.not.equal(undefined);
+        if (!mountedAtDecl) return;
+
+        const mountedAtInit = mountedAtDecl.declarations[0]?.initializer;
+        expect(mountedAtInit?.kind).to.equal("conditional");
+        if (!mountedAtInit || mountedAtInit.kind !== "conditional") return;
+
+        expect(mountedAtInit.inferredType?.kind).to.equal("referenceType");
+        if (mountedAtInit.inferredType?.kind !== "referenceType") return;
+        expect(mountedAtInit.inferredType.name).to.equal("PathSpec");
+        expect(mountedAtInit.inferredType.typeId?.tsName).to.equal("PathSpec");
       } finally {
         fixture.cleanup();
       }

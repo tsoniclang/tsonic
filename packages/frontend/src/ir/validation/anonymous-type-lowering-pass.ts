@@ -78,11 +78,14 @@ const lowerModule = (
   const localNamedStructuralReferences = collectLocalNamedStructuralReferences(
     module
   );
+  const localDeclaredTypeReferences =
+    collectLocalDeclaredTypeReferences(module);
   const ctx: LoweringContext = {
     generatedDeclarations: shared.generatedDeclarations,
     shapeToName: shared.shapeToName,
     shapeToExistingReference: shared.shapeToExistingReference,
     localNamedStructuralReferences,
+    localDeclaredTypeReferences,
     moduleFilePath: module.filePath,
     existingTypeNames: shared.existingTypeNames,
     loweredTypeByIdentity: shared.loweredTypeByIdentity,
@@ -149,6 +152,37 @@ const collectLocalNamedStructuralReferences = (
     }
   }
   return resolved;
+};
+
+const collectLocalDeclaredTypeReferences = (
+  module: IrModule
+): ReadonlyMap<string, IrReferenceType> => {
+  const references = new Map<string, IrReferenceType>();
+
+  for (const stmt of module.body) {
+    switch (stmt.kind) {
+      case "classDeclaration":
+      case "interfaceDeclaration":
+      case "enumDeclaration":
+        references.set(stmt.name, {
+          kind: "referenceType",
+          name: stmt.name,
+          resolvedClrType: `${module.namespace}.${stmt.name}`,
+          typeArguments:
+            "typeParameters" in stmt
+              ? stmt.typeParameters?.map(
+                  (parameter): IrType => ({
+                    kind: "typeParameterType",
+                    name: parameter.name,
+                  })
+                )
+              : undefined,
+        });
+        break;
+    }
+  }
+
+  return references;
 };
 
 const typeAliasToStructuralReference = (
