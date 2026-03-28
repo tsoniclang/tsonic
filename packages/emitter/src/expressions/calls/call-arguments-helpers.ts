@@ -50,20 +50,23 @@ export const normalizeCallArgumentExpectedType = (
   context: EmitterContext
 ): IrType | undefined => {
   const normalizedType = normalizeRecursiveArrayExpectedType(type, context);
-  if (!normalizedType) {
-    return normalizedType;
+  const emissionAlignedType = normalizedType
+    ? normalizeStructuralEmissionType(normalizedType, context)
+    : normalizedType;
+  if (!emissionAlignedType) {
+    return emissionAlignedType;
   }
 
-  const split = splitRuntimeNullishUnionMembers(normalizedType);
+  const split = splitRuntimeNullishUnionMembers(emissionAlignedType);
   if (!split?.hasRuntimeNullish) {
-    return normalizedType;
+    return emissionAlignedType;
   }
 
   if (argumentMayBeNullish(arg)) {
-    return normalizedType;
+    return emissionAlignedType;
   }
 
-  return stripNullish(normalizedType);
+  return stripNullish(emissionAlignedType);
 };
 
 export const emitArrayWrapperElementTypeAst = (

@@ -203,6 +203,9 @@ export const resolveStructuralReferenceType = (
   context: EmitterContext
 ): IrType | undefined => {
   const stripped = stripNullish(type);
+  const preserveCompilerGeneratedReference =
+    stripped.kind === "referenceType" &&
+    isCompilerGeneratedStructuralReference(stripped);
   let targetShape: readonly StructuralShapeMember[] | undefined;
   let preservedTypeArguments: readonly IrType[] | undefined;
 
@@ -373,6 +376,9 @@ export const resolveStructuralReferenceType = (
   }
   if (currentLocalMatches.length > 1) {
     return undefined;
+  }
+  if (preserveCompilerGeneratedReference) {
+    return stripped;
   }
 
   const currentNamespaceMatches = candidates.filter(

@@ -29,6 +29,7 @@ import {
 } from "./identifier-storage.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
+import { maybeCastNumericToExpectedIntegralAst } from "./post-emission-adaptation.js";
 
 /**
  * Emit an identifier as CSharpExpressionAst
@@ -38,6 +39,27 @@ export const emitIdentifier = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const maybeWrapLocalIntegralCast = (
+    identifierAst: CSharpExpressionAst,
+    currentContext: EmitterContext
+  ): [CSharpExpressionAst, EmitterContext] => {
+    if (!expectedType) {
+      return [identifierAst, currentContext];
+    }
+
+    const storageType = currentContext.localValueTypes?.get(expr.name);
+    if (!storageType) {
+      return [identifierAst, currentContext];
+    }
+
+    return maybeCastNumericToExpectedIntegralAst(
+      identifierAst,
+      storageType,
+      currentContext,
+      expectedType
+    );
+  };
+
   // Special case for undefined -> default
   if (expr.name === "undefined") {
     if (
@@ -200,7 +222,10 @@ export const emitIdentifier = (
 
   const remappedLocal = context.localNameMap?.get(expr.name);
   if (remappedLocal) {
-    return [identifierExpression(remappedLocal), context];
+    return maybeWrapLocalIntegralCast(
+      identifierExpression(remappedLocal),
+      context
+    );
   }
 
   // Check if this identifier is from an import
@@ -267,7 +292,10 @@ export const emitIdentifier = (
   }
 
   // Fallback: use identifier as-is (escape C# keywords)
-  return [identifierExpression(escapeCSharpIdentifier(expr.name)), context];
+  return maybeWrapLocalIntegralCast(
+    identifierExpression(escapeCSharpIdentifier(expr.name)),
+    context
+  );
 };
 
 /**

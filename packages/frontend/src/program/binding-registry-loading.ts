@@ -7,6 +7,7 @@
  */
 
 import { tsbindgenClrTypeNameToTsTypeName } from "../tsbindgen/names.js";
+import { parseMethodSignature } from "../ir/type-system/internal/universe/clr-raw-converter.js";
 import type {
   MemberBinding,
   TypeBinding,
@@ -659,13 +660,46 @@ export const addBindingsToState = (
       const members: MemberBinding[] = [];
 
       for (const method of tsbType.methods) {
+        const parsedSemanticSignature =
+          method.semanticSignature ??
+          (method.normalizedSignature
+            ? (() => {
+                const parsed = parseMethodSignature(
+                  method.normalizedSignature,
+                  method as never
+                );
+                return {
+                  ...(parsed.typeParameters.length > 0
+                    ? {
+                        typeParameters: parsed.typeParameters.map(
+                          (parameter) => parameter.name
+                        ),
+                      }
+                    : {}),
+                  parameters: parsed.parameters.map((parameter) => ({
+                    kind: "parameter" as const,
+                    pattern: {
+                      kind: "identifierPattern" as const,
+                      name: parameter.name,
+                    },
+                    type: parameter.type,
+                    isOptional: parameter.isOptional,
+                    isRest: parameter.isRest,
+                    passing: parameter.mode,
+                  })),
+                  ...(parsed.returnType.kind !== "voidType"
+                    ? { returnType: parsed.returnType }
+                    : {}),
+                };
+              })()
+            : undefined);
         const memberBinding: MemberBinding = {
           kind: "method",
           name: method.clrName,
           // No naming policy: TS member names are the CLR names as authored.
           alias: method.clrName,
           signature: method.normalizedSignature,
-          semanticSignature: method.semanticSignature,
+          semanticSignature: parsedSemanticSignature,
           overloadFamily: method.overloadFamily,
           parameterCount: method.parameterCount,
           binding: {
@@ -680,7 +714,7 @@ export const addBindingsToState = (
           emitSemantics: method.emitSemantics,
           receiverExpectedType:
             method.isExtensionMethod === true
-              ? method.semanticSignature?.parameters[0]?.type
+              ? parsedSemanticSignature?.parameters[0]?.type
               : undefined,
         };
 
