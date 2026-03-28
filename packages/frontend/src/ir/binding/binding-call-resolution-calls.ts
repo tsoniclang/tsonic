@@ -7,7 +7,6 @@
 
 import ts from "typescript";
 import type { SignatureId } from "../type-system/types.js";
-import type { NumericKind } from "../types.js";
 import type { SignatureEntry } from "./binding-types.js";
 import type { BindingContext } from "./binding-registry.js";
 import {
@@ -20,12 +19,6 @@ import {
 } from "./binding-helpers.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 import { resolveCallSignatureCandidates } from "./binding-call-resolution-candidates.js";
-import {
-  TSONIC_TO_NUMERIC_KIND,
-  getBinaryResultKind,
-  inferNumericKindFromRaw,
-} from "../types.js";
-
 // ═══════════════════════════════════════════════════════════════════════════
 // CALL SIGNATURE RESOLUTION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -51,15 +44,10 @@ export const resolveCallSignature = (
 
   const resolvedId = getOrCreateSignatureId(ctx, signature);
 
-  // Airplane-grade overload selection for erased TS types:
-  // In TypeScript, `char` is `string`, so overload sets that differ only by
-  // `char` vs `string` can be resolved "wrong" due to declaration order
-  // (e.g., string.split("/") picking the `char` overload).
-  //
-  // We apply a deterministic, syntax-driven tie-breaker:
-  // - Prefer `string` parameters for non-charish arguments (string literals, etc.)
-  // - Prefer `char` parameters only when the argument is explicitly marked char
-  //   (e.g., `expr as char`, or identifier declared `: char`).
+  // Narrow overload selection only from explicit source evidence.
+  // We never rescore a correctly resolved TS signature using inferred
+  // numeric/string "intent". Only exact authored primitive aliases and exact
+  // object-literal structural compatibility may narrow candidates further.
   const candidates = resolveCallSignatureCandidates(ctx, node);
   if (!candidates || candidates.length < 2) return resolvedId;
 
@@ -90,21 +78,6 @@ export const resolveCallSignature = (
     "decimal",
   ]);
 
-  const TS_NUMERIC_BINARY_OPERATORS = new Set<ts.SyntaxKind>([
-    ts.SyntaxKind.PlusToken,
-    ts.SyntaxKind.MinusToken,
-    ts.SyntaxKind.AsteriskToken,
-    ts.SyntaxKind.SlashToken,
-    ts.SyntaxKind.PercentToken,
-    ts.SyntaxKind.AsteriskAsteriskToken,
-    ts.SyntaxKind.LessThanLessThanToken,
-    ts.SyntaxKind.GreaterThanGreaterThanToken,
-    ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
-    ts.SyntaxKind.AmpersandToken,
-    ts.SyntaxKind.BarToken,
-    ts.SyntaxKind.CaretToken,
-  ]);
-
   const getEntityNameLeaf = (name: ts.EntityName): string =>
     ts.isIdentifier(name) ? name.text : name.right.text;
 
@@ -123,109 +96,54 @@ export const resolveCallSignature = (
     return undefined;
   };
 
-  const isCharTypeNode = (typeNode: ts.TypeNode): boolean => {
-    return getExplicitClrPrimitiveAlias(typeNode) === "char";
-  };
-
-  const getNumericKindFromTypeNode = (
-    typeNode: ts.TypeNode | undefined
-  ): NumericKind | undefined => {
-    if (!typeNode) return undefined;
+  const isStringTypeNode = (typeNode: ts.TypeNode | undefined): boolean => {
+    if (!typeNode) return false;
     const node = ts.isParenthesizedTypeNode(typeNode) ? typeNode.type : typeNode;
-
-    if (node.kind === ts.SyntaxKind.NumberKeyword) {
-      return "Double";
-    }
-
-    if (!ts.isTypeReferenceNode(node)) {
-      return undefined;
-    }
-
-    const alias = getEntityNameLeaf(node.typeName);
-    return TSONIC_TO_NUMERIC_KIND.get(alias);
+    return node.kind === ts.SyntaxKind.StringKeyword;
   };
 
-  const getUniqueDeclaredNumericKind = (
-    declarations: readonly ts.Declaration[] | undefined
-  ): NumericKind | undefined => {
-    const kinds = new Set<NumericKind>();
-    for (const declaration of declarations ?? []) {
-      const typeNode = getTypeNodeFromDeclaration(declaration);
-      const kind = getNumericKindFromTypeNode(typeNode);
-      if (kind) {
-        kinds.add(kind);
-      }
-    }
-
-    return kinds.size === 1 ? Array.from(kinds)[0] : undefined;
-  };
-
-  const isSupportedSignatureDeclaration = (
-    declaration: ts.SignatureDeclaration | ts.JSDocSignature | undefined
-  ): declaration is ts.SignatureDeclaration =>
-    declaration !== undefined && !ts.isJSDocSignature(declaration);
-
-  const getFallbackNumericKindFromChecker = (
-    expression: ts.Expression
-  ): NumericKind | undefined => {
-    const type = ctx.checker.getTypeAtLocation(expression);
-    const numberType = ctx.checker.getNumberType();
-    return ctx.checker.isTypeAssignableTo(type, numberType)
-      ? "Double"
-      : undefined;
-  };
-
-  const inferArgumentNumericKind = (
+  const getExplicitStringEvidence = (
     arg: ts.Expression,
     seen = new Set<ts.Node>()
-  ): NumericKind | undefined => {
+  ): "string" | undefined => {
     const expr = stripParens(arg);
     if (seen.has(expr)) return undefined;
     seen.add(expr);
 
+    if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) {
+      return expr.text.length === 1 ? undefined : "string";
+    }
+
+    if (ts.isTemplateExpression(expr)) {
+      return "string";
+    }
+
+    const checkerStringEvidence =
+      ctx.checker.typeToString(ctx.checker.getTypeAtLocation(expr)) === "string"
+        ? "string"
+        : undefined;
+
     if (ts.isAsExpression(expr) || ts.isTypeAssertionExpression(expr)) {
-      const assertedKind = getNumericKindFromTypeNode(expr.type);
-      return assertedKind ?? inferArgumentNumericKind(expr.expression, seen);
-    }
-
-    if (
-      ts.isNumericLiteral(expr) ||
-      (expr.kind === ts.SyntaxKind.BigIntLiteral &&
-        ts.isLiteralExpression(expr))
-    ) {
-      return inferNumericKindFromRaw(expr.getText());
-    }
-
-    if (
-      ts.isPrefixUnaryExpression(expr) &&
-      (expr.operator === ts.SyntaxKind.MinusToken ||
-        expr.operator === ts.SyntaxKind.PlusToken)
-    ) {
-      if (
-        ts.isNumericLiteral(expr.operand) ||
-        (expr.operand.kind === ts.SyntaxKind.BigIntLiteral &&
-          ts.isLiteralExpression(expr.operand))
-      ) {
-        return inferNumericKindFromRaw(expr.getText());
+      if (isStringTypeNode(expr.type)) {
+        return "string";
       }
-
-      return inferArgumentNumericKind(expr.operand, seen);
+      return getExplicitStringEvidence(expr.expression, seen);
     }
 
     if (ts.isIdentifier(expr)) {
       const symbol = ctx.checker.getSymbolAtLocation(expr);
-      if (symbol) {
-        const resolvedSymbol =
-          symbol.flags & ts.SymbolFlags.Alias
-            ? ctx.checker.getAliasedSymbol(symbol)
-            : symbol;
-        const declaredKind = getUniqueDeclaredNumericKind(
-          resolvedSymbol.getDeclarations()
-        );
-        if (declaredKind) return declaredKind;
+      if (!symbol) return undefined;
+      const resolvedSymbol =
+        symbol.flags & ts.SymbolFlags.Alias
+          ? ctx.checker.getAliasedSymbol(symbol)
+          : symbol;
+      const kinds = new Set<"string">();
+      for (const decl of resolvedSymbol.getDeclarations() ?? []) {
+        if (isStringTypeNode(getTypeNodeFromDeclaration(decl))) {
+          kinds.add("string");
+        }
       }
-
-      return getFallbackNumericKindFromChecker(expr);
+      return kinds.size === 1 ? "string" : checkerStringEvidence;
     }
 
     if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
@@ -233,80 +151,42 @@ export const resolveCallSignature = (
         ? expr.name
         : expr.argumentExpression ?? expr.expression;
       const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
-      if (symbol) {
-        const resolvedSymbol =
-          symbol.flags & ts.SymbolFlags.Alias
-            ? ctx.checker.getAliasedSymbol(symbol)
-            : symbol;
-        const declaredKind = getUniqueDeclaredNumericKind(
-          resolvedSymbol.getDeclarations()
-        );
-        if (declaredKind) return declaredKind;
+      if (!symbol) return undefined;
+      const resolvedSymbol =
+        symbol.flags & ts.SymbolFlags.Alias
+          ? ctx.checker.getAliasedSymbol(symbol)
+          : symbol;
+      const kinds = new Set<"string">();
+      for (const decl of resolvedSymbol.getDeclarations() ?? []) {
+        if (isStringTypeNode(getTypeNodeFromDeclaration(decl))) {
+          kinds.add("string");
+        }
       }
-
-      return getFallbackNumericKindFromChecker(expr);
+      return kinds.size === 1 ? "string" : checkerStringEvidence;
     }
 
     if (ts.isCallExpression(expr)) {
       const signature = ctx.checker.getResolvedSignature(expr);
-      const signatureDeclaration =
-        isSupportedSignatureDeclaration(signature?.declaration)
-          ? signature.declaration
-          : undefined;
-      const declaredKind = getNumericKindFromTypeNode(
-        getReturnTypeNode(signatureDeclaration)
+      const returnTypeNode = getReturnTypeNode(
+        signature?.getDeclaration() as ts.SignatureDeclaration | undefined
       );
-      if (declaredKind) return declaredKind;
-      return getFallbackNumericKindFromChecker(expr);
+      return isStringTypeNode(returnTypeNode) ? "string" : checkerStringEvidence;
     }
 
-    if (ts.isBinaryExpression(expr) && TS_NUMERIC_BINARY_OPERATORS.has(expr.operatorToken.kind)) {
-      const leftKind = inferArgumentNumericKind(expr.left, seen);
-      const rightKind = inferArgumentNumericKind(expr.right, seen);
-      if (leftKind && rightKind) {
-        return getBinaryResultKind(leftKind, rightKind);
+    if (
+      ts.isBinaryExpression(expr) &&
+      expr.operatorToken.kind === ts.SyntaxKind.PlusToken
+    ) {
+      if (
+        getExplicitStringEvidence(expr.left, seen) === "string" ||
+        getExplicitStringEvidence(expr.right, seen) === "string"
+      ) {
+        return "string";
       }
-      return getFallbackNumericKindFromChecker(expr);
+      return checkerStringEvidence;
     }
 
-    if (ts.isConditionalExpression(expr)) {
-      const whenTrueKind = inferArgumentNumericKind(expr.whenTrue, seen);
-      const whenFalseKind = inferArgumentNumericKind(expr.whenFalse, seen);
-      if (whenTrueKind && whenFalseKind) {
-        return whenTrueKind === whenFalseKind
-          ? whenTrueKind
-          : getBinaryResultKind(whenTrueKind, whenFalseKind);
-      }
-      return getFallbackNumericKindFromChecker(expr);
-    }
-
-    return getFallbackNumericKindFromChecker(expr);
-  };
-
-  const isCharishArgument = (arg: ts.Expression): boolean => {
-    const expr = stripParens(arg);
-
-    // Explicit `as char` / `<char>` assertions.
-    if (ts.isAsExpression(expr) || ts.isTypeAssertionExpression(expr)) {
-      return isCharTypeNode(expr.type);
-    }
-
-    // Identifier declared with `: char`.
-    if (ts.isIdentifier(expr)) {
-      const sym = ctx.checker.getSymbolAtLocation(expr);
-      if (!sym) return false;
-      const resolvedSym =
-        sym.flags & ts.SymbolFlags.Alias
-          ? ctx.checker.getAliasedSymbol(sym)
-          : sym;
-      const decls = resolvedSym.getDeclarations() ?? [];
-      for (const decl of decls) {
-        const typeNode = getTypeNodeFromDeclaration(decl);
-        if (typeNode && isCharTypeNode(typeNode)) return true;
-      }
-    }
-
-    return false;
+    return checkerStringEvidence;
   };
 
   const getExplicitArgumentClrPrimitiveAlias = (
@@ -338,21 +218,6 @@ export const resolveCallSignature = (
     }
 
     return undefined;
-  };
-
-  const stringType = ctx.checker.getStringType();
-
-  const prefersStringOverChar = (arg: ts.Expression): boolean => {
-    const expr = stripParens(arg);
-    if (isCharishArgument(expr)) return false;
-
-    // In TS, `char` is erased to `string`, so we must prefer `string` overloads
-    // for *any* string-typed argument unless the user explicitly marks it as char.
-    //
-    // This keeps common code like `Console.WriteLine(condition ? "OK" : "BAD")`
-    // from accidentally binding to `WriteLine(char)` (due to declaration order).
-    const t = ctx.checker.getTypeAtLocation(expr);
-    return ctx.checker.isTypeAssignableTo(t, stringType);
   };
 
   const getStaticPropertyNameLocal = (
@@ -544,33 +409,6 @@ export const resolveCallSignature = (
     return merged;
   };
 
-  type ParamClass = "char" | "string" | "other";
-
-  const classifyParamTypeNode = (typeNode: unknown): ParamClass => {
-    if (!typeNode) return "other";
-    const node = typeNode as ts.TypeNode;
-    if (node.kind === ts.SyntaxKind.StringKeyword) return "string";
-    if (isCharTypeNode(node)) return "char";
-    if (ts.isArrayTypeNode(node)) {
-      return isCharTypeNode(node.elementType) ? "char" : "other";
-    }
-    return "other";
-  };
-
-  const paramClassForArgIndex = (
-    entry: SignatureEntry,
-    argIndex: number
-  ): ParamClass => {
-    const params = entry.parameters;
-    const direct = params[argIndex];
-    if (direct) return classifyParamTypeNode(direct.typeNode);
-
-    // Rest parameter: map extra args to last param if it is rest.
-    const last = params[params.length - 1];
-    if (last && last.isRest) return classifyParamTypeNode(last.typeNode);
-    return "other";
-  };
-
   const paramClrAliasForArgIndex = (
     entry: SignatureEntry,
     argIndex: number
@@ -583,23 +421,87 @@ export const resolveCallSignature = (
     return getExplicitClrPrimitiveAlias(param.typeNode as ts.TypeNode | undefined);
   };
 
-  const paramNumericKindForArgIndex = (
+  const paramClassForArgIndex = (
     entry: SignatureEntry,
     argIndex: number
-  ): NumericKind | undefined => {
+  ): "char" | "string" | "other" => {
     const params = entry.parameters;
     const direct = params[argIndex];
     const param = direct ?? params[params.length - 1];
-    if (!param) return undefined;
-    if (!direct && !param.isRest) return undefined;
-    return getNumericKindFromTypeNode(param.typeNode as ts.TypeNode | undefined);
+    if (!param) return "other";
+    if (!direct && !param.isRest) return "other";
+
+    const typeNode = param.typeNode as ts.TypeNode | undefined;
+    if (isStringTypeNode(typeNode)) {
+      return "string";
+    }
+    if (getExplicitClrPrimitiveAlias(typeNode) === "char") {
+      return "char";
+    }
+    if (typeNode && ts.isArrayTypeNode(typeNode)) {
+      return getExplicitClrPrimitiveAlias(typeNode.elementType) === "char"
+        ? "char"
+        : "other";
+    }
+    return "other";
   };
+
+  const getTypeNodeDisplayText = (
+    typeNode: ts.TypeNode | undefined
+  ): string | undefined => {
+    if (!typeNode) return undefined;
+    const node = ts.isParenthesizedTypeNode(typeNode) ? typeNode.type : typeNode;
+
+    switch (node.kind) {
+      case ts.SyntaxKind.StringKeyword:
+        return "string";
+      case ts.SyntaxKind.NumberKeyword:
+        return "number";
+      case ts.SyntaxKind.BooleanKeyword:
+        return "boolean";
+      case ts.SyntaxKind.UnknownKeyword:
+        return "unknown";
+      case ts.SyntaxKind.AnyKeyword:
+        return "any";
+      case ts.SyntaxKind.VoidKeyword:
+        return "void";
+      case ts.SyntaxKind.NullKeyword:
+        return "null";
+      case ts.SyntaxKind.UndefinedKeyword:
+        return "undefined";
+      case ts.SyntaxKind.BigIntKeyword:
+        return "bigint";
+    }
+
+    if (ts.isArrayTypeNode(node)) {
+      const element = getTypeNodeDisplayText(node.elementType);
+      return element ? `${element}[]` : undefined;
+    }
+
+    if (ts.isTypeReferenceNode(node)) {
+      return getEntityNameLeaf(node.typeName);
+    }
+
+    return undefined;
+  };
+
+  const getResolvedSignatureParameterDisplayTexts = (): readonly string[] => {
+    return signature.getParameters().map((parameter) =>
+      ctx.checker.typeToString(
+        ctx.checker.getTypeOfSymbolAtLocation(parameter, node.expression)
+      )
+    );
+  };
+
+  const isInformativeResolvedSignatureDisplayText = (text: string): boolean =>
+    text !== "unknown" &&
+    text !== "any" &&
+    text !== "number" &&
+    text !== "object";
 
   const args = node.arguments;
   const wantsStringAt: number[] = [];
-  const wantsCharAt: number[] = [];
   const wantsExactClrAliasAt = new Map<number, string>();
-  const wantsNumericKindAt = new Map<number, NumericKind>();
   const objectLiteralArgs = new Map<number, readonly string[]>();
 
   for (let i = 0; i < args.length; i++) {
@@ -607,24 +509,13 @@ export const resolveCallSignature = (
     if (!arg) continue;
     if (ts.isSpreadElement(arg)) continue;
 
-    if (isCharishArgument(arg)) {
-      wantsCharAt.push(i);
-    } else if (prefersStringOverChar(arg)) {
+    if (getExplicitStringEvidence(arg) === "string") {
       wantsStringAt.push(i);
     }
 
     const exactClrAlias = getExplicitArgumentClrPrimitiveAlias(arg);
-    if (
-      exactClrAlias &&
-      exactClrAlias !== "char" &&
-      CLR_NUMERIC_ALIAS_NAMES.has(exactClrAlias)
-    ) {
+    if (exactClrAlias) {
       wantsExactClrAliasAt.set(i, exactClrAlias);
-    }
-
-    const numericKind = inferArgumentNumericKind(arg);
-    if (numericKind) {
-      wantsNumericKindAt.set(i, numericKind);
     }
 
     const objectKeys = getObjectLiteralKeys(arg);
@@ -635,96 +526,145 @@ export const resolveCallSignature = (
 
   if (
     wantsStringAt.length === 0 &&
-    wantsCharAt.length === 0 &&
     wantsExactClrAliasAt.size === 0 &&
-    wantsNumericKindAt.size === 0 &&
     objectLiteralArgs.size === 0
   ) {
     return resolvedId;
   }
 
-  const objectLiteralScoreForArg = (
+  const matchesObjectLiteralArg = (
     entry: SignatureEntry,
     argIndex: number,
     keys: readonly string[]
-  ): number => {
+  ): boolean => {
     const direct = entry.parameters[argIndex];
     const last = entry.parameters[entry.parameters.length - 1];
     const param = direct ?? (last?.isRest ? last : undefined);
 
-    if (!param?.typeNode) return -4;
+    if (!param?.typeNode) return false;
 
     const typeNode = param.typeNode as ts.TypeNode;
-    if (isUnknownTypeNode(typeNode)) return -10;
-    if (isObviouslyNonObjectTypeNode(typeNode)) return -6;
+    if (isUnknownTypeNode(typeNode)) return false;
+    if (isObviouslyNonObjectTypeNode(typeNode)) return false;
 
     const propertyNames = collectDeclaredPropertyNames(typeNode);
     if (!propertyNames || propertyNames.size === 0) {
-      return 0;
+      return false;
     }
 
     for (const key of keys) {
       if (!propertyNames.has(key)) {
-        return -6;
+        return false;
       }
     }
 
-    const extraPropertyCount = Math.max(0, propertyNames.size - keys.length);
-    return 10 - Math.min(extraPropertyCount, 5);
+    return true;
   };
 
-  const scoreSignature = (sigId: SignatureId): number => {
-    const entry = ctx.signatureMap.get(sigId.id);
-    if (!entry) return 0;
+  const isExactArityNonRestCandidate = (
+    entry: SignatureEntry,
+    argumentCount: number
+  ): boolean =>
+    entry.parameters.length === argumentCount &&
+    entry.parameters.every((parameter) => !parameter.isRest);
 
-    let score = 0;
-    for (const i of wantsStringAt) {
-      const pc = paramClassForArgIndex(entry, i);
-      if (pc === "string") score += 2;
-      if (pc === "char") score -= 2;
-    }
-    for (const i of wantsCharAt) {
-      const pc = paramClassForArgIndex(entry, i);
-      if (pc === "char") score += 2;
-      if (pc === "string") score -= 2;
-    }
-    for (const [argIndex, exactClrAlias] of wantsExactClrAliasAt) {
-      const parameterAlias = paramClrAliasForArgIndex(entry, argIndex);
-      if (!parameterAlias) continue;
-      if (parameterAlias === exactClrAlias) {
-        score += 4;
-        continue;
-      }
-      if (CLR_NUMERIC_ALIAS_NAMES.has(parameterAlias)) {
-        score -= 4;
-      }
-    }
-    for (const [argIndex, numericKind] of wantsNumericKindAt) {
-      const parameterKind = paramNumericKindForArgIndex(entry, argIndex);
-      if (!parameterKind) continue;
-      if (parameterKind === numericKind) {
-        score += 6;
-        continue;
-      }
-      score -= 6;
-    }
-    for (const [argIndex, keys] of objectLiteralArgs) {
-      score += objectLiteralScoreForArg(entry, argIndex, keys);
-    }
-    return score;
-  };
-
-  const resolvedScore = scoreSignature(resolvedId);
-  let bestId = resolvedId;
-  let bestScore = resolvedScore;
-
+  const candidateMap = new Map<number, SignatureId>();
+  candidateMap.set(resolvedId.id, resolvedId);
   for (const candidate of candidates) {
-    const s = scoreSignature(candidate);
-    if (s > bestScore) {
-      bestScore = s;
-      bestId = candidate;
+    candidateMap.set(candidate.id, candidate);
+  }
+
+  let remaining = Array.from(candidateMap.values());
+  const resolvedSignatureParameterDisplayTexts =
+    getResolvedSignatureParameterDisplayTexts();
+
+  if (
+    resolvedSignatureParameterDisplayTexts.length > 0 &&
+    resolvedSignatureParameterDisplayTexts.every(
+      isInformativeResolvedSignatureDisplayText
+    )
+  ) {
+    const matchingResolvedShape = remaining.filter((candidate) => {
+      const entry = ctx.signatureMap.get(candidate.id);
+      if (!entry) return false;
+      if (entry.parameters.length !== resolvedSignatureParameterDisplayTexts.length) {
+        return false;
+      }
+      return entry.parameters.every((parameter, index) => {
+        const expected = resolvedSignatureParameterDisplayTexts[index];
+        return (
+          expected !== undefined &&
+          getTypeNodeDisplayText(parameter.typeNode as ts.TypeNode | undefined) ===
+            expected
+        );
+      });
+    });
+    if (
+      matchingResolvedShape.length > 0 &&
+      matchingResolvedShape.length < remaining.length
+    ) {
+      remaining = matchingResolvedShape;
+    }
+    if (remaining.length === 1) {
+      return remaining[0]!;
     }
   }
 
-  return bestId;
+  for (const argIndex of wantsStringAt) {
+    const matching = remaining.filter((candidate) => {
+      const entry = ctx.signatureMap.get(candidate.id);
+      return entry !== undefined && paramClassForArgIndex(entry, argIndex) === "string";
+    });
+    if (matching.length > 0) {
+      remaining = matching;
+    }
+    if (remaining.length === 1) {
+      return remaining[0]!;
+    }
+  }
+
+  const exactArityNonRest = remaining.filter((candidate) => {
+    const entry = ctx.signatureMap.get(candidate.id);
+    return entry !== undefined && isExactArityNonRestCandidate(entry, args.length);
+  });
+  if (
+    exactArityNonRest.length > 0 &&
+    exactArityNonRest.length < remaining.length
+  ) {
+    remaining = exactArityNonRest;
+  }
+  if (remaining.length === 1) {
+    return remaining[0]!;
+  }
+
+  for (const [argIndex, exactClrAlias] of wantsExactClrAliasAt) {
+    const matching = remaining.filter((candidate) => {
+      const entry = ctx.signatureMap.get(candidate.id);
+      return (
+        entry !== undefined &&
+        paramClrAliasForArgIndex(entry, argIndex) === exactClrAlias
+      );
+    });
+    if (matching.length > 0) {
+      remaining = matching;
+    }
+    if (remaining.length === 1) {
+      return remaining[0]!;
+    }
+  }
+
+  for (const [argIndex, keys] of objectLiteralArgs) {
+    const matching = remaining.filter((candidate) => {
+      const entry = ctx.signatureMap.get(candidate.id);
+      return entry !== undefined && matchesObjectLiteralArg(entry, argIndex, keys);
+    });
+    if (matching.length > 0 && matching.length < remaining.length) {
+      remaining = matching;
+    }
+    if (remaining.length === 1) {
+      return remaining[0]!;
+    }
+  }
+
+  return resolvedId;
 };
