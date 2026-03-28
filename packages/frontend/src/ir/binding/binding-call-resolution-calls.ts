@@ -217,6 +217,35 @@ export const resolveCallSignature = (
       return aliases.size === 1 ? Array.from(aliases)[0] : undefined;
     }
 
+    if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
+      const lookupNode = ts.isPropertyAccessExpression(expr)
+        ? expr.name
+        : expr.argumentExpression ?? expr.expression;
+      const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
+      if (!symbol) return undefined;
+      const resolvedSymbol =
+        symbol.flags & ts.SymbolFlags.Alias
+          ? ctx.checker.getAliasedSymbol(symbol)
+          : symbol;
+      const aliases = new Set<string>();
+      for (const decl of resolvedSymbol.getDeclarations() ?? []) {
+        const typeNode = getTypeNodeFromDeclaration(decl);
+        const alias = getExplicitClrPrimitiveAlias(typeNode);
+        if (alias) {
+          aliases.add(alias);
+        }
+      }
+      return aliases.size === 1 ? Array.from(aliases)[0] : undefined;
+    }
+
+    if (ts.isCallExpression(expr)) {
+      const signature = ctx.checker.getResolvedSignature(expr);
+      const returnTypeNode = getReturnTypeNode(
+        signature?.getDeclaration() as ts.SignatureDeclaration | undefined
+      );
+      return getExplicitClrPrimitiveAlias(returnTypeNode);
+    }
+
     return undefined;
   };
 

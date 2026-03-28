@@ -147,6 +147,60 @@ describe("End-to-End Integration", () => {
       expect(csharpAAgain).to.match(/required\s+string\s+id\s*\{/i);
       expect(csharpAAgain).not.to.match(/required\s+double\s+id\s*\{/i);
     }).timeout(15000);
+
+    it("emits direct IteratorResult property access for async generator next results", () => {
+      const source = `
+        export async function* ticks(): AsyncGenerator<string, void, unknown> {
+          yield "tick";
+        }
+
+        export async function readFirst(): Promise<string> {
+          const iterator = ticks();
+          const first = await iterator.next();
+          return first.done === true ? "" : first.value;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("global::Tsonic.Runtime.IteratorResult<string>");
+      expect(csharp).to.include("first.done");
+      expect(csharp).to.include("first.value");
+      expect(csharp).to.not.include("first.Match");
+    });
+
+    it("emits direct IteratorResult property access for alias-based iterator results", () => {
+      const source = `
+        type IteratorYieldResult<T> = {
+          done: false;
+          value: T;
+        };
+
+        type IteratorReturnResult<TReturn> = {
+          done: true;
+          value: TReturn;
+        };
+
+        type IteratorResult<T, TReturn = unknown> =
+          | IteratorYieldResult<T>
+          | IteratorReturnResult<TReturn>;
+
+        declare const iterator: {
+          next(): Promise<IteratorResult<string>>;
+        };
+
+        export async function readFirst(): Promise<string> {
+          const first = await iterator.next();
+          return first.done === true ? "" : first.value;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("first.done");
+      expect(csharp).to.include("first.value");
+      expect(csharp).to.not.include("first.Match");
+    });
   });
 
   describe("Promise Chains", () => {

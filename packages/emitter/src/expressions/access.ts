@@ -20,6 +20,10 @@ import {
 import { emitCSharpName } from "../naming-policy.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
+import {
+  getIdentifierTypeName,
+  stripNullableTypeAst,
+} from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import {
   buildRuntimeUnionLayout,
@@ -34,6 +38,7 @@ import {
   tryEmitStorageCompatibleNarrowedMemberRead,
   hasPropertyFromBindingsRegistry,
   resolveEffectiveReceiverType,
+  resolveEmittedReceiverTypeAst,
   emitMemberName,
 } from "./access-resolution.js";
 import {
@@ -87,6 +92,42 @@ export const emitMemberAccess = (
   }
 
   const objectType = resolveEffectiveReceiverType(expr.object, context);
+  const propertyName = typeof expr.property === "string" ? expr.property : undefined;
+
+  if (
+    !expr.isComputed &&
+    usage === "value" &&
+    !expr.isOptional &&
+    (propertyName === "done" || propertyName === "value")
+  ) {
+    if (objectType?.kind === "referenceType" && objectType.name === "IteratorResult") {
+      const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+      return [
+        {
+          kind: "memberAccessExpression",
+          expression: objectAst,
+          memberName: propertyName,
+        },
+        newContext,
+      ];
+    }
+
+    const [receiverTypeAst] = resolveEmittedReceiverTypeAst(expr.object, context);
+    const receiverTypeName = receiverTypeAst
+      ? getIdentifierTypeName(stripNullableTypeAst(receiverTypeAst))
+      : undefined;
+    if (receiverTypeName === "global::Tsonic.Runtime.IteratorResult") {
+      const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+      return [
+        {
+          kind: "memberAccessExpression",
+          expression: objectAst,
+          memberName: propertyName,
+        },
+        newContext,
+      ];
+    }
+  }
 
   if (
     !expr.isComputed &&

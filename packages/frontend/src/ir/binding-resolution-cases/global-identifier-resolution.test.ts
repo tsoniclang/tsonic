@@ -573,6 +573,76 @@ describe("Binding Resolution in IR", () => {
       });
     });
 
+    it("keeps exact numeric aliases returned from helper calls when sibling overloads share the same first argument shape", () => {
+      const source = `
+        type char = string;
+        type int = number;
+
+        declare enum StringComparison {
+          CurrentCulture = 0,
+        }
+
+        declare const value: {
+          LastIndexOf(search: char, startIndex: int): int;
+          LastIndexOf(search: string, startIndex: int): int;
+          LastIndexOf(search: string, comparisonType: StringComparison): int;
+        };
+
+        declare const searchString: string;
+        declare const position: int;
+
+        declare function clamp(
+          value: int,
+          minimum: int,
+          maximum: int
+        ): int;
+
+        export function test(): int {
+          return value.LastIndexOf(
+            searchString,
+            clamp(position, 0 as int, position)
+          );
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body.find(
+        (stmt) => stmt.kind === "functionDeclaration" && stmt.name === "test"
+      );
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements.find(
+        (stmt) => stmt.kind === "returnStatement"
+      );
+      expect(returnStmt?.kind).to.equal("returnStatement");
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) {
+        return;
+      }
+
+      const callExpr = returnStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+      if (callExpr.kind !== "call") return;
+
+      expect(callExpr.parameterTypes?.length).to.equal(2);
+      expect(callExpr.parameterTypes?.[0]).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+      expect(callExpr.parameterTypes?.[1]).to.deep.equal({
+        kind: "primitiveType",
+        name: "int",
+      });
+    });
+
     it("should resolve global function bindings with csharpName on identifier callees", () => {
       const source = `
         export function test() {
