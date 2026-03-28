@@ -294,9 +294,13 @@ const hasGetterProtocol = (
     }
 
     const returnType = stripUndefinedFromType(signature.returnType);
+    const getterReturnNumericKind = getNumericKindFromIrType(returnType);
+    const indexerValueNumericKind = getNumericKindFromIrType(indexerValueType);
     return (
       ctx.typeSystem.isAssignableTo(indexerValueType, returnType) ||
-      ctx.typeSystem.typesEqual(indexerValueType, returnType)
+      ctx.typeSystem.typesEqual(indexerValueType, returnType) ||
+      (getterReturnNumericKind !== undefined &&
+        indexerValueNumericKind !== undefined)
     );
   });
 };

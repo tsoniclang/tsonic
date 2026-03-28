@@ -130,7 +130,7 @@ describe("IR Builder", function () {
             "    return this[index];",
             "  }",
             "  write(index: int, value: number): void {",
-            "    this[index] = value;",
+            "    this[index] = value as byte;",
             "  }",
             "}",
             "class Holder {",

@@ -1,6 +1,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { runAnonymousTypeLoweringPass, validateIrSoundness } from "../index.js";
+import type { IrModule, IrType } from "../../types.js";
 import {
   createTestModule,
   hasArrayInferredObjectElementType,
@@ -51,5 +52,232 @@ describe("Anonymous Type Lowering Regression Coverage (basic lowering)", () => {
     expect(hasNonEmptyObjectTypeInExpressionMetadata(lowered.modules)).to.equal(
       false
     );
+  });
+
+  it("preserves surface call parameter shapes while lowering runtime parameter carriers", () => {
+    const optionsShape: Extract<IrType, { kind: "objectType" }> = {
+      kind: "objectType" as const,
+      members: [
+        {
+          kind: "propertySignature" as const,
+          name: "recursive",
+          type: { kind: "primitiveType" as const, name: "boolean" },
+          isOptional: true,
+          isReadonly: false,
+        },
+        {
+          kind: "propertySignature" as const,
+          name: "mode",
+          type: { kind: "primitiveType" as const, name: "number" },
+          isOptional: true,
+          isReadonly: false,
+        },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "input.ts",
+      namespace: "TestApp",
+      className: "Input",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "classDeclaration",
+          name: "MkdirOptions",
+          members: [
+            {
+              kind: "propertyDeclaration",
+              name: "recursive",
+              type: {
+                kind: "unionType",
+                types: [
+                  { kind: "primitiveType", name: "boolean" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+              emitAsAutoProperty: true,
+              isStatic: false,
+              isReadonly: false,
+              accessibility: "public",
+              isRequired: false,
+            },
+            {
+              kind: "propertyDeclaration",
+              name: "mode",
+              type: {
+                kind: "unionType",
+                types: [
+                  { kind: "primitiveType", name: "number" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+              emitAsAutoProperty: true,
+              isStatic: false,
+              isReadonly: false,
+              accessibility: "public",
+              isRequired: false,
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+          implements: [],
+          superClass: undefined,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "ensure",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "dir" },
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "call",
+                  callee: {
+                    kind: "memberAccess",
+                    object: {
+                      kind: "identifier",
+                      name: "fs",
+                      inferredType: {
+                        kind: "objectType",
+                        members: [
+                          {
+                            kind: "methodSignature",
+                            name: "mkdirSync",
+                            parameters: [
+                              {
+                                kind: "parameter",
+                                pattern: {
+                                  kind: "identifierPattern",
+                                  name: "path",
+                                },
+                                type: {
+                                  kind: "primitiveType",
+                                  name: "string",
+                                },
+                                isOptional: false,
+                                isRest: false,
+                                passing: "value",
+                              },
+                              {
+                                kind: "parameter",
+                                pattern: {
+                                  kind: "identifierPattern",
+                                  name: "options",
+                                },
+                                type: optionsShape,
+                                isOptional: false,
+                                isRest: false,
+                                passing: "value",
+                              },
+                            ],
+                            returnType: { kind: "voidType" },
+                          },
+                        ],
+                      },
+                    },
+                    property: "mkdirSync",
+                    isComputed: false,
+                    isOptional: false,
+                    inferredType: {
+                      kind: "functionType",
+                      parameters: [
+                        {
+                          kind: "parameter",
+                          pattern: { kind: "identifierPattern", name: "path" },
+                          type: { kind: "primitiveType", name: "string" },
+                          isOptional: false,
+                          isRest: false,
+                          passing: "value",
+                        },
+                        {
+                          kind: "parameter",
+                          pattern: {
+                            kind: "identifierPattern",
+                            name: "options",
+                          },
+                          type: optionsShape,
+                          isOptional: false,
+                          isRest: false,
+                          passing: "value",
+                        },
+                      ],
+                      returnType: { kind: "voidType" },
+                    },
+                  },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "dir",
+                      inferredType: { kind: "primitiveType", name: "string" },
+                    },
+                    {
+                      kind: "identifier",
+                      name: "options",
+                      inferredType: { kind: "referenceType", name: "MkdirOptions" },
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "voidType" },
+                  allowUnknownInferredType: true,
+                  requiresSpecialization: false,
+                  argumentPassing: ["value", "value"],
+                  parameterTypes: [
+                    { kind: "primitiveType", name: "string" },
+                    optionsShape,
+                  ],
+                  surfaceParameterTypes: [
+                    { kind: "primitiveType", name: "string" },
+                    optionsShape,
+                  ],
+                },
+              },
+            ],
+          },
+          isAsync: false,
+          isGenerator: false,
+          isExported: true,
+        },
+      ],
+    };
+
+    const lowered = runAnonymousTypeLoweringPass([module]);
+    const soundness = validateIrSoundness(lowered.modules);
+
+    expect(soundness.diagnostics.some((d) => d.code === "TSN7421")).to.equal(
+      false
+    );
+
+    const ensure = lowered.modules
+      .flatMap((currentModule) => currentModule.body)
+      .find(
+        (stmt): stmt is Extract<
+          (typeof lowered.modules)[number]["body"][number],
+          { kind: "functionDeclaration" }
+        > => stmt.kind === "functionDeclaration" && stmt.name === "ensure"
+      );
+    const loweredCall =
+      ensure?.body.statements[0]?.kind === "expressionStatement" &&
+      ensure.body.statements[0].expression.kind === "call"
+        ? ensure.body.statements[0].expression
+        : undefined;
+
+    expect(loweredCall).to.not.equal(undefined);
+    expect(loweredCall?.parameterTypes?.[1]?.kind).to.equal("referenceType");
+    expect(loweredCall?.surfaceParameterTypes?.[1]?.kind).to.equal("objectType");
   });
 });

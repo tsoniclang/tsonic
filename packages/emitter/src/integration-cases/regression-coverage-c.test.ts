@@ -616,6 +616,53 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("preserves named structural instances at structural overload call sites", () => {
+      const csharp = compileToCSharp(`
+        import type { int } from "@tsonic/core/types.js";
+
+        export class MkdirOptions {
+          public recursive?: boolean;
+          public mode?: int;
+        }
+
+        declare const fs: {
+          mkdirSync(path: string): void;
+          mkdirSync(path: string, recursive: boolean): void;
+          mkdirSync(path: string, options: { recursive?: boolean; mode?: int }): void;
+        };
+
+        export function ensure(dir: string): void {
+          const options = new MkdirOptions();
+          options.recursive = true;
+          fs.mkdirSync(dir, options);
+        }
+      `);
+
+      expect(csharp).to.include("fs.mkdirSync(dir, options);");
+      expect(csharp).to.not.include("fs.mkdirSync(dir, new global::Test.__Anon_");
+    });
+
+    it("preserves imported named structural instances at structural overload call sites", () => {
+      const csharp = compileToCSharp(
+        `
+          import { fs, MkdirOptions } from "@tsonic/nodejs/fs.js";
+
+          export function ensure(dir: string): void {
+            const options = new MkdirOptions();
+            options.recursive = true;
+            fs.mkdirSync(dir, options);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("fs.mkdirSync(dir, options);");
+      expect(csharp).to.not.include(
+        "fs.mkdirSync(dir, new global::js.__Anon_"
+      );
+    });
+
     it("emits generic property empty-array initializers using the declared element type", () => {
       const csharp = compileToCSharp(`
         export class Box<T> {

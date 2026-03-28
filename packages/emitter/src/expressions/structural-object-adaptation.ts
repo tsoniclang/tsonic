@@ -81,13 +81,18 @@ export const tryAdaptStructuralObjectExpressionAst = (
 
   const prefersAnonymousStructuralTarget =
     canPreferAnonymousStructuralTarget(expectedType);
-  const anonymousStructuralTarget = prefersAnonymousStructuralTarget
-    ? resolveAnonymousStructuralReferenceType(expectedType, context)
-    : undefined;
-  const canonicalStructuralTarget =
-    anonymousStructuralTarget && prefersAnonymousStructuralTarget
-      ? undefined
-      : resolveStructuralReferenceType(expectedType, context);
+  const canonicalStructuralTarget = resolveStructuralReferenceType(
+    expectedType,
+    context
+  );
+  const anonymousStructuralTarget =
+    prefersAnonymousStructuralTarget &&
+    !(
+      canonicalStructuralTarget &&
+      isSameNominalType(sourceType, canonicalStructuralTarget, context)
+    )
+      ? resolveAnonymousStructuralReferenceType(expectedType, context)
+      : undefined;
   const targetStructuralType =
     canonicalStructuralTarget ??
     anonymousStructuralTarget ?? resolvedExpectedType;

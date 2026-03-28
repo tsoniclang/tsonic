@@ -5,7 +5,11 @@
  * comparison logic and the normalizeStructuralEmissionType deep walker.
  */
 
-import type { IrType, IrPropertyDeclaration } from "@tsonic/frontend";
+import type {
+  IrType,
+  IrPropertyDeclaration,
+  TypeBinding as FrontendTypeBinding,
+} from "@tsonic/frontend";
 import { stableIrTypeKey } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import type { LocalTypeInfo } from "../../emitter-types/core.js";
@@ -25,6 +29,34 @@ const sortStructuralShape = (
   members: readonly StructuralShapeMember[]
 ): readonly StructuralShapeMember[] =>
   [...members].sort((left, right) => left.name.localeCompare(right.name));
+
+const stripUndefinedFromStructuralShapeType = (type: IrType): IrType => {
+  if (type.kind !== "unionType") {
+    return type;
+  }
+
+  const remaining = type.types.filter(
+    (member) =>
+      !(member.kind === "primitiveType" && member.name === "undefined")
+  );
+
+  if (remaining.length === 1 && remaining[0]) {
+    return remaining[0];
+  }
+
+  return remaining.length === type.types.length
+    ? type
+    : {
+        kind: "unionType",
+        types: remaining,
+      };
+};
+
+const hasUndefinedStructuralOptionality = (type: IrType): boolean =>
+  type.kind === "unionType" &&
+  type.types.some(
+    (member) => member.kind === "primitiveType" && member.name === "undefined"
+  );
 
 const structuralShapesEqual = (
   left: readonly StructuralShapeMember[],
@@ -107,17 +139,61 @@ const getLocalTypeInfoStructuralShape = (
       );
 
       return sortStructuralShape(
-        propertyMembers.map((member) => ({
-          name: member.name,
-          isOptional: false,
-          typeKey: stableIrTypeKey(member.type),
-        }))
+        propertyMembers.map((member) => {
+          const isOptional = hasUndefinedStructuralOptionality(member.type);
+          return {
+            name: member.name,
+            isOptional,
+            typeKey: stableIrTypeKey(
+              isOptional
+                ? stripUndefinedFromStructuralShapeType(member.type)
+                : member.type
+            ),
+          };
+        })
       );
     }
 
     case "enum":
       return undefined;
   }
+};
+
+const getBindingStructuralShape = (
+  binding: FrontendTypeBinding
+): readonly StructuralShapeMember[] | undefined => {
+  if (binding.kind === "enum") {
+    return undefined;
+  }
+
+  if (binding.members.some((member) => member.kind === "method")) {
+    return undefined;
+  }
+
+  const propertyMembers = binding.members.filter(
+    (
+      member
+    ): member is (typeof binding.members)[number] & {
+      kind: "property";
+      semanticType: IrType;
+    } => member.kind === "property" && member.semanticType !== undefined
+  );
+
+  if (propertyMembers.length !== binding.members.length) {
+    return undefined;
+  }
+
+  return sortStructuralShape(
+    propertyMembers.map((member) => ({
+      name: member.alias,
+      isOptional: member.semanticOptional === true,
+      typeKey: stableIrTypeKey(
+        member.semanticOptional === true
+          ? stripUndefinedFromStructuralShapeType(member.semanticType)
+          : member.semanticType
+      ),
+    }))
+  );
 };
 
 type StructuralReferenceCandidate = {
@@ -350,6 +426,39 @@ export const resolveStructuralReferenceType = (
           isCompilerGeneratedStructuralName(entry.name) ||
           isCompilerGeneratedStructuralName(emittedName),
         ref: buildReferenceType(entry.name, resolvedClrType, undefined),
+      });
+    }
+  }
+
+  const registry = context.bindingsRegistry;
+  if (registry) {
+    for (const binding of registry.values()) {
+      const bindingShape = getBindingStructuralShape(binding);
+      if (!bindingShape || !structuralShapesEqual(bindingShape, targetShape)) {
+        continue;
+      }
+
+      const resolvedClrType = binding.name;
+      const lastDot = resolvedClrType.lastIndexOf(".");
+      const namespace =
+        lastDot === -1 ? currentNamespace : resolvedClrType.slice(0, lastDot);
+      const typeName = binding.alias.split(".").pop() ?? binding.alias;
+      const dedupeKey = resolvedClrType;
+      if (seenKeys.has(dedupeKey)) {
+        continue;
+      }
+      seenKeys.add(dedupeKey);
+
+      candidates.push({
+        dedupeKey,
+        isCurrentLocal: false,
+        isCurrentNamespace: namespace === currentNamespace,
+        isCompilerGenerated:
+          isCompilerGeneratedStructuralName(typeName) ||
+          isCompilerGeneratedStructuralName(
+            resolvedClrType.split(".").pop() ?? resolvedClrType
+          ),
+        ref: buildReferenceType(typeName, resolvedClrType, preservedTypeArguments),
       });
     }
   }
