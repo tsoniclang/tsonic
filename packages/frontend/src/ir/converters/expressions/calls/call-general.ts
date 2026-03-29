@@ -1334,10 +1334,14 @@ export const convertCallExpression = (
         )
       : undefined);
   const surfaceParameterTypes =
-    sourceBackedCallParameterTypes?.surfaceParameterTypes ??
     finalResolved?.surfaceParameterTypes ??
+    sourceBackedCallParameterTypes?.surfaceParameterTypes ??
     parameterTypes;
   const fallbackRestParameter = (() => {
+    if (finalResolved?.surfaceRestParameter) {
+      return finalResolved.surfaceRestParameter;
+    }
+
     if (sourceBackedCallParameterTypes?.restParameter) {
       return sourceBackedCallParameterTypes.restParameter;
     }

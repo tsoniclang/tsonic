@@ -89,5 +89,33 @@ describe("type-resolution", () => {
         name: "number",
       });
     });
+
+    it("does not treat a locally declared Array<T> class as an array-like wrapper", () => {
+      const context = createContext(
+        new Map([
+          [
+            "Array",
+            {
+              kind: "class",
+              typeParameters: ["T"],
+              members: [],
+              superClass: undefined,
+              implements: [],
+            },
+          ],
+        ])
+      );
+
+      const result = getArrayLikeElementType(
+        {
+          kind: "referenceType",
+          name: "Array",
+          typeArguments: [{ kind: "primitiveType", name: "string" }],
+        },
+        context
+      );
+
+      expect(result).to.equal(undefined);
+    });
   });
 });

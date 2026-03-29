@@ -52,6 +52,7 @@ import {
   stringLiteral,
 } from "../core/format/backend-ast/builders.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
+import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import { matchesEmittedStorageSurface } from "./identifier-storage.js";
 import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
@@ -696,6 +697,9 @@ export const emitTypeAssertion = (
         actualType: actualExpressionType,
         context: sourceLayoutContext,
         expectedType: runtimeTarget,
+        selectedSourceMemberNs: expr.selectedRuntimeUnionMembers
+          ? new Set(expr.selectedRuntimeUnionMembers)
+          : undefined,
       });
   if (adaptedUnionAst) {
     return adaptedUnionAst;
@@ -713,13 +717,17 @@ export const emitTypeAssertion = (
               return undefined;
             }
 
+            const comparableActual = resolveComparableType(
+              actualType,
+              adaptationContext
+            );
+            const comparableExpected = resolveComparableType(
+              expectedType,
+              adaptationContext
+            );
             if (
-              areIrTypesEquivalent(actualType, expectedType, adaptationContext) ||
-              matchesExpectedEmissionType(
-                actualType,
-                expectedType,
-                adaptationContext
-              )
+              comparableActual.kind === comparableExpected.kind &&
+              areIrTypesEquivalent(actualType, expectedType, adaptationContext)
             ) {
               return [_ast, adaptationContext];
             }

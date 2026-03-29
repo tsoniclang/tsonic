@@ -11,7 +11,8 @@ import { specializeExpression } from "./overload-specialization-expressions.js";
 
 export const specializeStatement = (
   stmt: IrStatement,
-  paramTypesByDeclId: ReadonlyMap<number, IrType>
+  paramTypesByDeclId: ReadonlyMap<number, IrType>,
+  preserveMissingDeclIds: ReadonlySet<number> = new Set()
 ): IrStatement => {
   const statementAlwaysTerminates = (s: IrStatement): boolean => {
     switch (s.kind) {
@@ -49,7 +50,11 @@ export const specializeStatement = (
     case "blockStatement": {
       const statements: IrStatement[] = [];
       for (const s of stmt.statements) {
-        const specialized = specializeStatement(s, paramTypesByDeclId);
+        const specialized = specializeStatement(
+          s,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        );
         statements.push(specialized);
         if (statementAlwaysTerminates(specialized)) {
           break;
@@ -64,14 +69,20 @@ export const specializeStatement = (
     case "ifStatement": {
       const condition = specializeExpression(
         stmt.condition,
-        paramTypesByDeclId
+        paramTypesByDeclId,
+        preserveMissingDeclIds
       );
       const thenStatement = specializeStatement(
         stmt.thenStatement,
-        paramTypesByDeclId
+        paramTypesByDeclId,
+        preserveMissingDeclIds
       );
       const elseStatement = stmt.elseStatement
-        ? specializeStatement(stmt.elseStatement, paramTypesByDeclId)
+        ? specializeStatement(
+            stmt.elseStatement,
+            paramTypesByDeclId,
+            preserveMissingDeclIds
+          )
         : undefined;
 
       if (
@@ -89,13 +100,21 @@ export const specializeStatement = (
     case "expressionStatement":
       return {
         ...stmt,
-        expression: specializeExpression(stmt.expression, paramTypesByDeclId),
+        expression: specializeExpression(
+          stmt.expression,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
     case "returnStatement":
       return {
         ...stmt,
         expression: stmt.expression
-          ? specializeExpression(stmt.expression, paramTypesByDeclId)
+          ? specializeExpression(
+              stmt.expression,
+              paramTypesByDeclId,
+              preserveMissingDeclIds
+            )
           : undefined,
       };
 
@@ -105,7 +124,11 @@ export const specializeStatement = (
         declarations: stmt.declarations.map((d) => ({
           ...d,
           initializer: d.initializer
-            ? specializeExpression(d.initializer, paramTypesByDeclId)
+            ? specializeExpression(
+                d.initializer,
+                paramTypesByDeclId,
+                preserveMissingDeclIds
+              )
             : undefined,
         })),
       };
@@ -113,8 +136,16 @@ export const specializeStatement = (
     case "whileStatement":
       return {
         ...stmt,
-        condition: specializeExpression(stmt.condition, paramTypesByDeclId),
-        body: specializeStatement(stmt.body, paramTypesByDeclId),
+        condition: specializeExpression(
+          stmt.condition,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
+        body: specializeStatement(
+          stmt.body,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
 
     case "forStatement": {
@@ -123,7 +154,8 @@ export const specializeStatement = (
         if (stmt.initializer.kind === "variableDeclaration") {
           const specialized = specializeStatement(
             stmt.initializer,
-            paramTypesByDeclId
+            paramTypesByDeclId,
+            preserveMissingDeclIds
           );
           if (specialized.kind !== "variableDeclaration") {
             throw new Error(
@@ -132,19 +164,35 @@ export const specializeStatement = (
           }
           return specialized;
         }
-        return specializeExpression(stmt.initializer, paramTypesByDeclId);
+        return specializeExpression(
+          stmt.initializer,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        );
       })();
 
       return {
         ...stmt,
         initializer,
         condition: stmt.condition
-          ? specializeExpression(stmt.condition, paramTypesByDeclId)
+          ? specializeExpression(
+              stmt.condition,
+              paramTypesByDeclId,
+              preserveMissingDeclIds
+            )
           : undefined,
         update: stmt.update
-          ? specializeExpression(stmt.update, paramTypesByDeclId)
+          ? specializeExpression(
+              stmt.update,
+              paramTypesByDeclId,
+              preserveMissingDeclIds
+            )
           : undefined,
-        body: specializeStatement(stmt.body, paramTypesByDeclId),
+        body: specializeStatement(
+          stmt.body,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
     }
 
@@ -152,21 +200,37 @@ export const specializeStatement = (
     case "forInStatement":
       return {
         ...stmt,
-        expression: specializeExpression(stmt.expression, paramTypesByDeclId),
-        body: specializeStatement(stmt.body, paramTypesByDeclId),
+        expression: specializeExpression(
+          stmt.expression,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
+        body: specializeStatement(
+          stmt.body,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
 
     case "switchStatement":
       return {
         ...stmt,
-        expression: specializeExpression(stmt.expression, paramTypesByDeclId),
+        expression: specializeExpression(
+          stmt.expression,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
         cases: stmt.cases.map((c) => ({
           ...c,
           test: c.test
-            ? specializeExpression(c.test, paramTypesByDeclId)
+            ? specializeExpression(
+                c.test,
+                paramTypesByDeclId,
+                preserveMissingDeclIds
+              )
             : undefined,
           statements: c.statements.map((s) =>
-            specializeStatement(s, paramTypesByDeclId)
+            specializeStatement(s, paramTypesByDeclId, preserveMissingDeclIds)
           ),
         })),
       };
@@ -176,21 +240,24 @@ export const specializeStatement = (
         ...stmt,
         tryBlock: specializeStatement(
           stmt.tryBlock,
-          paramTypesByDeclId
+          paramTypesByDeclId,
+          preserveMissingDeclIds
         ) as IrBlockStatement,
         catchClause: stmt.catchClause
           ? {
               ...stmt.catchClause,
               body: specializeStatement(
                 stmt.catchClause.body,
-                paramTypesByDeclId
+                paramTypesByDeclId,
+                preserveMissingDeclIds
               ) as IrBlockStatement,
             }
           : undefined,
         finallyBlock: stmt.finallyBlock
           ? (specializeStatement(
               stmt.finallyBlock,
-              paramTypesByDeclId
+              paramTypesByDeclId,
+              preserveMissingDeclIds
             ) as IrBlockStatement)
           : undefined,
       };
@@ -198,7 +265,11 @@ export const specializeStatement = (
     case "throwStatement":
       return {
         ...stmt,
-        expression: specializeExpression(stmt.expression, paramTypesByDeclId),
+        expression: specializeExpression(
+          stmt.expression,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
 
     default:

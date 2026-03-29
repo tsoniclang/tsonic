@@ -153,6 +153,50 @@ describe("Expression Emission", () => {
     expect(rendered).to.not.equal("rest");
   });
 
+  it("casts asserted unknown array elements when targeting generic array element types", () => {
+    const targetType: IrType = {
+      kind: "arrayType",
+      elementType: {
+        kind: "typeParameterType",
+        name: "TResult",
+      },
+      origin: "explicit",
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "flattened",
+          inferredType: {
+            kind: "arrayType",
+            elementType: { kind: "unknownType" },
+            origin: "explicit",
+          },
+        },
+        targetType,
+        inferredType: targetType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        typeParameters: new Set(["TResult"]),
+      }
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.include("global::System.Linq.Enumerable.Select");
+    expect(rendered).to.include("(TResult)__item");
+  });
+
   it("prefers throwable storage locals over non-throwable narrowed views", () => {
     const [result] = emitExpressionAst(
       {

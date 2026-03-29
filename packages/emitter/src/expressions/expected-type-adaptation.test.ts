@@ -353,6 +353,106 @@ describe("expected-type-adaptation", () => {
     expect(printExpression(adaptedAst)).to.equal("(object?[])(object)args");
   });
 
+  it("keeps locally declared Array<T> classes nominal during expected-type adaptation", () => {
+    const localArrayType: IrType = {
+      kind: "referenceType",
+      name: "Array",
+      typeArguments: [{ kind: "typeParameterType", name: "TResult" }],
+    };
+
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      }),
+      typeParameters: new Set<string>(["TResult"]),
+      localNameMap: new Map<string, string>([["array", "array"]]),
+      localSemanticTypes: new Map<string, IrType>([["array", localArrayType]]),
+      localValueTypes: new Map<string, IrType>([["array", localArrayType]]),
+      localTypes: new Map([
+        [
+          "Array",
+          {
+            kind: "class" as const,
+            typeParameters: ["TResult"],
+            members: [],
+            superClass: undefined,
+            implements: [],
+          },
+        ],
+      ]),
+    };
+
+    const [adaptedAst] = adaptEmittedExpressionAst({
+      expr: {
+        kind: "identifier",
+        name: "array",
+        inferredType: localArrayType,
+      },
+      valueAst: identifierExpression("array"),
+      context,
+      expectedType: localArrayType,
+    });
+
+    expect(printExpression(adaptedAst)).to.equal("array");
+  });
+
+  it("does not rematerialize nullable array-return calls when source and target emit the same surface", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const listenerType: IrType = {
+      kind: "referenceType",
+      name: "ListenerRegistration",
+      resolvedClrType: "Test.ListenerRegistration__Alias",
+    };
+    const actualType: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "referenceType",
+          name: "Array",
+          typeArguments: [listenerType],
+        },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+    const expectedType: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "arrayType",
+          elementType: listenerType,
+          origin: "explicit",
+        },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const result = adaptValueToExpectedTypeAst({
+      valueAst: {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: identifierExpression("listenersByEvent"),
+          memberName: "get",
+        },
+        arguments: [identifierExpression("eventName")],
+      },
+      actualType,
+      context,
+      expectedType,
+      allowUnionNarrowing: false,
+    });
+
+    expect(result).to.not.equal(undefined);
+    expect(printExpression(result![0])).to.equal(
+      "listenersByEvent.get(eventName)"
+    );
+  });
+
   it("casts JS numeric expressions into integral expected slots", () => {
     const context = createContext({
       rootNamespace: "Test",

@@ -105,7 +105,7 @@ describe("IR Builder", function () {
       }
     });
 
-    it("marks top-level union-return overload helpers as runtime-layout-preserving", () => {
+    it("specializes top-level union-return overloads directly when omitted parameters fold away", () => {
       const fixture = createFilesystemTestProgram(
         {
           "src/index.ts": [
@@ -141,25 +141,40 @@ describe("IR Builder", function () {
         expect(result.ok).to.equal(true);
         if (!result.ok) return;
 
-        const helper = result.value.body.find(
+        const readFileSyncFunctions = result.value.body.filter(
           (statement): statement is IrFunctionDeclaration =>
+            statement.kind === "functionDeclaration" &&
+            statement.name === "readFileSync"
+        );
+        expect(readFileSyncFunctions).to.have.length(2);
+
+        const helper = result.value.body.find(
+          (statement) =>
             statement.kind === "functionDeclaration" &&
             statement.name === "__tsonic_overload_impl_readFileSync"
         );
-        expect(helper).to.not.equal(undefined);
-        if (!helper?.returnType) return;
+        expect(helper).to.equal(undefined);
 
-        expect(helper.returnType.kind).to.equal("unionType");
-        if (helper.returnType.kind !== "unionType") return;
+        const bytesOverload = readFileSyncFunctions.find(
+          (statement) => statement.parameters.length === 1
+        );
+        expect(bytesOverload?.returnType?.kind).to.equal("referenceType");
+        if (bytesOverload?.returnType?.kind !== "referenceType") return;
+        expect(bytesOverload.returnType.name).to.equal("Buffer");
+        expect(bytesOverload.overloadFamily?.implementationName).to.equal(
+          undefined
+        );
 
-        expect(helper.returnType.preserveRuntimeLayout).to.equal(true);
-        expect(helper.returnType.types[0]).to.deep.equal({
+        const textOverload = readFileSyncFunctions.find(
+          (statement) => statement.parameters.length === 2
+        );
+        expect(textOverload?.returnType).to.deep.equal({
           kind: "primitiveType",
           name: "string",
         });
-        expect(helper.returnType.types[1]?.kind).to.equal("referenceType");
-        if (helper.returnType.types[1]?.kind !== "referenceType") return;
-        expect(helper.returnType.types[1].name).to.equal("Buffer");
+        expect(textOverload?.overloadFamily?.implementationName).to.equal(
+          undefined
+        );
       } finally {
         fixture.cleanup();
       }

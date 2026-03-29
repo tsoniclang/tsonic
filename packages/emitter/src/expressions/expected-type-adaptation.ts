@@ -31,6 +31,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
   readonly expectedType: IrType | undefined;
   readonly visited?: ReadonlySet<string>;
   readonly allowUnionNarrowing?: boolean;
+  readonly selectedSourceMemberNs?: ReadonlySet<number>;
 }): [CSharpExpressionAst, EmitterContext] | undefined => {
   const {
     valueAst,
@@ -39,6 +40,7 @@ export const adaptValueToExpectedTypeAst = (opts: {
     expectedType,
     visited = new Set<string>(),
     allowUnionNarrowing = true,
+    selectedSourceMemberNs,
   } = opts;
 
   if (!actualType || !expectedType) {
@@ -50,7 +52,8 @@ export const adaptValueToExpectedTypeAst = (opts: {
     actualType,
     context,
     expectedType,
-    visited
+    visited,
+    selectedSourceMemberNs
   );
   const unionAdjustedAst = unionAdjusted?.[0] ?? valueAst;
   const unionAdjustedContext = unionAdjusted?.[1] ?? context;
@@ -79,7 +82,8 @@ export const adaptValueToExpectedTypeAst = (opts: {
     actualType,
     context,
     expectedType,
-    visited
+    visited,
+    selectedSourceMemberNs
   );
 };
 

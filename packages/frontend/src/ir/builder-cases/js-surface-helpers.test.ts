@@ -443,6 +443,288 @@ describe("IR Builder", function () {
       }
     });
 
+    it("specializes inherited source-package method parameter types through global owner aliases", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-source-owned-u8-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+        writeFixtureJsSurface(
+          tempDir,
+          {
+            "./typed-array-core.js": "./src/typed-array-core.ts",
+            "./uint8-array.js": "./src/uint8-array.ts",
+          },
+          {
+            "src/typed-array-core.ts": [
+              'import type { int } from "@tsonic/core/types.js";',
+              "export type TypedArrayInput<TElement extends number> =",
+              "  | TElement[]",
+              "  | Iterable<number>;",
+              "export class TypedArrayBase<",
+              "  TElement extends number,",
+              "  TSelf extends TypedArrayBase<TElement, TSelf>,",
+              "> {",
+              "  public constructor() {}",
+              "  public set(source: TypedArrayInput<TElement>, offset?: int): void {",
+              "    void source;",
+              "    void offset;",
+              "  }",
+              "}",
+            ].join("\n"),
+            "src/uint8-array.ts": [
+              'import { TypedArrayBase } from "./typed-array-core.js";',
+              "export class Uint8Array extends TypedArrayBase<number, Uint8Array> {",
+              "  public constructor() {",
+              "    super();",
+              "  }",
+              "}",
+            ].join("\n"),
+          },
+          [
+            "declare global {",
+            '  const Uint8Array: typeof import("./src/uint8-array.js").Uint8Array;',
+            "}",
+            "",
+            "export {};",
+            "",
+          ].join("\n")
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export function main(): void {",
+            "  const copy = new Uint8Array();",
+            "  copy.set(copy);",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@fixture/js",
+          useStandardLib: false,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const fn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const callStmt = fn.body.statements[1];
+        expect(callStmt?.kind).to.equal("expressionStatement");
+        if (!callStmt || callStmt.kind !== "expressionStatement") return;
+
+        const callExpr = callStmt.expression;
+        expect(callExpr.kind).to.equal("call");
+        if (callExpr.kind !== "call") return;
+
+        const firstParameterType = callExpr.parameterTypes?.[0];
+        expect(firstParameterType).to.not.equal(undefined);
+        if (!firstParameterType) return;
+
+        expect(JSON.stringify(firstParameterType)).to.not.include(
+          '"kind":"typeParameterType"'
+        );
+        expect(firstParameterType.kind).to.equal("unionType");
+        if (firstParameterType.kind !== "unionType") return;
+
+        const [arrayMember, iterableMember] = firstParameterType.types;
+        expect(arrayMember?.kind).to.equal("arrayType");
+        expect(iterableMember?.kind).to.equal("referenceType");
+        if (!arrayMember || arrayMember.kind !== "arrayType") return;
+        if (!iterableMember || iterableMember.kind !== "referenceType") return;
+
+        expect(arrayMember.elementType).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+        expect(iterableMember.name).to.equal("Iterable");
+        expect(iterableMember.typeArguments?.[0]).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("specializes direct generic source-package members through global owner aliases", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-source-owned-map-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+        writeFixtureJsSurface(
+          tempDir,
+          {
+            "./map-object.js": "./src/map-object.ts",
+          },
+          {
+            "src/map-object.ts": [
+              "export class Map<K, V> {",
+              "  public constructor() {}",
+              "  public get(key: K): V | undefined {",
+              "    void key;",
+              "    return undefined;",
+              "  }",
+              "  public set(key: K, value: V): void {",
+              "    void key;",
+              "    void value;",
+              "  }",
+              "}",
+            ].join("\n"),
+          },
+          [
+            "declare global {",
+            '  const Map: typeof import("./src/map-object.js").Map;',
+            "}",
+            "",
+            "export {};",
+            "",
+          ].join("\n")
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export function main(label: string = \"default\"): number {",
+            "  const counters = new Map<string, number>();",
+            "  const next = counters.get(label) ?? 0;",
+            "  counters.set(label, next);",
+            "  return next;",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@fixture/js",
+          useStandardLib: false,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const fn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const nextDecl = fn.body.statements[1];
+        expect(nextDecl?.kind).to.equal("variableDeclaration");
+        if (!nextDecl || nextDecl.kind !== "variableDeclaration") return;
+
+        const logicalExpr = nextDecl.declarations[0]?.initializer;
+        expect(logicalExpr?.kind).to.equal("logical");
+        if (!logicalExpr || logicalExpr.kind !== "logical") return;
+
+        expect(JSON.stringify(logicalExpr.inferredType)).to.not.include(
+          '"kind":"typeParameterType"'
+        );
+        expect(logicalExpr.left.kind).to.equal("call");
+        if (logicalExpr.left.kind !== "call") return;
+
+        expect(JSON.stringify(logicalExpr.left.inferredType)).to.not.include(
+          '"kind":"typeParameterType"'
+        );
+
+        const [firstParameterType] = logicalExpr.left.parameterTypes ?? [];
+        expect(firstParameterType).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
     it("threads generic surface root global bindings into identifier callees", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tsonic-builder-generic-surface-globals-")

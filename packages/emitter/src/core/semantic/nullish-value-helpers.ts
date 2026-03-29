@@ -10,6 +10,7 @@
 import type { IrType } from "@tsonic/frontend";
 import { normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
+import { resolveLocalTypeInfo } from "./property-lookup-resolution.js";
 import { substituteTypeArgs } from "./type-substitution.js";
 
 // ---------------------------------------------------------------------------
@@ -225,12 +226,15 @@ export const getArrayLikeElementType = (
   }
   if (
     resolved.kind === "referenceType" &&
-    context.localTypes?.get(resolved.name)?.kind !== "class" &&
     (resolved.name === "Array" ||
       resolved.name === "ReadonlyArray" ||
       resolved.name === "ArrayLike") &&
     resolved.typeArguments?.length === 1
   ) {
+    const localTypeInfo = resolveLocalTypeInfo(resolved, context);
+    if (localTypeInfo?.info.kind === "class") {
+      return undefined;
+    }
     return resolved.typeArguments[0];
   }
 

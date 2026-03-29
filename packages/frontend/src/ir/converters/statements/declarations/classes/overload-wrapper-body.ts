@@ -11,7 +11,10 @@ import {
 import { getAwaitedIrType } from "../../../../types.js";
 import { buildForwardedCallArguments } from "./overload-wrapper-forwarding.js";
 import { substitutePolymorphicReturn } from "./overload-wrapper-family.js";
-import { typesEqualForIsType } from "./overload-specialization.js";
+import {
+  specializeStatement,
+  typesEqualForIsType,
+} from "./overload-specialization.js";
 
 const resolveEffectiveReturnType = (
   targetReturnType: IrType | undefined,
@@ -574,6 +577,140 @@ const specializeHelperCallReturnType = (
   return specialized;
 };
 
+const collectReturnExpressions = (
+  stmt: IrStatement,
+  collected: IrExpression[]
+): void => {
+  switch (stmt.kind) {
+    case "blockStatement":
+      for (const inner of stmt.statements) {
+        collectReturnExpressions(inner, collected);
+      }
+      return;
+    case "ifStatement":
+      collectReturnExpressions(stmt.thenStatement, collected);
+      if (stmt.elseStatement) {
+        collectReturnExpressions(stmt.elseStatement, collected);
+      }
+      return;
+    case "whileStatement":
+    case "forStatement":
+    case "forOfStatement":
+    case "forInStatement":
+      collectReturnExpressions(stmt.body, collected);
+      return;
+    case "switchStatement":
+      for (const switchCase of stmt.cases) {
+        for (const inner of switchCase.statements) {
+          collectReturnExpressions(inner, collected);
+        }
+      }
+      return;
+    case "tryStatement":
+      collectReturnExpressions(stmt.tryBlock, collected);
+      if (stmt.catchClause) {
+        collectReturnExpressions(stmt.catchClause.body, collected);
+      }
+      if (stmt.finallyBlock) {
+        collectReturnExpressions(stmt.finallyBlock, collected);
+      }
+      return;
+    case "returnStatement":
+    case "generatorReturnStatement":
+      if (stmt.expression) {
+        collected.push(stmt.expression);
+      }
+      return;
+    default:
+      return;
+  }
+};
+
+const unwrapSpecializedReturnCarrierType = (
+  expression: IrExpression
+): IrType | undefined => {
+  if (expression.kind === "typeAssertion") {
+    return (
+      unwrapSpecializedReturnCarrierType(expression.expression) ??
+      expression.expression.inferredType ??
+      expression.inferredType
+    );
+  }
+
+  return expression.inferredType;
+};
+
+const tryInferSelectedRuntimeUnionMembers = (
+  helperBody: IrBlockStatement | undefined,
+  helperParameters: readonly IrParameter[],
+  helperParamDeclIds: readonly number[] | undefined,
+  wrapperParameters: readonly IrParameter[],
+  fallbackType: IrType | undefined
+) : readonly number[] | undefined => {
+  if (
+    !helperBody ||
+    !helperParamDeclIds ||
+    !fallbackType ||
+    fallbackType.kind !== "unionType" ||
+    fallbackType.preserveRuntimeLayout !== true
+  ) {
+    return undefined;
+  }
+
+  const paramTypesByDeclId = new Map<number, IrType>();
+  for (let index = 0; index < helperParamDeclIds.length; index += 1) {
+    const declId = helperParamDeclIds[index];
+    if (declId === undefined) {
+      return undefined;
+    }
+
+    const wrapperParameterType = wrapperParameters[index]?.type;
+    const helperParameter = helperParameters[index];
+    const specializedType =
+      wrapperParameterType ??
+      (helperParameter
+        ? ({
+            kind: "primitiveType",
+            name: "undefined",
+          } satisfies IrType)
+        : undefined);
+    if (!specializedType) {
+      return undefined;
+    }
+
+    paramTypesByDeclId.set(declId, specializedType);
+  }
+
+  const specializedBody = specializeStatement(helperBody, paramTypesByDeclId);
+  const returnExpressions: IrExpression[] = [];
+  collectReturnExpressions(specializedBody, returnExpressions);
+
+  if (returnExpressions.length === 0) {
+    return undefined;
+  }
+
+  const selectedMembers = new Set<number>();
+  for (const returnExpression of returnExpressions) {
+    const actualReturnType = unwrapSpecializedReturnCarrierType(returnExpression);
+    if (!actualReturnType) {
+      return undefined;
+    }
+
+    const memberIndex = fallbackType.types.findIndex((member) =>
+      areWrapperTypesEquivalent(member, actualReturnType)
+    );
+    if (memberIndex < 0) {
+      return undefined;
+    }
+
+    selectedMembers.add(memberIndex + 1);
+  }
+
+  return selectedMembers.size > 0
+    ? Array.from(selectedMembers).sort((left, right) => left - right)
+    : undefined;
+};
+
 const trimTrailingOptionalHelperParameters = (
   wrapperParameters: readonly IrParameter[],
   helperParameters: readonly IrParameter[]
@@ -814,6 +951,8 @@ export const createWrapperBody = (
   helperName: string,
   parameters: readonly IrParameter[],
   helperParameters: readonly IrParameter[],
+  helperParamDeclIds: readonly number[] | undefined,
+  helperBody: IrBlockStatement | undefined,
   helperTypeParameterNames: readonly string[],
   isStatic: boolean,
   implReturnType: IrType | undefined,
@@ -864,6 +1003,13 @@ export const createWrapperBody = (
     implReturnType,
     substitutions
   );
+  const selectedRuntimeUnionMembers = tryInferSelectedRuntimeUnionMembers(
+    helperBody,
+    helperParameters,
+    helperParamDeclIds,
+    parameters,
+    specializedImplReturnType
+  );
   const helperTypeArguments =
     helperTypeParameterNames.length > 0
       ? helperTypeParameterNames.map(
@@ -909,8 +1055,8 @@ export const createWrapperBody = (
       ? getAwaitedIrType(wrapperReturnType)
       : undefined;
   const implAwaitedReturnType =
-    wrapperIsAsync && specializedImplReturnType
-      ? getAwaitedIrType(specializedImplReturnType)
+    wrapperIsAsync && callExpr.inferredType
+      ? getAwaitedIrType(callExpr.inferredType)
       : undefined;
   const awaitedReturnExpression =
     wrapperIsAsync && awaitableReturnAdaptation
@@ -925,12 +1071,14 @@ export const createWrapperBody = (
       ? substitutePolymorphicReturn(
           awaitedReturnExpression!,
           implAwaitedReturnType,
-          awaitableReturnAdaptation
+          awaitableReturnAdaptation,
+          selectedRuntimeUnionMembers
         )
       : substitutePolymorphicReturn(
           callExpr,
-          specializedImplReturnType,
-          wrapperReturnType
+          callExpr.inferredType,
+          wrapperReturnType,
+          selectedRuntimeUnionMembers
         );
   const hasReturnValue =
     wrapperIsAsync && awaitableReturnAdaptation

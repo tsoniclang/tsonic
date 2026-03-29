@@ -5,7 +5,11 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
-import { IrClassDeclaration, IrMethodDeclaration } from "../types.js";
+import {
+  IrClassDeclaration,
+  IrFunctionDeclaration,
+  IrMethodDeclaration,
+} from "../types.js";
 import {
   createFilesystemTestProgram,
   unwrapTransparentExpression,
@@ -281,6 +285,152 @@ describe("IR Builder", function () {
       }
     });
 
+    it("uses wrapper lowering for top-level overloads when a nullable callback slot narrows from a union parameter", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type ExecOptions = { shell?: boolean };",
+            "",
+            "export function exec(command: string, callback: (stdout: string) => void): void;",
+            "export function exec(command: string, options: ExecOptions | null, callback: (stdout: string) => void): void;",
+            "export function exec(",
+            "  command: string,",
+            "  optionsOrCallback: ExecOptions | null | ((stdout: string) => void),",
+            "  callback?: ((stdout: string) => void) | null",
+            "): void {",
+            '  const resolvedCallback = typeof optionsOrCallback === "function" ? optionsOrCallback : callback;',
+            '  const resolvedOptions = typeof optionsOrCallback === "function" ? null : optionsOrCallback;',
+            '  resolvedCallback?.("ok");',
+            "  void resolvedOptions;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const execFunctions = result.value.body.filter(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "exec"
+        );
+        expect(execFunctions.length).to.equal(2);
+
+        const helperFunction = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" &&
+            stmt.name === "__tsonic_overload_impl_exec"
+        );
+        expect(helperFunction).to.not.equal(undefined);
+        if (!helperFunction) return;
+
+        expect(helperFunction.parameters[1]?.type?.kind).to.equal("unionType");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("uses wrapper lowering for method overloads when callback and backlog positions shift across overloads", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "export class Server {",
+            "  private listenPath(path: string, callback?: (() => void) | null): Server {",
+            "    return this;",
+            "  }",
+            "  private listenInternal(",
+            "    port: number,",
+            "    hostname: string | null | undefined,",
+            "    backlog: number,",
+            "    callback?: (() => void) | null",
+            "  ): Server {",
+            "    return this;",
+            "  }",
+            "  listen(path: string, callback?: (() => void) | null): Server;",
+            "  listen(port: number, hostname: string, backlog: number, callback?: (() => void) | null): Server;",
+            "  listen(port: number, hostname: string, callback?: (() => void) | null): Server;",
+            "  listen(port: number, backlog: number, callback?: (() => void) | null): Server;",
+            "  listen(port: number, callback?: (() => void) | null): Server;",
+            "  listen(",
+            "    portOrPath: number | string,",
+            "    hostname?: string | number | (() => void) | null,",
+            "    backlog?: number | (() => void) | null,",
+            "    callback?: (() => void) | null",
+            "  ): Server {",
+            '    if (typeof portOrPath === "string") {',
+            '      const pathCallback = typeof hostname === "function" ? hostname : callback;',
+            "      return this.listenPath(portOrPath, pathCallback ?? undefined);",
+            "    }",
+            '    if (typeof hostname === "function") {',
+            "      callback = hostname;",
+            "      hostname = null;",
+            "      backlog = null;",
+            '    } else if (typeof hostname === "number") {',
+            '      callback = typeof backlog === "function" ? backlog : callback;',
+            "      backlog = hostname;",
+            "      hostname = null;",
+            '    } else if (typeof backlog === "function") {',
+            "      callback = backlog;",
+            "      backlog = null;",
+            "    }",
+            "    const port = portOrPath;",
+            '    return this.listenInternal(port, typeof hostname === "string" ? hostname : undefined, typeof backlog === "number" ? backlog : 511, callback ?? undefined);',
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const serverClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "Server"
+        );
+        expect(serverClass).to.not.equal(undefined);
+        if (!serverClass) return;
+
+        const listenMethods = serverClass.members.filter(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "listen"
+        );
+        expect(listenMethods.length).to.equal(5);
+
+        const helperMethod = serverClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" &&
+            member.name === "__tsonic_overload_impl_listen"
+        );
+        expect(helperMethod).to.not.equal(undefined);
+        if (!helperMethod) return;
+
+        expect(helperMethod.parameters[0]?.type?.kind).to.equal("unionType");
+        expect(helperMethod.parameters[1]?.type?.kind).to.equal("unionType");
+        expect(helperMethod.parameters[2]?.type?.kind).to.equal("unionType");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("preserves defaulted trailing parameters in direct .ts overload implementations", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -387,6 +537,7 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
+
 
     it("specializes Array.isArray overload bodies against the concrete overload parameter type", () => {
       const fixture = createFilesystemTestProgram(
@@ -563,6 +714,116 @@ describe("IR Builder", function () {
       }
     });
 
+    it("folds later typeof overload guards away after earlier branch narrowing adds compiler assertions", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type SocketOptions = { port: number };",
+            "",
+            "export class Connector {",
+            "  connect(value: string): void;",
+            "  connect(value: number): void;",
+            "  connect(value: SocketOptions): void;",
+            "  connect(value: string | number | SocketOptions): void {",
+            '    if (typeof value === "string") {',
+            "      return;",
+            "    }",
+            '    if (typeof value === "number") {',
+            "      const stable = value;",
+            "      void stable;",
+            "      return;",
+            "    }",
+            "    const port = value.port;",
+            "    void port;",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const targetClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "Connector"
+        );
+        expect(targetClass).to.not.equal(undefined);
+        if (!targetClass) return;
+
+        const methods = targetClass.members.filter(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "connect"
+        );
+        expect(methods.length).to.equal(3);
+
+        const numberOverload = methods.find(
+          (member) =>
+            member.parameters[0]?.type?.kind === "primitiveType" &&
+            member.parameters[0].type.name === "number"
+        );
+        expect(numberOverload).to.not.equal(undefined);
+        if (!numberOverload?.body) return;
+        expect(
+          numberOverload.body.statements.some(
+            (stmt) => stmt.kind === "ifStatement"
+          )
+        ).to.equal(false);
+        const numberBodyStatements =
+          numberOverload.body.statements.find(
+            (stmt): stmt is Extract<typeof stmt, { kind: "blockStatement" }> =>
+              stmt.kind === "blockStatement"
+          )?.statements
+            ? numberOverload.body.statements.find(
+                (
+                  stmt
+                ): stmt is Extract<typeof stmt, { kind: "blockStatement" }> =>
+                  stmt.kind === "blockStatement"
+              )!.statements
+            : numberOverload.body.statements;
+        const stableDeclaration = numberBodyStatements.find(
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
+            stmt.kind === "variableDeclaration"
+        );
+        expect(stableDeclaration).to.not.equal(undefined);
+        const stableInit = unwrapTransparentExpression(
+          stableDeclaration?.declarations[0]?.initializer
+        );
+        expect(stableInit?.kind).to.equal("identifier");
+        if (!stableInit || stableInit.kind !== "identifier") return;
+        expect(stableInit.inferredType).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+
+        const objectOverload = methods.find(
+          (member) =>
+            member.parameters[0]?.type?.kind === "referenceType" &&
+            member.parameters[0].type.name === "SocketOptions"
+        );
+        expect(objectOverload).to.not.equal(undefined);
+        if (!objectOverload?.body) return;
+        expect(
+          objectOverload.body.statements.some(
+            (stmt) => stmt.kind === "ifStatement"
+          )
+        ).to.equal(false);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("specializes same-arity return-shape overloads guarded by typeof checks", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -650,6 +911,241 @@ describe("IR Builder", function () {
         );
         const bytesExpr = unwrapTransparentExpression(bytesReturn?.expression);
         expect(bytesExpr?.kind).to.equal("new");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("folds typeof guards against omitted overload parameters to literal undefined", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "export class Hash {",
+            "  digest(encoding: string): string;",
+            "  digest(): number[];",
+            "  digest(outputLength: number): number[];",
+            "  digest(encodingOrLength?: string | number): string | number[] {",
+            '    const length = typeof encodingOrLength === "number" ? encodingOrLength : undefined;',
+            '    if (typeof encodingOrLength === "string") {',
+            '      return \"\";',
+            "    }",
+            "    return length === undefined ? [1] : [length];",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const targetClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "Hash"
+        );
+        expect(targetClass).to.not.equal(undefined);
+        if (!targetClass) return;
+
+        const methods = targetClass.members.filter(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "digest"
+        );
+        expect(methods.length).to.equal(3);
+
+        const zeroArgOverload = methods.find(
+          (member) => member.parameters.length === 0
+        );
+        expect(zeroArgOverload).to.not.equal(undefined);
+        if (!zeroArgOverload?.body) return;
+        expect(
+          zeroArgOverload.body.statements.some(
+            (stmt) => stmt.kind === "ifStatement"
+          )
+        ).to.equal(false);
+        const zeroLengthDecl = zeroArgOverload.body.statements.find(
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
+            stmt.kind === "variableDeclaration"
+        );
+        expect(zeroLengthDecl).to.not.equal(undefined);
+        const zeroLengthInit = unwrapTransparentExpression(
+          zeroLengthDecl?.declarations[0]?.initializer
+        );
+        expect(zeroLengthInit?.kind).to.equal("literal");
+        if (!zeroLengthInit || zeroLengthInit.kind !== "literal") return;
+        expect(zeroLengthInit.value).to.equal(undefined);
+
+        const numberOverload = methods.find(
+          (member) =>
+            member.parameters[0]?.type?.kind === "primitiveType" &&
+            member.parameters[0].type.name === "number"
+        );
+        expect(numberOverload).to.not.equal(undefined);
+        if (!numberOverload?.body) return;
+        expect(
+          numberOverload.body.statements.some(
+            (stmt) => stmt.kind === "ifStatement"
+          )
+        ).to.equal(false);
+        const numberLengthDecl = numberOverload.body.statements.find(
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
+            stmt.kind === "variableDeclaration"
+        );
+        expect(numberLengthDecl).to.not.equal(undefined);
+        const numberLengthInit = unwrapTransparentExpression(
+          numberLengthDecl?.declarations[0]?.initializer
+        );
+        expect(numberLengthInit?.kind).to.equal("identifier");
+        if (!numberLengthInit || numberLengthInit.kind !== "identifier") return;
+        expect(numberLengthInit.inferredType).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("folds nullish-coalescing against omitted overload parameters to the fallback literal", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "export class Hash {",
+            "  update(data: string, inputEncoding?: string): Hash;",
+            "  update(data: number[]): Hash;",
+            "  update(data: string | number[], inputEncoding?: string): Hash {",
+            '    const encoding = inputEncoding ?? "utf8";',
+            '    if (typeof data === "string") {',
+            "      void encoding;",
+            "      return this;",
+            "    }",
+            "    const stable = encoding;",
+            "    void stable;",
+            "    return this;",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const targetClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "Hash"
+        );
+        expect(targetClass).to.not.equal(undefined);
+        if (!targetClass) return;
+
+        const methods = targetClass.members.filter(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "update"
+        );
+        expect(methods.length).to.equal(2);
+
+        const arrayOverload = methods.find(
+          (member) => member.parameters[0]?.type?.kind === "arrayType"
+        );
+        expect(arrayOverload).to.not.equal(undefined);
+        if (!arrayOverload?.body) return;
+        const encodingDecl = arrayOverload.body.statements.find(
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
+            stmt.kind === "variableDeclaration"
+        );
+        expect(encodingDecl).to.not.equal(undefined);
+        const encodingInit = unwrapTransparentExpression(
+          encodingDecl?.declarations[0]?.initializer
+        );
+        expect(encodingInit?.kind).to.equal("literal");
+        if (!encodingInit || encodingInit.kind !== "literal") return;
+        expect(encodingInit.value).to.equal("utf8");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("folds optional-chain nullish-coalescing against omitted overload parameters to the fallback literal", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type MkdirOptions = { recursive?: boolean };",
+            "",
+            "export function mkdirSync(path: string): void;",
+            "export function mkdirSync(path: string, options: boolean): void;",
+            "export function mkdirSync(path: string, options: MkdirOptions): void;",
+            "export function mkdirSync(",
+            "  path: string,",
+            "  options?: boolean | MkdirOptions",
+            "): void {",
+            '  const recursive = typeof options === "boolean" ? options : options?.recursive ?? false;',
+            "  void path;",
+            "  void recursive;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const mkdirFunctions = result.value.body.filter(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "mkdirSync"
+        );
+        expect(mkdirFunctions.length).to.equal(3);
+
+        const zeroArgOptionsOverload = mkdirFunctions.find(
+          (member) => member.parameters.length === 1
+        );
+        expect(zeroArgOptionsOverload).to.not.equal(undefined);
+        if (!zeroArgOptionsOverload?.body) return;
+
+        const recursiveDecl = zeroArgOptionsOverload.body.statements.find(
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "variableDeclaration" }> =>
+            stmt.kind === "variableDeclaration"
+        );
+        expect(recursiveDecl).to.not.equal(undefined);
+        const recursiveInit = unwrapTransparentExpression(
+          recursiveDecl?.declarations[0]?.initializer
+        );
+        expect(recursiveInit?.kind).to.equal("literal");
+        if (!recursiveInit || recursiveInit.kind !== "literal") return;
+        expect(recursiveInit.value).to.equal(false);
       } finally {
         fixture.cleanup();
       }
@@ -880,7 +1376,7 @@ describe("IR Builder", function () {
       }
     });
 
-    it("marks method union-return overload helpers as runtime-layout-preserving", () => {
+    it("specializes method union-return overloads directly when omitted parameters fold away", () => {
       const fixture = createFilesystemTestProgram(
         {
           "src/index.ts": [
@@ -924,25 +1420,40 @@ describe("IR Builder", function () {
         expect(fsModule).to.not.equal(undefined);
         if (!fsModule) return;
 
-        const helper = fsModule.members.find(
+        const readFileSyncMethods = fsModule.members.filter(
           (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" &&
+            member.name === "readFileSync"
+        );
+        expect(readFileSyncMethods).to.have.length(2);
+
+        const helper = fsModule.members.find(
+          (member) =>
             member.kind === "methodDeclaration" &&
             member.name === "__tsonic_overload_impl_readFileSync"
         );
-        expect(helper).to.not.equal(undefined);
-        if (!helper?.returnType) return;
+        expect(helper).to.equal(undefined);
 
-        expect(helper.returnType.kind).to.equal("unionType");
-        if (helper.returnType.kind !== "unionType") return;
+        const bytesOverload = readFileSyncMethods.find(
+          (member) => member.parameters.length === 1
+        );
+        expect(bytesOverload?.returnType?.kind).to.equal("referenceType");
+        if (bytesOverload?.returnType?.kind !== "referenceType") return;
+        expect(bytesOverload.returnType.name).to.equal("Buffer");
+        expect(bytesOverload.overloadFamily?.implementationName).to.equal(
+          undefined
+        );
 
-        expect(helper.returnType.preserveRuntimeLayout).to.equal(true);
-        expect(helper.returnType.types[0]).to.deep.equal({
+        const textOverload = readFileSyncMethods.find(
+          (member) => member.parameters.length === 2
+        );
+        expect(textOverload?.returnType).to.deep.equal({
           kind: "primitiveType",
           name: "string",
         });
-        expect(helper.returnType.types[1]?.kind).to.equal("referenceType");
-        if (helper.returnType.types[1]?.kind !== "referenceType") return;
-        expect(helper.returnType.types[1].name).to.equal("Buffer");
+        expect(textOverload?.overloadFamily?.implementationName).to.equal(
+          undefined
+        );
       } finally {
         fixture.cleanup();
       }

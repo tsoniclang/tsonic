@@ -501,6 +501,87 @@ describe("IR Builder", function () {
       ]);
     });
 
+    it("tracks the reachable runtime-union members for specialized Array.from overload wrappers", () => {
+      const fixtureRoot = path.resolve(
+        "..",
+        "..",
+        "test/fixtures/js-surface-array-from-map-keys/packages/js-surface-array-from-map-keys"
+      );
+      const entryPath = path.join(fixtureRoot, "src/index.ts");
+      const sourceRoot = path.join(fixtureRoot, "src");
+
+      const programResult = createProgram([entryPath], {
+        projectRoot: fixtureRoot,
+        sourceRoot,
+        rootNamespace: "JsSurfaceArrayFromMapKeys",
+        surface: "@tsonic/js",
+      });
+
+      expect(programResult.ok).to.equal(true);
+      if (!programResult.ok) return;
+
+      const program = programResult.value;
+      const arraySourceFile = program.sourceFiles.find((file) =>
+        file.fileName.endsWith("/src/array-object.ts") &&
+        (file.fileName.includes("/node_modules/@tsonic/js/") ||
+          file.fileName.includes("/js/versions/10/"))
+      );
+      expect(arraySourceFile).to.not.equal(undefined);
+      if (!arraySourceFile) return;
+
+      const ctx = createProgramContext(program, {
+        sourceRoot,
+        rootNamespace: "JsSurfaceArrayFromMapKeys",
+      });
+
+      const moduleResult = buildIrModule(
+        arraySourceFile,
+        program,
+        {
+          sourceRoot,
+          rootNamespace: "JsSurfaceArrayFromMapKeys",
+        },
+        ctx
+      );
+
+      expect(moduleResult.ok).to.equal(true);
+      if (!moduleResult.ok) return;
+
+      const arrayClass = moduleResult.value.body.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
+          stmt.kind === "classDeclaration" && stmt.name === "Array"
+      );
+      expect(arrayClass).to.not.equal(undefined);
+      if (!arrayClass) return;
+
+      const fromWrappers = arrayClass.members.filter(
+        (member): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
+          member.kind === "methodDeclaration" &&
+          member.isStatic &&
+          member.name === "from" &&
+          !!member.body
+      );
+      expect(fromWrappers).to.have.length(4);
+
+      const selectedMembers = fromWrappers.map((wrapper) => {
+        const returnStmt = wrapper.body!.statements[0];
+        expect(returnStmt?.kind).to.equal("returnStatement");
+        if (!returnStmt || returnStmt.kind !== "returnStatement") {
+          return undefined;
+        }
+
+        const expr = returnStmt.expression;
+        expect(expr?.kind).to.equal("typeAssertion");
+        if (!expr || expr.kind !== "typeAssertion") {
+          return undefined;
+        }
+
+        return expr.selectedRuntimeUnionMembers;
+      });
+
+      expect(selectedMembers).to.deep.equal([[1], [3], [2], [3]]);
+    });
+
     it("preserves receiver substitutions for locals derived from this-owned generic members", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tsonic-builder-this-member-generics-")

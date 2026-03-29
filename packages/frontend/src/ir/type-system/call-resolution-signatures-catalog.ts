@@ -14,6 +14,7 @@ import type {
 import {
   resolveTypeIdByName,
   normalizeToNominal,
+  resolveSourceReferenceFQName,
 } from "./type-system-state.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ export const computeReceiverSubstitution = (
   receiverType: IrType,
   declaringTypeTsName: string,
   _declaringMemberName: string,
-  _declaringTypeParameterNames?: readonly string[]
+  declaringTypeParameterNames?: readonly string[]
 ): TypeSubstitutionMap | undefined => {
   const normalized = normalizeToNominal(state, receiverType);
   if (!normalized) {
@@ -41,8 +42,18 @@ export const computeReceiverSubstitution = (
   }
 
   const arityHint =
-    normalized.typeArgs.length > 0 ? normalized.typeArgs.length : undefined;
+    normalized.typeArgs.length > 0
+      ? normalized.typeArgs.length
+      : declaringTypeParameterNames?.length;
+  const declaringSourceFqName = resolveSourceReferenceFQName(state, {
+    kind: "referenceType",
+    name: declaringTypeTsName,
+  });
   const declaringTypeId =
+    (declaringSourceFqName
+      ? resolveTypeIdByName(state, declaringSourceFqName, arityHint) ??
+        resolveTypeIdByName(state, declaringSourceFqName)
+      : undefined) ??
     resolveTypeIdByName(state, declaringTypeTsName, arityHint) ??
     resolveTypeIdByName(state, declaringTypeTsName);
   if (!declaringTypeId) {

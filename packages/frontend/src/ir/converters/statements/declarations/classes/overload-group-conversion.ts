@@ -10,6 +10,7 @@
 import * as ts from "typescript";
 import {
   IrBlockStatement,
+  IrFunctionType,
   IrMethodDeclaration,
   IrParameter,
   IrType,
@@ -26,7 +27,6 @@ import { getClassMemberName } from "./member-names.js";
 import { convertMethod } from "./method-declaration.js";
 import {
   specializeStatement,
-  typesEqualForIsType,
 } from "./overload-specialization.js";
 import {
   assertNoIsTypeCalls,
@@ -65,6 +65,37 @@ export const convertMethodOverloadGroup = (
       required += 1;
     }
     return required;
+  };
+
+  const isNullishType = (type: IrType): boolean =>
+    type.kind === "primitiveType" &&
+    (type.name === "null" || type.name === "undefined");
+
+  const resolveCallableShape = (
+    type: IrType
+  ): IrFunctionType | undefined => {
+    if (type.kind === "functionType") {
+      return type;
+    }
+
+    const delegated = ctx.typeSystem.delegateToFunctionType(type);
+    if (delegated) {
+      return delegated;
+    }
+
+    if (type.kind !== "unionType") {
+      return undefined;
+    }
+
+    const nonNullishMembers = type.types.filter(
+      (member) => !isNullishType(member)
+    );
+    if (nonNullishMembers.length !== 1) {
+      return undefined;
+    }
+
+    const [callableMember] = nonNullishMembers;
+    return callableMember ? resolveCallableShape(callableMember) : undefined;
   };
 
   const impls = nodes.filter((n) => !!n.body);
@@ -119,6 +150,28 @@ export const convertMethodOverloadGroup = (
     superClass
   ) as IrMethodDeclaration;
 
+  const collectMissingRuntimeForwardingDeclIds = (
+    signatureParameterCount: number
+  ): ReadonlySet<number> => {
+    const missingDeclIds = new Set<number>();
+    for (
+      let index = signatureParameterCount;
+      index < implParams.length;
+      index += 1
+    ) {
+      const implParameter = implParams[index];
+      const declId = implParamDeclIds[index];
+      if (
+        implParameter &&
+        declId !== undefined &&
+        (implParameter.isRest || implParameter.initializer !== undefined)
+      ) {
+        missingDeclIds.add(declId);
+      }
+    }
+    return missingDeclIds;
+  };
+
   const requiresWrapperLowering = sigs.some((sig) => {
     const sigParams = convertParameters(sig.parameters, ctx);
     if (sigParams.length > implParams.length) {
@@ -137,7 +190,13 @@ export const convertMethodOverloadGroup = (
       if (t) paramTypesByDeclId.set(declId, t);
     }
 
-    const specialized = specializeStatement(implBody, paramTypesByDeclId);
+    const missingRuntimeForwardingDeclIds =
+      collectMissingRuntimeForwardingDeclIds(sigParams.length);
+    const specialized = specializeStatement(
+      implBody,
+      paramTypesByDeclId,
+      missingRuntimeForwardingDeclIds
+    );
     if (!assertNoIsTypeCalls(specialized)) {
       return false;
     }
@@ -149,14 +208,13 @@ export const convertMethodOverloadGroup = (
       if (!sigType || !implType) {
         return false;
       }
-      const sigCallable =
-        sigType.kind === "functionType"
-          ? sigType
-          : ctx.typeSystem.delegateToFunctionType(sigType);
-      const implCallable =
-        implType.kind === "functionType"
-          ? implType
-          : ctx.typeSystem.delegateToFunctionType(implType);
+
+      if (ctx.typeSystem.typesEqual(sigType, implType)) {
+        return false;
+      }
+
+      const sigCallable = resolveCallableShape(sigType);
+      const implCallable = resolveCallableShape(implType);
       if (!sigCallable && !implCallable) {
         return false;
       }
@@ -170,7 +228,7 @@ export const convertMethodOverloadGroup = (
       ) {
         return true;
       }
-      return !typesEqualForIsType(sigType, implType);
+      return true;
     });
     if (requiresCallableAdapter) {
       return true;
@@ -185,6 +243,13 @@ export const convertMethodOverloadGroup = (
       return parameter.isOptional && parameter.initializer === undefined;
     });
     if (requiresDefaultForwarding) {
+      return true;
+    }
+
+    if (
+      missingRuntimeForwardingDeclIds.size > 0 &&
+      !assertNoMissingParamRefs(specialized, missingRuntimeForwardingDeclIds)
+    ) {
       return true;
     }
 
@@ -289,6 +354,8 @@ export const convertMethodOverloadGroup = (
           helperName,
           parameters,
           implMethod.parameters,
+          implParamDeclIds,
+          implBody,
           (implMethod.typeParameters ?? []).map(
             (typeParameter) => typeParameter.name
           ),

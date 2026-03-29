@@ -12,8 +12,10 @@ import {
   identifierType,
   nullLiteral,
 } from "../core/format/backend-ast/builders.js";
+import { sameTypeAstSurface } from "../core/format/backend-ast/utils.js";
 import { allocateLocalName } from "../core/format/local-names.js";
 import type { EmitterContext } from "../types.js";
+import { emitCSharpName } from "../naming-policy.js";
 import { hasNullishBranch } from "./exact-comparison.js";
 import {
   StructuralAdaptFn,
@@ -23,6 +25,8 @@ import {
 import {
   getArrayElementType,
   getDictionaryValueType,
+  getDirectIterableElementType,
+  getIterableSourceShape,
 } from "./structural-type-shapes.js";
 import {
   isExactArrayCreationToType,
@@ -30,12 +34,136 @@ import {
   tryEmitExactComparisonTargetAst,
 } from "./exact-comparison.js";
 
+const tryResolveExactCollectionSurfaceMatch = (
+  sourceType: IrType | undefined,
+  targetType: IrType | undefined,
+  context: EmitterContext
+): [boolean, EmitterContext] => {
+  if (!sourceType || !targetType) {
+    return [false, context];
+  }
+
+  const sourceExact = tryEmitExactComparisonTargetAst(sourceType, context);
+  if (!sourceExact) {
+    return [false, context];
+  }
+
+  const [targetExactTypeAst, targetExactContext] = (() => {
+    const targetExact = tryEmitExactComparisonTargetAst(
+      targetType,
+      sourceExact[1]
+    );
+    if (!targetExact) {
+      return [undefined, sourceExact[1]] as const;
+    }
+    return targetExact;
+  })();
+
+  if (!targetExactTypeAst) {
+    return [false, targetExactContext];
+  }
+
+  return [
+    sameTypeAstSurface(sourceExact[0], targetExactTypeAst),
+    targetExactContext,
+  ];
+};
+
 const isDirectlyReusableExpression = (
   expression: CSharpExpressionAst
 ): boolean =>
   expression.kind === "identifierExpression" ||
   expression.kind === "memberAccessExpression" ||
   expression.kind === "elementAccessExpression";
+
+const isIteratorAccessExpression = (
+  expression: CSharpExpressionAst,
+  context: EmitterContext
+): boolean => {
+  const methodName = emitCSharpName("[symbol:iterator]", "methods", context);
+  const propertyName = emitCSharpName("[symbol:iterator]", "properties", context);
+
+  if (expression.kind === "memberAccessExpression") {
+    return (
+      expression.memberName === methodName ||
+      expression.memberName === propertyName
+    );
+  }
+
+  return (
+    expression.kind === "invocationExpression" &&
+    expression.arguments.length === 0 &&
+    expression.expression.kind === "memberAccessExpression" &&
+    expression.expression.memberName === methodName
+  );
+};
+
+const buildIterableSourceAst = (
+  emittedAst: CSharpExpressionAst,
+  sourceType: IrType | undefined,
+  context: EmitterContext
+):
+  | {
+      readonly sourceAst: CSharpExpressionAst;
+      readonly elementType: IrType;
+      readonly context: EmitterContext;
+    }
+  | undefined => {
+  const shape = getIterableSourceShape(sourceType, context);
+  if (!shape) {
+    return undefined;
+  }
+
+  if (shape.accessKind === "direct" || isIteratorAccessExpression(emittedAst, context)) {
+    return {
+      sourceAst: emittedAst,
+      elementType: shape.elementType,
+      context,
+    };
+  }
+
+  const memberName = emitCSharpName(
+    "[symbol:iterator]",
+    shape.accessKind === "iteratorMethod" ? "methods" : "properties",
+    context
+  );
+  const memberAccessAst: CSharpExpressionAst = {
+    kind: "memberAccessExpression",
+    expression: emittedAst,
+    memberName,
+  };
+
+  return {
+    sourceAst:
+      shape.accessKind === "iteratorMethod"
+        ? {
+            kind: "invocationExpression",
+            expression: memberAccessAst,
+            arguments: [],
+          }
+        : memberAccessAst,
+    elementType: shape.elementType,
+    context,
+  };
+};
+
+const hasMatchingRuntimeCarrierElementType = (
+  sourceType: IrType,
+  targetType: IrType,
+  context: EmitterContext
+): boolean => {
+  const [sourceTypeAst, , sourceContext] = emitRuntimeCarrierTypeAst(
+    sourceType,
+    context,
+    emitTypeAst
+  );
+  const [targetTypeAst] = emitRuntimeCarrierTypeAst(
+    targetType,
+    sourceContext,
+    emitTypeAst
+  );
+  return sameTypeAstSurface(sourceTypeAst, targetTypeAst);
+};
 
 export const tryAdaptStructuralCollectionExpressionAst = (
   emittedAst: CSharpExpressionAst,
@@ -45,6 +173,12 @@ export const tryAdaptStructuralCollectionExpressionAst = (
   adaptStructuralExpressionAst: StructuralAdaptFn,
   upcastFn?: UpcastFn
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const [hasExactCollectionSurfaceMatch, exactCollectionSurfaceContext] =
+    tryResolveExactCollectionSurfaceMatch(sourceType, expectedType, context);
+  if (hasExactCollectionSurfaceMatch) {
+    return [emittedAst, exactCollectionSurfaceContext];
+  }
+
   if (expectedType) {
     const exactTarget = tryEmitExactComparisonTargetAst(expectedType, context);
     if (
@@ -89,8 +223,13 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       structuralElementAdaptation?.[1] ??
       upcastElementAdaptation?.[1] ??
       currentContext;
+    const runtimeCarrierMatches = hasMatchingRuntimeCarrierElementType(
+      sourceElementType,
+      targetElementType,
+      currentContext
+    );
     const needsElementAdaptation =
-      adaptedElementAst !== undefined && adaptedElementAst !== itemIdentifier;
+      adaptedElementAst !== undefined || !runtimeCarrierMatches;
     if (
       !needsElementAdaptation &&
       matchesExpectedEmissionType(sourceElementType, targetElementType, context)
@@ -112,22 +251,31 @@ export const tryAdaptStructuralCollectionExpressionAst = (
           emitTypeAst
         );
       currentContext = targetElementTypeContext;
+      const effectiveElementAst =
+        adaptedElementAst ??
+        (!runtimeCarrierMatches
+          ? {
+              kind: "castExpression" as const,
+              type: targetElementTypeAst,
+              expression: itemIdentifier,
+            }
+          : itemIdentifier);
       const selectAst: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: {
           ...identifierExpression("global::System.Linq.Enumerable.Select"),
         },
-        typeArguments: [sourceElementTypeAst, targetElementTypeAst],
-        arguments: [
-          emittedAst,
-          {
-            kind: "lambdaExpression",
-            isAsync: false,
-            parameters: [{ name: item.emittedName }],
-            body: adaptedElementAst,
-          },
-        ],
-      };
+            typeArguments: [sourceElementTypeAst, targetElementTypeAst],
+            arguments: [
+              emittedAst,
+              {
+                kind: "lambdaExpression",
+                isAsync: false,
+                parameters: [{ name: item.emittedName }],
+                body: effectiveElementAst,
+              },
+            ],
+          };
       const toArrayAst: CSharpExpressionAst = {
         kind: "invocationExpression",
         expression: {
@@ -167,6 +315,119 @@ export const tryAdaptStructuralCollectionExpressionAst = (
           currentContext,
         ];
       }
+    }
+  }
+
+  const targetIterableElementType =
+    targetElementType === undefined
+      ? getDirectIterableElementType(expectedType, context)
+      : undefined;
+  const sourceIterable = buildIterableSourceAst(emittedAst, sourceType, context);
+  if (targetIterableElementType && sourceIterable) {
+    const item = allocateLocalName("__item", sourceIterable.context);
+    let currentContext = item.context;
+    const itemIdentifier: CSharpExpressionAst = {
+      kind: "identifierExpression",
+      identifier: item.emittedName,
+    };
+    const structuralElementAdaptation = adaptStructuralExpressionAst(
+      itemIdentifier,
+      sourceIterable.elementType,
+      currentContext,
+      targetIterableElementType,
+      upcastFn
+    );
+    const upcastElementAdaptation =
+      structuralElementAdaptation ??
+      (upcastFn
+        ? upcastFn(
+            itemIdentifier,
+            sourceIterable.elementType,
+            currentContext,
+            targetIterableElementType,
+            new Set<string>()
+          )
+        : undefined);
+    const adaptedElementAst =
+      structuralElementAdaptation?.[0] ?? upcastElementAdaptation?.[0];
+    currentContext =
+      structuralElementAdaptation?.[1] ??
+      upcastElementAdaptation?.[1] ??
+      currentContext;
+    const runtimeCarrierMatches = hasMatchingRuntimeCarrierElementType(
+      sourceIterable.elementType,
+      targetIterableElementType,
+      currentContext
+    );
+    const effectiveElementAst = adaptedElementAst ?? itemIdentifier;
+    const needsElementAdaptation =
+      effectiveElementAst !== itemIdentifier || !runtimeCarrierMatches;
+
+    if (!needsElementAdaptation) {
+      if (
+        sourceIterable.sourceAst === emittedAst &&
+        matchesExpectedEmissionType(
+          sourceIterable.elementType,
+          targetIterableElementType,
+          context
+        )
+      ) {
+        return [emittedAst, currentContext];
+      }
+
+      return [sourceIterable.sourceAst, currentContext];
+    }
+
+    const [sourceElementTypeAst, , sourceElementTypeContext] =
+      emitRuntimeCarrierTypeAst(
+        sourceIterable.elementType,
+        currentContext,
+        emitTypeAst
+      );
+    currentContext = sourceElementTypeContext;
+    const [targetElementTypeAst, , targetElementTypeContext] =
+      emitRuntimeCarrierTypeAst(
+        targetIterableElementType,
+        currentContext,
+        emitTypeAst
+      );
+    currentContext = targetElementTypeContext;
+    const selectAst: CSharpExpressionAst = {
+      kind: "invocationExpression",
+      expression: {
+        ...identifierExpression("global::System.Linq.Enumerable.Select"),
+      },
+      typeArguments: [sourceElementTypeAst, targetElementTypeAst],
+      arguments: [
+        sourceIterable.sourceAst,
+        {
+          kind: "lambdaExpression",
+          isAsync: false,
+          parameters: [{ name: item.emittedName }],
+          body: effectiveElementAst,
+        },
+      ],
+    };
+
+    if (!hasNullishBranch(sourceType)) {
+      return [selectAst, currentContext];
+    }
+
+    if (isDirectlyReusableExpression(emittedAst)) {
+      return [
+        {
+          kind: "conditionalExpression",
+          condition: {
+            kind: "binaryExpression",
+            operatorToken: "==",
+            left: emittedAst,
+            right: nullLiteral(),
+          },
+          whenTrue: { kind: "defaultExpression" },
+          whenFalse: selectAst,
+        },
+        currentContext,
+      ];
     }
   }
 

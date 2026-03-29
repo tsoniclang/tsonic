@@ -5,9 +5,35 @@
  * and do not reference parameters absent from the current overload signature.
  */
 
-import { IrExpression, IrStatement } from "../../../../types.js";
+import { IrExpression, IrPattern, IrStatement } from "../../../../types.js";
 
 export const assertNoIsTypeCalls = (stmt: IrStatement): boolean => {
+  const isPatternLike = (
+    target: IrExpression | IrPattern
+  ): target is IrPattern =>
+    target.kind === "identifierPattern" ||
+    target.kind === "arrayPattern" ||
+    target.kind === "objectPattern";
+
+  const visitPattern = (pattern: IrPattern): boolean => {
+    switch (pattern.kind) {
+      case "identifierPattern":
+        return true;
+      case "arrayPattern":
+        return pattern.elements.every((element) =>
+          element ? visitPattern(element.pattern) : true
+        );
+      case "objectPattern":
+        return pattern.properties.every((property) =>
+          property.kind === "rest"
+            ? visitPattern(property.pattern)
+            : visitPattern(property.value)
+        );
+      default:
+        return true;
+    }
+  };
+
   const visitExpr = (expr: IrExpression): boolean => {
     switch (expr.kind) {
       case "literal":
@@ -57,7 +83,11 @@ export const assertNoIsTypeCalls = (stmt: IrStatement): boolean => {
           visitExpr(expr.whenFalse)
         );
       case "assignment":
-        return visitExpr(expr.right);
+        return (
+          (isPatternLike(expr.left)
+            ? visitPattern(expr.left)
+            : visitExpr(expr.left)) && visitExpr(expr.right)
+        );
       case "templateLiteral":
         return expr.expressions.every(visitExpr);
       case "array":
@@ -155,6 +185,32 @@ export const assertNoMissingParamRefs = (
   stmt: IrStatement,
   missingDeclIds: ReadonlySet<number>
 ): boolean => {
+  const isPatternLike = (
+    target: IrExpression | IrPattern
+  ): target is IrPattern =>
+    target.kind === "identifierPattern" ||
+    target.kind === "arrayPattern" ||
+    target.kind === "objectPattern";
+
+  const visitPattern = (pattern: IrPattern): boolean => {
+    switch (pattern.kind) {
+      case "identifierPattern":
+        return true;
+      case "arrayPattern":
+        return pattern.elements.every((element) =>
+          element ? visitPattern(element.pattern) : true
+        );
+      case "objectPattern":
+        return pattern.properties.every((property) =>
+          property.kind === "rest"
+            ? visitPattern(property.pattern)
+            : visitPattern(property.value)
+        );
+      default:
+        return true;
+    }
+  };
+
   const visitExpr = (expr: IrExpression): boolean => {
     switch (expr.kind) {
       case "literal":
@@ -202,7 +258,11 @@ export const assertNoMissingParamRefs = (
           visitExpr(expr.whenFalse)
         );
       case "assignment":
-        return visitExpr(expr.right);
+        return (
+          (isPatternLike(expr.left)
+            ? visitPattern(expr.left)
+            : visitExpr(expr.left)) && visitExpr(expr.right)
+        );
       case "templateLiteral":
         return expr.expressions.every(visitExpr);
       case "array":

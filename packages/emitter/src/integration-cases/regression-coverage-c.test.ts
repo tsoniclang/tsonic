@@ -414,7 +414,7 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("await-adapts async overload wrappers before narrowing promise unions", () => {
+    it("directly specializes async promise-return overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
         export async function readValue(flag: boolean): Promise<boolean>;
         export async function readValue(flag: boolean, encoding: string): Promise<string>;
@@ -431,14 +431,16 @@ describe("End-to-End Integration", () => {
         "public static async global::System.Threading.Tasks.Task<bool> readValue(bool flag)"
       );
       expect(csharp).to.include(
-        "await __tsonic_overload_impl_readValue(flag)).Match"
+        "public static async global::System.Threading.Tasks.Task<string> readValue(bool flag, string encoding)"
       );
+      expect(csharp).to.include("return flag;");
+      expect(csharp).to.include("return encoding;");
       expect(csharp).not.to.include(
-        "__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2).Match"
+        "__tsonic_overload_impl_readValue"
       );
     });
 
-    it("projects awaited array-or-string overload wrappers exactly once", () => {
+    it("directly specializes awaited array-or-string overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
         import type { byte } from "@tsonic/core/types.js";
 
@@ -460,11 +462,14 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "return (await __tsonic_overload_impl_readFile(path)).Match"
+        "public static async global::System.Threading.Tasks.Task<byte[]> readFile(string path)"
       );
-      expect(csharp).to.not.include(
-        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match'
+      expect(csharp).to.include(
+        "public static async global::System.Threading.Tasks.Task<string> readFile(string path, string encoding)"
       );
+      expect(csharp).to.include("return await implBytes(path);");
+      expect(csharp).to.include("return await implText(path, encoding);");
+      expect(csharp).not.to.include("__tsonic_overload_impl_readFile");
     });
 
     it("null-checks optional typeof runtime-union guards before member tests", () => {
@@ -548,7 +553,7 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("awaits async void overload wrappers without discard locals", () => {
+    it("directly specializes async void overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
         declare function implDefault(path: string): Promise<void>;
         declare function implRecursive(path: string, recursive: boolean): Promise<void>;
@@ -568,12 +573,18 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "return __tsonic_overload_impl_mkdir(path);"
+        "public static async global::System.Threading.Tasks.Task mkdir(string path)"
       );
+      expect(csharp).to.include(
+        "public static async global::System.Threading.Tasks.Task mkdir(string path, bool recursive)"
+      );
+      expect(csharp).to.include("await implDefault(path);");
+      expect(csharp).to.include("await implRecursive(path, recursive);");
       expect(csharp).to.not.include("__tsonic_discard");
+      expect(csharp).to.not.include("__tsonic_overload_impl_mkdir");
     });
 
-    it("reuses named structural option types in overload wrappers", () => {
+    it("reuses named structural option types in directly specialized overloads", () => {
       const csharp = compileToCSharp(`
         import type { int } from "@tsonic/core/types.js";
 
@@ -606,7 +617,10 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "public static global::System.Threading.Tasks.Task mkdir(string path, MkdirOptions options)"
+        "public static async global::System.Threading.Tasks.Task mkdir(string path, MkdirOptions options)"
+      );
+      expect(csharp).to.include(
+        "await implOptions(path, new MkdirOptions { recursive = options.recursive, mode = options.mode });"
       );
       expect(csharp).to.not.include(
         "public static global::System.Threading.Tasks.Task mkdir(string path, global::Test.__Anon_"
@@ -676,7 +690,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("Select<double, T?>");
     });
 
-    it("promotes helper overload methods when promise unions require awaited adaptation", () => {
+    it("directly specializes promise-union overload families across module and class methods", () => {
       const csharp = compileToCSharp(`
         import type { byte } from "@tsonic/core/types.js";
 
@@ -713,17 +727,24 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "private async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.Union<byte[], string>> __tsonic_overload_impl_readFile"
+        "public global::System.Threading.Tasks.Task<byte[]> readFile(string path)"
       );
       expect(csharp).to.include(
-        "return global::Tsonic.Runtime.Union<byte[], string>.From1(await global::Test.test.readFile(path));"
+        "public global::System.Threading.Tasks.Task<string> readFile(string path, string encoding)"
       );
+      expect(csharp).to.include(
+        "return global::Test.test.readFile(path);"
+      );
+      expect(csharp).to.include(
+        "return global::Test.test.readFile(path, encoding);"
+      );
+      expect(csharp).not.to.include("__tsonic_overload_impl_readFile");
       expect(csharp).to.not.include(
         "(global::System.Threading.Tasks.Task<global::Tsonic.Runtime.Union<byte[], string>>)test.readFile(path)"
       );
     });
 
-    it("narrows sync overload wrappers exactly once for array-or-string unions", () => {
+    it("directly specializes sync array-or-string overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
         import type { byte } from "@tsonic/core/types.js";
 
@@ -760,17 +781,27 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "return __tsonic_overload_impl_readFileSync(path).Match"
-      );
-      expect(csharp).to.not.include(
-        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match'
+        "public static byte[] readFileSync(string path)"
       );
       expect(csharp).to.include(
-        "return this.__tsonic_overload_impl_readFileSync(path).Match"
+        "public static string readFileSync(string path, string encoding)"
       );
+      expect(csharp).to.include(
+        "public byte[] readFileSync(string path)"
+      );
+      expect(csharp).to.include(
+        "public string readFileSync(string path, string encoding)"
+      );
+      expect(csharp).to.include("return implBytes(path);");
+      expect(csharp).to.include("return implText(path, encoding);");
+      expect(csharp).to.include("return global::Test.test.readFileSync(path);");
+      expect(csharp).to.include(
+        "return global::Test.test.readFileSync(path, encoding);"
+      );
+      expect(csharp).not.to.include("__tsonic_overload_impl_readFileSync");
     });
 
-    it("keeps sync overload helper runtime layout aligned for structural nominal unions", () => {
+    it("directly specializes sync structural nominal unions when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
         declare class Buffer {
           readonly length: number;
@@ -793,21 +824,12 @@ describe("End-to-End Integration", () => {
         }
       `);
 
-      expect(csharp).to.include(
-        "internal static global::Tsonic.Runtime.Union<string, global::Test.Buffer> __tsonic_overload_impl_readFileSync"
-      );
-      expect(csharp).to.include(
-        "return global::Tsonic.Runtime.Union<string, global::Test.Buffer>.From2(implBytes(path));"
-      );
-      expect(csharp).to.include(
-        "return global::Tsonic.Runtime.Union<string, global::Test.Buffer>.From1(implText(path, encoding));"
-      );
-      expect(csharp).to.include(
-        "__tsonic_union_member_1 => throw new global::System.InvalidCastException"
-      );
-      expect(csharp).to.include(
-        "__tsonic_union_member_2 => __tsonic_union_member_2"
-      );
+      expect(csharp).to.include("public static global::Test.Buffer readFileSync(string path)");
+      expect(csharp).to.include("public static string readFileSync(string path, string encoding)");
+      expect(csharp).to.include("return implBytes(path);");
+      expect(csharp).to.include("return implText(path, encoding);");
+      expect(csharp).not.to.include("__tsonic_overload_impl_readFileSync");
+      expect(csharp).not.to.include("global::Tsonic.Runtime.Union<string, global::Test.Buffer>");
     });
 
     it("prefers deterministic numeric overloads for erased number arguments", () => {
@@ -1655,10 +1677,13 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("var value = chunkOrCallback.Match");
       expect(csharp).to.include(
-        "__tsonic_union_member_1 => global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer, global::Uint8Array>.From1(__tsonic_union_member_1)"
+        "global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer, global::Test.Uint8Array>"
+      );
+      expect(csharp).to.include(
+        "__tsonic_union_member_2 => throw new global::System.InvalidCastException(\"Cannot materialize runtime union functionType to unionType\")"
       );
       expect(csharp).not.to.include(
-        "var value = (global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer, global::Uint8Array>)chunkOrCallback;"
+        "var value = (global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer, global::Test.Uint8Array>)chunkOrCallback;"
       );
     });
 

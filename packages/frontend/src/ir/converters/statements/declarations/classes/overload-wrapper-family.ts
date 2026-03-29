@@ -26,7 +26,8 @@ const isSuperMemberCall = (expression: IrExpression): boolean =>
 export const substitutePolymorphicReturn = (
   expression: IrExpression,
   implReturnType: IrType | undefined,
-  wrapperReturnType: IrType | undefined
+  wrapperReturnType: IrType | undefined,
+  selectedRuntimeUnionMembers?: readonly number[]
 ): IrExpression => {
   if (!wrapperReturnType) {
     return expression;
@@ -38,6 +39,9 @@ export const substitutePolymorphicReturn = (
       expression,
       targetType: wrapperReturnType,
       inferredType: wrapperReturnType,
+      ...(selectedRuntimeUnionMembers
+        ? { selectedRuntimeUnionMembers }
+        : {}),
       sourceSpan: expression.sourceSpan,
     };
   }
@@ -57,6 +61,7 @@ export const substitutePolymorphicReturn = (
     expression,
     targetType: wrapperReturnType,
     inferredType: wrapperReturnType,
+    ...(selectedRuntimeUnionMembers ? { selectedRuntimeUnionMembers } : {}),
     sourceSpan: expression.sourceSpan,
   };
 };

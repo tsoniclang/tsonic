@@ -146,6 +146,61 @@ const resolveAliasExpansion = (
   };
 };
 
+type ComparableMethodSignature = {
+  readonly parameters: readonly {
+    readonly type?: IrType;
+  }[];
+  readonly returnType?: IrType;
+};
+
+const resolveNominalMemberEntry = (
+  state: TypeSystemState,
+  source: IrReferenceType,
+  memberName: string
+):
+  | {
+      readonly memberType: IrType | undefined;
+      readonly signatures: readonly ComparableMethodSignature[];
+    }
+  | undefined => {
+  const normalized = normalizeToNominal(state, source);
+  if (!normalized) {
+    return undefined;
+  }
+
+  const lookupResult = state.nominalEnv.findMemberDeclaringType(
+    normalized.typeId,
+    normalized.typeArgs,
+    memberName
+  );
+  if (!lookupResult) {
+    return undefined;
+  }
+
+  const memberEntry = state.unifiedCatalog.getMember(
+    lookupResult.declaringTypeId,
+    memberName
+  );
+  if (!memberEntry) {
+    return undefined;
+  }
+
+  const substituteMemberType = (type: IrType | undefined): IrType | undefined =>
+    type
+      ? irSubstitute(type, lookupResult.substitution as IrSubstitutionMap)
+      : undefined;
+
+  return {
+    memberType: substituteMemberType(memberEntry.type),
+    signatures: (memberEntry.signatures ?? []).map((signature) => ({
+      parameters: signature.parameters.map((parameter) => ({
+        type: substituteMemberType(parameter.type),
+      })),
+      returnType: substituteMemberType(signature.returnType),
+    })),
+  };
+};
+
 const isAssignableToInternal = (
   state: TypeSystemState,
   source: IrType,
@@ -264,13 +319,37 @@ const isAssignableToInternal = (
             candidate.kind === "propertySignature" &&
             candidate.name === targetMember.name
         );
-        if (matches.length !== 1) {
+        if (matches.length === 1) {
+          const match = matches[0];
+          return (
+            !!match &&
+            isAssignableToInternal(
+              state,
+              match.type,
+              targetMember.type,
+              activeAliases
+            )
+          );
+        }
+
+        if (source.kind !== "referenceType") {
           return false;
         }
-        const match = matches[0];
-        return (
-          !!match &&
-          isAssignableToInternal(state, match.type, targetMember.type, activeAliases)
+
+        const nominalMember = resolveNominalMemberEntry(
+          state,
+          source,
+          targetMember.name
+        );
+        if (!nominalMember?.memberType) {
+          return false;
+        }
+
+        return isAssignableToInternal(
+          state,
+          nominalMember.memberType,
+          targetMember.type,
+          activeAliases
         );
       }
 
@@ -286,12 +365,26 @@ const isAssignableToInternal = (
             candidate.name === targetMember.name &&
             candidate.parameters.length === targetMember.parameters.length
         );
-        if (matches.length !== 1) {
+        const comparableMatches: readonly ComparableMethodSignature[] =
+          matches.length === 1
+            ? matches
+            : source.kind === "referenceType"
+              ? resolveNominalMemberEntry(
+                  state,
+                  source,
+                  targetMember.name
+                )?.signatures.filter(
+                  (signature) =>
+                    signature.parameters.length === targetMember.parameters.length
+                ) ?? []
+              : [];
+
+        if (comparableMatches.length !== 1) {
           return false;
         }
 
-        const match = matches[0];
-        if (!match || match.kind !== "methodSignature") {
+        const match = comparableMatches[0];
+        if (!match) {
           return false;
         }
 

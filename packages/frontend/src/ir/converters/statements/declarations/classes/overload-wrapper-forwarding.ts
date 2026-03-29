@@ -1,8 +1,10 @@
 import {
+  IrBlockStatement,
   IrExpression,
   IrParameter,
   IrSpreadExpression,
   IrType,
+  getAwaitedIrType,
 } from "../../../../types.js";
 import { typesEqualForIsType } from "./overload-specialization.js";
 import { getIdentifierPatternName } from "./overload-wrapper-family.js";
@@ -158,6 +160,108 @@ const countRequiredFunctionParameters = (
   return required;
 };
 
+const buildExpressionStatement = (expression: IrExpression) => ({
+  kind: "expressionStatement" as const,
+  expression,
+});
+
+const buildReturnStatement = (expression: IrExpression) => ({
+  kind: "returnStatement" as const,
+  expression,
+});
+
+const buildAdaptedCallbackReturn = (
+  callbackInvocation: IrExpression,
+  sourceReturnType: IrType,
+  targetReturnType: IrType
+): {
+  readonly body: IrExpression | IrBlockStatement;
+  readonly isAsync: boolean;
+} => {
+  if (typesEqualForIsType(sourceReturnType, targetReturnType)) {
+    return {
+      body: callbackInvocation,
+      isAsync: false,
+    };
+  }
+
+  if (targetReturnType.kind === "voidType") {
+    return {
+      body: callbackInvocation,
+      isAsync: false,
+    };
+  }
+
+  const awaitedSource = getAwaitedIrType(sourceReturnType);
+  const awaitedTarget = getAwaitedIrType(targetReturnType);
+  if (awaitedSource && awaitedTarget) {
+    const awaitedInvocation: IrExpression = {
+      kind: "await",
+      expression: callbackInvocation,
+      inferredType: awaitedSource,
+    };
+
+    if (awaitedSource.kind === "voidType") {
+      return {
+        isAsync: true,
+        body: {
+          kind: "blockStatement",
+          statements: [
+            buildExpressionStatement(awaitedInvocation),
+            buildReturnStatement(defaultOfExpression(awaitedTarget)),
+          ],
+        },
+      };
+    }
+
+    if (awaitedTarget.kind === "voidType") {
+      return {
+        isAsync: true,
+        body: {
+          kind: "blockStatement",
+          statements: [buildExpressionStatement(awaitedInvocation)],
+        },
+      };
+    }
+
+    return {
+      isAsync: true,
+      body: {
+        kind: "blockStatement",
+        statements: [
+          buildReturnStatement(
+            coerceForwardedArgumentToTargetType(
+              awaitedInvocation,
+              awaitedTarget
+            )
+          ),
+        ],
+      },
+    };
+  }
+
+  if (sourceReturnType.kind === "voidType") {
+    return {
+      isAsync: false,
+      body: {
+        kind: "blockStatement",
+        statements: [
+          buildExpressionStatement(callbackInvocation),
+          buildReturnStatement(defaultOfExpression(targetReturnType)),
+        ],
+      },
+    };
+  }
+
+  return {
+    body: coerceForwardedArgumentToTargetType(
+      callbackInvocation,
+      targetReturnType
+    ),
+    isAsync: false,
+  };
+};
+
 const coerceForwardedArgumentToTargetType = (
   expression: IrExpression,
   targetType: IrType | undefined
@@ -244,15 +348,18 @@ const coerceForwardedArgumentToTargetType = (
       ),
     };
 
+    const adaptedReturn = buildAdaptedCallbackReturn(
+      callbackInvocation,
+      sourceType.returnType,
+      targetType.returnType
+    );
+
     return {
       kind: "arrowFunction",
       parameters: adapterParameters,
       returnType: targetType.returnType,
-      body: coerceForwardedArgumentToTargetType(
-        callbackInvocation,
-        targetType.returnType
-      ),
-      isAsync: false,
+      body: adaptedReturn.body,
+      isAsync: adaptedReturn.isAsync,
       inferredType: targetType,
     };
   }

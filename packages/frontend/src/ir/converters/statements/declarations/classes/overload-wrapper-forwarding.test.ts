@@ -181,4 +181,106 @@ describe("overload wrapper forwarding", () => {
       source: { type: "literal", value: 0 },
     });
   });
+
+  it("adapts void callbacks to value-returning helper callbacks with an explicit default return", () => {
+    const voidActionType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "voidType" },
+    };
+    const unknownFuncType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: { kind: "unknownType" },
+    };
+
+    const forwardedArgs = buildForwardedCallArguments(
+      [createParameter("action", voidActionType)],
+      [createParameter("action", unknownFuncType)]
+    );
+
+    const arg = forwardedArgs[0];
+    expect(arg?.kind).to.equal("arrowFunction");
+    if (!arg || arg.kind !== "arrowFunction") return;
+    expect(arg.isAsync).to.equal(false);
+    expect(arg.body.kind).to.equal("blockStatement");
+    if (arg.body.kind !== "blockStatement") return;
+    expect(arg.body.statements).to.have.length(2);
+    expect(arg.body.statements[0]?.kind).to.equal("expressionStatement");
+    expect(arg.body.statements[1]?.kind).to.equal("returnStatement");
+    const returnStmt = arg.body.statements[1];
+    if (!returnStmt || returnStmt.kind !== "returnStatement") return;
+    expect(returnStmt.expression?.kind).to.equal("defaultof");
+  });
+
+  it("adapts async callbacks to value-returning helper callbacks by awaiting and reboxing the awaited result", () => {
+    const taskType: IrType = {
+      kind: "referenceType",
+      name: "Task",
+    };
+    const taskOfStringType: IrType = {
+      kind: "referenceType",
+      name: "Task",
+      typeArguments: [{ kind: "primitiveType", name: "string" }],
+    };
+    const taskOfUnknownType: IrType = {
+      kind: "referenceType",
+      name: "Task",
+      typeArguments: [{ kind: "unknownType" }],
+    };
+    const sourceType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: taskOfStringType,
+    };
+    const targetType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: taskOfUnknownType,
+    };
+    const voidSourceType: IrType = {
+      kind: "functionType",
+      parameters: [],
+      returnType: taskType,
+    };
+
+    const forwardedGenericArgs = buildForwardedCallArguments(
+      [createParameter("action", sourceType)],
+      [createParameter("action", targetType)]
+    );
+    const genericArg = forwardedGenericArgs[0];
+    expect(genericArg?.kind).to.equal("arrowFunction");
+    if (!genericArg || genericArg.kind !== "arrowFunction") return;
+    expect(genericArg.isAsync).to.equal(true);
+    expect(genericArg.body.kind).to.equal("blockStatement");
+    if (genericArg.body.kind !== "blockStatement") return;
+    const genericReturn = genericArg.body.statements[0];
+    expect(genericReturn?.kind).to.equal("returnStatement");
+    if (!genericReturn || genericReturn.kind !== "returnStatement") return;
+    expect(genericReturn.expression?.kind).to.equal("typeAssertion");
+    if (
+      !genericReturn.expression ||
+      genericReturn.expression.kind !== "typeAssertion"
+    ) {
+      return;
+    }
+    expect(genericReturn.expression.expression.kind).to.equal("await");
+
+    const forwardedVoidArgs = buildForwardedCallArguments(
+      [createParameter("action", voidSourceType)],
+      [createParameter("action", targetType)]
+    );
+    const voidArg = forwardedVoidArgs[0];
+    expect(voidArg?.kind).to.equal("arrowFunction");
+    if (!voidArg || voidArg.kind !== "arrowFunction") return;
+    expect(voidArg.isAsync).to.equal(true);
+    expect(voidArg.body.kind).to.equal("blockStatement");
+    if (voidArg.body.kind !== "blockStatement") return;
+    expect(voidArg.body.statements).to.have.length(2);
+    expect(voidArg.body.statements[0]?.kind).to.equal("expressionStatement");
+    const voidReturn = voidArg.body.statements[1];
+    expect(voidReturn?.kind).to.equal("returnStatement");
+    if (!voidReturn || voidReturn.kind !== "returnStatement") return;
+    expect(voidReturn.expression?.kind).to.equal("defaultof");
+  });
 });

@@ -176,12 +176,21 @@ export const resolveSourceReferenceFQName = (
     return direct;
   }
 
+  const allFqNames = state.typeRegistry.getFQNames(type.name);
+  const dottedCandidates = allFqNames.filter((fqName) => fqName.includes("."));
+  if (dottedCandidates.length === 1) {
+    const [onlyDotted] = dottedCandidates;
+    if (onlyDotted) {
+      return onlyDotted;
+    }
+  }
+
   const structuralMembers = type.structuralMembers;
   if (!structuralMembers || structuralMembers.length === 0) {
     return undefined;
   }
 
-  const candidates = state.typeRegistry.getFQNames(type.name).filter((fqName) => {
+  const candidates = allFqNames.filter((fqName) => {
     const entry = state.typeRegistry.resolveNominal(fqName);
     if (!entry) {
       return false;
@@ -232,12 +241,12 @@ export const normalizeToNominal = (
     const arity = type.typeArguments?.length;
     const sourceFqName = resolveSourceReferenceFQName(state, type);
     const typeId =
+      (sourceFqName
+        ? resolveTypeIdByName(state, sourceFqName, arity)
+        : undefined) ??
       type.typeId ??
       (type.resolvedClrType
         ? resolveTypeIdByName(state, type.resolvedClrType, arity)
-        : undefined) ??
-      (sourceFqName
-        ? resolveTypeIdByName(state, sourceFqName, arity)
         : undefined) ??
       (!sourceFqName ? resolveTypeIdByName(state, type.name, arity) : undefined);
     if (!typeId) return undefined;

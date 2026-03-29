@@ -169,15 +169,34 @@ export const typesEqualForIsType = (
 
 export const specializeExpression = (
   expr: IrExpression,
-  paramTypesByDeclId: ReadonlyMap<number, IrType>
+  paramTypesByDeclId: ReadonlyMap<number, IrType>,
+  preserveMissingDeclIds: ReadonlySet<number> = new Set()
 ): IrExpression => {
-  const tryResolveParamType = (
+  const unwrapTransparentExpression = (
+    expression: IrExpression
+  ): IrExpression => {
+    switch (expression.kind) {
+      case "typeAssertion":
+      case "numericNarrowing":
+      case "asinterface":
+      case "trycast":
+        return unwrapTransparentExpression(expression.expression);
+      default:
+        return expression;
+    }
+  };
+
+  const resolveSpecializedExpressionType = (
     expression: IrExpression
   ): IrType | undefined => {
-    if (expression.kind !== "identifier" || !expression.declId) {
-      return undefined;
+    const unwrapped = unwrapTransparentExpression(expression);
+    if (unwrapped.kind === "identifier" && unwrapped.declId) {
+      return (
+        paramTypesByDeclId.get(unwrapped.declId.id) ?? unwrapped.inferredType
+      );
     }
-    return paramTypesByDeclId.get(expression.declId.id);
+
+    return unwrapped.inferredType;
   };
 
   const evaluateArrayIsArrayPredicate = (
@@ -226,7 +245,7 @@ export const specializeExpression = (
       expr.typeArguments.length === 1 &&
       args.length === 1
     ) {
-      const actual = tryResolveParamType(args[0] as IrExpression);
+      const actual = resolveSpecializedExpressionType(args[0] as IrExpression);
       if (!actual) return undefined;
 
       return {
@@ -245,7 +264,7 @@ export const specializeExpression = (
       callee.property === "isArray" &&
       args.length === 1
     ) {
-      const actual = tryResolveParamType(args[0] as IrExpression);
+      const actual = resolveSpecializedExpressionType(args[0] as IrExpression);
       const value = evaluateArrayIsArrayPredicate(actual);
       if (value === undefined) return undefined;
 
@@ -267,7 +286,9 @@ export const specializeExpression = (
       return undefined;
     }
 
-    return knownJsTypeofForType(tryResolveParamType(expression.expression));
+    return knownJsTypeofForType(
+      resolveSpecializedExpressionType(expression.expression)
+    );
   };
 
   const tryEvaluateEquality = (
@@ -276,6 +297,64 @@ export const specializeExpression = (
     right: IrExpression,
     sourceSpan: IrExpression["sourceSpan"]
   ): IrExpression | undefined => {
+    const typeMayIncludeLiteral = (
+      type: IrType | undefined,
+      literal: null | undefined
+    ): boolean => {
+      if (!type) {
+        return false;
+      }
+
+      switch (type.kind) {
+        case "primitiveType":
+          return type.name === (literal === null ? "null" : "undefined");
+        case "unionType":
+          return type.types.some((member) => typeMayIncludeLiteral(member, literal));
+        default:
+          return false;
+      }
+    };
+
+    const tryEvaluateNullishParamEquality = (): boolean | undefined => {
+      const resolveComparedLiteral = (
+        expression: IrExpression
+      ): null | undefined | Symbol => {
+        const unwrapped = unwrapTransparentExpression(expression);
+        if (unwrapped.kind !== "literal") {
+          return Symbol.for("not-nullish-literal");
+        }
+        if (unwrapped.value === null || unwrapped.value === undefined) {
+          return unwrapped.value;
+        }
+        return Symbol.for("not-nullish-literal");
+      };
+
+      const rightLiteral = resolveComparedLiteral(right);
+      const leftLiteral = resolveComparedLiteral(left);
+      const leftType = resolveSpecializedExpressionType(left);
+      const rightType = resolveSpecializedExpressionType(right);
+
+      if (
+        leftType &&
+        (rightLiteral === null || rightLiteral === undefined)
+      ) {
+        return typeMayIncludeLiteral(leftType, rightLiteral)
+          ? undefined
+          : false;
+      }
+
+      if (
+        rightType &&
+        (leftLiteral === null || leftLiteral === undefined)
+      ) {
+        return typeMayIncludeLiteral(rightType, leftLiteral)
+          ? undefined
+          : false;
+      }
+
+      return undefined;
+    };
+
     const comparisonResult = (() => {
       const leftTypeof = tryResolveTypeofKind(left);
       if (
@@ -295,8 +374,18 @@ export const specializeExpression = (
         return rightTypeof === left.value;
       }
 
-      if (left.kind === "literal" && right.kind === "literal") {
-        return left.value === right.value;
+      const leftTransparent = unwrapTransparentExpression(left);
+      const rightTransparent = unwrapTransparentExpression(right);
+      if (
+        leftTransparent.kind === "literal" &&
+        rightTransparent.kind === "literal"
+      ) {
+        return leftTransparent.value === rightTransparent.value;
+      }
+
+      const nullishParamComparison = tryEvaluateNullishParamEquality();
+      if (nullishParamComparison !== undefined) {
+        return nullishParamComparison;
       }
 
       return undefined;
@@ -325,10 +414,50 @@ export const specializeExpression = (
       return expr;
 
     case "identifier": {
+      if (!expr.declId && expr.name === "undefined") {
+        return {
+          kind: "literal",
+          value: undefined,
+          inferredType: { kind: "primitiveType", name: "undefined" },
+          sourceSpan: expr.sourceSpan,
+        };
+      }
+
       const specializedType =
         expr.declId && paramTypesByDeclId.get(expr.declId.id);
       if (!specializedType) {
         return expr;
+      }
+
+      if (
+        specializedType.kind === "primitiveType" &&
+        specializedType.name === "undefined"
+      ) {
+        if (expr.declId && preserveMissingDeclIds.has(expr.declId.id)) {
+          return {
+            ...expr,
+            inferredType: specializedType,
+          };
+        }
+
+        return {
+          kind: "literal",
+          value: undefined,
+          inferredType: specializedType,
+          sourceSpan: expr.sourceSpan,
+        };
+      }
+
+      if (
+        specializedType.kind === "primitiveType" &&
+        specializedType.name === "null"
+      ) {
+        return {
+          kind: "literal",
+          value: null,
+          inferredType: specializedType,
+          sourceSpan: expr.sourceSpan,
+        };
       }
 
       return {
@@ -338,17 +467,22 @@ export const specializeExpression = (
     }
 
     case "call": {
-      const callee = specializeExpression(expr.callee, paramTypesByDeclId);
+      const callee = specializeExpression(
+        expr.callee,
+        paramTypesByDeclId,
+        preserveMissingDeclIds
+      );
       const args = expr.arguments.map((a: IrExpression | IrSpreadExpression) =>
         a.kind === "spread"
           ? {
               ...a,
               expression: specializeExpression(
                 a.expression,
-                paramTypesByDeclId
+                paramTypesByDeclId,
+                preserveMissingDeclIds
               ),
             }
-          : specializeExpression(a, paramTypesByDeclId)
+          : specializeExpression(a, paramTypesByDeclId, preserveMissingDeclIds)
       );
 
       const specializedPredicate = tryEvaluateCompileTimePredicate(
@@ -366,17 +500,26 @@ export const specializeExpression = (
     case "new":
       return {
         ...expr,
-        callee: specializeExpression(expr.callee, paramTypesByDeclId),
+        callee: specializeExpression(
+          expr.callee,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
         arguments: expr.arguments.map((a: IrExpression | IrSpreadExpression) =>
           a.kind === "spread"
             ? {
                 ...a,
                 expression: specializeExpression(
                   a.expression,
-                  paramTypesByDeclId
+                  paramTypesByDeclId,
+                  preserveMissingDeclIds
                 ),
               }
-            : specializeExpression(a, paramTypesByDeclId)
+            : specializeExpression(
+                a,
+                paramTypesByDeclId,
+                preserveMissingDeclIds
+              )
         ),
       };
 
@@ -385,7 +528,8 @@ export const specializeExpression = (
         ...expr,
         body: specializeStatement(
           expr.body,
-          paramTypesByDeclId
+          paramTypesByDeclId,
+          preserveMissingDeclIds
         ) as IrBlockStatement,
       };
 
@@ -396,13 +540,22 @@ export const specializeExpression = (
           expr.body.kind === "blockStatement"
             ? (specializeStatement(
                 expr.body,
-                paramTypesByDeclId
+                paramTypesByDeclId,
+                preserveMissingDeclIds
               ) as IrBlockStatement)
-            : specializeExpression(expr.body, paramTypesByDeclId),
+            : specializeExpression(
+                expr.body,
+                paramTypesByDeclId,
+                preserveMissingDeclIds
+              ),
       };
 
     case "unary": {
-      const inner = specializeExpression(expr.expression, paramTypesByDeclId);
+      const inner = specializeExpression(
+        expr.expression,
+        paramTypesByDeclId,
+        preserveMissingDeclIds
+      );
       if (
         expr.operator === "!" &&
         inner.kind === "literal" &&
@@ -419,10 +572,18 @@ export const specializeExpression = (
     }
 
     case "logical": {
-      const left = specializeExpression(expr.left, paramTypesByDeclId);
-      if (left.kind === "literal" && typeof left.value === "boolean") {
+      const left = specializeExpression(
+        expr.left,
+        paramTypesByDeclId,
+        preserveMissingDeclIds
+      );
+      const leftTransparent = unwrapTransparentExpression(left);
+      if (
+        leftTransparent.kind === "literal" &&
+        typeof leftTransparent.value === "boolean"
+      ) {
         if (expr.operator === "&&") {
-          if (left.value === false) {
+          if (leftTransparent.value === false) {
             return {
               kind: "literal",
               value: false,
@@ -430,11 +591,15 @@ export const specializeExpression = (
               sourceSpan: expr.sourceSpan,
             };
           }
-          return specializeExpression(expr.right, paramTypesByDeclId);
+          return specializeExpression(
+            expr.right,
+            paramTypesByDeclId,
+            preserveMissingDeclIds
+          );
         }
 
         if (expr.operator === "||") {
-          if (left.value === true) {
+          if (leftTransparent.value === true) {
             return {
               kind: "literal",
               value: true,
@@ -442,17 +607,44 @@ export const specializeExpression = (
               sourceSpan: expr.sourceSpan,
             };
           }
-          return specializeExpression(expr.right, paramTypesByDeclId);
+          return specializeExpression(
+            expr.right,
+            paramTypesByDeclId,
+            preserveMissingDeclIds
+          );
         }
       }
 
-      const right = specializeExpression(expr.right, paramTypesByDeclId);
+      if (expr.operator === "??" && leftTransparent.kind === "literal") {
+        return leftTransparent.value === null ||
+          leftTransparent.value === undefined
+          ? specializeExpression(
+              expr.right,
+              paramTypesByDeclId,
+              preserveMissingDeclIds
+            )
+          : left;
+      }
+
+      const right = specializeExpression(
+        expr.right,
+        paramTypesByDeclId,
+        preserveMissingDeclIds
+      );
       return { ...expr, left, right };
     }
 
     case "binary": {
-      const left = specializeExpression(expr.left, paramTypesByDeclId);
-      const right = specializeExpression(expr.right, paramTypesByDeclId);
+      const left = specializeExpression(
+        expr.left,
+        paramTypesByDeclId,
+        preserveMissingDeclIds
+      );
+      const right = specializeExpression(
+        expr.right,
+        paramTypesByDeclId,
+        preserveMissingDeclIds
+      );
 
       if (
         expr.operator === "==" ||
@@ -480,13 +672,23 @@ export const specializeExpression = (
     case "conditional": {
       const condition = specializeExpression(
         expr.condition,
-        paramTypesByDeclId
+        paramTypesByDeclId,
+        preserveMissingDeclIds
       );
-      const whenTrue = specializeExpression(expr.whenTrue, paramTypesByDeclId);
+      const whenTrue = specializeExpression(
+        expr.whenTrue,
+        paramTypesByDeclId,
+        preserveMissingDeclIds
+      );
       const whenFalse = specializeExpression(
         expr.whenFalse,
-        paramTypesByDeclId
+        paramTypesByDeclId,
+        preserveMissingDeclIds
       );
+
+      if (condition.kind === "literal" && typeof condition.value === "boolean") {
+        return condition.value ? whenTrue : whenFalse;
+      }
 
       const inferredType = (() => {
         const trueType = whenTrue.inferredType;
@@ -511,61 +713,121 @@ export const specializeExpression = (
     case "assignment":
       return {
         ...expr,
-        right: specializeExpression(expr.right, paramTypesByDeclId),
+        right: specializeExpression(
+          expr.right,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
     case "templateLiteral":
       return {
         ...expr,
         expressions: expr.expressions.map((e: IrExpression) =>
-          specializeExpression(e, paramTypesByDeclId)
+          specializeExpression(e, paramTypesByDeclId, preserveMissingDeclIds)
         ),
       };
     case "spread":
       return {
         ...expr,
-        expression: specializeExpression(expr.expression, paramTypesByDeclId),
+        expression: specializeExpression(
+          expr.expression,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
     case "await":
       return {
         ...expr,
-        expression: specializeExpression(expr.expression, paramTypesByDeclId),
+        expression: specializeExpression(
+          expr.expression,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
     case "yield":
       return {
         ...expr,
         expression: expr.expression
-          ? specializeExpression(expr.expression, paramTypesByDeclId)
+          ? specializeExpression(
+              expr.expression,
+              paramTypesByDeclId,
+              preserveMissingDeclIds
+            )
           : undefined,
       };
     case "numericNarrowing":
       return {
         ...expr,
-        expression: specializeExpression(expr.expression, paramTypesByDeclId),
+        expression: specializeExpression(
+          expr.expression,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
     case "typeAssertion":
       return {
         ...expr,
-        expression: specializeExpression(expr.expression, paramTypesByDeclId),
+        expression: specializeExpression(
+          expr.expression,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
     case "trycast":
       return {
         ...expr,
-        expression: specializeExpression(expr.expression, paramTypesByDeclId),
+        expression: specializeExpression(
+          expr.expression,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
     case "stackalloc":
       return {
         ...expr,
-        size: specializeExpression(expr.size, paramTypesByDeclId),
+        size: specializeExpression(
+          expr.size,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
     case "memberAccess":
-      return {
-        ...expr,
-        object: specializeExpression(expr.object, paramTypesByDeclId),
-        property:
+      {
+        const object = specializeExpression(
+          expr.object,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        );
+        const property =
           typeof expr.property === "string"
             ? expr.property
-            : specializeExpression(expr.property, paramTypesByDeclId),
-      };
+            : specializeExpression(
+                expr.property,
+                paramTypesByDeclId,
+                preserveMissingDeclIds
+              );
+        const specializedObject = unwrapTransparentExpression(object);
+
+        if (
+          expr.isOptional &&
+          specializedObject.kind === "literal" &&
+          (specializedObject.value === null ||
+            specializedObject.value === undefined)
+        ) {
+          return {
+            kind: "literal",
+            value: undefined,
+            inferredType: { kind: "primitiveType", name: "undefined" },
+            sourceSpan: expr.sourceSpan,
+          };
+        }
+
+        return {
+          ...expr,
+          object,
+          property,
+        };
+      }
     case "array":
       return {
         ...expr,
@@ -577,10 +839,15 @@ export const specializeExpression = (
                     ...e,
                     expression: specializeExpression(
                       e.expression,
-                      paramTypesByDeclId
+                      paramTypesByDeclId,
+                      preserveMissingDeclIds
                     ),
                   }
-                : specializeExpression(e, paramTypesByDeclId)
+                : specializeExpression(
+                    e,
+                    paramTypesByDeclId,
+                    preserveMissingDeclIds
+                  )
               : undefined
         ),
       };
@@ -593,7 +860,8 @@ export const specializeExpression = (
                 ...p,
                 expression: specializeExpression(
                   p.expression,
-                  paramTypesByDeclId
+                  paramTypesByDeclId,
+                  preserveMissingDeclIds
                 ),
               }
             : {
@@ -601,15 +869,27 @@ export const specializeExpression = (
                 key:
                   typeof p.key === "string"
                     ? p.key
-                    : specializeExpression(p.key, paramTypesByDeclId),
-                value: specializeExpression(p.value, paramTypesByDeclId),
+                    : specializeExpression(
+                        p.key,
+                        paramTypesByDeclId,
+                        preserveMissingDeclIds
+                      ),
+                value: specializeExpression(
+                  p.value,
+                  paramTypesByDeclId,
+                  preserveMissingDeclIds
+                ),
               }
         ),
       };
     case "update":
       return {
         ...expr,
-        expression: specializeExpression(expr.expression, paramTypesByDeclId),
+        expression: specializeExpression(
+          expr.expression,
+          paramTypesByDeclId,
+          preserveMissingDeclIds
+        ),
       };
     default:
       return expr;
