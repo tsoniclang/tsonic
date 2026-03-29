@@ -91,6 +91,7 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 ## Compatibility Policy (IMPORTANT)
 
 - Backward compatibility is not required unless specifically and explicitly requested by the maintainer.
+- Always attempt the final-grade architecture directly. Do not land temporary bridge code, intermediate compatibility paths, or staged “fix it now, clean it later” product changes.
 - Do not preserve, add, or route through compatibility shims, bridge code, dual-path behavior, or legacy codepaths for native first-party packages.
 - Prefer breaking stale assumptions and fixing the real architecture over keeping old paths alive.
 
