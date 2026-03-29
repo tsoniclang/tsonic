@@ -24,6 +24,16 @@ if [ -n "$CHECKPOINT_ROOT" ]; then
   mkdir -p "$TYPECHECK_CACHE_DIR"
 fi
 
+append_trace_event() {
+  local trace_file="${TSONIC_TEST_TRACE_FILE:-}"
+  local run_id="${TSONIC_TEST_RUN_ID:-}"
+  if [ -z "$trace_file" ] || [ -z "$run_id" ]; then
+    return 0
+  fi
+
+  node "$ROOT_DIR/test/scripts/run-all/trace-event.mjs" "$trace_file" "$run_id" "$@" >/dev/null 2>&1 || true
+}
+
 ensure_typecheck_cache_dir() {
   if [ -n "$TYPECHECK_CACHE_DIR" ]; then
     mkdir -p "$TYPECHECK_CACHE_DIR"
@@ -456,6 +466,7 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
 
   if [ "$RESUME_MODE" = "1" ] && [ -n "$TYPECHECK_CACHE_DIR" ] && [ -f "$TYPECHECK_CACHE_DIR/$fixture_name.pass" ]; then
     echo "  $fixture_name: SKIP (cached PASS, $(format_duration_ms "$(( $(now_ms) - fixture_started_ms ))"))"
+    append_trace_event fixture-done scope fixture phase typecheck fixture "$fixture_name" status skip reason cached-pass durationMs "$(( $(now_ms) - fixture_started_ms ))"
     passed=$((passed + 1))
     continue
   fi
@@ -463,10 +474,11 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   entry="$fixture_dir/packages/$fixture_name/src/index.ts"
   if [ ! -f "$entry" ]; then
     echo "  $fixture_name: SKIP (no packages/<project>/src/index.ts, $(format_duration_ms "$(( $(now_ms) - fixture_started_ms ))"))"
+    append_trace_event fixture-done scope fixture phase typecheck fixture "$fixture_name" status skip reason missing-entry durationMs "$(( $(now_ms) - fixture_started_ms ))"
     continue
   fi
 
-  echo "  $fixture_name: START"
+  append_trace_event fixture-start scope fixture phase typecheck fixture "$fixture_name"
 
   out_file="$tmp_dir/$fixture_name.log"
 
@@ -708,7 +720,9 @@ $(for declaration_file in "${declaration_files[@]}"; do
 EOF
 
   if "$TSC" -p "$tsconfig_file" >"$out_file" 2>&1; then
-    echo "  $fixture_name: PASS ($(format_duration_ms "$(( $(now_ms) - fixture_started_ms ))"))"
+    fixture_duration_ms="$(( $(now_ms) - fixture_started_ms ))"
+    echo "  $fixture_name: PASS ($(format_duration_ms "$fixture_duration_ms"))"
+    append_trace_event fixture-done scope fixture phase typecheck fixture "$fixture_name" status pass durationMs "$fixture_duration_ms"
     passed=$((passed + 1))
     if [ -n "$TYPECHECK_CACHE_DIR" ]; then
       ensure_typecheck_cache_dir
@@ -718,7 +732,9 @@ EOF
       rm -f "$TYPECHECK_CACHE_DIR/$fixture_name.fail" 2>/dev/null || true
     fi
   else
-    echo "  $fixture_name: FAIL ($(format_duration_ms "$(( $(now_ms) - fixture_started_ms ))"))"
+    fixture_duration_ms="$(( $(now_ms) - fixture_started_ms ))"
+    echo "  $fixture_name: FAIL ($(format_duration_ms "$fixture_duration_ms"))"
+    append_trace_event fixture-done scope fixture phase typecheck fixture "$fixture_name" status fail durationMs "$fixture_duration_ms"
     failed=$((failed + 1))
     sed -n '1,200p' "$out_file"
     if [ -n "$TYPECHECK_CACHE_DIR" ]; then

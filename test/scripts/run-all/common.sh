@@ -1,10 +1,15 @@
+RUN_ALL_LIB_DIR="${RUN_ALL_LIB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+
 print_help() {
     cat <<EOF
-Usage: ./test/scripts/run-all.sh [--quick] [--no-unit] [--filter <pattern>] [--resume]
+Usage: ./test/scripts/run-all.sh [--quick] [--no-unit] [--no-cli] [--no-fixtures] [--fast] [--filter <pattern>] [--resume]
 
 Options:
   --quick                Skip E2E tests (unit + golden + fixture typecheck only).
   --no-unit              Skip unit + golden tests (fixtures only). Intended for iteration.
+  --no-cli               Skip CLI tests only. Intended for iteration.
+  --no-fixtures          Skip fixture typecheck and all fixture execution phases.
+  --fast                 Shorthand for --no-cli --no-fixtures.
   --filter <pattern>     Only run E2E fixtures whose directory name contains <pattern>.
                          Can be repeated, or comma-separated (e.g. --filter linq,efcore).
   --resume               Resume from a previous (aborted) run for the same commit+args.
@@ -14,6 +19,7 @@ Options:
 Notes:
   - --filter is intended for iteration. Final verification must run without --filter.
   - --no-unit is intended for iteration. Final verification must include unit + golden tests.
+  - --no-cli, --no-fixtures, and --fast are intended for iteration.
   - Concurrency is controlled via TEST_CONCURRENCY (default: 4).
 EOF
 }
@@ -68,6 +74,19 @@ load_mocha_stats() {
     local package_name="$1"
     local prefix="$2"
     node "$RUN_ALL_LIB_DIR/mocha-stats.mjs" --shell "$CACHE_DIR" "$package_name" "$prefix"
+}
+
+trace_event() {
+    local event_name="${1:-}"
+    shift || true
+
+    local trace_file="${TSONIC_TEST_TRACE_FILE:-}"
+    local run_id="${TSONIC_TEST_RUN_ID:-}"
+    if [ -z "$event_name" ] || [ -z "$trace_file" ] || [ -z "$run_id" ]; then
+        return 0
+    fi
+
+    node "$RUN_ALL_LIB_DIR/trace-event.mjs" "$trace_file" "$run_id" "$event_name" "$@" >/dev/null 2>&1 || true
 }
 
 ensure_tsonic_bin() {

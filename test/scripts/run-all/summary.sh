@@ -57,6 +57,65 @@ print_summary_and_exit() {
         echo "" | tee -a "$LOG_FILE"
     }
 
+    print_phase_status_block() {
+        local label="$1"
+        local status="$2"
+        local duration_ms="$3"
+        local skipped_note="${4:-}"
+
+        echo "$label:" | tee -a "$LOG_FILE"
+        case "$status" in
+            skipped)
+                if [ -n "$skipped_note" ]; then
+                    echo -e "  ${YELLOW}Skipped${NC} ($skipped_note)" | tee -a "$LOG_FILE"
+                else
+                    echo -e "  ${YELLOW}Skipped${NC}" | tee -a "$LOG_FILE"
+                fi
+                ;;
+            passed)
+                echo -e "  ${GREEN}Passed${NC}" | tee -a "$LOG_FILE"
+                ;;
+            failed)
+                echo -e "  ${RED}Failed${NC}" | tee -a "$LOG_FILE"
+                ;;
+            *)
+                echo "  Status: $status" | tee -a "$LOG_FILE"
+                ;;
+        esac
+        echo "  Duration: $(format_duration_ms "$duration_ms")" | tee -a "$LOG_FILE"
+        echo "" | tee -a "$LOG_FILE"
+    }
+
+    print_fixture_block() {
+        local label="$1"
+        local status="$2"
+        local passed="$3"
+        local failed="$4"
+        local duration_ms="$5"
+        local skipped_note="${6:-}"
+
+        echo "$label:" | tee -a "$LOG_FILE"
+        if [ "$status" = "skipped" ]; then
+            if [ -n "$skipped_note" ]; then
+                echo -e "  ${YELLOW}Skipped${NC} ($skipped_note)" | tee -a "$LOG_FILE"
+            else
+                echo -e "  ${YELLOW}Skipped${NC}" | tee -a "$LOG_FILE"
+            fi
+        else
+            echo -e "  ${GREEN}Passed: $passed${NC}" | tee -a "$LOG_FILE"
+            if [ "$failed" -gt 0 ]; then
+                echo -e "  ${RED}Failed: $failed${NC}" | tee -a "$LOG_FILE"
+            else
+                echo "  Failed: 0" | tee -a "$LOG_FILE"
+            fi
+        fi
+        echo "  Duration: $(format_duration_ms "$duration_ms")" | tee -a "$LOG_FILE"
+        if [ "$status" != "skipped" ] && [ $((passed + failed)) -gt 0 ]; then
+            echo "  Avg Wall / Fixture: $(format_duration_ms "$(average_ms "$duration_ms" "$((passed + failed))")")" | tee -a "$LOG_FILE"
+        fi
+        echo "" | tee -a "$LOG_FILE"
+    }
+
     echo "" | tee -a "$LOG_FILE"
     echo "========================================" | tee -a "$LOG_FILE"
     echo "           TEST SUMMARY REPORT          " | tee -a "$LOG_FILE"
@@ -107,71 +166,58 @@ print_summary_and_exit() {
         print_duration_breakdown "CLI Test Durations" "$CLI_ALL_PASSED" "$CLI_ALL_FAILED" "$CLI_ALL_SKIPPED" "$CLI_ALL_COUNT" "$CLI_ALL_TEST_DURATION_SUM_MS" "$CLI_ALL_TEST_AVG_MS"
     fi
 
-    echo "TypeScript Typecheck:" | tee -a "$LOG_FILE"
-    echo -e "  ${GREEN}Passed: $TSC_PASSED${NC}" | tee -a "$LOG_FILE"
-    if [ $TSC_FAILED -gt 0 ]; then
-        echo -e "  ${RED}Failed: $TSC_FAILED${NC}" | tee -a "$LOG_FILE"
+    if [ "$TSC_STATUS" = "skipped" ]; then
+        print_fixture_block "TypeScript Typecheck" "skipped" "$TSC_PASSED" "$TSC_FAILED" "$TSC_DURATION_MS" "--no-fixtures/--fast"
     else
-        echo "  Failed: 0" | tee -a "$LOG_FILE"
+        print_fixture_block "TypeScript Typecheck" "$TSC_STATUS" "$TSC_PASSED" "$TSC_FAILED" "$TSC_DURATION_MS"
     fi
-    echo "  Duration: $(format_duration_ms "$TSC_DURATION_MS")" | tee -a "$LOG_FILE"
-    if [ $((TSC_PASSED + TSC_FAILED)) -gt 0 ]; then
-        echo "  Avg Wall / Fixture: $(format_duration_ms "$(average_ms "$TSC_DURATION_MS" "$((TSC_PASSED + TSC_FAILED))")")" | tee -a "$LOG_FILE"
+
+    runtime_skip_note=""
+    if [ "$SKIP_FIXTURES" = true ]; then
+        runtime_skip_note="--no-fixtures/--fast"
+    elif [ "$QUICK_MODE" = true ]; then
+        runtime_skip_note="--quick"
     fi
-    echo "" | tee -a "$LOG_FILE"
 
-    if [ "$QUICK_MODE" = false ]; then
-        echo "Core Runtime DLL Sync:" | tee -a "$LOG_FILE"
-        echo "  Status: $RUNTIME_SYNC_STATUS" | tee -a "$LOG_FILE"
-        echo "  Duration: $(format_duration_ms "$RUNTIME_SYNC_DURATION_MS")" | tee -a "$LOG_FILE"
-        echo "" | tee -a "$LOG_FILE"
-
-        echo "NativeAOT Preflight:" | tee -a "$LOG_FILE"
-        echo "  Status: $AOT_PREFLIGHT_STATUS" | tee -a "$LOG_FILE"
-        echo "  Duration: $(format_duration_ms "$AOT_PREFLIGHT_DURATION_MS")" | tee -a "$LOG_FILE"
-        echo "" | tee -a "$LOG_FILE"
-
-        echo "E2E Dotnet Tests:" | tee -a "$LOG_FILE"
-        echo -e "  ${GREEN}Passed: $E2E_DOTNET_PASSED${NC}" | tee -a "$LOG_FILE"
-        if [ $E2E_DOTNET_FAILED -gt 0 ]; then
-            echo -e "  ${RED}Failed: $E2E_DOTNET_FAILED${NC}" | tee -a "$LOG_FILE"
-        else
-            echo "  Failed: 0" | tee -a "$LOG_FILE"
-        fi
-        echo "  Duration: $(format_duration_ms "$E2E_DOTNET_DURATION_MS")" | tee -a "$LOG_FILE"
-        if [ $((E2E_DOTNET_PASSED + E2E_DOTNET_FAILED)) -gt 0 ]; then
-            echo "  Avg Wall / Fixture: $(format_duration_ms "$(average_ms "$E2E_DOTNET_DURATION_MS" "$((E2E_DOTNET_PASSED + E2E_DOTNET_FAILED))")")" | tee -a "$LOG_FILE"
-        fi
-        echo "" | tee -a "$LOG_FILE"
-
-        echo "Negative Tests:" | tee -a "$LOG_FILE"
-        echo -e "  ${GREEN}Passed: $E2E_NEGATIVE_PASSED${NC}" | tee -a "$LOG_FILE"
-        if [ $E2E_NEGATIVE_FAILED -gt 0 ]; then
-            echo -e "  ${RED}Failed: $E2E_NEGATIVE_FAILED${NC}" | tee -a "$LOG_FILE"
-        else
-            echo "  Failed: 0" | tee -a "$LOG_FILE"
-        fi
-        echo "  Duration: $(format_duration_ms "$E2E_NEGATIVE_DURATION_MS")" | tee -a "$LOG_FILE"
-        if [ $((E2E_NEGATIVE_PASSED + E2E_NEGATIVE_FAILED)) -gt 0 ]; then
-            echo "  Avg Wall / Fixture: $(format_duration_ms "$(average_ms "$E2E_NEGATIVE_DURATION_MS" "$((E2E_NEGATIVE_PASSED + E2E_NEGATIVE_FAILED))")")" | tee -a "$LOG_FILE"
-        fi
-        echo "" | tee -a "$LOG_FILE"
+    e2e_dotnet_status="passed"
+    if [ "$SKIP_FIXTURES" = true ] || [ "$QUICK_MODE" = true ]; then
+        e2e_dotnet_status="skipped"
+    elif [ "$E2E_DOTNET_FAILED" -gt 0 ]; then
+        e2e_dotnet_status="failed"
+    elif [ $((E2E_DOTNET_PASSED + E2E_DOTNET_FAILED)) -eq 0 ]; then
+        e2e_dotnet_status="skipped"
     fi
+
+    e2e_negative_status="passed"
+    if [ "$SKIP_FIXTURES" = true ] || [ "$QUICK_MODE" = true ]; then
+        e2e_negative_status="skipped"
+    elif [ "$E2E_NEGATIVE_FAILED" -gt 0 ]; then
+        e2e_negative_status="failed"
+    elif [ $((E2E_NEGATIVE_PASSED + E2E_NEGATIVE_FAILED)) -eq 0 ]; then
+        e2e_negative_status="skipped"
+    fi
+
+    print_phase_status_block "Core Runtime DLL Sync" "$RUNTIME_SYNC_STATUS" "$RUNTIME_SYNC_DURATION_MS" "$runtime_skip_note"
+    print_phase_status_block "NativeAOT Preflight" "$AOT_PREFLIGHT_STATUS" "$AOT_PREFLIGHT_DURATION_MS" "$runtime_skip_note"
+    print_fixture_block "E2E Dotnet Tests" "$e2e_dotnet_status" "$E2E_DOTNET_PASSED" "$E2E_DOTNET_FAILED" "$E2E_DOTNET_DURATION_MS" "$runtime_skip_note"
+    print_fixture_block "Negative Tests" "$e2e_negative_status" "$E2E_NEGATIVE_PASSED" "$E2E_NEGATIVE_FAILED" "$E2E_NEGATIVE_DURATION_MS" "$runtime_skip_note"
 
     echo "========================================" | tee -a "$LOG_FILE"
     echo -e "TOTAL: ${GREEN}$TOTAL_PASSED passed${NC}, ${RED}$TOTAL_FAILED failed${NC}" | tee -a "$LOG_FILE"
     echo "========================================" | tee -a "$LOG_FILE"
     echo "" | tee -a "$LOG_FILE"
     echo "Log saved to: $LOG_FILE" | tee -a "$LOG_FILE"
+    echo "Trace saved to: $TRACE_FILE" | tee -a "$LOG_FILE"
     echo "Completed: $(date)" | tee -a "$LOG_FILE"
 
     if [ $TOTAL_FAILED -gt 0 ]; then
+        trace_event run-done scope run status failed totalPassed "$TOTAL_PASSED" totalFailed "$TOTAL_FAILED" logFile "$LOG_FILE" traceFile "$TRACE_FILE"
         echo "" | tee -a "$LOG_FILE"
         echo -e "${RED}SOME TESTS FAILED${NC}" | tee -a "$LOG_FILE"
         exit 1
     fi
 
-    if [ "$QUICK_MODE" = false ] && [ "$SKIP_UNIT" = false ] && [ ${#FILTER_PATTERNS[@]} -eq 0 ]; then
+    if [ "$QUICK_MODE" = false ] && [ "$SKIP_UNIT" = false ] && [ "$SKIP_CLI" = false ] && [ "$SKIP_FIXTURES" = false ] && [ ${#FILTER_PATTERNS[@]} -eq 0 ]; then
         STAMP_FILE="$ROOT_DIR/.tests/run-all-last-success.json"
         GIT_HEAD="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
         GIT_DIRTY="$(git -C "$ROOT_DIR" status --porcelain 2>/dev/null || true)"
@@ -187,6 +233,8 @@ print_summary_and_exit() {
   "args": {
     "quick": false,
     "skipUnit": false,
+    "skipCli": false,
+    "skipFixtures": false,
     "filters": [],
     "resume": $([ "$RESUME_MODE" = true ] && echo true || echo false)
   }
@@ -199,6 +247,7 @@ EOF
         fi
     fi
 
+    trace_event run-done scope run status passed totalPassed "$TOTAL_PASSED" totalFailed "$TOTAL_FAILED" logFile "$LOG_FILE" traceFile "$TRACE_FILE"
     echo "" | tee -a "$LOG_FILE"
     echo -e "${GREEN}ALL TESTS PASSED${NC}" | tee -a "$LOG_FILE"
     exit 0

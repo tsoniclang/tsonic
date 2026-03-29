@@ -10,6 +10,8 @@ if (!CHECKPOINT_ROOT) {
 }
 
 const RESUME_MODE = process.env.TSONIC_TEST_RESUME === "1";
+const TRACE_FILE = process.env.TSONIC_TEST_TRACE_FILE;
+const RUN_ID = process.env.TSONIC_TEST_RUN_ID;
 
 function safeSegment(input) {
   return String(input).replaceAll(/[^a-zA-Z0-9@._-]+/g, "_");
@@ -40,6 +42,20 @@ function appendJsonl(filePath, obj) {
   appendFileSync(filePath, `${JSON.stringify(obj)}\n`, "utf8");
 }
 
+function appendTrace(event) {
+  if (!TRACE_FILE || !RUN_ID) return;
+  try {
+    appendJsonl(TRACE_FILE, {
+      runId: RUN_ID,
+      packageName: PKG_NAME,
+      pid: process.pid,
+      ...event,
+    });
+  } catch {
+    // Trace logging is best-effort and must not affect test execution.
+  }
+}
+
 function safeCommandPart(value) {
   if (typeof value === "string") return value;
   if (value == null) return "";
@@ -67,11 +83,19 @@ function normalizeArgsOptions(args, options) {
 }
 
 function logCommandStart(record) {
-  console.log(`[proc-start][${PKG_NAME}][${record.kind}] ${record.command}`);
+  appendTrace({
+    event: "subprocess-start",
+    scope: "process",
+    ...record,
+  });
 }
 
 function logCommandDone(record) {
-  console.log(`[proc-done][${PKG_NAME}][${record.kind}][${record.status}][${formatMs(record.ms)}] ${record.command}`);
+  appendTrace({
+    event: "subprocess-done",
+    scope: "process",
+    ...record,
+  });
 }
 
 function appendCommandRecord(record) {
@@ -261,15 +285,32 @@ function testKind(test) {
 
 function logTiming(test, status) {
   const id = testId(test);
-  const duration = formatMs(test.duration ?? 0);
   const kind = testKind(test);
-  console.log(`[done][${PKG_NAME}][${status}][${duration}][${kind}] ${id}`);
+  appendTrace({
+    event: "test-done",
+    scope: "test",
+    id,
+    status,
+    kind,
+    file: typeof test.file === "string" && test.file.length > 0 ? relative(process.cwd(), test.file) : "",
+    title: typeof test.fullTitle === "function" ? test.fullTitle() : String(test.title ?? ""),
+    ms: Number.isFinite(test.duration) ? Math.max(0, Math.trunc(test.duration)) : 0,
+    ts: new Date().toISOString(),
+  });
 }
 
 function logStart(test) {
   const id = testId(test);
   const kind = testKind(test);
-  console.log(`[start][${PKG_NAME}][${kind}] ${id}`);
+  appendTrace({
+    event: "test-start",
+    scope: "test",
+    id,
+    kind,
+    file: typeof test.file === "string" && test.file.length > 0 ? relative(process.cwd(), test.file) : "",
+    title: typeof test.fullTitle === "function" ? test.fullTitle() : String(test.title ?? ""),
+    ts: new Date().toISOString(),
+  });
 }
 
 exports.mochaHooks = {
@@ -290,6 +331,17 @@ exports.mochaHooks = {
         file,
         kind,
         packageName: PKG_NAME,
+        status: "skip",
+        reason: "cached-pass",
+        ts: new Date().toISOString(),
+      });
+      appendTrace({
+        event: "test-done",
+        scope: "test",
+        id,
+        title,
+        file,
+        kind,
         status: "skip",
         reason: "cached-pass",
         ts: new Date().toISOString(),

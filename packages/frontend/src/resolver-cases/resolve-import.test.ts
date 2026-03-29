@@ -221,6 +221,62 @@ describe("Module Resolver", () => {
       }
     });
 
+    it("should resolve installed source-package subpath exports", () => {
+      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
+      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/math", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+                "./helpers.js": "./src/helpers.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "src", "index.ts"),
+        'export { clampMin } from "./helpers.ts";\n'
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "src", "helpers.ts"),
+        "export const clampMin = (x: number, min: number): number => x < min ? min : x;\n"
+      );
+
+      const result = resolveImport(
+        "@acme/math/helpers.js",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        { projectRoot: tempDir, surface: "@tsonic/js" }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.isLocal).to.equal(true);
+        expect(result.value.isSourcePackage).to.equal(true);
+        expect(result.value.resolvedPath).to.equal(
+          path.join(packageRoot, "src", "helpers.ts")
+        );
+      }
+    });
+
     it("should resolve installed declaration package module imports", () => {
       const packageRoot = path.join(
         tempDir,
@@ -965,6 +1021,58 @@ describe("Module Resolver", () => {
       expect(result.ok).to.equal(true);
       if (result.ok) {
         expect(result.value.resolvedClrType).to.equal("nodejs.path");
+      }
+    });
+
+    it("should resolve the node alias set exercised by fast js/node surface fixtures", () => {
+      const cases = [
+        ["node:assert", "nodejs.assert"],
+        ["node:buffer", "nodejs.buffer"],
+        ["node:child_process", "nodejs.child_process"],
+        ["node:crypto", "nodejs.crypto"],
+        ["node:dgram", "nodejs.dgram"],
+        ["node:dns", "nodejs.dns"],
+        ["node:events", "nodejs.events"],
+        ["node:fs", "nodejs.fs"],
+        ["node:http", "nodejs.http"],
+        ["node:net", "nodejs.net"],
+        ["node:os", "nodejs.os"],
+        ["node:path", "nodejs.path"],
+        ["node:process", "nodejs.process"],
+        ["node:querystring", "nodejs.querystring"],
+        ["node:readline", "nodejs.readline"],
+        ["node:stream", "nodejs.stream"],
+        ["node:timers", "nodejs.timers"],
+        ["node:tls", "nodejs.tls"],
+        ["node:url", "nodejs.url"],
+        ["node:util", "nodejs.util"],
+        ["node:zlib", "nodejs.zlib"],
+        ["fs", "nodejs.fs"],
+        ["path", "nodejs.path"],
+        ["process", "nodejs.process"],
+      ] as const;
+      const bindings = createNodeBindings(
+        cases[0][1],
+        cases.slice(1).map(([, resolvedClrType]) => resolvedClrType)
+      );
+
+      for (const [specifier, resolvedClrType] of cases) {
+        const result = resolveImport(
+          specifier,
+          path.join(tempDir, "src", "index.ts"),
+          sourceRoot,
+          { bindings }
+        );
+
+        expect(result.ok, specifier).to.equal(true);
+        if (!result.ok) continue;
+
+        expect(result.value.isLocal, specifier).to.equal(false);
+        expect(result.value.isClr, specifier).to.equal(false);
+        expect(result.value.resolvedAssembly, specifier).to.equal("nodejs");
+        expect(result.value.resolvedClrType, specifier).to.equal(
+          resolvedClrType
+        );
       }
     });
 
