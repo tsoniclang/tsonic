@@ -324,11 +324,6 @@ internal static class TsonicJsonRuntime
                 return;
         }
 
-        if (TryWriteReflectedObject(writer, value))
-        {
-            return;
-        }
-
         throw new global::System.NotSupportedException(
             $"JSON.stringify does not support runtime value of type '{value.GetType().FullName}'.");
     }
@@ -456,55 +451,5 @@ internal static class TsonicJsonRuntime
         writer.WriteEndArray();
     }
 
-    private static bool TryWriteReflectedObject(
-        global::System.Text.Json.Utf8JsonWriter writer,
-        object value)
-    {
-        var runtimeType = value.GetType();
-        var propertyList = new global::System.Collections.Generic.List<global::System.Reflection.PropertyInfo>();
-        foreach (var property in runtimeType.GetProperties(
-            global::System.Reflection.BindingFlags.Instance | global::System.Reflection.BindingFlags.Public))
-        {
-            if (!property.CanRead || property.GetMethod == null || property.GetMethod.GetParameters().Length != 0)
-            {
-                continue;
-            }
-
-            propertyList.Add(property);
-        }
-
-        var properties = propertyList.ToArray();
-        global::System.Array.Sort(
-            properties,
-            (left, right) => global::System.StringComparer.Ordinal.Compare(left.Name, right.Name));
-
-        var fields = runtimeType.GetFields(
-            global::System.Reflection.BindingFlags.Instance | global::System.Reflection.BindingFlags.Public);
-        global::System.Array.Sort(
-            fields,
-            (left, right) => global::System.StringComparer.Ordinal.Compare(left.Name, right.Name));
-
-        if (properties.Length == 0 && fields.Length == 0)
-        {
-            return false;
-        }
-
-        writer.WriteStartObject();
-
-        foreach (var property in properties)
-        {
-            writer.WritePropertyName(property.Name);
-            WriteValue(writer, property.GetValue(value));
-        }
-
-        foreach (var field in fields)
-        {
-            writer.WritePropertyName(field.Name);
-            WriteValue(writer, field.GetValue(value));
-        }
-
-        writer.WriteEndObject();
-        return true;
-    }
 }
 `;
