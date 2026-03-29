@@ -54,6 +54,22 @@ format_duration_ms() {
     printf '%ds' "$s"
 }
 
+average_ms() {
+    local total_ms="${1:-0}"
+    local count="${2:-0}"
+    if [ "$count" -le 0 ]; then
+        printf '0'
+        return
+    fi
+    printf '%s' $((total_ms / count))
+}
+
+load_mocha_stats() {
+    local package_name="$1"
+    local prefix="$2"
+    node "$RUN_ALL_LIB_DIR/mocha-stats.mjs" --shell "$CACHE_DIR" "$package_name" "$prefix"
+}
+
 ensure_tsonic_bin() {
     if [[ -f "$TSONIC_BIN" ]]; then
         return 0

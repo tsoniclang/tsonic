@@ -36,8 +36,6 @@ NC='\033[0m'
 # Results tracking
 UNIT_PASSED=0
 UNIT_FAILED=0
-GOLDEN_PASSED=0
-GOLDEN_FAILED=0
 TSC_PASSED=0
 TSC_FAILED=0
 E2E_DOTNET_PASSED=0
@@ -47,7 +45,62 @@ E2E_NEGATIVE_FAILED=0
 FRESH_BUILD_PASSED=0
 FRESH_BUILD_FAILED=0
 
-# Step status (some failures don't produce mocha "failing" lines)
+# Package/unit phase tracking
+FRONTEND_STATUS="not-run"
+FRONTEND_ALL_PASSED=0
+FRONTEND_ALL_FAILED=0
+FRONTEND_ALL_SKIPPED=0
+FRONTEND_ALL_COUNT=0
+FRONTEND_ALL_EXECUTED_COUNT=0
+FRONTEND_ALL_TEST_DURATION_SUM_MS=0
+FRONTEND_ALL_TEST_AVG_MS=0
+FRONTEND_DURATION_MS=0
+
+BACKEND_STATUS="not-run"
+BACKEND_ALL_PASSED=0
+BACKEND_ALL_FAILED=0
+BACKEND_ALL_SKIPPED=0
+BACKEND_ALL_COUNT=0
+BACKEND_ALL_EXECUTED_COUNT=0
+BACKEND_ALL_TEST_DURATION_SUM_MS=0
+BACKEND_ALL_TEST_AVG_MS=0
+BACKEND_DURATION_MS=0
+
+EMITTER_STATUS="not-run"
+EMITTER_ALL_PASSED=0
+EMITTER_ALL_FAILED=0
+EMITTER_ALL_SKIPPED=0
+EMITTER_ALL_COUNT=0
+EMITTER_ALL_EXECUTED_COUNT=0
+EMITTER_ALL_TEST_DURATION_SUM_MS=0
+EMITTER_ALL_TEST_AVG_MS=0
+EMITTER_REGULAR_PASSED=0
+EMITTER_REGULAR_FAILED=0
+EMITTER_REGULAR_SKIPPED=0
+EMITTER_REGULAR_COUNT=0
+EMITTER_REGULAR_EXECUTED_COUNT=0
+EMITTER_REGULAR_TEST_DURATION_SUM_MS=0
+EMITTER_REGULAR_TEST_AVG_MS=0
+EMITTER_GOLDEN_PASSED=0
+EMITTER_GOLDEN_FAILED=0
+EMITTER_GOLDEN_SKIPPED=0
+EMITTER_GOLDEN_COUNT=0
+EMITTER_GOLDEN_EXECUTED_COUNT=0
+EMITTER_GOLDEN_TEST_DURATION_SUM_MS=0
+EMITTER_GOLDEN_TEST_AVG_MS=0
+EMITTER_DURATION_MS=0
+
+CLI_STATUS="not-run"
+CLI_ALL_PASSED=0
+CLI_ALL_FAILED=0
+CLI_ALL_SKIPPED=0
+CLI_ALL_COUNT=0
+CLI_ALL_EXECUTED_COUNT=0
+CLI_ALL_TEST_DURATION_SUM_MS=0
+CLI_ALL_TEST_AVG_MS=0
+CLI_DURATION_MS=0
+
+# Step status
 FRESH_BUILD_STATUS="unknown"
 UNIT_STATUS="unknown"
 TSC_STATUS="unknown"
@@ -158,6 +211,56 @@ else
     mkdir -p "$CACHE_DIR"
 fi
 
+run_mocha_phase() {
+    local prefix="$1"
+    local label="$2"
+    local npm_script="$3"
+    local package_name="$4"
+
+    echo -e "${BLUE}--- Running $label ---${NC}" | tee -a "$LOG_FILE"
+    local started_ms
+    started_ms="$(now_ms)"
+
+    if TSONIC_TEST_CHECKPOINT_DIR="$CACHE_DIR" TSONIC_TEST_RESUME="$([ "$RESUME_MODE" = true ] && echo 1 || echo 0)" npm run "$npm_script" 2>&1 | tee -a "$LOG_FILE"; then
+        eval "${prefix}_STATUS='passed'"
+    else
+        eval "${prefix}_STATUS='failed'"
+    fi
+
+    eval "${prefix}_DURATION_MS=$(( $(now_ms) - started_ms ))"
+    eval "$(load_mocha_stats "$package_name" "$prefix")"
+
+    if [ "$(eval "printf '%s' \"\${${prefix}_STATUS}\"")" = "failed" ] && [ "$(eval "printf '%s' \"\${${prefix}_ALL_FAILED}\"")" -eq 0 ]; then
+        eval "${prefix}_ALL_FAILED=1"
+    fi
+
+    local count executed_count passed failed skipped wall_ms test_sum_ms test_avg_ms
+    count="$(eval "printf '%s' \"\${${prefix}_ALL_COUNT}\"")"
+    executed_count="$(eval "printf '%s' \"\${${prefix}_ALL_EXECUTED_COUNT}\"")"
+    passed="$(eval "printf '%s' \"\${${prefix}_ALL_PASSED}\"")"
+    failed="$(eval "printf '%s' \"\${${prefix}_ALL_FAILED}\"")"
+    skipped="$(eval "printf '%s' \"\${${prefix}_ALL_SKIPPED}\"")"
+    wall_ms="$(eval "printf '%s' \"\${${prefix}_DURATION_MS}\"")"
+    test_sum_ms="$(eval "printf '%s' \"\${${prefix}_ALL_TEST_DURATION_SUM_MS}\"")"
+    test_avg_ms="$(eval "printf '%s' \"\${${prefix}_ALL_TEST_AVG_MS}\"")"
+
+    echo "Duration: $(format_duration_ms "$(eval "printf '%s' \"\${${prefix}_DURATION_MS}\"")")" | tee -a "$LOG_FILE"
+    echo "Count: $count (executed: $executed_count, skipped: $skipped)" | tee -a "$LOG_FILE"
+    echo "Pass/Fail: $passed/$failed" | tee -a "$LOG_FILE"
+    if [ "$executed_count" -gt 0 ]; then
+        echo "Avg wall / executed test: $(format_duration_ms "$(average_ms "$wall_ms" "$executed_count")")" | tee -a "$LOG_FILE"
+        echo "Measured test duration sum: $(format_duration_ms "$test_sum_ms")" | tee -a "$LOG_FILE"
+        echo "Measured avg test duration: $(format_duration_ms "$test_avg_ms")" | tee -a "$LOG_FILE"
+    fi
+    if [ "$prefix" = "EMITTER" ]; then
+        echo "Emitter regular count: $EMITTER_REGULAR_COUNT, golden count: $EMITTER_GOLDEN_COUNT" | tee -a "$LOG_FILE"
+        if [ "$EMITTER_GOLDEN_EXECUTED_COUNT" -gt 0 ]; then
+            echo "Emitter golden avg test duration: $(format_duration_ms "$EMITTER_GOLDEN_TEST_AVG_MS")" | tee -a "$LOG_FILE"
+        fi
+    fi
+    echo "" | tee -a "$LOG_FILE"
+}
+
 echo "=== Tsonic Test Suite ===" | tee "$LOG_FILE"
 echo "Branch:  $(git -C "$ROOT_DIR" branch --show-current 2>/dev/null || echo 'unknown')" | tee -a "$LOG_FILE"
 echo "Commit:  $(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" | tee -a "$LOG_FILE"
@@ -199,7 +302,7 @@ echo "Duration: $(format_duration_ms "$FRESH_BUILD_DURATION_MS")" | tee -a "$LOG
 echo "" | tee -a "$LOG_FILE"
 
 # ============================================================
-# 1. Unit & Golden Tests (npm test)
+# 1. Package Tests
 # ============================================================
 echo -e "${BLUE}--- Running Unit & Golden Tests ---${NC}" | tee -a "$LOG_FILE"
 cd "$ROOT_DIR"
@@ -208,32 +311,31 @@ unit_started_ms="$(now_ms)"
 if [ "$SKIP_UNIT" = true ]; then
     echo -e "${YELLOW}SKIP: unit + golden tests (--no-unit)${NC}" | tee -a "$LOG_FILE"
     UNIT_STATUS="skipped"
+    FRONTEND_STATUS="skipped"
+    BACKEND_STATUS="skipped"
+    EMITTER_STATUS="skipped"
+    CLI_STATUS="skipped"
+    echo "" | tee -a "$LOG_FILE"
 else
-    if TSONIC_TEST_CHECKPOINT_DIR="$CACHE_DIR" TSONIC_TEST_RESUME="$([ "$RESUME_MODE" = true ] && echo 1 || echo 0)" npm test 2>&1 | tee -a "$LOG_FILE"; then
+    run_mocha_phase "FRONTEND" "Frontend Tests" "test:frontend" "@tsonic/frontend"
+    run_mocha_phase "BACKEND" "Backend Tests" "test:backend" "@tsonic/backend"
+    run_mocha_phase "EMITTER" "Emitter Tests" "test:emitter" "@tsonic/emitter"
+    run_mocha_phase "CLI" "CLI Tests" "test:cli" "@tsonic/cli"
+
+    UNIT_PASSED=$((FRONTEND_ALL_PASSED + BACKEND_ALL_PASSED + EMITTER_ALL_PASSED + CLI_ALL_PASSED))
+    UNIT_FAILED=$((FRONTEND_ALL_FAILED + BACKEND_ALL_FAILED + EMITTER_ALL_FAILED + CLI_ALL_FAILED))
+
+    if [ "$FRONTEND_STATUS" = "passed" ] && \
+       [ "$BACKEND_STATUS" = "passed" ] && \
+       [ "$EMITTER_STATUS" = "passed" ] && \
+       [ "$CLI_STATUS" = "passed" ]; then
         UNIT_STATUS="passed"
     else
         UNIT_STATUS="failed"
     fi
-
-    # Extract pass/fail counts from npm test output
-    while IFS= read -r line; do
-        if [[ "$line" =~ ([0-9]+)\ passing ]]; then
-            count="${BASH_REMATCH[1]}"
-            UNIT_PASSED=$((UNIT_PASSED + count))
-        fi
-        if [[ "$line" =~ ([0-9]+)\ failing ]]; then
-            count="${BASH_REMATCH[1]}"
-            UNIT_FAILED=$((UNIT_FAILED + count))
-        fi
-    done < <(grep -E "passing|failing" "$LOG_FILE" || true)
-
-    # Ensure failures are surfaced even when a workspace fails to build before running mocha.
-    if [ "$UNIT_STATUS" = "failed" ] && [ "$UNIT_FAILED" -eq 0 ]; then
-        UNIT_FAILED=1
-    fi
 fi
 UNIT_DURATION_MS=$(( $(now_ms) - unit_started_ms ))
-echo "Duration: $(format_duration_ms "$UNIT_DURATION_MS")" | tee -a "$LOG_FILE"
+echo "Unit + golden wall duration: $(format_duration_ms "$UNIT_DURATION_MS")" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 
