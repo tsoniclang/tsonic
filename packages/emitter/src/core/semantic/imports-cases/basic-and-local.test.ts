@@ -233,6 +233,154 @@ describe("Import Handling", () => {
     expect(result).to.include("global::Acme.Math.index.clamp(10, 0, 5)");
   });
 
+  it("should lower bare node alias source-package imports to their projected module containers and types", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "src/serve-site.ts",
+      namespace: "Tsumo.Engine",
+      className: "serve_site",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "node:path",
+          isLocal: true,
+          isClr: false,
+          resolvedPath:
+            "/tmp/project/node_modules/@tsonic/nodejs/src/path-module.ts",
+          specifiers: [
+            {
+              kind: "named",
+              name: "resolve",
+              localName: "resolve",
+              isType: false,
+            },
+          ],
+          resolvedClrType: "nodejs.path",
+          resolvedNamespace: "nodejs",
+        },
+        {
+          kind: "import",
+          source: "node:http",
+          isLocal: true,
+          isClr: false,
+          resolvedPath:
+            "/tmp/project/node_modules/@tsonic/nodejs/src/http/index.ts",
+          specifiers: [
+            {
+              kind: "named",
+              name: "createServer",
+              localName: "createServer",
+              isType: false,
+            },
+            {
+              kind: "named",
+              name: "IncomingMessage",
+              localName: "IncomingMessage",
+              isType: true,
+              resolvedClrType: "nodejs.Http.IncomingMessage",
+            },
+            {
+              kind: "named",
+              name: "ServerResponse",
+              localName: "ServerResponse",
+              isType: true,
+              resolvedClrType: "nodejs.Http.ServerResponse",
+            },
+          ],
+          resolvedClrType: "nodejs.Http.http",
+          resolvedNamespace: "nodejs.Http",
+        },
+      ],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "req" },
+              type: {
+                kind: "referenceType",
+                name: "IncomingMessage$instance",
+              },
+              initializer: { kind: "literal", value: null },
+            },
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "res" },
+              type: {
+                kind: "referenceType",
+                name: "ServerResponse$instance",
+              },
+              initializer: { kind: "literal", value: null },
+            },
+          ],
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "resolve" },
+            arguments: [
+              { kind: "literal", value: "a" },
+              { kind: "literal", value: "b" },
+            ],
+            isOptional: false,
+          },
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "createServer" },
+            arguments: [],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, {
+      moduleMap: new Map([
+        [
+          "node_modules/@tsonic/nodejs/src/path-module",
+          {
+            namespace: "nodejs",
+            className: "PathModule",
+            filePath: "node_modules/@tsonic/nodejs/src/path-module",
+            hasRuntimeContainer: true,
+            exportedValueKinds: new Map([["resolve", "function"]]),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+        [
+          "node_modules/@tsonic/nodejs/src/http/index",
+          {
+            namespace: "nodejs.Http",
+            className: "http",
+            filePath: "node_modules/@tsonic/nodejs/src/http/index",
+            hasRuntimeContainer: true,
+            exportedValueKinds: new Map([["createServer", "function"]]),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+      ]),
+    });
+
+    expect(result).to.include('global::nodejs.PathModule.resolve("a", "b")');
+    expect(result).to.include("global::nodejs.Http.IncomingMessage req");
+    expect(result).to.include("global::nodejs.Http.ServerResponse res");
+    expect(result).to.include("global::nodejs.Http.http.createServer()");
+    expect(result).not.to.include("global::Tsumo.Engine.index.resolve");
+    expect(result).not.to.include("global::Tsumo.Engine.IncomingMessage");
+    expect(result).not.to.include("global::Tsumo.Engine.ServerResponse");
+  });
+
   it("should lower default imports from source-package local modules to namespace bindings", () => {
     const module: IrModule = {
       kind: "module",
@@ -246,7 +394,8 @@ describe("Import Handling", () => {
           source: "@tsonic/nodejs/fs.js",
           isLocal: true,
           isClr: false,
-          resolvedPath: "/tmp/project/node_modules/@tsonic/nodejs/src/fs-module.ts",
+          resolvedPath:
+            "/tmp/project/node_modules/@tsonic/nodejs/src/fs-module.ts",
           specifiers: [
             {
               kind: "default",
@@ -284,7 +433,10 @@ describe("Import Handling", () => {
             className: "fs_module",
             filePath: "node_modules/@tsonic/nodejs/src/fs-module",
             hasRuntimeContainer: true,
-            exportedValueKinds: new Map([["fs", "variable"], ["existsSync", "function"]]),
+            exportedValueKinds: new Map([
+              ["fs", "variable"],
+              ["existsSync", "function"],
+            ]),
             localTypes: new Map(),
             hasTypeCollision: false,
           },
@@ -318,7 +470,7 @@ describe("Import Handling", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -329,7 +481,10 @@ describe("Import Handling", () => {
           2
         )
       );
-      fs.writeFileSync(resolvedConsolePath, "export const error = console.error;\n");
+      fs.writeFileSync(
+        resolvedConsolePath,
+        "export const error = console.error;\n"
+      );
 
       const module: IrModule = {
         kind: "module",
@@ -376,7 +531,7 @@ describe("Import Handling", () => {
           [
             "node_modules/@tsonic/js/src/console",
             {
-              namespace: "Tsonic.JSRuntime",
+              namespace: "js",
               className: "console",
               filePath: "node_modules/@tsonic/js/src/console",
               hasRuntimeContainer: true,
@@ -391,7 +546,7 @@ describe("Import Handling", () => {
         ]),
       });
 
-      expect(result).to.include('global::Tsonic.JSRuntime.console.error("x")');
+      expect(result).to.include('global::js.console.error("x")');
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

@@ -26,6 +26,7 @@ import { addNugetCommand } from "./add-nuget.js";
 import { addPackageCommand } from "./add-package.js";
 import { removeNugetCommand } from "./remove-nuget.js";
 import { updateNugetCommand } from "./update-nuget.js";
+import { buildDotnetProcessEnv } from "../dotnet/nuget-config.js";
 
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -37,7 +38,11 @@ const linkDir = (target: string, linkPath: string): void => {
 };
 
 const run = (cwd: string, command: string, args: readonly string[]): void => {
-  const result = spawnSync(command, args, { cwd, encoding: "utf-8" });
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: "utf-8",
+    env: command === "dotnet" ? buildDotnetProcessEnv(cwd) : process.env,
+  });
   if (result.status !== 0) {
     const msg = result.stderr || result.stdout || `Exit code ${result.status}`;
     throw new Error(`${command} ${args.join(" ")} failed:\n${msg}`);

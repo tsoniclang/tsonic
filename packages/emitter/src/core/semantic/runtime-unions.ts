@@ -48,25 +48,43 @@ export const buildRuntimeUnionLayout = (
     return [undefined, context];
   }
   const semanticMembers = frame.members;
+  const preserveRuntimeLayout =
+    type.kind === "unionType" && type.preserveRuntimeLayout === true;
 
-  const byAstKey = new Map<
-    string,
-    { member: IrType; typeAst: CSharpTypeAst }
-  >();
+  const orderedMembers: { member: IrType; typeAst: CSharpTypeAst }[] = [];
+  const byAstKey = preserveRuntimeLayout
+    ? undefined
+    : new Map<string, { member: IrType; typeAst: CSharpTypeAst }>();
   let currentContext = context;
 
   for (const member of semanticMembers) {
     const carrierMember =
       resolveStructuralReferenceType(member, currentContext) ?? member;
-    const [typeAst, nextContext] = emitTypeAst(carrierMember, currentContext);
-    currentContext = nextContext;
+    const emissionContext = currentContext.preferResolvedLocalClrIdentity
+      ? currentContext
+      : { ...currentContext, preferResolvedLocalClrIdentity: true };
+    const [typeAst, nextContext] = emitTypeAst(carrierMember, emissionContext);
+    currentContext =
+      emissionContext === currentContext
+        ? nextContext
+        : {
+            ...nextContext,
+            preferResolvedLocalClrIdentity:
+              currentContext.preferResolvedLocalClrIdentity,
+          };
+    if (preserveRuntimeLayout) {
+      orderedMembers.push({ member, typeAst });
+      continue;
+    }
     const key = stableTypeKeyFromAst(typeAst);
-    if (!byAstKey.has(key)) {
+    if (byAstKey && !byAstKey.has(key)) {
       byAstKey.set(key, { member, typeAst });
     }
   }
 
-  const ordered = Array.from(byAstKey.values());
+  const ordered = preserveRuntimeLayout
+    ? orderedMembers
+    : Array.from(byAstKey?.values() ?? []);
 
   if (ordered.length < 2 || ordered.length > 8) {
     return [undefined, currentContext];
@@ -144,9 +162,17 @@ export const getCanonicalRuntimeUnionMembers = (
   type: IrType,
   context: EmitterContext
 ): readonly IrType[] | undefined => {
-  const semanticMembers = expandRuntimeUnionMembers(type, context);
+  const preserveRuntimeLayout =
+    type.kind === "unionType" && type.preserveRuntimeLayout === true;
+  const semanticMembers = preserveRuntimeLayout
+    ? collectRuntimeUnionRawMembers(type, context)
+    : expandRuntimeUnionMembers(type, context);
   if (semanticMembers.length < 2 || semanticMembers.length > 8) {
     return undefined;
+  }
+
+  if (preserveRuntimeLayout) {
+    return semanticMembers;
   }
 
   const deduped = new Map<string, IrType>();

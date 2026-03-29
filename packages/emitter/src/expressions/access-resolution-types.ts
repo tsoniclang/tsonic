@@ -248,7 +248,9 @@ export const isStaticTypeReference = (
 ): boolean => {
   if (expr.object.kind === "identifier") {
     const importBinding = context.importBindings?.get(expr.object.name);
-    if (importBinding) return true;
+    if (importBinding?.kind === "type" || importBinding?.kind === "namespace") {
+      return true;
+    }
 
     if (!expr.object.inferredType) return false;
   }

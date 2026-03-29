@@ -14,7 +14,7 @@
  * Split from numeric-coercion-pass.ts for file-size management.
  */
 
-import { SourceLocation } from "../../types/diagnostic.js";
+import { SourceLocation, type Diagnostic } from "../../types/diagnostic.js";
 import {
   IrExpression,
   IrType,
@@ -204,7 +204,7 @@ export const hasExplicitDoubleIntent = (expr: IrExpression): boolean => {
  */
 export type CoercionContext = {
   readonly filePath: string;
-  readonly diagnostics: import("../../types/diagnostic.js").Diagnostic[];
+  readonly diagnostics: Diagnostic[];
 };
 
 /**
@@ -372,9 +372,7 @@ export const needsCoercion = (
 
   // Allow constant-literal narrowing when the literal fits the target type.
   // This mirrors C#'s constant expression conversion rules and is ONLY allowed for literals.
-  if (expr.kind === "literal" && typeof expr.value === "number") {
-    const v = expr.value;
-
+  const allowConstantLiteralNarrowing = (v: number): boolean => {
     // Integer target kinds: require safe integer, integral value, and in-range.
     if (
       expectedKind === "SByte" ||
@@ -390,15 +388,38 @@ export const needsCoercion = (
         Number.isInteger(v) &&
         literalFitsInKind(v, expectedKind)
       ) {
-        return false;
+        return true;
       }
     }
 
     // Float target kind: allow finite values in float range.
     if (expectedKind === "Single") {
       if (Number.isFinite(v) && Math.abs(v) <= MAX_FLOAT_ABS) {
-        return false;
+        return true;
       }
+    }
+
+    return false;
+  };
+
+  if (expr.kind === "literal" && typeof expr.value === "number") {
+    if (allowConstantLiteralNarrowing(expr.value)) {
+      return false;
+    }
+  }
+
+  if (
+    expr.kind === "unary" &&
+    (expr.operator === "+" || expr.operator === "-") &&
+    expr.expression.kind === "literal" &&
+    typeof expr.expression.value === "number"
+  ) {
+    const signedValue =
+      expr.operator === "-"
+        ? -expr.expression.value
+        : expr.expression.value;
+    if (allowConstantLiteralNarrowing(signedValue)) {
+      return false;
     }
   }
 

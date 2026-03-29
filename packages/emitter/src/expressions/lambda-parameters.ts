@@ -52,6 +52,8 @@ export const seedLocalNameMapFromParameters = (
     currentContext = registerParameterTypes(
       p.parameter.pattern.name,
       p.parameter.type,
+      (p.parameter.isOptional || p.parameter.initializer !== undefined) &&
+        !p.parameter.isRest,
       currentContext
     );
   }

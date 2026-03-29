@@ -10,19 +10,22 @@ import {
   createCompilerOptions,
   scanForDeclarationFiles,
 } from "./core-declarations.js";
+import {
+  discoverDeclarationModuleAliases,
+  type DeclarationModuleAlias,
+} from "./declaration-module-aliases.js";
 import { readPackageName } from "./module-resolution.js";
+import { readSourcePackageMetadata } from "./source-package-metadata.js";
 
 type SurfaceCapabilitiesLike = {
   readonly requiredTypeRoots: readonly string[];
   readonly resolvedModes: readonly string[];
 };
 
-type SourcePackageManifest = {
-  readonly kind?: unknown;
-  readonly source?: {
-    readonly exports?: Record<string, unknown>;
-  };
-};
+const installedSourcePackageIndexCache = new Map<
+  string,
+  ReadonlyMap<string, string>
+>();
 
 const canonicalizeRootDirPath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -62,44 +65,47 @@ const resolveCommonRootDir = (paths: readonly string[]): string => {
   }
 };
 
-const readSourcePackageManifest = (
-  packageRoot: string
-): SourcePackageManifest | undefined => {
-  const manifestPath = path.join(
-    packageRoot,
-    "tsonic",
-    "package-manifest.json"
-  );
-  if (!fs.existsSync(manifestPath)) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as
-      | SourcePackageManifest
-      | undefined;
-    if (parsed?.kind !== "tsonic-source-package") {
-      return undefined;
-    }
-    return parsed;
-  } catch {
-    return undefined;
-  }
-};
-
-const readSourcePackageEntryPath = (packageRoot: string): string | undefined => {
-  const manifest = readSourcePackageManifest(packageRoot);
-  const exportTarget = manifest?.source?.exports?.["."];
-  if (typeof exportTarget !== "string" || exportTarget.length === 0) {
-    return undefined;
-  }
-
-  return path.resolve(packageRoot, exportTarget);
-};
-
-const readTsonicDependencyNames = (
+const readSourcePackageAmbientPaths = (
   packageRoot: string
 ): readonly string[] => {
+  return readSourcePackageMetadata(packageRoot)?.ambientPaths ?? [];
+};
+
+const readSourcePackageExportPaths = (
+  packageRoot: string
+): readonly string[] => {
+  return readSourcePackageMetadata(packageRoot)?.exportPaths ?? [];
+};
+
+const collectSourcePackageModuleAliases = (
+  packageRoots: readonly string[]
+): ReadonlyMap<string, DeclarationModuleAlias> => {
+  const aliases = new Map<string, DeclarationModuleAlias>();
+
+  for (const packageRoot of packageRoots) {
+    const metadata = readSourcePackageMetadata(packageRoot);
+    if (!metadata) {
+      continue;
+    }
+
+    for (const [specifier, targetSpecifier] of Object.entries(
+      metadata.moduleAliases
+    )) {
+      if (aliases.has(specifier)) {
+        continue;
+      }
+
+      aliases.set(specifier, {
+        targetSpecifier,
+        declarationFile: path.join(metadata.packageRoot, "tsonic.package.json"),
+      });
+    }
+  }
+
+  return aliases;
+};
+
+const readTsonicDependencyNames = (packageRoot: string): readonly string[] => {
   const packageJsonPath = path.join(packageRoot, "package.json");
   if (!fs.existsSync(packageJsonPath)) {
     return [];
@@ -118,7 +124,7 @@ const readTsonicDependencyNames = (
           ...Object.keys(parsed.dependencies ?? {}),
           ...Object.keys(parsed.peerDependencies ?? {}),
           ...Object.keys(parsed.optionalDependencies ?? {}),
-        ].filter((packageName) => packageName.startsWith("@tsonic/"))
+        ].filter((packageName) => packageName.length > 0)
       )
     );
   } catch {
@@ -126,11 +132,84 @@ const readTsonicDependencyNames = (
   }
 };
 
+const addInstalledSourcePackageCandidate = (
+  packageIndex: Map<string, string>,
+  packageRoot: string
+): void => {
+  if (!readSourcePackageMetadata(packageRoot)) {
+    return;
+  }
+
+  const packageName = readPackageName(path.join(packageRoot, "package.json"));
+  if (!packageName || packageIndex.has(packageName)) {
+    return;
+  }
+
+  packageIndex.set(packageName, packageRoot);
+};
+
+const scanInstalledSourcePackages = (
+  projectRoot: string
+): ReadonlyMap<string, string> => {
+  const normalizedRoot = path.resolve(projectRoot);
+  const cached = installedSourcePackageIndexCache.get(normalizedRoot);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const packageIndex = new Map<string, string>();
+  let currentDir = normalizedRoot;
+
+  for (;;) {
+    const nodeModulesRoot = path.join(currentDir, "node_modules");
+    if (fs.existsSync(nodeModulesRoot)) {
+      const entries = fs.readdirSync(nodeModulesRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) {
+          continue;
+        }
+
+        if (entry.name.startsWith("@")) {
+          const scopeRoot = path.join(nodeModulesRoot, entry.name);
+          const scopedEntries = fs.readdirSync(scopeRoot, {
+            withFileTypes: true,
+          });
+          for (const scopedEntry of scopedEntries) {
+            if (!scopedEntry.isDirectory()) {
+              continue;
+            }
+            addInstalledSourcePackageCandidate(
+              packageIndex,
+              path.join(scopeRoot, scopedEntry.name)
+            );
+          }
+          continue;
+        }
+
+        addInstalledSourcePackageCandidate(
+          packageIndex,
+          path.join(nodeModulesRoot, entry.name)
+        );
+      }
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+    currentDir = parentDir;
+  }
+
+  installedSourcePackageIndexCache.set(normalizedRoot, packageIndex);
+  return packageIndex;
+};
+
 export type ProgramInputDiscovery = {
   readonly absolutePaths: readonly string[];
   readonly typeRoots: readonly string[];
   readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
   readonly namespaceIndexFiles: readonly string[];
+  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
   readonly virtualDeclarationSources: ReadonlyMap<string, string>;
   readonly allFiles: readonly string[];
   readonly tsOptions: ts.CompilerOptions;
@@ -139,8 +218,7 @@ export type ProgramInputDiscovery = {
 export const discoverProgramInputs = (
   filePaths: readonly string[],
   options: CompilerOptions,
-  surfaceCapabilities: SurfaceCapabilitiesLike,
-  resolveCompilerOwnedTsonicPackageRoot: (pkgDirName: string) => string | null
+  surfaceCapabilities: SurfaceCapabilitiesLike
 ): ProgramInputDiscovery => {
   const absolutePaths = filePaths.map((filePath) => path.resolve(filePath));
   const userTypeRoots = options.typeRoots ?? [];
@@ -162,7 +240,9 @@ export const discoverProgramInputs = (
     if (match) {
       const pkgDirName = match[1];
       if (pkgDirName) {
-        if (fs.existsSync(absoluteRoot)) return absoluteRoot;
+        if (fs.existsSync(absoluteRoot)) {
+          return canonicalizeRootDirPath(absoluteRoot);
+        }
 
         const projectOwned = resolveDependencyPackageRoot(
           options.projectRoot,
@@ -170,24 +250,50 @@ export const discoverProgramInputs = (
           "installed-first"
         );
         if (projectOwned) return projectOwned;
-
-        const compilerOwned = resolveCompilerOwnedTsonicPackageRoot(pkgDirName);
-        if (compilerOwned) return compilerOwned;
       }
     }
 
-    if (fs.existsSync(absoluteRoot)) return absoluteRoot;
+    if (fs.existsSync(absoluteRoot)) {
+      return canonicalizeRootDirPath(absoluteRoot);
+    }
     return absoluteRoot;
   });
   const authoritativeTsonicPackageRoots = new Map<string, string>();
+  const explicitAuthoritativeRoots = new Map<string, string>();
+  const currentProjectPackageName = readPackageName(
+    path.join(options.projectRoot, "package.json")
+  );
+  if (
+    currentProjectPackageName &&
+    readSourcePackageMetadata(options.projectRoot)
+  ) {
+    const normalizedProjectRoot = canonicalizeRootDirPath(options.projectRoot);
+    authoritativeTsonicPackageRoots.set(
+      currentProjectPackageName,
+      normalizedProjectRoot
+    );
+    explicitAuthoritativeRoots.set(
+      currentProjectPackageName,
+      normalizedProjectRoot
+    );
+  }
   for (const typeRoot of resolvedRequestedTypeRoots) {
     const packageName = readPackageName(path.join(typeRoot, "package.json"));
-    if (packageName?.startsWith("@tsonic/")) {
+    if (packageName && readSourcePackageMetadata(typeRoot)) {
       authoritativeTsonicPackageRoots.set(packageName, typeRoot);
+      explicitAuthoritativeRoots.set(packageName, typeRoot);
     }
   }
 
-  const waveQueue = Array.from(authoritativeTsonicPackageRoots.entries());
+  for (const [packageName, packageRoot] of scanInstalledSourcePackages(
+    options.projectRoot
+  )) {
+    if (!authoritativeTsonicPackageRoots.has(packageName)) {
+      authoritativeTsonicPackageRoots.set(packageName, packageRoot);
+    }
+  }
+
+  const waveQueue = Array.from(explicitAuthoritativeRoots.entries());
   const visitedWaveRoots = new Set<string>();
   while (waveQueue.length > 0) {
     const [packageName, packageRoot] = waveQueue.shift()!;
@@ -197,7 +303,7 @@ export const discoverProgramInputs = (
     }
     visitedWaveRoots.add(visitKey);
 
-    if (!readSourcePackageManifest(packageRoot)) {
+    if (!readSourcePackageMetadata(packageRoot)) {
       continue;
     }
 
@@ -213,8 +319,9 @@ export const discoverProgramInputs = (
 
       const existingRoot = authoritativeTsonicPackageRoots.get(dependencyName);
       const existingIsSourcePackage =
-        existingRoot !== undefined && readSourcePackageManifest(existingRoot);
-      const dependencyIsSourcePackage = readSourcePackageManifest(dependencyRoot);
+        existingRoot !== undefined && readSourcePackageMetadata(existingRoot);
+      const dependencyIsSourcePackage =
+        readSourcePackageMetadata(dependencyRoot);
       if (
         existingRoot !== undefined &&
         existingRoot !== dependencyRoot &&
@@ -234,7 +341,7 @@ export const discoverProgramInputs = (
   const nonAuthoritativeTypeRoots = resolvedRequestedTypeRoots.filter(
     (typeRoot) => {
       const packageName = readPackageName(path.join(typeRoot, "package.json"));
-      return !packageName?.startsWith("@tsonic/");
+      return !(packageName && readSourcePackageMetadata(typeRoot));
     }
   );
   const typeRoots = Array.from(
@@ -244,21 +351,24 @@ export const discoverProgramInputs = (
     ])
   );
 
-  const sourcePackageEntryPaths = typeRoots
-    .map((typeRoot) => readSourcePackageEntryPath(typeRoot))
-    .filter((entryPath): entryPath is string => entryPath !== undefined);
+  const sourcePackageAmbientPaths = typeRoots.flatMap((typeRoot) =>
+    readSourcePackageAmbientPaths(typeRoot)
+  );
+  const sourcePackageExportPaths = typeRoots.flatMap((typeRoot) =>
+    readSourcePackageExportPaths(typeRoot)
+  );
 
   if (options.verbose && typeRoots.length > 0) {
     console.log(`TypeRoots: ${typeRoots.join(", ")}`);
   }
 
   const declarationFiles: string[] = [];
-  for (const typeRoot of typeRoots) {
+  for (const typeRoot of nonAuthoritativeTypeRoots) {
     declarationFiles.push(...scanForDeclarationFiles(path.resolve(typeRoot)));
   }
 
   const namespaceIndexFiles: string[] = [];
-  for (const typeRoot of typeRoots) {
+  for (const typeRoot of nonAuthoritativeTypeRoots) {
     const absoluteRoot = path.resolve(typeRoot);
     if (options.verbose) {
       console.log(
@@ -290,7 +400,8 @@ export const discoverProgramInputs = (
     tsOptions.rootDir = resolveCommonRootDir([
       tsOptions.rootDir,
       ...absolutePaths,
-      ...sourcePackageEntryPaths,
+      ...sourcePackageExportPaths,
+      ...sourcePackageAmbientPaths,
     ]);
   }
   const projectDeclarationFiles = collectProjectIncludedDeclarationFiles(
@@ -310,9 +421,13 @@ export const discoverProgramInputs = (
   );
   const isJsSurfaceCompilation =
     surfaceCapabilities.resolvedModes.includes("@tsonic/js");
+  const hasAuthoritativeJsSurfacePackage =
+    authoritativeTsonicPackageRoots.has("@tsonic/js");
   const virtualDeclarationSources = new Map<string, string>([
-    [path.resolve(coreGlobalsVirtualPath), CORE_GLOBALS_DECLARATIONS],
-    ...(isJsSurfaceCompilation
+    ...(!hasAuthoritativeJsSurfacePackage
+      ? [[path.resolve(coreGlobalsVirtualPath), CORE_GLOBALS_DECLARATIONS] as const]
+      : []),
+    ...(isJsSurfaceCompilation && !hasAuthoritativeJsSurfacePackage
       ? [
           [
             path.resolve(jsSurfaceAugmentationsVirtualPath),
@@ -322,10 +437,25 @@ export const discoverProgramInputs = (
       : []),
   ]);
   const virtualDeclarationFiles = Array.from(virtualDeclarationSources.keys());
+  const declarationModuleAliases = new Map(
+    collectSourcePackageModuleAliases(typeRoots)
+  );
+  for (const [specifier, alias] of discoverDeclarationModuleAliases([
+    ...projectDeclarationFiles,
+    ...declarationFiles,
+    ...sourcePackageAmbientPaths,
+    ...namespaceIndexFiles,
+  ])) {
+    if (!declarationModuleAliases.has(specifier)) {
+      declarationModuleAliases.set(specifier, alias);
+    }
+  }
 
   const allFiles = Array.from(
     new Set([
       ...absolutePaths,
+      ...sourcePackageExportPaths,
+      ...sourcePackageAmbientPaths,
       ...projectDeclarationFiles,
       ...declarationFiles,
       ...namespaceIndexFiles,
@@ -338,6 +468,7 @@ export const discoverProgramInputs = (
     typeRoots,
     authoritativeTsonicPackageRoots,
     namespaceIndexFiles,
+    declarationModuleAliases,
     virtualDeclarationSources,
     allFiles,
     tsOptions,

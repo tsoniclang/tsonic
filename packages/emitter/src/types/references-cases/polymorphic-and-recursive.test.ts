@@ -24,6 +24,27 @@ describe("Reference Type Emission", () => {
 
       expect(printType(typeAst)).to.equal("Router");
     });
+
+    it("emits polymorphic this markers with declaring generic arguments", () => {
+      const [typeAst] = emitTypeAst(
+        {
+          kind: "typeParameterType",
+          name: "__tsonic_polymorphic_this",
+        },
+        {
+          ...baseContext,
+          className: "Map",
+          declaringTypeName: "Map",
+          declaringTypeParameterNames: ["K", "V"],
+          declaringTypeParameterNameMap: new Map([
+            ["K", "TK"],
+            ["V", "TV"],
+          ]),
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("Map<TK, TV>");
+    });
   });
 
   describe("Recursive Type Aliases", () => {
@@ -257,6 +278,131 @@ describe("Reference Type Emission", () => {
       );
 
       expect(printType(typeAst)).to.equal("object[]");
+    });
+
+    it("does not leak cross-module recursive alias resolution state into later emissions", () => {
+      const pathSpecRef: IrType = {
+        kind: "referenceType",
+        name: "PathSpec",
+      };
+
+      const crossModuleContext: EmitterContext = {
+        ...baseContext,
+        moduleNamespace: "Test.Router",
+        options: {
+          ...baseContext.options,
+          moduleMap: new Map([
+            [
+              "/src/types.ts",
+              {
+                namespace: "Test.Types",
+                className: "types",
+                filePath: "/src/types.ts",
+                hasRuntimeContainer: true,
+                hasTypeCollision: false,
+                localTypes: new Map([
+                  [
+                    "PathSpec",
+                    {
+                      kind: "typeAlias",
+                      typeParameters: [],
+                      type: {
+                        kind: "unionType",
+                        types: [
+                          { kind: "primitiveType", name: "string" },
+                          {
+                            kind: "referenceType",
+                            name: "RegExp",
+                            resolvedClrType:
+                              "System.Text.RegularExpressions.Regex",
+                          },
+                          {
+                            kind: "arrayType",
+                            elementType: pathSpecRef,
+                            origin: "explicit",
+                          },
+                          { kind: "primitiveType", name: "null" },
+                          { kind: "primitiveType", name: "undefined" },
+                        ],
+                      },
+                    },
+                  ],
+                ]),
+              },
+            ],
+          ]),
+        },
+      };
+
+      const [firstTypeAst, nextContext] = emitTypeAst(
+        pathSpecRef,
+        crossModuleContext
+      );
+      const [secondTypeAst] = emitTypeAst(pathSpecRef, nextContext);
+
+      expect(nextContext.resolvingTypeAliases).to.equal(
+        crossModuleContext.resolvingTypeAliases
+      );
+      expect(printType(firstTypeAst)).to.equal(printType(secondTypeAst));
+      expect(printType(secondTypeAst)).to.equal(
+        "global::Tsonic.Runtime.Union<object?[], string, global::System.Text.RegularExpressions.Regex>?"
+      );
+    });
+
+    it("does not leak cross-module non-recursive alias resolution state into later array emissions", () => {
+      const labelRef: IrType = {
+        kind: "referenceType",
+        name: "Label",
+      };
+
+      const crossModuleContext: EmitterContext = {
+        ...baseContext,
+        moduleNamespace: "Test.Router",
+        options: {
+          ...baseContext.options,
+          moduleMap: new Map([
+            [
+              "/src/types.ts",
+              {
+                namespace: "Test.Types",
+                className: "types",
+                filePath: "/src/types.ts",
+                hasRuntimeContainer: true,
+                hasTypeCollision: false,
+                localTypes: new Map([
+                  [
+                    "Label",
+                    {
+                      kind: "typeAlias",
+                      typeParameters: [],
+                      type: { kind: "primitiveType", name: "string" },
+                    },
+                  ],
+                ]),
+              },
+            ],
+          ]),
+        },
+      };
+
+      const [firstTypeAst, nextContext] = emitTypeAst(
+        labelRef,
+        crossModuleContext
+      );
+      const [arrayTypeAst] = emitTypeAst(
+        {
+          kind: "arrayType",
+          elementType: labelRef,
+          origin: "explicit",
+        },
+        nextContext
+      );
+
+      expect(nextContext.resolvingTypeAliases).to.equal(
+        crossModuleContext.resolvingTypeAliases
+      );
+      expect(printType(firstTypeAst)).to.equal("string");
+      expect(printType(arrayTypeAst)).to.equal("string[]");
     });
   });
 });

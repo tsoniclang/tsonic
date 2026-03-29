@@ -1,4 +1,4 @@
 {
-  "description": "nodejs default imports lower to module namespace bindings.",
-  "expectedOutput": "true"
+  "description": "nodejs default imports require an explicit default export.",
+  "expectFailure": true
 }

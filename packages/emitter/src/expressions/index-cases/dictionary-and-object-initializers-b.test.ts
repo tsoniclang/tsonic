@@ -221,7 +221,18 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "obj",
-                inferredType: { kind: "referenceType", name: "Thing" },
+                inferredType: {
+                  kind: "objectType",
+                  members: [
+                    {
+                      kind: "propertySignature",
+                      name: "value",
+                      type: { kind: "primitiveType", name: "number" },
+                      isOptional: false,
+                      isReadonly: false,
+                    },
+                  ],
+                },
               },
               property: "value",
               isComputed: false,

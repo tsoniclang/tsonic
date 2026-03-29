@@ -5,7 +5,6 @@
  * - Explicit interface view properties (As_IInterface)
  * - Dictionary pseudo-members (Keys, Values, Count)
  * - Array/tuple length access
- * - JS-surface array wrapper method calls
  * - Regular property access with member name resolution
  */
 
@@ -20,7 +19,6 @@ import { emitTypeAst } from "../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
-  resolveArrayLikeReceiverType,
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
@@ -29,16 +27,19 @@ import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   type MemberAccessUsage,
   createStringLiteralExpression,
-  emitArrayWrapperElementTypeAst,
   maybeReifyStorageErasedMemberRead,
   resolveEmittedReceiverTypeAst,
   emitMemberName,
 } from "./access-resolution.js";
+import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
+import { resolveTypeMemberKind } from "../core/semantic/member-surfaces.js";
+import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import { buildJsSafeDictionaryReadAst } from "./dictionary-safe-access.js";
 import {
   tryEmitErasedLengthAccess,
   tryEmitConcreteReceiverLengthAccess,
 } from "./access-length.js";
+import { isExactExpressionToType } from "./exact-comparison.js";
 
 /**
  * Emit a non-computed property member access expression as CSharpExpressionAst.
@@ -54,9 +55,47 @@ export const emitPropertyAccess = (
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   const prop = expr.property as string;
+  let receiverAst = objectAst;
+  let receiverContext = context;
   const resolvedObjectType = objectType
     ? resolveTypeAlias(stripNullish(objectType), context)
     : undefined;
+
+  if (
+    expr.object.kind === "typeAssertion" ||
+    expr.object.kind === "asinterface" ||
+    expr.object.kind === "trycast"
+  ) {
+    const transparentReceiver = unwrapTransparentExpression(expr.object.expression);
+    const transparentReceiverType =
+      resolveEffectiveExpressionType(transparentReceiver, context) ??
+      transparentReceiver.inferredType;
+    const transparentMemberResolutionType =
+      expr.isOptional && transparentReceiverType
+        ? stripNullish(transparentReceiverType)
+        : transparentReceiverType;
+    const receiverAlreadyExposesMember =
+      !!transparentMemberResolutionType &&
+      resolveTypeMemberKind(transparentMemberResolutionType, prop, context) !==
+        undefined;
+    const [emittedReceiverTypeAst, emittedReceiverContext] =
+      resolveEmittedReceiverTypeAst(expr.object, context);
+    if (
+      !receiverAlreadyExposesMember &&
+      emittedReceiverTypeAst &&
+      !isExactExpressionToType(
+        receiverAst,
+        stripNullableTypeAst(emittedReceiverTypeAst)
+      )
+    ) {
+      receiverAst = {
+        kind: "castExpression",
+        type: emittedReceiverTypeAst,
+        expression: receiverAst,
+      };
+      receiverContext = emittedReceiverContext;
+    }
+  }
 
   if (
     usage === "value" &&
@@ -73,7 +112,7 @@ export const emitPropertyAccess = (
           kind: expr.isOptional
             ? "conditionalMemberAccessExpression"
             : "memberAccessExpression",
-          expression: objectAst,
+          expression: receiverAst,
           memberName: "Length",
         },
         storageContext,
@@ -98,7 +137,7 @@ export const emitPropertyAccess = (
         {
           kind: "castExpression",
           type: interfaceTypeAst,
-          expression: objectAst,
+          expression: receiverAst,
         },
         ctxAfterType,
       ];
@@ -116,7 +155,7 @@ export const emitPropertyAccess = (
       const collectionMemberName = emitCSharpName(prop, "properties", context);
       const sourceCollectionAst: CSharpExpressionAst = {
         kind: "memberAccessExpression",
-        expression: objectAst,
+        expression: receiverAst,
         memberName: collectionMemberName,
       };
 
@@ -157,10 +196,10 @@ export const emitPropertyAccess = (
           kind: expr.isOptional
             ? "conditionalMemberAccessExpression"
             : "memberAccessExpression",
-          expression: objectAst,
+          expression: receiverAst,
           memberName: "Count",
         },
-        context,
+        receiverContext,
       ];
     }
 
@@ -171,7 +210,7 @@ export const emitPropertyAccess = (
       const [resultTypeAst, typeContext] = emitTypeAst(fallbackType, context);
       return [
         buildJsSafeDictionaryReadAst(
-          objectAst,
+          receiverAst,
           keyAst,
           expr.isOptional,
           resultTypeAst
@@ -184,20 +223,20 @@ export const emitPropertyAccess = (
       return [
         {
           kind: "conditionalElementAccessExpression",
-          expression: objectAst,
+          expression: receiverAst,
           arguments: [keyAst],
         },
-        context,
+        receiverContext,
       ];
     }
 
     return [
       {
         kind: "elementAccessExpression",
-        expression: objectAst,
+        expression: receiverAst,
         arguments: [keyAst],
       },
-      context,
+      receiverContext,
     ];
   }
 
@@ -210,35 +249,6 @@ export const emitPropertyAccess = (
     usage
   );
 
-  if (
-    context.options.surface === "@tsonic/js" &&
-    !expr.memberBinding &&
-    usage === "call"
-  ) {
-    const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
-    if (arrayLikeReceiver) {
-      const [elementTypeAst, typeCtx] = emitArrayWrapperElementTypeAst(
-        objectType,
-        arrayLikeReceiver.elementType,
-        context
-      );
-      return [
-        {
-          kind: "memberAccessExpression",
-          expression: {
-            kind: "objectCreationExpression",
-            type: identifierType("global::Tsonic.JSRuntime.JSArray", [
-              elementTypeAst,
-            ]),
-            arguments: [objectAst],
-          },
-          memberName: emitCSharpName(prop, "methods", typeCtx),
-        },
-        typeCtx,
-      ];
-    }
-  }
-
   if (usage === "value") {
     if (
       resolvedObjectType?.kind === "arrayType" ||
@@ -250,10 +260,10 @@ export const emitPropertyAccess = (
             kind: expr.isOptional
               ? "conditionalMemberAccessExpression"
               : "memberAccessExpression",
-            expression: objectAst,
+            expression: receiverAst,
             memberName: "Length",
           },
-          context,
+          receiverContext,
         ];
       }
     }
@@ -261,8 +271,8 @@ export const emitPropertyAccess = (
 
   const concreteReceiverLengthAccess = tryEmitConcreteReceiverLengthAccess(
     expr,
-    objectAst,
-    context
+    receiverAst,
+    receiverContext
   );
   if (concreteReceiverLengthAccess) {
     return concreteReceiverLengthAccess;
@@ -270,9 +280,9 @@ export const emitPropertyAccess = (
 
   const erasedLengthAccess = tryEmitErasedLengthAccess(
     expr,
-    objectAst,
+    receiverAst,
     objectType,
-    context
+    receiverContext
   );
   if (erasedLengthAccess) {
     return erasedLengthAccess;
@@ -282,21 +292,21 @@ export const emitPropertyAccess = (
     return [
       {
         kind: "conditionalMemberAccessExpression",
-        expression: objectAst,
+        expression: receiverAst,
         memberName,
       },
-      context,
+      receiverContext,
     ];
   }
 
   return maybeReifyStorageErasedMemberRead(
     {
       kind: "memberAccessExpression",
-      expression: objectAst,
+      expression: receiverAst,
       memberName,
     },
     expr,
-    context,
+    receiverContext,
     expectedType
   );
 };

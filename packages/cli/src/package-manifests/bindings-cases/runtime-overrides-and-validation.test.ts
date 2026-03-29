@@ -13,22 +13,22 @@ import {
   writeInstalledPackage,
 } from "./helpers.js";
 
-describe("package-manifest bindings", function () {
+describe("tsonic.package bindings", function () {
   this.timeout(buildTestTimeoutMs);
 
   it("suppresses manifest package references when a local dll satisfies the same assembly", () => {
     const manifest: NormalizedBindingsManifest = {
       bindingVersion: 1,
-      sourceManifest: "legacy",
-      packageName: "@tsonic/nodejs",
+      sourceManifest: "tsonic-bindings",
+      packageName: "@acme/node",
       packageVersion: "10.0.0",
       surfaceMode: "@tsonic/js",
-      requiredTypeRoots: ["node_modules/@tsonic/nodejs"],
-      runtimePackages: ["@tsonic/nodejs"],
+      requiredTypeRoots: ["node_modules/@acme/node"],
+      runtimePackages: ["@acme/node"],
       nugetDependencies: [],
-      assemblyName: "nodejs",
+      assemblyName: "Acme.Node",
       dotnet: {
-        packageReferences: [{ id: "Tsonic.Nodejs", version: "1.0.1" }],
+        packageReferences: [{ id: "Acme.Node", version: "1.0.1" }],
       },
     };
 
@@ -36,7 +36,7 @@ describe("package-manifest bindings", function () {
       {
         ...baseWorkspaceConfig(),
         dotnet: {
-          libraries: ["libs/nodejs.dll"],
+          libraries: ["libs/Acme.Node.dll"],
           frameworkReferences: [],
           packageReferences: [],
         },
@@ -48,7 +48,7 @@ describe("package-manifest bindings", function () {
     expect(merged.ok).to.equal(true);
     if (!merged.ok) return;
     expect(merged.value.dotnet?.typeRoots).to.deep.equal([
-      "node_modules/@tsonic/nodejs",
+      "node_modules/@acme/node",
     ]);
     expect(merged.value.dotnet?.packageReferences).to.deep.equal([]);
   });
@@ -56,16 +56,16 @@ describe("package-manifest bindings", function () {
   it("keeps manifest package references when no local dll satisfies the assembly", () => {
     const manifest: NormalizedBindingsManifest = {
       bindingVersion: 1,
-      sourceManifest: "legacy",
+      sourceManifest: "tsonic-bindings",
       packageName: "@tsonic/js",
       packageVersion: "10.0.0",
       surfaceMode: "@tsonic/js",
       requiredTypeRoots: ["node_modules/@tsonic/js"],
       runtimePackages: ["@tsonic/js"],
       nugetDependencies: [],
-      assemblyName: "Tsonic.JSRuntime",
+      assemblyName: "js",
       dotnet: {
-        packageReferences: [{ id: "Tsonic.JSRuntime", version: "0.0.4" }],
+        packageReferences: [{ id: "js", version: "0.0.4" }],
       },
     };
 
@@ -85,7 +85,7 @@ describe("package-manifest bindings", function () {
     expect(merged.ok).to.equal(true);
     if (!merged.ok) return;
     expect(merged.value.dotnet?.packageReferences).to.deep.equal([
-      { id: "Tsonic.JSRuntime", version: "0.0.4" },
+      { id: "js", version: "0.0.4" },
     ]);
   });
 
@@ -95,7 +95,7 @@ describe("package-manifest bindings", function () {
     );
     try {
       const pkgRoot = writeInstalledPackage(dir, "@acme/node", "1.0.0", {
-        legacyBindings: {
+        bindingsManifest: {
           bindingVersion: 1,
           requiredTypeRoots: ["../outside"],
           dotnet: {
@@ -121,18 +121,18 @@ describe("package-manifest bindings", function () {
       const pkgRoot = writeInstalledPackage(dir, "@acme/node", "1.0.0", {
         packageManifest: {
           schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: "@acme/node",
-          npmVersion: "1.0.0",
+          kind: "tsonic-source-package",
+          surfaces: ["@tsonic/js"],
           runtime: {
             nugetPackages: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
           },
-          typing: {
-            bindingsRoot: "tsonic/bindings",
+          source: {
+            exports: {
+              ".": "./src/index.ts",
+            },
           },
           requiredTypeRoots: ["/absolute/root"],
         },
-        bindingsRoot: "tsonic/bindings",
       });
 
       const result = resolveInstalledPackageBindingsManifest(pkgRoot);
@@ -148,7 +148,7 @@ describe("package-manifest bindings", function () {
     const config = baseWorkspaceConfig();
     const manifest: NormalizedBindingsManifest = {
       bindingVersion: 1,
-      sourceManifest: "package-manifest",
+      sourceManifest: "tsonic-package",
       packageName: "acme-conflict",
       packageVersion: "1.0.0",
       surfaceMode: "clr",

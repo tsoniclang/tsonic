@@ -30,6 +30,7 @@ import type {
   IrInterfaceMember,
   IrReferenceType,
   IrClassDeclaration,
+  IrTypeAliasDeclaration,
 } from "../types.js";
 import type { TypeBinding as FrontendTypeBinding } from "../../program/binding-types.js";
 
@@ -74,10 +75,17 @@ const lowerModule = (
     readonly loweredReferenceByStableKey: Map<string, IrReferenceType>;
   }
 ): IrModule => {
+  const localNamedStructuralReferences = collectLocalNamedStructuralReferences(
+    module
+  );
+  const localDeclaredTypeReferences =
+    collectLocalDeclaredTypeReferences(module);
   const ctx: LoweringContext = {
     generatedDeclarations: shared.generatedDeclarations,
     shapeToName: shared.shapeToName,
     shapeToExistingReference: shared.shapeToExistingReference,
+    localNamedStructuralReferences,
+    localDeclaredTypeReferences,
     moduleFilePath: module.filePath,
     existingTypeNames: shared.existingTypeNames,
     loweredTypeByIdentity: shared.loweredTypeByIdentity,
@@ -109,6 +117,89 @@ const lowerModule = (
     exports: loweredExports,
   };
 };
+
+const collectLocalNamedStructuralReferences = (
+  module: IrModule
+): ReadonlyMap<string, IrReferenceType> => {
+  const byShape = new Map<string, IrReferenceType | null>();
+
+  for (const stmt of module.body) {
+    if (
+      stmt.kind !== "typeAliasDeclaration" ||
+      stmt.type.kind !== "objectType"
+    ) {
+      continue;
+    }
+
+    const signature = computeShapeSignature(stmt.type);
+    const existing = byShape.get(signature);
+    if (existing === null) {
+      continue;
+    }
+
+    if (existing) {
+      byShape.set(signature, null);
+      continue;
+    }
+
+    byShape.set(signature, typeAliasToStructuralReference(stmt));
+  }
+
+  const resolved = new Map<string, IrReferenceType>();
+  for (const [signature, reference] of byShape) {
+    if (reference) {
+      resolved.set(signature, reference);
+    }
+  }
+  return resolved;
+};
+
+const collectLocalDeclaredTypeReferences = (
+  module: IrModule
+): ReadonlyMap<string, IrReferenceType> => {
+  const references = new Map<string, IrReferenceType>();
+
+  for (const stmt of module.body) {
+    switch (stmt.kind) {
+      case "classDeclaration":
+      case "interfaceDeclaration":
+      case "enumDeclaration":
+        references.set(stmt.name, {
+          kind: "referenceType",
+          name: stmt.name,
+          resolvedClrType: `${module.namespace}.${stmt.name}`,
+          typeArguments:
+            "typeParameters" in stmt
+              ? stmt.typeParameters?.map(
+                  (parameter): IrType => ({
+                    kind: "typeParameterType",
+                    name: parameter.name,
+                  })
+                )
+              : undefined,
+        });
+        break;
+    }
+  }
+
+  return references;
+};
+
+const typeAliasToStructuralReference = (
+  stmt: IrTypeAliasDeclaration
+): IrReferenceType => ({
+  kind: "referenceType",
+  name: stmt.name,
+  typeArguments:
+    stmt.typeParameters?.map(
+      (parameter): IrType => ({
+        kind: "typeParameterType",
+        name: parameter.name,
+      })
+    ) ?? undefined,
+  structuralMembers:
+    stmt.type.kind === "objectType" ? stmt.type.members : undefined,
+});
 
 const findCommonNamespacePrefix = (namespaces: readonly string[]): string => {
   if (namespaces.length === 0) return "";

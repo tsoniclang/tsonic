@@ -32,8 +32,8 @@ describe("Binding Resolution in IR", () => {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });
@@ -85,33 +85,33 @@ describe("Binding Resolution in IR", () => {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });
-      bindings.addBindings("/test/js-runtime/bindings.json", {
-        namespace: "Tsonic.JSRuntime",
+      bindings.addBindings("/test/js/bindings.json", {
+        namespace: "js",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.console",
-            assemblyName: "Tsonic.JSRuntime",
+            clrName: "js.console",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "error",
                 normalizedSignature:
                   "error|(System.Object[]):System.Void|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.console",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.console",
+                declaringAssemblyName: "js",
               },
               {
                 clrName: "log",
                 normalizedSignature:
                   "log|(System.Object[]):System.Void|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.console",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.console",
+                declaringAssemblyName: "js",
               },
             ],
             properties: [],
@@ -191,13 +191,13 @@ describe("Binding Resolution in IR", () => {
       if (logStmt.expression.callee.kind !== "memberAccess") return;
 
       expect(errorStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.console"
+        "js.console"
       );
       expect(errorStmt.expression.callee.memberBinding?.member).to.equal(
         "error"
       );
       expect(logStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.console"
+        "js.console"
       );
       expect(logStmt.expression.callee.memberBinding?.member).to.equal("log");
     });
@@ -212,20 +212,20 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
-        namespace: "Tsonic.JSRuntime",
+      bindings.addBindings("/test/js/bindings.json", {
+        namespace: "js",
         types: [
           {
             clrName: "System.String",
-            assemblyName: "Tsonic.JSRuntime",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "trim",
                 normalizedSignature:
                   "trim|(System.String):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.StringExtensions",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.StringExtensions",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -270,7 +270,7 @@ describe("Binding Resolution in IR", () => {
         returnStmt.expression.callee.memberBinding?.isExtensionMethod
       ).to.equal(true);
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.StringExtensions"
+        "js.StringExtensions"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
         "trim"

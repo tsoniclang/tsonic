@@ -9,39 +9,6 @@ import {
 import { dirname, join } from "node:path";
 import type { Result } from "../../types.js";
 
-export const ensurePackageJson = (
-  dir: string,
-  packageName: string
-): Result<void, string> => {
-  const pkgJsonPath = join(dir, "package.json");
-  if (existsSync(pkgJsonPath)) return { ok: true, value: undefined };
-
-  try {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      pkgJsonPath,
-      JSON.stringify(
-        {
-          name: packageName,
-          version: "0.0.0",
-          private: true,
-          type: "module",
-          tsonic: { generated: true },
-        },
-        null,
-        2
-      ) + "\n",
-      "utf-8"
-    );
-    return { ok: true, value: undefined };
-  } catch (error) {
-    return {
-      ok: false,
-      error: `Failed to write bindings package.json: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-};
-
 export type GeneratedBindingsKind = "framework" | "nuget" | "dll";
 
 export const bindingsStoreDir = (
@@ -126,11 +93,6 @@ export const installGeneratedBindingsPackage = (
   packageName: string,
   fromDir: string
 ): Result<void, string> => {
-  const isLegacyGeneratedBindingsDir = (dir: string): boolean =>
-    existsSync(join(dir, "families.json")) ||
-    existsSync(join(dir, "tsonic.bindings.json")) ||
-    existsSync(join(dir, "tsonic.surface.json"));
-
   const nodeModulesDir = join(projectRoot, "node_modules");
   mkdirSync(nodeModulesDir, { recursive: true });
 
@@ -138,16 +100,12 @@ export const installGeneratedBindingsPackage = (
   if (existsSync(targetDir)) {
     const pkgJsonPath = join(targetDir, "package.json");
     if (!existsSync(pkgJsonPath)) {
-      if (isLegacyGeneratedBindingsDir(targetDir)) {
-        rmSync(targetDir, { recursive: true, force: true });
-      } else {
-        return {
-          ok: false,
-          error:
-            `Refusing to overwrite existing directory without package.json: ${targetDir}\n` +
-            `Rename/remove it and retry.`,
-        };
-      }
+      return {
+        ok: false,
+        error:
+          `Refusing to overwrite existing directory without package.json: ${targetDir}\n` +
+          `Rename/remove it and retry.`,
+      };
     }
     if (existsSync(pkgJsonPath)) {
       try {

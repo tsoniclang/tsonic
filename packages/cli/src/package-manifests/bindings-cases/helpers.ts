@@ -35,10 +35,9 @@ export const writeInstalledPackage = (
   packageName: string,
   version: string,
   opts: {
-    readonly legacyBindings?: unknown;
+    readonly bindingsManifest?: unknown;
     readonly packageManifest?: unknown;
     readonly surfaceManifest?: unknown;
-    readonly bindingsRoot?: string;
     readonly dependencies?: Readonly<Record<string, string>>;
     readonly optionalDependencies?: Readonly<Record<string, string>>;
     readonly peerDependencies?: Readonly<Record<string, string>>;
@@ -60,8 +59,8 @@ export const writeInstalledPackage = (
       : {}),
   });
 
-  if (opts.legacyBindings !== undefined) {
-    writeJson(join(pkgRoot, "tsonic.bindings.json"), opts.legacyBindings);
+  if (opts.bindingsManifest !== undefined) {
+    writeJson(join(pkgRoot, "tsonic.bindings.json"), opts.bindingsManifest);
   }
 
   if (opts.surfaceManifest !== undefined) {
@@ -69,13 +68,7 @@ export const writeInstalledPackage = (
   }
 
   if (opts.packageManifest !== undefined) {
-    writeJson(
-      join(pkgRoot, "tsonic", "package-manifest.json"),
-      opts.packageManifest
-    );
-    if (opts.bindingsRoot) {
-      mkdirSync(join(pkgRoot, opts.bindingsRoot), { recursive: true });
-    }
+    writeJson(join(pkgRoot, "tsonic.package.json"), opts.packageManifest);
   }
 
   return pkgRoot;

@@ -342,4 +342,106 @@ describe("Statement Emission", () => {
     // Should NOT include 'await foreach'
     expect(result).to.not.include("await foreach");
   });
+
+  it("uses the resolved iterable semantic type for for-of element member access", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "typeAliasDeclaration",
+          name: "ListenerRegistration",
+          typeParameters: [],
+          isStruct: false,
+          type: {
+            kind: "objectType",
+            members: [
+              {
+                kind: "propertySignature",
+                name: "invoke",
+                type: {
+                  kind: "functionType",
+                  parameters: [],
+                  returnType: { kind: "voidType" },
+                },
+                isOptional: false,
+                isReadonly: true,
+              },
+            ],
+          },
+          isExported: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "emitAll",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "snapshot" },
+              type: {
+                kind: "arrayType",
+                elementType: {
+                  kind: "referenceType",
+                  name: "ListenerRegistration",
+                  resolvedClrType: "MyApp.ListenerRegistration",
+                },
+                origin: "explicit",
+              },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "forOfStatement",
+                variable: { kind: "identifierPattern", name: "registration" },
+                expression: { kind: "identifier", name: "snapshot" },
+                body: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "expressionStatement",
+                      expression: {
+                        kind: "call",
+                        callee: {
+                          kind: "memberAccess",
+                          object: {
+                            kind: "identifier",
+                            name: "registration",
+                          },
+                          property: "invoke",
+                          isComputed: false,
+                          isOptional: false,
+                        },
+                        arguments: [],
+                        isOptional: false,
+                      },
+                    },
+                  ],
+                },
+                isAwait: false,
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.not.include("((object)registration).invoke");
+    expect(result).to.include("registration.invoke()");
+  });
 });

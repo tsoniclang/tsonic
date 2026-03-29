@@ -10,6 +10,7 @@ import {
   IrFunctionDeclaration,
   IrMethodDeclaration,
   IrPropertyDeclaration,
+  IrVariableDeclaration,
 } from "../types.js";
 import { createFilesystemTestProgram } from "./_test-helpers.js";
 
@@ -203,16 +204,78 @@ describe("IR Builder", function () {
       }
     });
 
+    it("preserves deterministic well-known symbol element access on structural receivers", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "export function getIterator(source: Iterable<string> | ArrayLike<string>): unknown {",
+            "  const iterator = (source as { readonly [Symbol.iterator]?: unknown })[Symbol.iterator];",
+            "  return iterator;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const getIterator = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "getIterator"
+        );
+        expect(getIterator).to.not.equal(undefined);
+        if (!getIterator?.body) return;
+
+        const iteratorDecl = getIterator.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration"
+        );
+        expect(iteratorDecl).to.not.equal(undefined);
+        const initializer = iteratorDecl?.declarations[0]?.initializer;
+        expect(initializer?.kind).to.equal("memberAccess");
+        if (!initializer || initializer.kind !== "memberAccess") return;
+
+        expect(initializer.isComputed).to.equal(false);
+        expect(initializer.property).to.equal("[symbol:iterator]");
+        expect(initializer.inferredType).to.deep.equal({
+          kind: "unionType",
+          types: [
+            { kind: "unknownType", explicit: true },
+            { kind: "primitiveType", name: "undefined" },
+          ],
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("preserves instanceof fallthrough narrowing for class properties after early-return constructor branches", () => {
       const fixture = createFilesystemTestProgram(
         {
           "src/index.ts": [
             "declare function takesString(value: string): void;",
+            "interface Chunk {",
+            "  readonly length: number;",
+            "}",
+            "interface ChunkConstructor {",
+            "  readonly prototype: Chunk;",
+            "  new(length?: number): Chunk;",
+            "}",
+            "declare const Chunk: ChunkConstructor;",
             "",
             "export class Response {",
-            '  body: string | Uint8Array = "";',
+            '  body: string | Chunk = "";',
             "  send(): string {",
-            "    if (this.body instanceof Uint8Array) {",
+            "    if (this.body instanceof Chunk) {",
             "      return String(this.body.length);",
             "    }",
             "    takesString(this.body);",

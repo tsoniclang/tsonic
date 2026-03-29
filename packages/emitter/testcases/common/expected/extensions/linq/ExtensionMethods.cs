@@ -11,14 +11,14 @@ namespace TestCases.common.extensions.linq
         public static void run()
         {
             var numbers = new global::System.Collections.Generic.List<int>();
-            numbers.Add((int)1);
-            numbers.Add((int)2);
-            numbers.Add((int)3);
-            numbers.Add((int)4);
+            numbers.Add(1);
+            numbers.Add(2);
+            numbers.Add(3);
+            numbers.Add(4);
             var xs = (global::System.Collections.Generic.IEnumerable<int>)numbers;
-            var doubled = global::System.Linq.Enumerable.Select(global::System.Linq.Enumerable.Where(xs, (int n) => n % 2 == (int)0), (int n) => n * 2).ToList();
+            var doubled = global::System.Linq.Enumerable.Select(global::System.Linq.Enumerable.Where(xs, (int n) => n % 2 == 0), (int n) => n * 2).ToList();
             global::System.Console.WriteLine(doubled.Count);
-            global::System.Console.WriteLine(inc((int)5));
+            global::System.Console.WriteLine(inc(5));
         }
     }
 }

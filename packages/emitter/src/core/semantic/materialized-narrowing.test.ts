@@ -97,6 +97,35 @@ describe("materialized narrowing", () => {
     });
   });
 
+  it("does not append .Value when the source AST already casts to the concrete value type", () => {
+    const intType = { kind: "primitiveType", name: "int" } as const;
+    const nullableIntType = {
+      kind: "unionType" as const,
+      types: [
+        intType,
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
+    };
+
+    const castAst = {
+      kind: "castExpression" as const,
+      type: { kind: "predefinedType" as const, keyword: "int" as const },
+      expression: {
+        kind: "identifierExpression" as const,
+        identifier: "value",
+      },
+    };
+
+    const [ast] = materializeDirectNarrowingAst(
+      castAst,
+      nullableIntType,
+      intType,
+      context
+    );
+
+    expect(ast).to.deep.equal(castAst);
+  });
+
   it("does not build union Match when source is ref-wrapped (boundary enforcement)", () => {
     const stringType: IrType = { kind: "primitiveType", name: "string" };
     const numberType: IrType = { kind: "primitiveType", name: "number" };

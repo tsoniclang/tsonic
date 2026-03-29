@@ -35,6 +35,7 @@ import {
   emitMemberName,
   isStaticTypeReference,
 } from "./access-resolution.js";
+import { buildExactGlobalBindingType } from "./exact-global-bindings.js";
 import {
   isLengthPropertyName,
   tryEmitJsSurfaceArrayLikeLengthAccess,
@@ -68,10 +69,8 @@ export const tryEmitMemberBindingAccess = (
     typeof expr.property === "string" ? expr.property : member;
   const arrayLikeReceiver = resolveArrayLikeReceiverType(receiverType, context);
   const hasArrayLikeBindingHint =
-    bindingTypeLeaf === "JSArray" ||
     bindingTypeLeaf === "Array" ||
     bindingTypeLeaf === "ReadonlyArray" ||
-    type.includes("JSArray") ||
     type.includes("System.Array");
   if (
     usage === "value" &&
@@ -128,9 +127,11 @@ export const tryEmitMemberBindingAccess = (
           : "memberAccessExpression",
         expression: {
           kind: "objectCreationExpression",
-          type: identifierType("global::Tsonic.JSRuntime.JSArray", [
-            elementTypeAst,
-          ]),
+          type: buildExactGlobalBindingType(
+            "Array",
+            [elementTypeAst],
+            elementContext
+          ),
           arguments: [objectAst],
         },
         memberName: "length",

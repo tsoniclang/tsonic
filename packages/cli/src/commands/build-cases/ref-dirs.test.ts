@@ -68,7 +68,7 @@ const resolveEffectiveConfig = (
   );
 };
 
-describe("build command (library bindings ref dirs)", function () {
+describe("build command (library ref dirs)", function () {
   this.timeout(buildTestTimeoutMs);
 
   it("prefers local DLL references over duplicate NuGet package references in generated csproj", () => {
@@ -117,6 +117,8 @@ describe("build command (library bindings ref dirs)", function () {
 
       const projectRoot = join(dir, "packages", "app");
       mkdirSync(join(projectRoot, "src"), { recursive: true });
+      mkdirSync(join(projectRoot, "tsonic"), { recursive: true });
+      mkdirSync(join(projectRoot, "tsonic"), { recursive: true });
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
@@ -213,13 +215,14 @@ describe("build command (library bindings ref dirs)", function () {
         "utf-8"
       );
       writeFileSync(
-        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        join(sourcePackageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Acme.Math",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -250,6 +253,7 @@ describe("build command (library bindings ref dirs)", function () {
 
       const projectRoot = join(dir, "packages", "app");
       mkdirSync(join(projectRoot, "src"), { recursive: true });
+      mkdirSync(join(projectRoot, "tsonic"), { recursive: true });
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
@@ -317,7 +321,7 @@ describe("build command (library bindings ref dirs)", function () {
     }
   });
 
-  it("generates bindings for libraries that reference other DLLs and Tsonic.Runtime without requiring copy-local", () => {
+  it("builds source-package library artifacts for projects that reference other DLLs and Tsonic.Runtime without requiring copy-local", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-lib-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
@@ -396,6 +400,7 @@ describe("build command (library bindings ref dirs)", function () {
 
       const projectRoot = join(dir, "packages", "app");
       mkdirSync(join(projectRoot, "src"), { recursive: true });
+      mkdirSync(join(projectRoot, "tsonic"), { recursive: true });
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
@@ -404,6 +409,25 @@ describe("build command (library bindings ref dirs)", function () {
             version: "1.2.3",
             private: true,
             type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            source: {
+              namespace: "Acme.App",
+              exports: {
+                ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
+              },
+            },
           },
           null,
           2
@@ -448,45 +472,37 @@ describe("build command (library bindings ref dirs)", function () {
         "utf-8"
       );
 
-      // 3) Build from the existing generated output directory and generate bindings.
+      // 3) Build from the existing generated output directory and emit source-package artifacts.
       const build = buildCommand({ ...config, noGenerate: true });
       expect(build.ok).to.equal(true);
 
-      // Sanity: bindings were emitted for the library.
       expect(
         existsSync(join(projectRoot, "dist", "tsonic", "bindings"))
-      ).to.equal(true);
-      const declarationPath = join(projectRoot, "dist", "index.d.ts");
-      expect(existsSync(declarationPath)).to.equal(true);
-      const declarationText = readFileSync(declarationPath, "utf-8");
-      expect(declarationText).to.include(
-        "export declare function main(): void;"
+      ).to.equal(false);
+      const declarationPath = join(projectRoot, "dist", "src", "index.d.ts");
+      expect(existsSync(declarationPath)).to.equal(false);
+      const copiedSourcePath = join(projectRoot, "dist", "src", "index.ts");
+      expect(readFileSync(copiedSourcePath, "utf-8")).to.include(
+        "export function main(): void {"
       );
 
       const packageManifestPath = join(
         projectRoot,
         "dist",
-        "tsonic",
-        "package-manifest.json"
+        "tsonic.package.json"
       );
       expect(existsSync(packageManifestPath)).to.equal(true);
       const packageManifest = JSON.parse(
         readFileSync(packageManifestPath, "utf-8")
       ) as Record<string, unknown>;
       expect(packageManifest["schemaVersion"]).to.equal(1);
-      expect(packageManifest["kind"]).to.equal("tsonic-library");
-      expect(packageManifest["npmPackage"]).to.equal("@acme/app-lib");
-      expect(packageManifest["npmVersion"]).to.equal("1.2.3");
-      const runtime = packageManifest["runtime"] as
-        | {
-            nugetPackages: { id: string; version: string }[];
-            assemblies: string[];
-          }
-        | undefined;
-      expect(runtime?.nugetPackages?.some((x) => x.id === "App")).to.equal(
+      expect(packageManifest["kind"]).to.equal("tsonic-source-package");
+      expect(existsSync(join(projectRoot, "dist", "package.json"))).to.equal(
         true
       );
-      expect(runtime?.assemblies).to.deep.equal(["App"]);
+      expect(existsSync(join(projectRoot, "dist", "src", "index.ts"))).to.equal(
+        true
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -541,13 +557,14 @@ describe("build command (library bindings ref dirs)", function () {
         "utf-8"
       );
       writeFileSync(
-        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        join(sourcePackageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Acme.Runtime",
               exports: {
                 "./client.js": "./src/client.ts",
               },
@@ -598,6 +615,7 @@ describe("build command (library bindings ref dirs)", function () {
 
       const projectRoot = join(dir, "packages", "app");
       mkdirSync(join(projectRoot, "src"), { recursive: true });
+      mkdirSync(join(projectRoot, "tsonic"), { recursive: true });
       writeFileSync(
         join(projectRoot, "package.json"),
         JSON.stringify(
@@ -606,6 +624,26 @@ describe("build command (library bindings ref dirs)", function () {
             version: "1.0.0",
             private: true,
             type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(projectRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "Acme.App",
+              exports: {
+                ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
+              },
+            },
           },
           null,
           2
@@ -648,9 +686,9 @@ describe("build command (library bindings ref dirs)", function () {
       }
       expect(build.ok).to.equal(true);
 
-      const declarationPath = join(projectRoot, "dist", "index.d.ts");
-      expect(existsSync(declarationPath)).to.equal(true);
-      expect(readFileSync(declarationPath, "utf-8")).to.include(
+      const declarationPath = join(projectRoot, "dist", "src", "index.d.ts");
+      expect(existsSync(declarationPath)).to.equal(false);
+      expect(readFileSync(join(projectRoot, "dist", "src", "index.ts"), "utf-8")).to.include(
         'from "@acme/runtime/client.js"'
       );
       expect(readFileSync(importedDeclarationPath, "utf-8")).to.equal(

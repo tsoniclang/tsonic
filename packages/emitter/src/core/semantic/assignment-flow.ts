@@ -7,6 +7,7 @@ import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 import { unwrapParameterModifierType } from "./parameter-modifier-types.js";
 import { unwrapTransparentExpression } from "./transparent-expressions.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
+import { getPropertyType } from "./property-lookup-resolution.js";
 import { isAssignable } from "./index.js";
 
 export type EmitExprAstFn = (
@@ -103,7 +104,7 @@ const tryResolveAssignmentBindingTarget = (
   return undefined;
 };
 
-const resolveAssignmentStorageType = (
+export const resolveWritableTargetStorageType = (
   targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>,
   context: EmitterContext
 ): IrExpression["inferredType"] => {
@@ -111,6 +112,19 @@ const resolveAssignmentStorageType = (
     return (
       context.localValueTypes?.get(targetExpr.name) ?? targetExpr.inferredType
     );
+  }
+
+  if (!targetExpr.isComputed && !targetExpr.isOptional) {
+    const receiverType =
+      resolveEffectiveExpressionType(targetExpr.object, context) ??
+      targetExpr.object.inferredType;
+    const exactPropertyType =
+      typeof targetExpr.property === "string"
+        ? getPropertyType(receiverType, targetExpr.property, context)
+        : undefined;
+    if (exactPropertyType) {
+      return exactPropertyType;
+    }
   }
 
   return targetExpr.inferredType;
@@ -149,7 +163,7 @@ export const applyAssignmentStatementNarrowing = (
     resolveEffectiveExpressionType(bindingTarget.targetExpr, context) ??
     bindingTarget.targetExpr.inferredType;
   const storageType =
-    resolveAssignmentStorageType(bindingTarget.targetExpr, context) ??
+    resolveWritableTargetStorageType(bindingTarget.targetExpr, context) ??
     currentType;
 
   const comparableAssignedType =

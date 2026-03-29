@@ -14,6 +14,8 @@ import {
   getDeclaredPropertyType,
   classifyComputedAccess,
   deriveElementType,
+  hasDeclaredMemberByName,
+  resolveComputedAccessProtocol,
 } from "./member-resolution.js";
 import {
   getCurrentTypeForAccessExpression,
@@ -30,7 +32,10 @@ import {
   SUPPORTED_IMPORT_META_FIELDS,
   tryConvertImportMetaProperty,
 } from "../import-meta.js";
-import { tryResolveDeterministicPropertyNameFromExpression } from "../../../syntax/property-names.js";
+import {
+  isWellKnownSymbolPropertyName,
+  tryResolveDeterministicPropertyNameFromExpression,
+} from "../../../syntax/property-names.js";
 import {
   tryGetObjectLiteralMethodArgumentCapture,
   tryGetObjectLiteralMethodArgumentsLength,
@@ -94,6 +99,22 @@ export const convertMemberExpression = (
       currentReceiverType !== undefined
         ? { ...object, inferredType: currentReceiverType }
         : object;
+    const exactMemberId = ctx.binding.resolvePropertyAccess(node);
+    const exactDeclaringTypeName =
+      exactMemberId !== undefined
+        ? ctx.binding.getDeclaringTypeNameOfMember(exactMemberId)
+        : undefined;
+    const exactMemberBinding =
+      exactMemberId !== undefined &&
+      !exactDeclaringTypeName?.startsWith("__Ext_") &&
+      !exactDeclaringTypeName?.startsWith("__TsonicExtMethods_")
+        ? resolveHierarchicalBindingFromMemberId(
+            node,
+            propertyName,
+            bindingResolutionObject,
+            ctx
+          )
+        : undefined;
 
     // Try to resolve hierarchical binding
     const memberBinding =
@@ -103,12 +124,12 @@ export const convertMemberExpression = (
         bindingResolutionObject,
         ctx
       ) ??
-      resolveHierarchicalBinding(bindingResolutionObject, propertyName, ctx) ??
-      resolveHierarchicalBindingFromMemberId(node, propertyName, ctx);
+      exactMemberBinding ??
+      (exactMemberId === undefined
+        ? resolveHierarchicalBinding(bindingResolutionObject, propertyName, ctx)
+        : undefined);
 
-    // DETERMINISTIC TYPING: Property type comes from NominalEnv + TypeRegistry for
-    // user-defined types (including inherited members), with fallback to Binding layer
-    // for built-ins and CLR types.
+    // DETERMINISTIC TYPING: Property type comes from explicit TypeSystem queries only.
     //
     // The receiver's inferredType enables NominalEnv to walk inheritance chains
     // and substitute type parameters correctly for inherited generic members.
@@ -219,20 +240,34 @@ export const convertMemberExpression = (
 
     const computedAccessKind = classifyComputedAccess(object.inferredType, ctx);
 
+    const deterministicSymbolAccess =
+      deterministicPropertyName !== undefined &&
+      isWellKnownSymbolPropertyName(deterministicPropertyName);
+    const hasDeterministicMember =
+      deterministicPropertyName !== undefined &&
+      hasDeclaredMemberByName(object.inferredType, deterministicPropertyName, ctx);
+
     if (
       deterministicPropertyName !== undefined &&
-      object.inferredType !== undefined &&
-      computedAccessKind !== "dictionary"
+      computedAccessKind !== "dictionary" &&
+      (deterministicSymbolAccess || object.inferredType !== undefined)
     ) {
       const currentAccessType =
         hasAccessPathNarrowing(node, ctx) || object.inferredType !== undefined
           ? getCurrentTypeForAccessExpression(node, ctx)
           : undefined;
-      const declaredType = ctx.typeSystem.typeOfMember(object.inferredType, {
-        kind: "byName",
-        name: deterministicPropertyName,
-      });
-      if (declaredType.kind !== "unknownType") {
+      const declaredType =
+        object.inferredType !== undefined
+          ? ctx.typeSystem.typeOfMember(object.inferredType, {
+              kind: "byName",
+              name: deterministicPropertyName,
+            })
+          : { kind: "unknownType" as const };
+      if (
+        declaredType.kind !== "unknownType" ||
+        deterministicSymbolAccess ||
+        hasDeterministicMember
+      ) {
         const memberBinding = resolveHierarchicalBinding(
           object,
           deterministicPropertyName,
@@ -245,6 +280,7 @@ export const convertMemberExpression = (
           isComputed: false,
           isOptional,
           inferredType: declaredType,
+          allowUnknownInferredType: declaredType.kind === "unknownType",
           sourceSpan,
           memberBinding,
         };
@@ -269,14 +305,15 @@ export const convertMemberExpression = (
     }
 
     // DETERMINISTIC TYPING: Use object's inferredType (not getInferredType)
-    const objectType = object.inferredType;
+    const currentReceiverType = getCurrentTypeForAccessExpression(
+      node.expression,
+      ctx
+    );
+    const objectType = currentReceiverType ?? object.inferredType;
 
     // Classify the access kind for proof pass
     // This determines whether Int32 proof is required for the index
-    const accessKind =
-      objectType === object.inferredType
-        ? computedAccessKind
-        : classifyComputedAccess(objectType, ctx);
+    const accessKind = classifyComputedAccess(objectType, ctx);
 
     const narrowedAccessType =
       hasAccessPathNarrowing(node, ctx) || objectType !== undefined
@@ -285,12 +322,14 @@ export const convertMemberExpression = (
 
     // Derive element type from object type
     const elementType =
-      narrowedAccessType ?? deriveElementType(objectType, ctx);
+      narrowedAccessType ??
+      deriveElementType(objectType, ctx, node.argumentExpression);
     const allowUnknownInferredType =
       elementType?.kind === "unknownType" &&
       accessKind !== "unknown" &&
       objectType !== undefined &&
       objectType.kind !== "unknownType";
+    const accessProtocol = resolveComputedAccessProtocol(objectType, ctx);
 
     const baseElementAccess: IrExpression = {
       kind: "memberAccess",
@@ -298,16 +337,21 @@ export const convertMemberExpression = (
       property: convertExpression(node.argumentExpression, ctx, undefined),
       isComputed: true,
       isOptional,
-      inferredType: deriveElementType(objectType, ctx),
+      inferredType: deriveElementType(
+        objectType,
+        ctx,
+        node.argumentExpression
+      ),
       allowUnknownInferredType,
       sourceSpan,
       accessKind,
+      accessProtocol,
     };
     if (
       narrowedAccessType &&
       shouldWrapExpressionWithAssertion(
         ctx,
-        deriveElementType(objectType, ctx),
+        deriveElementType(objectType, ctx, node.argumentExpression),
         narrowedAccessType
       )
     ) {

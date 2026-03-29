@@ -91,6 +91,55 @@ describe("Union Type Emission", () => {
     expect(code).not.to.include("Union<void");
   });
 
+  it("emits unconstrained generic nullish unions as T?", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/test/genericNullable.ts",
+      namespace: "Test",
+      className: "genericNullable",
+      isStaticContainer: false,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "classDeclaration",
+          name: "Box",
+          typeParameters: [{ kind: "typeParameter", name: "T" }],
+          implements: [],
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "get",
+              parameters: [],
+              returnType: {
+                kind: "unionType",
+                types: [
+                  { kind: "typeParameterType", name: "T" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+              body: {
+                kind: "blockStatement",
+                statements: [],
+              },
+              isAsync: false,
+              isGenerator: false,
+              isStatic: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        },
+      ],
+    };
+
+    const code = emitModule(module);
+
+    expect(code).to.include("public T? get()");
+    expect(code).not.to.include("public object? get()");
+  });
+
   it("should emit two-type union as Union<T1, T2>", () => {
     const module: IrModule = {
       kind: "module",

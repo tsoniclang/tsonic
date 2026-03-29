@@ -178,6 +178,11 @@ export type ComputedAccessKind =
   | "stringChar"
   | "unknown";
 
+export type ComputedAccessProtocol = {
+  readonly getterMember: string;
+  readonly setterMember?: string;
+};
+
 export type IrMemberExpression = {
   readonly kind: "memberAccess";
   readonly object: IrExpression;
@@ -207,6 +212,7 @@ export type IrMemberExpression = {
       readonly modifier: "ref" | "out" | "in";
     }[];
     readonly isExtensionMethod?: boolean;
+    readonly receiverExpectedType?: IrType;
     readonly emitSemantics?: {
       readonly callStyle: "receiver" | "static";
     };
@@ -214,6 +220,8 @@ export type IrMemberExpression = {
   // Classification for computed access lowering (set during IR build)
   // Determines whether Int32 proof is required for indices
   readonly accessKind?: ComputedAccessKind;
+  /** Explicit source-surface protocol for computed index access. */
+  readonly accessProtocol?: ComputedAccessProtocol;
 };
 
 export type IrCallExpression = {

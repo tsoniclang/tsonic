@@ -69,7 +69,7 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.include("__tsonic_union_compare_1.Is1()");
       expect(csharp).to.include("__tsonic_union_compare_1.As1() == true");
-      expect(csharp).not.to.include("options?.sameSite.Match(");
+      expect(csharp).not.to.include("options?.sameSite.Match");
     });
 
     it("aligns typeof guards with emitted overload carrier slots when nested aliases include nullish members", () => {
@@ -134,9 +134,9 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("portOrOptionsOrPath.Is2()");
       expect(csharp).to.include("portOrOptionsOrPath.Is1()");
-      expect(csharp).to.include("portOrOptionsOrPath.Match(");
-      expect(csharp).to.include(").port");
-      expect(csharp).to.include(").host");
+      expect(csharp).to.include(
+        "return connectPort((portOrOptionsOrPath.As3()).port, (portOrOptionsOrPath.As3()).host);"
+      );
       expect(csharp).not.to.include("portOrOptionsOrPath.As2()).port");
       expect(csharp).not.to.include("portOrOptionsOrPath.As2()).host");
     });
@@ -169,11 +169,52 @@ describe("End-to-End Integration", () => {
         "else if (((global::System.Object)(generatorOrEncodingStr)) != null && generatorOrEncodingStr.Is2())"
       );
       expect(csharp).to.include(
-        'decodeInputBytes((string)(generatorOrEncodingStr.As2()), generatorEncoding ?? "base64");'
+        'decodeInputBytes(generatorOrEncodingStr, generatorEncoding ?? "base64");'
       );
       expect(csharp).not.to.include(
         "default(string) : (generatorOrEncodingStr.As2())).As2()"
       );
+    });
+
+    it("preserves method-wide local-name reservations across terminating typeof branches", () => {
+      const csharp = compileToCSharp(`
+        declare function connectPath(path: string, listener?: () => void): string;
+        declare function connectPort(
+          port: number,
+          host?: string,
+          listener?: () => void
+        ): string;
+
+        export function connect(
+          portOrOptionsOrPath: number | string,
+          hostOrListener?: string | (() => void),
+          connectionListener?: () => void
+        ): string {
+          if (typeof portOrOptionsOrPath === "string") {
+            const listener =
+              typeof hostOrListener === "function" ? hostOrListener : undefined;
+            return connectPath(portOrOptionsOrPath, listener);
+          }
+
+          if (typeof portOrOptionsOrPath === "number") {
+            const host =
+              typeof hostOrListener === "string" ? hostOrListener : undefined;
+            const listener =
+              typeof hostOrListener === "function"
+                ? hostOrListener
+                : connectionListener;
+            return connectPort(portOrOptionsOrPath, host, listener);
+          }
+
+          const listener =
+            typeof hostOrListener === "function" ? hostOrListener : undefined;
+          return connectPath("fallback", listener);
+        }
+      `);
+
+      expect(csharp).to.include("var listener =");
+      expect(csharp).to.include("var listener__1 =");
+      expect(csharp).to.include("var listener__2 =");
     });
 
     it("uses declared out locals instead of bare discards for non-lvalue out arguments", () => {
@@ -241,7 +282,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("createBotDomain(new global::Test.__Anon_");
     });
 
-    it("materializes structural arrays for inline object-type element parameters", () => {
+    it("reuses named structural array aliases for inline object-type element parameters when CLR surfaces align", () => {
       const source = `
         type AddItem = { name: string; description?: string };
 
@@ -253,14 +294,17 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.include(
-        "(AddItem__Alias[])global::Tsonic.JSRuntime.JSON.parse<object>(addRaw)"
+        "global::System.Text.Json.JsonSerializer.Deserialize<AddItem__Alias[]>(addRaw)"
       );
       expect(csharp).to.include("bulkUpdate(addList);");
+      expect(csharp).not.to.include("bulkUpdate((global::Test.__Anon_");
     });
 
-    it("materializes structural dictionary values for inline object-type parameters", () => {
+    it("reuses named structural dictionary value aliases for inline object-type parameters when CLR surfaces align", () => {
       const source = `
         type ProfileEntry = { value: string };
 
@@ -273,10 +317,12 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include(
+        "global::System.Collections.Generic.Dictionary<string, ProfileEntry__Alias> profileData"
+      );
+      expect(csharp).to.include("updateProfileData(profileData);");
+      expect(csharp).not.to.include(
         "new global::System.Collections.Generic.Dictionary"
       );
-      expect(csharp).to.include("value =");
-      expect(csharp).not.to.include("updateProfileData(profileData);");
     });
 
     it("materializes imported structural alias locals without re-emitting anonymous object types", () => {
@@ -304,6 +350,23 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "ICE: Anonymous object type reached emitter"
       );
+    });
+
+    it("preserves compiler-generated anonymous carriers over unrelated structural globals", () => {
+      const csharp = compileToCSharp(`
+        declare function deepEqual(left: unknown, right: unknown): void;
+
+        export function run(): void {
+          const first = { user: { name: "Alice" } };
+          const second = { user: { name: "Alice" } };
+          deepEqual(first, second);
+        }
+      `);
+
+      expect(csharp).to.match(
+        /new global::Test\.__Anon_[A-Za-z0-9_]+ \{ user = new global::Test\.__Anon_[A-Za-z0-9_]+ \{ name = "Alice" \} \}/
+      );
+      expect(csharp).not.to.include("new global::js.RangeError { name = \"Alice\" }");
     });
 
     it("reuses structural alias carrier members in typeof checks over boolean unions", () => {
@@ -351,7 +414,7 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("await-adapts async overload wrappers before narrowing promise unions", () => {
+    it("directly specializes async promise-return overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
         export async function readValue(flag: boolean): Promise<boolean>;
         export async function readValue(flag: boolean, encoding: string): Promise<string>;
@@ -368,14 +431,16 @@ describe("End-to-End Integration", () => {
         "public static async global::System.Threading.Tasks.Task<bool> readValue(bool flag)"
       );
       expect(csharp).to.include(
-        "await __tsonic_overload_impl_readValue(flag, default(string))).Match("
+        "public static async global::System.Threading.Tasks.Task<string> readValue(bool flag, string encoding)"
       );
+      expect(csharp).to.include("return flag;");
+      expect(csharp).to.include("return encoding;");
       expect(csharp).not.to.include(
-        ".Match(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => __tsonic_union_member_2).Match("
+        "__tsonic_overload_impl_readValue"
       );
     });
 
-    it("projects awaited array-or-string overload wrappers exactly once", () => {
+    it("directly specializes awaited array-or-string overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
         import type { byte } from "@tsonic/core/types.js";
 
@@ -397,11 +462,14 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "return (await __tsonic_overload_impl_readFile(path, default(string))).Match("
+        "public static async global::System.Threading.Tasks.Task<byte[]> readFile(string path)"
       );
-      expect(csharp).to.not.include(
-        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match('
+      expect(csharp).to.include(
+        "public static async global::System.Threading.Tasks.Task<string> readFile(string path, string encoding)"
       );
+      expect(csharp).to.include("return await implBytes(path);");
+      expect(csharp).to.include("return await implText(path, encoding);");
+      expect(csharp).not.to.include("__tsonic_overload_impl_readFile");
     });
 
     it("null-checks optional typeof runtime-union guards before member tests", () => {
@@ -485,7 +553,7 @@ describe("End-to-End Integration", () => {
       );
     });
 
-    it("awaits async void overload wrappers without discard locals", () => {
+    it("directly specializes async void overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
         declare function implDefault(path: string): Promise<void>;
         declare function implRecursive(path: string, recursive: boolean): Promise<void>;
@@ -505,12 +573,124 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "return __tsonic_overload_impl_mkdir(path, default(bool));"
+        "public static async global::System.Threading.Tasks.Task mkdir(string path)"
       );
+      expect(csharp).to.include(
+        "public static async global::System.Threading.Tasks.Task mkdir(string path, bool recursive)"
+      );
+      expect(csharp).to.include("await implDefault(path);");
+      expect(csharp).to.include("await implRecursive(path, recursive);");
       expect(csharp).to.not.include("__tsonic_discard");
+      expect(csharp).to.not.include("__tsonic_overload_impl_mkdir");
     });
 
-    it("promotes helper overload methods when promise unions require awaited adaptation", () => {
+    it("reuses named structural option types in directly specialized overloads", () => {
+      const csharp = compileToCSharp(`
+        import type { int } from "@tsonic/core/types.js";
+
+        export class MkdirOptions {
+          public recursive?: boolean;
+          public mode?: int;
+        }
+
+        declare function implDefault(path: string): Promise<void>;
+        declare function implRecursive(path: string, recursive: boolean): Promise<void>;
+        declare function implOptions(path: string, options: MkdirOptions): Promise<void>;
+
+        export function mkdir(path: string): Promise<void>;
+        export function mkdir(path: string, recursive: boolean): Promise<void>;
+        export function mkdir(path: string, options: { recursive?: boolean; mode?: int }): Promise<void>;
+        export async function mkdir(
+          path: string,
+          options?: boolean | { recursive?: boolean; mode?: int }
+        ): Promise<void> {
+          if (options === undefined) {
+            return await implDefault(path);
+          }
+
+          if (typeof options === "boolean") {
+            return await implRecursive(path, options);
+          }
+
+          return await implOptions(path, options);
+        }
+      `);
+
+      expect(csharp).to.include(
+        "public static async global::System.Threading.Tasks.Task mkdir(string path, MkdirOptions options)"
+      );
+      expect(csharp).to.include(
+        "await implOptions(path, new MkdirOptions { recursive = options.recursive, mode = options.mode });"
+      );
+      expect(csharp).to.not.include(
+        "public static global::System.Threading.Tasks.Task mkdir(string path, global::Test.__Anon_"
+      );
+      expect(csharp).to.not.include(
+        "global::Tsonic.Runtime.Union<bool, __Anon_"
+      );
+    });
+
+    it("preserves named structural instances at structural overload call sites", () => {
+      const csharp = compileToCSharp(`
+        import type { int } from "@tsonic/core/types.js";
+
+        export class MkdirOptions {
+          public recursive?: boolean;
+          public mode?: int;
+        }
+
+        declare const fs: {
+          mkdirSync(path: string): void;
+          mkdirSync(path: string, recursive: boolean): void;
+          mkdirSync(path: string, options: { recursive?: boolean; mode?: int }): void;
+        };
+
+        export function ensure(dir: string): void {
+          const options = new MkdirOptions();
+          options.recursive = true;
+          fs.mkdirSync(dir, options);
+        }
+      `);
+
+      expect(csharp).to.include("fs.mkdirSync(dir, options);");
+      expect(csharp).to.not.include("fs.mkdirSync(dir, new global::Test.__Anon_");
+    });
+
+    it("preserves imported named structural instances at structural overload call sites", () => {
+      const csharp = compileToCSharp(
+        `
+          import { fs, MkdirOptions } from "@tsonic/nodejs/fs.js";
+
+          export function ensure(dir: string): void {
+            const options = new MkdirOptions();
+            options.recursive = true;
+            fs.mkdirSync(dir, options);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("fs.mkdirSync(dir, options);");
+      expect(csharp).to.not.include(
+        "fs.mkdirSync(dir, new global::js.__Anon_"
+      );
+    });
+
+    it("emits generic property empty-array initializers using the declared element type", () => {
+      const csharp = compileToCSharp(`
+        export class Box<T> {
+          public items: Array<T | null> = [] as Array<T | null>;
+        }
+      `);
+
+      expect(csharp).to.include(
+        "public T?[] items { get; set; } = global::System.Array.Empty<T?>();"
+      );
+      expect(csharp).not.to.include("Select<double, T?>");
+    });
+
+    it("directly specializes promise-union overload families across module and class methods", () => {
       const csharp = compileToCSharp(`
         import type { byte } from "@tsonic/core/types.js";
 
@@ -547,17 +727,24 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "private async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.Union<byte[], string>> __tsonic_overload_impl_readFile"
+        "public global::System.Threading.Tasks.Task<byte[]> readFile(string path)"
       );
       expect(csharp).to.include(
-        "return global::Tsonic.Runtime.Union<byte[], string>.From1(await global::Test.test.readFile(path));"
+        "public global::System.Threading.Tasks.Task<string> readFile(string path, string encoding)"
       );
+      expect(csharp).to.include(
+        "return global::Test.test.readFile(path);"
+      );
+      expect(csharp).to.include(
+        "return global::Test.test.readFile(path, encoding);"
+      );
+      expect(csharp).not.to.include("__tsonic_overload_impl_readFile");
       expect(csharp).to.not.include(
         "(global::System.Threading.Tasks.Task<global::Tsonic.Runtime.Union<byte[], string>>)test.readFile(path)"
       );
     });
 
-    it("narrows sync overload wrappers exactly once for array-or-string unions", () => {
+    it("directly specializes sync array-or-string overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
         import type { byte } from "@tsonic/core/types.js";
 
@@ -594,14 +781,119 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include(
-        "return __tsonic_overload_impl_readFileSync(path, default(string)).Match("
-      );
-      expect(csharp).to.not.include(
-        '__tsonic_union_member_2 => throw new global::System.InvalidCastException("Cannot cast runtime union prim:string to arr#0:ref#1:id:System.Private.CoreLib:System.Byte:::tuple::rest:none")).Match('
+        "public static byte[] readFileSync(string path)"
       );
       expect(csharp).to.include(
-        "return this.__tsonic_overload_impl_readFileSync(path, default(string)).Match("
+        "public static string readFileSync(string path, string encoding)"
       );
+      expect(csharp).to.include(
+        "public byte[] readFileSync(string path)"
+      );
+      expect(csharp).to.include(
+        "public string readFileSync(string path, string encoding)"
+      );
+      expect(csharp).to.include("return implBytes(path);");
+      expect(csharp).to.include("return implText(path, encoding);");
+      expect(csharp).to.include("return global::Test.test.readFileSync(path);");
+      expect(csharp).to.include(
+        "return global::Test.test.readFileSync(path, encoding);"
+      );
+      expect(csharp).not.to.include("__tsonic_overload_impl_readFileSync");
+    });
+
+    it("directly specializes sync structural nominal unions when omitted parameters fold away", () => {
+      const csharp = compileToCSharp(`
+        declare class Buffer {
+          readonly length: number;
+        }
+
+        declare function implBytes(path: string): Buffer;
+        declare function implText(path: string, encoding: string): string;
+
+        export function readFileSync(path: string): Buffer;
+        export function readFileSync(path: string, encoding: string): string;
+        export function readFileSync(
+          path: string,
+          encoding?: string
+        ): string | Buffer {
+          if (encoding === undefined) {
+            return implBytes(path);
+          }
+
+          return implText(path, encoding);
+        }
+      `);
+
+      expect(csharp).to.include("public static global::Test.Buffer readFileSync(string path)");
+      expect(csharp).to.include("public static string readFileSync(string path, string encoding)");
+      expect(csharp).to.include("return implBytes(path);");
+      expect(csharp).to.include("return implText(path, encoding);");
+      expect(csharp).not.to.include("__tsonic_overload_impl_readFileSync");
+      expect(csharp).not.to.include("global::Tsonic.Runtime.Union<string, global::Test.Buffer>");
+    });
+
+    it("prefers deterministic numeric overloads for erased number arguments", () => {
+      const csharp = compileToCSharp(`
+        import type { byte, double, int, long } from "@tsonic/core/types.js";
+
+        declare class Convert {
+          static ToInt32(value: byte): int;
+          static ToInt32(value: double): int;
+          static ToInt64(value: byte): long;
+          static ToInt64(value: double): long;
+        }
+
+        declare const holder: { readonly TotalMilliseconds: double };
+
+        export function fromMember(): long {
+          return Convert.ToInt64(holder.TotalMilliseconds);
+        }
+
+        export function fromBinary(month: number): int {
+          return Convert.ToInt32(month + 1);
+        }
+
+        export function fromExplicit(value: byte): int {
+          return Convert.ToInt32(value);
+        }
+      `);
+
+      expect(csharp).to.include(
+        "return global::System.Convert.ToInt64(holder.TotalMilliseconds);"
+      );
+      expect(csharp).to.include(
+        "return global::System.Convert.ToInt32(month + 1);"
+      );
+      expect(csharp).to.include(
+        "return global::System.Convert.ToInt32(value);"
+      );
+      expect(csharp).not.to.include(
+        "return global::System.Convert.ToInt64((byte)holder.TotalMilliseconds);"
+      );
+      expect(csharp).not.to.include(
+        "return global::System.Convert.ToInt32((byte)(month + 1));"
+      );
+    });
+
+    it("casts broad JS numbers to imported CLR integral overload parameters", () => {
+      const csharp = compileToCSharp(`
+        import type { int } from "@tsonic/core/types.js";
+        import { Process } from "@tsonic/dotnet/System.Diagnostics.js";
+
+        declare const process: Process;
+
+        class ExecOptions {
+          public timeout: number = 0;
+        }
+
+        export function run(options?: ExecOptions | null): boolean {
+          const timeout = options?.timeout ?? 0;
+          return process.WaitForExit(timeout);
+        }
+      `);
+
+      expect(csharp).to.include("return process.WaitForExit((int)timeout);");
+      expect(csharp).not.to.include("return process.WaitForExit(timeout);");
     });
 
     it("null-checks optional Array.isArray runtime-union guards before member tests", () => {
@@ -629,7 +921,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "(values == null ? default(int?) : values.Length)"
       );
-      expect(csharp).to.include("?? (int)0");
+      expect(csharp).to.include("?? 0");
     });
 
     it("keeps unknown spread-array conditionals on object arrays instead of numeric unions", () => {
@@ -665,7 +957,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include("return normalizeSignal(signal);");
-      expect(csharp).not.to.include("signal.Match(");
+      expect(csharp).not.to.include("signal.Match");
     });
 
     it("widens narrowed runtime-subset handlers without re-matching extracted members", () => {
@@ -692,7 +984,7 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include("From1((handler.As1()))");
-      expect(csharp).not.to.include("(handler.As1()).Match(");
+      expect(csharp).not.to.include("(handler.As1()).Match");
     });
 
     it("preserves original carrier slot numbering across chained guard refinements", () => {
@@ -730,7 +1022,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "accept(global::Tsonic.Runtime.Union<global::System.Action<string>, Router>.From1((handler.As2())))"
+        "accept((global::System.Action<string>)(handler.As2()));"
       );
       expect(csharp).not.to.include(
         "accept(global::Tsonic.Runtime.Union<global::System.Action<string>, Router>.From2((handler.As2())))"
@@ -757,15 +1049,78 @@ describe("End-to-End Integration", () => {
         }
       `);
 
-      expect(csharp).to.include("entry.Match(");
-      expect(csharp).not.to.include("(entry.As1()).Match(");
-      expect(csharp).not.to.include("(entry.As2()).Match(");
+      expect(csharp).to.include("entry.Match");
+      expect(csharp).not.to.include("(entry.As1()).Match");
+      expect(csharp).not.to.include("(entry.As2()).Match");
       expect(csharp).not.to.include(
         "((global::System.Func<string, object?>)entry)"
       );
       expect(csharp).not.to.include(
         "((global::System.Func<object?, string, object?>)entry)"
       );
+    });
+
+    it("invokes predicate-fallthrough callable subsets through their projected member slot", () => {
+      const csharp = compileToCSharp(`
+        type Request = { readonly path: string };
+        type Response = { send(text: string): void };
+        type NextControl = "route" | "router" | string | null | undefined;
+        type NextFunction = (value?: NextControl) => void | Promise<void>;
+        type RequestHandler = (
+          request: Request,
+          response: Response,
+          next: NextFunction
+        ) => unknown | Promise<unknown>;
+        type ErrorRequestHandler = (
+          error: unknown,
+          request: Request,
+          response: Response,
+          next: NextFunction
+        ) => unknown | Promise<unknown>;
+        type MiddlewareHandler = RequestHandler | ErrorRequestHandler;
+
+        declare function isMiddlewareHandler(value: unknown): value is MiddlewareHandler;
+        declare function isErrorHandler(
+          value: MiddlewareHandler,
+          treatAsError: boolean
+        ): value is ErrorRequestHandler;
+
+        export async function run(
+          handlers: unknown[],
+          request: Request,
+          response: Response,
+          currentError: unknown
+        ): Promise<void> {
+          let error = currentError;
+          const next = async (_value?: NextControl): Promise<void> => {};
+
+          for (const handler of handlers) {
+            if (!isMiddlewareHandler(handler)) {
+              continue;
+            }
+
+            if (error === undefined) {
+              if (isErrorHandler(handler, false)) {
+                continue;
+              }
+              await handler(request, response, next);
+            } else {
+              if (!isErrorHandler(handler, true)) {
+                continue;
+              }
+              await handler(error, request, response, next);
+            }
+          }
+        }
+      `);
+
+      expect(csharp).to.include("isErrorHandler(");
+      expect(csharp).to.match(
+        /await \(\(global::System\.Func<object\?,[\s\S]*?\.As2\(\)\)\)\(error, request, response, next\)\.Match\(/
+      );
+      expect(csharp).to.include(".From2(");
+      expect(csharp).not.to.include("handler.As2()");
+      expect(csharp).not.to.include("handler.Is2()");
     });
 
     it("keeps recursive Array.isArray fallthrough guards on the original runtime carrier", () => {
@@ -898,10 +1253,10 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::Tsonic.JSRuntime.Uint8Array(new byte[] { (byte)1, (byte)2, (byte)3 })"
+        "new global::js.Uint8Array(new byte[] { 1, 2, 3 })"
       );
       expect(csharp).not.to.include(
-        "new global::Tsonic.JSRuntime.Uint8Array(new int[] { 1, 2, 3 })"
+        "new global::js.Uint8Array(new int[] { 1, 2, 3 })"
       );
     });
 
@@ -919,7 +1274,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::Tsonic.JSRuntime.Uint8Array((int)(end - start))"
+        "new global::js.Uint8Array((int)(end - start))"
       );
     });
 
@@ -940,10 +1295,10 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::Tsonic.JSRuntime.Int16Array(new short[] { (short)1, (short)2, (short)3 })"
+        "new global::js.Int16Array(new short[] { 1, 2, 3 })"
       );
       expect(csharp).to.include(
-        "new global::Tsonic.JSRuntime.Float32Array(new float[] { 1.25f, 2.5f })"
+        "new global::js.Float32Array(new float[] { 1.25f, 2.5f })"
       );
       expect(csharp).not.to.include(
         "new Int16Array(global::Tsonic.Runtime.Union<double[], global::System.Collections.Generic.IEnumerable<double>>"
@@ -968,7 +1323,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "new global::Tsonic.JSRuntime.Int16Array((int)(end - start))"
+        "new global::js.Int16Array((int)(end - start))"
       );
     });
 
@@ -988,7 +1343,7 @@ describe("End-to-End Integration", () => {
         }
       );
 
-      expect(csharp).to.include("data[i] = (byte)255;");
+      expect(csharp).to.include("data[i] = 255;");
     });
 
     it("casts JS numeric expressions when assigning into int slots", () => {
@@ -1013,8 +1368,36 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "pos.rows = (int)global::Tsonic.JSRuntime.Math.floor(totalLength / 80);"
+        "pos.rows = (int)global::js.Math.floor(totalLength / 80);"
       );
+    });
+
+    it("casts JS numeric expressions when assigning through exact int property slots", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { int } from "@tsonic/core/types.js";
+
+          class Counter {
+            private _value: int = 0;
+
+            public set value(v: number) {
+              const offset = 123;
+              this._value = v + offset;
+            }
+          }
+
+          export function run(value: number): void {
+            const counter = new Counter();
+            counter.value = value;
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include("this._value = (int)(v + offset);");
     });
 
     it("materializes inline object-type elements through generic List<T>.Add", () => {
@@ -1139,6 +1522,265 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("y = b((string)x);");
     });
 
+    it("preserves original carrier slot numbering across nested typeof fallthrough guards", () => {
+      const csharp = compileToCSharp(
+        `
+          type Hostname = string;
+          type ListenCb = () => void;
+
+          declare function acceptBacklog(backlog: number): void;
+
+          export function run(hostname?: number | Hostname | ListenCb | null): void {
+            if (typeof hostname === "function") {
+              return;
+            }
+
+            if (typeof hostname === "number") {
+              acceptBacklog(hostname);
+            }
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("acceptBacklog((double)(hostname.As2()));");
+      expect(csharp).not.to.include(
+        "global::Tsonic.Runtime.Union<global::System.Action, double>.From2((hostname.As2()))"
+      );
+      expect(csharp).not.to.include(
+        "(global::Tsonic.Runtime.Union<global::System.Action, double>?)(hostname.As2())"
+      );
+    });
+
+    it("keeps prior typeof complements alive across later undefined guards", () => {
+      const csharp = compileToCSharp(
+        `
+          type TlsOptions = {
+            readonly allowHalfOpen?: boolean;
+          };
+
+          export function run(
+            optionsOrListener?: TlsOptions | (() => void),
+          ): boolean {
+            if (typeof optionsOrListener === "function") {
+              return false;
+            }
+
+            if (optionsOrListener !== undefined) {
+              return optionsOrListener.allowHalfOpen ?? false;
+            }
+
+            return false;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "if (((global::System.Object)(optionsOrListener)) != null)"
+      );
+      expect(csharp).to.include(
+        "return (optionsOrListener.As2()).allowHalfOpen ?? false;"
+      );
+      expect(csharp).not.to.include(
+        "return optionsOrListener.allowHalfOpen ?? false;"
+      );
+    });
+
+    it("materializes typeof complements before later constructor arguments", () => {
+      const csharp = compileToCSharp(
+        `
+          type TlsOptions = {
+            readonly allowHalfOpen?: boolean;
+          };
+
+          class TLSSocket {}
+
+          class TLSServer {
+            constructor(listener?: ((socket: TLSSocket) => void) | null);
+            constructor(
+              options?: TlsOptions | null,
+              listener?: ((socket: TLSSocket) => void) | null,
+            );
+            constructor(_a?: unknown, _b?: unknown) {}
+          }
+
+          export const createServer = (
+            optionsOrListener?: TlsOptions | ((socket: TLSSocket) => void),
+            secureConnectionListener?: (socket: TLSSocket) => void,
+          ): TLSServer => {
+            if (typeof optionsOrListener === "function") {
+              return new TLSServer(optionsOrListener);
+            }
+
+            if (optionsOrListener !== undefined) {
+              return new TLSServer(
+                optionsOrListener,
+                secureConnectionListener ?? null,
+              );
+            }
+
+            return new TLSServer();
+          };
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "if (((global::System.Object)(optionsOrListener)) != null)"
+      );
+      expect(csharp).to.include(
+        "return new TLSServer((TlsOptions__Alias)(optionsOrListener.As2()), secureConnectionListener ?? null);"
+      );
+      expect(csharp).not.to.include(
+        "return new TLSServer((TlsOptions__Alias)optionsOrListener, secureConnectionListener ?? null);"
+      );
+    });
+
+    it("materializes typeof complements before later local initializers in nested nullish guards", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { byte } from "@tsonic/core/types.js";
+
+          declare class Buffer {}
+          declare class Uint8Array {}
+
+          export function probe(
+            chunkOrCallback?:
+              | string
+              | Buffer
+              | byte[]
+              | Uint8Array
+              | (() => void)
+              | null,
+          ): void {
+            if (typeof chunkOrCallback === "function") {
+              return;
+            }
+
+            if (
+              chunkOrCallback !== undefined &&
+              chunkOrCallback !== null &&
+              typeof chunkOrCallback !== "function"
+            ) {
+              const value = chunkOrCallback;
+              void value;
+            }
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("var value = chunkOrCallback.Match");
+      expect(csharp).to.include(
+        "global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer, global::Test.Uint8Array>"
+      );
+      expect(csharp).to.include(
+        "__tsonic_union_member_2 => throw new global::System.InvalidCastException(\"Cannot materialize runtime union functionType to unionType\")"
+      );
+      expect(csharp).not.to.include(
+        "var value = (global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer, global::Test.Uint8Array>)chunkOrCallback;"
+      );
+    });
+
+    it("wraps narrowed typeof members before union-typed call arguments", () => {
+      const csharp = compileToCSharp(
+        `
+          declare function decodeInputBytes(
+            data: string | Uint8Array,
+            encoding?: string,
+          ): Uint8Array;
+
+          class Hmac {
+            constructor(algorithm: string, key: Uint8Array) {}
+          }
+
+          export const createHmac = (
+            algorithm: string,
+            key: string | Uint8Array,
+          ): Hmac => {
+            if (typeof key === "string") {
+              return new Hmac(algorithm, decodeInputBytes(key, "utf8"));
+            }
+
+            return new Hmac(algorithm, key);
+          };
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        'return new Hmac(algorithm, decodeInputBytes(global::Tsonic.Runtime.Union<string, global::Uint8Array>.From1((key.As1())), "utf8"));'
+      );
+      expect(csharp).not.to.include(
+        'decodeInputBytes(global::Tsonic.Runtime.Union<string, global::Uint8Array>.From1(key), "utf8")'
+      );
+    });
+
+    it("materializes explicit string assertions before wrapping union return arms", () => {
+      const csharp = compileToCSharp(
+        `
+          declare function encodeOutputBytes(
+            bytes: Uint8Array,
+            encoding?: string,
+          ): string | Uint8Array;
+
+          export function run(
+            publicKey: Uint8Array,
+            encoding?: string,
+          ): string | Uint8Array {
+            if (typeof encoding === "string") {
+              return encodeOutputBytes(publicKey, encoding) as string;
+            }
+
+            return publicKey;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "encodeOutputBytes(publicKey, encoding).Match"
+      );
+      expect(csharp).not.to.include(
+        "global::Tsonic.Runtime.Union<string, global::Uint8Array>.From1(encodeOutputBytes(publicKey, encoding))"
+      );
+    });
+
+    it("preserves generic iterable assertion surfaces after predicate narrowing", () => {
+      const csharp = compileToCSharp(
+        `
+          declare function isIterableObject(
+            value: unknown,
+          ): value is Iterable<unknown>;
+          declare function consume<T>(value: T): void;
+
+          export function run<T>(item: unknown): void {
+            if (isIterableObject(item)) {
+              for (const value of item as Iterable<T>) {
+                consume(value);
+              }
+            }
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "foreach (var value in (global::System.Collections.Generic.IEnumerable<T>)item)"
+      );
+      expect(csharp).not.to.include(
+        "foreach (var value in (global::System.Collections.Generic.IEnumerable<object?>)item)"
+      );
+    });
+
     it("uses instanceof-specific runtime-union probes after primitive fallthrough branches", () => {
       const csharp = compileToCSharp(`
         class Bytes {}
@@ -1198,6 +1840,63 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("return global::Test.sign.signBytes();");
       expect(csharp).not.to.include("return sign.signBytes();");
+    });
+
+    it("materializes narrower function arrays into union-element arrays at call sites", () => {
+      const csharp = compileToCSharp(`
+        type RouteHandler = (req: string) => unknown;
+        type ErrorHandler = (error: unknown, req: string) => unknown;
+        type Handler = RouteHandler | ErrorHandler;
+
+        class RouteBox {
+          constructor(readonly handlers: Handler[]) {}
+        }
+
+        function flatten(handlers: RouteHandler[]): RouteHandler[] {
+          return handlers;
+        }
+
+        export function main(handler: RouteHandler): RouteBox {
+          return new RouteBox(flatten([handler]));
+        }
+      `);
+
+      expect(csharp).to.include("global::System.Linq.Enumerable.Select");
+      expect(csharp).to.match(/\.From1\(__item\)/);
+    });
+
+    it("erases compiler-generated structural assertion casts for nominal receivers", () => {
+      const csharp = compileToCSharp(`
+        class Server {
+          listen(path: string, callback: () => void): void {
+            callback();
+          }
+        }
+
+        class Request {
+          on(name: string, listener: (chunk?: string) => void): void {
+            listener(name);
+          }
+        }
+
+        export function main(server: Server, request: Request): void {
+          (
+            server as object as {
+              listen(path: string, callback: () => void): void;
+            }
+          ).listen("/tmp/socket", () => undefined);
+
+          (
+            request as object as {
+              on(name: string, listener: (chunk?: string) => void): void;
+            }
+          ).on("data", (_chunk) => undefined);
+        }
+      `);
+
+      expect(csharp).to.not.match(/\(\(global::js\.__Anon_/);
+      expect(csharp).to.include('server.listen("/tmp/socket"');
+      expect(csharp).to.include('request.on("data"');
     });
   });
 });

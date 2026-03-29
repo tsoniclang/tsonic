@@ -23,7 +23,8 @@ export const maybeWidenRuntimeUnionExpressionAst = (
   actualType: IrType,
   context: EmitterContext,
   expectedType: IrType,
-  visited: ReadonlySet<string>
+  visited: ReadonlySet<string>,
+  selectedSourceMemberNs?: ReadonlySet<number>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
     actualType,
@@ -47,6 +48,7 @@ export const maybeWidenRuntimeUnionExpressionAst = (
     sourceLayout: actualLayout,
     targetLayout: expectedLayout,
     context: expectedLayoutContext,
+    selectedSourceMemberNs,
     buildMappedMemberValue: ({
       actualMember,
       parameterExpr,
@@ -68,7 +70,8 @@ export const maybeNarrowRuntimeUnionExpressionAst = (
   actualType: IrType,
   context: EmitterContext,
   expectedType: IrType,
-  visited: ReadonlySet<string>
+  visited: ReadonlySet<string>,
+  selectedSourceMemberNs?: ReadonlySet<number>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   // Semantic gate: only project via Match() when both the actual and
   // expected types are semantic unions (explicit unionType in IR).
@@ -104,6 +107,7 @@ export const maybeNarrowRuntimeUnionExpressionAst = (
     sourceLayout: actualLayout,
     targetLayout: expectedLayout,
     context: expectedLayoutContext,
+    selectedSourceMemberNs,
     buildMappedMemberValue: ({
       actualMember,
       parameterExpr,
@@ -117,6 +121,8 @@ export const maybeNarrowRuntimeUnionExpressionAst = (
         targetMember,
         visited
       ) ?? [parameterExpr, nextContext],
+    buildExcludedMemberBody: ({ actualMember }) =>
+      buildInvalidRuntimeUnionCastExpression(actualMember, expectedType),
     buildUnmappedMemberBody: ({ actualMember }) =>
       buildInvalidRuntimeUnionCastExpression(actualMember, expectedType),
   });
@@ -127,7 +133,8 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
   actualType: IrType,
   context: EmitterContext,
   expectedType: IrType,
-  visited: ReadonlySet<string>
+  visited: ReadonlySet<string>,
+  selectedSourceMemberNs?: ReadonlySet<number>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   const normalizedExpected = resolveComparableType(expectedType, context);
   if (normalizedExpected.kind === "unionType") {
@@ -143,7 +150,12 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     return undefined;
   }
 
-  const actualTypeContext = actualLayoutContext;
+  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+    expectedType,
+    actualLayoutContext
+  );
+
+  const actualTypeContext = expectedTypeContext;
 
   const lambdaArgs: CSharpExpressionAst[] = [];
   let currentContext = actualTypeContext;
@@ -163,6 +175,19 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
       actualMember,
       expectedType
     );
+
+    if (
+      selectedSourceMemberNs &&
+      !selectedSourceMemberNs.has(index + 1)
+    ) {
+      lambdaArgs.push({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: parameterName }],
+        body,
+      });
+      continue;
+    }
 
     if (areIrTypesEquivalent(actualMember, expectedType, currentContext)) {
       body = parameterExpr;
@@ -202,6 +227,7 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
         expression: ast,
         memberName: "Match",
       },
+      typeArguments: [expectedTypeAst],
       arguments: lambdaArgs,
     },
     currentContext,

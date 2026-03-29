@@ -24,6 +24,16 @@ if [ -n "$CHECKPOINT_ROOT" ]; then
   mkdir -p "$TYPECHECK_CACHE_DIR"
 fi
 
+append_trace_event() {
+  local trace_file="${TSONIC_TEST_TRACE_FILE:-}"
+  local run_id="${TSONIC_TEST_RUN_ID:-}"
+  if [ -z "$trace_file" ] || [ -z "$run_id" ]; then
+    return 0
+  fi
+
+  node "$ROOT_DIR/test/scripts/run-all/trace-event.mjs" "$trace_file" "$run_id" "$@" >/dev/null 2>&1 || true
+}
+
 ensure_typecheck_cache_dir() {
   if [ -n "$TYPECHECK_CACHE_DIR" ]; then
     mkdir -p "$TYPECHECK_CACHE_DIR"
@@ -39,6 +49,36 @@ Options:
                        Can be repeated, or comma-separated (e.g. --filter linq,efcore).
   -h, --help           Show this help.
 EOF
+}
+
+now_ms() {
+  date +%s%3N
+}
+
+format_duration_ms() {
+  local total_ms="${1:-0}"
+  if [ "$total_ms" -lt 1000 ]; then
+    printf '%sms' "$total_ms"
+    return
+  fi
+
+  local total_s=$((total_ms / 1000))
+  local ms=$((total_ms % 1000))
+  local s=$((total_s % 60))
+  local total_m=$((total_s / 60))
+  local m=$((total_m % 60))
+
+  if [ "$total_m" -gt 0 ]; then
+    printf '%dm %02ds' "$total_m" "$s"
+    return
+  fi
+
+  if [ "$ms" -gt 0 ]; then
+    printf '%d.%03ds' "$s" "$ms"
+    return
+  fi
+
+  printf '%ds' "$s"
 }
 
 while [ $# -gt 0 ]; do
@@ -153,6 +193,35 @@ resolve_declaration_entry_files() {
     return 0
   fi
 
+  if [ -f "$candidate/tsonic.package.json" ]; then
+    local ambient_entries
+    ambient_entries="$(
+      node - "$candidate/tsonic.package.json" <<'EOF'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const manifestPath = process.argv[2];
+try {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const ambient = Array.isArray(manifest?.source?.ambient)
+    ? manifest.source.ambient.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+  const root = path.dirname(manifestPath);
+  const resolved = ambient
+    .map((entry) => path.resolve(root, entry))
+    .filter((entry) => fs.existsSync(entry));
+  process.stdout.write(resolved.join("\n"));
+} catch {
+  process.stdout.write("");
+}
+EOF
+    )"
+    if [ -n "$ambient_entries" ]; then
+      printf '%s\n' "$ambient_entries"
+    fi
+    return 0
+  fi
+
   if [ -f "$candidate/index.d.ts" ]; then
     printf '%s\n' "$candidate/index.d.ts"
     return 0
@@ -238,6 +307,29 @@ const resolveSurfacePackageRoot = (packageName) => {
 const seen = new Set();
 const ordered = [];
 
+const resolveSurfaceEntryFiles = (packageRoot) => {
+  const manifestPath = path.join(packageRoot, "tsonic.package.json");
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+      const ambient = Array.isArray(manifest?.source?.ambient)
+        ? manifest.source.ambient.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
+        : [];
+      const resolvedAmbient = ambient
+        .map((entry) => path.resolve(packageRoot, entry))
+        .filter((entry) => fs.existsSync(entry));
+      if (resolvedAmbient.length > 0) {
+        return resolvedAmbient;
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [path.join(packageRoot, "index.d.ts")];
+};
+
 const visit = (mode) => {
   if (!mode || seen.has(mode)) return;
   seen.add(mode);
@@ -246,7 +338,7 @@ const visit = (mode) => {
     if (!globalsRoot) {
       throw new Error("missing @tsonic/globals");
     }
-    ordered.push(path.join(globalsRoot, "index.d.ts"));
+    ordered.push(...resolveSurfaceEntryFiles(globalsRoot));
     return;
   }
 
@@ -266,7 +358,7 @@ const visit = (mode) => {
     }
   }
 
-  ordered.push(path.join(packageRoot, "index.d.ts"));
+  ordered.push(...resolveSurfaceEntryFiles(packageRoot));
 };
 
 visit(surfaceMode);
@@ -350,10 +442,12 @@ echo "=== TypeScript Typecheck (E2E fixtures) ==="
 if [ ${#FILTER_PATTERNS[@]} -gt 0 ]; then
   echo "Filter: ${FILTER_PATTERNS[*]}"
 fi
+typecheck_started_ms="$(now_ms)"
 
 for fixture_dir in "$FIXTURES_DIR"/*/; do
   [ -d "$fixture_dir" ] || continue
   fixture_name="$(basename "$fixture_dir")"
+  fixture_started_ms="$(now_ms)"
 
   if ! matches_filter "$fixture_name"; then
     continue
@@ -371,16 +465,20 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   fi
 
   if [ "$RESUME_MODE" = "1" ] && [ -n "$TYPECHECK_CACHE_DIR" ] && [ -f "$TYPECHECK_CACHE_DIR/$fixture_name.pass" ]; then
-    echo "  $fixture_name: SKIP (cached PASS)"
+    echo "  $fixture_name: SKIP (cached PASS, $(format_duration_ms "$(( $(now_ms) - fixture_started_ms ))"))"
+    append_trace_event fixture-done scope fixture phase typecheck fixture "$fixture_name" status skip reason cached-pass durationMs "$(( $(now_ms) - fixture_started_ms ))"
     passed=$((passed + 1))
     continue
   fi
 
   entry="$fixture_dir/packages/$fixture_name/src/index.ts"
   if [ ! -f "$entry" ]; then
-    echo "  $fixture_name: SKIP (no packages/<project>/src/index.ts)"
+    echo "  $fixture_name: SKIP (no packages/<project>/src/index.ts, $(format_duration_ms "$(( $(now_ms) - fixture_started_ms ))"))"
+    append_trace_event fixture-done scope fixture phase typecheck fixture "$fixture_name" status skip reason missing-entry durationMs "$(( $(now_ms) - fixture_started_ms ))"
     continue
   fi
+
+  append_trace_event fixture-start scope fixture phase typecheck fixture "$fixture_name"
 
   out_file="$tmp_dir/$fixture_name.log"
 
@@ -424,6 +522,172 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   # - Includes the exact surface root explicitly (no automatic @types/* pickup)
   # - Prefers sibling checkouts for @tsonic/* when present
   tsconfig_file="$tmp_dir/$fixture_name.tsconfig.json"
+  paths_json="$(
+    node - "$ROOT_DIR" <<'EOF'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const rootDir = process.argv[2];
+
+const paths = {
+  "@tsonic/core/*": ["../core/versions/10/*"],
+  "@tsonic/dotnet/*": ["../dotnet/versions/10/*"],
+  "@tsonic/globals": ["../globals/versions/10/index.d.ts"],
+  "@tsonic/aspnetcore/*": ["../aspnetcore/*"],
+  "@tsonic/efcore/*": ["../efcore/*"],
+  "@tsonic/efcore-sqlite/*": ["../efcore-sqlite/*"],
+  "@tsonic/microsoft-extensions/*": ["../microsoft-extensions/*"],
+};
+
+const readJson = (jsonPath) => {
+  if (!fs.existsSync(jsonPath)) {
+    return undefined;
+  }
+  return JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+};
+
+const resolvePackageExportTarget = (exportsField, exportKey) => {
+  if (!exportsField || typeof exportsField !== "object") {
+    return undefined;
+  }
+
+  if (!(exportKey in exportsField)) {
+    return undefined;
+  }
+
+  const exportValue = exportsField[exportKey];
+  if (typeof exportValue === "string") {
+    return exportValue;
+  }
+
+  if (exportValue && typeof exportValue === "object") {
+    if (typeof exportValue.types === "string") {
+      return exportValue.types;
+    }
+    if (typeof exportValue.default === "string") {
+      return exportValue.default;
+    }
+  }
+
+  return undefined;
+};
+
+const addExportMappedPackage = (packageName, packageRootRelative) => {
+  const packageRoot = path.resolve(rootDir, packageRootRelative);
+  const packageJsonPath = path.join(packageRoot, "package.json");
+  if (!fs.existsSync(packageJsonPath)) {
+    return;
+  }
+
+  const packageJson = readJson(packageJsonPath);
+  const tsonicPackage = readJson(path.join(packageRoot, "tsonic.package.json"));
+  const exportsField = packageJson.exports;
+  const sourceExports =
+    tsonicPackage?.source?.exports && typeof tsonicPackage.source.exports === "object"
+      ? tsonicPackage.source.exports
+      : undefined;
+  const moduleAliases =
+    tsonicPackage?.source?.moduleAliases && typeof tsonicPackage.source.moduleAliases === "object"
+      ? tsonicPackage.source.moduleAliases
+      : undefined;
+  if (!exportsField || typeof exportsField !== "object") {
+    return;
+  }
+
+  const toRelativeTarget = (target) =>
+    path
+      .relative(rootDir, path.resolve(packageRoot, target))
+      .replace(/\\/g, "/");
+
+  const addEntry = (specifier, target) => {
+    if (typeof target !== "string" || target.length === 0) {
+      return;
+    }
+
+    if (!paths[specifier]) {
+      paths[specifier] = [toRelativeTarget(target)];
+    }
+  };
+
+  const exportEntries =
+    sourceExports && Object.keys(sourceExports).length > 0
+      ? Object.entries(sourceExports)
+      : Object.entries(exportsField);
+
+  for (const [exportKey, exportValue] of exportEntries) {
+    if (exportKey === ".") {
+      if (typeof exportValue === "string") {
+        addEntry(packageName, exportValue);
+        continue;
+      }
+
+      if (exportValue && typeof exportValue === "object") {
+        const target =
+          typeof exportValue.types === "string"
+            ? exportValue.types
+            : typeof exportValue.default === "string"
+              ? exportValue.default
+              : undefined;
+        if (target) {
+          addEntry(packageName, target);
+        }
+      }
+      continue;
+    }
+
+    if (!exportKey.startsWith("./")) {
+      continue;
+    }
+
+    const specifier = `${packageName}/${exportKey.slice(2)}`;
+    if (typeof exportValue === "string") {
+      addEntry(specifier, exportValue);
+      continue;
+    }
+
+    if (exportValue && typeof exportValue === "object") {
+      const target =
+        typeof exportValue.types === "string"
+          ? exportValue.types
+          : typeof exportValue.default === "string"
+            ? exportValue.default
+            : undefined;
+      if (target) {
+        addEntry(specifier, target);
+      }
+    }
+  }
+
+  if (!moduleAliases) {
+    return;
+  }
+
+  for (const [aliasSpecifier, aliasTarget] of Object.entries(moduleAliases)) {
+    if (typeof aliasSpecifier !== "string" || typeof aliasTarget !== "string") {
+      continue;
+    }
+
+    const resolvedTarget =
+      (sourceExports && typeof sourceExports[aliasTarget] === "string"
+        ? sourceExports[aliasTarget]
+        : undefined) ??
+      resolvePackageExportTarget(exportsField, aliasTarget) ??
+      (aliasTarget.startsWith("./") ? aliasTarget : undefined);
+
+    if (!resolvedTarget) {
+      continue;
+    }
+
+    addEntry(aliasSpecifier, resolvedTarget);
+  }
+};
+
+addExportMappedPackage("@tsonic/js", "../js/versions/10");
+addExportMappedPackage("@tsonic/nodejs", "../nodejs/versions/10");
+
+console.log(JSON.stringify(paths, null, 6));
+EOF
+  )"
 
   cat >"$tsconfig_file" <<EOF
 {
@@ -445,19 +709,7 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
     "verbatimModuleSyntax": false,
     "allowImportingTsExtensions": true,
     "baseUrl": "$ROOT_DIR",
-    "paths": {
-      "@tsonic/core/*": ["../core/versions/10/*"],
-      "@tsonic/dotnet/*": ["../dotnet/versions/10/*"],
-      "@tsonic/globals": ["../globals/versions/10/index.d.ts"],
-      "@tsonic/js": ["../js/versions/10/index.d.ts"],
-      "@tsonic/js/*": ["../js/versions/10/*"],
-      "@tsonic/nodejs": ["../nodejs/versions/10/index.d.ts"],
-      "@tsonic/nodejs/*": ["../nodejs/versions/10/*"],
-      "@tsonic/aspnetcore/*": ["../aspnetcore/*"],
-      "@tsonic/efcore/*": ["../efcore/*"],
-      "@tsonic/efcore-sqlite/*": ["../efcore-sqlite/*"],
-      "@tsonic/microsoft-extensions/*": ["../microsoft-extensions/*"]
-    }
+    "paths": $paths_json
   },
   "files": [
 $(for declaration_file in "${declaration_files[@]}"; do
@@ -468,7 +720,9 @@ $(for declaration_file in "${declaration_files[@]}"; do
 EOF
 
   if "$TSC" -p "$tsconfig_file" >"$out_file" 2>&1; then
-    echo "  $fixture_name: PASS"
+    fixture_duration_ms="$(( $(now_ms) - fixture_started_ms ))"
+    echo "  $fixture_name: PASS ($(format_duration_ms "$fixture_duration_ms"))"
+    append_trace_event fixture-done scope fixture phase typecheck fixture "$fixture_name" status pass durationMs "$fixture_duration_ms"
     passed=$((passed + 1))
     if [ -n "$TYPECHECK_CACHE_DIR" ]; then
       ensure_typecheck_cache_dir
@@ -478,7 +732,9 @@ EOF
       rm -f "$TYPECHECK_CACHE_DIR/$fixture_name.fail" 2>/dev/null || true
     fi
   else
-    echo "  $fixture_name: FAIL"
+    fixture_duration_ms="$(( $(now_ms) - fixture_started_ms ))"
+    echo "  $fixture_name: FAIL ($(format_duration_ms "$fixture_duration_ms"))"
+    append_trace_event fixture-done scope fixture phase typecheck fixture "$fixture_name" status fail durationMs "$fixture_duration_ms"
     failed=$((failed + 1))
     sed -n '1,200p' "$out_file"
     if [ -n "$TYPECHECK_CACHE_DIR" ]; then
@@ -492,6 +748,7 @@ EOF
 done
 
 echo ""
+echo "Typecheck duration: $(format_duration_ms "$(( $(now_ms) - typecheck_started_ms ))")"
 echo "Typecheck summary: $passed passed, $failed failed"
 
 if [ "$failed" -gt 0 ]; then

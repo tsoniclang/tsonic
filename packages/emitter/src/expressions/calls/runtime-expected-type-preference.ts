@@ -66,8 +66,7 @@ const hasArrayLiteralRuntimeContext = (
     resolved.kind === "referenceType" &&
     (resolved.name === "Array" ||
       resolved.name === "ReadonlyArray" ||
-      resolved.name === "ArrayLike" ||
-      resolved.name === "JSArray")
+      resolved.name === "ArrayLike")
   );
 };
 

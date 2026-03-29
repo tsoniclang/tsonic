@@ -156,7 +156,7 @@ const lowerIdentifierAst = (
   };
 
   currentCtx = registerLocalName(name, localName, currentCtx);
-  currentCtx = registerParameterTypes(name, type, currentCtx);
+  currentCtx = registerParameterTypes(name, type, false, currentCtx);
   return { statements: [stmt], context: currentCtx };
 };
 

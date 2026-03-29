@@ -35,6 +35,7 @@ export type TypePredicateResult =
     };
 
 export type ResolvedCall = {
+  readonly thisParameterType?: IrType;
   readonly parameterTypes: readonly (IrType | undefined)[];
   readonly surfaceParameterTypes: readonly (IrType | undefined)[];
   readonly restParameter?: {

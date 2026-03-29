@@ -351,7 +351,9 @@ export const getOrCreateObjectTypeReference = (
   ctx: LoweringContext
 ): IrReferenceType => {
   const signature = computeShapeSignature(objectType);
-  const existingReference = ctx.shapeToExistingReference.get(signature);
+  const existingReference =
+    ctx.localNamedStructuralReferences.get(signature) ??
+    ctx.shapeToExistingReference.get(signature);
   const typeParamNames = new Set<string>();
   for (const member of objectType.members) {
     if (member.kind === "propertySignature") {
@@ -371,7 +373,10 @@ export const getOrCreateObjectTypeReference = (
     return {
       ...existingReference,
       typeArguments:
-        orderedTypeParams.length > 0
+        existingReference.typeArguments &&
+        existingReference.typeArguments.length > 0
+          ? existingReference.typeArguments
+          : orderedTypeParams.length > 0
           ? orderedTypeParams.map(
               (tp): IrType => ({
                 kind: "typeParameterType",

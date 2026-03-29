@@ -9,6 +9,7 @@ import { emitExpressionAst } from "../../expression-emitter.js";
 import {
   registerJsonAotExpressionTypes,
   registerJsonAotType,
+  registerJsonRuntimeSupport,
 } from "./call-analysis.js";
 import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
 import type {
@@ -17,6 +18,7 @@ import type {
 } from "../../core/format/backend-ast/types.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 import { emitTypeArgumentsAst } from "../identifiers.js";
+import { buildExactGlobalBindingReference } from "../exact-global-bindings.js";
 
 const getRuntimeObjectHelperParameterOverrides = (
   expr: Extract<IrExpression, { kind: "call" }>,
@@ -93,7 +95,7 @@ const isConcreteGlobalJsonStringifySource = (
   return !containsTypeParameter(type);
 };
 
-const emitJsRuntimeJsonParseCall = (
+const emitRuntimeJsonParseCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext,
   typeArgument: CSharpTypeAst
@@ -122,7 +124,7 @@ const emitJsRuntimeJsonParseCall = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: identifierExpression("global::Tsonic.JSRuntime.JSON"),
+        expression: buildExactGlobalBindingReference("JSON", context),
         memberName: "parse",
       },
       arguments: argAsts,
@@ -132,10 +134,11 @@ const emitJsRuntimeJsonParseCall = (
   ];
 };
 
-const emitJsRuntimeJsonStringifyCall = (
+const emitRuntimeJsonStringifyCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
+  registerJsonRuntimeSupport(context);
   let currentContext = context;
   const argAsts: CSharpExpressionAst[] = [];
 
@@ -160,8 +163,10 @@ const emitJsRuntimeJsonStringifyCall = (
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: identifierExpression("global::Tsonic.JSRuntime.JSON"),
-        memberName: "stringify",
+        expression: identifierExpression(
+          `global::${context.options.rootNamespace ?? "TsonicApp"}.TsonicJsonRuntime`
+        ),
+        memberName: "Stringify",
       },
       arguments: argAsts,
     },
@@ -268,7 +273,7 @@ const emitGlobalJsonCall = (
         ? firstArg.inferredType
         : undefined;
     if (!isConcreteGlobalJsonStringifySource(sourceType)) {
-      return emitJsRuntimeJsonStringifyCall(expr, context);
+      return emitRuntimeJsonStringifyCall(expr, context);
     }
     return emitJsonSerializerCall(expr, context, method);
   }
@@ -288,7 +293,7 @@ const emitGlobalJsonCall = (
     );
   }
 
-  return emitJsRuntimeJsonParseCall(expr, context, {
+  return emitRuntimeJsonParseCall(expr, context, {
     kind: "predefinedType",
     keyword: "object",
   });

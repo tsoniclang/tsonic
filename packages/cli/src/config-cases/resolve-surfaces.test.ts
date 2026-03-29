@@ -12,6 +12,80 @@ import {
   makeWorkspaceConfig,
 } from "./helpers.js";
 
+const createInstalledJsSourceSurfaceWorkspace = (): {
+  readonly workspaceRoot: string;
+  readonly projectRoot: string;
+} => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "tsonic-config-js-surface-"));
+  const projectRoot = join(workspaceRoot, "packages", "myapp");
+  const jsRoot = join(workspaceRoot, "node_modules", "@tsonic", "js");
+  mkdirSync(projectRoot, { recursive: true });
+  mkdirSync(jsRoot, { recursive: true });
+
+  writeFileSync(
+    join(workspaceRoot, "package.json"),
+    JSON.stringify(
+      { name: "app", version: "1.0.0", private: true, type: "module" },
+      null,
+      2
+    )
+  );
+  writeFileSync(
+    join(projectRoot, "package.json"),
+    JSON.stringify(
+      { name: "@acme/myapp", version: "1.0.0", private: true, type: "module" },
+      null,
+      2
+    )
+  );
+  writeFileSync(
+    join(jsRoot, "package.json"),
+    JSON.stringify(
+      { name: "@tsonic/js", version: "1.0.0", type: "module" },
+      null,
+      2
+    )
+  );
+  writeFileSync(
+    join(jsRoot, "tsonic.surface.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        id: "@tsonic/js",
+        extends: [],
+        requiredTypeRoots: ["."],
+        requiredNpmPackages: ["@tsonic/js"],
+        useStandardLib: false,
+      },
+      null,
+      2
+    )
+  );
+  writeFileSync(
+    join(jsRoot, "tsonic.package.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        kind: "tsonic-source-package",
+        surfaces: ["@tsonic/js"],
+        source: {
+          namespace: "js",
+          exports: {
+            ".": "./src/index.ts",
+            "./index.js": "./src/index.ts",
+          },
+        },
+      },
+      null,
+      2
+    )
+  );
+  mkdirSync(join(jsRoot, "src"), { recursive: true });
+  writeFileSync(join(jsRoot, "src", "index.ts"), "export const ok = true;\n");
+
+  return { workspaceRoot, projectRoot };
+};
+
 describe("Config (surfaces and type roots)", () => {
   it("should default surface to clr", () => {
     const result = resolveConfig(
@@ -25,30 +99,40 @@ describe("Config (surfaces and type roots)", () => {
   });
 
   it("should resolve @tsonic/js surface from workspace config", () => {
-    const result = resolveConfig(
-      makeWorkspaceConfig({ surface: "@tsonic/js" }),
-      makeProjectConfig(),
-      {},
-      WORKSPACE_ROOT,
-      PROJECT_ROOT
-    );
-    expect(result.surface).to.equal("@tsonic/js");
-    expect(hasSurfaceRoot(result.typeRoots, "@tsonic/js")).to.equal(true);
+    const { workspaceRoot, projectRoot } = createInstalledJsSourceSurfaceWorkspace();
+    try {
+      const result = resolveConfig(
+        makeWorkspaceConfig({ surface: "@tsonic/js" }),
+        makeProjectConfig(),
+        {},
+        workspaceRoot,
+        projectRoot
+      );
+      expect(result.surface).to.equal("@tsonic/js");
+      expect(hasSurfaceRoot(result.typeRoots, "@tsonic/js")).to.equal(true);
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("should append required @tsonic/js typeRoots when partially configured", () => {
-    const result = resolveConfig(
-      makeWorkspaceConfig({
-        surface: "@tsonic/js",
-        dotnet: { typeRoots: ["custom/path/types"] },
-      }),
-      makeProjectConfig(),
-      {},
-      WORKSPACE_ROOT,
-      PROJECT_ROOT
-    );
-    expect(result.typeRoots).to.include("custom/path/types");
-    expect(hasSurfaceRoot(result.typeRoots, "@tsonic/js")).to.equal(true);
+    const { workspaceRoot, projectRoot } = createInstalledJsSourceSurfaceWorkspace();
+    try {
+      const result = resolveConfig(
+        makeWorkspaceConfig({
+          surface: "@tsonic/js",
+          dotnet: { typeRoots: ["custom/path/types"] },
+        }),
+        makeProjectConfig(),
+        {},
+        workspaceRoot,
+        projectRoot
+      );
+      expect(result.typeRoots).to.include("custom/path/types");
+      expect(hasSurfaceRoot(result.typeRoots, "@tsonic/js")).to.equal(true);
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("should include inherited typeRoots when a custom surface manifest extends @tsonic/js", () => {

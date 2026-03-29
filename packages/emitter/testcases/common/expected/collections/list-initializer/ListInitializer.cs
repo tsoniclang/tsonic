@@ -25,8 +25,8 @@ namespace TestCases.common.collections.listinitializer
 
         public static global::System.Collections.Generic.List<User> makeUsers()
         {
-            var u1 = new User((int)1);
-            var u2 = new User((int)2);
+            var u1 = new User(1);
+            var u2 = new User(2);
             return new global::System.Collections.Generic.List<User> { u1, u2 };
         }
     }

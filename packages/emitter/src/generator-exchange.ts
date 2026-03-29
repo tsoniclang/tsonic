@@ -5,15 +5,17 @@
  * Exchange and wrapper classes are built as typed CSharpTypeDeclarationAst.
  */
 
-import { IrModule } from "@tsonic/frontend";
+import { IrModule, IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
 import { identifierType } from "./core/format/backend-ast/builders.js";
 import {
+  emitGeneratorHelperTypeParameters,
   type GeneratorLike,
   getGeneratorHelperBaseName,
   needsBidirectionalSupport,
   generateWrapperClass,
+  usesExchangeBasedGeneratorLowering,
 } from "./generator-wrapper.js";
 import type {
   CSharpTypeDeclarationAst,
@@ -24,6 +26,7 @@ import type {
 type CollectedGenerator = {
   readonly generator: GeneratorLike;
   readonly helperBaseName: string;
+  readonly typeParameters: readonly IrTypeParameter[];
 };
 
 /**
@@ -36,17 +39,27 @@ const collectGenerators = (
   const generators: CollectedGenerator[] = [];
 
   for (const stmt of module.body) {
-    if (stmt.kind === "functionDeclaration" && stmt.isGenerator) {
+    if (
+      stmt.kind === "functionDeclaration" &&
+      stmt.isGenerator &&
+      usesExchangeBasedGeneratorLowering(stmt)
+    ) {
       generators.push({
         generator: stmt,
         helperBaseName: getGeneratorHelperBaseName(stmt, context),
+        typeParameters: stmt.typeParameters ?? [],
       });
       continue;
     }
 
     if (stmt.kind === "classDeclaration") {
+      const ownerTypeParameters = stmt.typeParameters ?? [];
       for (const member of stmt.members) {
-        if (member.kind !== "methodDeclaration" || !member.isGenerator) {
+        if (
+          member.kind !== "methodDeclaration" ||
+          !member.isGenerator ||
+          !usesExchangeBasedGeneratorLowering(member)
+        ) {
           continue;
         }
         generators.push({
@@ -56,6 +69,7 @@ const collectGenerators = (
             context,
             stmt.name
           ),
+          typeParameters: [...ownerTypeParameters, ...(member.typeParameters ?? [])],
         });
       }
     }
@@ -70,9 +84,14 @@ const collectGenerators = (
 export const generateExchangeClassAst = (
   func: GeneratorLike,
   context: EmitterContext,
-  helperBaseName = getGeneratorHelperBaseName(func, context)
+  helperBaseName = getGeneratorHelperBaseName(func, context),
+  helperTypeParameters: readonly IrTypeParameter[] = []
 ): [CSharpTypeDeclarationAst, EmitterContext] => {
-  let currentContext = context;
+  const helperTypes = emitGeneratorHelperTypeParameters(
+    helperTypeParameters,
+    context
+  );
+  let currentContext = helperTypes.context;
   const exchangeName = `${helperBaseName}_exchange`;
 
   // Determine output/input types from return type
@@ -130,8 +149,14 @@ export const generateExchangeClassAst = (
     attributes: [],
     modifiers: ["public", "sealed"],
     name: exchangeName,
+    typeParameters:
+      helperTypes.typeParameters.length > 0
+        ? helperTypes.typeParameters
+        : undefined,
     interfaces: [],
     members,
+    constraints:
+      helperTypes.constraints.length > 0 ? helperTypes.constraints : undefined,
   };
 
   return [declAst, currentContext];
@@ -153,12 +178,13 @@ export const generateGeneratorExchanges = (
   const decls: CSharpTypeDeclarationAst[] = [];
   let currentContext = context;
 
-  for (const { generator, helperBaseName } of generators) {
+  for (const { generator, helperBaseName, typeParameters } of generators) {
     // Exchange class (fully AST)
     const [exchangeAst, exchangeContext] = generateExchangeClassAst(
       generator,
       currentContext,
-      helperBaseName
+      helperBaseName,
+      typeParameters
     );
     currentContext = exchangeContext;
     decls.push(exchangeAst);
@@ -168,7 +194,8 @@ export const generateGeneratorExchanges = (
       const [wrapperDecl, wrapperContext] = generateWrapperClass(
         generator,
         currentContext,
-        helperBaseName
+        helperBaseName,
+        typeParameters
       );
       currentContext = wrapperContext;
       decls.push(wrapperDecl);

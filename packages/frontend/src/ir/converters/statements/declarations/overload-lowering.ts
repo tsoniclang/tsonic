@@ -9,6 +9,7 @@ export {
   createWrapperBody,
   needsAsyncReturnStatementAdaptation,
   needsAsyncWrapperReturnAdaptation,
+  preserveTopLevelRuntimeLayout,
 } from "./classes/overload-wrapper-body.js";
 export {
   assertNoIsTypeCalls,

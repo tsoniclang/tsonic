@@ -145,7 +145,7 @@ describe("Union Type Emission", () => {
                       {
                         kind: "referenceType",
                         name: "RegExp",
-                        resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+                        resolvedClrType: "global::js.RegExp",
                       },
                     ],
                   },
@@ -161,7 +161,7 @@ describe("Union Type Emission", () => {
     const code = emitModule(module);
 
     expect(code).to.include(
-      "global::Tsonic.Runtime.Union<string, global::Tsonic.JSRuntime.RegExp> value"
+      "global::Tsonic.Runtime.Union<string, global::js.RegExp> value"
     );
     expect(code).not.to.include(
       "global::Tsonic.Runtime.Union<string, global::Tsonic.Runtime.Union"

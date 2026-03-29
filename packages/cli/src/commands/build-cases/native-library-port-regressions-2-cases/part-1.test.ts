@@ -20,7 +20,7 @@ import { applyPackageManifestWorkspaceOverlay } from "../../../package-manifests
 import { buildCommand } from "../../build.js";
 
 const repoRoot = resolve(
-  join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
+  join(dirname(fileURLToPath(import.meta.url)), "../../../../../..")
 );
 const localJsPackageRoot = resolve(
   join(repoRoot, "..", "js", "versions", "10")
@@ -190,18 +190,21 @@ describe("build command (native library port regressions)", function () {
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       const unionMatches = Array.from(
         tree.matchAll(
-          /global::Tsonic\.Runtime\.Union<[^>]*global::Tsonic\.JSRuntime\.RegExp[^>]*>/g
+          /global::Tsonic\.Runtime\.Union<[^>]*string\[\][^>]*global::js\.RegExp[^>]*string[^>]*>/g
         ),
         (match) => match[0]
       );
       expect(unionMatches.length).to.be.greaterThan(0);
       expect(new Set(unionMatches).size).to.equal(1);
+      expect(unionMatches[0]).to.equal(
+        "global::Tsonic.Runtime.Union<string[], global::js.RegExp, string>"
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("builds JSArray push calls for tuple and object-literal element values", () => {
+  it("builds Array push calls for tuple and object-literal element values", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-push-element-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });

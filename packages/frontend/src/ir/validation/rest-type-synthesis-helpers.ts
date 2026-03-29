@@ -9,6 +9,7 @@
 import { createHash } from "crypto";
 import {
   IrType,
+  IrModule,
   IrPattern,
   IrExpression,
   IrObjectExpression,
@@ -26,7 +27,7 @@ import {
  */
 export type RestTypeSynthesisResult = {
   readonly ok: boolean;
-  readonly modules: readonly import("../types.js").IrModule[];
+  readonly modules: readonly IrModule[];
 };
 
 /**

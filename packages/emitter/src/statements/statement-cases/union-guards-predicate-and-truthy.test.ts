@@ -144,8 +144,340 @@ describe("Statement Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("if (s.Is1())");
-    expect(result).to.include("if (s.Is2())");
+    expect(result).to.include("if (isA(s))");
+    expect(result).to.include("if (isB(s.Match");
+    expect(result).to.not.include("if (s.Is1())");
+    expect(result).to.not.include("if (s.Is2())");
+  });
+
+  it("uses the raw carrier for predicate guards wrapped in transparent subset assertions", () => {
+    const shape0: IrType = { kind: "referenceType", name: "Shape__0" };
+    const shape1: IrType = { kind: "referenceType", name: "Shape__1" };
+    const shape2: IrType = { kind: "referenceType", name: "Shape__2" };
+    const fullUnion: IrType = {
+      kind: "unionType",
+      types: [shape0, shape1, shape2],
+    };
+    const narrowedUnion: IrType = {
+      kind: "unionType",
+      types: [shape1, shape2],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__0",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__1",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__2",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "fmt",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "s" },
+              type: fullUnion,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "isA" },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "s",
+                      inferredType: fullUnion,
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                  narrowing: {
+                    kind: "typePredicate",
+                    argIndex: 0,
+                    targetType: shape0,
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "A" },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "isB" },
+                  arguments: [
+                    {
+                      kind: "typeAssertion",
+                      expression: {
+                        kind: "identifier",
+                        name: "s",
+                        inferredType: fullUnion,
+                      },
+                      targetType: narrowedUnion,
+                      inferredType: narrowedUnion,
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                  narrowing: {
+                    kind: "typePredicate",
+                    argIndex: 0,
+                    targetType: shape1,
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "B" },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("if (isB(s.Match");
+    expect(result).to.not.include("if (s.Is2())");
+    expect(result).to.not.include("As2()).Is2()");
+  });
+
+  it("reuses the original carrier slots when a later predicate narrows an earlier subset to one member", () => {
+    const shape0: IrType = { kind: "referenceType", name: "Shape__0" };
+    const shape1: IrType = { kind: "referenceType", name: "Shape__1" };
+    const shape2: IrType = { kind: "referenceType", name: "Shape__2" };
+    const fullUnion: IrType = {
+      kind: "unionType",
+      types: [shape0, shape1, shape2],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__0",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__1",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Shape__2",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "takeC",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: shape2,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: { kind: "literal", value: "C" },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "fmt",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "s" },
+              type: fullUnion,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "primitiveType", name: "string" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "isA" },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "s",
+                      inferredType: fullUnion,
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                  narrowing: {
+                    kind: "typePredicate",
+                    argIndex: 0,
+                    targetType: shape0,
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "A" },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "ifStatement",
+                condition: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "isB" },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "s",
+                      inferredType: {
+                        kind: "unionType",
+                        types: [shape1, shape2],
+                      },
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "boolean" },
+                  narrowing: {
+                    kind: "typePredicate",
+                    argIndex: 0,
+                    targetType: shape1,
+                  },
+                },
+                thenStatement: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "returnStatement",
+                      expression: { kind: "literal", value: "B" },
+                    },
+                  ],
+                },
+              },
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "takeC" },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "s",
+                      inferredType: shape2,
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: { kind: "primitiveType", name: "string" },
+                },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("return takeC((Shape__2)(s.As3()));");
+    expect(result).to.not.include("return takeC((Shape__2)(s.Match");
   });
 
   it("narrows truthy/falsy property guards through transparent assertion wrappers", () => {
@@ -307,6 +639,6 @@ describe("Statement Emission", () => {
     expect(result).to.include("if (result.Is2())");
     expect(result).to.include("return result__2_1.error;");
     expect(result).to.include("return (result.As1()).data;");
-    expect(result).to.not.include("result.Match(");
+    expect(result).to.not.include("result.Match");
   });
 });

@@ -537,7 +537,7 @@ Tsonic is a TypeScript to C# to NativeAOT compiler that:
 - **ESM-Only**: Every local import MUST have `.ts` extension
 - **Directory = Namespace**: Exact case-preserved mapping
 - **File name = Class name**: File stem becomes class name exactly
-- **JS names preserved**: `Array` stays `Array` in `Tsonic.Runtime`, not `JSArray`
+- **JS names preserved**: `Array` stays `Array` in `Tsonic.Runtime`, not `Array`
 - **No magic**: Error clearly instead of guessing
 
 ## Functional Programming Patterns

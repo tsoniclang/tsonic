@@ -137,7 +137,7 @@ export const expandNonNullable = (
   // Handle special keywords
   if (resolved.kind === ts.SyntaxKind.AnyKeyword) return { kind: "anyType" };
   if (resolved.kind === ts.SyntaxKind.UnknownKeyword)
-    return { kind: "unknownType" };
+    return { kind: "unknownType", explicit: true };
   if (resolved.kind === ts.SyntaxKind.NeverKeyword)
     return { kind: "neverType" };
 

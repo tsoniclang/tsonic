@@ -5,12 +5,12 @@ namespace TestCases.common.types.expectedtypethreading
     {
         public static int basicNullish(int? value)
         {
-            return value ?? (int)100;
+            return value ?? 100;
         }
 
         public static int nestedNullish(int? a, int? b)
         {
-            return a ?? (int?)b ?? (int)999;
+            return a ?? (int?)b ?? 999;
         }
 
         public static int nullishWithExpr(int? value, int fallback)
@@ -20,7 +20,7 @@ namespace TestCases.common.types.expectedtypethreading
 
         public static int nullishInVar(int? value)
         {
-            int result = value ?? (int)42;
+            int result = value ?? 42;
             return result;
         }
 
@@ -28,9 +28,9 @@ namespace TestCases.common.types.expectedtypethreading
         {
             if (condition)
             {
-                return value ?? (int)50;
+                return value ?? 50;
             }
-            return value ?? (int)60;
+            return value ?? 60;
         }
     }
 }

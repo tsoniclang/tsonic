@@ -3,6 +3,7 @@
  */
 
 import * as ts from "typescript";
+import * as fs from "node:fs";
 import { TsonicProgram } from "../program.js";
 import {
   DiagnosticsCollector,
@@ -11,6 +12,55 @@ import {
 } from "../types/diagnostic.js";
 import { resolveImport } from "../resolver.js";
 import { getNodeLocation } from "./helpers.js";
+
+const hasDefaultModifier = (node: ts.Node): boolean => {
+  if (!ts.canHaveModifiers(node)) {
+    return false;
+  }
+  const modifiers = ts.getModifiers(node);
+  return (
+    modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ??
+    false
+  );
+};
+
+const moduleHasExplicitDefaultExport = (resolvedPath: string): boolean => {
+  if (resolvedPath.length === 0 || !fs.existsSync(resolvedPath)) {
+    return false;
+  }
+
+  const sourceText = fs.readFileSync(resolvedPath, "utf8");
+  const sourceFile = ts.createSourceFile(
+    resolvedPath,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    false,
+    resolvedPath.endsWith(".d.ts") ? ts.ScriptKind.TS : ts.ScriptKind.TS
+  );
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      return true;
+    }
+
+    if (hasDefaultModifier(statement)) {
+      return true;
+    }
+
+    if (
+      ts.isExportDeclaration(statement) &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause) &&
+      statement.exportClause.elements.some(
+        (element) => element.name.text === "default"
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+};
 
 /**
  * Validate all imports in a source file
@@ -77,6 +127,7 @@ export const validateImportDeclaration = (
       projectRoot: program.options.projectRoot,
       surface: program.options.surface,
       authoritativeTsonicPackageRoots: program.authoritativeTsonicPackageRoots,
+      declarationModuleAliases: program.declarationModuleAliases,
     }
   );
 
@@ -85,22 +136,20 @@ export const validateImportDeclaration = (
     return addDiagnostic(collector, { ...result.error, location });
   }
 
-  // Check for default imports from local modules (we might want to restrict this)
-  if (
-    result.value.isLocal &&
-    result.value.isSourcePackage !== true &&
-    node.importClause?.name
-  ) {
-    return addDiagnostic(
-      collector,
-      createDiagnostic(
-        "TSN2001",
-        "warning",
-        "Default imports from local modules may not work as expected",
-        getNodeLocation(sourceFile, node.importClause),
-        "Consider using named imports"
-      )
-    );
+  if (node.importClause?.name) {
+    const resolvedPath = result.value.resolvedPath;
+    if (!moduleHasExplicitDefaultExport(resolvedPath)) {
+      return addDiagnostic(
+        collector,
+        createDiagnostic(
+          "TSN2002",
+          "error",
+          `Default import requires an explicit default export: "${importPath}"`,
+          getNodeLocation(sourceFile, node.importClause),
+          "Use a namespace import, a named import, or add `export default` to the source module"
+        )
+      );
+    }
   }
 
   return collector;

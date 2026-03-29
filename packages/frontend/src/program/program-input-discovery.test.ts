@@ -6,6 +6,76 @@ import * as path from "node:path";
 import { discoverProgramInputs } from "./program-input-discovery.js";
 
 describe("discoverProgramInputs", () => {
+  it("treats the current project source package as authoritative input state", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-inputs-self-package-")
+    );
+
+    try {
+      const projectRoot = path.join(tempDir, "packages", "js-like");
+      const sourceRoot = path.join(projectRoot, "src");
+      const entryFile = path.join(sourceRoot, "index.ts");
+      const ambientFile = path.join(projectRoot, "globals.ts");
+
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.writeFileSync(entryFile, "export const value = 'ok';\n");
+      fs.writeFileSync(
+        ambientFile,
+        "export {};\ndeclare global { interface String { trimStart(): string; } }\n"
+      );
+      fs.writeFileSync(
+        path.join(projectRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/js-like", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(projectRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "acme.jslike",
+              ambient: ["./globals.ts"],
+              exports: {
+                ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "Acme.JsLike",
+          surface: "@tsonic/js",
+        },
+        {
+          requiredTypeRoots: [],
+          resolvedModes: [],
+        }
+      );
+
+      expect(
+        discovery.authoritativeTsonicPackageRoots.get("@acme/js-like")
+      ).to.equal(projectRoot);
+      expect(discovery.typeRoots).to.include(projectRoot);
+      expect(discovery.allFiles).to.include(ambientFile);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("widens rootDir to include external installed source package files", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-inputs-rootdir-")
@@ -40,8 +110,7 @@ describe("discoverProgramInputs", () => {
         {
           requiredTypeRoots: [],
           resolvedModes: [],
-        },
-        () => null
+        }
       );
 
       expect(typeof discovery.tsOptions.rootDir).to.equal("string");
@@ -73,11 +142,7 @@ describe("discoverProgramInputs", () => {
       const projectRoot = path.join(workspaceRoot, "packages", "app");
       const sourceRoot = path.join(projectRoot, "src");
       const entryFile = path.join(sourceRoot, "App.ts");
-      const externalPackageRoot = path.join(
-        tempDir,
-        "external",
-        "nodejs-next"
-      );
+      const externalPackageRoot = path.join(tempDir, "external", "nodejs-next");
       const externalPackageFile = path.join(
         externalPackageRoot,
         "src",
@@ -113,8 +178,7 @@ describe("discoverProgramInputs", () => {
         {
           requiredTypeRoots: [],
           resolvedModes: [],
-        },
-        () => null
+        }
       );
 
       expect(typeof discovery.tsOptions.rootDir).to.equal("string");
@@ -164,12 +228,19 @@ describe("discoverProgramInputs", () => {
         "versions",
         "10"
       );
-      const jsSiblingRoot = path.join(workspaceRoot, "js-next", "versions", "10");
+      const jsSiblingRoot = path.join(
+        workspaceRoot,
+        "js-next",
+        "versions",
+        "10"
+      );
 
       fs.mkdirSync(path.dirname(entryFile), { recursive: true });
       fs.mkdirSync(path.dirname(installedNodejsRoot), { recursive: true });
       fs.mkdirSync(installedJsRoot, { recursive: true });
-      fs.mkdirSync(path.join(nodejsExternalRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(nodejsExternalRoot, "tsonic"), {
+        recursive: true,
+      });
       fs.mkdirSync(path.join(jsSiblingRoot, "tsonic"), { recursive: true });
       fs.writeFileSync(entryFile, "export {};\n");
 
@@ -189,13 +260,14 @@ describe("discoverProgramInputs", () => {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsExternalRoot, "tsonic", "package-manifest.json"),
+        path.join(nodejsExternalRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "nodejs",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -220,13 +292,14 @@ describe("discoverProgramInputs", () => {
         )
       );
       fs.writeFileSync(
-        path.join(jsSiblingRoot, "tsonic", "package-manifest.json"),
+        path.join(jsSiblingRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "js",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -265,13 +338,12 @@ describe("discoverProgramInputs", () => {
         {
           requiredTypeRoots: [],
           resolvedModes: [],
-        },
-        () => null
+        }
       );
 
       expect(
         discovery.authoritativeTsonicPackageRoots.get("@tsonic/nodejs")
-      ).to.equal(installedNodejsRoot);
+      ).to.equal(fs.realpathSync(installedNodejsRoot));
       expect(
         discovery.authoritativeTsonicPackageRoots.get("@tsonic/js")
       ).to.equal(jsSiblingRoot);

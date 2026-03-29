@@ -5,7 +5,7 @@ namespace TestCases.common.types.expectedtypethreading
     {
         public static int getOrDefault(int? value)
         {
-            return value ?? (int)100;
+            return value ?? 100;
         }
     }
 }

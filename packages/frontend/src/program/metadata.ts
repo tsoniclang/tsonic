@@ -38,6 +38,22 @@ const scanForBindingsFiles = (dir: string): readonly string[] => {
   return results;
 };
 
+const isSourcePackageRoot = (packageRoot: string): boolean => {
+  const manifestPath = path.join(packageRoot, "tsonic.package.json");
+  if (!fs.existsSync(manifestPath)) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+      readonly kind?: unknown;
+    };
+    return parsed.kind === "tsonic-source-package";
+  } catch {
+    return false;
+  }
+};
+
 const loadMetadataFromPackage = (
   registry: DotnetMetadataRegistry,
   packageRoot: string,
@@ -54,7 +70,8 @@ const loadMetadataFromPackage = (
     return;
   }
 
-  const bindingsFiles = scanForBindingsFiles(absoluteRoot);
+  const sourcePackageRoot = isSourcePackageRoot(absoluteRoot);
+  const bindingsFiles = sourcePackageRoot ? [] : scanForBindingsFiles(absoluteRoot);
   let discoveredClrBindingsInPackage = false;
 
   for (const bindingsPath of bindingsFiles) {
@@ -74,14 +91,17 @@ const loadMetadataFromPackage = (
     }
   }
 
-  const hasBindingsManifest = fs.existsSync(
+  const hasBindingsManifest =
+    !sourcePackageRoot &&
+    fs.existsSync(
     path.join(absoluteRoot, "tsonic.bindings.json")
-  );
+    );
   const hasSurfaceManifest = fs.existsSync(
     path.join(absoluteRoot, "tsonic.surface.json")
   );
   const shouldTraverseDependencies =
     forceDependencyTraversal ||
+    sourcePackageRoot ||
     discoveredClrBindingsInPackage ||
     hasBindingsManifest ||
     hasSurfaceManifest;

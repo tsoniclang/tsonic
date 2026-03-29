@@ -87,7 +87,7 @@ export const emitExpressionAst = (
         return emitBinary(expr, context, expectedType);
 
       case "logical":
-        return emitLogical(expr, context);
+        return emitLogical(expr, context, expectedType);
 
       case "unary":
         return emitUnary(expr, context, expectedType);

@@ -20,7 +20,7 @@ import { applyPackageManifestWorkspaceOverlay } from "../../../package-manifests
 import { buildCommand } from "../../build.js";
 
 const repoRoot = resolve(
-  join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
+  join(dirname(fileURLToPath(import.meta.url)), "../../../../../..")
 );
 const localJsPackageRoot = resolve(
   join(repoRoot, "..", "js", "versions", "10")
@@ -292,17 +292,17 @@ describe("build command (native library port regressions)", function () {
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       expect(tree).to.match(
-        /global::Tsonic\.JSRuntime\.Object\.entries\([^\n]*root\)/
+        /global::js\.Object\.entries\([^\n]*root\)/
       );
       expect(tree).to.not.include(
         "(global::System.Collections.Generic.Dictionary<string, object?>)root"
       );
       expect(tree).to.not.include("global::System.Linq.Enumerable");
       expect(tree).to.include(
-        "global::Tsonic.JSRuntime.Number.toString((double)value)"
+        "global::js.Number.toString((double)value)"
       );
       expect(tree).to.include(
-        "global::Tsonic.JSRuntime.String.toUpperCase((string)value)"
+        "global::js.String.toUpperCase((string)value)"
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

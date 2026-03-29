@@ -183,7 +183,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -221,6 +221,105 @@ describe("Module Resolver", () => {
       }
     });
 
+    it("should resolve installed source-package subpath exports", () => {
+      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
+      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@acme/math", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+                "./helpers.js": "./src/helpers.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "src", "index.ts"),
+        'export { clampMin } from "./helpers.ts";\n'
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "src", "helpers.ts"),
+        "export const clampMin = (x: number, min: number): number => x < min ? min : x;\n"
+      );
+
+      const result = resolveImport(
+        "@acme/math/helpers.js",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        { projectRoot: tempDir, surface: "@tsonic/js" }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.isLocal).to.equal(true);
+        expect(result.value.isSourcePackage).to.equal(true);
+        expect(result.value.resolvedPath).to.equal(
+          path.join(packageRoot, "src", "helpers.ts")
+        );
+      }
+    });
+
+    it("should resolve installed declaration package module imports", () => {
+      const packageRoot = path.join(
+        tempDir,
+        "node_modules",
+        "@tsonic",
+        "dotnet"
+      );
+      fs.mkdirSync(packageRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/dotnet", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "System.js"),
+        "throw new Error('stub');\n"
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "System.d.ts"),
+        "export declare class StringBuilder {}\n"
+      );
+
+      const result = resolveImport(
+        "@tsonic/dotnet/System.js",
+        path.join(tempDir, "src", "index.ts"),
+        sourceRoot,
+        { projectRoot: tempDir, surface: "@tsonic/js" }
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.isLocal).to.equal(true);
+        expect(result.value.isClr).to.equal(false);
+        expect(result.value.isSourcePackage).to.equal(undefined);
+        expect(result.value.resolvedPath).to.equal(
+          path.join(packageRoot, "System.d.ts")
+        );
+      }
+    });
+
     it("should prefer direct source-package imports over CLR resolution", () => {
       const packageRoot = path.join(
         tempDir,
@@ -240,7 +339,7 @@ describe("Module Resolver", () => {
       );
       const processEntry = path.join(packageRoot, "src", "process-module.ts");
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -289,7 +388,7 @@ describe("Module Resolver", () => {
       }
     });
 
-    it("should prefer source-package redirects over CLR module bindings", () => {
+    it("should resolve declaration-module aliases into source-package files", () => {
       const packageRoot = path.join(
         tempDir,
         "node_modules",
@@ -307,7 +406,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -326,29 +425,23 @@ describe("Module Resolver", () => {
       const netEntry = path.join(packageRoot, "src", "net", "index.ts");
       fs.writeFileSync(netEntry, "export const createServer = () => ({});\n");
 
-      const bindings = new BindingRegistry();
-      bindings.addBindings("/test/nodejs-bindings.json", {
-        bindings: {
-          "node:net": {
-            kind: "module",
-            assembly: "nodejs",
-            type: "nodejs.net",
-            sourceImport: "@tsonic/nodejs/net.js",
-          },
-          net: {
-            kind: "module",
-            assembly: "nodejs",
-            type: "nodejs.net",
-            sourceImport: "@tsonic/nodejs/net.js",
-          },
-        },
-      });
-
       const result = resolveImport(
         "node:net",
         path.join(tempDir, "src", "index.ts"),
         sourceRoot,
-        { bindings, projectRoot: tempDir, surface: "@tsonic/js" }
+        {
+          projectRoot: tempDir,
+          surface: "@tsonic/js",
+          declarationModuleAliases: new Map([
+            [
+              "node:net",
+              {
+                targetSpecifier: "@tsonic/nodejs/net.js",
+                declarationFile: path.join(packageRoot, "node-aliases.d.ts"),
+              },
+            ],
+          ]),
+        }
       );
 
       expect(result.ok).to.equal(true);
@@ -381,7 +474,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -431,7 +524,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -531,7 +624,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -575,7 +668,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(jsRoot, "tsonic", "package-manifest.json"),
+        path.join(jsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -652,7 +745,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(jsRoot, "tsonic", "package-manifest.json"),
+        path.join(jsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -693,7 +786,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsRoot, "tsonic", "package-manifest.json"),
+        path.join(nodejsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -788,7 +881,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(jsSourceRoot, "tsonic", "package-manifest.json"),
+        path.join(jsSourceRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -825,7 +918,7 @@ describe("Module Resolver", () => {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsRoot, "tsonic", "package-manifest.json"),
+        path.join(nodejsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -931,14 +1024,66 @@ describe("Module Resolver", () => {
       }
     });
 
+    it("should resolve the node alias set exercised by fast js/node surface fixtures", () => {
+      const cases = [
+        ["node:assert", "nodejs.assert"],
+        ["node:buffer", "nodejs.buffer"],
+        ["node:child_process", "nodejs.child_process"],
+        ["node:crypto", "nodejs.crypto"],
+        ["node:dgram", "nodejs.dgram"],
+        ["node:dns", "nodejs.dns"],
+        ["node:events", "nodejs.events"],
+        ["node:fs", "nodejs.fs"],
+        ["node:http", "nodejs.http"],
+        ["node:net", "nodejs.net"],
+        ["node:os", "nodejs.os"],
+        ["node:path", "nodejs.path"],
+        ["node:process", "nodejs.process"],
+        ["node:querystring", "nodejs.querystring"],
+        ["node:readline", "nodejs.readline"],
+        ["node:stream", "nodejs.stream"],
+        ["node:timers", "nodejs.timers"],
+        ["node:tls", "nodejs.tls"],
+        ["node:url", "nodejs.url"],
+        ["node:util", "nodejs.util"],
+        ["node:zlib", "nodejs.zlib"],
+        ["fs", "nodejs.fs"],
+        ["path", "nodejs.path"],
+        ["process", "nodejs.process"],
+      ] as const;
+      const bindings = createNodeBindings(
+        cases[0][1],
+        cases.slice(1).map(([, resolvedClrType]) => resolvedClrType)
+      );
+
+      for (const [specifier, resolvedClrType] of cases) {
+        const result = resolveImport(
+          specifier,
+          path.join(tempDir, "src", "index.ts"),
+          sourceRoot,
+          { bindings }
+        );
+
+        expect(result.ok, specifier).to.equal(true);
+        if (!result.ok) continue;
+
+        expect(result.value.isLocal, specifier).to.equal(false);
+        expect(result.value.isClr, specifier).to.equal(false);
+        expect(result.value.resolvedAssembly, specifier).to.equal("nodejs");
+        expect(result.value.resolvedClrType, specifier).to.equal(
+          resolvedClrType
+        );
+      }
+    });
+
     it("should resolve module imports even when a global binding shares the same alias", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/js-runtime.json", {
+      bindings.addBindings("/test/js.json", {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });

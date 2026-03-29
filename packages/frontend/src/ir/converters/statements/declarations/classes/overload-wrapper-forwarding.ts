@@ -1,16 +1,36 @@
 import {
+  IrBlockStatement,
   IrExpression,
   IrParameter,
   IrSpreadExpression,
   IrType,
+  getAwaitedIrType,
 } from "../../../../types.js";
 import { typesEqualForIsType } from "./overload-specialization.js";
 import { getIdentifierPatternName } from "./overload-wrapper-family.js";
+
+const syntheticArraySliceBinding = (): NonNullable<
+  Extract<IrExpression, { kind: "memberAccess" }>["memberBinding"]
+> => ({
+  kind: "method",
+  assembly: "__synthetic",
+  type: "Array",
+  member: "slice",
+  emitSemantics: {
+    callStyle: "receiver",
+  },
+});
 
 const undefinedExpression = (): IrExpression => ({
   kind: "literal",
   value: undefined,
   inferredType: { kind: "primitiveType", name: "undefined" },
+});
+
+const defaultOfExpression = (targetType: IrType): IrExpression => ({
+  kind: "defaultof",
+  targetType,
+  inferredType: targetType,
 });
 
 const numericIndexLiteral = (index: number): IrExpression => ({
@@ -24,6 +44,66 @@ const buildWrapperRestIdentifier = (parameter: IrParameter): IrExpression => ({
   name: getIdentifierPatternName(parameter),
   inferredType: parameter.type,
 });
+
+const acceptsExplicitUndefined = (parameter: IrParameter): boolean =>
+  !parameter.isRest &&
+  (parameter.isOptional || parameter.initializer !== undefined);
+
+const buildWrapperParameterIdentifier = (
+  parameter: IrParameter
+): IrExpression => ({
+  kind: "identifier",
+  name: getIdentifierPatternName(parameter),
+  inferredType: parameter.type,
+});
+
+const buildForwardedOptionalDefaultExpression = (
+  wrapperParameter: IrParameter,
+  helperParameter: IrParameter
+): IrExpression | undefined => {
+  if (
+    !acceptsExplicitUndefined(wrapperParameter) ||
+    helperParameter.initializer === undefined
+  ) {
+    return undefined;
+  }
+
+  const wrapperIdentifier = buildWrapperParameterIdentifier(wrapperParameter);
+  const fallbackExpression =
+    helperParameter.initializer.kind === "numericNarrowing" &&
+    helperParameter.initializer.proof === undefined &&
+    helperParameter.initializer.expression.kind === "literal" &&
+    (typeof helperParameter.initializer.expression.value === "number" ||
+      typeof helperParameter.initializer.expression.value === "bigint")
+      ? {
+          ...helperParameter.initializer,
+          proof: {
+            kind: helperParameter.initializer.targetKind,
+            source: {
+              type: "literal" as const,
+              value: helperParameter.initializer.expression.value,
+            },
+          },
+        }
+      : helperParameter.initializer;
+  const inferredType =
+    wrapperIdentifier.inferredType && fallbackExpression.inferredType
+      ? typesEqualForIsType(
+          wrapperIdentifier.inferredType,
+          fallbackExpression.inferredType
+        )
+        ? wrapperIdentifier.inferredType
+        : wrapperIdentifier.inferredType
+      : (wrapperIdentifier.inferredType ?? fallbackExpression.inferredType);
+
+  return {
+    kind: "logical",
+    operator: "??",
+    left: wrapperIdentifier,
+    right: fallbackExpression,
+    inferredType,
+  };
+};
 
 const buildWrapperRestLengthExpression = (
   parameter: IrParameter
@@ -60,16 +140,228 @@ const buildWrapperRestElementExpression = (
   };
 };
 
+const countRequiredFunctionParameters = (
+  parameters: readonly IrParameter[]
+): number => {
+  let required = 0;
+  for (const parameter of parameters) {
+    if (!parameter) {
+      continue;
+    }
+    if (
+      parameter.isRest ||
+      parameter.isOptional ||
+      parameter.initializer !== undefined
+    ) {
+      break;
+    }
+    required += 1;
+  }
+  return required;
+};
+
+const buildExpressionStatement = (expression: IrExpression) => ({
+  kind: "expressionStatement" as const,
+  expression,
+});
+
+const buildReturnStatement = (expression: IrExpression) => ({
+  kind: "returnStatement" as const,
+  expression,
+});
+
+const buildAdaptedCallbackReturn = (
+  callbackInvocation: IrExpression,
+  sourceReturnType: IrType,
+  targetReturnType: IrType
+): {
+  readonly body: IrExpression | IrBlockStatement;
+  readonly isAsync: boolean;
+} => {
+  if (typesEqualForIsType(sourceReturnType, targetReturnType)) {
+    return {
+      body: callbackInvocation,
+      isAsync: false,
+    };
+  }
+
+  if (targetReturnType.kind === "voidType") {
+    return {
+      body: callbackInvocation,
+      isAsync: false,
+    };
+  }
+
+  const awaitedSource = getAwaitedIrType(sourceReturnType);
+  const awaitedTarget = getAwaitedIrType(targetReturnType);
+  if (awaitedSource && awaitedTarget) {
+    const awaitedInvocation: IrExpression = {
+      kind: "await",
+      expression: callbackInvocation,
+      inferredType: awaitedSource,
+    };
+
+    if (awaitedSource.kind === "voidType") {
+      return {
+        isAsync: true,
+        body: {
+          kind: "blockStatement",
+          statements: [
+            buildExpressionStatement(awaitedInvocation),
+            buildReturnStatement(defaultOfExpression(awaitedTarget)),
+          ],
+        },
+      };
+    }
+
+    if (awaitedTarget.kind === "voidType") {
+      return {
+        isAsync: true,
+        body: {
+          kind: "blockStatement",
+          statements: [buildExpressionStatement(awaitedInvocation)],
+        },
+      };
+    }
+
+    return {
+      isAsync: true,
+      body: {
+        kind: "blockStatement",
+        statements: [
+          buildReturnStatement(
+            coerceForwardedArgumentToTargetType(
+              awaitedInvocation,
+              awaitedTarget
+            )
+          ),
+        ],
+      },
+    };
+  }
+
+  if (sourceReturnType.kind === "voidType") {
+    return {
+      isAsync: false,
+      body: {
+        kind: "blockStatement",
+        statements: [
+          buildExpressionStatement(callbackInvocation),
+          buildReturnStatement(defaultOfExpression(targetReturnType)),
+        ],
+      },
+    };
+  }
+
+  return {
+    body: coerceForwardedArgumentToTargetType(
+      callbackInvocation,
+      targetReturnType
+    ),
+    isAsync: false,
+  };
+};
+
 const coerceForwardedArgumentToTargetType = (
   expression: IrExpression,
   targetType: IrType | undefined
 ): IrExpression => {
+  if (!targetType) {
+    return expression;
+  }
+
   if (
-    !targetType ||
-    !expression.inferredType ||
+    expression.inferredType &&
     typesEqualForIsType(expression.inferredType, targetType)
   ) {
     return expression;
+  }
+
+  if (
+    expression.inferredType?.kind === "functionType" &&
+    targetType.kind === "functionType"
+  ) {
+    const sourceType = expression.inferredType;
+    const sourceHasRest = sourceType.parameters.some((parameter) => parameter.isRest);
+    const targetHasRest = targetType.parameters.some((parameter) => parameter.isRest);
+    if (
+      sourceType.parameters.length !== targetType.parameters.length &&
+      (sourceHasRest || targetHasRest)
+    ) {
+      throw new Error(
+        "ICE: overload wrapper cannot adapt function parameters with rest arity differences."
+      );
+    }
+
+    if (
+      countRequiredFunctionParameters(sourceType.parameters) >
+      targetType.parameters.length
+    ) {
+      throw new Error(
+        "ICE: overload wrapper cannot forward a callback that requires more parameters than the implementation supplies."
+      );
+    }
+
+    const adapterParameters: IrParameter[] = targetType.parameters.map(
+      (parameter, index) => ({
+        ...parameter,
+        pattern: {
+          kind: "identifierPattern",
+          name: `__tsonic_overload_arg_${index}`,
+        },
+        initializer: undefined,
+      })
+    );
+
+    const callbackArgs = sourceType.parameters.map((sourceParameter, index) => {
+      if (index >= adapterParameters.length) {
+        return sourceParameter.type
+          ? defaultOfExpression(sourceParameter.type)
+          : undefinedExpression();
+      }
+
+      const parameter = adapterParameters[index];
+      const parameterName =
+        parameter?.pattern.kind === "identifierPattern"
+          ? parameter.pattern.name
+          : `__tsonic_overload_arg_${index}`;
+      return coerceForwardedArgumentToTargetType(
+        {
+          kind: "identifier",
+          name: parameterName,
+          inferredType: parameter?.type,
+        },
+        sourceParameter.type
+      );
+    });
+
+    const callbackInvocation: IrExpression = {
+      kind: "call",
+      callee: expression,
+      arguments: callbackArgs,
+      isOptional: false,
+      inferredType: sourceType.returnType,
+      allowUnknownInferredType: true,
+      parameterTypes: sourceType.parameters.map((parameter) => parameter.type),
+      argumentPassing: sourceType.parameters.map(
+        (parameter) => parameter.passing
+      ),
+    };
+
+    const adaptedReturn = buildAdaptedCallbackReturn(
+      callbackInvocation,
+      sourceType.returnType,
+      targetType.returnType
+    );
+
+    return {
+      kind: "arrowFunction",
+      parameters: adapterParameters,
+      returnType: targetType.returnType,
+      body: adaptedReturn.body,
+      isAsync: adaptedReturn.isAsync,
+      inferredType: targetType,
+    };
   }
 
   return {
@@ -89,18 +381,13 @@ const buildWrapperRestElementOrUndefinedExpression = (
     parameter,
     elementIndex
   );
-  const fallbackExpression = undefinedExpression();
-  const whenTrueExpression =
-    targetType &&
-    elementExpression.inferredType &&
-    !typesEqualForIsType(elementExpression.inferredType, targetType)
-      ? ({
-          kind: "typeAssertion",
-          expression: elementExpression,
-          targetType,
-          inferredType: targetType,
-        } satisfies IrExpression)
-      : elementExpression;
+  const fallbackExpression = targetType
+    ? defaultOfExpression(targetType)
+    : undefinedExpression();
+  const whenTrueExpression = coerceForwardedArgumentToTargetType(
+    elementExpression,
+    targetType
+  );
   const whenTrueType = whenTrueExpression.inferredType;
   const fallbackType = fallbackExpression.inferredType;
   const inferredType =
@@ -126,25 +413,13 @@ const buildWrapperRestElementOrUndefinedExpression = (
     inferredType,
   };
 
-  if (
-    targetType &&
-    conditionalExpr.inferredType &&
-    !typesEqualForIsType(conditionalExpr.inferredType, targetType)
-  ) {
-    return {
-      kind: "typeAssertion",
-      expression: conditionalExpr,
-      targetType,
-      inferredType: targetType,
-    };
-  }
-
   return conditionalExpr;
 };
 
 const buildWrapperRestSliceSpread = (
   parameter: IrParameter,
-  startIndex: number
+  startIndex: number,
+  targetType: IrType | undefined
 ): IrSpreadExpression => ({
   kind: "spread",
   expression: {
@@ -155,10 +430,11 @@ const buildWrapperRestSliceSpread = (
       property: "slice",
       isComputed: false,
       isOptional: false,
+      memberBinding: syntheticArraySliceBinding(),
     },
     arguments: [numericIndexLiteral(startIndex)],
     isOptional: false,
-    inferredType: parameter.type,
+    inferredType: targetType ?? parameter.type,
   },
 });
 
@@ -186,16 +462,20 @@ export const buildForwardedCallArguments = (
         const restStartIndex =
           helperIndex >= wrapperRestIndex ? helperIndex - wrapperRestIndex : 0;
         forwardedArgs.push(
-          buildWrapperRestSliceSpread(wrapperRestParameter, restStartIndex)
+          buildWrapperRestSliceSpread(
+            wrapperRestParameter,
+            restStartIndex,
+            helperParameter.type
+          )
         );
       } else if (helperIndex < wrapperParameters.length) {
         const wrapperParameter = wrapperParameters[helperIndex];
         if (!wrapperParameter) continue;
-        const directArgument: IrExpression = {
-          kind: "identifier",
-          name: getIdentifierPatternName(wrapperParameter),
-          inferredType: wrapperParameter.type,
-        };
+        const directArgument =
+          buildForwardedOptionalDefaultExpression(
+            wrapperParameter,
+            helperParameter
+          ) ?? buildWrapperParameterIdentifier(wrapperParameter);
         forwardedArgs.push(
           coerceForwardedArgumentToTargetType(
             directArgument,
@@ -209,11 +489,11 @@ export const buildForwardedCallArguments = (
     if (helperIndex < wrapperParameters.length) {
       const wrapperParameter = wrapperParameters[helperIndex];
       if (wrapperParameter && !wrapperParameter.isRest) {
-        const directArgument: IrExpression = {
-          kind: "identifier",
-          name: getIdentifierPatternName(wrapperParameter),
-          inferredType: wrapperParameter.type,
-        };
+        const directArgument =
+          buildForwardedOptionalDefaultExpression(
+            wrapperParameter,
+            helperParameter
+          ) ?? buildWrapperParameterIdentifier(wrapperParameter);
         forwardedArgs.push(
           coerceForwardedArgumentToTargetType(
             directArgument,

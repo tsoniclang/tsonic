@@ -4,8 +4,6 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { readFileSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
 import {
   createTestProgram,
   createTestDeclId,
@@ -14,34 +12,60 @@ import {
 } from "./helpers.js";
 import type { IrIdentifierExpression } from "./helpers.js";
 
+const addClrBindings = (
+  bindings: BindingRegistry,
+  path: string,
+  namespace: string,
+  types: readonly {
+    readonly clrName: string;
+    readonly assemblyName: string;
+    readonly methods?: readonly {
+      readonly clrName: string;
+      readonly normalizedSignature?: string;
+      readonly parameterCount?: number;
+      readonly declaringClrType: string;
+      readonly declaringAssemblyName: string;
+      readonly isExtensionMethod?: boolean;
+    }[];
+    readonly properties?: readonly {
+      readonly clrName: string;
+      readonly declaringClrType: string;
+      readonly declaringAssemblyName: string;
+    }[];
+  }[]
+): void => {
+  bindings.addBindings(path, {
+    namespace,
+    types: types.map((type) => ({
+      clrName: type.clrName,
+      assemblyName: type.assemblyName,
+      methods: type.methods ?? [],
+      properties: type.properties ?? [],
+      fields: [],
+    })),
+  });
+};
+
 describe("Binding Resolution in IR", () => {
   describe("Global Identifier Resolution — Binding Preferences", () => {
     it("prefers resolved global member owners over polluted ambient identifier types", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings(
-        "/test/js.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(
-              process.cwd(),
-              "../../../js/versions/10/index/bindings.json"
-            ),
-            "utf-8"
-          )
-        )
-      );
-      bindings.addBindings(
-        "/test/system.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(
-              process.cwd(),
-              "../../../dotnet/versions/10/System/bindings.json"
-            ),
-            "utf-8"
-          )
-        )
-      );
+      addClrBindings(bindings, "/test/js.json", "Acme.Js", [
+        {
+          clrName: "Acme.Js.console",
+          assemblyName: "Acme.Js",
+          methods: [
+            {
+              clrName: "error",
+              normalizedSignature:
+                "error|(System.String):System.Void|static=false",
+              parameterCount: 1,
+              declaringClrType: "Acme.Js.console",
+              declaringAssemblyName: "Acme.Js",
+            },
+          ],
+        },
+      ]);
 
       const { ctx } = createTestProgram(
         "export function test(): void {}",
@@ -52,8 +76,8 @@ describe("Binding Resolution in IR", () => {
           kind: "identifier",
           name: "console",
           inferredType: { kind: "referenceType", name: "Console" },
-          resolvedClrType: "Tsonic.JSRuntime.console",
-          resolvedAssembly: "Tsonic.JSRuntime",
+          resolvedClrType: "Acme.Js.console",
+          resolvedAssembly: "Acme.Js",
         } satisfies IrIdentifierExpression,
         "error",
         ctx
@@ -61,35 +85,52 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "method",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.console",
+        assembly: "Acme.Js",
+        type: "Acme.Js.console",
         member: "error",
       });
     });
 
     it("prefers simple-binding static owners over resolved runtime generic owners for static members", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings(
-        "/test/js-simple.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(process.cwd(), "../../../js/versions/10/bindings.json"),
-            "utf-8"
-          )
-        )
-      );
-      bindings.addBindings(
-        "/test/js-index.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(
-              process.cwd(),
-              "../../../js/versions/10/index/bindings.json"
-            ),
-            "utf-8"
-          )
-        )
-      );
+      bindings.addBindings("/test/js-simple.json", {
+        bindings: {
+          Array: {
+            kind: "global",
+            assembly: "Acme.Js",
+            type: "Acme.Js.ArrayRuntime",
+            staticType: "Acme.Js.ArrayStatics",
+          },
+        },
+      });
+      addClrBindings(bindings, "/test/js-index.json", "Acme.Js", [
+        {
+          clrName: "Acme.Js.ArrayRuntime",
+          assemblyName: "Acme.Js",
+        },
+        {
+          clrName: "Acme.Js.ArrayStatics",
+          assemblyName: "Acme.Js",
+          methods: [
+            {
+              clrName: "isArray",
+              normalizedSignature:
+                "isArray|(System.Object):System.Boolean|static=true",
+              parameterCount: 1,
+              declaringClrType: "Acme.Js.ArrayStatics",
+              declaringAssemblyName: "Acme.Js",
+            },
+            {
+              clrName: "from",
+              normalizedSignature:
+                "from|(System.Object):Acme.Js.ArrayRuntime|static=true",
+              parameterCount: 1,
+              declaringClrType: "Acme.Js.ArrayStatics",
+              declaringAssemblyName: "Acme.Js",
+            },
+          ],
+        },
+      ]);
 
       const { ctx } = createTestProgram(
         "export function test(): void {}",
@@ -100,8 +141,8 @@ describe("Binding Resolution in IR", () => {
           kind: "identifier",
           name: "Array",
           inferredType: { kind: "referenceType", name: "Array" },
-          resolvedClrType: "Tsonic.JSRuntime.JSArray`1",
-          resolvedAssembly: "Tsonic.JSRuntime",
+          resolvedClrType: "Acme.Js.ArrayRuntime",
+          resolvedAssembly: "Acme.Js",
         } satisfies IrIdentifierExpression,
         "isArray",
         ctx
@@ -109,35 +150,44 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "method",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.JSArrayStatics",
+        assembly: "Acme.Js",
+        type: "Acme.Js.ArrayStatics",
         member: "isArray",
       });
     });
 
     it("still prefers simple-binding static owners for ambient globals with declarations", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings(
-        "/test/js-simple.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(process.cwd(), "../../../js/versions/10/bindings.json"),
-            "utf-8"
-          )
-        )
-      );
-      bindings.addBindings(
-        "/test/js-index.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(
-              process.cwd(),
-              "../../../js/versions/10/index/bindings.json"
-            ),
-            "utf-8"
-          )
-        )
-      );
+      bindings.addBindings("/test/js-simple.json", {
+        bindings: {
+          Array: {
+            kind: "global",
+            assembly: "Acme.Js",
+            type: "Acme.Js.ArrayRuntime",
+            staticType: "Acme.Js.ArrayStatics",
+          },
+        },
+      });
+      addClrBindings(bindings, "/test/js-index.json", "Acme.Js", [
+        {
+          clrName: "Acme.Js.ArrayRuntime",
+          assemblyName: "Acme.Js",
+        },
+        {
+          clrName: "Acme.Js.ArrayStatics",
+          assemblyName: "Acme.Js",
+          methods: [
+            {
+              clrName: "from",
+              normalizedSignature:
+                "from|(System.Object):Acme.Js.ArrayRuntime|static=true",
+              parameterCount: 1,
+              declaringClrType: "Acme.Js.ArrayStatics",
+              declaringAssemblyName: "Acme.Js",
+            },
+          ],
+        },
+      ]);
 
       const { ctx } = createTestProgram(
         "export function test(): void {}",
@@ -149,8 +199,8 @@ describe("Binding Resolution in IR", () => {
           name: "Array",
           declId: createTestDeclId(1),
           inferredType: { kind: "referenceType", name: "Array" },
-          resolvedClrType: "Tsonic.JSRuntime.JSArray`1",
-          resolvedAssembly: "Tsonic.JSRuntime",
+          resolvedClrType: "Acme.Js.ArrayRuntime",
+          resolvedAssembly: "Acme.Js",
         } satisfies IrIdentifierExpression,
         "from",
         ctx
@@ -158,47 +208,55 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "method",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.JSArrayStatics",
+        assembly: "Acme.Js",
+        type: "Acme.Js.ArrayStatics",
         member: "from",
       });
     });
 
     it("prefers simple-binding runtime owners for ambient globals without resolved CLR owners", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings(
-        "/test/js-simple.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(process.cwd(), "../../../js/versions/10/bindings.json"),
-            "utf-8"
-          )
-        )
-      );
-      bindings.addBindings(
-        "/test/js-index.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(
-              process.cwd(),
-              "../../../js/versions/10/index/bindings.json"
-            ),
-            "utf-8"
-          )
-        )
-      );
-      bindings.addBindings(
-        "/test/system.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(
-              process.cwd(),
-              "../../../dotnet/versions/10/System/bindings.json"
-            ),
-            "utf-8"
-          )
-        )
-      );
+      bindings.addBindings("/test/js-simple.json", {
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "Acme.Js",
+            type: "Acme.Js.console",
+          },
+        },
+      });
+      addClrBindings(bindings, "/test/js-index.json", "Acme.Js", [
+        {
+          clrName: "Acme.Js.console",
+          assemblyName: "Acme.Js",
+          methods: [
+            {
+              clrName: "error",
+              normalizedSignature:
+                "error|(System.String):System.Void|static=false",
+              parameterCount: 1,
+              declaringClrType: "Acme.Js.console",
+              declaringAssemblyName: "Acme.Js",
+            },
+          ],
+        },
+      ]);
+      addClrBindings(bindings, "/test/system.json", "System", [
+        {
+          clrName: "System.Console",
+          assemblyName: "System.Runtime",
+          methods: [
+            {
+              clrName: "Error",
+              normalizedSignature:
+                "Error|(System.String):System.Void|static=true",
+              parameterCount: 1,
+              declaringClrType: "System.Console",
+              declaringAssemblyName: "System.Runtime",
+            },
+          ],
+        },
+      ]);
 
       const { ctx } = createTestProgram(
         "export function test(): void {}",
@@ -217,37 +275,40 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "method",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.console",
+        assembly: "Acme.Js",
+        type: "Acme.Js.console",
         member: "error",
       });
     });
 
     it("does not misbind lowercase local CLR variables to unrelated global member owners", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings(
-        "/test/nodejs.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(
-              process.cwd(),
-              "../../../nodejs/versions/10/bindings.json"
-            ),
-            "utf-8"
-          )
-        )
-      );
-      bindings.addBindings(
+      bindings.addBindings("/test/nodejs.json", {
+        bindings: {
+          process: {
+            kind: "global",
+            assembly: "Acme.Node",
+            type: "Acme.Node.process",
+          },
+        },
+      });
+      addClrBindings(
+        bindings,
         "/test/system-diagnostics.json",
-        JSON.parse(
-          readFileSync(
-            resolvePath(
-              process.cwd(),
-              "../../../dotnet/versions/10/System.Diagnostics/bindings.json"
-            ),
-            "utf-8"
-          )
-        )
+        "System.Diagnostics",
+        [
+          {
+            clrName: "System.Diagnostics.Process",
+            assemblyName: "System.Diagnostics.Process",
+            properties: [
+              {
+                clrName: "ExitCode",
+                declaringClrType: "System.Diagnostics.Process",
+                declaringAssemblyName: "System.Diagnostics.Process",
+              },
+            ],
+          },
+        ]
       );
 
       const { ctx } = createTestProgram(
@@ -281,68 +342,59 @@ describe("Binding Resolution in IR", () => {
 
     it("prefers js primitive wrapper owners over CLR instance owners", () => {
       const bindings = new BindingRegistry();
-      bindings.addBindings(
-        "/test/js-simple.json",
-        {
-          bindings: {
-            Boolean: {
-              kind: "global",
-              assembly: "Tsonic.JSRuntime",
-              type: "Tsonic.JSRuntime.Boolean",
-              csharpName: "Globals.Boolean",
-            },
+      bindings.addBindings("/test/js-simple.json", {
+        bindings: {
+          Boolean: {
+            kind: "global",
+            assembly: "js",
+            type: "js.Boolean",
+            csharpName: "Globals.Boolean",
           },
-        }
-      );
-      bindings.addBindings(
-        "/test/js-index.json",
-        {
-          namespace: "Tsonic.JSRuntime",
-          types: [
-            {
-              clrName: "Tsonic.JSRuntime.Boolean",
-              assemblyName: "Tsonic.JSRuntime",
-              methods: [
-                {
-                  clrName: "toString",
-                  normalizedSignature:
-                    "toString|(System.Boolean):System.String|static=true",
-                  parameterCount: 1,
-                  declaringClrType: "Tsonic.JSRuntime.Boolean",
-                  declaringAssemblyName: "Tsonic.JSRuntime",
-                  isExtensionMethod: true,
-                },
-              ],
-              properties: [],
-              fields: [],
-            },
-          ],
-        }
-      );
-      bindings.addBindings(
-        "/test/system.json",
-        {
-          namespace: "System",
-          types: [
-            {
-              clrName: "System.Boolean",
-              assemblyName: "System.Runtime",
-              methods: [
-                {
-                  clrName: "ToString",
-                  normalizedSignature: "ToString|():System.String",
-                  parameterCount: 0,
-                  declaringClrType: "System.Boolean",
-                  declaringAssemblyName: "System.Runtime",
-                  isExtensionMethod: false,
-                },
-              ],
-              properties: [],
-              fields: [],
-            },
-          ],
-        }
-      );
+        },
+      });
+      bindings.addBindings("/test/js-index.json", {
+        namespace: "js",
+        types: [
+          {
+            clrName: "js.Boolean",
+            assemblyName: "js",
+            methods: [
+              {
+                clrName: "toString",
+                normalizedSignature:
+                  "toString|(System.Boolean):System.String|static=true",
+                parameterCount: 1,
+                declaringClrType: "js.Boolean",
+                declaringAssemblyName: "js",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+      bindings.addBindings("/test/system.json", {
+        namespace: "System",
+        types: [
+          {
+            clrName: "System.Boolean",
+            assemblyName: "System.Runtime",
+            methods: [
+              {
+                clrName: "ToString",
+                normalizedSignature: "ToString|():System.String",
+                parameterCount: 0,
+                declaringClrType: "System.Boolean",
+                declaringAssemblyName: "System.Runtime",
+                isExtensionMethod: false,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
 
       const { ctx } = createTestProgram(
         "export function test(flag: boolean): void {}",
@@ -361,8 +413,8 @@ describe("Binding Resolution in IR", () => {
 
       expect(binding).to.deep.include({
         kind: "method",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.Boolean",
+        assembly: "js",
+        type: "js.Boolean",
         member: "toString",
       });
       expect(binding?.isExtensionMethod).to.equal(true);

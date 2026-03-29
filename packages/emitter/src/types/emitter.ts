@@ -32,6 +32,13 @@ const RECURSIVE_TYPE_FALLBACK_AST: CSharpTypeAst = {
 };
 const POLYMORPHIC_THIS_MARKER = "__tsonic_polymorphic_this";
 
+const getDeclaringTypeParameterAsts = (
+  context: EmitterContext
+): readonly CSharpTypeAst[] =>
+  (context.declaringTypeParameterNames ?? []).map((name) =>
+    identifierType(context.declaringTypeParameterNameMap?.get(name) ?? name)
+  );
+
 const withTypeEmissionGuard = (
   type: IrType,
   context: EmitterContext,
@@ -83,10 +90,17 @@ export const emitTypeAst = (
           type.name === POLYMORPHIC_THIS_MARKER &&
           guardedContext.declaringTypeName
         ) {
+          const declaringTypeName =
+            guardedContext.className ??
+            escapeCSharpIdentifier(guardedContext.declaringTypeName);
+          const declaringTypeParameterAsts =
+            getDeclaringTypeParameterAsts(guardedContext);
           return [
             identifierType(
-              guardedContext.className ??
-                escapeCSharpIdentifier(guardedContext.declaringTypeName)
+              declaringTypeName,
+              declaringTypeParameterAsts.length > 0
+                ? declaringTypeParameterAsts
+                : undefined
             ),
             guardedContext,
           ];

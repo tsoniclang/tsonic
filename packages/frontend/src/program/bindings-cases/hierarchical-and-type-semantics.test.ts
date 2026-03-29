@@ -157,6 +157,95 @@ describe("Binding System", () => {
       expect(registry.getNamespace("systemLinq")).to.not.equal(undefined);
     });
 
+    it("merges shared namespaces from multiple manifests", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/efcore.bindings.json", {
+        namespace: "Microsoft.EntityFrameworkCore",
+        types: [
+          {
+            clrName: "Microsoft.EntityFrameworkCore.DbContext",
+            assemblyName: "Microsoft.EntityFrameworkCore",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+          {
+            clrName: "Microsoft.EntityFrameworkCore.DbSet`1",
+            assemblyName: "Microsoft.EntityFrameworkCore",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      registry.addBindings("/test/efcore-sqlite.bindings.json", {
+        namespace: "Microsoft.EntityFrameworkCore",
+        types: [
+          {
+            clrName: "Microsoft.EntityFrameworkCore.SqliteDbContextOptionsBuilderExtensions",
+            assemblyName: "Microsoft.EntityFrameworkCore.Sqlite",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const namespace = registry.getNamespace("Microsoft.EntityFrameworkCore");
+      expect(namespace).to.not.equal(undefined);
+      expect(namespace?.types.map((type) => type.alias)).to.deep.equal([
+        "DbContext",
+        "DbSet_1",
+        "SqliteDbContextOptionsBuilderExtensions",
+      ]);
+      expect(registry.getType("DbContext")?.name).to.equal(
+        "Microsoft.EntityFrameworkCore.DbContext"
+      );
+      expect(registry.getType("DbSet_1")?.name).to.equal(
+        "Microsoft.EntityFrameworkCore.DbSet`1"
+      );
+    });
+
+    it("rejects conflicting shared namespace aliases", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/first.bindings.json", {
+        namespace: "Acme.Tools",
+        types: [
+          {
+            clrName: "Acme.Tools.Widget",
+            assemblyName: "Acme.Tools",
+            kind: "Class",
+            methods: [],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      expect(() =>
+        registry.addBindings("/test/second.bindings.json", {
+          namespace: "Acme.Tools",
+          types: [
+            {
+              clrName: "Acme.Tools.OtherWidget",
+              alias: "Widget",
+              assemblyName: "Acme.Tools",
+              kind: "Class",
+              methods: [],
+              properties: [],
+              fields: [],
+            },
+          ],
+        })
+      ).to.throw("Conflicting type binding");
+    });
+
     it("should return undefined for non-existent hierarchical bindings", () => {
       const registry = new BindingRegistry();
 
@@ -243,16 +332,16 @@ describe("Binding System", () => {
         bindings: {
           Date: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Date",
+            assembly: "js",
+            type: "js.Date",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
           },
           JSON: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.JSON",
+            assembly: "js",
+            type: "js.JSON",
             typeSemantics: {
               contributesTypeIdentity: false,
             },
@@ -268,62 +357,60 @@ describe("Binding System", () => {
       ).to.equal(false);
     });
 
-    it("should use explicit type semantics before uppercase fallback in emitter type map", () => {
+    it("should use explicit type semantics only in emitter type map", () => {
       const registry = new BindingRegistry();
 
       registry.addBindings("/test/simple.json", {
         bindings: {
           Date: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Date",
+            assembly: "js",
+            type: "js.Date",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
           },
           JSON: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.JSON",
+            assembly: "js",
+            type: "js.JSON",
             typeSemantics: {
               contributesTypeIdentity: false,
             },
           },
           Error: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Error",
+            assembly: "js",
+            type: "js.Error",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
           },
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });
 
       const emitterTypes = registry.getEmitterTypeMap();
       expect(emitterTypes.has("Date")).to.equal(true);
-      expect(emitterTypes.has("DateConstructor")).to.equal(true);
       expect(emitterTypes.has("JSON")).to.equal(false);
       expect(emitterTypes.has("Error")).to.equal(true);
-      expect(emitterTypes.has("ErrorConstructor")).to.equal(true);
       expect(emitterTypes.has("console")).to.equal(false);
     });
 
-    it("should expose constructor aliases for simple bindings with type identity", () => {
+    it("should expose only explicit simple-binding type identities", () => {
       const registry = new BindingRegistry();
 
       registry.addBindings("/test/simple.json", {
         bindings: {
           Uint8Array: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Uint8Array",
-            staticType: "Tsonic.JSRuntime.Uint8Array",
+            assembly: "js",
+            type: "js.Uint8Array",
+            staticType: "js.Uint8Array",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
@@ -333,11 +420,9 @@ describe("Binding System", () => {
 
       const emitterTypes = registry.getEmitterTypeMap();
       expect(emitterTypes.get("Uint8Array")?.name).to.equal(
-        "Tsonic.JSRuntime.Uint8Array"
+        "js.Uint8Array"
       );
-      expect(emitterTypes.get("Uint8ArrayConstructor")?.name).to.equal(
-        "Tsonic.JSRuntime.Uint8Array"
-      );
+      expect(emitterTypes.has("Uint8ArrayConstructor")).to.equal(false);
     });
 
     it("should not infer type identity from uppercase aliases when metadata is absent", () => {
@@ -347,13 +432,13 @@ describe("Binding System", () => {
         bindings: {
           Date: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Date",
+            assembly: "js",
+            type: "js.Date",
           },
           JSON: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.JSON",
+            assembly: "js",
+            type: "js.JSON",
           },
         },
       });

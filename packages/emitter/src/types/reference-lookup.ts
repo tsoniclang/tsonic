@@ -44,6 +44,9 @@ export const resolveImportedTypeAst = (
     if (binding.kind === "type") {
       return binding.typeAst;
     }
+    if (binding.kind === "value" && binding.typeAst) {
+      return binding.typeAst;
+    }
     if (binding.kind === "namespace" && !binding.moduleObject) {
       return identifierType(binding.clrName);
     }

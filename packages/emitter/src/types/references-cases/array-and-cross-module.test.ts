@@ -10,7 +10,7 @@ describe("Reference Type Emission", () => {
   describe("Array Indexing", () => {
     it("should use native indexer for array indexing", () => {
       // This test creates a module with array index access
-      // Should use native indexer, not JSRuntime.Array.get()
+      // Should use native indexer, not js.Array.get()
       const module: IrModule = {
         kind: "module",
         filePath: "/src/test.ts",
@@ -77,8 +77,8 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      // Output should NOT contain JSRuntime
-      expect(result).to.not.include("Tsonic.JSRuntime");
+      // Output should NOT contain js
+      expect(result).to.not.include("js");
       // Should use native indexer (no cast needed with proof marker)
       expect(result).to.include("arr[0]");
     });

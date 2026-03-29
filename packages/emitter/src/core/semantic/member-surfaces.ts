@@ -133,6 +133,17 @@ export const resolveTypeMemberKind = (
       : undefined;
   }
 
+  if (resolved.structuralMembers?.length) {
+    const structuralMember = resolved.structuralMembers.find(
+      (member) => member.name === memberName
+    );
+    if (structuralMember) {
+      return structuralMember.kind === "methodSignature"
+        ? "method"
+        : "property";
+    }
+  }
+
   const localKind = lookupLocalTypeMemberKind(
     resolved.name,
     memberName,

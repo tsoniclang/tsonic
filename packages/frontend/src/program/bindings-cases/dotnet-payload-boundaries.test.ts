@@ -49,7 +49,7 @@ describe("dotnet binding payload boundaries", () => {
     );
   });
 
-  it("preserves legacy tsbindgen manifests as the dotnet payload", () => {
+  it("preserves tsbindgen bindings manifests as the dotnet payload", () => {
     const manifest = {
       namespace: "System",
       types: [

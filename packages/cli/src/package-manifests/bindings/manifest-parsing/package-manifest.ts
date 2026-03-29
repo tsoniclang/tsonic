@@ -101,8 +101,7 @@ const buildNormalizedManifest = (
   testDotnetParsed: ManifestDotnet | undefined,
   runtimeNuget: readonly PackageReferenceConfig[],
   runtimeFramework: readonly FrameworkReferenceConfig[],
-  runtimePackages: readonly string[],
-  bindingsRoot?: string
+  runtimePackages: readonly string[]
 ): Result<NormalizedBindingsManifest, string> => {
   const mergedDotnetPackages = mergePackageReferences(
     (dotnetParsed?.packageReferences ?? []) as PackageReferenceConfig[],
@@ -133,13 +132,12 @@ const buildNormalizedManifest = (
     ok: true,
     value: {
       bindingVersion: 1,
-      sourceManifest: "package-manifest",
+      sourceManifest: "tsonic-package",
       packageName,
       packageVersion,
       surfaceMode: "clr",
       requiredTypeRoots,
       ...(assemblyName ? { assemblyName } : {}),
-      ...(bindingsRoot ? { bindingsRoot } : {}),
       runtimePackages: [...runtimeSet].sort((a, b) =>
         normalizeId(a).localeCompare(normalizeId(b))
       ),
@@ -156,7 +154,7 @@ export const resolveFromPackageManifest = (
   packageName: string,
   packageVersion: string
 ): Result<NormalizedBindingsManifest | null, string> => {
-  const path = join(packageRoot, "tsonic", "package-manifest.json");
+  const path = join(packageRoot, "tsonic.package.json");
   if (!existsSync(path)) return { ok: true, value: null };
 
   const parsed = readJsonObject(
@@ -180,135 +178,12 @@ export const resolveFromPackageManifest = (
     manifest.assemblyName.trim().length > 0
       ? manifest.assemblyName.trim()
       : undefined;
-  if (kind === "tsonic-source-package") {
-    const requiredTypeRoots = parseRequiredTypeRoots(
-      manifest.requiredTypeRoots,
-      "requiredTypeRoots",
-      packageName
-    );
-    if (!requiredTypeRoots.ok) return requiredTypeRoots;
-
-    const producer = parsePackageManifestProducer(manifest.producer);
-    if (!producer.ok) return producer;
-
-    const dotnetParsed = parseManifestDotnet(manifest.dotnet, "dotnet");
-    if (!dotnetParsed.ok) return dotnetParsed;
-    const testDotnetParsed = parseManifestDotnet(
-      manifest.testDotnet,
-      "testDotnet"
-    );
-    if (!testDotnetParsed.ok) return testDotnetParsed;
-
-    const runtimeParsed = parseOptionalRuntimeSections(
-      manifest.runtime,
-      "runtime"
-    );
-    if (!runtimeParsed.ok) return runtimeParsed;
-
-    const hasOverlayMetadata =
-      requiredTypeRoots.value.length > 0 ||
-      runtimeParsed.value.runtimeNuget.length > 0 ||
-      runtimeParsed.value.runtimeFramework.length > 0 ||
-      runtimeParsed.value.runtimePackages.length > 0 ||
-      dotnetParsed.value !== undefined ||
-      testDotnetParsed.value !== undefined;
-    if (!hasOverlayMetadata) {
-      return { ok: true, value: null };
-    }
-
-    return buildNormalizedManifest(
-      packageName,
-      packageVersion,
-      requiredTypeRoots.value,
-      producer.value,
-      assemblyName,
-      dotnetParsed.value,
-      testDotnetParsed.value,
-      runtimeParsed.value.runtimeNuget,
-      runtimeParsed.value.runtimeFramework,
-      runtimeParsed.value.runtimePackages
-    );
-  }
-  if (kind !== "tsonic-library") {
+  if (kind !== "tsonic-source-package") {
     return errorWithCode(
       PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
-      `kind must be "tsonic-library" at ${path}`
+      `kind must be "tsonic-source-package" at ${path}`
     );
   }
-
-  const npmPackage = manifest.npmPackage;
-  if (typeof npmPackage !== "string" || npmPackage.trim().length === 0) {
-    return errorWithCode(
-      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
-      `npmPackage must be a non-empty string at ${path}`
-    );
-  }
-  if (normalizeId(npmPackage) !== normalizeId(packageName)) {
-    return errorWithCode(
-      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
-      `npmPackage mismatch in ${path}. Installed: ${packageName}, Manifest: ${npmPackage}`
-    );
-  }
-
-  const npmVersion = manifest.npmVersion;
-  if (typeof npmVersion !== "string" || npmVersion.trim().length === 0) {
-    return errorWithCode(
-      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
-      `npmVersion must be a non-empty string at ${path}`
-    );
-  }
-  if (npmVersion.trim() !== packageVersion) {
-    return errorWithCode(
-      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
-      `npmVersion mismatch in ${path}. Installed: ${packageVersion}, Manifest: ${npmVersion}`
-    );
-  }
-
-  const typing = manifest.typing;
-  if (typing === null || typeof typing !== "object" || Array.isArray(typing)) {
-    return errorWithCode(
-      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
-      `typing must be an object at ${path}`
-    );
-  }
-  const bindingsRoot = (typing as { readonly bindingsRoot?: unknown })
-    .bindingsRoot;
-  if (typeof bindingsRoot !== "string" || bindingsRoot.trim().length === 0) {
-    return errorWithCode(
-      PACKAGE_MANIFEST_DIAGNOSTIC.invalidSchema,
-      `typing.bindingsRoot must be a non-empty string at ${path}`
-    );
-  }
-  const bindingsRootPath = join(packageRoot, bindingsRoot);
-  if (!existsSync(bindingsRootPath)) {
-    return errorWithCode(
-      PACKAGE_MANIFEST_DIAGNOSTIC.missingBindingsRoot,
-      `typing.bindingsRoot does not exist: ${bindingsRootPath}`
-    );
-  }
-
-  const runtime = manifest.runtime;
-  const runtimeObject = parseRuntimeObject(runtime, "runtime");
-  if (!runtimeObject.ok) return runtimeObject;
-  if (!runtimeObject.value) {
-    return errorWithCode(
-      PACKAGE_MANIFEST_DIAGNOSTIC.missingRuntimeMapping,
-      `runtime must be an object at ${path}`
-    );
-  }
-  const runtimeNuget = parseRuntimeNugetPackages(
-    runtimeObject.value.nugetPackages
-  );
-  if (!runtimeNuget.ok) return runtimeNuget;
-
-  const runtimeFramework = parseRuntimeFrameworkReferences(
-    runtimeObject.value.frameworkReferences
-  );
-  if (!runtimeFramework.ok) return runtimeFramework;
-
-  const runtimePackages = parseRuntimePackages(
-    runtimeObject.value.runtimePackages
-  );
 
   const producer = parsePackageManifestProducer(manifest.producer);
   if (!producer.ok) return producer;
@@ -327,6 +202,23 @@ export const resolveFromPackageManifest = (
   );
   if (!testDotnetParsed.ok) return testDotnetParsed;
 
+  const runtimeParsed = parseOptionalRuntimeSections(
+    manifest.runtime,
+    "runtime"
+  );
+  if (!runtimeParsed.ok) return runtimeParsed;
+
+  const hasOverlayMetadata =
+    requiredTypeRoots.value.length > 0 ||
+    runtimeParsed.value.runtimeNuget.length > 0 ||
+    runtimeParsed.value.runtimeFramework.length > 0 ||
+    runtimeParsed.value.runtimePackages.length > 0 ||
+    dotnetParsed.value !== undefined ||
+    testDotnetParsed.value !== undefined;
+  if (!hasOverlayMetadata) {
+    return { ok: true, value: null };
+  }
+
   return buildNormalizedManifest(
     packageName,
     packageVersion,
@@ -335,9 +227,8 @@ export const resolveFromPackageManifest = (
     assemblyName,
     dotnetParsed.value,
     testDotnetParsed.value,
-    runtimeNuget.value,
-    runtimeFramework.value,
-    runtimePackages,
-    bindingsRoot
+    runtimeParsed.value.runtimeNuget,
+    runtimeParsed.value.runtimeFramework,
+    runtimeParsed.value.runtimePackages
   );
 };

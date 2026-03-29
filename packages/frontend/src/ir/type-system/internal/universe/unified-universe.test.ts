@@ -33,6 +33,8 @@ const makeRegistry = (entry: TypeRegistryEntry): TypeRegistry => ({
     simpleName === entry.name ? entry : undefined,
   getFQName: (simpleName) =>
     simpleName === entry.name ? entry.fullyQualifiedName : undefined,
+  getFQNames: (simpleName) =>
+    simpleName === entry.name ? [entry.fullyQualifiedName] : [],
   getMemberType: (fqNominal, memberName) => {
     if (fqNominal !== entry.fullyQualifiedName) return undefined;
     return entry.members.get(memberName)?.type;
@@ -60,6 +62,7 @@ describe("buildUnifiedUniverse", () => {
       kind: "interface",
       name: "Foo",
       fullyQualifiedName: "MyApp.Foo",
+      ownerIdentity: "project",
       isDeclarationFile: false,
       typeParameters: [],
       members: new Map([
@@ -98,6 +101,7 @@ describe("buildUnifiedUniverse", () => {
       kind: "interface",
       name: "Foo",
       fullyQualifiedName: "MyApp.Foo",
+      ownerIdentity: "project",
       isDeclarationFile: false,
       typeParameters: [],
       members: new Map([
@@ -136,21 +140,23 @@ describe("buildUnifiedUniverse", () => {
     }
   });
 
-  it("keeps assembly identity for declaration-file globals with matching TS names", () => {
+  it("keeps assembly identity for entries explicitly marked to preserve it", () => {
     const entry: TypeRegistryEntry = {
       kind: "class",
       name: "Error",
       fullyQualifiedName: "Error",
+      ownerIdentity: "project",
       isDeclarationFile: true,
+      preservesAssemblyIdentity: true,
       typeParameters: [],
       members: new Map(),
       heritage: [],
     };
 
     const errorTypeId = makeAssemblyTypeId(
-      "Tsonic.JSRuntime:Tsonic.JSRuntime.Error",
-      "Tsonic.JSRuntime.Error",
-      "Tsonic.JSRuntime",
+      "js:js.Error",
+      "js.Error",
+      "js",
       "Error"
     );
     const assemblyEntry: NominalEntry = {

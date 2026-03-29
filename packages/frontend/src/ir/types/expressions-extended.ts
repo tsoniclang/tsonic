@@ -104,6 +104,15 @@ export type IrTypeAssertionExpression = {
   readonly targetType: IrType;
   /** Inferred type (same as targetType) */
   readonly inferredType: IrType;
+  /**
+   * Compiler-authored runtime-union source member numbers that remain reachable
+   * after deterministic overload specialization.
+   *
+   * This is only used when `expression` still carries the full preserved
+   * runtime-union layout, but the current assertion knows that only a subset of
+   * source carriers can occur for this call shape.
+   */
+  readonly selectedRuntimeUnionMembers?: readonly number[];
   readonly sourceSpan?: SourceLocation;
 };
 

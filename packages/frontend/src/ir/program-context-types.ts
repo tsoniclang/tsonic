@@ -16,6 +16,7 @@ import type { BindingRegistry } from "../program/bindings.js";
 import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import type { SurfaceMode } from "../program/types.js";
 import type { Diagnostic } from "../types/diagnostic.js";
+import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
 
 /**
  * ProgramContext — Per-compilation context owning all semantic state.
@@ -42,6 +43,11 @@ export type ProgramContext = {
   readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
 
   /**
+   * Ambient declaration-module aliases (for example `node:http` -> `@tsonic/nodejs/http.js`).
+   */
+  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
+
+  /**
    * Root namespace for generated module/type names.
    */
   readonly rootNamespace: string;
@@ -57,6 +63,14 @@ export type ProgramContext = {
    * This must never be used for computed type inference APIs (getTypeAtLocation, etc.).
    */
   readonly checker: ts.TypeChecker;
+
+  /**
+   * Supported generic function value symbols for deterministic monomorphic callable contexts.
+   *
+   * These are collected once for the whole compilation so expression conversion can
+   * reuse the same authoritative symbol set without re-scanning source files.
+   */
+  readonly genericFunctionValueSymbols: ReadonlySet<ts.Symbol>;
 
   /**
    * Raw TypeScript compiler options for syntax-level module resolution helpers.

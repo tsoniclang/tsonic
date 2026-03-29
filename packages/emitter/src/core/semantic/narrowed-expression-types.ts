@@ -9,6 +9,38 @@ import type { EmitterContext } from "../../types.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import { getCanonicalRuntimeUnionMembers } from "./runtime-unions.js";
 
+const withOptionalUndefined = (type: IrType): IrType => {
+  if (
+    type.kind === "unionType" &&
+    type.types.some(
+      (member) =>
+        member.kind === "primitiveType" && member.name === "undefined"
+    )
+  ) {
+    return type;
+  }
+
+  return {
+    kind: "unionType",
+    types: [type, { kind: "primitiveType", name: "undefined" }],
+  };
+};
+
+const maybeWrapOptionalMemberAccessType = (
+  expr: IrExpression,
+  type: IrType | undefined
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  if (expr.kind !== "memberAccess" || !expr.isOptional) {
+    return type;
+  }
+
+  return withOptionalUndefined(type);
+};
+
 const tryExtractRuntimeUnionMemberN = (
   exprAst: CSharpExpressionAst
 ): number | undefined => {
@@ -164,10 +196,13 @@ export const resolveEffectiveExpressionType = (
         context
       );
       if (narrowedPropertyType) {
-        return narrowedPropertyType;
+        return maybeWrapOptionalMemberAccessType(expr, narrowedPropertyType);
       }
     }
-    return registeredSemanticType ?? baseType;
+    return maybeWrapOptionalMemberAccessType(
+      expr,
+      registeredSemanticType ?? baseType
+    );
   }
 
   const narrowKey =
@@ -193,10 +228,13 @@ export const resolveEffectiveExpressionType = (
         context
       );
       if (narrowedPropertyType) {
-        return narrowedPropertyType;
+        return maybeWrapOptionalMemberAccessType(expr, narrowedPropertyType);
       }
     }
-    return registeredSemanticType ?? baseType;
+    return maybeWrapOptionalMemberAccessType(
+      expr,
+      registeredSemanticType ?? baseType
+    );
   }
 
   const narrowed = context.narrowedBindings.get(narrowKey);
@@ -216,10 +254,13 @@ export const resolveEffectiveExpressionType = (
         context
       );
       if (narrowedPropertyType) {
-        return narrowedPropertyType;
+        return maybeWrapOptionalMemberAccessType(expr, narrowedPropertyType);
       }
     }
-    return registeredSemanticType ?? baseType;
+    return maybeWrapOptionalMemberAccessType(
+      expr,
+      registeredSemanticType ?? baseType
+    );
   }
 
   if (
@@ -239,11 +280,11 @@ export const resolveEffectiveExpressionType = (
         : undefined;
 
     if (narrowed.type) {
-      return narrowed.type;
+      return maybeWrapOptionalMemberAccessType(expr, narrowed.type);
     }
 
     if (resolvedSource) {
-      return resolvedSource;
+      return maybeWrapOptionalMemberAccessType(expr, resolvedSource);
     }
   }
 
@@ -262,9 +303,12 @@ export const resolveEffectiveExpressionType = (
       context
     );
     if (narrowedPropertyType) {
-      return narrowedPropertyType;
+      return maybeWrapOptionalMemberAccessType(expr, narrowedPropertyType);
     }
   }
 
-  return registeredSemanticType ?? baseType;
+  return maybeWrapOptionalMemberAccessType(
+    expr,
+    registeredSemanticType ?? baseType
+  );
 };

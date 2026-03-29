@@ -26,15 +26,13 @@ import type {
 } from "../../core/format/backend-ast/types.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
-import {
-  resolveRecoveredReceiverBinding,
-  isPrimitiveReceiverExtensionCall,
-} from "./call-binding-resolution.js";
+import { isPrimitiveReceiverExtensionCall } from "./call-binding-resolution.js";
 import {
   shouldPreferNativeArrayWrapperInterop,
   shouldNormalizeArrayLikeInteropResult,
 } from "./call-array-interop.js";
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
+import { adaptEmittedExpressionAst } from "../expected-type-adaptation.js";
 
 const preserveReceiverTypeAssertionAst = (
   receiverExpr: IrExpression,
@@ -70,6 +68,63 @@ const preserveReceiverTypeAssertionAst = (
   ];
 };
 
+const maybeConvertReceiverToExpectedJsNumberAst = (
+  receiverAst: CSharpExpressionAst,
+  actualType: IrType | undefined,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (!actualType || !expectedType) {
+    return [receiverAst, context];
+  }
+
+  if (expectedType.kind !== "primitiveType" || expectedType.name !== "number") {
+    return [receiverAst, context];
+  }
+
+  if (
+    actualType.kind === "primitiveType" &&
+    (actualType.name === "number" || actualType.name === "int")
+  ) {
+    return [receiverAst, context];
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: identifierExpression("global::System.Convert.ToDouble"),
+      arguments: [receiverAst],
+    },
+    context,
+  ];
+};
+
+const adaptExtensionReceiverAst = (
+  receiverExpr: IrExpression,
+  receiverAst: CSharpExpressionAst,
+  receiverType: IrType | undefined,
+  expectedReceiverType: IrType | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (!expectedReceiverType) {
+    return [receiverAst, context];
+  }
+
+  const [adaptedAst, adaptedContext] = adaptEmittedExpressionAst({
+    expr: receiverExpr,
+    valueAst: receiverAst,
+    context,
+    expectedType: expectedReceiverType,
+  });
+
+  return maybeConvertReceiverToExpectedJsNumberAst(
+    adaptedAst,
+    receiverType,
+    expectedReceiverType,
+    adaptedContext
+  );
+};
+
 /**
  * Try to emit an extension method call. Returns undefined if the call
  * is not an extension method invocation.
@@ -81,12 +136,7 @@ export const tryEmitExtensionMethodCall = (
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (expr.callee.kind !== "memberAccess") return undefined;
 
-  const recoveredReceiverBinding = resolveRecoveredReceiverBinding(
-    expr,
-    context
-  );
-
-  const binding = expr.callee.memberBinding ?? recoveredReceiverBinding;
+  const binding = expr.callee.memberBinding;
   if (!binding?.isExtensionMethod) return undefined;
   if (!isInstanceMemberAccess(expr.callee, context)) return undefined;
   if (
@@ -212,8 +262,20 @@ export const tryEmitExtensionMethodCall = (
   );
   currentContext = argContext;
 
+  const [adaptedReceiverAst, adaptedReceiverContext] = adaptExtensionReceiverAst(
+    receiverExpr,
+    receiverAst,
+    receiverType,
+    binding.receiverExpectedType,
+    currentContext
+  );
+  currentContext = adaptedReceiverContext;
+
   // Prepend receiver as first argument (static extension call)
-  const allArgAsts: readonly CSharpExpressionAst[] = [receiverAst, ...argAsts];
+  const allArgAsts: readonly CSharpExpressionAst[] = [
+    adaptedReceiverAst,
+    ...argAsts,
+  ];
 
   const invocation: CSharpExpressionAst = {
     kind: "invocationExpression",

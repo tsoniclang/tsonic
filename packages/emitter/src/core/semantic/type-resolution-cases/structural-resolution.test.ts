@@ -199,6 +199,44 @@ describe("type-resolution", () => {
       });
     });
 
+    it("preserves generic type arguments when rebinding compiler-generated structural references", () => {
+      const localTypes = new Map<string, LocalTypeInfo>([
+        [
+          "__Anon_wrap",
+          {
+            kind: "class",
+            typeParameters: ["T"],
+            members: [
+              {
+                kind: "propertyDeclaration",
+                name: "value",
+                type: { kind: "typeParameterType", name: "T" },
+                accessibility: "public",
+                isStatic: false,
+                isReadonly: false,
+              },
+            ],
+            implements: [],
+          },
+        ],
+      ]);
+
+      const result = resolveStructuralReferenceType(
+        {
+          kind: "referenceType",
+          name: "__Anon_wrap",
+          typeArguments: [{ kind: "primitiveType", name: "int" }],
+        },
+        makeContext(localTypes)
+      );
+
+      expect(result).to.deep.equal({
+        kind: "referenceType",
+        name: "__Anon_wrap",
+        typeArguments: [{ kind: "primitiveType", name: "int" }],
+      });
+    });
+
     it("prefers direct local structural identities over binding-backed name collisions", () => {
       const localTypes = new Map<string, LocalTypeInfo>([
         [
@@ -315,6 +353,110 @@ describe("type-resolution", () => {
         kind: "referenceType",
         name: "RouteLayer",
         resolvedClrType: "App.Http.RouteLayer__Alias",
+      });
+    });
+
+    it("rebinds structural object shapes to explicit binding-backed nominal types before anonymous carriers", () => {
+      const sharedShape: Extract<IrType, { kind: "objectType" }> = {
+        kind: "objectType",
+        members: [
+          {
+            kind: "propertySignature",
+            name: "recursive",
+            type: { kind: "primitiveType", name: "boolean" },
+            isOptional: true,
+            isReadonly: false,
+          },
+          {
+            kind: "propertySignature",
+            name: "mode",
+            type: { kind: "primitiveType", name: "int" },
+            isOptional: true,
+            isReadonly: false,
+          },
+        ],
+      };
+
+      const bindingsRegistry = new Map<string, FrontendTypeBinding>([
+        [
+          "__Anon_7701_6a8c0992",
+          {
+            name: "js.__Anon_7701_6a8c0992",
+            alias: "__Anon_7701_6a8c0992",
+            kind: "class",
+            members: [
+              {
+                kind: "property",
+                alias: "recursive",
+                name: "recursive",
+                semanticType: { kind: "primitiveType", name: "boolean" },
+                semanticOptional: true,
+                binding: {
+                  assembly: "js",
+                  type: "js.__Anon_7701_6a8c0992",
+                  member: "recursive",
+                },
+              },
+              {
+                kind: "property",
+                alias: "mode",
+                name: "mode",
+                semanticType: { kind: "primitiveType", name: "int" },
+                semanticOptional: true,
+                binding: {
+                  assembly: "js",
+                  type: "js.__Anon_7701_6a8c0992",
+                  member: "mode",
+                },
+              },
+            ],
+          },
+        ],
+        [
+          "MkdirOptions",
+          {
+            name: "nodejs.MkdirOptions",
+            alias: "MkdirOptions",
+            kind: "class",
+            members: [
+              {
+                kind: "property",
+                alias: "recursive",
+                name: "recursive",
+                semanticType: { kind: "primitiveType", name: "boolean" },
+                semanticOptional: true,
+                binding: {
+                  assembly: "nodejs",
+                  type: "nodejs.MkdirOptions",
+                  member: "recursive",
+                },
+              },
+              {
+                kind: "property",
+                alias: "mode",
+                name: "mode",
+                semanticType: { kind: "primitiveType", name: "int" },
+                semanticOptional: true,
+                binding: {
+                  assembly: "nodejs",
+                  type: "nodejs.MkdirOptions",
+                  member: "mode",
+                },
+              },
+            ],
+          },
+        ],
+      ]);
+
+      const result = resolveStructuralReferenceType(sharedShape, {
+        ...makeContext(),
+        bindingsRegistry,
+      });
+
+      expect(result).to.deep.equal({
+        kind: "referenceType",
+        name: "MkdirOptions",
+        resolvedClrType: "nodejs.MkdirOptions",
       });
     });
 

@@ -207,6 +207,12 @@ export type ParameterMode = "value" | "ref" | "out" | "in";
 /** Poison type for undeterminable types */
 export const unknownType: IrType = { kind: "unknownType" };
 
+/** Explicit user-authored `unknown` type */
+export const explicitUnknownType: IrType = {
+  kind: "unknownType",
+  explicit: true,
+};
+
 /** Poison type for impossible types */
 export const neverType: IrType = { kind: "neverType" };
 

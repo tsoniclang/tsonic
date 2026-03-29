@@ -6,6 +6,7 @@
  */
 
 import * as ts from "typescript";
+import * as path from "node:path";
 import type {
   TypeRegistry,
   TypeRegistryEntry,
@@ -23,7 +24,10 @@ import {
   extractHeritage,
 } from "./registry-helpers.js";
 import type { IrType } from "../../types/index.js";
-import { resolveSourceFileNamespace } from "../../../program/source-file-identity.js";
+import {
+  resolveSourceFileNamespace,
+  resolveSourceFileOwnerIdentity,
+} from "../../../program/source-file-identity.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BUILD FUNCTION
@@ -49,6 +53,8 @@ export const buildTypeRegistry = (
   const entries = new Map<string, TypeRegistryEntry>();
   // Map from simple name to FQ name (for reverse lookup)
   const simpleNameToFQ = new Map<string, string>();
+  const simpleNameToFQs = new Map<string, Set<string>>();
+  const ambiguousSimpleNames = new Set<string>();
 
   // Default converter returns unknownType (used during bootstrap)
   const convert: ConvertTypeFn =
@@ -58,7 +64,8 @@ export const buildTypeRegistry = (
   const processDeclaration = (
     node: ts.Node,
     sf: ts.SourceFile,
-    ns: string | undefined
+    ns: string | undefined,
+    ownerIdentity: string
   ): void => {
     // Check if this file is from a well-known Tsonic library
     const isFromWellKnownLib = isWellKnownLibrary(sf.fileName);
@@ -87,6 +94,29 @@ export const buildTypeRegistry = (
       return ns ? `${ns}.${simpleName}` : simpleName;
     };
 
+    const recordSimpleName = (simpleName: string, fqName: string): void => {
+      const fqSet = simpleNameToFQs.get(simpleName) ?? new Set<string>();
+      fqSet.add(fqName);
+      simpleNameToFQs.set(simpleName, fqSet);
+
+      if (ambiguousSimpleNames.has(simpleName)) {
+        return;
+      }
+
+      const existing = simpleNameToFQ.get(simpleName);
+      if (!existing) {
+        simpleNameToFQ.set(simpleName, fqName);
+        return;
+      }
+
+      if (existing === fqName) {
+        return;
+      }
+
+      simpleNameToFQ.delete(simpleName);
+      ambiguousSimpleNames.add(simpleName);
+    };
+
     // Class declarations
     if (ts.isClassDeclaration(node) && node.name) {
       const simpleName = node.name.text;
@@ -97,7 +127,9 @@ export const buildTypeRegistry = (
         kind: "class",
         name: simpleName,
         fullyQualifiedName: fqName,
+        ownerIdentity,
         isDeclarationFile: sf.isDeclarationFile,
+        preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
         typeParameters: extractTypeParameters(node.typeParameters, convert),
         members: extractMembers(node.members, convert),
         heritage: extractHeritage(
@@ -110,7 +142,7 @@ export const buildTypeRegistry = (
         ),
       });
 
-      simpleNameToFQ.set(simpleName, fqName);
+      recordSimpleName(simpleName, fqName);
     }
 
     // Interface declarations
@@ -126,13 +158,15 @@ export const buildTypeRegistry = (
           kind: "typeAlias",
           name: simpleName,
           fullyQualifiedName: fqName,
+          ownerIdentity,
           isDeclarationFile: sf.isDeclarationFile,
+          preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
           typeParameters: [],
           members: aliasedMembers,
           heritage: [],
           aliasedType: callableAlias,
         });
-        simpleNameToFQ.set(simpleName, fqName);
+        recordSimpleName(simpleName, fqName);
       } else {
         // Merge with existing interface (for module augmentation)
         const existing = entries.get(fqName);
@@ -149,6 +183,7 @@ export const buildTypeRegistry = (
           entries.set(fqName, {
             ...existing,
             isDeclarationFile: existing.isDeclarationFile,
+            preservesAssemblyIdentity: existing.preservesAssemblyIdentity,
             members: mergedMembers,
             heritage: [
               ...existing.heritage,
@@ -167,7 +202,9 @@ export const buildTypeRegistry = (
             kind: "interface",
             name: simpleName,
             fullyQualifiedName: fqName,
+            ownerIdentity,
             isDeclarationFile: sf.isDeclarationFile,
+            preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
             typeParameters: extractTypeParameters(node.typeParameters, convert),
             members: extractMembers(node.members, convert),
             heritage: extractHeritage(
@@ -179,7 +216,7 @@ export const buildTypeRegistry = (
               canonicalize
             ),
           });
-          simpleNameToFQ.set(simpleName, fqName);
+          recordSimpleName(simpleName, fqName);
         }
       }
     }
@@ -197,14 +234,16 @@ export const buildTypeRegistry = (
         kind: "typeAlias",
         name: simpleName,
         fullyQualifiedName: fqName,
+        ownerIdentity,
         isDeclarationFile: sf.isDeclarationFile,
+        preservesAssemblyIdentity: preservesAssemblyIdentity(sf.fileName),
         typeParameters: extractTypeParameters(node.typeParameters, convert),
         members: aliasedMembers,
         heritage: [],
         aliasedType,
       });
 
-      simpleNameToFQ.set(simpleName, fqName);
+      recordSimpleName(simpleName, fqName);
     }
 
     // Handle 'declare global { ... }' blocks
@@ -216,12 +255,17 @@ export const buildTypeRegistry = (
       ts.isModuleBlock(node.body)
     ) {
       for (const stmt of node.body.statements) {
-        processDeclaration(stmt, sf, undefined);
+        processDeclaration(stmt, sf, undefined, ownerIdentity);
       }
     }
   };
 
   for (const sourceFile of sourceFiles) {
+    const ownerIdentity = resolveSourceFileOwnerIdentity(
+      sourceFile.fileName,
+      sourceRoot,
+      rootNamespace
+    );
     const namespace = sourceFile.isDeclarationFile
       ? undefined
       : resolveSourceFileNamespace(
@@ -231,7 +275,7 @@ export const buildTypeRegistry = (
         );
 
     ts.forEachChild(sourceFile, (node) => {
-      processDeclaration(node, sourceFile, namespace);
+      processDeclaration(node, sourceFile, namespace, ownerIdentity);
     });
   }
 
@@ -250,6 +294,10 @@ export const buildTypeRegistry = (
 
     getFQName: (simpleName: string): string | undefined => {
       return simpleNameToFQ.get(simpleName);
+    },
+
+    getFQNames: (simpleName: string): readonly string[] => {
+      return [...(simpleNameToFQs.get(simpleName) ?? [])];
     },
 
     getMemberType: (
@@ -276,3 +324,8 @@ export const buildTypeRegistry = (
     },
   };
 };
+  const preservesAssemblyIdentity = (fileName: string): boolean => {
+    const normalized =
+      path.sep === "/" ? fileName : fileName.replace(/\\/g, "/");
+    return normalized.includes("/tsonic/bindings/");
+  };

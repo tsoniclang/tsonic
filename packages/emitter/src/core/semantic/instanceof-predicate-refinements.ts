@@ -4,14 +4,13 @@
  */
 
 import { IrExpression, stableIrTypeKey } from "@tsonic/frontend";
-import type { EmitterContext, NarrowedBinding } from "../../types.js";
+import type { EmitterContext } from "../../types.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { getMemberAccessNarrowKey } from "./narrowing-keys.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
-  findRuntimeUnionMemberIndices,
 } from "./runtime-unions.js";
 import { normalizeInstanceofTargetType } from "./instanceof-targets.js";
 import { unwrapTransparentNarrowingTarget } from "./transparent-expressions.js";
@@ -27,6 +26,7 @@ import {
   currentNarrowedType,
   resolveRuntimeUnionFrame,
   resolveRuntimeSubsetSourceInfo,
+  resolveExistingNarrowingSourceType,
   buildRuntimeUnionComplementBinding,
   applyDirectTypeNarrowing,
 } from "./narrowing-builders.js";
@@ -218,7 +218,11 @@ export const applyInstanceofRefinement = (
     buildExprBinding(
       exprAst,
       guard.targetType,
-      guard.currentType,
+      resolveExistingNarrowingSourceType(
+        guard.originalName,
+        guard.currentType,
+        context
+      ),
       guard.receiverAst
     ),
     guard.contextAfter
@@ -277,120 +281,6 @@ export const applyPredicateCallRefinement = (
         );
   if (!narrowedType) {
     return undefined;
-  }
-
-  const [rawTargetAst, rawTargetContext] = emitExprAst(
-    target,
-    withoutNarrowedBinding(context, bindingKey)
-  );
-  const runtimeUnionFrame = resolveRuntimeUnionFrame(
-    bindingKey,
-    currentType,
-    rawTargetContext
-  );
-
-  if (runtimeUnionFrame) {
-    const matchingIndices = findRuntimeUnionMemberIndices(
-      runtimeUnionFrame.members,
-      narrowing.targetType,
-      rawTargetContext
-    );
-    const singleMatchIndex =
-      matchingIndices.length === 1 ? matchingIndices[0] : undefined;
-    const selectedMemberN =
-      singleMatchIndex !== undefined
-        ? (runtimeUnionFrame.candidateMemberNs[singleMatchIndex] ??
-          singleMatchIndex + 1)
-        : undefined;
-
-    if (selectedMemberN !== undefined) {
-      if (branch === "truthy") {
-        return applyDirectTypeNarrowing(
-          bindingKey,
-          target,
-          narrowedType,
-          context,
-          emitExprAst
-        );
-      }
-
-      const complementBinding = buildRuntimeUnionComplementBinding(
-        rawTargetAst,
-        runtimeUnionFrame,
-        currentType,
-        narrowedType,
-        selectedMemberN,
-        rawTargetContext,
-        resolveRuntimeSubsetSourceInfo(
-          bindingKey,
-          currentType,
-          runtimeUnionFrame,
-          context
-        )
-      );
-      if (complementBinding) {
-        return applyBinding(bindingKey, complementBinding, rawTargetContext);
-      }
-    }
-
-    // Multi-slot predicate targets: a semantic alias (e.g., PathSpec)
-    // may map to multiple runtime carrier slots after alias expansion.
-    // Build runtimeSubset bindings so that both branches carry correct
-    // runtime-slot knowledge.
-    if (matchingIndices.length > 1) {
-      const matchedMemberNs = matchingIndices
-        .map((index) => runtimeUnionFrame.candidateMemberNs[index] ?? index + 1)
-        .filter((n): n is number => n !== undefined);
-      const complementMemberNs = runtimeUnionFrame.candidateMemberNs.filter(
-        (memberN) => !matchedMemberNs.includes(memberN)
-      );
-
-      if (branch === "truthy" && matchedMemberNs.length > 0) {
-        const sourceInfo = resolveRuntimeSubsetSourceInfo(
-          bindingKey,
-          currentType,
-          runtimeUnionFrame,
-          context
-        );
-        const subsetBinding: NarrowedBinding = {
-          kind: "runtimeSubset",
-          runtimeMemberNs: matchedMemberNs,
-          runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
-          sourceMembers: sourceInfo.sourceMembers
-            ? [...sourceInfo.sourceMembers]
-            : undefined,
-          sourceCandidateMemberNs: sourceInfo.sourceCandidateMemberNs
-            ? [...sourceInfo.sourceCandidateMemberNs]
-            : undefined,
-          type: narrowedType,
-          sourceType: sourceInfo.sourceType,
-        };
-        return applyBinding(bindingKey, subsetBinding, rawTargetContext);
-      }
-
-      if (branch === "falsy" && complementMemberNs.length > 0) {
-        const sourceInfo = resolveRuntimeSubsetSourceInfo(
-          bindingKey,
-          currentType,
-          runtimeUnionFrame,
-          context
-        );
-        const complementBinding: NarrowedBinding = {
-          kind: "runtimeSubset",
-          runtimeMemberNs: complementMemberNs,
-          runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
-          sourceMembers: sourceInfo.sourceMembers
-            ? [...sourceInfo.sourceMembers]
-            : undefined,
-          sourceCandidateMemberNs: sourceInfo.sourceCandidateMemberNs
-            ? [...sourceInfo.sourceCandidateMemberNs]
-            : undefined,
-          type: narrowedType,
-          sourceType: sourceInfo.sourceType,
-        };
-        return applyBinding(bindingKey, complementBinding, rawTargetContext);
-      }
-    }
   }
 
   return applyDirectTypeNarrowing(

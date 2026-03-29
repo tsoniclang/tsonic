@@ -206,12 +206,42 @@ export const proveNarrowing = (
   // Case 4: Inner expression is a unary operation
   if (innerExpr.kind === "unary") {
     if (
+      (innerExpr.operator === "-" || innerExpr.operator === "+") &&
+      innerExpr.expression.kind === "literal" &&
+      typeof innerExpr.expression.value === "number"
+    ) {
+      const signedLiteral =
+        innerExpr.operator === "-"
+          ? -innerExpr.expression.value
+          : innerExpr.expression.value;
+      const signedRaw =
+        innerExpr.operator === "-"
+          ? `-${innerExpr.expression.raw ?? String(innerExpr.expression.value)}`
+          : (innerExpr.expression.raw ?? String(innerExpr.expression.value));
+      const proof = proveLiteral(
+        signedLiteral,
+        signedRaw,
+        targetKind,
+        ctx,
+        innerExpr.sourceSpan ?? location
+      );
+      if (proof === undefined) {
+        return undefined;
+      }
+      return proof;
+    }
+
+    if (
       innerExpr.operator === "-" ||
       innerExpr.operator === "+" ||
       innerExpr.operator === "~"
     ) {
       const operandKind = inferNumericKind(innerExpr.expression, ctx);
-      if (operandKind !== undefined && operandKind === targetKind) {
+      if (
+        operandKind !== undefined &&
+        (operandKind === targetKind ||
+          isWideningConversion(operandKind, targetKind))
+      ) {
         return {
           kind: targetKind,
           source: {

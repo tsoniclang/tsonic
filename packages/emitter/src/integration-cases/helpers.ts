@@ -16,6 +16,42 @@ import { emitCSharpFiles } from "../emitter.js";
 import type { EmitterOptions } from "../types.js";
 
 const require = createRequire(import.meta.url);
+const readSourcePackageAmbientPaths = (
+  packageRoot: string
+): readonly string[] => {
+  const manifestPath = path.join(packageRoot, "tsonic.package.json");
+  if (!ts.sys.fileExists(manifestPath)) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(ts.sys.readFile(manifestPath) ?? "") as {
+      readonly kind?: unknown;
+      readonly source?: { readonly ambient?: unknown };
+    };
+    if (parsed.kind !== "tsonic-source-package") {
+      return [];
+    }
+
+    const ambientEntries = Array.isArray(parsed.source?.ambient)
+      ? parsed.source.ambient.filter(
+          (entry): entry is string =>
+            typeof entry === "string" && entry.trim().length > 0
+        )
+      : [];
+
+    return ambientEntries
+      .map((entry) => path.resolve(packageRoot, entry))
+      .filter((entry) => ts.sys.fileExists(entry));
+  } catch {
+    return [];
+  }
+};
+
+const isNativeSourcePackageRoot = (packageRoot: string): boolean =>
+  readSourcePackageAmbientPaths(packageRoot).length > 0 ||
+  ts.sys.fileExists(path.join(packageRoot, "tsonic.package.json"));
+
 const findNearestPackageRoot = (
   resolvedFilePath: string
 ): string | undefined => {
@@ -35,7 +71,14 @@ const findNearestPackageRoot = (
   }
 };
 
-const resolveDeclarationFilePath = (resolvedFilePath: string): string => {
+const resolveModuleFilePath = (
+  resolvedFilePath: string,
+  packageRoot: string
+): string => {
+  if (isNativeSourcePackageRoot(packageRoot)) {
+    return resolvedFilePath;
+  }
+
   if (resolvedFilePath.endsWith(".d.ts") || resolvedFilePath.endsWith(".ts")) {
     return resolvedFilePath;
   }
@@ -51,6 +94,11 @@ const resolveDeclarationFilePath = (resolvedFilePath: string): string => {
 };
 
 const scanDeclarationFiles = (dir: string): readonly string[] => {
+  const ambientPaths = readSourcePackageAmbientPaths(dir);
+  if (ambientPaths.length > 0) {
+    return ambientPaths;
+  }
+
   if (!ts.sys.directoryExists(dir)) {
     return [];
   }
@@ -59,7 +107,16 @@ const scanDeclarationFiles = (dir: string): readonly string[] => {
   for (const entry of ts.sys.readDirectory(dir, [".d.ts"], undefined, [
     "**/*.d.ts",
   ])) {
-    if (entry.includes("/node_modules/") || entry.endsWith("/core-globals.d.ts")) {
+    const relativeEntry = path.relative(dir, path.resolve(entry));
+    if (relativeEntry.startsWith("..")) {
+      continue;
+    }
+
+    const relativeSegments = relativeEntry.split(path.sep);
+    if (
+      relativeSegments.includes("node_modules") ||
+      entry.endsWith("/core-globals.d.ts")
+    ) {
       continue;
     }
     results.push(path.resolve(entry));
@@ -111,12 +168,12 @@ const resolveTsonicModule = (
     return undefined;
   }
 
-  const declarationPath = resolveDeclarationFilePath(resolvedFilePath);
+  const modulePath = resolveModuleFilePath(resolvedFilePath, packageRoot);
 
   return {
-    filePath: declarationPath,
+    filePath: modulePath,
     packageRoot,
-    extension: getModuleResolutionExtension(declarationPath),
+    extension: getModuleResolutionExtension(modulePath),
   };
 };
 
@@ -128,7 +185,10 @@ export const compileToCSharp = (
   const resolvedPackageRoots = new Set<string>();
   resolvedPackageRoots.add(corePackageRoot);
 
-  if (typeof emitOptions.surface === "string" && emitOptions.surface.startsWith("@")) {
+  if (
+    typeof emitOptions.surface === "string" &&
+    emitOptions.surface.startsWith("@")
+  ) {
     const surfaceEntry = resolveTsonicModule(`${emitOptions.surface}/index.js`);
     if (surfaceEntry) {
       resolvedPackageRoots.add(surfaceEntry.packageRoot);
@@ -283,6 +343,7 @@ export const compileToCSharp = (
 
   const emitResult = emitCSharpFiles(attributeResult.modules, {
     rootNamespace: "Test",
+    bindingRegistry: tsonicProgram.bindings,
     ...emitOptions,
   });
   if (!emitResult.ok) {

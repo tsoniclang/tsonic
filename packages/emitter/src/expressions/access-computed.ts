@@ -14,6 +14,7 @@ import { emitExpressionAst } from "../expression-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
 import {
   resolveTypeAlias,
+  resolveArrayLikeReceiverType,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
 import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
@@ -30,6 +31,27 @@ import {
   type MemberAccessUsage,
 } from "./access-resolution.js";
 import { buildJsSafeDictionaryReadAst } from "./dictionary-safe-access.js";
+import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
+import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
+
+const isRuntimeUnionMemberProjectionAst = (
+  exprAst: CSharpExpressionAst
+): boolean => {
+  let target = exprAst;
+  while (
+    target.kind === "parenthesizedExpression" ||
+    target.kind === "castExpression"
+  ) {
+    target = target.expression;
+  }
+
+  return (
+    target.kind === "invocationExpression" &&
+    target.arguments.length === 0 &&
+    target.expression.kind === "memberAccessExpression" &&
+    /^As\d+$/.test(target.expression.memberName)
+  );
+};
 
 const buildSafeJsStringIndexAst = (
   objectAst: CSharpExpressionAst,
@@ -129,15 +151,6 @@ const buildSafeJsStringIndexAst = (
   };
 };
 
-const hasMethodBackedIntIndexer = (
-  objectType: IrType | undefined,
-  context: EmitterContext
-): boolean => {
-  if (!objectType) return false;
-  const resolved = resolveTypeAlias(stripNullish(objectType), context);
-  return resolved.kind === "referenceType" && resolved.name === "Buffer";
-};
-
 /**
  * Emit a computed member access expression as CSharpExpressionAst.
  *
@@ -172,38 +185,6 @@ export const emitComputedAccess = (
   const resolvedObjectType = objectType
     ? resolveTypeAlias(stripNullish(objectType), context)
     : undefined;
-  const usesMethodBackedIndexer =
-    hasMethodBackedIntIndexer(objectType, context) && hasInt32Proof(indexExpr);
-
-  if (usesMethodBackedIndexer) {
-    if (expr.isOptional) {
-      return [
-        {
-          kind: "invocationExpression",
-          expression: {
-            kind: "conditionalMemberAccessExpression",
-            expression: objectAst,
-            memberName: "at",
-          },
-          arguments: [propAst],
-        },
-        finalContext,
-      ];
-    }
-
-    return [
-      {
-        kind: "invocationExpression",
-        expression: {
-          kind: "memberAccessExpression",
-          expression: objectAst,
-          memberName: "at",
-        },
-        arguments: [propAst],
-      },
-      finalContext,
-    ];
-  }
 
   if (accessKind === "dictionary") {
     if (context.options.surface === "@tsonic/js" && usage !== "write") {
@@ -245,6 +226,36 @@ export const emitComputedAccess = (
         `Expression '${propText}' has no Int32 proof. ` +
         `This should have been caught by the numeric proof pass (TSN5107).`
     );
+  }
+
+  if (expr.accessProtocol?.getterMember) {
+    if (expr.isOptional) {
+      return [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "conditionalMemberAccessExpression",
+            expression: objectAst,
+            memberName: expr.accessProtocol.getterMember,
+          },
+          arguments: [propAst],
+        },
+        finalContext,
+      ];
+    }
+
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: objectAst,
+          memberName: expr.accessProtocol.getterMember,
+        },
+        arguments: [propAst],
+      },
+      finalContext,
+    ];
   }
 
   if (accessKind === "stringChar") {
@@ -296,11 +307,31 @@ export const emitComputedAccess = (
     expression: objectAst,
     arguments: [propAst],
   };
+
+  const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
+  const desiredType = expectedType ?? expr.inferredType;
+  if (usage === "value" && arrayLikeReceiver && isRuntimeUnionMemberProjectionAst(objectAst)) {
+    const storageReceiverType =
+      normalizeRuntimeStorageType(objectType, context) ?? objectType;
+    const storageElementType =
+      storageReceiverType &&
+      resolveArrayLikeReceiverType(storageReceiverType, context)?.elementType;
+    const adapted = adaptStorageErasedValueAst({
+      valueAst: accessAst,
+      semanticType: expr.inferredType,
+      storageType: storageElementType,
+      expectedType: desiredType,
+      context: finalContext,
+      emitTypeAst,
+    });
+    return adapted ?? [accessAst, finalContext];
+  }
+
   return usage === "value"
     ? maybeReifyErasedArrayElement(
         accessAst,
         expr.object,
-        expectedType ?? expr.inferredType,
+        desiredType,
         finalContext
       )
     : [accessAst, finalContext];

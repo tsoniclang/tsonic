@@ -1,20 +1,21 @@
 import type { IrType } from "@tsonic/frontend";
 
 /**
- * JS-surface global constructors (e.g. Uint8Array, Date, Map) are modeled in
- * TypeScript as constructor objects, but C# `is` patterns must target the
- * instance type. Normalize synthetic `*Constructor` reference types back to the
- * instance type for emitter-side instanceof lowering.
+ * Emitter-side instanceof target normalization.
+ *
+ * The frontend should already attach the explicit instance target type. The
+ * emitter only normalizes native array/tuple runtime shapes to the C# array
+ * type used in `is` patterns.
  */
 export const normalizeInstanceofTargetType = (
   type: IrType | undefined
 ): IrType | undefined => {
   if (!type) return undefined;
-  if (type.kind === "referenceType" && type.name.endsWith("Constructor")) {
+  if (type.kind === "arrayType" || type.kind === "tupleType") {
     return {
       kind: "referenceType",
-      name: type.name.slice(0, -"Constructor".length),
-      resolvedClrType: type.resolvedClrType,
+      name: "Array",
+      resolvedClrType: "System.Array",
     };
   }
 

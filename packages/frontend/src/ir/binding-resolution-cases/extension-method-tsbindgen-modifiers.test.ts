@@ -193,20 +193,20 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
-        namespace: "Tsonic.JSRuntime",
+      bindings.addBindings("/test/js/bindings.json", {
+        namespace: "js",
         types: [
           {
             clrName: "System.Double",
-            assemblyName: "Tsonic.JSRuntime",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "toFixed",
                 normalizedSignature:
                   "toFixed|(System.Double,System.Int32):System.String|static=true",
                 parameterCount: 2,
-                declaringClrType: "Tsonic.JSRuntime.NumberExtensions",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.NumberExtensions",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -234,7 +234,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(ret.expression.callee.memberBinding).to.not.equal(undefined);
       expect(ret.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.NumberExtensions"
+        "js.NumberExtensions"
       );
       expect(ret.expression.callee.memberBinding?.member).to.equal("toFixed");
       expect(ret.expression.callee.memberBinding?.isExtensionMethod).to.equal(
@@ -252,20 +252,20 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
-        namespace: "Tsonic.JSRuntime",
+      bindings.addBindings("/test/js/bindings.json", {
+        namespace: "js",
         types: [
           {
             clrName: "System.Array",
-            assemblyName: "Tsonic.JSRuntime",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "join",
                 normalizedSignature:
                   "join|(System.Array,System.String):System.String|static=true",
                 parameterCount: 2,
-                declaringClrType: "Tsonic.JSRuntime.ArrayExtensions",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.ArrayExtensions",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -293,7 +293,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(ret.expression.callee.memberBinding).to.not.equal(undefined);
       expect(ret.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.ArrayExtensions"
+        "js.ArrayExtensions"
       );
       expect(ret.expression.callee.memberBinding?.member).to.equal("join");
       expect(ret.expression.callee.memberBinding?.isExtensionMethod).to.equal(

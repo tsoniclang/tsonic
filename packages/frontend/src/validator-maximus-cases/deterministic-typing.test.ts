@@ -5,6 +5,7 @@ describe("Maximus Validation Coverage", () => {
     const allowCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
+      readonly extraFiles?: Readonly<Record<string, string>>;
     }> = [
       {
         name: "expected-return generic inference through helper call",
@@ -183,11 +184,136 @@ describe("Maximus Validation Coverage", () => {
           void AssertionErrorLike;
         `,
       },
+      {
+        name: "imported generic function values satisfy monomorphic super-call parameters",
+        source: `
+          import { id } from "/test/lib.ts";
+
+          class Base<T> {
+            public constructor(fn: (value: T) => T) {
+              void fn;
+            }
+          }
+
+          class Derived extends Base<string> {
+            public constructor() {
+              super(id);
+            }
+          }
+
+          void Derived;
+        `,
+        extraFiles: {
+          "/test/lib.ts": `
+            export const id = <T>(value: T): T => value;
+          `,
+        },
+      },
+      {
+        name: "imported generic function values satisfy instantiated generic base super-call parameters",
+        source: `
+          import { numericIdentity } from "/test/lib.ts";
+
+          class Base<T extends number, TSelf extends Base<T, TSelf>> {
+            public constructor(
+              zeroValue: T,
+              toNumeric: (value: T) => number,
+              wrap: (values: T[]) => TSelf
+            ) {
+              void zeroValue;
+              void toNumeric;
+              void wrap;
+            }
+          }
+
+          function wrapNumberBox(values: number[]): NumberBox {
+            void values;
+            return undefined as unknown as NumberBox;
+          }
+
+          class NumberBox extends Base<number, NumberBox> {
+            public constructor() {
+              super(0, numericIdentity, wrapNumberBox);
+            }
+          }
+
+          void NumberBox;
+        `,
+        extraFiles: {
+          "/test/lib.ts": `
+            export const numericIdentity = <T extends number>(value: T): number => value;
+          `,
+        },
+      },
+      {
+        name: "recursive self-typed base constructors keep super-call typing deterministic",
+        source: `
+          import { numericIdentity } from "/test/lib.ts";
+
+          type TypedInput<
+            TElement extends number,
+            TSelf extends TypedArrayBase<TElement, TSelf>
+          > =
+            | TElement[]
+            | TSelf
+            | Iterable<number>;
+
+          class TypedArrayBase<
+            TElement extends number,
+            TSelf extends TypedArrayBase<TElement, TSelf>
+          > {
+            public constructor(
+              lengthOrValues: number | TypedInput<TElement, TSelf>,
+              zeroValue: TElement,
+              normalizeElement: (value: number) => TElement,
+              toNumericValue: (value: TElement) => number,
+              wrap: (values: TElement[]) => TSelf
+            ) {
+              void lengthOrValues;
+              void zeroValue;
+              void normalizeElement;
+              void toNumericValue;
+              void wrap;
+            }
+          }
+
+          function normalizeUint8(value: number): number {
+            return value;
+          }
+
+          function wrapUint8Array(values: number[]): Uint8ArrayLike {
+            void values;
+            return undefined as unknown as Uint8ArrayLike;
+          }
+
+          class Uint8ArrayLike extends TypedArrayBase<number, Uint8ArrayLike> {
+            public static readonly BYTES_PER_ELEMENT: number = 1;
+
+            public constructor(lengthOrValues: number | TypedInput<number, Uint8ArrayLike>) {
+              super(
+                lengthOrValues,
+                Uint8ArrayLike.BYTES_PER_ELEMENT,
+                0,
+                normalizeUint8,
+                numericIdentity,
+                wrapUint8Array
+              );
+            }
+          }
+
+          void Uint8ArrayLike;
+        `,
+        extraFiles: {
+          "/test/lib.ts": `
+            export const numericIdentity = <T extends number>(value: T): number => value;
+          `,
+        },
+      },
     ];
 
     for (const c of allowCases) {
       it(`avoids deterministic diagnostics for ${c.name}`, () => {
-        const codes = collectCodes(c.source);
+        const codes = collectCodes(c.source, c.extraFiles);
         expect(codes.includes("TSN5201")).to.equal(false);
         expect(codes.includes("TSN5202")).to.equal(false);
         expect(codes.includes("TSN5203")).to.equal(false);

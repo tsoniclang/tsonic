@@ -227,7 +227,16 @@ describe("IR Builder", function () {
         expect(itemsInit?.kind).to.equal("typeAssertion");
         if (!itemsInit || itemsInit.kind !== "typeAssertion") return;
 
-        expect(itemsInit.expression.inferredType?.kind).to.equal("unknownType");
+        expect(itemsInit.expression.inferredType?.kind).to.equal("arrayType");
+        if (
+          !itemsInit.expression.inferredType ||
+          itemsInit.expression.inferredType.kind !== "arrayType"
+        ) {
+          return;
+        }
+        expect(itemsInit.expression.inferredType.elementType.kind).to.equal(
+          "unknownType"
+        );
 
         const itemsType = itemsInit.targetType;
         expect(itemsType?.kind).to.equal("arrayType");

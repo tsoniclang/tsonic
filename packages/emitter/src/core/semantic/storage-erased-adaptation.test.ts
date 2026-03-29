@@ -25,6 +25,26 @@ describe("storage-erased-adaptation", () => {
     ).to.equal(true);
   });
 
+  it("does not treat generic reference types with different type arguments as assignment-compatible", () => {
+    const context = createContext({ rootNamespace: "Test" });
+
+    expect(
+      matchesSemanticExpectedType(
+        {
+          kind: "referenceType",
+          name: "Iterable",
+          typeArguments: [{ kind: "unknownType" }],
+        },
+        {
+          kind: "referenceType",
+          name: "Iterable",
+          typeArguments: [{ kind: "typeParameterType", name: "T" }],
+        },
+        context
+      )
+    ).to.equal(false);
+  });
+
   it("reuses the original value when storage already matches the expected type", () => {
     const context = createContext({ rootNamespace: "Test" });
     const valueAst = identifierExpression("value");

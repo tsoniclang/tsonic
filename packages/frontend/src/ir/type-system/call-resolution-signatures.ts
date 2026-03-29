@@ -3,7 +3,7 @@
  *
  * Sub-modules:
  * - call-resolution-signatures-raw.ts     : getRawSignature, lookupStructuralMember
- * - call-resolution-signatures-catalog.ts : computeReceiverSubstitution, tryResolveCallFromUnifiedCatalog
+ * - call-resolution-signatures-catalog.ts : computeReceiverSubstitution
  */
 
 export {
@@ -13,5 +13,4 @@ export {
 
 export {
   computeReceiverSubstitution,
-  tryResolveCallFromUnifiedCatalog,
 } from "./call-resolution-signatures-catalog.js";

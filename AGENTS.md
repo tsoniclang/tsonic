@@ -40,6 +40,9 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 
 ## Testing Workflow
 
+- Never add code branches, heuristics, compatibility shims, or special cases just to make tests pass.
+- When a test fails, fix the underlying compiler/runtime/package root cause or remove the invalid assumption from the test.
+
 Fast iteration (OK while developing / on external testbed projects):
 
 - Run a focused unit/golden subset (Mocha `--grep` works):
@@ -59,6 +62,8 @@ Policy:
 - Filtered runs are for iteration only; they must never be used as the final gate.
 - `--no-unit` / `run-e2e.sh` are for iteration only; final verification must include unit + golden tests.
 - If a change is substantial (emitter/type system/CLI/runtime behavior), run the full suite even during development.
+- Never change code, tests, fixtures, or expectations merely to make tests pass.
+- If a test fails, fix the root cause in product/compiler/runtime behavior rather than weakening coverage or encoding the current bug into the expected output.
 
 ## Publishing Workflow (to avoid main/npm drift)
 
@@ -86,6 +91,15 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 ## Compatibility Policy (IMPORTANT)
 
 - Backward compatibility is not required unless specifically and explicitly requested by the maintainer.
+- Do not preserve, add, or route through compatibility shims, bridge code, dual-path behavior, or legacy codepaths for native first-party packages.
+- Prefer breaking stale assumptions and fixing the real architecture over keeping old paths alive.
+
+## Truth Over Heuristics (IMPORTANT)
+
+- Do not add heuristic resolution, recovery, guessing, fallback binding, name-based inference, or best-effort behavior in compiler/runtime/package code.
+- If the compiler does not know something deterministically, it must fail with a real diagnostic rather than infer semantics from names, patterns, or partial metadata.
+- If a path or artifact is optional, discovery must prove it exists before reading it; do not probe and then silently recover.
+- Remove existing heuristic/native-compat code when touching that area unless the maintainer explicitly requests otherwise.
 
 ## ESM Only (IMPORTANT)
 

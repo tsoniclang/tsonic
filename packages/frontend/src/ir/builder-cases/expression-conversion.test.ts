@@ -88,6 +88,36 @@ describe("IR Builder", function () {
       }
     });
 
+    it("should lower import.meta.filename and dirname to deterministic string literals", () => {
+      const source = `
+        const file = import.meta.filename;
+        const dir = import.meta.dirname;
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        const fileDecl = result.value.body[0] as IrVariableDeclaration;
+        const fileInit = fileDecl.declarations[0]?.initializer;
+        expect(fileInit?.kind).to.equal("literal");
+        if (fileInit?.kind === "literal") {
+          expect(fileInit.value).to.equal("/test/test.ts");
+        }
+
+        const dirDecl = result.value.body[1] as IrVariableDeclaration;
+        const dirInit = dirDecl.declarations[0]?.initializer;
+        expect(dirInit?.kind).to.equal("literal");
+        if (dirInit?.kind === "literal") {
+          expect(dirInit.value).to.equal("/test");
+        }
+      }
+    });
+
     it("preserves unknown array element types through conditional spread arrays", () => {
       const source = `
         function inspect(value: unknown): string {

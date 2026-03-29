@@ -41,7 +41,7 @@ The frontend recognizes installed packages with:
 
 ```text
 package.json
-tsonic/package-manifest.json
+tsonic.package.json
 ```
 
 and kind:

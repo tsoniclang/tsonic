@@ -57,7 +57,7 @@ describe("expected-type-adaptation", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "global::Tsonic.JSRuntime.RegExp",
+          resolvedClrType: "global::js.RegExp",
         },
       ],
     };
@@ -80,7 +80,7 @@ describe("expected-type-adaptation", () => {
     });
 
     expect(result).to.not.equal(undefined);
-    expect(printExpression(result![0])).to.include("first.Match(");
+    expect(printExpression(result![0])).to.include("first.Match");
   });
 
   it("boxes JS numbers as doubles when adapting into unknown/object slots", () => {
@@ -247,7 +247,7 @@ describe("expected-type-adaptation", () => {
     });
 
     expect(result).to.not.equal(undefined);
-    expect(printExpression(result![0])).to.include("handler.Match(");
+    expect(printExpression(result![0])).to.include("handler.Match");
   });
 
   it("does not re-project asserted arrays when the emitted cast already matches the expected surface", () => {
@@ -280,7 +280,7 @@ describe("expected-type-adaptation", () => {
               {
                 kind: "referenceType",
                 name: "Error",
-                resolvedClrType: "global::Tsonic.JSRuntime.Error",
+                resolvedClrType: "global::js.Error",
               },
               { kind: "primitiveType", name: "undefined" },
             ],
@@ -353,6 +353,106 @@ describe("expected-type-adaptation", () => {
     expect(printExpression(adaptedAst)).to.equal("(object?[])(object)args");
   });
 
+  it("keeps locally declared Array<T> classes nominal during expected-type adaptation", () => {
+    const localArrayType: IrType = {
+      kind: "referenceType",
+      name: "Array",
+      typeArguments: [{ kind: "typeParameterType", name: "TResult" }],
+    };
+
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      }),
+      typeParameters: new Set<string>(["TResult"]),
+      localNameMap: new Map<string, string>([["array", "array"]]),
+      localSemanticTypes: new Map<string, IrType>([["array", localArrayType]]),
+      localValueTypes: new Map<string, IrType>([["array", localArrayType]]),
+      localTypes: new Map([
+        [
+          "Array",
+          {
+            kind: "class" as const,
+            typeParameters: ["TResult"],
+            members: [],
+            superClass: undefined,
+            implements: [],
+          },
+        ],
+      ]),
+    };
+
+    const [adaptedAst] = adaptEmittedExpressionAst({
+      expr: {
+        kind: "identifier",
+        name: "array",
+        inferredType: localArrayType,
+      },
+      valueAst: identifierExpression("array"),
+      context,
+      expectedType: localArrayType,
+    });
+
+    expect(printExpression(adaptedAst)).to.equal("array");
+  });
+
+  it("does not rematerialize nullable array-return calls when source and target emit the same surface", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const listenerType: IrType = {
+      kind: "referenceType",
+      name: "ListenerRegistration",
+      resolvedClrType: "Test.ListenerRegistration__Alias",
+    };
+    const actualType: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "referenceType",
+          name: "Array",
+          typeArguments: [listenerType],
+        },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+    const expectedType: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "arrayType",
+          elementType: listenerType,
+          origin: "explicit",
+        },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    };
+
+    const result = adaptValueToExpectedTypeAst({
+      valueAst: {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: identifierExpression("listenersByEvent"),
+          memberName: "get",
+        },
+        arguments: [identifierExpression("eventName")],
+      },
+      actualType,
+      context,
+      expectedType,
+      allowUnionNarrowing: false,
+    });
+
+    expect(result).to.not.equal(undefined);
+    expect(printExpression(result![0])).to.equal(
+      "listenersByEvent.get(eventName)"
+    );
+  });
+
   it("casts JS numeric expressions into integral expected slots", () => {
     const context = createContext({
       rootNamespace: "Test",
@@ -369,7 +469,7 @@ describe("expected-type-adaptation", () => {
     expect(printExpression(castAst)).to.equal("(int)value");
   });
 
-  it("casts JS numeric expressions into byte expected slots", () => {
+  it("does not cast representable integral literals into byte expected slots", () => {
     const context = createContext({
       rootNamespace: "Test",
       surface: "@tsonic/js",
@@ -391,7 +491,62 @@ describe("expected-type-adaptation", () => {
       }
     );
 
-    expect(printExpression(castAst)).to.equal("(byte)255");
+    expect(printExpression(castAst)).to.equal("255");
+  });
+
+  it("does not cast representable negative integral literals into exact int slots", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [castAst] = maybeCastNumericToExpectedIntegralAst(
+      {
+        kind: "prefixUnaryExpression",
+        operatorToken: "-",
+        operand: parseNumericLiteral("1"),
+      },
+      { kind: "primitiveType", name: "number" },
+      context,
+      { kind: "primitiveType", name: "int" }
+    );
+
+    expect(printExpression(castAst)).to.equal("-1");
+  });
+
+  it("does not layer an identical nullable exact-int cast twice", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [castAst] = maybeCastNumericToExpectedIntegralAst(
+      {
+        kind: "castExpression",
+        type: {
+          kind: "nullableType",
+          underlyingType: { kind: "predefinedType", keyword: "int" },
+        },
+        expression: identifierExpression("query.limit"),
+      },
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      },
+      context,
+      {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "undefined" },
+        ],
+      }
+    );
+
+    expect(printExpression(castAst)).to.equal("(int?)query.limit");
   });
 
   it("does not append .Value when the emitted AST already casts to a concrete value type", () => {

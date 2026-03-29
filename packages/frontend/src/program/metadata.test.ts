@@ -261,4 +261,112 @@ describe("Program Metadata", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("ignores CLR metadata files inside source package roots while traversing dependencies", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-metadata-source-package-")
+    );
+
+    try {
+      const sourceRoot = path.join(tempDir, "node_modules/@tsonic/js");
+      const dependencyRoot = path.join(tempDir, "node_modules/@tsonic/dotnet");
+      const ignoredBindingsRoot = path.join(sourceRoot, "Ignored");
+      const dependencyBindingsRoot = path.join(dependencyRoot, "System");
+
+      fs.mkdirSync(ignoredBindingsRoot, { recursive: true });
+      fs.mkdirSync(dependencyBindingsRoot, { recursive: true });
+
+      fs.writeFileSync(
+        path.join(sourceRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/js",
+            version: "1.0.0",
+            type: "module",
+            dependencies: {
+              "@tsonic/dotnet": "1.0.0",
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(sourceRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(ignoredBindingsRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            namespace: "Ignored",
+            types: [
+              {
+                clrName: "Ignored.ShouldNotLoad",
+                kind: "Class",
+                methods: [],
+              },
+            ],
+          },
+          null,
+          2
+        )
+      );
+
+      fs.writeFileSync(
+        path.join(dependencyRoot, "package.json"),
+        JSON.stringify(
+          {
+            name: "@tsonic/dotnet",
+            version: "1.0.0",
+            type: "module",
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(dependencyBindingsRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            namespace: "System",
+            types: [
+              {
+                clrName: "System.String",
+                kind: "Class",
+                methods: [],
+                properties: [],
+                fields: [],
+              },
+            ],
+          },
+          null,
+          2
+        )
+      );
+
+      const metadata = loadDotnetMetadata([sourceRoot]);
+      expect(metadata.getTypeMetadata("Ignored.ShouldNotLoad")).to.equal(
+        undefined
+      );
+      expect(metadata.getTypeMetadata("System.String")).to.not.equal(
+        undefined
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

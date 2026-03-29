@@ -10,6 +10,7 @@ import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPatternAst } from "../../patterns.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
 import { registerParameterTypes } from "../../core/semantic/symbol-types.js";
+import { stripNullableTypeAst } from "../../core/format/backend-ast/utils.js";
 import {
   identifierType,
   nullableType,
@@ -20,6 +21,17 @@ import type {
   CSharpTypeAst,
   CSharpExpressionAst,
 } from "../../core/format/backend-ast/types.js";
+import { registerLocalName } from "../../core/format/local-names.js";
+import {
+  canLowerParameterDefaultViaWrapper,
+  canEmitParameterDefaultInSignature,
+  computeWrapperPrefixLengths,
+  isCSharpOptionalParameterDefaultAst,
+  preservesNullableShadowType,
+  RuntimeParameterDefaultInfo,
+  signatureDefaultForInitializedParameter,
+  supportsNullCoalescingParameterDefault,
+} from "../parameter-defaults.js";
 
 export type SavedFunctionScopeContext = {
   readonly typeParameters: EmitterContext["typeParameters"];
@@ -72,6 +84,7 @@ export const seedLocalNameMapFromParameters = (
       currentContext = registerParameterTypes(
         p.pattern.name,
         p.type,
+        (p.isOptional || p.initializer !== undefined) && !p.isRest,
         currentContext
       );
     }
@@ -81,6 +94,62 @@ export const seedLocalNameMapFromParameters = (
     localNameMap: map,
     usedLocalNames: used,
   };
+};
+
+export const applyRuntimeParameterDefaultShadows = (
+  runtimeDefaults: readonly RuntimeParameterDefaultInfo[],
+  context: EmitterContext
+): [readonly CSharpStatementAst[], EmitterContext] => {
+  let currentContext = context;
+  const statements: CSharpStatementAst[] = [];
+
+  for (const runtimeDefault of runtimeDefaults) {
+    if (!runtimeDefault.sourceName) {
+      continue;
+    }
+
+    const allocated = allocateLocalName(
+      `__defaulted_${runtimeDefault.sourceName}`,
+      currentContext
+    );
+    currentContext = registerLocalName(
+      runtimeDefault.sourceName,
+      allocated.emittedName,
+      allocated.context
+    );
+    currentContext = registerParameterTypes(
+      runtimeDefault.sourceName,
+      runtimeDefault.semanticType,
+      false,
+      currentContext
+    );
+
+    statements.push({
+      kind: "localDeclarationStatement",
+      modifiers: [],
+      type:
+        runtimeDefault.typeAst.kind === "nullableType" &&
+        preservesNullableShadowType(runtimeDefault.initializer)
+          ? runtimeDefault.typeAst
+          : stripNullableTypeAst(runtimeDefault.typeAst),
+      declarators: [
+        {
+          name: allocated.emittedName,
+          initializer: {
+            kind: "binaryExpression",
+            operatorToken: "??",
+            left: {
+              kind: "identifierExpression",
+              identifier: runtimeDefault.paramName,
+            },
+            right: runtimeDefault.initializer,
+          },
+        },
+      ],
+    });
+  }
+
+  return [statements, currentContext];
 };
 
 export const restoreFunctionScopeContext = (
@@ -111,14 +180,24 @@ export const buildParameterAsts = (
 ): {
   readonly paramAsts: readonly CSharpParameterAst[];
   readonly destructuringParams: readonly DestructuringParamInfo[];
+  readonly runtimeDefaultInitializers: readonly RuntimeParameterDefaultInfo[];
+  readonly wrapperPrefixLengths: readonly number[];
+  readonly suppressedDefaultArguments: readonly (CSharpExpressionAst | undefined)[];
   readonly context: EmitterContext;
 } => {
   let currentCtx = context;
   const paramAsts: CSharpParameterAst[] = [];
   const destructuringParams: DestructuringParamInfo[] = [];
+  const runtimeDefaultInitializers: RuntimeParameterDefaultInfo[] = [];
+  const suppressedDefaultArguments: Array<CSharpExpressionAst | undefined> = [];
+  const suppressedDefaultIndexes = new Set<number>();
   let syntheticIndex = 0;
 
-  for (const param of parameters) {
+  for (let index = 0; index < parameters.length; index += 1) {
+    const param = parameters[index];
+    if (!param) continue;
+    const acceptsExplicitUndefined =
+      (param.isOptional || param.initializer !== undefined) && !param.isRest;
     let typeAst: CSharpTypeAst = identifierType("object");
     if (param.type) {
       const [t, c] = emitTypeAst(param.type, currentCtx);
@@ -126,7 +205,7 @@ export const buildParameterAsts = (
       currentCtx = c;
     }
 
-    if (param.isOptional) {
+    if (acceptsExplicitUndefined) {
       typeAst = nullableType(typeAst);
     }
 
@@ -157,10 +236,47 @@ export const buildParameterAsts = (
     let defaultValue: CSharpExpressionAst | undefined;
     if (param.initializer) {
       const [ast, c] = emitExpressionAst(param.initializer, currentCtx);
-      defaultValue = ast;
       currentCtx = c;
+      const canEmitInSignature =
+        canEmitParameterDefaultInSignature(parameters, index) &&
+        isCSharpOptionalParameterDefaultAst(ast);
+      defaultValue = signatureDefaultForInitializedParameter(
+        parameters,
+        index,
+        typeAst,
+        ast
+      );
+
+      if (supportsNullCoalescingParameterDefault(typeAst)) {
+        runtimeDefaultInitializers.push({
+          paramName: name,
+          typeAst,
+          initializer: ast,
+          sourceName:
+            param.pattern.kind === "identifierPattern"
+              ? param.pattern.name
+              : undefined,
+          semanticType: param.type,
+        });
+      } else if (!canEmitInSignature) {
+        suppressedDefaultIndexes.add(index);
+        suppressedDefaultArguments[index] = ast;
+        if (!canLowerParameterDefaultViaWrapper(parameters, index)) {
+          throw new Error(
+            `ICE: Unsupported runtime parameter default lowering for '${name}'.`
+          );
+        }
+      }
     } else if (param.isOptional && !param.isRest) {
-      defaultValue = { kind: "defaultExpression" };
+      if (canEmitParameterDefaultInSignature(parameters, index)) {
+        defaultValue = { kind: "defaultExpression" };
+      } else {
+        suppressedDefaultIndexes.add(index);
+        suppressedDefaultArguments[index] = {
+          kind: "defaultExpression",
+          type: typeAst,
+        };
+      }
     }
 
     paramAsts.push({
@@ -171,7 +287,17 @@ export const buildParameterAsts = (
     });
   }
 
-  return { paramAsts, destructuringParams, context: currentCtx };
+  return {
+    paramAsts,
+    destructuringParams,
+    runtimeDefaultInitializers,
+    wrapperPrefixLengths: computeWrapperPrefixLengths(
+      parameters,
+      suppressedDefaultIndexes
+    ),
+    suppressedDefaultArguments,
+    context: currentCtx,
+  };
 };
 
 export const generateParameterDestructuringAst = (

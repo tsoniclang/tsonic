@@ -45,7 +45,8 @@ export const restoreNugetBindings = ({
   const assetsPathResult = dotnetRestore(
     restoreProject.value,
     nugetConfigFile,
-    options
+    options,
+    workspaceRoot
   );
   if (!assetsPathResult.ok) return assetsPathResult;
 

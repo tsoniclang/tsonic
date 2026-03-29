@@ -6,7 +6,11 @@ import {
   generateSpecializedName,
 } from "../identifiers.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
+import {
+  clrTypeNameToTypeAst,
+  extractCalleeNameFromAst,
+  normalizeClrQualifiedName,
+} from "../../core/format/backend-ast/utils.js";
 import {
   decimalIntegerLiteral,
   identifierType,
@@ -136,7 +140,11 @@ export const isArrayConstructorCall = (
     return false;
   }
 
-  return !!expr.typeArguments && expr.typeArguments.length === 1;
+  return (
+    expr.inferredType?.kind === "arrayType" &&
+    !!expr.typeArguments &&
+    expr.typeArguments.length === 1
+  );
 };
 
 const makeClrValueArrayType = (
@@ -168,76 +176,166 @@ const makeClrValueArrayType = (
 
 const typedArrayArgumentTypes = new Map<string, IrType>([
   [
-    "Tsonic.JSRuntime.Uint8Array",
+    "Uint8Array",
     makeClrValueArrayType("byte", "System.Byte", "Byte"),
   ],
   [
-    "Tsonic.JSRuntime.Uint8ClampedArray",
+    "Uint8ClampedArray",
     makeClrValueArrayType("byte", "System.Byte", "Byte"),
   ],
   [
-    "Tsonic.JSRuntime.Int8Array",
+    "Int8Array",
     makeClrValueArrayType("sbyte", "System.SByte", "SByte"),
   ],
   [
-    "Tsonic.JSRuntime.Int16Array",
+    "Int16Array",
     makeClrValueArrayType("short", "System.Int16", "Int16"),
   ],
   [
-    "Tsonic.JSRuntime.Uint16Array",
+    "Uint16Array",
     makeClrValueArrayType("ushort", "System.UInt16", "UInt16"),
   ],
   [
-    "Tsonic.JSRuntime.Int32Array",
+    "Int32Array",
     makeClrValueArrayType("int", "System.Int32", "Int32"),
   ],
   [
-    "Tsonic.JSRuntime.Uint32Array",
+    "Uint32Array",
     makeClrValueArrayType("uint", "System.UInt32", "UInt32"),
   ],
   [
-    "Tsonic.JSRuntime.Float32Array",
+    "Float32Array",
     makeClrValueArrayType("float", "System.Single", "Single"),
   ],
   [
-    "Tsonic.JSRuntime.Float64Array",
+    "Float64Array",
     makeClrValueArrayType("double", "System.Double", "Double"),
   ],
 ]);
 
 const typedArrayNumericLengthClrNames = new Set([
   ...typedArrayArgumentTypes.keys(),
-  "Tsonic.JSRuntime.ArrayBuffer",
+  "ArrayBuffer",
 ]);
 
-const typedArrayConstructorClrNamesByTsName = new Map<string, string>([
-  ["Uint8Array", "Tsonic.JSRuntime.Uint8Array"],
-  ["Uint8ClampedArray", "Tsonic.JSRuntime.Uint8ClampedArray"],
-  ["Int8Array", "Tsonic.JSRuntime.Int8Array"],
-  ["Int16Array", "Tsonic.JSRuntime.Int16Array"],
-  ["Uint16Array", "Tsonic.JSRuntime.Uint16Array"],
-  ["Int32Array", "Tsonic.JSRuntime.Int32Array"],
-  ["Uint32Array", "Tsonic.JSRuntime.Uint32Array"],
-  ["Float32Array", "Tsonic.JSRuntime.Float32Array"],
-  ["Float64Array", "Tsonic.JSRuntime.Float64Array"],
-  ["ArrayBuffer", "Tsonic.JSRuntime.ArrayBuffer"],
-]);
+const getTypedArrayLeafName = (type: IrType | undefined): string | undefined => {
+  if (!type || type.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const candidates = [
+    type.resolvedClrType,
+    type.typeId?.clrName,
+    type.typeId?.tsName,
+    type.name,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    const leaf = candidate.split(".").pop() ?? candidate;
+    if (typedArrayArgumentTypes.has(leaf)) {
+      return leaf;
+    }
+    if (leaf === "ArrayBuffer") {
+      return leaf;
+    }
+  }
+
+  return undefined;
+};
+
+const getReferenceTypeIdentity = (
+  type: IrType | undefined
+): string | undefined => {
+  if (!type || type.kind !== "referenceType") {
+    return undefined;
+  }
+
+  return (
+    type.resolvedClrType ??
+    type.typeId?.clrName ??
+    type.typeId?.tsName ??
+    type.name
+  );
+};
+
+export const getTypedArrayStorageElementType = (
+  type: IrType | undefined
+): IrType | undefined => {
+  const leaf = getTypedArrayLeafName(type);
+  if (!leaf) {
+    return undefined;
+  }
+
+  const arrayType = typedArrayArgumentTypes.get(leaf);
+  return arrayType?.kind === "arrayType" ? arrayType.elementType : undefined;
+};
+
+const isQualifiedConstructorIdentity = (
+  name: string | undefined
+): name is string => {
+  if (!name) {
+    return false;
+  }
+
+  const trimmed = name.trim();
+  return (
+    trimmed.startsWith("global::") ||
+    trimmed.includes(".") ||
+    trimmed.includes("+")
+  );
+};
 
 const INT_IR_TYPE: IrType = {
   kind: "primitiveType",
   name: "int",
 };
 
-const getConstructorClrName = (
+const getConstructorKey = (
   expr: Extract<IrExpression, { kind: "new" }>
-): string | undefined =>
-  (expr.callee.kind === "identifier"
-    ? (expr.callee.resolvedClrType ??
-      typedArrayConstructorClrNamesByTsName.get(expr.callee.name))
-    : undefined) ??
-  (expr.inferredType?.kind === "referenceType"
-    ? (expr.inferredType.resolvedClrType ?? expr.inferredType.typeId?.clrName)
-    : undefined);
+): string | undefined => {
+  const inferredTypeKey = getReferenceTypeIdentity(expr.inferredType);
+  if (inferredTypeKey) {
+    return inferredTypeKey;
+  }
+
+  const calleeTypeKey = getReferenceTypeIdentity(expr.callee.inferredType);
+  if (calleeTypeKey) {
+    return calleeTypeKey;
+  }
+
+  if (expr.callee.kind === "identifier") {
+    return expr.callee.resolvedClrType ?? expr.callee.name;
+  }
+
+  return undefined;
+};
+
+const getConstructorGlobalTypeName = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): string | undefined => {
+  const key = getConstructorKey(expr);
+  if (!isQualifiedConstructorIdentity(key)) return undefined;
+  return normalizeClrQualifiedName(key, true);
+};
+
+const getConstructorTypeAst = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  calleeAst: CSharpExpressionAst
+): CSharpTypeAst => {
+  if (calleeAst.kind === "typeReferenceExpression") {
+    return calleeAst.type;
+  }
+
+  const globalTypeName = getConstructorGlobalTypeName(expr);
+  if (globalTypeName) {
+    return clrTypeNameToTypeAst(globalTypeName);
+  }
+
+  return identifierType(extractCalleeNameFromAst(calleeAst));
+};
 
 export const isUint8ArrayConstructorWithArrayLiteral = (
   expr: Extract<IrExpression, { kind: "new" }>
@@ -251,8 +349,8 @@ export const isUint8ArrayConstructorWithArrayLiteral = (
     return false;
   }
 
-  const clrName = getConstructorClrName(expr);
-  return clrName !== undefined && typedArrayArgumentTypes.has(clrName);
+  const key = getConstructorKey(expr);
+  return key !== undefined && typedArrayArgumentTypes.has(key.split(".").pop() ?? key);
 };
 
 export const emitUint8ArrayArrayLiteralConstructor = (
@@ -266,17 +364,12 @@ export const emitUint8ArrayArrayLiteralConstructor = (
     currentContext
   );
   currentContext = calleeContext;
-  const calleeText = extractCalleeNameFromAst(calleeAst);
+  const typeAst = getConstructorTypeAst(expr, calleeAst);
 
-  const typeAst: CSharpTypeAst =
-    calleeAst.kind === "typeReferenceExpression"
-      ? calleeAst.type
-      : identifierType(calleeText);
-
-  const clrName = getConstructorClrName(expr);
+  const key = getConstructorKey(expr)?.split(".").pop();
   const argumentType =
-    (clrName ? typedArrayArgumentTypes.get(clrName) : undefined) ??
-    typedArrayArgumentTypes.get("Tsonic.JSRuntime.Uint8Array");
+    (key ? typedArrayArgumentTypes.get(key) : undefined) ??
+    typedArrayArgumentTypes.get("Uint8Array");
   if (!argumentType) {
     throw new Error("ICE: Missing typed array argument type mapping");
   }
@@ -310,8 +403,8 @@ export const isUint8ArrayConstructorWithNumericLength = (
     return false;
   }
 
-  const clrName = getConstructorClrName(expr);
-  if (!clrName || !typedArrayNumericLengthClrNames.has(clrName)) {
+  const key = getConstructorKey(expr)?.split(".").pop();
+  if (!key || !typedArrayNumericLengthClrNames.has(key)) {
     return false;
   }
 
@@ -341,12 +434,7 @@ export const emitUint8ArrayNumericLengthConstructor = (
     currentContext
   );
   currentContext = calleeContext;
-  const calleeText = extractCalleeNameFromAst(calleeAst);
-
-  const typeAst: CSharpTypeAst =
-    calleeAst.kind === "typeReferenceExpression"
-      ? calleeAst.type
-      : identifierType(calleeText);
+  const typeAst = getConstructorTypeAst(expr, calleeAst);
 
   const [argAst, argContext] = emitExpressionAst(
     expr.arguments[0] as IrExpression,

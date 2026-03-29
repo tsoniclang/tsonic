@@ -7,6 +7,9 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitCSharpFiles, emitModule } from "../../emitter.js";
 import { IrModule } from "@tsonic/frontend";
+import { createJsSurfaceBindingRegistry } from "../../expressions/index-cases/helpers.js";
+
+const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
 
 describe("Module Generation", () => {
   it("should emit a static container class", () => {
@@ -223,8 +226,8 @@ describe("Module Generation", () => {
                     },
                     memberBinding: {
                       kind: "method",
-                      assembly: "Tsonic.JSRuntime",
-                      type: "Tsonic.JSRuntime.JSArray",
+                      assembly: "js",
+                      type: "js.Array",
                       member: "push",
                     },
                   },
@@ -242,7 +245,10 @@ describe("Module Generation", () => {
       exports: [],
     };
 
-    const result = emitModule(module);
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+    });
     expect(result).to.include("internal static string[] items");
     expect(result).to.not.include("internal static readonly string[] items");
   });

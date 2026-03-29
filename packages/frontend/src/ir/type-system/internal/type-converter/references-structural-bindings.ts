@@ -11,6 +11,7 @@ import * as ts from "typescript";
 import type { DeclId } from "../../../type-system/types.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { extractRawDotnetBindingTypes } from "../../../../program/dotnet-binding-payload.js";
+import { resolveInstalledSourcePackageNamespace } from "../../../../program/source-file-identity.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 import { getTypeAliasRecursionCache } from "./references-normalize.js";
 
@@ -51,7 +52,7 @@ export const isInstalledTsonicSourcePackageFile = (
 
   let currentDir = dirname(fileName);
   while (true) {
-    const manifestPath = join(currentDir, "tsonic", "package-manifest.json");
+    const manifestPath = join(currentDir, "tsonic.package.json");
     if (existsSync(manifestPath)) {
       try {
         const parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
@@ -147,7 +148,7 @@ const buildBindingAliasClrIdentityMap = (
   return aliasToClr;
 };
 
-export const resolveSourceBindingsClrIdentity = (
+export const resolveSourceClrIdentity = (
   declId: DeclId | undefined,
   binding: Binding
 ): string | undefined => {
@@ -159,16 +160,33 @@ export const resolveSourceBindingsClrIdentity = (
     | ts.Declaration
     | undefined;
   if (!declNode) return undefined;
-  if (!declNode.getSourceFile().isDeclarationFile) return undefined;
-  if (!isTsonicBindingsDeclarationFile(declNode.getSourceFile().fileName)) {
+  const sourceFile = declNode.getSourceFile();
+
+  const fqName = declInfo?.fqName?.trim();
+  if (!fqName) return undefined;
+
+  if (
+    !sourceFile.isDeclarationFile &&
+    isInstalledTsonicSourcePackageFile(sourceFile.fileName) &&
+    !ts.isTypeAliasDeclaration(declNode)
+  ) {
+    const installedPackageNamespace = resolveInstalledSourcePackageNamespace(
+      sourceFile.fileName
+    );
+    if (installedPackageNamespace) {
+      return `${installedPackageNamespace}.${fqName}`;
+    }
+  }
+
+  if (
+    !sourceFile.isDeclarationFile ||
+    !isTsonicBindingsDeclarationFile(sourceFile.fileName)
+  ) {
     return undefined;
   }
 
-  const fqName = declInfo?.fqName?.trim();
-  if (!fqName || !fqName.includes(".")) return undefined;
-
   const bindingsPath = findOwningBindingsJson(
-    declNode.getSourceFile().fileName
+    sourceFile.fileName
   );
   if (bindingsPath) {
     const exactClrName =

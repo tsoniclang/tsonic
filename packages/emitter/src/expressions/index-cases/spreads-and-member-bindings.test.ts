@@ -233,17 +233,16 @@ describe("Expression Emission", () => {
                   kind: "referenceType",
                   name: "ArrayConstructor",
                 },
-                resolvedClrType: "Tsonic.JSRuntime.JSArray`1",
-                resolvedAssembly: "Tsonic.JSRuntime",
-                csharpName: "JSArray",
+                resolvedClrType: "js.Array",
+                resolvedAssembly: "js",
               },
               property: "from",
               isComputed: false,
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.JSArrayStatics",
+                assembly: "js",
+                type: "js.Array",
                 member: "from",
                 isExtensionMethod: false,
               },
@@ -258,10 +257,73 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include(
-      'global::Tsonic.JSRuntime.JSArrayStatics.from("abc")'
-    );
-    expect(result).not.to.include("global::Tsonic.JSRuntime.JSArray.from");
+    expect(result).to.include('global::js.Array.from("abc")');
+  });
+
+  it("should lower Array.of through exact surface-owned binding metadata", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "Array",
+                inferredType: {
+                  kind: "referenceType",
+                  name: "ArrayConstructor",
+                },
+                resolvedClrType: "js.Array",
+                resolvedAssembly: "js",
+              },
+              property: "of",
+              isComputed: false,
+              isOptional: false,
+              memberBinding: {
+                kind: "method",
+                assembly: "js",
+                type: "js.Array",
+                member: "of",
+                isExtensionMethod: false,
+              },
+            },
+            arguments: [
+              {
+                kind: "literal",
+                value: 1,
+                numericIntent: "Int32",
+                inferredType: { kind: "primitiveType", name: "int" },
+              },
+              {
+                kind: "literal",
+                value: 2,
+                numericIntent: "Int32",
+                inferredType: { kind: "primitiveType", name: "int" },
+              },
+            ],
+            inferredType: {
+              kind: "arrayType",
+              elementType: { kind: "primitiveType", name: "int" },
+            },
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("global::js.Array.of");
   });
 
   it("should escape C# keywords in hierarchical member bindings", () => {
@@ -365,8 +427,8 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.String",
+                assembly: "js",
+                type: "js.String",
                 member: "split",
                 isExtensionMethod: true,
                 emitSemantics: {
@@ -385,7 +447,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include(
-      'global::Tsonic.JSRuntime.String.split(path, "/")'
+      'global::js.String.split(path, "/")'
     );
     expect(result).not.to.include('path.split("/")');
   });
@@ -415,8 +477,8 @@ describe("Expression Emission", () => {
               isOptional: false,
               memberBinding: {
                 kind: "method",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.Number",
+                assembly: "js",
+                type: "js.Number",
                 member: "toString",
                 isExtensionMethod: true,
                 emitSemantics: {
@@ -435,7 +497,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include(
-      "global::Tsonic.JSRuntime.Number.toString(value)"
+      "global::js.Number.toString(value)"
     );
     expect(result).not.to.include("value.toString()");
   });

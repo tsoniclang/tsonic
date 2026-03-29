@@ -57,6 +57,43 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("uses the selected overload arity for function-value callback arguments", () => {
+      const source = `
+        function trimValue(value: string): string {
+          return value.trim();
+        }
+
+        export function main(items: string[]): string[] {
+          return items.map(trimValue);
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include(".map(trimValue)");
+      expect(csharp).to.not.include("__unused_index");
+      expect(csharp).to.not.include("__unused_array");
+    });
+
+    it("keeps explicit lambda parameters at the selected overload arity", () => {
+      const source = `
+        export function main(items: string[]): string[] {
+          return items.map((value) => value.trim());
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include(".map((string value) =>");
+      expect(csharp).to.not.include("__unused_index");
+      expect(csharp).to.not.include("__unused_array");
+      expect(csharp).to.include("global::js.String.trim");
+    });
+
     it("lowers rest-only contextual callbacks through a synthesized rest carrier", () => {
       const source = `
         type Tick = (...args: unknown[]) => void;
@@ -92,6 +129,27 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.match(
         /consume\(\(string __unused_value,\s*object\?\[\] __unused_rest\)\s*=>/
+      );
+    });
+
+    it("synthesizes contextual parameters for zero-arg lambdas passed through rest callback parameters", () => {
+      const source = `
+        type Handler = (req: string) => void;
+
+        function consume(...handlers: Handler[]): void {
+          const first = handlers[0]!;
+          first("ok");
+        }
+
+        export function main(): void {
+          consume(() => undefined);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /consume\(\(string __unused_req\)\s*=>\s*\{\s*\}\)/
       );
     });
 
@@ -141,6 +199,32 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(
         /consume\(\(object\?\[\] __unused_args\)\s*=>\s*\{\s*\}\)/
       );
+    });
+
+    it("emits static arrow fields with params delegates for rest parameters", () => {
+      const source = `
+        export const tick = (...args: unknown[]): void => {
+          void args;
+        };
+
+        export function main(): void {
+          tick();
+          tick("ok", 1, true);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /delegate\s+void\s+tick__Delegate\s*\(\s*params\s+object\?\[\]\s+args\s*\)/
+      );
+      expect(csharp).to.match(
+        /private\s+static\s+void\s+tick__Impl\s*\(\s*params\s+object\?\[\]\s+args\s*\)/
+      );
+      expect(csharp).to.match(
+        /tick\((?:new object\?\[0\]|new object\?\[\])\);/
+      );
+      expect(csharp).to.match(/tick\(new object\?\[\] \{ "ok", 1, true \}\);/);
     });
 
     it("emits static arrow fields with default parameter initializers through custom delegates", () => {
@@ -308,6 +392,24 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.match(/where\s+\w+\s*:\s*string/);
       expect(csharp).to.not.include("where K : string");
       expect(csharp).to.not.include("where T : string");
+    });
+
+    it("emits numeric generic constraints and numeric return adaptation for extends number", () => {
+      const source = `
+        export function numericIdentity<T extends number>(value: T): number {
+          return value;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(/public\s+static\s+double\s+numericIdentity<T>\s*\(T value\)/);
+      expect(csharp).to.include(
+        "where T : global::System.Numerics.INumber<T>"
+      );
+      expect(csharp).to.include(
+        "return global::System.Double.CreateChecked(value);"
+      );
     });
   });
 

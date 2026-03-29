@@ -7,7 +7,10 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import type { ResolvedConfig, Result } from "../types.js";
 import { generateCommand } from "./generate.js";
-import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
+import {
+  buildDotnetProcessEnv,
+  resolveNugetConfigFile,
+} from "../dotnet/nuget-config.js";
 
 /**
  * Pack library into NuGet package
@@ -85,6 +88,7 @@ export const packCommand = (
     cwd: generatedDir,
     stdio: verbose ? "inherit" : "pipe",
     encoding: "utf-8",
+    env: buildDotnetProcessEnv(config.workspaceRoot),
   });
 
   if (packResult.status !== 0) {

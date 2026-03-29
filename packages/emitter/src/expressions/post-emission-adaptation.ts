@@ -16,9 +16,13 @@ import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   getIdentifierTypeName,
+  sameTypeAstSurface,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
-import { nullLiteral } from "../core/format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  nullLiteral,
+} from "../core/format/backend-ast/builders.js";
 
 // ---------------------------------------------------------------------------
 // Nullish type-parameter casting
@@ -189,58 +193,72 @@ const isSameTypeForNullableUnwrap = (
 const astAlreadyCastsToConcreteValueType = (
   ast: CSharpExpressionAst
 ): boolean => {
-  if (ast.kind !== "castExpression" && ast.kind !== "asExpression") {
-    return false;
-  }
+  const isConcreteValueTypeAst = (targetAst: ReturnType<typeof stripNullableTypeAst>): boolean => {
+    if (targetAst.kind === "predefinedType") {
+      return (
+        targetAst.keyword === "int" ||
+        targetAst.keyword === "long" ||
+        targetAst.keyword === "short" ||
+        targetAst.keyword === "byte" ||
+        targetAst.keyword === "sbyte" ||
+        targetAst.keyword === "uint" ||
+        targetAst.keyword === "ulong" ||
+        targetAst.keyword === "ushort" ||
+        targetAst.keyword === "float" ||
+        targetAst.keyword === "double" ||
+        targetAst.keyword === "decimal" ||
+        targetAst.keyword === "bool" ||
+        targetAst.keyword === "char"
+      );
+    }
 
-  const concreteTarget = stripNullableTypeAst(ast.type);
-  if (concreteTarget.kind === "predefinedType") {
+    const identifierName = getIdentifierTypeName(targetAst);
     return (
-      concreteTarget.keyword === "int" ||
-      concreteTarget.keyword === "long" ||
-      concreteTarget.keyword === "short" ||
-      concreteTarget.keyword === "byte" ||
-      concreteTarget.keyword === "sbyte" ||
-      concreteTarget.keyword === "uint" ||
-      concreteTarget.keyword === "ulong" ||
-      concreteTarget.keyword === "ushort" ||
-      concreteTarget.keyword === "float" ||
-      concreteTarget.keyword === "double" ||
-      concreteTarget.keyword === "decimal" ||
-      concreteTarget.keyword === "bool" ||
-      concreteTarget.keyword === "char"
+      identifierName === "System.Int32" ||
+      identifierName === "global::System.Int32" ||
+      identifierName === "System.Int64" ||
+      identifierName === "global::System.Int64" ||
+      identifierName === "System.Int16" ||
+      identifierName === "global::System.Int16" ||
+      identifierName === "System.Byte" ||
+      identifierName === "global::System.Byte" ||
+      identifierName === "System.SByte" ||
+      identifierName === "global::System.SByte" ||
+      identifierName === "System.UInt32" ||
+      identifierName === "global::System.UInt32" ||
+      identifierName === "System.UInt64" ||
+      identifierName === "global::System.UInt64" ||
+      identifierName === "System.UInt16" ||
+      identifierName === "global::System.UInt16" ||
+      identifierName === "System.Single" ||
+      identifierName === "global::System.Single" ||
+      identifierName === "System.Double" ||
+      identifierName === "global::System.Double" ||
+      identifierName === "System.Decimal" ||
+      identifierName === "global::System.Decimal" ||
+      identifierName === "System.Boolean" ||
+      identifierName === "global::System.Boolean" ||
+      identifierName === "System.Char" ||
+      identifierName === "global::System.Char"
     );
-  }
+  };
 
-  const identifierName = getIdentifierTypeName(concreteTarget);
-  return (
-    identifierName === "System.Int32" ||
-    identifierName === "global::System.Int32" ||
-    identifierName === "System.Int64" ||
-    identifierName === "global::System.Int64" ||
-    identifierName === "System.Int16" ||
-    identifierName === "global::System.Int16" ||
-    identifierName === "System.Byte" ||
-    identifierName === "global::System.Byte" ||
-    identifierName === "System.SByte" ||
-    identifierName === "global::System.SByte" ||
-    identifierName === "System.UInt32" ||
-    identifierName === "global::System.UInt32" ||
-    identifierName === "System.UInt64" ||
-    identifierName === "global::System.UInt64" ||
-    identifierName === "System.UInt16" ||
-    identifierName === "global::System.UInt16" ||
-    identifierName === "System.Single" ||
-    identifierName === "global::System.Single" ||
-    identifierName === "System.Double" ||
-    identifierName === "global::System.Double" ||
-    identifierName === "System.Decimal" ||
-    identifierName === "global::System.Decimal" ||
-    identifierName === "System.Boolean" ||
-    identifierName === "global::System.Boolean" ||
-    identifierName === "System.Char" ||
-    identifierName === "global::System.Char"
-  );
+  switch (ast.kind) {
+    case "castExpression":
+    case "asExpression":
+      return isConcreteValueTypeAst(stripNullableTypeAst(ast.type));
+    case "defaultExpression":
+      return ast.type !== undefined && isConcreteValueTypeAst(stripNullableTypeAst(ast.type));
+    case "objectCreationExpression":
+      return isConcreteValueTypeAst(stripNullableTypeAst(ast.type));
+    case "conditionalExpression":
+      return (
+        astAlreadyCastsToConcreteValueType(ast.whenTrue) &&
+        astAlreadyCastsToConcreteValueType(ast.whenFalse)
+      );
+    default:
+      return false;
+  }
 };
 
 export const maybeUnwrapNullableValueTypeAst = (
@@ -390,7 +408,7 @@ const INTEGRAL_EXPECTED_TYPE_NAMES = new Set([
   "System.UIntPtr",
 ]);
 
-const isExpectedIntegralIrType = (
+export const isExpectedIntegralIrType = (
   type: IrType | undefined,
   context: EmitterContext
 ): boolean => {
@@ -415,6 +433,9 @@ const isNumericSourceIrType = (
 ): boolean => {
   if (!type) return false;
   const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "typeParameterType") {
+    return (context.typeParamConstraints?.get(resolved.name) ?? "unconstrained") === "numeric";
+  }
   return (
     (resolved.kind === "primitiveType" &&
       (resolved.name === "number" || resolved.name === "int")) ||
@@ -438,18 +459,359 @@ const isNumericSourceIrType = (
   );
 };
 
+const resolveNumericFactoryTypeName = (
+  type: IrType | undefined,
+  context: EmitterContext
+): string | undefined => {
+  if (!type) return undefined;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
+  if (resolved.kind === "primitiveType") {
+    switch (resolved.name) {
+      case "number":
+        return "global::System.Double";
+      case "int":
+        return "global::System.Int32";
+    }
+    return undefined;
+  }
+
+  if (resolved.kind !== "referenceType") {
+    return undefined;
+  }
+
+  switch (resolved.name) {
+    case "byte":
+      return "global::System.Byte";
+    case "sbyte":
+      return "global::System.SByte";
+    case "short":
+      return "global::System.Int16";
+    case "ushort":
+      return "global::System.UInt16";
+    case "int":
+      return "global::System.Int32";
+    case "uint":
+      return "global::System.UInt32";
+    case "long":
+      return "global::System.Int64";
+    case "ulong":
+      return "global::System.UInt64";
+    case "nint":
+      return "global::System.IntPtr";
+    case "nuint":
+      return "global::System.UIntPtr";
+    case "float":
+      return "global::System.Single";
+    case "double":
+      return "global::System.Double";
+    case "decimal":
+      return "global::System.Decimal";
+    case "half":
+      return "global::System.Half";
+  }
+
+  switch (resolved.resolvedClrType) {
+    case "System.Byte":
+    case "global::System.Byte":
+      return "global::System.Byte";
+    case "System.SByte":
+    case "global::System.SByte":
+      return "global::System.SByte";
+    case "System.Int16":
+    case "global::System.Int16":
+      return "global::System.Int16";
+    case "System.UInt16":
+    case "global::System.UInt16":
+      return "global::System.UInt16";
+    case "System.Int32":
+    case "global::System.Int32":
+      return "global::System.Int32";
+    case "System.UInt32":
+    case "global::System.UInt32":
+      return "global::System.UInt32";
+    case "System.Int64":
+    case "global::System.Int64":
+      return "global::System.Int64";
+    case "System.UInt64":
+    case "global::System.UInt64":
+      return "global::System.UInt64";
+    case "System.IntPtr":
+    case "global::System.IntPtr":
+      return "global::System.IntPtr";
+    case "System.UIntPtr":
+    case "global::System.UIntPtr":
+      return "global::System.UIntPtr";
+    case "System.Single":
+    case "global::System.Single":
+      return "global::System.Single";
+    case "System.Double":
+    case "global::System.Double":
+      return "global::System.Double";
+    case "System.Decimal":
+    case "global::System.Decimal":
+      return "global::System.Decimal";
+    case "System.Half":
+    case "global::System.Half":
+      return "global::System.Half";
+    default:
+      return undefined;
+  }
+};
+
+const maybeConvertNumericTypeParamToExpectedNumericAst = (
+  ast: CSharpExpressionAst,
+  actualType: IrType | undefined,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] => {
+  if (!actualType || !expectedType) return [ast, context];
+
+  const resolvedActual = resolveTypeAlias(stripNullish(actualType), context);
+  if (resolvedActual.kind !== "typeParameterType") {
+    return [ast, context];
+  }
+
+  if (
+    (context.typeParamConstraints?.get(resolvedActual.name) ?? "unconstrained") !==
+    "numeric"
+  ) {
+    return [ast, context];
+  }
+
+  if (isAssignable(actualType, expectedType)) {
+    return [ast, context];
+  }
+
+  const targetFactoryType = resolveNumericFactoryTypeName(expectedType, context);
+  if (!targetFactoryType) {
+    return [ast, context];
+  }
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: identifierExpression(targetFactoryType),
+        memberName: "CreateChecked",
+      },
+      arguments: [ast],
+    },
+    context,
+  ];
+};
+
+type IntegralTargetKind =
+  | "sbyte"
+  | "byte"
+  | "short"
+  | "ushort"
+  | "int"
+  | "uint"
+  | "long"
+  | "ulong";
+
+const resolveIntegralTargetKind = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IntegralTargetKind | undefined => {
+  if (!type) return undefined;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
+  if (resolved.kind === "primitiveType") {
+    return resolved.name === "int" ? "int" : undefined;
+  }
+
+  if (resolved.kind !== "referenceType") {
+    return undefined;
+  }
+
+  switch (resolved.name) {
+    case "sbyte":
+    case "SByte":
+      return "sbyte";
+    case "byte":
+    case "Byte":
+      return "byte";
+    case "short":
+    case "Int16":
+      return "short";
+    case "ushort":
+    case "UInt16":
+      return "ushort";
+    case "int":
+    case "Int32":
+      return "int";
+    case "uint":
+    case "UInt32":
+      return "uint";
+    case "long":
+    case "Int64":
+      return "long";
+    case "ulong":
+    case "UInt64":
+      return "ulong";
+  }
+
+  switch (resolved.resolvedClrType) {
+    case "System.SByte":
+    case "global::System.SByte":
+      return "sbyte";
+    case "System.Byte":
+    case "global::System.Byte":
+      return "byte";
+    case "System.Int16":
+    case "global::System.Int16":
+      return "short";
+    case "System.UInt16":
+    case "global::System.UInt16":
+      return "ushort";
+    case "System.Int32":
+    case "global::System.Int32":
+      return "int";
+    case "System.UInt32":
+    case "global::System.UInt32":
+      return "uint";
+    case "System.Int64":
+    case "global::System.Int64":
+      return "long";
+    case "System.UInt64":
+    case "global::System.UInt64":
+      return "ulong";
+    default:
+      return undefined;
+  }
+};
+
+const resolveIntegralLiteralValue = (
+  ast: CSharpExpressionAst
+): { readonly value: bigint; readonly suffix?: string } | undefined => {
+  if (ast.kind === "prefixUnaryExpression") {
+    if (ast.operatorToken !== "-" && ast.operatorToken !== "+") {
+      return undefined;
+    }
+    const operand = resolveIntegralLiteralValue(ast.operand);
+    if (!operand) {
+      return undefined;
+    }
+    return {
+      value: ast.operatorToken === "-" ? -operand.value : operand.value,
+      suffix: operand.suffix,
+    };
+  }
+
+  if (ast.kind !== "numericLiteralExpression") {
+    return undefined;
+  }
+
+  if (
+    ast.fractionalPart !== undefined ||
+    ast.exponentDigits !== undefined ||
+    ast.suffix === "f" ||
+    ast.suffix === "d" ||
+    ast.suffix === "m"
+  ) {
+    return undefined;
+  }
+
+  const value =
+    ast.base === "decimal"
+      ? BigInt(ast.wholePart)
+      : ast.base === "hexadecimal"
+        ? BigInt(`0x${ast.wholePart}`)
+        : BigInt(`0b${ast.wholePart}`);
+
+  return { value, suffix: ast.suffix };
+};
+
+const fitsIntegralTargetRange = (
+  value: bigint,
+  targetKind: IntegralTargetKind
+): boolean => {
+  switch (targetKind) {
+    case "sbyte":
+      return value >= -128n && value <= 127n;
+    case "byte":
+      return value >= 0n && value <= 255n;
+    case "short":
+      return value >= -32768n && value <= 32767n;
+    case "ushort":
+      return value >= 0n && value <= 65535n;
+    case "int":
+      return value >= -2147483648n && value <= 2147483647n;
+    case "uint":
+      return value >= 0n && value <= 4294967295n;
+    case "long":
+      return value >= -9223372036854775808n && value <= 9223372036854775807n;
+    case "ulong":
+      return value >= 0n && value <= 18446744073709551615n;
+  }
+};
+
+const isImplicitIntegralLiteralForExpectedType = (
+  ast: CSharpExpressionAst,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  const targetKind = resolveIntegralTargetKind(expectedType, context);
+  if (!targetKind) {
+    return false;
+  }
+
+  const literal = resolveIntegralLiteralValue(ast);
+  if (!literal) {
+    return false;
+  }
+
+  if (!fitsIntegralTargetRange(literal.value, targetKind)) {
+    return false;
+  }
+
+  switch (literal.suffix) {
+    case undefined:
+      return true;
+    case "L":
+      return targetKind === "long";
+    case "U":
+      return targetKind === "uint";
+    case "UL":
+      return targetKind === "ulong";
+    default:
+      return false;
+  }
+};
+
 export const maybeCastNumericToExpectedIntegralAst = (
   ast: CSharpExpressionAst,
   actualType: IrType | undefined,
   context: EmitterContext,
   expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] => {
+  const [numericTypeParamAdjustedAst, numericTypeParamAdjustedContext] =
+    maybeConvertNumericTypeParamToExpectedNumericAst(
+      ast,
+      actualType,
+      context,
+      expectedType
+    );
+
+  if (numericTypeParamAdjustedAst !== ast) {
+    return [numericTypeParamAdjustedAst, numericTypeParamAdjustedContext];
+  }
+
   if (!expectedType || !actualType) return [ast, context];
   if (!isExpectedIntegralIrType(expectedType, context)) return [ast, context];
   if (!isNumericSourceIrType(actualType, context)) return [ast, context];
+  if (isImplicitIntegralLiteralForExpectedType(ast, expectedType, context)) {
+    return [ast, context];
+  }
   if (isAssignable(actualType, expectedType)) return [ast, context];
 
   const [typeAst, newContext] = emitTypeAst(expectedType, context);
+  if (ast.kind === "castExpression" && sameTypeAstSurface(ast.type, typeAst)) {
+    return [ast, newContext];
+  }
   return [
     {
       kind: "castExpression",

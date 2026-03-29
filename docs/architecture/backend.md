@@ -20,9 +20,9 @@ The backend owns generated project layout and .NET toolchain execution.
 ## Important Runtime Inputs
 
 - `Tsonic.Runtime`
-- optional surface/runtime DLLs such as `Tsonic.JSRuntime` or `nodejs.dll`
 - workspace `libraries`
-- workspace/package/framework references
+- workspace package/framework references
+- source-package runtime overlays from `tsonic.package.json`
 
 ## Build Reuse
 

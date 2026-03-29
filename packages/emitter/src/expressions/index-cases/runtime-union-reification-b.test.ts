@@ -149,8 +149,52 @@ describe("Expression Emission", () => {
     expect(rendered).to.include("global::System.Linq.Enumerable.Select");
     expect(rendered).to.include("global::System.Linq.Enumerable.ToArray");
     expect(rendered).to.include("rest");
-    expect(rendered).to.include(".Match(");
+    expect(rendered).to.include(".Match");
     expect(rendered).to.not.equal("rest");
+  });
+
+  it("casts asserted unknown array elements when targeting generic array element types", () => {
+    const targetType: IrType = {
+      kind: "arrayType",
+      elementType: {
+        kind: "typeParameterType",
+        name: "TResult",
+      },
+      origin: "explicit",
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "typeAssertion",
+        expression: {
+          kind: "identifier",
+          name: "flattened",
+          inferredType: {
+            kind: "arrayType",
+            elementType: { kind: "unknownType" },
+            origin: "explicit",
+          },
+        },
+        targetType,
+        inferredType: targetType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        typeParameters: new Set(["TResult"]),
+      }
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.include("global::System.Linq.Enumerable.Select");
+    expect(rendered).to.include("(TResult)__item");
   });
 
   it("prefers throwable storage locals over non-throwable narrowed views", () => {
@@ -213,6 +257,36 @@ describe("Expression Emission", () => {
     );
 
     expect(printExpression(result)).to.equal("e");
+  });
+
+  it("does not ICE when storage-surface reuse sees unresolved reference locals", () => {
+    const unresolvedTypedArrayType: IrType = {
+      kind: "referenceType",
+      name: "Uint8Array",
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "identifier",
+        name: "bytes",
+        inferredType: unresolvedTypedArrayType,
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["bytes", "bytes"]]),
+        localValueTypes: new Map([["bytes", unresolvedTypedArrayType]]),
+      }
+    );
+
+    expect(printExpression(result)).to.equal("bytes");
   });
 
   it("reifies broad object arrays into runtime-union element arrays during assertions", () => {
@@ -319,7 +393,7 @@ describe("Expression Emission", () => {
               {
                 kind: "referenceType",
                 name: "Uint8Array",
-                resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+                resolvedClrType: "global::js.Uint8Array",
               },
             ],
           },
@@ -329,8 +403,8 @@ describe("Expression Emission", () => {
           name: "Uint8Array",
           inferredType: {
             kind: "referenceType",
-            name: "Uint8ArrayConstructor",
-            resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+            name: "Uint8Array",
+            resolvedClrType: "global::js.Uint8Array",
           },
         },
         inferredType: { kind: "primitiveType", name: "boolean" },
@@ -356,7 +430,7 @@ describe("Expression Emission", () => {
                 {
                   kind: "referenceType",
                   name: "Uint8Array",
-                  resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+                  resolvedClrType: "global::js.Uint8Array",
                 },
               ],
             },
@@ -372,7 +446,7 @@ describe("Expression Emission", () => {
                 {
                   kind: "referenceType",
                   name: "Uint8Array",
-                  resolvedClrType: "global::Tsonic.JSRuntime.Uint8Array",
+                  resolvedClrType: "global::js.Uint8Array",
                 },
               ],
             },
@@ -385,7 +459,7 @@ describe("Expression Emission", () => {
     expect(rendered).to.include("result.Is2()");
     expect(rendered).to.include("!= null");
     expect(rendered).to.not.include(
-      "result is global::Tsonic.JSRuntime.Uint8Array"
+      "result is global::js.Uint8Array"
     );
   });
 
@@ -659,7 +733,7 @@ describe("Expression Emission", () => {
     expect(text).to.include(
       "global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>.From3"
     );
-    expect(text).to.include("global::Tsonic.JSRuntime.JSArrayStatics.isArray");
+    expect(text).to.include("is global::System.Array");
   });
 
   it("should lower zero-arg tuple-rest function value calls without synthetic arrays", () => {

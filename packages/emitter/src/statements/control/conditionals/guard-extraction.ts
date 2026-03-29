@@ -44,8 +44,7 @@ export const isArrayLikeNarrowingCandidate = (
   if (
     resolved.kind === "referenceType" &&
     (resolved.name === "Array" ||
-      resolved.name === "ReadonlyArray" ||
-      resolved.name === "JSArray")
+      resolved.name === "ReadonlyArray")
   ) {
     return true;
   }
@@ -177,10 +176,7 @@ export const tryExtractArrayIsArrayGuard = (
 
 export type TypeofGuardRefinement = {
   readonly bindingKey: string;
-  readonly targetExpr: Extract<
-    import("@tsonic/frontend").IrExpression,
-    { kind: "identifier" | "memberAccess" }
-  >;
+  readonly targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>;
   readonly tag: string;
   readonly matchTag: boolean;
 };
@@ -190,10 +186,7 @@ const tryExtractDirectTypeofGuard = (
 ):
   | {
       readonly bindingKey: string;
-      readonly targetExpr: Extract<
-        import("@tsonic/frontend").IrExpression,
-        { kind: "identifier" | "memberAccess" }
-      >;
+      readonly targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>;
       readonly tag: string;
       readonly matchesInTruthyBranch: boolean;
     }
@@ -214,10 +207,7 @@ const tryExtractDirectTypeofGuard = (
   ):
     | {
         readonly bindingKey: string;
-        readonly targetExpr: Extract<
-          import("@tsonic/frontend").IrExpression,
-          { kind: "identifier" | "memberAccess" }
-        >;
+        readonly targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>;
         readonly tag: string;
       }
     | undefined => {
@@ -346,6 +336,15 @@ export const applyTypeofGuardRefinements = (
         const existingBinding = currentContext.narrowedBindings?.get(
           refinement.bindingKey
         );
+        const sourceInfo =
+          currentType && runtimeUnionFrame
+            ? resolveRuntimeSubsetSourceInfo(
+                refinement.bindingKey,
+                currentType,
+                runtimeUnionFrame,
+                currentContext
+              )
+            : undefined;
         const subsetBinding = buildRuntimeUnionSubsetBinding(
           rawTargetAst,
           runtimeUnionFrame,
@@ -354,7 +353,8 @@ export const applyTypeofGuardRefinements = (
             currentType ??
             narrowedType,
           narrowedType,
-          rawTargetContext
+          rawTargetContext,
+          sourceInfo
         );
         if (subsetBinding) {
           const [binding, subsetContext] = subsetBinding;

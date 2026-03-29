@@ -19,8 +19,8 @@ describe("Binding Resolution in IR", () => {
           Array: {
             kind: "global",
             assembly: "Acme.Runtime",
-            type: "Acme.Runtime.JSArray`1",
-            staticType: "Acme.Runtime.JSArrayStatics",
+            type: "Acme.Runtime.Array`1",
+            staticType: "Acme.Runtime.ArrayStatics",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
@@ -32,32 +32,32 @@ describe("Binding Resolution in IR", () => {
         namespace: "Acme.Runtime",
         types: [
           {
-            clrName: "Acme.Runtime.JSArray`1",
+            clrName: "Acme.Runtime.Array`1",
             assemblyName: "Acme.Runtime",
             methods: [
               {
                 clrName: "push",
-                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringClrType: "Acme.Runtime.Array`1",
                 declaringAssemblyName: "Acme.Runtime",
               },
               {
                 clrName: "join",
-                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringClrType: "Acme.Runtime.Array`1",
                 declaringAssemblyName: "Acme.Runtime",
               },
               {
                 clrName: "map",
-                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringClrType: "Acme.Runtime.Array`1",
                 declaringAssemblyName: "Acme.Runtime",
               },
               {
                 clrName: "find",
-                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringClrType: "Acme.Runtime.Array`1",
                 declaringAssemblyName: "Acme.Runtime",
               },
               {
                 clrName: "findIndex",
-                declaringClrType: "Acme.Runtime.JSArray`1",
+                declaringClrType: "Acme.Runtime.Array`1",
                 declaringAssemblyName: "Acme.Runtime",
               },
             ],
@@ -65,7 +65,7 @@ describe("Binding Resolution in IR", () => {
             fields: [],
           },
           {
-            clrName: "Acme.Runtime.JSArrayStatics",
+            clrName: "Acme.Runtime.ArrayStatics",
             assemblyName: "Acme.Runtime",
             methods: [],
             properties: [],
@@ -110,7 +110,7 @@ describe("Binding Resolution in IR", () => {
 
       expect(pushStmt.expression.callee.memberBinding?.member).to.equal("push");
       expect(pushStmt.expression.callee.memberBinding?.type).to.equal(
-        "Acme.Runtime.JSArray`1"
+        "Acme.Runtime.Array`1"
       );
 
       const retStmt = fn.body.statements[2];
@@ -125,11 +125,11 @@ describe("Binding Resolution in IR", () => {
 
       expect(retStmt.expression.callee.memberBinding?.member).to.equal("join");
       expect(retStmt.expression.callee.memberBinding?.type).to.equal(
-        "Acme.Runtime.JSArray`1"
+        "Acme.Runtime.Array`1"
       );
     });
 
-    it("resolves array callback methods through the JSArray runtime surface", () => {
+    it("resolves array callback methods through the Array runtime surface", () => {
       const source = `
         type Todo = { id: number; title: string };
 
@@ -168,7 +168,7 @@ describe("Binding Resolution in IR", () => {
       ).to.equal("find");
       expect(
         todoDecl.declarations[0].initializer.callee.memberBinding?.type
-      ).to.equal("Acme.Runtime.JSArray`1");
+      ).to.equal("Acme.Runtime.Array`1");
 
       const indexDecl = fn.body.statements[2];
       if (
@@ -184,7 +184,7 @@ describe("Binding Resolution in IR", () => {
       ).to.equal("findIndex");
       expect(
         indexDecl.declarations[0].initializer.callee.memberBinding?.type
-      ).to.equal("Acme.Runtime.JSArray`1");
+      ).to.equal("Acme.Runtime.Array`1");
     });
 
     it("resolves nullish-coalesced array instance methods when the fallback is an empty array literal", () => {
@@ -219,7 +219,7 @@ describe("Binding Resolution in IR", () => {
       }
       expect(pushStmt.expression.callee.memberBinding?.member).to.equal("push");
       expect(pushStmt.expression.callee.memberBinding?.type).to.equal(
-        "Acme.Runtime.JSArray`1"
+        "Acme.Runtime.Array`1"
       );
 
       const retStmt = fn.body.statements[2];
@@ -233,7 +233,7 @@ describe("Binding Resolution in IR", () => {
       }
       expect(retStmt.expression.callee.memberBinding?.member).to.equal("map");
       expect(retStmt.expression.callee.memberBinding?.type).to.equal(
-        "Acme.Runtime.JSArray`1"
+        "Acme.Runtime.Array`1"
       );
     });
   });

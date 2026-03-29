@@ -41,7 +41,7 @@ export type ArrayPatternTypeInfo =
  *
  * Array element derivation: delegates to the canonical `getArrayLikeElementType`
  * which handles nullish stripping, aliases, Array<T>, ReadonlyArray<T>,
- * ArrayLike<T>, and JSArray<T>.
+ * and ArrayLike<T>.
  *
  * Callers switch on `.kind` to route into tuple vs array lowering.
  */

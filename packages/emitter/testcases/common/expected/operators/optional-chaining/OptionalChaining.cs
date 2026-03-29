@@ -17,7 +17,7 @@ namespace TestCases.common.operators.optionalchaining
 
         public static double getNameLength(User? user)
         {
-            return user?.name?.Length ?? (int)0;
+            return user?.name?.Length ?? 0;
         }
     }
 }

@@ -104,5 +104,80 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
+
+    it("specializes top-level union-return overloads directly when omitted parameters fold away", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare class Buffer {",
+            "  readonly length: number;",
+            "}",
+            "",
+            "declare function implBytes(path: string): Buffer;",
+            "declare function implText(path: string, encoding: string): string;",
+            "",
+            "export function readFileSync(path: string): Buffer;",
+            "export function readFileSync(path: string, encoding: string): string;",
+            "export function readFileSync(path: string, encoding?: string): string | Buffer {",
+            "  if (encoding === undefined) {",
+            "    return implBytes(path);",
+            "  }",
+            "  return implText(path, encoding);",
+            "}",
+            "",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const readFileSyncFunctions = result.value.body.filter(
+          (statement): statement is IrFunctionDeclaration =>
+            statement.kind === "functionDeclaration" &&
+            statement.name === "readFileSync"
+        );
+        expect(readFileSyncFunctions).to.have.length(2);
+
+        const helper = result.value.body.find(
+          (statement) =>
+            statement.kind === "functionDeclaration" &&
+            statement.name === "__tsonic_overload_impl_readFileSync"
+        );
+        expect(helper).to.equal(undefined);
+
+        const bytesOverload = readFileSyncFunctions.find(
+          (statement) => statement.parameters.length === 1
+        );
+        expect(bytesOverload?.returnType?.kind).to.equal("referenceType");
+        if (bytesOverload?.returnType?.kind !== "referenceType") return;
+        expect(bytesOverload.returnType.name).to.equal("Buffer");
+        expect(bytesOverload.overloadFamily?.implementationName).to.equal(
+          undefined
+        );
+
+        const textOverload = readFileSyncFunctions.find(
+          (statement) => statement.parameters.length === 2
+        );
+        expect(textOverload?.returnType).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+        expect(textOverload?.overloadFamily?.implementationName).to.equal(
+          undefined
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    });
   });
 });

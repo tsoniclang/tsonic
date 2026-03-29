@@ -3,6 +3,7 @@ import {
   it,
   expect,
   emitModule,
+  createExactGlobalBindingRegistry,
   type IrExpression,
   type IrModule,
 } from "./helpers.js";
@@ -122,7 +123,7 @@ describe("Expression Emission", () => {
     expect(result).to.include('$"Hello {name}!"');
   });
 
-  it("should coerce js-surface template literal holes through Globals.String", () => {
+  it("should coerce js-surface template literal holes through runtime stringify", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -158,9 +159,20 @@ describe("Expression Emission", () => {
       exports: [],
     };
 
-    const result = emitModule(module, { surface: "@tsonic/js" });
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: createExactGlobalBindingRegistry({
+        String: {
+          kind: "global",
+          assembly: "js",
+          type: "js.Globals.String",
+        },
+      }),
+    });
 
-    expect(result).to.include("global::Tsonic.JSRuntime.Globals.String(flag)");
+    expect(result).to.include(
+      "global::js.Globals.String(flag)"
+    );
     expect(result).not.to.include('$"flag={flag}"');
   });
 
@@ -265,8 +277,8 @@ describe("Expression Emission", () => {
             callee: {
               kind: "identifier",
               name: "clearInterval",
-              resolvedClrType: "Tsonic.JSRuntime.Timers",
-              resolvedAssembly: "Tsonic.JSRuntime",
+              resolvedClrType: "js.Timers",
+              resolvedAssembly: "js",
               csharpName: "Timers.clearInterval",
             },
             arguments: [{ kind: "literal", value: 1 }],
@@ -280,7 +292,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include(
-      "global::Tsonic.JSRuntime.Timers.clearInterval(1)"
+      "global::js.Timers.clearInterval(1)"
     );
   });
 

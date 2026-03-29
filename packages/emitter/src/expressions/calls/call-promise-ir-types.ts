@@ -271,7 +271,6 @@ export const getSequenceElementIrType = (
       case "List":
       case "Set":
       case "ReadonlySet":
-      case "JSArray":
         return type.typeArguments[0];
       default:
         return undefined;

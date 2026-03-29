@@ -12,7 +12,7 @@ It is intentionally curated rather than a generated dump of every internal code 
 - `TSN5xxx` — numeric proof and backend/runtime generation errors
 - `TSN6xxx` — yield lowering
 - `TSN7xxx` — static/AOT safety and deterministic typing
-- `TSN8Axx` — package-manifest/source-package manifest/runtime mapping
+- `TSN8Axx` — `tsonic.package.json`/source-package manifest/runtime mapping
 - `TSN9xxx` — type universe and missing-core failures
 
 ## Common Active Diagnostics
@@ -24,7 +24,7 @@ General module/package/config resolution failure.
 Examples:
 
 - invalid source package manifest
-- unresolved export target in `package-manifest.json`
+- unresolved export target in `tsonic.package.json`
 - malformed installed package metadata
 
 ### `TSN2001`
@@ -101,7 +101,7 @@ const copy = id;
 
 ### `TSN8A01`–`TSN8A05`
 
-package-manifest/source-package manifest errors:
+`tsonic.package.json`/source-package manifest errors:
 
 - invalid schema
 - unresolved runtime mapping

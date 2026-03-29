@@ -7,6 +7,7 @@ import {
   getLocalResolutionBoundary,
   isPathWithinBoundary,
   resolveSourcePackageImport,
+  resolveSourcePackageImportFromPackageRoot,
 } from "./source-package-resolution.js";
 
 describe("Source Package Resolution", () => {
@@ -49,7 +50,7 @@ describe("Source Package Resolution", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -111,7 +112,7 @@ describe("Source Package Resolution", () => {
         )
       );
       fs.writeFileSync(
-        path.join(packageRoot, "tsonic", "package-manifest.json"),
+        path.join(packageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -145,5 +146,57 @@ describe("Source Package Resolution", () => {
       true
     );
     expect(isPathWithinBoundary(sibling, root)).to.equal(false);
+  });
+
+  it("should reject builtin-style specifiers as source package imports", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-source-package-builtins-")
+    );
+
+    try {
+      const packageRoot = path.join(tempDir, "node_modules", "@tsonic", "nodejs");
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(packageRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              exports: {
+                ".": "./src/index.ts",
+                "./http.js": "./src/http.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(path.join(packageRoot, "src", "index.ts"), "export {};\n");
+      fs.writeFileSync(path.join(packageRoot, "src", "http.ts"), "export {};\n");
+
+      const result = resolveSourcePackageImportFromPackageRoot(
+        "node:http",
+        packageRoot,
+        "@tsonic/js",
+        tempDir
+      );
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(result.value).to.equal(null);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

@@ -11,7 +11,7 @@ import { IrModule, IrStatement } from "../ir/types.js";
 import { buildIr } from "../ir/builder/orchestrator.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
 import type { CompilerOptions } from "./types.js";
-import type { TypeBinding } from "./bindings.js";
+import type { BindingRegistry, TypeBinding } from "./bindings.js";
 import { discoverAndLoadClrBindings } from "./clr-bindings-discovery.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
@@ -26,18 +26,92 @@ import { runVirtualMarkingPass } from "../ir/validation/virtual-marking-pass.js"
 import { validateProgram } from "../validation/orchestrator.js";
 import {
   getLocalResolutionBoundary,
+  resolveInstalledPackageImport,
   resolveSourcePackageImport,
 } from "../resolver/source-package-resolution.js";
+import { resolveImport } from "../resolver.js";
 import { collectClosedWorldDynamicImportSites } from "../resolver/dynamic-import.js";
-import { loadBindings } from "./bindings.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
-import { resolveSourceBindingFiles } from "./source-binding-imports.js";
+import { scanForDeclarationFiles } from "./core-declarations.js";
+import {
+  discoverDeclarationGlobalImports,
+  discoverDeclarationModuleAliases,
+  type DeclarationModuleAlias,
+} from "./declaration-module-aliases.js";
+import { readSourcePackageMetadata } from "./source-package-metadata.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
   readonly entryModule: IrModule;
   /** Type bindings loaded from CLR packages (for emitter bindingsRegistry) */
   readonly bindings: ReadonlyMap<string, TypeBinding>;
+  /** Full binding registry for exact global/module/source binding lookups during emission. */
+  readonly bindingRegistry: BindingRegistry;
+};
+
+const tryConvertProgramBuildExceptionToDiagnostics = (
+  err: unknown
+): readonly Diagnostic[] | undefined => {
+  if (!(err instanceof Error)) {
+    return undefined;
+  }
+
+  const invalidNativeMetadataPrefix = "Invalid native source package metadata at ";
+  if (err.message.startsWith(invalidNativeMetadataPrefix)) {
+    const manifestPath = err.message
+      .slice(invalidNativeMetadataPrefix.length)
+      .replace(/\.$/, "");
+    return [
+      createDiagnostic(
+        "TSN1004",
+        "error",
+        `Invalid source package manifest: ${manifestPath}`,
+        undefined,
+        "Native source packages must declare valid source metadata in tsonic.package.json, including source.namespace and source.exports."
+      ),
+    ];
+  }
+
+  const missingPackageMetadataPrefix = "Installed source package at ";
+  if (
+    err.message.startsWith(missingPackageMetadataPrefix) &&
+    err.message.endsWith(" is missing valid package metadata.")
+  ) {
+    const packageRoot = err.message.slice(
+      missingPackageMetadataPrefix.length,
+      -" is missing valid package metadata.".length
+    );
+    return [
+      createDiagnostic(
+        "TSN1004",
+        "error",
+        `Installed source package at ${packageRoot} is missing valid package metadata.`,
+        undefined,
+        "Native source packages must include package.json name plus valid source.namespace and source.exports in tsonic.package.json."
+      ),
+    ];
+  }
+
+  if (
+    err.message.startsWith(missingPackageMetadataPrefix) &&
+    err.message.endsWith(" is missing package.json name.")
+  ) {
+    const packageRoot = err.message.slice(
+      missingPackageMetadataPrefix.length,
+      -" is missing package.json name.".length
+    );
+    return [
+      createDiagnostic(
+        "TSN1004",
+        "error",
+        `Installed source package at ${packageRoot} is missing package.json name.`,
+        undefined,
+        "Native source packages must include a package.json with a valid name."
+      ),
+    ];
+  }
+
+  return undefined;
 };
 
 /**
@@ -108,6 +182,34 @@ const getModuleSpecifier = (stmt: ts.Statement): ts.StringLiteral | null => {
   }
 
   return null;
+};
+
+const collectSourcePackageModuleAliases = (
+  packageRoots: readonly string[]
+): ReadonlyMap<string, DeclarationModuleAlias> => {
+  const aliases = new Map<string, DeclarationModuleAlias>();
+
+  for (const packageRoot of packageRoots) {
+    const metadata = readSourcePackageMetadata(packageRoot);
+    if (!metadata) {
+      continue;
+    }
+
+    for (const [specifier, targetSpecifier] of Object.entries(
+      metadata.moduleAliases
+    )) {
+      if (aliases.has(specifier)) {
+        continue;
+      }
+
+      aliases.set(specifier, {
+        targetSpecifier,
+        declarationFile: resolve(metadata.packageRoot, "tsonic.package.json"),
+      });
+    }
+  }
+
+  return aliases;
 };
 
 const queueResolvedLocalDependency = (
@@ -181,6 +283,14 @@ const queueResolvedLocalDependency = (
   );
 };
 
+const isQueueableTsSourceDependency = (resolvedPath: string): boolean =>
+  (resolvedPath.endsWith(".ts") ||
+    resolvedPath.endsWith(".mts") ||
+    resolvedPath.endsWith(".cts")) &&
+  !resolvedPath.endsWith(".d.ts") &&
+  !resolvedPath.endsWith(".d.mts") &&
+  !resolvedPath.endsWith(".d.cts");
+
 /**
  * Build complete module dependency graph from entry point
  * Traverses all local imports and builds IR for all discovered modules
@@ -217,24 +327,55 @@ export const buildModuleDependencyGraph = (
       isAbsolute(typeRoot) ? typeRoot : resolve(options.projectRoot, typeRoot)
     )
   );
-  const discoveryBindings = loadBindings(discoveryTypeRoots);
-  const globalSourceBindings = resolveSourceBindingFiles(
-    discoveryBindings,
-    ["global"],
-    entryAbs,
-    options.projectRoot,
-    options.surface ?? "clr"
+  const sourcePackageAmbientFiles = discoveryTypeRoots.flatMap(
+    (typeRoot) => readSourcePackageMetadata(typeRoot)?.ambientPaths ?? []
   );
-  if (!globalSourceBindings.ok) {
-    return error([globalSourceBindings.error]);
+  const declarationFiles = discoveryTypeRoots
+    .filter((typeRoot) => !readSourcePackageMetadata(typeRoot))
+    .flatMap((typeRoot) => scanForDeclarationFiles(typeRoot));
+  const ambientSupportFiles = Array.from(
+    new Set([...sourcePackageAmbientFiles, ...declarationFiles])
+  );
+  const declarationModuleAliases = new Map(
+    collectSourcePackageModuleAliases(discoveryTypeRoots)
+  );
+  for (const [specifier, alias] of discoverDeclarationModuleAliases(
+    ambientSupportFiles
+  )) {
+    if (!declarationModuleAliases.has(specifier)) {
+      declarationModuleAliases.set(specifier, alias);
+    }
+  }
+  const declarationGlobalImports =
+    discoverDeclarationGlobalImports(ambientSupportFiles);
+  const ambientGlobalSourceFiles: string[] = [];
+  for (const declarationGlobalImport of declarationGlobalImports) {
+    const resolvedGlobalImport = resolveImport(
+      declarationGlobalImport.targetSpecifier,
+      declarationGlobalImport.declarationFile,
+      sourceRootAbs,
+      {
+        bindings: undefined,
+        projectRoot: options.projectRoot,
+        surface: options.surface,
+        declarationModuleAliases,
+      }
+    );
+    if (!resolvedGlobalImport.ok) {
+      diagnostics.push(resolvedGlobalImport.error);
+      continue;
+    }
+    if (resolvedGlobalImport.value) {
+      ambientGlobalSourceFiles.push(resolvedGlobalImport.value.resolvedPath);
+    }
   }
 
   // Track all discovered files for later type checking
-  const allDiscoveredFiles: string[] = [];
+  const allDiscoveredFiles: string[] = [...ambientSupportFiles];
 
   // BFS to discover all local imports
   const visited = new Set<string>();
-  const queue: string[] = [entryAbs, ...globalSourceBindings.value];
+  const queue: string[] = [entryAbs, ...ambientGlobalSourceFiles];
 
   // First pass: discover all files
   while (queue.length > 0) {
@@ -304,13 +445,10 @@ export const buildModuleDependencyGraph = (
         continue;
       }
 
-      const moduleBinding = discoveryBindings.getBindingByKind(
-        importSpecifier,
-        "module"
-      );
-      if (moduleBinding?.kind === "module" && moduleBinding.sourceImport) {
+      const declarationAlias = declarationModuleAliases.get(importSpecifier);
+      if (declarationAlias) {
         const redirectedSourcePackage = resolveSourcePackageImport(
-          moduleBinding.sourceImport,
+          declarationAlias.targetSpecifier,
           currentFile,
           options.surface,
           options.projectRoot
@@ -353,6 +491,30 @@ export const buildModuleDependencyGraph = (
       }
       if (sourcePackage.value) {
         queue.push(sourcePackage.value.resolvedPath);
+        continue;
+      }
+
+      const installedPackage = resolveInstalledPackageImport(
+        importSpecifier,
+        currentFile
+      );
+      if (!installedPackage.ok) {
+        diagnostics.push({
+          ...installedPackage.error,
+          location: {
+            file: currentFile,
+            line: stmt.getStart(sourceFile),
+            column: 1,
+            length: importSpecifier.length,
+          },
+        });
+        continue;
+      }
+      if (installedPackage.value) {
+        if (isQueueableTsSourceDependency(installedPackage.value.resolvedPath)) {
+          queue.push(installedPackage.value.resolvedPath);
+        }
+        continue;
       }
     }
 
@@ -419,10 +581,19 @@ export const buildModuleDependencyGraph = (
   // Third pass: Build IR for all discovered modules
   // Phase 5 Step 4: Use buildIr() which creates a single ProgramContext for the entire program
   // This ensures no global singleton state and enables parallel compilation safety
-  const irResult = buildIr(tsonicProgram, {
-    sourceRoot: sourceRootAbs,
-    rootNamespace: options.rootNamespace,
-  });
+  let irResult: ReturnType<typeof buildIr>;
+  try {
+    irResult = buildIr(tsonicProgram, {
+      sourceRoot: sourceRootAbs,
+      rootNamespace: options.rootNamespace,
+    });
+  } catch (err) {
+    const converted = tryConvertProgramBuildExceptionToDiagnostics(err);
+    if (converted) {
+      return error([...converted]);
+    }
+    throw err;
+  }
 
   if (!irResult.ok) {
     return error(irResult.error);
@@ -534,5 +705,6 @@ export const buildModuleDependencyGraph = (
     modules: processedModules,
     entryModule,
     bindings: tsonicProgram.bindings.getEmitterTypeMap(),
+    bindingRegistry: tsonicProgram.bindings,
   });
 };

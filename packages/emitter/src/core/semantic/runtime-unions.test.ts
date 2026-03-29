@@ -187,6 +187,44 @@ describe("runtime-unions", () => {
     expect(narrowedMembers?.runtimeUnionArity).to.equal(3);
   });
 
+  it("preserves explicit duplicate runtime carrier slots when requested", () => {
+    const duplicatedCarrier: IrType = {
+      kind: "unionType",
+      preserveRuntimeLayout: true,
+      types: [
+        {
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+          origin: "explicit",
+        },
+        {
+          kind: "arrayType",
+          elementType: { kind: "unknownType" },
+          origin: "explicit",
+        },
+        {
+          kind: "arrayType",
+          elementType: { kind: "unknownType" },
+          origin: "explicit",
+        },
+      ],
+    };
+
+    const context = createContext({ rootNamespace: "Test" });
+    const frame = buildRuntimeUnionFrame(duplicatedCarrier, context);
+    const [layout] = buildRuntimeUnionLayout(
+      duplicatedCarrier,
+      context,
+      emitTypeAst
+    );
+
+    expect(frame?.runtimeUnionArity).to.equal(3);
+    expect(frame?.members).to.have.length(3);
+    expect(layout?.runtimeUnionArity).to.equal(3);
+    expect(layout?.members).to.have.length(3);
+    expect(layout?.memberTypeAsts).to.have.length(3);
+  });
+
   it("preserves original runtime member slots for single-member expr narrowings", () => {
     const interfaceOptions: IrType = {
       kind: "referenceType",
@@ -428,19 +466,6 @@ describe("runtime-unions", () => {
 
       // Context WITH typeAliasIndex: PathSpec can be expanded
       const typeAliasIndex: TypeAliasIndex = {
-        byName: new Map([
-          [
-            "PathSpec",
-            [
-              {
-                name: "PathSpec",
-                fqn: "Other.PathSpec",
-                type: pathSpecUnderlying,
-                typeParameters: [],
-              },
-            ],
-          ],
-        ]),
         byFqn: new Map([
           [
             "Other.PathSpec",

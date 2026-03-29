@@ -137,6 +137,21 @@ export const resolveHeritageTypeName = (
   sourceRoot: string,
   rootNamespace: string
 ): string | undefined => {
+  const isDeclaredInGlobalBlock = (decl: ts.Declaration | undefined): boolean => {
+    let current: ts.Node | undefined = decl;
+    while (current) {
+      if (
+        ts.isModuleDeclaration(current) &&
+        ts.isIdentifier(current.name) &&
+        current.name.text === "global"
+      ) {
+        return true;
+      }
+      current = current.parent;
+    }
+    return false;
+  };
+
   const expr = typeNode.expression;
 
   const symbol = (() => {
@@ -180,6 +195,10 @@ export const resolveHeritageTypeName = (
     sourceFile ? isWellKnownLibrary(sourceFile.fileName) : false
   );
   if (canonical) return canonical;
+
+  if (isDeclaredInGlobalBlock(decl)) {
+    return simpleName;
+  }
 
   // Source-authored types use namespace-based FQ names.
   const ns =

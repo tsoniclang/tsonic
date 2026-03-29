@@ -113,6 +113,9 @@ describe("IR Builder", function () {
       );
 
       try {
+        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
+        expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
+
         fs.writeFileSync(
           path.join(tempDir, "package.json"),
           JSON.stringify(
@@ -143,6 +146,7 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@tsonic/js",
+          typeRoots: [jsRoot],
         });
 
         expect(programResult.ok).to.equal(true);
@@ -234,6 +238,9 @@ describe("IR Builder", function () {
       );
 
       try {
+        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
+        expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
+
         fs.writeFileSync(
           path.join(tempDir, "package.json"),
           JSON.stringify(
@@ -264,6 +271,7 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@tsonic/js",
+          typeRoots: [jsRoot],
         });
 
         expect(programResult.ok).to.equal(true);
@@ -335,6 +343,129 @@ describe("IR Builder", function () {
         expect(initializer.inferredType).to.deep.equal({
           kind: "primitiveType",
           name: "string",
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("preserves class-generic iterable assertions under the js surface", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-for-of-js-surface-iterable-")
+      );
+
+      try {
+        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
+        expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
+
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "function isIterableObject(value: unknown): value is Iterable<unknown> {",
+            "  return true;",
+            "}",
+            "",
+            "export class Box<T> {",
+            "  first(item: unknown): T | undefined {",
+            "    if (isIterableObject(item)) {",
+            "      for (const value of item as Iterable<T>) {",
+            "        return value;",
+            "      }",
+            "    }",
+            "    return undefined;",
+            "  }",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+          typeRoots: [jsRoot],
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const boxDecl = moduleResult.value.body.find(
+          (stmt) => stmt.kind === "classDeclaration" && stmt.name === "Box"
+        );
+        expect(boxDecl).to.not.equal(undefined);
+        if (!boxDecl || boxDecl.kind !== "classDeclaration") return;
+
+        const firstMethod = boxDecl.members.find(
+          (member) => member.kind === "methodDeclaration" && member.name === "first"
+        );
+        expect(firstMethod).to.not.equal(undefined);
+        if (!firstMethod || firstMethod.kind !== "methodDeclaration") return;
+
+        const methodBody = firstMethod.body;
+        expect(methodBody).to.not.equal(undefined);
+        if (!methodBody) return;
+
+        const ifStmt = methodBody.statements[0];
+        expect(ifStmt?.kind).to.equal("ifStatement");
+        if (!ifStmt || ifStmt.kind !== "ifStatement") return;
+
+        const loop = ifStmt.thenStatement;
+        expect(loop.kind).to.equal("blockStatement");
+        if (loop.kind !== "blockStatement") return;
+
+        const forOf = loop.statements[0];
+        expect(forOf?.kind).to.equal("forOfStatement");
+        if (!forOf || forOf.kind !== "forOfStatement") return;
+
+        const iterable = forOf.expression;
+        expect(iterable.kind).to.equal("typeAssertion");
+        if (iterable.kind !== "typeAssertion") return;
+
+        expect(iterable.inferredType?.kind).to.equal("referenceType");
+        if (iterable.inferredType?.kind !== "referenceType") return;
+
+        expect(iterable.inferredType.name).to.equal("Iterable");
+        expect(iterable.inferredType.typeArguments?.[0]).to.deep.equal({
+          kind: "typeParameterType",
+          name: "T",
         });
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });

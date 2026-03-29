@@ -37,6 +37,7 @@ export type HandleRegistry = {
 
 export type TypeSyntaxInfo = {
   readonly typeNode: unknown;
+  readonly referenceDeclId?: DeclId;
 };
 
 export type ClassMemberNames = {
@@ -129,6 +130,7 @@ export type TypeRegistryAPI = {
   resolveNominal(fqName: string): TypeRegistryEntry | undefined;
   resolveBySimpleName(simpleName: string): TypeRegistryEntry | undefined;
   getFQName(simpleName: string): string | undefined;
+  getFQNames(simpleName: string): readonly string[];
   getMemberType(fqNominal: string, memberName: string): IrType | undefined;
   hasType(fqName: string): boolean;
 };
@@ -143,6 +145,7 @@ export type TypeRegistryEntry = {
   readonly kind: "class" | "interface" | "typeAlias";
   readonly name: string;
   readonly fullyQualifiedName: string;
+  readonly ownerIdentity?: string;
   readonly typeParameters: readonly TypeParameterEntry[];
   readonly members: ReadonlyMap<string, TypeRegistryMemberInfo>;
 };

@@ -40,8 +40,8 @@ import {
   applyBinding,
   buildExprBinding,
   buildConditionalNullishGuardAst,
-  buildRuntimeSubsetExpressionAst,
   currentNarrowedType,
+  resolveRuntimeSubsetSourceInfo,
   resolveRuntimeUnionFrame,
 } from "./narrowing-builder-core.js";
 
@@ -160,6 +160,7 @@ export const buildRuntimeUnionComplementBinding = (
     kind: "runtimeSubset",
     runtimeMemberNs: remainingPairs.map((pair) => pair.runtimeMemberN),
     runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
+    storageExprAst: toReceiverAst(receiver),
     sourceMembers: sourceInfo?.sourceMembers
       ? [...sourceInfo.sourceMembers]
       : runtimeUnionFrame.runtimeUnionArity === runtimeUnionFrame.members.length
@@ -181,8 +182,34 @@ export const buildRuntimeUnionSubsetBinding = (
   runtimeUnionFrame: RuntimeUnionFrame,
   sourceType: IrType,
   narrowedType: IrType,
-  context: EmitterContext
+  context: EmitterContext,
+  sourceInfo?: RuntimeSubsetSourceInfo
 ): [NarrowedBinding, EmitterContext] | undefined => {
+  const resolvedSource = resolveTypeAlias(sourceType, context);
+  const shouldReifyBroadCarrier =
+    resolvedSource.kind === "unknownType" ||
+    resolvedSource.kind === "anyType" ||
+    resolvedSource.kind === "objectType" ||
+    (resolvedSource.kind === "referenceType" &&
+      resolvedSource.name === "object");
+  let narrowedReceiverAst = receiverAst;
+  let narrowedReceiverContext = context;
+  let narrowedReceiverSourceType = sourceType;
+  if (shouldReifyBroadCarrier) {
+    const runtimeCarrierType =
+      buildSubsetUnionType(runtimeUnionFrame.members) ?? sourceType;
+    const [reifiedCarrierAst, reifiedCarrierContext] =
+      materializeDirectNarrowingAst(
+        receiverAst,
+        sourceType,
+        runtimeCarrierType,
+        context
+      );
+    narrowedReceiverAst = reifiedCarrierAst;
+    narrowedReceiverContext = reifiedCarrierContext;
+    narrowedReceiverSourceType = runtimeCarrierType;
+  }
+
   const split = splitRuntimeNullishUnionMembers(narrowedType);
   const nonNullishTarget =
     split?.nonNullishMembers && split.nonNullishMembers.length > 0
@@ -213,12 +240,12 @@ export const buildRuntimeUnionSubsetBinding = (
     }
     return [
       buildExprBinding(
-        buildUnionNarrowAst(receiverAst, selected.runtimeMemberN),
+        buildUnionNarrowAst(narrowedReceiverAst, selected.runtimeMemberN),
         narrowedType,
-        sourceType,
-        receiverAst
+        narrowedReceiverSourceType,
+        narrowedReceiverAst
       ),
-      context,
+      narrowedReceiverContext,
     ];
   }
 
@@ -230,17 +257,17 @@ export const buildRuntimeUnionSubsetBinding = (
   if (!subsetLayout) {
     const [materializedExprAst, materializedContext] =
       materializeDirectNarrowingAst(
-        receiverAst,
-        sourceType,
+        narrowedReceiverAst,
+        narrowedReceiverSourceType,
         narrowedType,
-        context
+        narrowedReceiverContext
       );
     return [
       buildExprBinding(
         materializedExprAst,
         narrowedType,
-        sourceType,
-        receiverAst
+        narrowedReceiverSourceType,
+        narrowedReceiverAst
       ),
       materializedContext,
     ];
@@ -250,24 +277,48 @@ export const buildRuntimeUnionSubsetBinding = (
   const selectedRuntimeMembers = new Set(
     selectedPairs.map((pair) => pair.runtimeMemberN)
   );
+  const explicitSourceFrame =
+    sourceInfo?.sourceMembers &&
+    sourceInfo.sourceCandidateMemberNs &&
+    sourceInfo.sourceMembers.length === sourceInfo.sourceCandidateMemberNs.length
+      ? {
+          members: sourceInfo.sourceMembers,
+          candidateMemberNs: sourceInfo.sourceCandidateMemberNs,
+          runtimeUnionArity: sourceInfo.sourceCandidateMemberNs.length,
+        }
+      : runtimeUnionFrame.runtimeUnionArity === runtimeUnionFrame.members.length &&
+          runtimeUnionFrame.members.length ===
+            runtimeUnionFrame.candidateMemberNs.length
+        ? {
+            members: runtimeUnionFrame.members,
+            candidateMemberNs: runtimeUnionFrame.candidateMemberNs,
+            runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
+          }
+        : undefined;
+  const sourceMembers = explicitSourceFrame?.members ?? runtimeUnionFrame.members;
+  const sourceCandidateMemberNs =
+    explicitSourceFrame?.candidateMemberNs ?? runtimeUnionFrame.candidateMemberNs;
+  const sourceRuntimeUnionArity =
+    explicitSourceFrame?.runtimeUnionArity ?? runtimeUnionFrame.runtimeUnionArity;
+
   const sourceMemberTypeAsts: CSharpTypeAst[] = [];
   let sourceLayoutContext = subsetTypeContext;
-  for (const member of runtimeUnionFrame.members) {
+  for (const member of sourceMembers) {
     const [typeAst, nextContext] = emitTypeAst(member, sourceLayoutContext);
     sourceMemberTypeAsts.push(typeAst);
     sourceLayoutContext = nextContext;
   }
 
   const projectedSubset = tryBuildRuntimeUnionProjectionToLayoutAst({
-    valueAst: receiverAst,
+    valueAst: narrowedReceiverAst,
     sourceLayout: {
-      members: runtimeUnionFrame.members,
+      members: sourceMembers,
       memberTypeAsts: sourceMemberTypeAsts,
-      runtimeUnionArity: runtimeUnionFrame.runtimeUnionArity,
+      runtimeUnionArity: sourceRuntimeUnionArity,
     },
     targetLayout: subsetLayout,
     context: sourceLayoutContext,
-    candidateMemberNs: runtimeUnionFrame.candidateMemberNs,
+    candidateMemberNs: sourceCandidateMemberNs,
     selectedSourceMemberNs: selectedRuntimeMembers,
     buildMappedMemberValue: ({ parameterExpr, context: nextContext }) => [
       parameterExpr,
@@ -286,7 +337,7 @@ export const buildRuntimeUnionSubsetBinding = (
 
   const exprAst = split?.hasRuntimeNullish
     ? buildConditionalNullishGuardAst(
-        receiverAst,
+        narrowedReceiverAst,
         matchExpr,
         narrowedType,
         matchContext
@@ -294,7 +345,12 @@ export const buildRuntimeUnionSubsetBinding = (
     : matchExpr;
 
   return [
-    buildExprBinding(exprAst, narrowedType, sourceType, receiverAst),
+    buildExprBinding(
+      exprAst,
+      narrowedType,
+      narrowedReceiverSourceType,
+      narrowedReceiverAst
+    ),
     matchContext,
   ];
 };
@@ -354,6 +410,35 @@ export const applyDirectTypeNarrowing = (
         ? resolveRuntimeUnionFrame(bindingKey, currentType, context)
         : undefined;
       if (existingBinding.storageExprAst && exprCarrierFrame) {
+        const existingBindingTypeKey = existingBinding.type
+          ? stableIrTypeKey(resolveTypeAlias(existingBinding.type, context))
+          : undefined;
+        const currentTypeKey = currentType
+          ? stableIrTypeKey(resolveTypeAlias(currentType, context))
+          : undefined;
+        const existingBindingSourceTypeKey = existingBinding.sourceType
+          ? stableIrTypeKey(resolveTypeAlias(existingBinding.sourceType, context))
+          : undefined;
+        const shouldPreferOriginalStorageCarrier =
+          existingBindingTypeKey !== undefined &&
+          currentTypeKey !== undefined &&
+          existingBindingTypeKey === currentTypeKey &&
+          existingBindingSourceTypeKey !== undefined &&
+          existingBindingSourceTypeKey !== currentTypeKey;
+        if (shouldPreferOriginalStorageCarrier) {
+          return [
+            existingBinding.storageExprAst,
+            context,
+            exprCarrierType,
+          ] as const;
+        }
+        if (
+          existingBindingTypeKey !== undefined &&
+          currentTypeKey !== undefined &&
+          existingBindingTypeKey === currentTypeKey
+        ) {
+          return [existingBinding.exprAst, context, exprCarrierType] as const;
+        }
         return [
           existingBinding.storageExprAst,
           context,
@@ -364,25 +449,17 @@ export const applyDirectTypeNarrowing = (
       return [existingBinding.exprAst, context, exprCarrierType] as const;
     }
 
-    if (
-      existingBinding.kind === "runtimeSubset" &&
-      targetExpr.kind === "identifier"
-    ) {
-      const subsetAst = buildRuntimeSubsetExpressionAst(
-        targetExpr,
-        existingBinding,
-        context
-      );
-      if (subsetAst) {
-        return [
-          subsetAst[0],
-          subsetAst[1],
-          existingBinding.type ??
-            existingBinding.sourceType ??
-            currentType ??
-            targetExpr.inferredType,
-        ] as const;
-      }
+    if (existingBinding.kind === "runtimeSubset") {
+      const subsetCarrierType =
+        existingBinding.sourceType ??
+        existingBinding.type ??
+        currentType ??
+        targetExpr.inferredType;
+      return [
+        existingBinding.storageExprAst ?? rawTargetAst,
+        context,
+        subsetCarrierType,
+      ] as const;
     }
 
     return [
@@ -397,6 +474,15 @@ export const applyDirectTypeNarrowing = (
     : undefined;
   const carrierSourceType =
     carrierType ?? currentType ?? targetExpr.inferredType;
+  const runtimeSubsetSourceInfo =
+    currentType && runtimeUnionFrame
+      ? resolveRuntimeSubsetSourceInfo(
+          bindingKey,
+          currentType,
+          runtimeUnionFrame,
+          context
+        )
+      : undefined;
 
   if (runtimeUnionFrame && currentType) {
     const subsetBinding = buildRuntimeUnionSubsetBinding(
@@ -404,7 +490,8 @@ export const applyDirectTypeNarrowing = (
       runtimeUnionFrame,
       carrierSourceType ?? currentType,
       narrowedType,
-      carrierContext
+      carrierContext,
+      runtimeSubsetSourceInfo
     );
     if (subsetBinding) {
       const [binding, subsetContext] = subsetBinding;

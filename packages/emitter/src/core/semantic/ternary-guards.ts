@@ -16,6 +16,7 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { getPropertyType } from "./type-resolution.js";
 import { emitRemappedLocalName } from "../format/local-names.js";
+import { resolveIteratorResultReferenceType } from "./structural-resolution.js";
 import {
   buildRuntimeUnionLayout,
   getCanonicalRuntimeUnionMembers,
@@ -196,6 +197,10 @@ const tryResolveTernaryDiscriminantEqualityGuard = (
 
   const unionSourceType = receiver.inferredType;
   if (!unionSourceType) return undefined;
+
+  if (resolveIteratorResultReferenceType(unionSourceType, context)) {
+    return undefined;
+  }
 
   // Semantic gate: confirm this is a union before constructing runtime layout
   if (!isSemanticUnion(unionSourceType, context)) return undefined;

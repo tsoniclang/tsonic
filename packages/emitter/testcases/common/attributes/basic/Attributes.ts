@@ -19,8 +19,8 @@ export class Config {
 A.on(Config).type.add(ObsoleteAttribute, "Use NewConfig instead");
 
 // Class with multiple attributes
-export class LegacyService {
+export class AnnotatedService {
   data!: string;
 }
-A.on(LegacyService).type.add(SerializableAttribute);
-A.on(LegacyService).type.add(ObsoleteAttribute, "Deprecated");
+A.on(AnnotatedService).type.add(SerializableAttribute);
+A.on(AnnotatedService).type.add(ObsoleteAttribute, "Deprecated");

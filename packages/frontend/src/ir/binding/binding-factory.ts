@@ -145,13 +145,10 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     return {
       kind: "typePredicate",
       parameterIndex: predicate.parameterIndex ?? 0,
-      typeNode: predicate.type
-        ? checker.typeToTypeNode(
-            predicate.type,
-            undefined,
-            ts.NodeBuilderFlags.None
-          )
-        : undefined,
+      typeNode:
+        entry.typePredicate?.kind === "param"
+          ? (entry.typePredicate.targetTypeNode as ts.TypeNode)
+          : undefined,
     };
   };
 
@@ -241,7 +238,13 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
    */
   const captureTypeSyntax = (node: ts.TypeNode): TypeSyntaxId => {
     const id = makeTypeSyntaxId(ctx.nextTypeSyntaxId.value++);
-    ctx.typeSyntaxMap.set(id.id, { typeNode: node });
+    const referenceDeclId = ts.isTypeReferenceNode(node)
+      ? resolveTypeReferenceImpl(ctx, node)
+      : undefined;
+    ctx.typeSyntaxMap.set(id.id, {
+      typeNode: node,
+      ...(referenceDeclId ? { referenceDeclId } : {}),
+    });
     return id;
   };
 

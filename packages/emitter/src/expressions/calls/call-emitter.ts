@@ -28,8 +28,8 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 // Import from split modules
-import { resolveRecoveredReceiverBinding } from "./call-binding-resolution.js";
 import { emitDynamicImportCall } from "./call-dynamic-import.js";
 import {
   emitJsonSerializerCall,
@@ -39,11 +39,11 @@ import {
 import {
   emitPromiseStaticCall,
   emitPromiseThenCatchFinally,
+  buildDelegateType,
 } from "./call-promise.js";
 import {
   emitArrayMutationInteropCall,
   emitArrayWrapperInteropCall,
-  shouldNormalizeUnboundJsArrayWrapperResult,
 } from "./call-array-interop.js";
 import { emitRuntimeUnionArrayIsArrayCall } from "./call-runtime-union-guards.js";
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
@@ -100,6 +100,106 @@ const extractTransparentIdentifier = (
   return current.kind === "identifier" ? current : undefined;
 };
 
+const castInvokedLambdaTarget = (
+  calleeExpr: CSharpExpressionAst,
+  calleeType: IrType | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (calleeExpr.kind !== "lambdaExpression") {
+    return [calleeExpr, context];
+  }
+  if (!calleeType || calleeType.kind !== "functionType") {
+    throw new Error(
+      "Internal Compiler Error: Immediately-invoked function expression reached call emission without a concrete function type."
+    );
+  }
+
+  let currentContext = context;
+  const parameterTypeAsts: CSharpTypeAst[] = [];
+  for (const parameter of calleeType.parameters) {
+    if (!parameter?.type) {
+      throw new Error(
+        "Internal Compiler Error: Function-expression invocation parameter is missing a concrete type."
+      );
+    }
+    const [parameterTypeAst, parameterTypeContext] = emitTypeAst(
+      parameter.type,
+      currentContext
+    );
+    parameterTypeAsts.push(parameterTypeAst);
+    currentContext = parameterTypeContext;
+  }
+
+  const [returnTypeAst, returnTypeContext] = emitTypeAst(
+    calleeType.returnType,
+    currentContext
+  );
+
+  return [
+    {
+      kind: "parenthesizedExpression",
+      expression: {
+        kind: "castExpression",
+        type: buildDelegateType(parameterTypeAsts, returnTypeAst),
+        expression: {
+          kind: "parenthesizedExpression",
+          expression: calleeExpr,
+        },
+      },
+    },
+    returnTypeContext,
+  ];
+};
+
+const emitSyntheticArraySliceCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (expr.callee.kind !== "memberAccess") {
+    return undefined;
+  }
+
+  const binding = expr.callee.memberBinding;
+  if (
+    binding?.assembly !== "__synthetic" ||
+    binding.type !== "Array" ||
+    binding.member !== "slice" ||
+    expr.arguments.length !== 1
+  ) {
+    return undefined;
+  }
+
+  const startIndex = expr.arguments[0];
+  if (!startIndex || startIndex.kind === "spread") {
+    return undefined;
+  }
+
+  const [receiverAst, receiverContext] = emitExpressionAst(
+    expr.callee.object,
+    context
+  );
+  const [startAst, startContext] = emitExpressionAst(
+    startIndex,
+    receiverContext,
+    { kind: "primitiveType", name: "int" }
+  );
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: identifierExpression("global::System.Linq.Enumerable.ToArray"),
+      arguments: [
+        {
+          kind: "invocationExpression",
+          expression: identifierExpression("global::System.Linq.Enumerable.Skip"),
+          arguments: [receiverAst, startAst],
+        },
+      ],
+    },
+    startContext,
+  ];
+};
+
 /**
  * Emit a function call expression as CSharpExpressionAst
  */
@@ -108,10 +208,10 @@ export const emitCall = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
-  const recoveredReceiverBinding = resolveRecoveredReceiverBinding(
-    expr,
-    context
-  );
+  const syntheticArraySlice = emitSyntheticArraySliceCall(expr, context);
+  if (syntheticArraySlice) {
+    return syntheticArraySlice;
+  }
 
   const dynamicImport = emitDynamicImportCall(expr, context);
   if (dynamicImport) return dynamicImport;
@@ -165,7 +265,7 @@ export const emitCall = (
   }
 
   // Check for global JSON.stringify/parse calls
-  const globalJsonCall = isGlobalJsonCall(expr.callee);
+  const globalJsonCall = isGlobalJsonCall(expr.callee, context);
   if (globalJsonCall) {
     return emitGlobalJsonCall(expr, context, globalJsonCall.method);
   }
@@ -230,7 +330,7 @@ export const emitCall = (
 
   // Extension method lowering — delegated to call-extension-methods.ts
   // Keep this after native array interop so lifted/static container array
-  // mutation calls cannot fall through to copy-based JSArray extension syntax.
+  // mutation calls cannot fall through to copy-based source-owned array syntax.
   const extensionResult = tryEmitExtensionMethodCall(
     expr,
     context,
@@ -241,13 +341,7 @@ export const emitCall = (
   }
 
   // Regular function call
-  const calleeExprForEmission =
-    expr.callee.kind === "memberAccess" && recoveredReceiverBinding
-      ? {
-          ...expr.callee,
-          memberBinding: recoveredReceiverBinding,
-        }
-      : expr.callee;
+  const calleeExprForEmission = expr.callee;
   const calleeExpectedType =
     calleeExprForEmission.kind === "memberAccess"
       ? undefined
@@ -260,6 +354,15 @@ export const emitCall = (
 
   let calleeExpr: CSharpExpressionAst = calleeAst;
   let typeArgAsts: readonly CSharpTypeAst[] = [];
+  if (calleeExpr.kind === "lambdaExpression") {
+    const castedLambdaTarget = castInvokedLambdaTarget(
+      calleeExpr,
+      calleeExpectedType,
+      currentContext
+    );
+    calleeExpr = castedLambdaTarget[0];
+    currentContext = castedLambdaTarget[1];
+  }
 
   if (expr.typeArguments && expr.typeArguments.length > 0) {
     if (expr.requiresSpecialization) {
@@ -288,27 +391,9 @@ export const emitCall = (
     expr,
     expr.arguments.length
   );
-  const recoveredSemanticParameterTypes =
-    !parameterTypeOverrides &&
-    (!expr.surfaceParameterTypes || expr.surfaceParameterTypes.length === 0) &&
-    (!expr.parameterTypes || expr.parameterTypes.length === 0)
-      ? recoveredReceiverBinding?.semanticSignature?.parameters.map(
-          (parameter) => parameter.type
-        )
-      : undefined;
-  const exprForArguments =
-    recoveredSemanticParameterTypes &&
-    recoveredSemanticParameterTypes.length > 0 &&
-    (!expr.surfaceParameterTypes || expr.surfaceParameterTypes.length === 0)
-      ? {
-          ...expr,
-          surfaceParameterTypes: recoveredSemanticParameterTypes,
-        }
-      : expr;
-
   const [argAsts, argContext] = emitCallArguments(
-    exprForArguments.arguments,
-    exprForArguments,
+    expr.arguments,
+    expr,
     currentContext,
     parameterTypeOverrides
   );
@@ -339,24 +424,6 @@ export const emitCall = (
     typeArguments: typeArgAsts.length > 0 ? typeArgAsts : undefined,
   };
 
-  const normalizedInvocation: CSharpExpressionAst =
-    shouldNormalizeUnboundJsArrayWrapperResult(
-      expr,
-      invocationTarget,
-      expectedType,
-      context
-    )
-      ? {
-          kind: "invocationExpression",
-          expression: {
-            kind: "memberAccessExpression",
-            expression: invocation,
-            memberName: "toArray",
-          },
-          arguments: [],
-        }
-      : invocation;
-
   const shouldCastSuperCallResult =
     expr.callee.kind === "memberAccess" &&
     expr.callee.object.kind === "identifier" &&
@@ -366,7 +433,7 @@ export const emitCall = (
     expectedType.kind !== "anyType" &&
     expectedType.kind !== "unknownType";
 
-  let finalInvocation: CSharpExpressionAst = normalizedInvocation;
+  let finalInvocation: CSharpExpressionAst = invocation;
   if (shouldCastSuperCallResult && expectedType) {
     const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
       expectedType,
@@ -375,7 +442,7 @@ export const emitCall = (
     finalInvocation = {
       kind: "castExpression",
       type: expectedTypeAst,
-      expression: normalizedInvocation,
+      expression: invocation,
     };
     currentContext = expectedTypeContext;
   }

@@ -36,7 +36,6 @@ import type { EmitterContext } from "../../types.js";
 import { normalizeRuntimeStorageType } from "./storage-types.js";
 import {
   registerLocalSymbolTypes,
-  registerLocalSemanticType,
 } from "../format/local-names.js";
 import { deriveForOfElementType } from "./iteration-types.js";
 import {
@@ -44,6 +43,7 @@ import {
   resolveLocalStorageType,
   type VariableDeclaratorLike,
 } from "./variable-type-resolution.js";
+import { getAcceptedParameterType } from "./defaults.js";
 
 /**
  * Register a local symbol from its semantic (frontend IR) type.
@@ -57,9 +57,25 @@ import {
 export const registerParameterTypes = (
   originalName: string,
   semanticType: IrType | undefined,
+  acceptsExplicitUndefined: boolean,
   context: EmitterContext
-): EmitterContext =>
-  registerLocalSemanticType(originalName, semanticType, context);
+): EmitterContext => {
+  const acceptedType = getAcceptedParameterType(
+    semanticType,
+    acceptsExplicitUndefined
+  );
+  const storageType =
+    normalizeRuntimeStorageType(acceptedType, context) ??
+    acceptedType ??
+    semanticType;
+
+  return registerLocalSymbolTypes(
+    originalName,
+    semanticType,
+    storageType,
+    context
+  );
+};
 
 /**
  * Register for-of element semantic and storage types for a loop variable.

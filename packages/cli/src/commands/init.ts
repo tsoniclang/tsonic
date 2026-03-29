@@ -36,6 +36,15 @@ type TypePackageInfo = {
   readonly typeRoots: readonly string[];
 };
 
+const bootstrapInitSurfaceTypeRoots = (
+  surface: SurfaceMode
+): readonly string[] => {
+  if (surface === "@tsonic/js") {
+    return ["node_modules/@tsonic/js"];
+  }
+  return [];
+};
+
 const readExistingPackageSpecs = (
   workspaceRoot: string | undefined
 ): ReadonlyMap<string, string> => {
@@ -165,20 +174,22 @@ This package is authored for Tsonic.
 const writeSourcePackageManifest = (
   projectRoot: string,
   surface: SurfaceMode,
-  entryPoint: string
+  entryPoint: string,
+  rootNamespace: string
 ): void => {
-  const manifestDir = join(projectRoot, "tsonic");
-  mkdirSync(manifestDir, { recursive: true });
+  const exportTarget = `./${entryPoint}`;
   writeFileSync(
-    join(manifestDir, "package-manifest.json"),
+    join(projectRoot, "tsonic.package.json"),
     JSON.stringify(
       {
         schemaVersion: 1,
         kind: "tsonic-source-package",
         surfaces: [surface],
         source: {
+          namespace: rootNamespace,
           exports: {
-            ".": `./${entryPoint}`,
+            ".": exportTarget,
+            "./index.js": exportTarget,
           },
         },
       },
@@ -250,14 +261,7 @@ const npmInstallDev = (
 ): Result<void, string> => {
   const result = spawnSync(
     "npm",
-    [
-      "install",
-      "--save-dev",
-      spec,
-      "--no-fund",
-      "--no-audit",
-      "--legacy-peer-deps",
-    ],
+    ["install", "--save-dev", spec, "--no-fund", "--no-audit"],
     {
       cwd: workspaceRoot,
       stdio: "inherit",
@@ -335,11 +339,27 @@ export const initWorkspace = (
       surface !== "clr" &&
       !hasResolvedSurfaceProfile(surface, { workspaceRoot })
     ) {
-      return {
-        ok: false,
-        error:
-          `Surface '${surface}' is not a valid ambient surface package.\n` +
-          `Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages (for example '@tsonic/nodejs') separately.`,
+      const bootstrapTypeRoots =
+        shouldInstallTypes !== true
+          ? bootstrapInitSurfaceTypeRoots(surface)
+          : [];
+
+      if (bootstrapTypeRoots.length === 0) {
+        return {
+          ok: false,
+          error:
+            `Surface '${surface}' is not a valid ambient surface package.\n` +
+            `Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages (for example '@tsonic/nodejs') separately.`,
+        };
+      }
+
+      surfaceCapabilities = {
+        mode: surface,
+        includesClr: false,
+        resolvedModes: [surface],
+        requiredTypeRoots: bootstrapTypeRoots,
+        requiredNpmPackages: [surface],
+        useStandardLib: false,
       };
     }
 
@@ -386,7 +406,11 @@ export const initWorkspace = (
             name,
             version: "1.0.0",
             type: "module",
-            files: ["src", "tsonic", "README.md"],
+            exports: {
+              ".": "./src/App.ts",
+              "./index.js": "./src/App.ts",
+            },
+            files: ["src", "tsonic.package.json", "README.md"],
           },
           null,
           2
@@ -406,7 +430,7 @@ export const initWorkspace = (
       output: { type: "executable" },
     });
 
-    writeSourcePackageManifest(projectRoot, surface, "src/App.ts");
+    writeSourcePackageManifest(projectRoot, surface, "src/App.ts", "MyApp");
 
     // Sample source
     const appTsPath = join(projectRoot, "src", "App.ts");

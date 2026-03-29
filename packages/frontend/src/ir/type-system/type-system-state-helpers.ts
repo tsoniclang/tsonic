@@ -163,6 +163,65 @@ export const resolveTypeIdByName = (
   return undefined;
 };
 
+export const resolveSourceReferenceFQName = (
+  state: TypeSystemState,
+  type: Extract<IrType, { kind: "referenceType" }>
+): string | undefined => {
+  if (type.resolvedClrType || type.name.includes(".")) {
+    return undefined;
+  }
+
+  const direct = state.typeRegistry.getFQName(type.name);
+  if (direct) {
+    return direct;
+  }
+
+  const allFqNames = state.typeRegistry.getFQNames(type.name);
+  const dottedCandidates = allFqNames.filter((fqName) => fqName.includes("."));
+  if (dottedCandidates.length === 1) {
+    const [onlyDotted] = dottedCandidates;
+    if (onlyDotted) {
+      return onlyDotted;
+    }
+  }
+
+  const structuralMembers = type.structuralMembers;
+  if (!structuralMembers || structuralMembers.length === 0) {
+    return undefined;
+  }
+
+  const candidates = allFqNames.filter((fqName) => {
+    const entry = state.typeRegistry.resolveNominal(fqName);
+    if (!entry) {
+      return false;
+    }
+
+    return structuralMembers.every((member) => {
+      const entryMember = entry.members.get(member.name);
+      if (!entryMember) {
+        return false;
+      }
+
+      if (member.kind === "propertySignature") {
+        return entryMember.kind === "property";
+      }
+
+      if (member.kind === "methodSignature") {
+        return (
+          entryMember.kind === "method" &&
+          (entryMember.methodSignatures?.some(
+            (signature) => signature.parameters.length === member.parameters.length
+          ) ?? false)
+        );
+      }
+
+      return false;
+    });
+  });
+
+  return candidates.length === 1 ? candidates[0] : undefined;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // NORMALIZATION HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -180,12 +239,16 @@ export const normalizeToNominal = (
 ): { typeId: TypeId; typeArgs: readonly IrType[] } | undefined => {
   if (type.kind === "referenceType") {
     const arity = type.typeArguments?.length;
+    const sourceFqName = resolveSourceReferenceFQName(state, type);
     const typeId =
+      (sourceFqName
+        ? resolveTypeIdByName(state, sourceFqName, arity)
+        : undefined) ??
       type.typeId ??
       (type.resolvedClrType
         ? resolveTypeIdByName(state, type.resolvedClrType, arity)
         : undefined) ??
-      resolveTypeIdByName(state, type.name, arity);
+      (!sourceFqName ? resolveTypeIdByName(state, type.name, arity) : undefined);
     if (!typeId) return undefined;
     return { typeId, typeArgs: type.typeArguments ?? [] };
   }

@@ -44,9 +44,8 @@ export const writeLocalNpmPackage = (
   relDir: string,
   pkg: {
     readonly name: string;
-    readonly manifest?: unknown;
+    readonly bindingsManifest?: unknown;
     readonly packageManifest?: unknown;
-    readonly bindingsRoot?: string;
     readonly dependencies?: Readonly<Record<string, string>>;
   }
 ): string => {
@@ -69,25 +68,20 @@ export const writeLocalNpmPackage = (
     "utf-8"
   );
 
-  if (pkg.manifest !== undefined) {
+  if (pkg.bindingsManifest !== undefined) {
     writeFileSync(
       join(pkgRoot, "tsonic.bindings.json"),
-      JSON.stringify(pkg.manifest, null, 2) + "\n",
+      JSON.stringify(pkg.bindingsManifest, null, 2) + "\n",
       "utf-8"
     );
   }
 
   if (pkg.packageManifest !== undefined) {
-    mkdirSync(join(pkgRoot, "tsonic"), { recursive: true });
     writeFileSync(
-      join(pkgRoot, "tsonic", "package-manifest.json"),
+      join(pkgRoot, "tsonic.package.json"),
       JSON.stringify(pkg.packageManifest, null, 2) + "\n",
       "utf-8"
     );
-  }
-
-  if (pkg.bindingsRoot) {
-    mkdirSync(join(pkgRoot, pkg.bindingsRoot), { recursive: true });
   }
 
   return pkgRoot;

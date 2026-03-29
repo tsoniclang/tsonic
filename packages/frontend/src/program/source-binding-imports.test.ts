@@ -54,7 +54,7 @@ describe("resolveSourceBindingFiles", () => {
         )
       );
       fs.writeFileSync(
-        path.join(authoritativeJsRoot, "tsonic", "package-manifest.json"),
+        path.join(authoritativeJsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -80,8 +80,8 @@ describe("resolveSourceBindingFiles", () => {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
             sourceImport: "@tsonic/js/console.js",
           },
         },

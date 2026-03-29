@@ -36,6 +36,8 @@ import {
   withRuntimeUnionMemberNarrowing,
   applyExprFallthroughNarrowing,
   emitExprAstCb,
+  mergeBranchContextMeta,
+  resetBranchFlowState,
 } from "./branch-context.js";
 
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
@@ -158,32 +160,50 @@ export const tryEmitArrayIsArrayGuard = (
       thenCtx
     );
     const thenStatementAst = wrapInBlock(thenStmts);
+    const thenTerminates = isDefinitelyTerminating(stmt.thenStatement);
+    const basePostConditionContext = resetBranchFlowState(
+      condCtxAfterCondAst,
+      thenCtxAfter
+    );
 
-    let finalContext: EmitterContext = {
-      ...thenCtxAfter,
-      narrowedBindings: condCtxAfterCond.narrowedBindings,
-    };
+    let finalContext: EmitterContext = basePostConditionContext;
 
     let elseStmt: CSharpStatementAst | undefined;
     if (stmt.elseStatement) {
-      const elseCtx = arrayIsArrayGuard.narrowsInThen
-        ? nonArrayBranchContext
-        : arrayBranchContext;
+      const elseCtx: EmitterContext = {
+        ...(arrayIsArrayGuard.narrowsInThen
+          ? nonArrayBranchContext
+          : arrayBranchContext),
+        tempVarId: basePostConditionContext.tempVarId,
+        usings: basePostConditionContext.usings,
+        usedLocalNames: basePostConditionContext.usedLocalNames,
+      };
       const [elseStmts, elseCtxAfter] = emitStatementAst(
         stmt.elseStatement,
         elseCtx
       );
       elseStmt = wrapInBlock(elseStmts);
-      finalContext = {
-        ...elseCtxAfter,
-        narrowedBindings: condCtxAfterCond.narrowedBindings,
-      };
+      const elseTerminates = isDefinitelyTerminating(stmt.elseStatement);
+
+      if (thenTerminates && !elseTerminates) {
+        finalContext = mergeBranchContextMeta(elseCtxAfter, thenCtxAfter);
+      } else if (!thenTerminates && elseTerminates) {
+        finalContext = mergeBranchContextMeta(thenCtxAfter, elseCtxAfter);
+      } else {
+        finalContext = mergeBranchContextMeta(
+          resetBranchFlowState(condCtxAfterCondAst, elseCtxAfter),
+          thenCtxAfter
+        );
+      }
     }
 
-    if (!stmt.elseStatement && isDefinitelyTerminating(stmt.thenStatement)) {
-      finalContext = arrayIsArrayGuard.narrowsInThen
-        ? nonArrayBranchContext
-        : arrayBranchContext;
+    if (!stmt.elseStatement && thenTerminates) {
+      finalContext = mergeBranchContextMeta(
+        arrayIsArrayGuard.narrowsInThen
+          ? nonArrayBranchContext
+          : arrayBranchContext,
+        thenCtxAfter
+      );
     }
 
     const runtimeCondAst = buildIsNCondition(
@@ -242,16 +262,18 @@ export const tryEmitArrayIsArrayGuard = (
     thenCtx
   );
   const thenStatementAst = wrapInBlock(thenStmts);
+  const thenTerminates = isDefinitelyTerminating(stmt.thenStatement);
+  const basePostConditionContext = resetBranchFlowState(
+    condCtxAfterCond,
+    thenCtxAfter
+  );
 
-  let finalContext: EmitterContext = {
-    ...thenCtxAfter,
-    narrowedBindings: condCtxAfterCond.narrowedBindings,
-  };
+  let finalContext: EmitterContext = basePostConditionContext;
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
     const elseCtx: EmitterContext = {
-      ...finalContext,
+      ...basePostConditionContext,
       narrowedBindings: arrayIsArrayGuard.narrowsInThen
         ? condCtxAfterCond.narrowedBindings
         : narrowedMap,
@@ -261,13 +283,21 @@ export const tryEmitArrayIsArrayGuard = (
       elseCtx
     );
     elseStmt = wrapInBlock(elseStmts);
-    finalContext = {
-      ...elseCtxAfter,
-      narrowedBindings: condCtxAfterCond.narrowedBindings,
-    };
+    const elseTerminates = isDefinitelyTerminating(stmt.elseStatement);
+
+    if (thenTerminates && !elseTerminates) {
+      finalContext = mergeBranchContextMeta(elseCtxAfter, thenCtxAfter);
+    } else if (!thenTerminates && elseTerminates) {
+      finalContext = mergeBranchContextMeta(thenCtxAfter, elseCtxAfter);
+    } else {
+      finalContext = mergeBranchContextMeta(
+        resetBranchFlowState(condCtxAfterCond, elseCtxAfter),
+        thenCtxAfter
+      );
+    }
   }
 
-  if (!stmt.elseStatement && isDefinitelyTerminating(stmt.thenStatement)) {
+  if (!stmt.elseStatement && thenTerminates) {
     const complementType = narrowTypeByArrayShape(
       arrayIsArrayGuard.targetExpr.inferredType,
       !arrayIsArrayGuard.narrowsInThen,
@@ -325,31 +355,56 @@ export const tryEmitTypeofGuard = (
     emitExprAstCb,
     context
   );
+  const preservedNarrowedBindings = context.narrowedBindings;
+  const semanticCondContext: EmitterContext = {
+    ...condCtxAfterCond,
+    narrowedBindings: preservedNarrowedBindings,
+  };
 
   const thenCtx =
     truthyTypeofRefinements.length > 0
       ? applyConditionBranchNarrowing(
           stmt.condition,
           "truthy",
-          condCtxAfterCond,
+          semanticCondContext,
           emitExprAstCb
         )
-      : condCtxAfterCond;
+      : semanticCondContext;
   const [thenStmts, thenCtxAfter] = emitStatementAst(
     stmt.thenStatement,
     thenCtx
   );
+  const thenTerminates = isDefinitelyTerminating(stmt.thenStatement);
+  const basePostConditionContext = resetBranchFlowState(
+    semanticCondContext,
+    thenCtxAfter
+  );
 
-  let finalContext: EmitterContext = {
-    ...thenCtxAfter,
-    narrowedBindings: condCtxAfterCond.narrowedBindings,
-  };
+  let finalContext: EmitterContext = thenTerminates
+    ? falsyTypeofRefinements.length > 0
+      ? applyConditionBranchNarrowing(
+          stmt.condition,
+          "falsy",
+          {
+            ...semanticCondContext,
+            tempVarId: basePostConditionContext.tempVarId,
+            usings: basePostConditionContext.usings,
+            usedLocalNames: basePostConditionContext.usedLocalNames,
+            narrowedBindings: preservedNarrowedBindings,
+          },
+          emitExprAstCb
+        )
+      : basePostConditionContext
+    : basePostConditionContext;
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
     const elseBaseContext: EmitterContext = {
-      ...finalContext,
-      narrowedBindings: condCtxAfterCond.narrowedBindings,
+      ...semanticCondContext,
+      tempVarId: basePostConditionContext.tempVarId,
+      usings: basePostConditionContext.usings,
+      usedLocalNames: basePostConditionContext.usedLocalNames,
+      narrowedBindings: preservedNarrowedBindings,
     };
     const elseCtx =
       falsyTypeofRefinements.length > 0
@@ -365,23 +420,30 @@ export const tryEmitTypeofGuard = (
       elseCtx
     );
     elseStmt = wrapInBlock(elseStmts);
-    finalContext = {
-      ...elseCtxAfter,
-      narrowedBindings: condCtxAfterCond.narrowedBindings,
-    };
+    const elseTerminates = isDefinitelyTerminating(stmt.elseStatement);
+
+    if (thenTerminates && !elseTerminates) {
+      finalContext = mergeBranchContextMeta(elseCtxAfter, thenCtxAfter);
+    } else if (!thenTerminates && elseTerminates) {
+      finalContext = mergeBranchContextMeta(thenCtxAfter, elseCtxAfter);
+    } else {
+      finalContext = mergeBranchContextMeta(
+        resetBranchFlowState(semanticCondContext, elseCtxAfter),
+        thenCtxAfter
+      );
+    }
   }
 
-  if (
-    !stmt.elseStatement &&
-    isDefinitelyTerminating(stmt.thenStatement) &&
-    falsyTypeofRefinements.length > 0
-  ) {
+  if (!stmt.elseStatement && thenTerminates && falsyTypeofRefinements.length > 0) {
     finalContext = applyConditionBranchNarrowing(
       stmt.condition,
       "falsy",
       {
-        ...finalContext,
-        narrowedBindings: condCtxAfterCond.narrowedBindings,
+        ...semanticCondContext,
+        tempVarId: finalContext.tempVarId,
+        usings: finalContext.usings,
+        usedLocalNames: finalContext.usedLocalNames,
+        narrowedBindings: preservedNarrowedBindings,
       },
       emitExprAstCb
     );

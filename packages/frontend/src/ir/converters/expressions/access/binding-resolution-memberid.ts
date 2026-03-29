@@ -2,8 +2,7 @@
  * MemberId-based binding resolution and extension method binding for
  * member access expressions.
  *
- * Handles CLR property casing fallback and tsbindgen extension method
- * resolution via `__Ext_*` and `__TsonicExtMethods_*` interfaces.
+ * Handles CLR property/member binding resolution via Binding-resolved MemberId.
  *
  * Split from binding-resolution.ts for file-size compliance (< 500 LOC).
  */
@@ -18,7 +17,6 @@ import type { MemberId } from "../../../type-system/index.js";
 import type { MemberBinding } from "../../../../program/bindings.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { createDiagnostic } from "../../../../types/diagnostic.js";
-import { loadBindingsFromPath } from "../../../../program/bindings.js";
 import { extractRawDotnetBindingsPayload } from "../../../../program/dotnet-binding-payload.js";
 import { extractTypeName } from "./member-resolution.js";
 
@@ -35,6 +33,95 @@ const stripTsonicExtensionWrapperType = (
     return inner ? stripTsonicExtensionWrapperType(inner) : type;
   }
   return type;
+};
+
+const getWrapperBindingCandidates = (
+  object: IrExpression
+): readonly string[] => {
+  const inferredType = stripTsonicExtensionWrapperType(object.inferredType);
+  if (!inferredType) return [];
+
+  const candidates: string[] = [];
+  const pushCandidate = (name: string): void => {
+    if (!candidates.includes(name)) {
+      candidates.push(name);
+    }
+  };
+
+  if (
+    inferredType.kind === "arrayType" ||
+    inferredType.kind === "tupleType"
+  ) {
+    pushCandidate("Array");
+    return candidates;
+  }
+
+  if (inferredType.kind === "referenceType") {
+    const simpleName =
+      inferredType.name.split(".").pop() ?? inferredType.name;
+    if (
+      simpleName === "Array" ||
+      simpleName === "ReadonlyArray" ||
+      simpleName === "ArrayLike"
+    ) {
+      pushCandidate("Array");
+      return candidates;
+    }
+  }
+
+  if (inferredType.kind === "primitiveType") {
+    if (inferredType.name === "string") pushCandidate("String");
+    if (inferredType.name === "number") pushCandidate("Number");
+    if (inferredType.name === "boolean") pushCandidate("Boolean");
+    return candidates;
+  }
+
+  if (inferredType.kind === "literalType") {
+    if (typeof inferredType.value === "string") pushCandidate("String");
+    if (typeof inferredType.value === "number") pushCandidate("Number");
+    if (typeof inferredType.value === "boolean") pushCandidate("Boolean");
+  }
+
+  return candidates;
+};
+
+const getAliasesForExactClrType = (
+  ctx: ProgramContext,
+  clrType: string,
+  preference: "instance" | "static"
+): readonly string[] => {
+  const aliases = [...ctx.bindings.getTypesMap().values()]
+    .filter((type) => type.name === clrType)
+    .map((type) => type.alias)
+    .sort((left, right) => {
+      const leftStatic = left.endsWith("$static");
+      const rightStatic = right.endsWith("$static");
+      if (leftStatic !== rightStatic) {
+        return preference === "static"
+          ? leftStatic
+            ? -1
+            : 1
+          : leftStatic
+            ? 1
+            : -1;
+      }
+      return left.localeCompare(right);
+    });
+
+  return [...new Set(aliases)];
+};
+
+const getPreferredInstanceOwnerClrType = (
+  ctx: ProgramContext,
+  ownerAlias: string
+): string | undefined => {
+  const type = ctx.bindings.getType(ownerAlias);
+  if (type) {
+    return type.name;
+  }
+
+  const descriptor = ctx.bindings.getExactBinding(ownerAlias);
+  return descriptor?.type;
 };
 
 const findNearestBindingsJson = (filePath: string): string | undefined => {
@@ -55,30 +142,6 @@ const findNearestBindingsJson = (filePath: string): string | undefined => {
     if (parentDir === currentDir) return undefined;
     currentDir = parentDir;
   }
-};
-
-const isNodeModulesPackagePath = (
-  filePath: string,
-  packageName: string
-): boolean => {
-  const normalized = filePath.replace(/\\/g, "/");
-  return normalized.includes(`/node_modules/${packageName}/`);
-};
-
-const jsSurfaceArrayFallbackAliases = new Set(["Array", "ReadonlyArray"]);
-
-const canUseJsSurfaceArrayFallback = (
-  typeAlias: string,
-  declSourceFilePath: string | undefined,
-  ctx: ProgramContext
-): boolean => {
-  if (!declSourceFilePath) return false;
-  if (!jsSurfaceArrayFallbackAliases.has(typeAlias)) return false;
-
-  return (
-    isNodeModulesPackagePath(declSourceFilePath, ctx.surface) ||
-    isNodeModulesPackagePath(declSourceFilePath, "@tsonic/js")
-  );
 };
 
 const disambiguateOverloadsByDeclaringType = (
@@ -118,15 +181,13 @@ import { resolveExpectedClrTypeFromBindings } from "./binding-resolution-hierarc
 /**
  * Resolve hierarchical binding for a member access using Binding-resolved MemberId.
  *
- * This is a fallback for cases where the receiver's inferredType is unavailable
- * (e.g., local variable typing inferred from a complex initializer), but TS can
- * still resolve the member symbol deterministically.
- *
- * Critical use case: CLR property casing (e.g., `.expression` → `.Expression`).
+ * Uses Binding-resolved MemberId when the frontend already has an exact TS
+ * member symbol and needs the corresponding CLR binding target.
  */
 export const resolveHierarchicalBindingFromMemberId = (
   node: ts.PropertyAccessExpression,
   propertyName: string,
+  object: IrExpression,
   ctx: ProgramContext
 ): IrMemberExpression["memberBinding"] => {
   const memberId = ctx.binding.resolvePropertyAccess(node);
@@ -144,6 +205,28 @@ export const resolveHierarchicalBindingFromMemberId = (
   };
 
   const typeAlias = normalizeDeclaringType(declaringTypeName);
+  const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
+  const bindingsPath =
+    declSourceFilePath !== undefined
+      ? findNearestBindingsJson(declSourceFilePath)
+      : undefined;
+  const expectedClrOwner = (() => {
+    if (!bindingsPath) {
+      return undefined;
+    }
+
+    try {
+      const raw = JSON.parse(readFileSync(bindingsPath, "utf8")) as unknown;
+      return raw && typeof raw === "object"
+        ? resolveExpectedClrTypeFromBindings(
+            raw as Record<string, unknown>,
+            typeAlias
+          )
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
   const staticOverloads = (() => {
     if (!ts.isIdentifier(node.expression)) return undefined;
     const simpleBinding = ctx.bindings.getExactBindingByKind(
@@ -157,42 +240,93 @@ export const resolveHierarchicalBindingFromMemberId = (
     if (!staticAlias) return undefined;
     return ctx.bindings.getMemberOverloads(staticAlias, propertyName);
   })();
+  const globalOwnerOverloads = (() => {
+    if (!ts.isIdentifier(node.expression)) return undefined;
+    const simpleBinding = ctx.bindings.getExactBindingByKind(
+      node.expression.text,
+      "global"
+    );
+    if (!simpleBinding?.type) return undefined;
 
-  const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
-  const jsSurfaceArrayOverloads = canUseJsSurfaceArrayFallback(
-    typeAlias,
-    declSourceFilePath,
-    ctx
-  )
-    ? ctx.bindings.getMemberOverloads("JSArray", propertyName)
-    : undefined;
+    const ownerCandidates = [
+      ...getAliasesForExactClrType(ctx, simpleBinding.type, "instance"),
+      simpleBinding.type,
+      tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
+    ].filter((candidate): candidate is string => typeof candidate === "string");
+
+    for (const candidate of ownerCandidates) {
+      const resolved = ctx.bindings.getMemberOverloads(
+        candidate,
+        propertyName,
+        simpleBinding.type
+      );
+      if (resolved && resolved.length > 0) {
+        return resolved;
+      }
+    }
+
+    return undefined;
+  })();
 
   let overloadsAll =
     staticOverloads ??
-    jsSurfaceArrayOverloads ??
+    globalOwnerOverloads ??
+    (expectedClrOwner
+      ? ctx.bindings.getMemberOverloads(
+          expectedClrOwner,
+          propertyName,
+          expectedClrOwner
+        )
+      : undefined) ??
     ctx.bindings.getMemberOverloads(typeAlias, propertyName);
   if (!overloadsAll || overloadsAll.length === 0) {
-    const bindingsPath =
-      declSourceFilePath !== undefined
-        ? findNearestBindingsJson(declSourceFilePath)
-        : undefined;
+    if (ts.isIdentifier(node.expression)) {
+      const simpleBinding = ctx.bindings.getExactBindingByKind(
+        node.expression.text,
+        "global"
+      );
+      if (simpleBinding?.staticType) {
+        const staticCandidates = [
+          ...getAliasesForExactClrType(ctx, simpleBinding.staticType, "static"),
+          simpleBinding.staticType,
+          tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
+        ].filter((candidate): candidate is string => typeof candidate === "string");
 
-    // Airplane-grade: If we can locate the bindings.json that corresponds to the
-    // tsbindgen declaration, load it on-demand and retry. This avoids relying on
-    // "import closure" heuristics and ensures CLR binding lookup is based on the
-    // declaration's actual owning bindings.json.
-    if (bindingsPath) {
-      loadBindingsFromPath(ctx.bindings, bindingsPath);
-      overloadsAll = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
+        for (const candidate of staticCandidates) {
+          const resolved = ctx.bindings.getMemberOverloads(
+            candidate,
+            propertyName,
+            simpleBinding.staticType
+          );
+          if (resolved && resolved.length > 0) {
+            overloadsAll = resolved;
+            break;
+          }
+        }
+      }
     }
+  }
 
-    if (
-      (!overloadsAll || overloadsAll.length === 0) &&
-      canUseJsSurfaceArrayFallback(typeAlias, declSourceFilePath, ctx)
-    ) {
-      return undefined;
+  if (!overloadsAll || overloadsAll.length === 0) {
+    const receiverCandidates = [
+      ...getWrapperBindingCandidates(object),
+      extractTypeName(stripTsonicExtensionWrapperType(object.inferredType)),
+    ].filter((candidate): candidate is string => typeof candidate === "string");
+
+    for (const candidate of receiverCandidates) {
+      const resolved = ctx.bindings.getMemberOverloads(
+        candidate,
+        propertyName,
+        getPreferredInstanceOwnerClrType(ctx, candidate)
+      );
+      if (resolved && resolved.length > 0) {
+        overloadsAll = resolved;
+        break;
+      }
     }
+  }
 
+  if (!overloadsAll || overloadsAll.length === 0) {
     // Airplane-grade rule: If this member resolves to a tsbindgen declaration,
     // we MUST have a CLR binding; we must never guess member names via naming policy.
     //
@@ -297,6 +431,7 @@ export const resolveHierarchicalBindingFromMemberId = (
     assembly: first.binding.assembly,
     type: first.binding.type,
     member: first.binding.member,
+    receiverExpectedType: first.receiverExpectedType,
     parameterModifiers:
       modsConsistent &&
       first.parameterModifiers &&
@@ -471,6 +606,7 @@ export const resolveExtensionMethodsBinding = (
     assembly: resolved.binding.assembly,
     type: resolved.binding.type,
     member: resolved.binding.member,
+    receiverExpectedType: resolved.receiverExpectedType,
     parameterModifiers:
       shiftedModifiers && shiftedModifiers.length > 0
         ? shiftedModifiers

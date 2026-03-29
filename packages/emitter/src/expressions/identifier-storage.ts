@@ -151,9 +151,11 @@ export const buildRuntimeSubsetExpressionAst = (
           candidateMemberNs: narrowed.sourceCandidateMemberNs,
         }
       : undefined;
+  const sourceValueAst =
+    narrowed.storageExprAst ?? identifierExpression(escapeCSharpIdentifier(expr.name));
 
   const materialized = tryBuildRuntimeMaterializationAst(
-    identifierExpression(escapeCSharpIdentifier(expr.name)),
+    sourceValueAst,
     sourceType,
     targetType,
     context,
@@ -253,6 +255,23 @@ export const tryEmitImplicitNarrowedStorageIdentifier = (
     return undefined;
   }
 
+  const narrowedProjectionType =
+    narrowed.type ??
+    tryResolveRuntimeUnionMemberType(
+      narrowed.sourceType ?? storageType,
+      narrowed.exprAst,
+      context
+    );
+  const shouldAvoidProjectedRuntimeUnionStorageReuse =
+    narrowed.storageExprAst !== undefined &&
+    narrowed.storageExprAst !== narrowed.exprAst &&
+    willCarryAsRuntimeUnion(storageType, context) &&
+    !!narrowedProjectionType &&
+    !willCarryAsRuntimeUnion(narrowedProjectionType, context);
+  if (shouldAvoidProjectedRuntimeUnionStorageReuse) {
+    return undefined;
+  }
+
   const [sameSurface, nextContext] = matchesEmittedStorageSurface(
     storageType,
     narrowed.type,
@@ -321,8 +340,87 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   context: EmitterContext,
   expectedType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  if (!narrowed.storageExprAst || !narrowed.type) {
+  if (!narrowed.type && !expectedType) {
     return undefined;
+  }
+
+  const remappedLocal = context.localNameMap?.get(expr.name);
+  const storageType = context.localValueTypes?.get(expr.name);
+  if (!storageType) {
+    return undefined;
+  }
+
+  const targetType = expectedType ?? narrowed.type;
+  if (!targetType) {
+    return undefined;
+  }
+
+  const narrowedProjectionType =
+    narrowed.type ??
+    tryResolveRuntimeUnionMemberType(
+      narrowed.sourceType ?? storageType,
+      narrowed.exprAst,
+      context
+    );
+  const shouldAvoidProjectedRuntimeUnionStorageReuse =
+    narrowed.storageExprAst !== undefined &&
+    narrowed.storageExprAst !== narrowed.exprAst &&
+    willCarryAsRuntimeUnion(storageType, context) &&
+    !!narrowedProjectionType &&
+    !willCarryAsRuntimeUnion(narrowedProjectionType, context);
+
+  const shouldAvoidBroadStorageReuse =
+    !!expectedType &&
+    !!narrowed.type &&
+    isBroadStorageTarget(expectedType, context) &&
+    willCarryAsRuntimeUnion(storageType, context) &&
+    !willCarryAsRuntimeUnion(narrowed.type, context);
+  const shouldAvoidStorageReuse =
+    shouldAvoidBroadStorageReuse ||
+    shouldAvoidProjectedRuntimeUnionStorageReuse;
+  const canReuseOriginalRuntimeCarrier =
+    !!expectedType &&
+    !!narrowed.storageExprAst &&
+    !!narrowed.sourceType &&
+    willCarryAsRuntimeUnion(expectedType, context) &&
+    matchesExpectedEmissionType(
+      stripNullish(narrowed.sourceType),
+      expectedType,
+      context
+    ) &&
+    !!narrowedProjectionType &&
+    !willCarryAsRuntimeUnion(narrowedProjectionType, context);
+  if (
+    expectedType &&
+    isBroadStorageTarget(expectedType, context) &&
+    matchesExpectedEmissionType(storageType, expectedType, context) &&
+    !shouldAvoidStorageReuse
+  ) {
+    if (narrowed.storageExprAst) {
+      return [narrowed.storageExprAst, context];
+    }
+    if (remappedLocal) {
+      return [identifierExpression(remappedLocal), context];
+    }
+  }
+  if (canReuseOriginalRuntimeCarrier) {
+    return [narrowed.storageExprAst, context];
+  }
+
+  const [sameSurface, nextContext] = matchesEmittedStorageSurface(
+    storageType,
+    targetType,
+    context
+  );
+  if (!sameSurface) {
+    return undefined;
+  }
+
+  if (!narrowed.storageExprAst) {
+    if (!remappedLocal) {
+      return undefined;
+    }
+    return [identifierExpression(remappedLocal), nextContext];
   }
 
   if (
@@ -333,28 +431,9 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     return undefined;
   }
 
-  const storageType = context.localValueTypes?.get(expr.name);
-  if (!storageType) {
-    return undefined;
-  }
-
   if (
-    expectedType &&
-    narrowed.type &&
-    isBroadStorageTarget(expectedType, context) &&
-    willCarryAsRuntimeUnion(storageType, context) &&
-    !willCarryAsRuntimeUnion(narrowed.type, context)
+    shouldAvoidStorageReuse
   ) {
-    return undefined;
-  }
-
-  const targetType = expectedType ?? narrowed.type;
-  const [sameSurface, nextContext] = matchesEmittedStorageSurface(
-    storageType,
-    targetType,
-    context
-  );
-  if (!sameSurface) {
     return undefined;
   }
 
@@ -418,27 +497,52 @@ export const matchesEmittedStorageSurface = (
   expectedType: IrType | undefined,
   context: EmitterContext
 ): [boolean, EmitterContext] => {
-  const containsRawObjectType = (type: IrType): boolean => {
+  const tryEmitSurfaceTypeAst = (
+    type: IrType,
+    currentContext: EmitterContext
+  ): [ReturnType<typeof emitTypeAst>[0], EmitterContext] | undefined => {
+    try {
+      return emitTypeAst(type, currentContext);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.startsWith("ICE: Unresolved reference type ")
+      ) {
+        return undefined;
+      }
+      throw err;
+    }
+  };
+
+  const containsRawObjectType = (
+    type: IrType,
+    seen = new Set<IrType>()
+  ): boolean => {
+    if (seen.has(type)) {
+      return false;
+    }
+    seen.add(type);
+
     switch (type.kind) {
       case "objectType":
         return true;
       case "arrayType":
-        return containsRawObjectType(type.elementType);
+        return containsRawObjectType(type.elementType, seen);
       case "tupleType":
         return type.elementTypes.some((elementType) =>
-          containsRawObjectType(elementType)
+          containsRawObjectType(elementType, seen)
         );
       case "dictionaryType":
-        return containsRawObjectType(type.valueType);
+        return containsRawObjectType(type.valueType, seen);
       case "unionType":
       case "intersectionType":
         return type.types.some((memberType) =>
-          containsRawObjectType(memberType)
+          containsRawObjectType(memberType, seen)
         );
       case "referenceType":
         return (
           type.typeArguments?.some((typeArgument) =>
-            containsRawObjectType(typeArgument)
+            containsRawObjectType(typeArgument, seen)
           ) ?? false
         );
       default:
@@ -470,14 +574,19 @@ export const matchesEmittedStorageSurface = (
   ) {
     return [false, context];
   }
-  const [actualTypeAst, actualTypeContext] = emitTypeAst(
-    strippedActual,
-    context
-  );
-  const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+  const actualSurface = tryEmitSurfaceTypeAst(strippedActual, context);
+  if (!actualSurface) {
+    return [false, context];
+  }
+  const [actualTypeAst, actualTypeContext] = actualSurface;
+  const expectedSurface = tryEmitSurfaceTypeAst(
     strippedExpected,
     actualTypeContext
   );
+  if (!expectedSurface) {
+    return [false, context];
+  }
+  const [expectedTypeAst, expectedTypeContext] = expectedSurface;
 
   return [
     stableTypeKeyFromAst(actualTypeAst) ===

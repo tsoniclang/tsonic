@@ -219,22 +219,47 @@ export const isExactCastToType = (
 ): boolean =>
   ast.kind === "castExpression" && sameTypeAstSurface(ast.type, targetType);
 
+export const isExactAsExpressionToType = (
+  ast: CSharpExpressionAst,
+  targetType: CSharpTypeAst
+): boolean =>
+  ast.kind === "asExpression" && sameTypeAstSurface(ast.type, targetType);
+
 export const isExactArrayCreationToType = (
   ast: CSharpExpressionAst,
   targetType: CSharpTypeAst
 ): boolean => {
-  if (ast.kind !== "arrayCreationExpression") {
+  const concreteTargetType = stripNullableTypeAst(targetType);
+  if (concreteTargetType.kind !== "arrayType" || concreteTargetType.rank !== 1) {
     return false;
   }
 
-  const concreteTargetType = stripNullableTypeAst(targetType);
-  return (
-    concreteTargetType.kind === "arrayType" &&
-    concreteTargetType.rank === 1 &&
-    sameTypeAstSurface(
+  if (ast.kind === "arrayCreationExpression") {
+    return sameTypeAstSurface(
       stripNullableTypeAst(ast.elementType),
       stripNullableTypeAst(concreteTargetType.elementType)
-    )
+    );
+  }
+
+  if (ast.kind !== "invocationExpression") {
+    return false;
+  }
+
+  if (
+    ast.expression.kind !== "identifierExpression" ||
+    ast.expression.identifier !== "global::System.Array.Empty" ||
+    ast.typeArguments?.length !== 1
+  ) {
+    return false;
+  }
+
+  const [elementTypeArgument] = ast.typeArguments;
+  if (!elementTypeArgument) {
+    return false;
+  }
+  return sameTypeAstSurface(
+    stripNullableTypeAst(elementTypeArgument),
+    stripNullableTypeAst(concreteTargetType.elementType)
   );
 };
 
@@ -351,6 +376,7 @@ export const isExactExpressionToType = (
   isThrowExpressionToType(ast) ||
   isExactObjectCreationToType(ast, targetType) ||
   isExactCastToType(ast, targetType) ||
+  isExactAsExpressionToType(ast, targetType) ||
   isExactRuntimeUnionFactoryCallToType(ast, targetType) ||
   isExactDefaultExpressionToType(ast, targetType) ||
   isExactRuntimeUnionMatchToType(ast, targetType) ||

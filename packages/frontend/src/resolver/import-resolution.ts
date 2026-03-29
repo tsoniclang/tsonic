@@ -13,11 +13,14 @@ import { ResolvedModule } from "./types.js";
 import {
   getLocalResolutionBoundary,
   isPathWithinBoundary,
+  resolveInstalledPackageImport,
+  resolveInstalledPackageImportFromPackageRoot,
   resolveSourcePackageImport,
   resolveSourcePackageImportFromPackageRoot,
 } from "./source-package-resolution.js";
 import { ClrBindingsResolver } from "./clr-bindings-resolver.js";
 import type { BindingRegistry } from "../program/bindings.js";
+import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
 
 /**
  * Options for import resolution
@@ -28,6 +31,7 @@ export type ResolveImportOptions = {
   readonly projectRoot?: string;
   readonly surface?: string;
   readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
+  readonly declarationModuleAliases?: ReadonlyMap<string, DeclarationModuleAlias>;
 };
 
 const findAuthoritativePackageRootForImport = (
@@ -136,9 +140,45 @@ export const resolveImport = (
   }
 
   // Prefer installed source packages over CLR/module bindings so packages like
-  // @tsonic/nodejs use their native source implementation instead of legacy
-  // CLR facades when both are available.
+  // @tsonic/nodejs use their native source implementation instead of CLR
+  // facade packages when both are available.
   if (opts?.projectRoot) {
+    const declarationAlias = opts.declarationModuleAliases?.get(
+      canonicalImportSpecifier
+    );
+    if (declarationAlias) {
+      const authoritativePackageRoot = findAuthoritativePackageRootForImport(
+        declarationAlias.targetSpecifier,
+        opts.authoritativeTsonicPackageRoots
+      );
+      const declarationAliasTarget =
+        authoritativePackageRoot !== undefined
+          ? resolveSourcePackageImportFromPackageRoot(
+              declarationAlias.targetSpecifier,
+              authoritativePackageRoot,
+              opts.surface,
+              opts.projectRoot
+            )
+          : resolveSourcePackageImport(
+              declarationAlias.targetSpecifier,
+              containingFile,
+              opts.surface,
+              opts.projectRoot
+            );
+      if (!declarationAliasTarget.ok) {
+        return declarationAliasTarget;
+      }
+      if (declarationAliasTarget.value) {
+        return ok({
+          resolvedPath: declarationAliasTarget.value.resolvedPath,
+          isLocal: true,
+          isSourcePackage: true,
+          isClr: false,
+          originalSpecifier: importSpecifier,
+        });
+      }
+    }
+
     const authoritativePackageRoot = findAuthoritativePackageRootForImport(
       canonicalImportSpecifier,
       opts.authoritativeTsonicPackageRoots
@@ -167,6 +207,23 @@ export const resolveImport = (
         originalSpecifier: importSpecifier,
       });
     }
+
+    const installedPackage =
+      authoritativePackageRoot !== undefined
+        ? resolveInstalledPackageImportFromPackageRoot(
+            canonicalImportSpecifier,
+            authoritativePackageRoot
+          )
+        : resolveInstalledPackageImport(canonicalImportSpecifier, containingFile);
+    if (!installedPackage.ok) return installedPackage;
+    if (installedPackage.value) {
+      return ok({
+        resolvedPath: installedPackage.value.resolvedPath,
+        isLocal: true,
+        isClr: false,
+        originalSpecifier: importSpecifier,
+      });
+    }
   }
 
   // Use import-driven resolution for CLR imports (if resolver provided)
@@ -191,25 +248,6 @@ export const resolveImport = (
       "module"
     );
     if (binding && binding.kind === "module") {
-      if (binding.sourceImport && opts?.projectRoot) {
-        const sourcePackage = resolveSourcePackageImport(
-          binding.sourceImport,
-          containingFile,
-          opts.surface,
-          opts.projectRoot
-        );
-        if (!sourcePackage.ok) return sourcePackage;
-        if (sourcePackage.value) {
-          return ok({
-            resolvedPath: sourcePackage.value.resolvedPath,
-            isLocal: true,
-            isSourcePackage: true,
-            isClr: false,
-            originalSpecifier: importSpecifier,
-          });
-        }
-      }
-
       return ok({
         resolvedPath: "", // No file path for bound modules
         isLocal: false,
@@ -227,7 +265,7 @@ export const resolveImport = (
       "error",
       `Unsupported module import: "${importSpecifier}"`,
       undefined,
-      "Tsonic only supports local imports (with .js or .ts), .NET imports, and registered module bindings"
+      "Tsonic only supports local imports (with .js or .ts), source-package imports, declaration-module aliases, and CLR interop bindings"
     )
   );
 };

@@ -6,6 +6,10 @@ import {
   resolveTypeAlias,
   substituteTypeArgs,
 } from "./type-resolution.js";
+import {
+  collectRuntimeUnionRawMembers,
+  expandRuntimeUnionMembers,
+} from "./runtime-union-expansion.js";
 
 export const resolveRuntimeMaterializationTargetType = (
   target: IrType,
@@ -60,6 +64,28 @@ export const resolveRuntimeMaterializationTargetType = (
     return fallback
       ? resolveRuntimeMaterializationTargetType(fallback, context)
       : target;
+  }
+
+  if (target.kind === "unionType") {
+    const expandedMembers =
+      target.preserveRuntimeLayout === true
+        ? collectRuntimeUnionRawMembers(target, context)
+        : expandRuntimeUnionMembers(target, context);
+    if (expandedMembers.length === 0) {
+      return target;
+    }
+
+    if (expandedMembers.length === 1) {
+      return expandedMembers[0] ?? target;
+    }
+
+    return {
+      kind: "unionType",
+      types: expandedMembers,
+      ...(target.preserveRuntimeLayout === true
+        ? { preserveRuntimeLayout: true as const }
+        : {}),
+    };
   }
 
   const resolved = resolveTypeAlias(target, context);

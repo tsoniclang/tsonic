@@ -32,13 +32,19 @@ const getBareUnconstrainedTypeParameter = (
     return undefined;
   }
 
-  if (isInScopeTypeParameter(type.name, context)) {
+  const constraintKind =
+    context.typeParamConstraints?.get(type.name) ?? "unconstrained";
+  if (constraintKind !== "unconstrained") {
     return undefined;
   }
 
-  const constraintKind =
-    context.typeParamConstraints?.get(type.name) ?? "unconstrained";
-  return constraintKind === "unconstrained" ? type.name : undefined;
+  if (isInScopeTypeParameter(type.name, context)) {
+    return context.eraseNullableUnconstrainedTypeParameterStorage
+      ? type.name
+      : undefined;
+  }
+
+  return type.name;
 };
 
 const normalizeOutOfScopeTypeParameters = (
@@ -53,7 +59,9 @@ const normalizeOutOfScopeTypeParameters = (
     visited.add(type);
   }
 
-  const resolved = resolveTypeAlias(type, context);
+  const resolved = resolveTypeAlias(type, context, {
+    preserveObjectTypeAliases: true,
+  });
 
   switch (resolved.kind) {
     case "typeParameterType":
@@ -356,11 +364,23 @@ export const normalizeRuntimeStorageType = (
 
       if (dedupedNormalizedNonNullishMembers.length === 1) {
         const [normalizedSingleMember] = dedupedNormalizedNonNullishMembers;
+        const [originalSingleMember] = split.nonNullishMembers;
         if (!normalizedSingleMember) {
           return resolved;
         }
 
         const nullishMembers = resolved.types.filter(isRuntimeNullishMember);
+        if (
+          originalSingleMember &&
+          getBareUnconstrainedTypeParameter(originalSingleMember, context)
+        ) {
+          return nullishMembers.length === 0
+            ? OBJECT_STORAGE_TYPE
+            : {
+                kind: "unionType",
+                types: [OBJECT_STORAGE_TYPE, ...nullishMembers],
+              };
+        }
         return nullishMembers.length === 0
           ? normalizedSingleMember
           : {

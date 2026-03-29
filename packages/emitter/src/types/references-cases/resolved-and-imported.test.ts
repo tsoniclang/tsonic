@@ -53,6 +53,34 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::Jotster.Core.types.Ok__Alias<string>");
       expect(result).to.not.include("Ok__Alias`1");
     });
+
+    it("keeps same-module local types unqualified even when resolvedClrType is present", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "Wrapper",
+          resolvedClrType: "Test.Wrapper",
+          typeArguments: [{ kind: "primitiveType", name: "string" }],
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "Test",
+          localTypes: new Map([
+            [
+              "Wrapper",
+              {
+                kind: "class",
+                typeParameters: ["T"],
+                members: [],
+                implements: [],
+              },
+            ],
+          ]),
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("Wrapper<string>");
+    });
   });
 
   describe("Imported Type Identity", () => {
@@ -326,6 +354,229 @@ describe("Reference Type Emission", () => {
       });
 
       expect(result).to.include("global::nodejs.Http.IncomingMessage req");
+    });
+
+    it("prefers cross-module source aliases over imported resolved CLR names", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "RequestHandler",
+          resolvedClrType: "demo.expresslike.RequestHandler",
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "Acme.App",
+          options: {
+            ...baseContext.options,
+            moduleMap: new Map([
+              [
+                "src/types",
+                {
+                  namespace: "demo.expresslike",
+                  className: "types",
+                  filePath: "src/types",
+                  hasRuntimeContainer: false,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "RequestHandler",
+                      {
+                        kind: "typeAlias",
+                        typeParameters: [],
+                        type: { kind: "primitiveType", name: "string" },
+                      },
+                    ],
+                  ]),
+                },
+              ],
+            ]),
+          },
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("string");
+    });
+
+    it("keeps explicit imported type bindings authoritative over stale resolvedClrType", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "Server",
+          resolvedClrType: "nodejs.http.Server",
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "nodejs.net",
+          importBindings: new Map([
+            [
+              "Server",
+              {
+                kind: "type",
+                typeAst: clrTypeNameToTypeAst("global::nodejs.net.Server"),
+              },
+            ],
+          ]),
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("global::nodejs.net.Server");
+    });
+
+    it("uses class-valued import bindings in type positions when the import stays value-bound", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "Server",
+          resolvedClrType: "nodejs.http.Server",
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "nodejs.net",
+          importBindings: new Map([
+            [
+              "Server",
+              {
+                kind: "value",
+                clrName: "global::nodejs.net.server",
+                member: "Server",
+                typeAst: clrTypeNameToTypeAst("global::nodejs.net.Server"),
+              },
+            ],
+          ]),
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("global::nodejs.net.Server");
+    });
+
+    it("keeps explicit imported type bindings authoritative over structural registry rebound", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "Server",
+          typeId: {
+            stableId: "nodejs:nodejs.net.Server",
+            clrName: "nodejs.net.Server",
+            assemblyName: "nodejs",
+            tsName: "Server",
+          },
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "nodejs.net",
+          importBindings: new Map([
+            [
+              "Server",
+              {
+                kind: "type",
+                typeAst: clrTypeNameToTypeAst("global::nodejs.net.Server"),
+              },
+            ],
+          ]),
+          bindingsRegistry: new Map([
+            [
+              "Server",
+              {
+                alias: "Server",
+                name: "nodejs.http.Server",
+                kind: "class",
+                members: [],
+              },
+            ],
+          ]),
+          options: {
+            ...baseContext.options,
+            moduleMap: new Map([
+              [
+                "net/server",
+                {
+                  namespace: "nodejs.net",
+                  className: "server",
+                  filePath: "net/server",
+                  hasRuntimeContainer: false,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "Server",
+                      {
+                        kind: "class",
+                        typeParameters: [],
+                        members: [],
+                        implements: [],
+                      },
+                    ],
+                  ]),
+                },
+              ],
+              [
+                "http/server",
+                {
+                  namespace: "nodejs.http",
+                  className: "server",
+                  filePath: "http/server",
+                  hasRuntimeContainer: false,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "Server",
+                      {
+                        kind: "class",
+                        typeParameters: [],
+                        members: [],
+                        implements: [],
+                      },
+                    ],
+                  ]),
+                },
+              ],
+            ]),
+          },
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("global::nodejs.net.Server");
+    });
+
+    it("ignores bare resolvedClrType names when a source-local type exists", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "ArrayBuffer",
+          resolvedClrType: "ArrayBuffer",
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "js",
+          options: {
+            ...baseContext.options,
+            moduleMap: new Map([
+              [
+                "src/array-buffer-object",
+                {
+                  namespace: "js",
+                  className: "array_buffer_object",
+                  filePath: "src/array-buffer-object",
+                  hasRuntimeContainer: false,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "ArrayBuffer",
+                      {
+                        kind: "class",
+                        members: [],
+                        typeParameters: [],
+                        implements: [],
+                      },
+                    ],
+                  ]),
+                },
+              ],
+            ]),
+          },
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("global::js.ArrayBuffer");
     });
   });
 });

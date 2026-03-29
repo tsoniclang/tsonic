@@ -14,7 +14,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WRAPPER_DIR="$ROOT_DIR/npm/tsonic"
 RUNTIME_DIR="$(cd "$ROOT_DIR/../runtime" && pwd)"
-NODEJS_CLR_DIR="$(cd "$ROOT_DIR/../nodejs-clr" && pwd)"
 
 # Parse arguments
 IGNORE_BRANCHES_AHEAD=false
@@ -281,7 +280,6 @@ echo "=== All local versions are greater than npm - publishing directly ==="
 echo "=== Checking runtime dependencies ==="
 RUNTIME_PROJECTS=(
     "$RUNTIME_DIR:runtime"
-    "$NODEJS_CLR_DIR:nodejs-clr"
 )
 
 for entry in "${RUNTIME_PROJECTS[@]}"; do
@@ -302,16 +300,11 @@ echo "  Building runtime..."
 cd "$RUNTIME_DIR"
 dotnet build -c Release --verbosity quiet
 
-echo "  Building nodejs-clr..."
-cd "$NODEJS_CLR_DIR"
-dotnet build -c Release --verbosity quiet
-
 cd "$ROOT_DIR"
 
-echo "=== Copying runtime DLLs ==="
+echo "=== Copying core runtime DLL ==="
 cp "$RUNTIME_DIR/artifacts/bin/Tsonic.Runtime/Release/net10.0/Tsonic.Runtime.dll" "$ROOT_DIR/packages/cli/runtime/"
-cp "$NODEJS_CLR_DIR/artifacts/bin/nodejs/Release/net10.0/nodejs.dll" "$ROOT_DIR/packages/cli/runtime/"
-echo "  Copied all runtime DLLs ✓"
+echo "  Copied core runtime DLL ✓"
 
 # ============================================================
 # BUILD AND TEST (publish path only)

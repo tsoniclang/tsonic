@@ -1,8 +1,15 @@
-import { IrType } from "@tsonic/frontend";
+import {
+  IrClassMember,
+  IrInterfaceMember,
+  IrType,
+  stableIrTypeKey,
+} from "@tsonic/frontend";
 import {
   resolveTypeAlias,
   stripNullish,
   resolveLocalTypeInfo,
+  substituteTypeArgs,
+  getArrayLikeElementType,
 } from "../core/semantic/type-resolution.js";
 import type { EmitterContext } from "../types.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
@@ -10,6 +17,221 @@ import {
   getIdentifierTypeName,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
+import { deriveForOfElementType } from "../core/semantic/iteration-types.js";
+
+const ITERATOR_MEMBER_NAME = "[symbol:iterator]";
+
+export type IterableSourceShape =
+  | {
+      readonly elementType: IrType;
+      readonly accessKind: "direct";
+    }
+  | {
+      readonly elementType: IrType;
+      readonly accessKind: "iteratorMethod" | "iteratorProperty";
+    };
+
+export const getDirectIterableElementType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!type) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "arrayType") {
+    return resolved.elementType;
+  }
+  if (resolved.kind === "tupleType") {
+    if (resolved.elementTypes.length === 1) {
+      return resolved.elementTypes[0];
+    }
+    return undefined;
+  }
+  if (resolved.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const simpleName = resolved.name.split(".").pop() ?? resolved.name;
+  const clrSimpleName = resolved.resolvedClrType?.split(".").pop();
+  if (
+    simpleName === "Iterable" ||
+    simpleName === "IterableIterator" ||
+    simpleName === "Generator" ||
+    simpleName === "AsyncIterable" ||
+    simpleName === "AsyncIterableIterator" ||
+    simpleName === "AsyncGenerator" ||
+    simpleName === "IEnumerable" ||
+    clrSimpleName === "IEnumerable" ||
+    clrSimpleName === "IAsyncEnumerable"
+  ) {
+    return deriveForOfElementType(resolved, context);
+  }
+
+  return undefined;
+};
+
+const substituteLocalType = (
+  type: IrType,
+  typeParameters: readonly string[],
+  typeArguments: readonly IrType[] | undefined
+): IrType =>
+  typeArguments && typeArguments.length > 0
+    ? substituteTypeArgs(type, typeParameters, typeArguments)
+    : type;
+
+type IteratorMemberResolution = {
+  readonly kind: "iteratorMethod" | "iteratorProperty";
+  readonly returnType: IrType;
+};
+
+const resolveIteratorMemberFromMembers = (
+  members: readonly (IrClassMember | IrInterfaceMember)[],
+  typeParameters: readonly string[],
+  typeArguments: readonly IrType[] | undefined
+): IteratorMemberResolution | undefined => {
+  for (const member of members) {
+    if (
+      (member.kind === "methodDeclaration" ||
+        member.kind === "methodSignature") &&
+      member.name === ITERATOR_MEMBER_NAME &&
+      member.parameters.length === 0 &&
+      member.returnType
+    ) {
+      return {
+        kind: "iteratorMethod",
+        returnType: substituteLocalType(
+          member.returnType,
+          typeParameters,
+          typeArguments
+        ),
+      };
+    }
+
+    if (
+      (member.kind === "propertyDeclaration" ||
+        member.kind === "propertySignature") &&
+      member.name === ITERATOR_MEMBER_NAME &&
+      member.type
+    ) {
+      return {
+        kind: "iteratorProperty",
+        returnType: substituteLocalType(
+          member.type,
+          typeParameters,
+          typeArguments
+        ),
+      };
+    }
+  }
+
+  return undefined;
+};
+
+const resolveIteratorMemberFromReference = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext,
+  visited: ReadonlySet<string> = new Set<string>()
+): IteratorMemberResolution | undefined => {
+  const resolvedRef = resolveTypeAlias(stripNullish(ref), context);
+  if (resolvedRef.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const visitKey = stableIrTypeKey(resolvedRef);
+  if (visited.has(visitKey)) {
+    return undefined;
+  }
+  const nextVisited = new Set(visited);
+  nextVisited.add(visitKey);
+
+  const localInfoResult = resolveLocalTypeInfo(resolvedRef, context);
+  if (!localInfoResult) {
+    return undefined;
+  }
+
+  const { info } = localInfoResult;
+  if (info.kind === "class") {
+    const direct = resolveIteratorMemberFromMembers(
+      info.members,
+      info.typeParameters,
+      resolvedRef.typeArguments
+    );
+    if (direct) {
+      return direct;
+    }
+
+    if (info.superClass?.kind === "referenceType") {
+      const superRef = substituteLocalType(
+        info.superClass,
+        info.typeParameters,
+        resolvedRef.typeArguments
+      );
+      if (superRef.kind === "referenceType") {
+        const inherited = resolveIteratorMemberFromReference(
+          superRef,
+          context,
+          nextVisited
+        );
+        if (inherited) {
+          return inherited;
+        }
+      }
+    }
+
+    for (const impl of info.implements) {
+      if (impl.kind !== "referenceType") continue;
+      const substitutedImpl = substituteLocalType(
+        impl,
+        info.typeParameters,
+        resolvedRef.typeArguments
+      );
+      if (substitutedImpl.kind !== "referenceType") continue;
+      const inherited = resolveIteratorMemberFromReference(
+        substitutedImpl,
+        context,
+        nextVisited
+      );
+      if (inherited) {
+        return inherited;
+      }
+    }
+
+    return undefined;
+  }
+
+  if (info.kind !== "interface") {
+    return undefined;
+  }
+
+  const direct = resolveIteratorMemberFromMembers(
+    info.members,
+    info.typeParameters,
+    resolvedRef.typeArguments
+  );
+  if (direct) {
+    return direct;
+  }
+
+  for (const ext of info.extends) {
+    if (ext.kind !== "referenceType") continue;
+    const substitutedExt = substituteLocalType(
+      ext,
+      info.typeParameters,
+      resolvedRef.typeArguments
+    );
+    if (substitutedExt.kind !== "referenceType") continue;
+    const inherited = resolveIteratorMemberFromReference(
+      substitutedExt,
+      context,
+      nextVisited
+    );
+    if (inherited) {
+      return inherited;
+    }
+  }
+
+  return undefined;
+};
 
 export const canPreferAnonymousStructuralTarget = (type: IrType): boolean => {
   const stripped = stripNullish(type);
@@ -44,10 +266,15 @@ const getNominalReferenceIdentity = (
   const resolvedLocal = resolveLocalTypeInfo(type, context);
   if (resolvedLocal) {
     const localName = type.name.split(".").pop() ?? type.name;
+    const emittedLocalName =
+      resolvedLocal.info.kind === "typeAlias" &&
+      resolvedLocal.info.type.kind === "objectType"
+        ? `${localName}__Alias`
+        : localName;
     const canonicalTarget = context.options.canonicalLocalTypeTargets?.get(
       `${resolvedLocal.namespace}::${localName}`
     );
-    return canonicalTarget ?? `${resolvedLocal.namespace}.${localName}`;
+    return canonicalTarget ?? `${resolvedLocal.namespace}.${emittedLocalName}`;
   }
 
   return type.name;
@@ -94,25 +321,7 @@ export const isSameNominalType = (
 export const getArrayElementType = (
   type: IrType | undefined,
   context: EmitterContext
-): IrType | undefined => {
-  if (!type) return undefined;
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (resolved.kind === "arrayType") return resolved.elementType;
-  if (resolved.kind === "tupleType") {
-    if (resolved.elementTypes.length === 1) return resolved.elementTypes[0];
-    return undefined;
-  }
-  if (
-    resolved.kind === "referenceType" &&
-    (resolved.name === "Array" ||
-      resolved.name === "ReadonlyArray" ||
-      resolved.name === "JSArray") &&
-    resolved.typeArguments?.length === 1
-  ) {
-    return resolved.typeArguments[0];
-  }
-  return undefined;
-};
+): IrType | undefined => getArrayLikeElementType(type, context);
 
 export const isObjectLikeTypeAst = (
   type: CSharpTypeAst | undefined
@@ -138,4 +347,41 @@ export const getDictionaryValueType = (
   const resolved = resolveTypeAlias(stripNullish(type), context);
   if (resolved.kind !== "dictionaryType") return undefined;
   return resolved.valueType;
+};
+
+export const getIterableSourceShape = (
+  type: IrType | undefined,
+  context: EmitterContext
+): IterableSourceShape | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const directElementType = getDirectIterableElementType(type, context);
+  if (directElementType) {
+    return {
+      elementType: directElementType,
+      accessKind: "direct",
+    };
+  }
+
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const iteratorMember = resolveIteratorMemberFromReference(resolved, context);
+  if (!iteratorMember) {
+    return undefined;
+  }
+
+  const elementType = deriveForOfElementType(iteratorMember.returnType, context);
+  if (!elementType) {
+    return undefined;
+  }
+
+  return {
+    elementType,
+    accessKind: iteratorMember.kind,
+  };
 };

@@ -232,7 +232,7 @@ export const dtsTypeNodeToIrType = (
     case ts.SyntaxKind.AnyKeyword:
       return { kind: "anyType" };
     case ts.SyntaxKind.UnknownKeyword:
-      return { kind: "unknownType" };
+      return { kind: "unknownType", explicit: true };
     case ts.SyntaxKind.NeverKeyword:
       return { kind: "neverType" };
     case ts.SyntaxKind.NullKeyword:

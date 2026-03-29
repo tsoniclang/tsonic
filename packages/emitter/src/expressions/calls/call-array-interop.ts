@@ -15,6 +15,5 @@ export {
 
 export {
   shouldNormalizeArrayLikeInteropResult,
-  shouldNormalizeUnboundJsArrayWrapperResult,
   emitArrayWrapperInteropCall,
 } from "./call-array-wrapper.js";

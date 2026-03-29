@@ -9,9 +9,7 @@ import type { SurfaceMode } from "./types.js";
 
 const findAuthoritativePackageRootForImport = (
   importSpecifier: string,
-  authoritativeTsonicPackageRoots:
-    | ReadonlyMap<string, string>
-    | undefined
+  authoritativeTsonicPackageRoots: ReadonlyMap<string, string> | undefined
 ): string | undefined => {
   if (!authoritativeTsonicPackageRoots) {
     return undefined;
@@ -32,9 +30,7 @@ const findAuthoritativePackageRootForImport = (
     }
   }
 
-  return bestMatch
-    ? authoritativeTsonicPackageRoots.get(bestMatch)
-    : undefined;
+  return bestMatch ? authoritativeTsonicPackageRoots.get(bestMatch) : undefined;
 };
 
 export const resolveSourceBindingFiles = (

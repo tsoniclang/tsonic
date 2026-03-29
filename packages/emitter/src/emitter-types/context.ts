@@ -19,6 +19,7 @@ export const createContext = (options: EmitterOptions): EmitterContext => {
     isStatic: false,
     isAsync: false,
     bindingsRegistry,
+    bindingRegistry: options.bindingRegistry,
     usedLocalNames: new Set<string>(),
     usings: new Set<string>(),
   };

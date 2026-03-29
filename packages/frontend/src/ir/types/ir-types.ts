@@ -147,6 +147,14 @@ export type IrDictionaryType = {
 export type IrUnionType = {
   readonly kind: "unionType";
   readonly types: readonly IrType[];
+  /**
+   * Preserve explicit member order and duplicate carrier slots when this union
+   * is used as a runtime-union carrier.
+   *
+   * This is for compiler-authored runtime carrier layout only. It does not
+   * change semantic type equality.
+   */
+  readonly preserveRuntimeLayout?: true;
 };
 
 export type IrIntersectionType = {
@@ -165,6 +173,12 @@ export type IrAnyType = {
 
 export type IrUnknownType = {
   readonly kind: "unknownType";
+  /**
+   * Present only when the source program explicitly authored `unknown`.
+   *
+   * Absence means this unknown originated from an unresolved / poison path.
+   */
+  readonly explicit?: true;
 };
 
 export type IrVoidType = {

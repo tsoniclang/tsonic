@@ -2,9 +2,11 @@
  * Logical operator expression emitter (&&, ||, ??)
  */
 
-import { IrExpression, IrType } from "@tsonic/frontend";
+import { IrExpression, IrType, stableIrTypeKey } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
+import { resolveDirectValueSurfaceType } from "../../core/semantic/direct-value-surfaces.js";
 import {
   isDefinitelyValueType,
   resolveTypeAlias,
@@ -12,6 +14,8 @@ import {
 } from "../../core/semantic/type-resolution.js";
 import { isBooleanType } from "./helpers.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
+import { adaptValueToExpectedTypeAst } from "../expected-type-adaptation.js";
 
 /**
  * Check if an expression AST can still produce a nullable value type.
@@ -58,6 +62,152 @@ const hasUnionMember = (
     return predicate(type);
   }
   return type.types.some(predicate);
+};
+
+const getBareTypeParameterName = (
+  type: IrType,
+  context: EmitterContext
+): string | undefined => {
+  if (type.kind === "typeParameterType") {
+    return type.name;
+  }
+
+  if (
+    type.kind === "referenceType" &&
+    (context.typeParameters?.has(type.name) ?? false) &&
+    (!type.typeArguments || type.typeArguments.length === 0)
+  ) {
+    return type.name;
+  }
+
+  return undefined;
+};
+
+const getUnconstrainedTypeParameterName = (
+  type: IrType | undefined,
+  context: EmitterContext
+): string | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  const bareName = getBareTypeParameterName(stripNullish(type), context);
+  if (!bareName) {
+    return undefined;
+  }
+
+  const constraintKind =
+    context.typeParamConstraints?.get(bareName) ?? "unconstrained";
+  return constraintKind === "unconstrained" ? bareName : undefined;
+};
+
+const buildSingleEvalGenericNullishAst = (
+  expr: Extract<IrExpression, { kind: "logical" }>,
+  leftAst: CSharpExpressionAst,
+  leftContext: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  if (expr.operator !== "??") {
+    return undefined;
+  }
+
+  const leftType = expr.left.inferredType;
+  if (!getUnconstrainedTypeParameterName(leftType, leftContext)) {
+    return undefined;
+  }
+
+  const rightType = expr.right.inferredType;
+  const nonNullLeftType = leftType ? stripNullish(leftType) : undefined;
+  const synthesizedUnionTarget =
+    nonNullLeftType && rightType
+      ? stableIrTypeKey(nonNullLeftType) === stableIrTypeKey(rightType)
+        ? nonNullLeftType
+        : ({
+            kind: "unionType",
+            types: [nonNullLeftType, rightType],
+          } satisfies IrType)
+      : undefined;
+  const targetType = expectedType ?? synthesizedUnionTarget ?? expr.inferredType;
+  if (!targetType) {
+    return undefined;
+  }
+
+  const tempName = "__tsonic_nullish_value";
+  const [parameterTypeAst, parameterTypeContext] = emitTypeAst(
+    leftType ?? { kind: "anyType" },
+    leftContext
+  );
+  const [returnTypeAst, returnTypeContext] = emitTypeAst(
+    targetType,
+    parameterTypeContext
+  );
+
+  const tempIdentifier: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: tempName,
+  };
+
+  const [rawRightAst, rightContext] = emitExpressionAst(
+    expr.right,
+    returnTypeContext,
+    targetType
+  );
+
+  const adaptedLeft =
+    adaptValueToExpectedTypeAst({
+      valueAst: tempIdentifier,
+      actualType: leftType,
+      context: rightContext,
+      expectedType: targetType,
+    }) ?? [tempIdentifier, rightContext];
+  const adaptedRight =
+    adaptValueToExpectedTypeAst({
+      valueAst: rawRightAst,
+      actualType: rightType,
+      context: adaptedLeft[1],
+      expectedType: targetType,
+    }) ?? [rawRightAst, adaptedLeft[1]];
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "castExpression",
+          type: identifierType("global::System.Func", [
+            parameterTypeAst,
+            returnTypeAst,
+          ]),
+          expression: {
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "lambdaExpression",
+              isAsync: false,
+              parameters: [{ name: tempName, type: parameterTypeAst }],
+              body: {
+                kind: "conditionalExpression",
+                condition: {
+                  kind: "binaryExpression",
+                  operatorToken: "==",
+                  left: {
+                    kind: "castExpression",
+                    type: { kind: "predefinedType", keyword: "object" },
+                    expression: tempIdentifier,
+                  },
+                  right: { kind: "nullLiteralExpression" },
+                },
+                whenTrue: adaptedRight[0],
+                whenFalse: adaptedLeft[0],
+              },
+            },
+          },
+        },
+      },
+      arguments: [leftAst],
+    },
+    adaptedRight[1],
+  ];
 };
 
 const isRepeatableExpressionAst = (ast: CSharpExpressionAst): boolean => {
@@ -210,7 +360,8 @@ const tryEmitMapGetUndefinedFallback = (
  */
 export const emitLogical = (
   expr: Extract<IrExpression, { kind: "logical" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
   const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
 
@@ -222,6 +373,13 @@ export const emitLogical = (
 
   // If the left operand is a non-nullable value type, `??` is invalid in C# and the
   // fallback is unreachable. Emit only the left operand.
+  const directLeftStorageType = resolveDirectValueSurfaceType(
+    leftAst,
+    leftContext
+  );
+  const leftPreservesRuntimeNullish =
+    hasUnionMember(directLeftStorageType, isUndefinedPrimitive) ||
+    hasUnionMember(directLeftStorageType, isNullPrimitive);
   if (
     operator === "??" &&
     expr.left.inferredType &&
@@ -231,9 +389,19 @@ export const emitLogical = (
     // Conditional access (`?.` / `?[`) produces nullable value types in C# even when the
     // underlying member type is non-nullable (e.g., `string?.Length` → `int?`).
     // In that case the fallback is still meaningful and must be preserved.
-    if (!preservesNullableValueFallback(leftAst)) {
+    if (!preservesNullableValueFallback(leftAst) && !leftPreservesRuntimeNullish) {
       return [leftAst, leftContext];
     }
+  }
+
+  const genericNullish = buildSingleEvalGenericNullishAst(
+    { ...expr, operator },
+    leftAst,
+    leftContext,
+    expectedType
+  );
+  if (genericNullish) {
+    return genericNullish;
   }
 
   const rightExpectedType =

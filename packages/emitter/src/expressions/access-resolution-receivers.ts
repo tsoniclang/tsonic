@@ -366,14 +366,10 @@ export const resolveEmittedReceiverTypeAst = (
     if (narrowKey) {
       const narrowed = context.narrowedBindings.get(narrowKey);
       if (narrowed?.kind === "expr") {
-        if (narrowed.type) {
-          const storageNarrowedType =
-            normalizeRuntimeStorageType(narrowed.type, context) ??
-            narrowed.type;
-          return emitTypeAst(
-            normalizeStructuralEmissionType(storageNarrowedType, context),
-            context
-          );
+        if (narrowed.storageType) {
+          const normalizedStorageType =
+            normalizeStructuralEmissionType(narrowed.storageType, context);
+          return emitTypeAst(normalizedStorageType, context);
         }
 
         const sourceType = narrowed.sourceType ?? baseType;
@@ -386,6 +382,17 @@ export const resolveEmittedReceiverTypeAst = (
         if (memberTypeAst) {
           return [memberTypeAst, memberContext];
         }
+
+        if (narrowed.type) {
+          const storageNarrowedType =
+            normalizeRuntimeStorageType(narrowed.type, context) ??
+            narrowed.type;
+          return emitTypeAst(
+            normalizeStructuralEmissionType(storageNarrowedType, context),
+            context
+          );
+        }
+
       }
     }
   }

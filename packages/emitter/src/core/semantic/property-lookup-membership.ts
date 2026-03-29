@@ -195,10 +195,6 @@ export const isTypeOnlyStructuralTarget = (
 ): boolean => {
   const resolved = resolveTypeAlias(stripNullish(type), context);
 
-  if (resolved.kind === "dictionaryType") {
-    return true;
-  }
-
   if (resolved.kind === "objectType") {
     return true;
   }

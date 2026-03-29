@@ -427,6 +427,92 @@ const emitLambdaBodyAst = (
   ];
 };
 
+const resolveFunctionExpressionReturnType = (
+  expr: Extract<IrExpression, { kind: "functionExpression" | "arrowFunction" }>,
+  contextualFunctionType: Extract<IrType, { kind: "functionType" }> | undefined
+): IrType | undefined => {
+  if (contextualFunctionType?.returnType) {
+    return contextualFunctionType.returnType;
+  }
+  if (expr.returnType) {
+    return expr.returnType;
+  }
+  if (expr.inferredType?.kind === "functionType") {
+    return expr.inferredType.returnType;
+  }
+  return undefined;
+};
+
+const emitGeneratorFunctionExpression = (
+  expr: Extract<IrExpression, { kind: "functionExpression" }>,
+  parameters: readonly EmittedLambdaParameter[],
+  context: EmitterContext,
+  returnType: IrType | undefined
+): [CSharpExpressionAst, EmitterContext] => {
+  const blockContext = withStatic(
+    {
+      ...context,
+      objectLiteralThisIdentifier: expr.capturesObjectLiteralThis
+        ? context.objectLiteralThisIdentifier
+        : undefined,
+    },
+    false
+  );
+
+  const [preludeStatements, preludeContext] = lowerLambdaParameterPreludeAst(
+    parameters,
+    blockContext
+  );
+  const iteratorName = allocateLocalName(
+    "__tsonic_generator_expr",
+    preludeContext
+  );
+  const [returnTypeAst, returnTypeContext] = emitTypeAst(
+    returnType ?? { kind: "unknownType" },
+    iteratorName.context
+  );
+  const [bodyAst] = emitBlockStatementAst(expr.body, {
+    ...returnTypeContext,
+    returnType,
+  });
+
+  return [
+    {
+      kind: "lambdaExpression",
+      isAsync: false,
+      parameters: parameters.flatMap((parameter) =>
+        parameter.ast ? [parameter.ast] : []
+      ),
+      body: {
+        kind: "blockStatement",
+        statements: [
+          ...preludeStatements,
+          {
+            kind: "localFunctionStatement",
+            modifiers: expr.isAsync ? ["async"] : [],
+            returnType: returnTypeAst,
+            name: iteratorName.emittedName,
+            parameters: [],
+            body: bodyAst,
+          },
+          {
+            kind: "returnStatement",
+            expression: {
+              kind: "invocationExpression",
+              expression: {
+                kind: "identifierExpression",
+                identifier: iteratorName.emittedName,
+              },
+              arguments: [],
+            },
+          },
+        ],
+      },
+    },
+    returnTypeContext,
+  ];
+};
+
 /**
  * Emit a function expression as CSharpExpressionAst (C# lambda)
  */
@@ -449,7 +535,20 @@ export const emitFunctionExpression = (
     paramInfos,
     paramContext
   );
-  const returnType = contextualFunctionType?.returnType;
+  const returnType = resolveFunctionExpressionReturnType(
+    expr,
+    contextualFunctionType
+  );
+
+  if (expr.isGenerator) {
+    return emitGeneratorFunctionExpression(
+      expr,
+      paramInfos,
+      bodyContextSeeded,
+      returnType
+    );
+  }
+
   const asyncUnionReturnPlan =
     expr.isAsync && returnType
       ? getAsyncUnionReturnPlan(returnType, bodyContextSeeded)
@@ -501,7 +600,10 @@ export const emitArrowFunction = (
     paramInfos,
     paramContext
   );
-  const returnType = contextualFunctionType?.returnType;
+  const returnType = resolveFunctionExpressionReturnType(
+    expr,
+    contextualFunctionType
+  );
   const asyncUnionReturnPlan =
     expr.isAsync && returnType
       ? getAsyncUnionReturnPlan(returnType, bodyContextSeeded)

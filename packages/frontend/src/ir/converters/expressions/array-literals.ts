@@ -5,7 +5,6 @@
 import * as ts from "typescript";
 import { IrArrayExpression, IrType, IrExpression } from "../../types.js";
 import { typesEqual } from "../../types/ir-substitution.js";
-import { containsTypeParameter } from "../../types/ir-substitution.js";
 import { stableIrTypeKey } from "../../types/type-ops.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
@@ -92,7 +91,6 @@ const computeArrayElementType = (
         case "AsyncGenerator":
         case "Set":
         case "ReadonlySet":
-        case "JSArray":
         case "IEnumerable":
         case "IReadOnlyList":
         case "List":
@@ -260,8 +258,6 @@ export const normalizeExpectedArrayType = (
   const normalizeCandidate = (
     member: IrType
   ): Extract<IrType, { kind: "arrayType" }> | undefined => {
-    if (containsTypeParameter(member)) return undefined;
-
     if (member.kind === "arrayType") {
       return member;
     }
@@ -284,7 +280,6 @@ export const normalizeExpectedArrayType = (
         case "AsyncGenerator":
         case "Set":
         case "ReadonlySet":
-        case "JSArray":
         case "IEnumerable":
         case "IReadOnlyList":
         case "List": {

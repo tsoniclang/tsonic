@@ -25,6 +25,18 @@ describe("defaults", () => {
     });
   });
 
+  it("uses the same widening for default-initialized parameters", () => {
+    expect(
+      getAcceptedParameterType({ kind: "primitiveType", name: "int" }, true)
+    ).to.deep.equal({
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "int" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    });
+  });
+
   it("leaves missing parameter types unresolved", () => {
     expect(getAcceptedParameterType(undefined, true)).to.equal(undefined);
   });

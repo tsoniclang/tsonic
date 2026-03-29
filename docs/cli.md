@@ -44,7 +44,7 @@ tsonic add npm @acme/math
 
 Supported package manifest families:
 
-- first-party package-manifest/source-package manifests
+- first-party `tsonic.package.json`/source-package manifests
 - bindings manifests for CLR/runtime packages
 
 ### `tsonic add package <dll> [types]`

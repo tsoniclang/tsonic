@@ -10,6 +10,7 @@
 import type { IrType } from "@tsonic/frontend";
 import { normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
+import { resolveLocalTypeInfo } from "./property-lookup-resolution.js";
 import { substituteTypeArgs } from "./type-substitution.js";
 
 // ---------------------------------------------------------------------------
@@ -32,7 +33,16 @@ export const stripNullish = (type: IrType): IrType => {
     return nonNullish[0];
   }
 
-  // Multi-type union or no non-nullish types: return original
+  if (nonNullish.length > 1) {
+    if (type.preserveRuntimeLayout === true) {
+      return {
+        ...type,
+        types: nonNullish,
+      };
+    }
+    return normalizedUnionType(nonNullish);
+  }
+
   return type;
 };
 
@@ -80,6 +90,13 @@ export const splitRuntimeNullishUnionMembers = (
   const nonNullishMembers = type.types.filter((member) => {
     return !isRuntimeNullishType(member);
   });
+
+  if (type.preserveRuntimeLayout === true) {
+    return {
+      hasRuntimeNullish: nonNullishMembers.length !== type.types.length,
+      nonNullishMembers,
+    };
+  }
 
   const canonicalUnion =
     nonNullishMembers.length <= 1
@@ -211,10 +228,13 @@ export const getArrayLikeElementType = (
     resolved.kind === "referenceType" &&
     (resolved.name === "Array" ||
       resolved.name === "ReadonlyArray" ||
-      resolved.name === "ArrayLike" ||
-      resolved.name === "JSArray") &&
+      resolved.name === "ArrayLike") &&
     resolved.typeArguments?.length === 1
   ) {
+    const localTypeInfo = resolveLocalTypeInfo(resolved, context);
+    if (localTypeInfo?.info.kind === "class") {
+      return undefined;
+    }
     return resolved.typeArguments[0];
   }
 
@@ -260,14 +280,32 @@ export const resolveArrayLikeReceiverType = (
  */
 export const resolveTypeAlias = (
   type: IrType,
-  context: EmitterContext
+  context: EmitterContext,
+  options: {
+    readonly preserveObjectTypeAliases?: boolean;
+  } = {}
 ): IrType => {
   if (type.kind !== "referenceType") {
     return type;
   }
 
-  const localTypeInfo = context.localTypes?.get(type.name);
+  const stripGlobalPrefix = (name: string): string =>
+    name.startsWith("global::") ? name.slice("global::".length) : name;
+
+  const lookupName = type.name.includes(".")
+    ? (type.name.split(".").pop() ?? type.name)
+    : type.name;
+
+  const localTypeInfo =
+    context.localTypes?.get(type.name) ?? context.localTypes?.get(lookupName);
   if (localTypeInfo?.kind === "typeAlias") {
+    if (
+      options.preserveObjectTypeAliases &&
+      localTypeInfo.type.kind === "objectType"
+    ) {
+      return type;
+    }
+
     // Substitute type arguments if present
     if (type.typeArguments && type.typeArguments.length > 0) {
       return substituteTypeArgs(
@@ -280,33 +318,52 @@ export const resolveTypeAlias = (
     return localTypeInfo.type;
   }
 
+  const importedAliasBinding =
+    context.importBindings?.get(type.name) ??
+    context.importBindings?.get(lookupName);
+  if (
+    importedAliasBinding?.kind === "type" &&
+    importedAliasBinding.aliasType !== undefined
+  ) {
+    if (
+      options.preserveObjectTypeAliases &&
+      importedAliasBinding.aliasType.kind === "objectType"
+    ) {
+      return type;
+    }
+
+    if (type.typeArguments && type.typeArguments.length > 0) {
+      return substituteTypeArgs(
+        importedAliasBinding.aliasType,
+        importedAliasBinding.aliasTypeParameters ?? [],
+        type.typeArguments
+      );
+    }
+
+    return importedAliasBinding.aliasType;
+  }
+
   const aliasIndex = context.options.typeAliasIndex;
   if (!aliasIndex) {
     return type;
   }
 
-  const stripGlobalPrefix = (name: string): string =>
-    name.startsWith("global::") ? name.slice("global::".length) : name;
-
-  const name = stripGlobalPrefix(type.name);
-  const aliasEntry = name.includes(".")
-    ? aliasIndex.byFqn.get(name)
-    : (() => {
-        const matches = aliasIndex.byName.get(name) ?? [];
-
-        if (matches.length === 0) return undefined;
-        if (matches.length === 1) return matches[0];
-
-        const candidates = matches
-          .map((m) => m.fqn)
-          .sort()
-          .join(", ");
-        throw new Error(
-          `ICE: Ambiguous type alias reference '${name}'. Candidates: ${candidates}`
-        );
-      })();
+  const qualifiedAliasCandidates = [
+    type.resolvedClrType,
+    type.typeId?.clrName,
+    stripGlobalPrefix(type.name),
+  ]
+    .filter((candidate): candidate is string => !!candidate)
+    .map(stripGlobalPrefix);
+  const aliasEntry = qualifiedAliasCandidates
+    .map((candidate) => aliasIndex.byFqn.get(candidate))
+    .find((entry) => entry !== undefined);
 
   if (!aliasEntry) {
+    return type;
+  }
+
+  if (options.preserveObjectTypeAliases && aliasEntry.type.kind === "objectType") {
     return type;
   }
 

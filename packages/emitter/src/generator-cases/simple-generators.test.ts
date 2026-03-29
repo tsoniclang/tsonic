@@ -9,7 +9,7 @@ import { emitModule } from "../emitter.js";
 import { IrModule } from "@tsonic/frontend";
 
 describe("Generator Emission", () => {
-  it("should generate exchange class for simple generator", () => {
+  it("lowers simple generators directly to IEnumerable<TYield>", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/test/counter.ts",
@@ -85,28 +85,23 @@ describe("Generator Emission", () => {
 
     const code = emitModule(module);
 
-    // Should contain exchange class
-    expect(code).to.include("public sealed class counter_exchange");
-    expect(code).to.include("public object? Input { get; set; }");
-    expect(code).to.include("public double Output { get; set; }");
-
     // Should have IEnumerable return type with fully-qualified name
     expect(code).to.include(
-      "global::System.Collections.Generic.IEnumerable<counter_exchange> counter()"
+      "public static global::System.Collections.Generic.IEnumerable<double> counter()"
     );
 
     // Should NOT use using directives - all types use global:: FQN
     expect(code).to.not.include("using System.Collections.Generic");
 
-    // Should initialize exchange variable
-    expect(code).to.include("var exchange = new counter_exchange()");
+    // Should not allocate exchange/wrapper helpers for unidirectional generators
+    expect(code).to.not.include("counter_exchange");
+    expect(code).to.not.include("counter_Generator");
 
-    // Should emit yield with exchange object pattern
-    expect(code).to.include("exchange.Output = i");
-    expect(code).to.include("yield return exchange");
+    // Should emit direct yield values
+    expect(code).to.include("yield return i;");
   });
 
-  it("should handle async generator", () => {
+  it("lowers async generators directly to IAsyncEnumerable<TYield>", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/test/asyncCounter.ts",
@@ -182,12 +177,12 @@ describe("Generator Emission", () => {
 
     const code = emitModule(module);
 
-    // Should contain exchange class
-    expect(code).to.include("public sealed class asyncCounter_exchange");
-
     // Should have IAsyncEnumerable return type with async and global:: FQN
     expect(code).to.include(
-      "public static async global::System.Collections.Generic.IAsyncEnumerable<asyncCounter_exchange> asyncCounter()"
+      "public static async global::System.Collections.Generic.IAsyncEnumerable<double> asyncCounter()"
     );
+    expect(code).to.not.include("asyncCounter_exchange");
+    expect(code).to.not.include("asyncCounter_Generator");
+    expect(code).to.include("yield return i;");
   });
 });

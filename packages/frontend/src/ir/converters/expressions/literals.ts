@@ -17,6 +17,7 @@ import { getSourceSpan } from "./helpers.js";
 import { inferNumericKindFromRaw } from "../../types/numeric-helpers.js";
 import { NumericKind } from "../../types/numeric-kind.js";
 import type { ProgramContext } from "../../program-context.js";
+import { resolveAmbientGlobalSourceOwnerByName } from "./ambient-global-source-owner.js";
 
 /**
  * Derive inferredType from numericIntent (deterministic, no TypeScript).
@@ -125,7 +126,13 @@ export const convertRegularExpressionLiteral = (
   const resolvedClrType =
     regExpBinding && regExpBinding.kind === "global"
       ? regExpBinding.type
-      : undefined;
+      : (resolveAmbientGlobalSourceOwnerByName(
+          "RegExp",
+          node,
+          ctx,
+          ts.SymbolFlags.Value
+        ) ??
+        undefined);
   const resolvedAssembly =
     regExpBinding && regExpBinding.kind === "global"
       ? regExpBinding.assembly

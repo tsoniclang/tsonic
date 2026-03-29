@@ -179,63 +179,9 @@ export const resolveExtensionMethodByKey = (
     return { kind: "resolved", binding: first };
   };
 
-  // 1) Exact receiver match.
   const direct = resolveForReceiver(receiverTypeName);
   if (direct.kind === "resolved") return direct.binding;
-  if (direct.kind === "ambiguous") return undefined;
-
-  // 2) Airplane-grade fallback: CLR interface/base-type inheritance.
-  // This allows instance-style calls to resolve when TS surface selects a method
-  // declared on a derived type's extension bucket (e.g., IQueryable<T>.ToList)
-  // but the CLR binding is declared on a base interface (e.g., IEnumerable<T>).
-  //
-  // Determinism rules:
-  // - Prefer the closest base match (BFS).
-  // - If multiple matches exist at the same depth with different CLR targets,
-  //   treat as unresolved (unsafe).
-  const visited = new Set<string>([receiverTypeName]);
-  let frontier: readonly string[] = [receiverTypeName];
-
-  for (let depth = 0; depth < 20; depth++) {
-    const next: string[] = [];
-    for (const t of frontier) {
-      for (const sup of getDirectSupertypes(state, t)) {
-        if (visited.has(sup)) continue;
-        visited.add(sup);
-        next.push(sup);
-      }
-    }
-
-    if (next.length === 0) break;
-
-    const resolvedAtDepth: MemberBinding[] = [];
-    let sawAmbiguous = false;
-
-    for (const sup of next) {
-      const res = resolveForReceiver(sup);
-      if (res.kind === "ambiguous") sawAmbiguous = true;
-      if (res.kind === "resolved") resolvedAtDepth.push(res.binding);
-    }
-
-    if (resolvedAtDepth.length > 0 || sawAmbiguous) {
-      // If any ambiguity exists at the closest depth, do not guess.
-      if (sawAmbiguous) return undefined;
-      const first = resolvedAtDepth[0];
-      if (!first) return undefined;
-      const target0 = `${first.binding.type}::${first.binding.member}`;
-      const mods0 = getModifiersKey(first);
-      for (const b of resolvedAtDepth) {
-        const target = `${b.binding.type}::${b.binding.member}`;
-        if (target !== target0) return undefined;
-        if (getModifiersKey(b) !== mods0) return undefined;
-      }
-      return first;
-    }
-
-    frontier = next;
-  }
-
-  return undefined;
+  return direct.kind === "ambiguous" ? undefined : undefined;
 };
 
 // ---------------------------------------------------------------------------

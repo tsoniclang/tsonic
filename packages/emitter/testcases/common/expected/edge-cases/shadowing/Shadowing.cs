@@ -10,7 +10,7 @@ namespace TestCases.common.edgecases.shadowing
                 {
                     var v = value;
                     var value__1 = 123;
-                    this._x = v + value__1;
+                    this._x = (int)(v + value__1);
                 }
             }
     }

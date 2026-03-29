@@ -55,7 +55,7 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      expect(csharp).to.include("await maybeLoad(flag).Match(");
+      expect(csharp).to.include("await maybeLoad(flag).Match");
       expect(csharp).to.include("Task.FromResult(__tsonic_await_value_0)");
     });
 
@@ -79,7 +79,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "await global::System.Threading.Tasks.Task.FromResult(render(flag));"
       );
-      expect(csharp).not.to.include("render(flag).Match(");
+      expect(csharp).not.to.include("render(flag).Match");
     });
 
     it("wraps pure sync nullish unions directly when awaiting", () => {
@@ -99,7 +99,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "?? global::System.Threading.Tasks.Task.CompletedTask"
       );
-      expect(csharp).not.to.include("maybeText(flag).Match(");
+      expect(csharp).not.to.include("maybeText(flag).Match");
     });
 
     it("normalizes mixed Task-or-void unions before await", () => {

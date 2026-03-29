@@ -18,12 +18,6 @@ import { splitRuntimeNullishUnionMembers } from "../core/semantic/type-resolutio
 import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
 import { resolveStructuralReferenceType } from "../core/semantic/structural-shape-matching.js";
 
-const getBareTypeParameterName = (type: IrType): string | undefined => {
-  if (type.kind === "typeParameterType") return type.name;
-
-  return undefined;
-};
-
 const stripNullableAst = (typeAst: CSharpTypeAst): CSharpTypeAst =>
   typeAst.kind === "nullableType"
     ? stripNullableAst(typeAst.underlyingType)
@@ -200,20 +194,6 @@ export const emitUnionType = (
         },
         context,
       ];
-    }
-
-    // `T | null` where `T` is an unconstrained type parameter cannot be represented as `T?`
-    // in C# (it forbids assigning null). Fall back to `object?` and rely on casts at use sites.
-    const typeParamName = getBareTypeParameterName(firstType);
-    if (typeParamName) {
-      const constraintKind =
-        context.typeParamConstraints?.get(typeParamName) ?? "unconstrained";
-      if (constraintKind === "unconstrained") {
-        return [
-          nullableType({ kind: "predefinedType", keyword: "object" }),
-          currentContext,
-        ];
-      }
     }
 
     if (!hasNullish) {

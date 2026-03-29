@@ -5,6 +5,7 @@ import type { ProgramContext } from "../program-context.js";
 import type { DeclId } from "../type-system/index.js";
 import type { IrType } from "../types.js";
 import { resolveInstanceofTargetType } from "./narrowing-resolvers-equality.js";
+import type { SimpleBindingDescriptor } from "../../program/binding-types.js";
 
 const makeDeclId = (id: number): DeclId => ({ id }) as DeclId;
 
@@ -38,6 +39,10 @@ const createMockContext = (options: {
   readonly getType?: (
     name: string
   ) => { readonly alias: string; readonly name: string } | undefined;
+  readonly getExactBindingByKind?: (
+    name: string,
+    kind: "global" | "module"
+  ) => SimpleBindingDescriptor | undefined;
 }): ProgramContext =>
   ({
     binding: {
@@ -62,44 +67,13 @@ const createMockContext = (options: {
     },
     bindings: {
       getType: options.getType ?? (() => undefined),
+      getExactBindingByKind:
+        options.getExactBindingByKind ?? (() => undefined),
     },
   }) as unknown as ProgramContext;
 
 describe("narrowing-resolvers-equality", () => {
-  it("falls back to binding-backed instance types for imported constructor statics", () => {
-    const ecdsaDecl = makeDeclId(1);
-    const targetExpr = extractInstanceofRight("value instanceof ECDsa");
-    const ctx = createMockContext({
-      resolveIdentifier: (node) =>
-        node.text === "ECDsa" ? ecdsaDecl : undefined,
-      typeOfDecl: () => ({
-        kind: "intersectionType",
-        types: [
-          { kind: "anyType" },
-          {
-            kind: "referenceType",
-            name: "__Anon_e08c_ctor",
-            structuralMembers: [],
-          },
-        ],
-      }),
-      getType: (name) =>
-        name === "ECDsa"
-          ? {
-              alias: "ECDsa",
-              name: "System.Security.Cryptography.ECDsa",
-            }
-          : undefined,
-    });
-
-    expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
-      kind: "referenceType",
-      name: "ECDsa",
-      resolvedClrType: "System.Security.Cryptography.ECDsa",
-    });
-  });
-
-  it("normalizes constructor decl types to their instance type", () => {
+  it("derives constructor-instance targets from explicit prototype typing", () => {
     const widgetDecl = makeDeclId(2);
     const targetExpr = extractInstanceofRight("value instanceof Widget");
     const ctx = createMockContext({
@@ -109,6 +83,15 @@ describe("narrowing-resolvers-equality", () => {
         kind: "referenceType",
         name: "WidgetConstructor",
       }),
+      typeOfMember: (_receiver, member) =>
+        member.name === "prototype"
+          ? {
+              kind: "referenceType",
+              name: "Widget",
+            }
+          : {
+              kind: "unknownType",
+            },
     });
 
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
@@ -117,7 +100,7 @@ describe("narrowing-resolvers-equality", () => {
     });
   });
 
-  it("falls back to value-read types for imported runtime constructors", () => {
+  it("derives imported constructor-instance targets from explicit prototype typing", () => {
     const readableDecl = makeDeclId(4);
     const targetExpr = extractInstanceofRight("value instanceof Readable");
     const ctx = createMockContext({
@@ -128,9 +111,18 @@ describe("narrowing-resolvers-equality", () => {
       }),
       typeOfValueRead: () => ({
         kind: "referenceType",
-        name: "Readable",
-        resolvedClrType: "Test.Readable",
+        name: "ReadableConstructor",
       }),
+      typeOfMember: (_receiver, member) =>
+        member.name === "prototype"
+          ? {
+              kind: "referenceType",
+              name: "Readable",
+              resolvedClrType: "Test.Readable",
+            }
+          : {
+              kind: "unknownType",
+            },
     });
 
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
@@ -140,7 +132,7 @@ describe("narrowing-resolvers-equality", () => {
     });
   });
 
-  it("falls back to the final member binding when namespace access resolves to an unusable wrapper", () => {
+  it("derives namespace member instanceof targets from explicit prototype typing", () => {
     const namespaceDecl = makeDeclId(3);
     const targetExpr = extractInstanceofRight("value instanceof crypto.ECDsa");
     const ctx = createMockContext({
@@ -150,40 +142,64 @@ describe("narrowing-resolvers-equality", () => {
         kind: "referenceType",
         name: "CryptoNamespace",
       }),
-      typeOfMember: () => ({
-        kind: "intersectionType",
-        types: [
-          { kind: "anyType" },
-          {
-            kind: "referenceType",
-            name: "__Anon_ecdsa_wrapper",
-            structuralMembers: [
-              {
-                kind: "methodSignature",
-                name: "Create",
-                parameters: [],
-                returnType: {
-                  kind: "referenceType",
-                  name: "ECDsa",
-                },
-              },
-            ],
-          },
-        ],
-      }),
-      getType: (name) =>
-        name === "ECDsa"
+      typeOfMember: (receiver, member) => {
+        if (receiver.kind === "referenceType" && receiver.name === "CryptoNamespace") {
+          return member.name === "ECDsa"
+            ? {
+                kind: "referenceType",
+                name: "ECDsaConstructor",
+              }
+            : {
+                kind: "unknownType",
+              };
+        }
+
+        return member.name === "prototype"
           ? {
-              alias: "ECDsa",
-              name: "System.Security.Cryptography.ECDsa",
+              kind: "referenceType",
+              name: "ECDsa",
+              resolvedClrType: "System.Security.Cryptography.ECDsa",
             }
-          : undefined,
+          : {
+              kind: "unknownType",
+            };
+      },
     });
 
     expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
       kind: "referenceType",
       name: "ECDsa",
       resolvedClrType: "System.Security.Cryptography.ECDsa",
+    });
+  });
+
+  it("derives global constructor instanceof targets from explicit simple binding metadata", () => {
+    const uint8ArrayDecl = makeDeclId(5);
+    const targetExpr = extractInstanceofRight("value instanceof Uint8Array");
+    const ctx = createMockContext({
+      resolveIdentifier: (node) =>
+        node.text === "Uint8Array" ? uint8ArrayDecl : undefined,
+      typeOfDecl: () => ({
+        kind: "referenceType",
+        name: "Uint8ArrayConstructor",
+      }),
+      getExactBindingByKind: (name, kind) =>
+        name === "Uint8Array" && kind === "global"
+          ? {
+              kind: "global",
+              assembly: "js",
+              type: "js.Uint8Array",
+              staticType: "js.Uint8Array",
+              typeSemantics: {
+                contributesTypeIdentity: true,
+              },
+            }
+          : undefined,
+    });
+
+    expect(resolveInstanceofTargetType(targetExpr, ctx)).to.deep.equal({
+      kind: "referenceType",
+      name: "Uint8Array",
     });
   });
 });

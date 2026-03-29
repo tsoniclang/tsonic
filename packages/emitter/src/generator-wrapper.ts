@@ -4,9 +4,13 @@
  * Builds wrapper classes as typed CSharp AST declarations (no text templates).
  */
 
-import { IrFunctionDeclaration, IrType } from "@tsonic/frontend";
+import {
+  IrFunctionDeclaration,
+  IrType,
+  IrTypeParameter,
+} from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
-import { emitTypeAst } from "./type-emitter.js";
+import { emitTypeAst, emitTypeParametersAst } from "./type-emitter.js";
 import { emitCSharpName, getCSharpName } from "./naming-policy.js";
 import {
   booleanLiteral,
@@ -16,6 +20,8 @@ import type {
   CSharpMemberAst,
   CSharpTypeAst,
   CSharpTypeDeclarationAst,
+  CSharpTypeParameterAst,
+  CSharpTypeParameterConstraintAst,
 } from "./core/format/backend-ast/types.js";
 import {
   boolTypeAst,
@@ -41,6 +47,13 @@ export type GeneratorLike = Pick<
   "name" | "returnType" | "isGenerator" | "isAsync" | "overloadFamily"
 >;
 
+type GeneratorHelperTypeParameters = {
+  readonly typeParameters: readonly CSharpTypeParameterAst[];
+  readonly constraints: readonly CSharpTypeParameterConstraintAst[];
+  readonly typeArguments: readonly CSharpTypeAst[];
+  readonly context: EmitterContext;
+};
+
 export const getGeneratorHelperBaseName = (
   generator: GeneratorLike,
   context: EmitterContext,
@@ -52,6 +65,58 @@ export const getGeneratorHelperBaseName = (
     "methods",
     context
   );
+};
+
+export const usesExchangeBasedGeneratorLowering = (
+  generator: GeneratorLike
+): boolean => {
+  if (!generator.isGenerator) {
+    return false;
+  }
+  if (!generator.returnType || generator.returnType.kind !== "referenceType") {
+    return false;
+  }
+
+  if (
+    generator.returnType.name !== "Generator" &&
+    generator.returnType.name !== "AsyncGenerator"
+  ) {
+    return false;
+  }
+
+  return (
+    hasGeneratorReturnType(generator) || needsBidirectionalSupport(generator)
+  );
+};
+
+export const buildGeneratorHelperTypeArguments = (
+  typeParameterNames: readonly string[] | undefined,
+  context: EmitterContext
+): readonly CSharpTypeAst[] =>
+  (typeParameterNames ?? []).map((name) =>
+    identifierType(
+      context.typeParameterNameMap?.get(name) ??
+        context.declaringTypeParameterNameMap?.get(name) ??
+        name
+    )
+  );
+
+export const emitGeneratorHelperTypeParameters = (
+  typeParameters: readonly IrTypeParameter[],
+  context: EmitterContext
+): GeneratorHelperTypeParameters => {
+  const [helperTypeParameters, helperConstraints, nextContext] =
+    emitTypeParametersAst(typeParameters, context);
+
+  return {
+    typeParameters: helperTypeParameters,
+    constraints: helperConstraints,
+    typeArguments: buildGeneratorHelperTypeArguments(
+      typeParameters.map((typeParameter) => typeParameter.name),
+      nextContext
+    ),
+    context: nextContext,
+  };
 };
 
 const objectTypeAst: CSharpTypeAst = {
@@ -132,12 +197,22 @@ export const extractGeneratorTypeArgs = (
 export const generateWrapperClass = (
   func: GeneratorLike,
   context: EmitterContext,
-  helperBaseName = getGeneratorHelperBaseName(func, context)
+  helperBaseName = getGeneratorHelperBaseName(func, context),
+  helperTypeParameters: readonly IrTypeParameter[] = []
 ): [CSharpTypeDeclarationAst, EmitterContext] => {
   let currentContext = context;
+  const helperTypes = emitGeneratorHelperTypeParameters(
+    helperTypeParameters,
+    currentContext
+  );
+  currentContext = helperTypes.context;
 
   const wrapperName = `${helperBaseName}_Generator`;
   const exchangeName = `${helperBaseName}_exchange`;
+  const exchangeType = identifierType(
+    exchangeName,
+    helperTypes.typeArguments.length > 0 ? helperTypes.typeArguments : undefined
+  );
   const nextMethodName = emitCSharpName("next", "methods", context);
   const returnMethodName = emitCSharpName("return", "methods", context);
   const throwMethodName = emitCSharpName("throw", "methods", context);
@@ -160,7 +235,7 @@ export const generateWrapperClass = (
     func.isAsync
       ? "global::System.Collections.Generic.IAsyncEnumerator"
       : "global::System.Collections.Generic.IEnumerator",
-    [identifierType(exchangeName)]
+    [exchangeType]
   );
 
   const members: CSharpMemberAst[] = [
@@ -175,7 +250,7 @@ export const generateWrapperClass = (
       kind: "fieldDeclaration",
       attributes: [],
       modifiers: ["private", "readonly"],
-      type: identifierType(exchangeName),
+      type: exchangeType,
       name: "_exchange",
     },
   ];
@@ -218,7 +293,7 @@ export const generateWrapperClass = (
   });
 
   members.push(
-    buildConstructor(wrapperName, exchangeName, func.isAsync, returnType)
+    buildConstructor(wrapperName, exchangeType, func.isAsync, returnType)
   );
   members.push(
     buildNextMethod(
@@ -244,8 +319,14 @@ export const generateWrapperClass = (
     attributes: [],
     modifiers: ["public", "sealed"],
     name: wrapperName,
+    typeParameters:
+      helperTypes.typeParameters.length > 0
+        ? helperTypes.typeParameters
+        : undefined,
     interfaces: [],
     members,
+    constraints:
+      helperTypes.constraints.length > 0 ? helperTypes.constraints : undefined,
   };
 
   return [classAst, currentContext];

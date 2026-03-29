@@ -8,7 +8,171 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { buildIrModule } from "../../ir/builder.js";
+import { createProgramContext } from "../../ir/program-context-factory.js";
+import { validateIrSoundness } from "../../ir/validation/index.js";
 import { createProgram } from "../creation.js";
+
+const installMinimalJsSurface = (projectRoot: string): void => {
+  const jsRoot = path.join(projectRoot, "node_modules", "@tsonic", "js");
+
+  fs.mkdirSync(jsRoot, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(jsRoot, "package.json"),
+    JSON.stringify(
+      {
+        name: "@tsonic/js",
+        version: "0.0.0",
+        type: "module",
+      },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
+  fs.writeFileSync(
+    path.join(jsRoot, "tsonic.surface.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        id: "@tsonic/js",
+        extends: [],
+        requiredTypeRoots: ["."],
+        useStandardLib: false,
+      },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(
+    path.join(jsRoot, "index.d.ts"),
+    [
+      "declare global {",
+      "  interface String {",
+      "    trim(): string;",
+      "    join(separator?: string): string;",
+      "  }",
+      "  interface Number {",
+      "    toString(radix?: int): string;",
+      "  }",
+      "  interface Array<T> {",
+      "    readonly length: int;",
+      "    push(...items: T[]): int;",
+      "    join(separator?: string): string;",
+      "  }",
+      "  interface Error {",
+      "    message: string;",
+      "  }",
+      "  interface ErrorConstructor {",
+      "    readonly prototype: Error;",
+      "    new(message?: string): Error;",
+      "  }",
+      "  interface RangeError extends Error {}",
+      "  interface RangeErrorConstructor {",
+      "    readonly prototype: RangeError;",
+      "    new(message?: string): RangeError;",
+      "  }",
+      "  interface ArrayConstructor {",
+      "    readonly prototype: unknown[];",
+      "    new<T>(...items: T[]): T[];",
+      "    of<T>(...items: T[]): T[];",
+      "    from(source: string): string[];",
+      "    isArray(value: unknown): value is readonly unknown[] | unknown[];",
+      "  }",
+      "  const Array: ArrayConstructor;",
+      "  const Error: ErrorConstructor;",
+      "  const RangeError: RangeErrorConstructor;",
+      "}",
+      "export {};",
+      "",
+    ].join("\n")
+  );
+};
+
+const installMinimalClrSurface = (projectRoot: string): void => {
+  const globalsRoot = path.join(projectRoot, "node_modules", "@tsonic", "globals");
+
+  fs.mkdirSync(globalsRoot, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(globalsRoot, "package.json"),
+    JSON.stringify(
+      {
+        name: "@tsonic/globals",
+        version: "0.0.0",
+        type: "module",
+      },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(
+    path.join(globalsRoot, "tsonic.surface.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        id: "clr",
+        extends: [],
+        requiredTypeRoots: ["."],
+        useStandardLib: false,
+      },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(
+    path.join(globalsRoot, "tsonic.bindings.json"),
+    JSON.stringify(
+      {
+        bindingVersion: 1,
+        packageName: "@tsonic/globals",
+        packageVersion: "0.0.0",
+        surfaceMode: "clr",
+        requiredTypeRoots: ["."],
+        runtimePackages: ["@tsonic/globals"],
+      },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(
+    path.join(globalsRoot, "index.d.ts"),
+    [
+      "declare global {",
+      "  interface String {",
+      "    Trim(): string;",
+      "  }",
+      "  interface Error {",
+      "    message: string;",
+      "  }",
+      "  interface ErrorConstructor {",
+      "    readonly prototype: Error;",
+      "    new(message?: string): Error;",
+      "  }",
+      "  const Error: ErrorConstructor;",
+      "}",
+      "export {};",
+      "",
+    ].join("\n")
+  );
+  fs.writeFileSync(
+    path.join(globalsRoot, "bindings.json"),
+    JSON.stringify(
+      {
+        bindings: {
+          Error: {
+            kind: "global",
+            assembly: "System.Runtime",
+            type: "System.Exception",
+          },
+        },
+      },
+      null,
+      2
+    )
+  );
+};
 
 describe("Program Creation – surface isolation", function () {
   this.timeout(90_000);
@@ -69,36 +233,7 @@ describe("Program Creation – surface isolation", function () {
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
-
-      const jsRoot = path.join(tempDir, "node_modules/@tsonic/js");
-      fs.mkdirSync(jsRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(jsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(jsRoot, "index.d.ts"),
-        "declare global { interface String { trim(): string; } }\nexport {};\n"
-      );
-      fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
-      fs.writeFileSync(
-        path.join(jsRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: ["."],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
+      installMinimalJsSurface(tempDir);
 
       const entryPath = path.join(srcDir, "index.ts");
       fs.writeFileSync(entryPath, 'export const bad = "  hi  ".Trim();\n');
@@ -110,12 +245,37 @@ describe("Program Creation – surface isolation", function () {
         surface: "@tsonic/js",
       });
 
-      expect(result.ok).to.equal(false);
-      if (result.ok) return;
-      expect(result.error.hasErrors).to.equal(true);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const sourceFile = result.value.sourceFiles.find(
+        (candidate) => candidate.fileName === entryPath
+      );
+      expect(sourceFile).to.not.equal(undefined);
+      if (!sourceFile) return;
+
+      const ctx = createProgramContext(result.value, {
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+      });
+      const moduleResult = buildIrModule(
+        sourceFile,
+        result.value,
+        {
+          sourceRoot: srcDir,
+          rootNamespace: "Test",
+        },
+        ctx
+      );
+
+      expect(moduleResult.ok).to.equal(true);
+      if (!moduleResult.ok) return;
+      const soundness = validateIrSoundness([moduleResult.value]);
+      expect(soundness.ok).to.equal(false);
       expect(
-        result.error.diagnostics.some((diagnostic) =>
-          diagnostic.message.includes("Property 'Trim' does not exist")
+        soundness.diagnostics.some((diagnostic) =>
+          diagnostic.code === "TSN5203" &&
+          diagnostic.message.includes("Trim")
         )
       ).to.equal(true);
     } finally {
@@ -137,6 +297,7 @@ describe("Program Creation – surface isolation", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
@@ -159,13 +320,6 @@ describe("Program Creation – surface isolation", function () {
       });
 
       expect(result.ok).to.equal(true);
-      if (!result.ok) return;
-      expect(result.value.bindings.getBinding("Array")?.staticType).to.equal(
-        "Tsonic.JSRuntime.JSArrayStatics"
-      );
-      expect(result.value.bindings.getBinding("Error")?.type).to.equal(
-        "Tsonic.JSRuntime.Error"
-      );
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -185,6 +339,7 @@ describe("Program Creation – surface isolation", function () {
           2
         )
       );
+      installMinimalJsSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
@@ -209,13 +364,6 @@ describe("Program Creation – surface isolation", function () {
       });
 
       expect(result.ok).to.equal(true);
-      if (!result.ok) return;
-      expect(result.value.bindings.getBinding("Array")?.staticType).to.equal(
-        "Tsonic.JSRuntime.JSArrayStatics"
-      );
-      expect(result.value.bindings.getBinding("Number")?.type).to.equal(
-        "Tsonic.JSRuntime.Number"
-      );
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -235,6 +383,7 @@ describe("Program Creation – surface isolation", function () {
           2
         )
       );
+      installMinimalClrSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });
@@ -252,11 +401,36 @@ describe("Program Creation – surface isolation", function () {
         surface: "clr",
       });
 
-      expect(result.ok).to.equal(false);
-      if (result.ok) return;
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const sourceFile = result.value.sourceFiles.find(
+        (candidate) => candidate.fileName === entryPath
+      );
+      expect(sourceFile).to.not.equal(undefined);
+      if (!sourceFile) return;
+
+      const ctx = createProgramContext(result.value, {
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+      });
+      const moduleResult = buildIrModule(
+        sourceFile,
+        result.value,
+        {
+          sourceRoot: srcDir,
+          rootNamespace: "Test",
+        },
+        ctx
+      );
+
+      expect(moduleResult.ok).to.equal(true);
+      if (!moduleResult.ok) return;
+      const soundness = validateIrSoundness([moduleResult.value]);
+      expect(soundness.ok).to.equal(false);
       expect(
-        result.error.diagnostics.some((diagnostic) =>
-          diagnostic.message.includes("Cannot find name 'RangeError'")
+        soundness.diagnostics.some((diagnostic) =>
+          diagnostic.message.includes("RangeError")
         )
       ).to.equal(true);
 
@@ -297,6 +471,7 @@ describe("Program Creation – surface isolation", function () {
           2
         )
       );
+      installMinimalClrSurface(tempDir);
 
       const srcDir = path.join(tempDir, "src");
       fs.mkdirSync(srcDir, { recursive: true });

@@ -65,6 +65,7 @@ export const extractImports = (
           projectRoot: ctx.projectRoot,
           surface: ctx.surface,
           authoritativeTsonicPackageRoots: ctx.authoritativeTsonicPackageRoots,
+          declarationModuleAliases: ctx.declarationModuleAliases,
         }
       );
       const isSourcePackage =
@@ -75,8 +76,9 @@ export const extractImports = (
           : undefined;
       const resolvedImportIsClr =
         resolvedImport.ok && resolvedImport.value.isClr === true;
-      const isLocal =
-        source.startsWith(".") || source.startsWith("/") || isSourcePackage;
+      const isLocal = resolvedImport.ok
+        ? resolvedImport.value.isLocal
+        : source.startsWith(".") || source.startsWith("/") || isSourcePackage;
 
       // Use import-driven resolution to detect CLR imports
       // This works for any package that provides bindings.json
@@ -132,19 +134,6 @@ export const extractImports = (
       const moduleBindingType =
         moduleBinding?.kind === "module" ? moduleBinding.type : undefined;
       const hasModuleBinding = moduleBindingType !== undefined;
-      const resolvedNamespace = (() => {
-        if (resolvedImportIsClr) {
-          return resolvedImport.value.resolvedNamespace;
-        }
-        if (isClr && clrResolution.isClr) {
-          return clrResolution.resolvedNamespace;
-        }
-        if (!moduleBindingType) {
-          return undefined;
-        }
-        const lastDot = moduleBindingType.lastIndexOf(".");
-        return lastDot > 0 ? moduleBindingType.slice(0, lastDot) : undefined;
-      })();
 
       const specifiers = extractImportSpecifiers(
         node,
@@ -181,14 +170,24 @@ export const extractImports = (
         const nearest = findNearestBindingsJson(filePath);
         if (nearest) return nearest;
 
-        // Facade declarations live alongside their namespace directory:
-        //   <root>/<Namespace>.d.ts  +  <root>/<Namespace>/bindings.json
-        if (filePath.endsWith(".d.ts")) {
-          const nsKey = basename(filePath).slice(0, -".d.ts".length);
-          if (nsKey) {
-            const sibling = join(dirname(filePath), nsKey, "bindings.json");
-            if (existsSync(sibling)) return sibling;
+        // Facade modules live alongside their namespace directory:
+        //   <root>/<Namespace>.d.ts + <root>/<Namespace>/bindings.json
+        //   <root>/<Namespace>.js   + <root>/<Namespace>/bindings.json
+        const nsKey = (() => {
+          if (filePath.endsWith(".d.ts")) {
+            return basename(filePath).slice(0, -".d.ts".length);
           }
+          if (filePath.endsWith(".ts")) {
+            return basename(filePath).slice(0, -".ts".length);
+          }
+          if (filePath.endsWith(".js")) {
+            return basename(filePath).slice(0, -".js".length);
+          }
+          return undefined;
+        })();
+        if (nsKey) {
+          const sibling = join(dirname(filePath), nsKey, "bindings.json");
+          if (existsSync(sibling)) return sibling;
         }
 
         return undefined;
@@ -218,6 +217,33 @@ export const extractImports = (
         }
       };
 
+      const declarationFacadeNamespace =
+        resolvedPath !== undefined
+          ? (() => {
+              const bindingsPath = findOwningBindingsJson(resolvedPath);
+              return bindingsPath
+                ? readNamespaceFromBindingsJson(bindingsPath)
+                : undefined;
+            })()
+          : undefined;
+
+      const resolvedNamespace = (() => {
+        if (resolvedImportIsClr) {
+          return resolvedImport.value.resolvedNamespace;
+        }
+        if (isClr && clrResolution.isClr) {
+          return clrResolution.resolvedNamespace;
+        }
+        if (declarationFacadeNamespace) {
+          return declarationFacadeNamespace;
+        }
+        if (!moduleBindingType) {
+          return undefined;
+        }
+        const lastDot = moduleBindingType.lastIndexOf(".");
+        return lastDot > 0 ? moduleBindingType.slice(0, lastDot) : undefined;
+      })();
+
       const resolveTsbindgenNamespaceForNamedImport = (
         exportName: string
       ): string | undefined => {
@@ -237,8 +263,7 @@ export const extractImports = (
       };
 
       const resolveClrTypeBindingForNamedImport = (
-        exportName: string,
-        allowGlobalFallback: boolean
+        exportName: string
       ): TypeBinding | undefined => {
         const matchesExportName = (type: TypeBinding): boolean => {
           if (type.alias === exportName) return true;
@@ -251,25 +276,30 @@ export const extractImports = (
           return normalizedClrName === exportName;
         };
 
+        const findExactInNamespace = (
+          namespace: string | undefined
+        ): TypeBinding | undefined => {
+          if (!namespace) return undefined;
+          const namespaceBinding = ctx.bindings.getNamespace(namespace);
+          const exact = namespaceBinding?.types.find(matchesExportName);
+          if (exact) return exact;
+          return undefined;
+        };
+
+        const exactInResolvedNamespace =
+          findExactInNamespace(resolvedNamespace);
+        if (exactInResolvedNamespace) {
+          return exactInResolvedNamespace;
+        }
+
         const owningNamespace =
           resolveTsbindgenNamespaceForNamedImport(exportName);
-        if (owningNamespace) {
-          const namespaceBinding = ctx.bindings.getNamespace(owningNamespace);
-          const exact = namespaceBinding?.types.find(matchesExportName);
+        if (owningNamespace && owningNamespace !== resolvedNamespace) {
+          const exact = findExactInNamespace(owningNamespace);
           if (exact) return exact;
         }
 
-        if (!allowGlobalFallback) {
-          return undefined;
-        }
-
-        const globalMatch = ctx.bindings
-          .getAllNamespaces()
-          .flatMap((ns) => ns.types)
-          .find(matchesExportName);
-        if (globalMatch) return globalMatch;
-
-        return ctx.bindings.getType(exportName);
+        return undefined;
       };
 
       // Resolve CLR identities for named imports from both CLR namespace facades
@@ -287,50 +317,34 @@ export const extractImports = (
           return spec;
         }
 
-        // Airplane-grade fallback: if TypeScript resolution can't prove this is a type
-        // (e.g. due to declaration-file quirks), consult loaded CLR bindings directly
-        // for CLR namespace facades. Module-bound surface imports rely on the TS import
-        // form itself (`import type`) or checker result.
-        const resolvedTypeBinding =
-          (isClr || hasModuleBinding) && resolvedNamespace
-            ? resolveClrTypeBindingForNamedImport(spec.name, !hasModuleBinding)
-            : undefined;
+        const owningNamespace =
+          resolveTsbindgenNamespaceForNamedImport(spec.name) ?? resolvedNamespace;
+        const resolvedTypeBinding = owningNamespace
+          ? resolveClrTypeBindingForNamedImport(spec.name)
+          : undefined;
         const isType = spec.isType === true;
 
         if (isType) {
           if (hasModuleBinding) {
-            const expNamespace = resolveTsbindgenNamespaceForNamedImport(
-              spec.name
-            );
             return {
               ...spec,
               isType: true,
               resolvedClrType: resolvedTypeBinding?.name
                 ? clrTypeNameToCSharp(resolvedTypeBinding.name)
-                : (expNamespace ?? resolvedNamespace)
-                  ? `${expNamespace ?? resolvedNamespace}.${spec.name}`
+                : owningNamespace
+                  ? `${owningNamespace}.${spec.name}`
                   : spec.resolvedClrType,
             };
           }
 
-          if (isClr && resolvedNamespace) {
-            // If this facade re-exports CLR *types* from other namespaces,
-            // resolve the true owning namespace and attach a per-import
-            // CLR FQN for the emitter (so `new X()` emits in the correct
-            // CLR namespace).
-            const expNamespace =
-              resolveTsbindgenNamespaceForNamedImport(spec.name) ??
-              resolvedNamespace;
+          if (owningNamespace || resolvedTypeBinding?.name) {
             return {
               ...spec,
               isType: true,
               resolvedClrType:
                 (resolvedTypeBinding?.name
                   ? clrTypeNameToCSharp(resolvedTypeBinding.name)
-                  : undefined) ??
-                (expNamespace !== resolvedNamespace
-                  ? `${expNamespace}.${spec.name}`
-                  : undefined),
+                  : undefined) ?? `${owningNamespace}.${spec.name}`,
             };
           }
 
@@ -340,17 +354,10 @@ export const extractImports = (
           };
         }
 
-        if (!isClr || !resolvedNamespace) {
+        if (!owningNamespace) {
           return spec;
         }
 
-        // If this namespace facade re-exports values from other CLR namespaces,
-        // the imported symbol will resolve to a declaration in that other
-        // namespace's internal index. Use its owning bindings.json namespace
-        // when looking up flattened export mappings.
-        const expNamespace =
-          resolveTsbindgenNamespaceForNamedImport(spec.name) ??
-          resolvedNamespace;
         if (resolvedTypeBinding) {
           return {
             ...spec,
@@ -358,24 +365,21 @@ export const extractImports = (
           };
         }
 
-        const exp = ctx.bindings.getTsbindgenExport(expNamespace, spec.name);
+        const exp = ctx.bindings.getTsbindgenExport(owningNamespace, spec.name);
         if (!exp) {
           // Airplane-grade: C# has no namespace-level values.
           // If TS imports a *value* from a CLR namespace facade, we must have
           // an explicit binding to a declaring CLR type + member (tsbindgen exports mapping),
           // otherwise we would have to guess or emit invalid C#.
-          //
-          // Skip module bindings (e.g. @tsonic/nodejs/index.js) since those are
-          // not CLR namespace facades.
           if (!hasModuleBinding) {
             const specNode = namedSpecifierNodes.get(spec.name);
             ctx.diagnostics.push(
               createDiagnostic(
                 "TSN4004",
                 "error",
-                `Missing CLR binding for named value import '${spec.name}' from namespace '${resolvedNamespace}'.`,
+                `Missing CLR binding for named value import '${spec.name}' from namespace '${owningNamespace}'.`,
                 specNode ? getSourceSpan(specNode) : getSourceSpan(node),
-                `This import refers to a value (function/const), but CLR namespaces cannot contain values. Regenerate bindings with tsbindgen so '${resolvedNamespace}/bindings.json' includes an 'exports' entry for '${spec.name}', or import the declaring container type and call it as a static member instead.`
+                `This import refers to a value (function/const), but CLR namespaces cannot contain values. Regenerate bindings with tsbindgen so '${owningNamespace}/bindings.json' includes an 'exports' entry for '${spec.name}', or import the declaring container type and call it as a static member instead.`
               )
             );
           }

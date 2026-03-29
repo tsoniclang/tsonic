@@ -79,6 +79,45 @@ const convertAlias = (source: string, aliasName: string): IrType => {
 };
 
 describe("Type Converter - Tuple Rest Lowering", () => {
+  it("keeps a locally declared Array<T> class nominal instead of lowering it to arrayType", () => {
+    const { sourceFile, binding } = createTestProgram(
+      [
+        "export {};",
+        "export class Array<T> {",
+        "  clone(): Array<T> {",
+        "    throw new Error('nope');",
+        "  }",
+        "}",
+        "type T = Array<string>;",
+      ].join("\n")
+    );
+
+    let alias: ts.TypeAliasDeclaration | undefined;
+    for (const statement of sourceFile.statements) {
+      if (
+        ts.isTypeAliasDeclaration(statement) &&
+        statement.name.text === "T"
+      ) {
+        alias = statement;
+        break;
+      }
+    }
+    if (!alias) {
+      throw new Error("type alias T not found");
+    }
+
+    const converted = convertType(alias.type, binding);
+    expect(converted.kind).to.equal("referenceType");
+    if (converted.kind !== "referenceType") {
+      return;
+    }
+
+    expect(converted.name).to.equal("Array");
+    expect(converted.typeArguments).to.deep.equal([
+      { kind: "primitiveType", name: "string" },
+    ]);
+  });
+
   it("lowers pure variadic tuple to array type", () => {
     const converted = convertAlias("type T = [...number[]];", "T");
     expect(converted).to.deep.equal({

@@ -195,6 +195,30 @@ describe("build command (NativeAOT library)", function () {
         "utf-8"
       );
 
+      mkdirSync(join(dir, "packages", "native-lib", "tsonic"), {
+        recursive: true,
+      });
+      writeFileSync(
+        join(dir, "packages", "native-lib", "tsonic.package.json"),
+        JSON.stringify(
+          {
+            kind: "tsonic-source-package",
+            schemaVersion: 1,
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "Native.Lib",
+              exports: {
+                ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
       writeFileSync(
         join(dir, "packages", "native-lib", "src", "index.ts"),
         `export const add = (a: number, b: number): number => a + b;\n`,

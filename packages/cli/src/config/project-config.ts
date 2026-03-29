@@ -130,15 +130,11 @@ export const loadProjectConfig = (
   }
 
   const libraryPackaging = config.output?.libraryPackaging;
-  if (
-    libraryPackaging !== undefined &&
-    libraryPackaging !== "source-package" &&
-    libraryPackaging !== "bindings-library"
-  ) {
+  if (libraryPackaging !== undefined && libraryPackaging !== "source-package") {
     return {
       ok: false,
       error:
-        `${PROJECT_CONFIG_FILE}: 'output.libraryPackaging' must be 'source-package' or 'bindings-library' when present ` +
+        `${PROJECT_CONFIG_FILE}: 'output.libraryPackaging' must be 'source-package' when present ` +
         `(got '${String(libraryPackaging)}')`,
     };
   }

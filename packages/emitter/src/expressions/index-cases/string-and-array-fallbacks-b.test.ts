@@ -3,6 +3,7 @@ import {
   it,
   expect,
   emitModule,
+  emitExpressionAst,
   emitMemberAccess,
   printExpression,
   type EmitterContext,
@@ -27,7 +28,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+              resolvedClrType: "js.Uint8Array",
             },
           ],
         },
@@ -74,9 +75,7 @@ describe("Expression Emission", () => {
     };
 
     const [result] = emitMemberAccess(expr, context);
-    expect(printExpression(result)).to.equal(
-      "global::Tsonic.JSRuntime.String.length((value.As1()))"
-    );
+    expect(printExpression(result)).to.equal("(value.As1()).Length");
   });
 
   it("should recover JS string length fallback when narrowed runtime-union bindings omit the narrowed type", () => {
@@ -92,7 +91,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+              resolvedClrType: "js.Uint8Array",
             },
           ],
         },
@@ -134,9 +133,7 @@ describe("Expression Emission", () => {
     };
 
     const [result] = emitMemberAccess(expr, context);
-    expect(printExpression(result)).to.equal(
-      "global::Tsonic.JSRuntime.String.length((value.As1()))"
-    );
+    expect(printExpression(result)).to.equal("(value.As1()).Length");
   });
 
   it("should recover JS string length fallback before CLR member-binding access on narrowed strings", () => {
@@ -152,7 +149,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+              resolvedClrType: "js.Uint8Array",
             },
           ],
         },
@@ -201,12 +198,10 @@ describe("Expression Emission", () => {
     };
 
     const [result] = emitMemberAccess(expr, context);
-    expect(printExpression(result)).to.equal(
-      "global::Tsonic.JSRuntime.String.length((value.As1()))"
-    );
+    expect(printExpression(result)).to.equal("(value.As1()).Length");
   });
 
-  it("should recover JS array method fallback under JS surface when member binding is missing", () => {
+  it("should not synthesize JS array wrapper calls when member binding is missing", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -264,8 +259,87 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module, { surface: "@tsonic/js" });
-    expect(result).to.include(
-      'new global::Tsonic.JSRuntime.JSArray<string>(items).includes("x")'
-    );
+    expect(result).to.include('items.includes("x")');
+    expect(result).not.to.include("new global::js.Array<");
+  });
+
+  it("should cast computed setter assignment IIFEs to Func<T>", () => {
+    const expr = {
+      kind: "assignment" as const,
+      operator: "=" as const,
+      left: {
+        kind: "memberAccess" as const,
+        object: {
+          kind: "identifier" as const,
+          name: "buffer",
+          inferredType: {
+            kind: "referenceType" as const,
+            name: "Uint8Array",
+          },
+        },
+        property: {
+          kind: "literal" as const,
+          value: 0,
+          inferredType: {
+            kind: "primitiveType" as const,
+            name: "int" as const,
+          },
+        },
+        isComputed: true,
+        isOptional: false,
+        inferredType: {
+          kind: "referenceType" as const,
+          name: "byte" as const,
+          typeId: {
+            stableId: "System.Private.CoreLib:System.Byte",
+            clrName: "System.Byte",
+            assemblyName: "System.Private.CoreLib",
+            tsName: "Byte",
+          },
+        },
+        accessKind: "clrIndexer" as const,
+        accessProtocol: {
+          getterMember: "at",
+          setterMember: "set",
+        },
+      },
+      right: {
+        kind: "identifier" as const,
+        name: "value",
+        inferredType: {
+          kind: "referenceType" as const,
+          name: "byte" as const,
+          typeId: {
+            stableId: "System.Private.CoreLib:System.Byte",
+            clrName: "System.Byte",
+            assemblyName: "System.Private.CoreLib",
+            tsName: "Byte",
+          },
+        },
+      },
+      inferredType: {
+        kind: "referenceType" as const,
+        name: "byte" as const,
+        typeId: {
+          stableId: "System.Private.CoreLib:System.Byte",
+          clrName: "System.Byte",
+          assemblyName: "System.Private.CoreLib",
+          tsName: "Byte",
+        },
+      },
+    } as const;
+
+    const context: EmitterContext = {
+      indentLevel: 0,
+      options: { rootNamespace: "MyApp", surface: "@tsonic/js", indent: 4 },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+    };
+
+    const [result] = emitExpressionAst(expr, context);
+    const printed = printExpression(result);
+    expect(printed).to.include("((global::System.Func<byte>)(() =>");
+    expect(printed).to.include("buffer.set(0, value)");
   });
 });

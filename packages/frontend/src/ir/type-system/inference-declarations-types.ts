@@ -7,7 +7,7 @@
  *               type-system-state
  */
 
-import type { IrType, IrReferenceType } from "../types/index.js";
+import type { IrType, IrReferenceType, IrFunctionType } from "../types/index.js";
 import * as ts from "typescript";
 import type { DeclId } from "./types.js";
 import { unknownType } from "./types.js";
@@ -16,6 +16,27 @@ import { emitDiagnostic } from "./type-system-state.js";
 import { convertTypeNode } from "./type-system-call-resolution.js";
 import { makeOptionalReadType } from "./inference-utilities.js";
 import { tryInferTypeFromInitializer } from "./inference-initializers.js";
+
+const buildFunctionTypeFromSignatureDeclaration = (
+  state: TypeSystemState,
+  declaration: ts.SignatureDeclarationBase
+): IrFunctionType => ({
+  kind: "functionType",
+  parameters: declaration.parameters.map((parameter) => ({
+    kind: "parameter",
+    pattern: ts.isIdentifier(parameter.name)
+      ? { kind: "identifierPattern", name: parameter.name.text }
+      : { kind: "identifierPattern", name: `p${parameter.pos}` },
+    type: parameter.type ? convertTypeNode(state, parameter.type) : unknownType,
+    initializer: undefined,
+    isOptional: !!parameter.questionToken || !!parameter.initializer,
+    isRest: !!parameter.dotDotDotToken,
+    passing: "value",
+  })),
+  returnType: declaration.type
+    ? convertTypeNode(state, declaration.type)
+    : unknownType,
+});
 
 // ─────────────────────────────────────────────────────────────────────────
 // typeOfDecl — Get declared type of a declaration
@@ -37,6 +58,14 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
   const effectiveValueDecl =
     (declInfo.valueDeclNode as ts.Declaration | undefined) ??
     (declInfo.declNode as ts.Declaration | undefined);
+  const effectiveFunctionValueDecl =
+    effectiveValueDecl &&
+    ts.isVariableDeclaration(effectiveValueDecl) &&
+    effectiveValueDecl.initializer &&
+    (ts.isFunctionExpression(effectiveValueDecl.initializer) ||
+      ts.isArrowFunction(effectiveValueDecl.initializer))
+      ? effectiveValueDecl.initializer
+      : effectiveValueDecl;
   const effectiveTypeDecl =
     (declInfo.typeDeclNode as ts.Declaration | undefined) ?? effectiveValueDecl;
   const effectiveDeclNode = effectiveValueDecl ?? effectiveTypeDecl;
@@ -85,7 +114,25 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
 
   let result: IrType;
 
-  if (effectiveTypeNode) {
+  if (
+    effectiveFunctionValueDecl &&
+    (ts.isFunctionDeclaration(effectiveFunctionValueDecl) ||
+      ts.isMethodDeclaration(effectiveFunctionValueDecl) ||
+      ts.isFunctionExpression(effectiveFunctionValueDecl) ||
+      ts.isArrowFunction(effectiveFunctionValueDecl))
+  ) {
+    if (!effectiveFunctionValueDecl.type) {
+      emitDiagnostic(
+        state,
+        "TSN5201",
+        `Function '${declInfo.fqName ?? "unknown"}' requires explicit return type`
+      );
+    }
+    result = buildFunctionTypeFromSignatureDeclaration(
+      state,
+      effectiveFunctionValueDecl
+    );
+  } else if (effectiveTypeNode) {
     // Explicit type annotation - convert to IR
     result = convertTypeNode(state, effectiveTypeNode);
   } else if (

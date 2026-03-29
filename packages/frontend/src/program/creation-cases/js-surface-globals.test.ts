@@ -64,19 +64,19 @@ describe("Program Creation – JS surface globals", function () {
         path.join(jsRoot, "index", "bindings.json"),
         JSON.stringify(
           {
-            namespace: "Tsonic.JSRuntime",
+            namespace: "js",
             types: [
               {
-                clrName: "Tsonic.JSRuntime.String",
-                assemblyName: "Tsonic.JSRuntime",
+                clrName: "js.String",
+                assemblyName: "js",
                 methods: [
                   {
                     clrName: "trim",
                     normalizedSignature:
                       "trim|(System.String):System.String|static=true",
                     parameterCount: 1,
-                    declaringClrType: "Tsonic.JSRuntime.String",
-                    declaringAssemblyName: "Tsonic.JSRuntime",
+                    declaringClrType: "js.String",
+                    declaringAssemblyName: "js",
                     isExtensionMethod: true,
                   },
                 ],
@@ -105,7 +105,7 @@ describe("Program Creation – JS surface globals", function () {
 
       expect(
         result.value.bindings.resolveExtensionMethodByKey(
-          "Tsonic_JSRuntime",
+          "js",
           "String",
           "trim",
           0
@@ -369,25 +369,25 @@ export {};
             bindings: {
               console: {
                 kind: "global",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.console",
+                assembly: "js",
+                type: "js.console",
               },
               parseInt: {
                 kind: "global",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.Globals",
+                assembly: "js",
+                type: "js.Globals",
                 csharpName: "Globals.parseInt",
               },
               setInterval: {
                 kind: "global",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.Timers",
+                assembly: "js",
+                type: "js.Timers",
                 csharpName: "Timers.setInterval",
               },
               clearInterval: {
                 kind: "global",
-                assembly: "Tsonic.JSRuntime",
-                type: "Tsonic.JSRuntime.Timers",
+                assembly: "js",
+                type: "js.Timers",
                 csharpName: "Timers.clearInterval",
               },
             },
@@ -435,25 +435,25 @@ export {};
 
       expect(result.value.bindings.getBinding("console")).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.console",
+        assembly: "js",
+        type: "js.console",
       });
       expect(result.value.bindings.getBinding("parseInt")).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.Globals",
+        assembly: "js",
+        type: "js.Globals",
         csharpName: "Globals.parseInt",
       });
       expect(result.value.bindings.getBinding("setInterval")).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.Timers",
+        assembly: "js",
+        type: "js.Timers",
         csharpName: "Timers.setInterval",
       });
       expect(result.value.bindings.getBinding("clearInterval")).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.Timers",
+        assembly: "js",
+        type: "js.Timers",
         csharpName: "Timers.clearInterval",
       });
     } finally {

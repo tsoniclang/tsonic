@@ -1,4 +1,5 @@
 const { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } = require("node:fs");
+const childProcess = require("node:child_process");
 const { basename, dirname, join, relative, resolve } = require("node:path");
 
 const CHECKPOINT_ROOT = process.env.TSONIC_TEST_CHECKPOINT_DIR;
@@ -9,6 +10,8 @@ if (!CHECKPOINT_ROOT) {
 }
 
 const RESUME_MODE = process.env.TSONIC_TEST_RESUME === "1";
+const TRACE_FILE = process.env.TSONIC_TEST_TRACE_FILE;
+const RUN_ID = process.env.TSONIC_TEST_RUN_ID;
 
 function safeSegment(input) {
   return String(input).replaceAll(/[^a-zA-Z0-9@._-]+/g, "_");
@@ -32,10 +35,202 @@ mkdirSync(PKG_DIR, { recursive: true });
 
 const RESULTS_FILE = join(PKG_DIR, `results.${process.pid}.jsonl`);
 const SEEN_FILE = join(PKG_DIR, `seen.${process.pid}.jsonl`);
+const COMMANDS_FILE = join(PKG_DIR, `commands.${process.pid}.jsonl`);
 
 function appendJsonl(filePath, obj) {
   mkdirSync(dirname(filePath), { recursive: true });
   appendFileSync(filePath, `${JSON.stringify(obj)}\n`, "utf8");
+}
+
+function appendTrace(event) {
+  if (!TRACE_FILE || !RUN_ID) return;
+  try {
+    appendJsonl(TRACE_FILE, {
+      runId: RUN_ID,
+      packageName: PKG_NAME,
+      pid: process.pid,
+      ...event,
+    });
+  } catch {
+    // Trace logging is best-effort and must not affect test execution.
+  }
+}
+
+function safeCommandPart(value) {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  return String(value);
+}
+
+function formatCommand(file, args) {
+  const parts = [safeCommandPart(file)];
+  if (Array.isArray(args)) {
+    for (const arg of args) {
+      parts.push(safeCommandPart(arg));
+    }
+  }
+  return parts.filter((part) => part.length > 0).join(" ");
+}
+
+function normalizeArgsOptions(args, options) {
+  if (Array.isArray(args)) {
+    return { args, options: options ?? {} };
+  }
+  if (args && typeof args === "object") {
+    return { args: [], options: args };
+  }
+  return { args: [], options: options ?? {} };
+}
+
+function logCommandStart(record) {
+  appendTrace({
+    event: "subprocess-start",
+    scope: "process",
+    ...record,
+  });
+}
+
+function logCommandDone(record) {
+  appendTrace({
+    event: "subprocess-done",
+    scope: "process",
+    ...record,
+  });
+}
+
+function appendCommandRecord(record) {
+  appendJsonl(COMMANDS_FILE, record);
+}
+
+function installChildProcessInstrumentation() {
+  const originalSpawnSync = childProcess.spawnSync;
+  const originalExecSync = childProcess.execSync;
+  const originalExecFileSync = childProcess.execFileSync;
+
+  childProcess.spawnSync = function patchedSpawnSync(file, args, options) {
+    const startedAt = Date.now();
+    const normalized = normalizeArgsOptions(args, options);
+    const command = formatCommand(file, normalized.args);
+    const cwd =
+      normalized.options && typeof normalized.options.cwd === "string" ? normalized.options.cwd : process.cwd();
+    const startRecord = {
+      phase: "start",
+      kind: "spawnSync",
+      command,
+      cwd,
+      ts: new Date().toISOString(),
+    };
+    appendCommandRecord(startRecord);
+    logCommandStart(startRecord);
+
+    const result = originalSpawnSync.apply(this, arguments);
+    const ms = Date.now() - startedAt;
+    const status =
+      result && result.error ? "error" : result && result.status === 0 ? "pass" : "fail";
+    const doneRecord = {
+      phase: "done",
+      kind: "spawnSync",
+      command,
+      cwd,
+      status,
+      code: result ? result.status : null,
+      signal: result ? result.signal : null,
+      ms,
+      ts: new Date().toISOString(),
+    };
+    appendCommandRecord(doneRecord);
+    logCommandDone(doneRecord);
+    return result;
+  };
+
+  childProcess.execSync = function patchedExecSync(command, options) {
+    const startedAt = Date.now();
+    const cwd = options && typeof options.cwd === "string" ? options.cwd : process.cwd();
+    const startRecord = {
+      phase: "start",
+      kind: "execSync",
+      command: safeCommandPart(command),
+      cwd,
+      ts: new Date().toISOString(),
+    };
+    appendCommandRecord(startRecord);
+    logCommandStart(startRecord);
+
+    try {
+      const result = originalExecSync.apply(this, arguments);
+      const doneRecord = {
+        phase: "done",
+        kind: "execSync",
+        command: safeCommandPart(command),
+        cwd,
+        status: "pass",
+        ms: Date.now() - startedAt,
+        ts: new Date().toISOString(),
+      };
+      appendCommandRecord(doneRecord);
+      logCommandDone(doneRecord);
+      return result;
+    } catch (error) {
+      const doneRecord = {
+        phase: "done",
+        kind: "execSync",
+        command: safeCommandPart(command),
+        cwd,
+        status: "fail",
+        ms: Date.now() - startedAt,
+        ts: new Date().toISOString(),
+      };
+      appendCommandRecord(doneRecord);
+      logCommandDone(doneRecord);
+      throw error;
+    }
+  };
+
+  childProcess.execFileSync = function patchedExecFileSync(file, args, options) {
+    const startedAt = Date.now();
+    const normalized = normalizeArgsOptions(args, options);
+    const command = formatCommand(file, normalized.args);
+    const cwd =
+      normalized.options && typeof normalized.options.cwd === "string" ? normalized.options.cwd : process.cwd();
+    const startRecord = {
+      phase: "start",
+      kind: "execFileSync",
+      command,
+      cwd,
+      ts: new Date().toISOString(),
+    };
+    appendCommandRecord(startRecord);
+    logCommandStart(startRecord);
+
+    try {
+      const result = originalExecFileSync.apply(this, arguments);
+      const doneRecord = {
+        phase: "done",
+        kind: "execFileSync",
+        command,
+        cwd,
+        status: "pass",
+        ms: Date.now() - startedAt,
+        ts: new Date().toISOString(),
+      };
+      appendCommandRecord(doneRecord);
+      logCommandDone(doneRecord);
+      return result;
+    } catch (error) {
+      const doneRecord = {
+        phase: "done",
+        kind: "execFileSync",
+        command,
+        cwd,
+        status: "fail",
+        ms: Date.now() - startedAt,
+        ts: new Date().toISOString(),
+      };
+      appendCommandRecord(doneRecord);
+      logCommandDone(doneRecord);
+      throw error;
+    }
+  };
 }
 
 function testId(test) {
@@ -73,6 +268,50 @@ function readPassSet() {
 }
 
 const PASS_SET = readPassSet();
+installChildProcessInstrumentation();
+
+function formatMs(ms) {
+  const value = Number.isFinite(ms) ? Math.max(0, Math.trunc(ms)) : 0;
+  return `${value}ms`;
+}
+
+function isGoldenTest(test) {
+  return typeof test.file === "string" && /golden-shard-\d+\.test\./.test(test.file);
+}
+
+function testKind(test) {
+  return isGoldenTest(test) ? "golden" : "regular";
+}
+
+function logTiming(test, status) {
+  const id = testId(test);
+  const kind = testKind(test);
+  appendTrace({
+    event: "test-done",
+    scope: "test",
+    id,
+    status,
+    kind,
+    file: typeof test.file === "string" && test.file.length > 0 ? relative(process.cwd(), test.file) : "",
+    title: typeof test.fullTitle === "function" ? test.fullTitle() : String(test.title ?? ""),
+    ms: Number.isFinite(test.duration) ? Math.max(0, Math.trunc(test.duration)) : 0,
+    ts: new Date().toISOString(),
+  });
+}
+
+function logStart(test) {
+  const id = testId(test);
+  const kind = testKind(test);
+  appendTrace({
+    event: "test-start",
+    scope: "test",
+    id,
+    kind,
+    file: typeof test.file === "string" && test.file.length > 0 ? relative(process.cwd(), test.file) : "",
+    title: typeof test.fullTitle === "function" ? test.fullTitle() : String(test.title ?? ""),
+    ts: new Date().toISOString(),
+  });
+}
 
 exports.mochaHooks = {
   beforeEach() {
@@ -80,12 +319,37 @@ exports.mochaHooks = {
     if (!t) return;
 
     const id = testId(t);
-    appendJsonl(SEEN_FILE, { id, ts: new Date().toISOString() });
+    const title = typeof t.fullTitle === "function" ? t.fullTitle() : String(t.title ?? "");
+    const file = typeof t.file === "string" && t.file.length > 0 ? relative(process.cwd(), t.file) : "";
+    const kind = testKind(t);
+    appendJsonl(SEEN_FILE, { id, title, file, kind, packageName: PKG_NAME, ts: new Date().toISOString() });
 
     if (RESUME_MODE && PASS_SET.has(id)) {
-      appendJsonl(RESULTS_FILE, { id, status: "skip", reason: "cached-pass", ts: new Date().toISOString() });
+      appendJsonl(RESULTS_FILE, {
+        id,
+        title,
+        file,
+        kind,
+        packageName: PKG_NAME,
+        status: "skip",
+        reason: "cached-pass",
+        ts: new Date().toISOString(),
+      });
+      appendTrace({
+        event: "test-done",
+        scope: "test",
+        id,
+        title,
+        file,
+        kind,
+        status: "skip",
+        reason: "cached-pass",
+        ts: new Date().toISOString(),
+      });
       this.skip();
     }
+
+    logStart(t);
   },
 
   afterEach() {
@@ -93,10 +357,33 @@ exports.mochaHooks = {
     if (!t) return;
 
     const id = testId(t);
+    const title = typeof t.fullTitle === "function" ? t.fullTitle() : String(t.title ?? "");
+    const file = typeof t.file === "string" && t.file.length > 0 ? relative(process.cwd(), t.file) : "";
+    const kind = testKind(t);
     if (t.state === "passed") {
-      appendJsonl(RESULTS_FILE, { id, status: "pass", ms: t.duration ?? null, ts: new Date().toISOString() });
+      appendJsonl(RESULTS_FILE, {
+        id,
+        title,
+        file,
+        kind,
+        packageName: PKG_NAME,
+        status: "pass",
+        ms: t.duration ?? null,
+        ts: new Date().toISOString(),
+      });
+      logTiming(t, "pass");
     } else if (t.state === "failed") {
-      appendJsonl(RESULTS_FILE, { id, status: "fail", ms: t.duration ?? null, ts: new Date().toISOString() });
+      appendJsonl(RESULTS_FILE, {
+        id,
+        title,
+        file,
+        kind,
+        packageName: PKG_NAME,
+        status: "fail",
+        ms: t.duration ?? null,
+        ts: new Date().toISOString(),
+      });
+      logTiming(t, "fail");
     }
   },
 };

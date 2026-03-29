@@ -20,7 +20,7 @@ import { applyPackageManifestWorkspaceOverlay } from "../../../package-manifests
 import { buildCommand } from "../../build.js";
 
 const repoRoot = resolve(
-  join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
+  join(dirname(fileURLToPath(import.meta.url)), "../../../../../..")
 );
 const localJsPackageRoot = resolve(
   join(repoRoot, "..", "js", "versions", "10")
@@ -125,13 +125,14 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
       writeFileSync(
-        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        join(sourcePackageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Demo.Pkg",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -224,11 +225,11 @@ describe("build command (native library port regressions)", function () {
       }
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.include("global::demo.pkg.index.process.argv.Length");
-      expect(tree).to.include(
-        "new global::Tsonic.JSRuntime.JSArray<object>(global::demo.pkg.index.process.argv).length"
+      expect(tree).to.include("global::Demo.Pkg.index.process.argv.Length");
+      expect(tree).to.not.include("global::Demo.Pkg.index.process.argv.length");
+      expect(tree).to.not.include(
+        "new global::js.Array<object>(global::Demo.Pkg.index.process.argv).length"
       );
-      expect(tree).to.not.include("global::demo.pkg.index.process.argv.length");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -275,13 +276,14 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
       writeFileSync(
-        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        join(sourcePackageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Demo.Pkg",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -429,13 +431,14 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
       writeFileSync(
-        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        join(sourcePackageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js", "@tsonic/core"],
             source: {
+              namespace: "Demo.Pkg",
               exports: {
                 ".": "./src/index.ts",
               },
@@ -526,8 +529,11 @@ describe("build command (native library port regressions)", function () {
       }
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.include("wait(int delay = (int)1)");
-      expect(tree).to.include("readDelay__Delegate(int delay = (int)0)");
+      expect(tree).to.include("wait(int? delay = default)");
+      expect(tree).to.include("int __defaulted_delay = delay ?? 1;");
+      expect(tree).to.include("readDelay__Delegate(int delay = 0)");
+      expect(tree).to.include("return new global::Demo.Pkg.DelayBox().wait() + global::Demo.Pkg.index.readDelay();");
+      expect(tree).not.to.include("readDelay(default(int?))");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

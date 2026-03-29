@@ -18,6 +18,42 @@ import {
   writeWorkspaceConfig,
 } from "./helpers.js";
 
+const installJsSurface = (workspaceRoot: string): void => {
+  const jsRoot = writeInstalledSurfacePackage(workspaceRoot, {
+    name: "@tsonic/js",
+    surfaceManifest: {
+      schemaVersion: 1,
+      id: "@tsonic/js",
+      extends: [],
+      requiredTypeRoots: ["."],
+      requiredNpmPackages: ["@tsonic/js"],
+      useStandardLib: false,
+    },
+  });
+  writeFileSync(
+    join(jsRoot, "tsonic.package.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        kind: "tsonic-source-package",
+        surfaces: ["@tsonic/js"],
+        source: {
+          namespace: "js",
+          exports: {
+            ".": "./src/index.ts",
+            "./index.js": "./src/index.ts",
+          },
+        },
+      },
+      null,
+      2
+    ) + "\n",
+    "utf-8"
+  );
+  mkdirSync(join(jsRoot, "src"), { recursive: true });
+  writeFileSync(join(jsRoot, "src", "index.ts"), "export const ok = true;\n");
+};
+
 describe("add npm (package manifests)", function () {
   this.timeout(3 * 60 * 1000);
 
@@ -28,25 +64,34 @@ describe("add npm (package manifests)", function () {
       const pkgName = "@acme/node";
       writeLocalNpmPackage(dir, "local/acme-node", {
         name: pkgName,
-        bindingsRoot: "tsonic/bindings",
         packageManifest: {
           schemaVersion: 1,
-          kind: "tsonic-library",
-          npmPackage: pkgName,
-          npmVersion: "1.0.0",
+          kind: "tsonic-source-package",
+          surfaces: ["@tsonic/js"],
           runtime: {
             nugetPackages: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
             frameworkReferences: ["Microsoft.AspNetCore.App"],
             runtimePackages: ["@tsonic/dotnet"],
           },
-          typing: { bindingsRoot: "tsonic/bindings" },
           producer: {
             tool: "tsonic",
             version: "0.0.70",
             mode: "tsonic-firstparty",
           },
+          source: {
+            namespace: "Acme.Node",
+            exports: {
+              ".": "./src/index.ts",
+            },
+          },
         },
       });
+      mkdirSync(join(dir, "local/acme-node", "src"), { recursive: true });
+      writeFileSync(
+        join(dir, "local/acme-node", "src", "index.ts"),
+        "export const ok = true;\n",
+        "utf-8"
+      );
 
       const result = addNpmCommand("./local/acme-node", configPath, {
         quiet: true,
@@ -73,9 +118,8 @@ describe("add npm (package manifests)", function () {
       const normalizedManifest = JSON.parse(
         readFileSync(normalizedManifestPath, "utf-8")
       ) as Record<string, unknown>;
-      expect(normalizedManifest["sourceManifest"]).to.equal("package-manifest");
+      expect(normalizedManifest["sourceManifest"]).to.equal("tsonic-package");
       expect(normalizedManifest["packageName"]).to.equal(pkgName);
-      expect(normalizedManifest["bindingsRoot"]).to.equal("tsonic/bindings");
       expect(normalizedManifest["runtimePackages"]).to.deep.equal([
         "@acme/node",
         "@tsonic/dotnet",
@@ -89,6 +133,7 @@ describe("add npm (package manifests)", function () {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-add-npm-source-package-"));
     try {
       const configPath = writeWorkspaceConfig(dir, { surface: "@tsonic/js" });
+      installJsSurface(dir);
       const pkgName = "@acme/math";
       writeLocalNpmPackage(dir, "local/acme-math", {
         name: pkgName,
@@ -96,7 +141,10 @@ describe("add npm (package manifests)", function () {
           schemaVersion: 1,
           kind: "tsonic-source-package",
           surfaces: ["@tsonic/js"],
-          source: { exports: { ".": "./src/index.ts" } },
+          source: {
+            namespace: "Acme.Math",
+            exports: { ".": "./src/index.ts" },
+          },
         },
       });
       mkdirSync(join(dir, "local/acme-math", "src"), { recursive: true });
@@ -134,6 +182,7 @@ describe("add npm (package manifests)", function () {
     );
     try {
       const configPath = writeWorkspaceConfig(dir, { surface: "@tsonic/js" });
+      installJsSurface(dir);
       const pkgName = "@acme/node";
       writeLocalNpmPackage(dir, "local/acme-node", {
         name: pkgName,
@@ -149,6 +198,7 @@ describe("add npm (package manifests)", function () {
             packageReferences: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
           },
           source: {
+            namespace: "Acme.Node",
             exports: {
               ".": "./src/index.ts",
               "./fs.js": "./src/fs.ts",
@@ -176,8 +226,6 @@ describe("add npm (package manifests)", function () {
       ]);
       expect(cfg.dotnet.packageReferences).to.deep.equal([
         { id: "Acme.Node.Runtime", version: "1.0.0" },
-        { id: "Tsonic.JSRuntime", version: "0.0.9", types: "@tsonic/js" },
-        { id: "Tsonic.Runtime", version: "0.0.3", types: "@tsonic/core" },
       ]);
 
       const normalizedManifestPath = join(
@@ -192,7 +240,7 @@ describe("add npm (package manifests)", function () {
       const normalizedManifest = JSON.parse(
         readFileSync(normalizedManifestPath, "utf-8")
       ) as Record<string, unknown>;
-      expect(normalizedManifest["sourceManifest"]).to.equal("package-manifest");
+      expect(normalizedManifest["sourceManifest"]).to.equal("tsonic-package");
       expect(normalizedManifest["requiredTypeRoots"]).to.deep.equal([
         "node_modules/@acme/node",
       ]);
@@ -232,7 +280,7 @@ describe("add npm (package manifests)", function () {
       });
       writeLocalNpmPackage(dir, "node_modules/acme-bindings", {
         name: "acme-bindings",
-        manifest: {
+        bindingsManifest: {
           dotnet: {
             packageReferences: [{ id: "Acme.Runtime", version: "1.0.0" }],
           },
@@ -272,7 +320,7 @@ describe("add npm (package manifests)", function () {
       );
       writeLocalNpmPackage(dir, "node_modules/acme-bindings", {
         name: "acme-bindings",
-        manifest: {
+        bindingsManifest: {
           dotnet: {
             packageReferences: [{ id: "Acme.Runtime", version: "1.0.0" }],
           },

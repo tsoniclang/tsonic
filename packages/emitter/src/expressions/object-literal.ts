@@ -31,6 +31,8 @@ import {
   emitDictionaryLiteral,
   emitDictionaryLiteralWithSpreads,
 } from "./dictionary-literal.js";
+import { resolveAnonymousStructuralReferenceType } from "./structural-anonymous-targets.js";
+import { canPreferAnonymousStructuralTarget } from "./structural-type-shapes.js";
 import {
   emitObjectWithSpreads,
   resolveBehavioralObjectLiteralType,
@@ -127,8 +129,11 @@ export const emitObject = (
     );
   }
 
+  const contextualEmissionType =
+    resolveContextualEmissionType(instantiationType, currentContext) ??
+    instantiationType;
   const [typeAst, typeContext] = resolveContextualTypeAst(
-    instantiationType,
+    contextualEmissionType,
     currentContext
   );
   currentContext = typeContext;
@@ -195,12 +200,12 @@ export const emitObject = (
         );
       }
       const key = emitObjectMemberName(
-        instantiationType,
+        contextualEmissionType,
         keyName,
         currentContext
       );
       const propertyExpectedType = getPropertyType(
-        instantiationType ?? effectiveType,
+        contextualEmissionType ?? effectiveType,
         keyName,
         currentContext
       );
@@ -242,7 +247,7 @@ const resolveContextualTypeAst = (
   }
 
   const emissionType =
-    resolveStructuralReferenceType(contextualType, context) ?? contextualType;
+    resolveContextualEmissionType(contextualType, context) ?? contextualType;
 
   if (emissionType.kind === "referenceType") {
     const typeName = emissionType.name;
@@ -267,4 +272,24 @@ const resolveContextualTypeAst = (
   }
 
   return emitTypeAst(emissionType, context);
+};
+
+const resolveContextualEmissionType = (
+  contextualType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!contextualType) {
+    return undefined;
+  }
+
+  const anonymousEmissionType =
+    canPreferAnonymousStructuralTarget(contextualType)
+      ? resolveAnonymousStructuralReferenceType(contextualType, context)
+      : undefined;
+
+  return (
+    anonymousEmissionType ??
+    resolveStructuralReferenceType(contextualType, context) ??
+    contextualType
+  );
 };

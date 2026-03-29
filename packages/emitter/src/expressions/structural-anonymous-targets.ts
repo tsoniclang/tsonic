@@ -11,11 +11,53 @@ import type { EmitterContext } from "../types.js";
 import type { LocalTypeInfo } from "../emitter-types/core.js";
 import { parseBindingPropertyType } from "./structural-property-model.js";
 
+const stableOptionalPropertyTypeKey = (type: IrType): string => {
+  if (type.kind !== "unionType") {
+    return stableIrTypeKey(type);
+  }
+
+  const nonUndefinedMembers = type.types.filter(
+    (member) =>
+      !(member.kind === "primitiveType" && member.name === "undefined")
+  );
+  if (nonUndefinedMembers.length === 0) {
+    return stableIrTypeKey(type);
+  }
+  const firstNonUndefinedMember = nonUndefinedMembers[0];
+  if (!firstNonUndefinedMember) {
+    return stableIrTypeKey(type);
+  }
+  return stableIrTypeKey(
+    nonUndefinedMembers.length === type.types.length
+      ? type
+      : nonUndefinedMembers.length === 1
+        ? firstNonUndefinedMember
+        : {
+            ...type,
+            types: nonUndefinedMembers,
+          }
+  );
+};
+
 export const resolveAnonymousStructuralReferenceType = (
   type: IrType,
   context: EmitterContext
 ): IrType | undefined => {
-  const resolved = resolveTypeAlias(stripNullish(type), context);
+  const stripped = stripNullish(type);
+  if (stripped.kind === "referenceType") {
+    const simpleName = stripped.name.split(".").pop() ?? stripped.name;
+    const clrSimpleName = stripped.resolvedClrType?.split(".").pop();
+    const isCompilerGeneratedCarrier = (name: string | undefined): boolean =>
+      !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
+    if (
+      isCompilerGeneratedCarrier(simpleName) ||
+      isCompilerGeneratedCarrier(clrSimpleName)
+    ) {
+      return stripped;
+    }
+  }
+
+  const resolved = resolveTypeAlias(stripped, context);
   if (resolved.kind !== "objectType") return undefined;
 
   const currentNamespace =
@@ -32,7 +74,7 @@ export const resolveAnonymousStructuralReferenceType = (
     .map((member) => ({
       name: member.name,
       isOptional: member.isOptional,
-      typeKey: stableIrTypeKey(member.type),
+      typeKey: stableOptionalPropertyTypeKey(member.type),
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
 
@@ -57,8 +99,8 @@ export const resolveAnonymousStructuralReferenceType = (
         )
         .map((member) => ({
           name: member.name,
-          isOptional: false,
-          typeKey: stableIrTypeKey(member.type),
+          isOptional: !member.isRequired,
+          typeKey: stableOptionalPropertyTypeKey(member.type),
         }))
         .sort((left, right) => left.name.localeCompare(right.name));
       if (
@@ -116,7 +158,7 @@ export const resolveAnonymousStructuralReferenceType = (
         .map((member) => ({
           name: member.alias,
           isOptional: member.semanticOptional === true,
-          typeKey: stableIrTypeKey(
+          typeKey: stableOptionalPropertyTypeKey(
             member.semanticType ?? parseBindingPropertyType(member.signature)
           ),
         }))

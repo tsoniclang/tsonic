@@ -1,7 +1,7 @@
 /**
  * Tests for extension method binding resolution in IR conversion —
  * primitive wrapper methods, string extensions, object-literal receivers,
- * PascalCase folding, and ambiguous case-fold guards
+ * and strict case-sensitive member binding rules
  */
 
 import { describe, it } from "mocha";
@@ -11,6 +11,7 @@ import {
   createTestProgram,
   BindingRegistry,
 } from "./helpers.js";
+import { validateIrSoundness } from "../validation/index.js";
 
 describe("Binding Resolution in IR", () => {
   describe("Extension Method Binding Resolution", () => {
@@ -24,27 +25,27 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+      bindings.addBindings("/test/js/bindings.json", {
         bindings: {
           Number: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Number",
+            assembly: "js",
+            type: "js.Number",
           },
         },
-        namespace: "Tsonic.JSRuntime",
+        namespace: "js",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.Number",
-            assemblyName: "Tsonic.JSRuntime",
+            clrName: "js.Number",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "toString",
                 normalizedSignature:
                   "toString|(System.Double):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.Number",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.Number",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -86,7 +87,7 @@ describe("Binding Resolution in IR", () => {
         returnStmt.expression.callee.memberBinding?.isExtensionMethod
       ).to.equal(true);
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.Number"
+        "js.Number"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
         "toString"
@@ -103,27 +104,27 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+      bindings.addBindings("/test/js/bindings.json", {
         bindings: {
           Boolean: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Boolean",
+            assembly: "js",
+            type: "js.Boolean",
           },
         },
-        namespace: "Tsonic.JSRuntime",
+        namespace: "js",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.Boolean",
-            assemblyName: "Tsonic.JSRuntime",
+            clrName: "js.Boolean",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "toString",
                 normalizedSignature:
                   "toString|(System.Boolean):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.Boolean",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.Boolean",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -166,7 +167,7 @@ describe("Binding Resolution in IR", () => {
         returnStmt.expression.callee.memberBinding?.isExtensionMethod
       ).to.equal(true);
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.Boolean"
+        "js.Boolean"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
         "toString"
@@ -183,20 +184,20 @@ describe("Binding Resolution in IR", () => {
       `;
 
       const bindings = new BindingRegistry();
-      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
-        namespace: "Tsonic.JSRuntime",
+      bindings.addBindings("/test/js/bindings.json", {
+        namespace: "js",
         types: [
           {
             clrName: "System.String",
-            assemblyName: "Tsonic.JSRuntime",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "trim",
                 normalizedSignature:
                   "trim|(System.String):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.StringExtensions",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.StringExtensions",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
               },
             ],
@@ -231,7 +232,7 @@ describe("Binding Resolution in IR", () => {
         returnStmt.expression.callee.memberBinding?.isExtensionMethod
       ).to.equal(true);
       expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.StringExtensions"
+        "js.StringExtensions"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
         "trim"
@@ -260,26 +261,26 @@ describe("Binding Resolution in IR", () => {
         bindings: {
           Number: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.Number",
+            assembly: "js",
+            type: "js.Number",
             typeSemantics: {
               contributesTypeIdentity: true,
             },
           },
         },
-        namespace: "Tsonic.JSRuntime",
+        namespace: "js",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.Number",
-            assemblyName: "Tsonic.JSRuntime",
+            clrName: "js.Number",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "toString",
                 normalizedSignature:
                   "toString|(System.Double):System.String|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.Number",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.Number",
+                declaringAssemblyName: "js",
                 isExtensionMethod: true,
                 emitSemantics: {
                   callStyle: "receiver",
@@ -335,7 +336,7 @@ describe("Binding Resolution in IR", () => {
       expect(memberExpr.memberBinding).to.not.equal(undefined);
       expect(memberExpr.memberBinding?.isExtensionMethod).to.equal(true);
       expect(memberExpr.memberBinding?.type).to.equal(
-        "Tsonic.JSRuntime.Number"
+        "js.Number"
       );
       expect(memberExpr.memberBinding?.member).to.equal("toString");
       expect(memberExpr.memberBinding?.emitSemantics?.callStyle).to.equal(
@@ -343,7 +344,7 @@ describe("Binding Resolution in IR", () => {
       );
     });
 
-    it("resolves lower-cased TS member access to a unique CLR PascalCase member", () => {
+    it("does not case-fold lower-cased TS member access to CLR PascalCase members", () => {
       const source = `
         declare class Architecture {}
         declare const current: Architecture;
@@ -403,15 +404,93 @@ describe("Binding Resolution in IR", () => {
       if (returnStmt.expression.kind !== "call") return;
       if (returnStmt.expression.callee.kind !== "memberAccess") return;
 
-      expect(returnStmt.expression.callee.memberBinding).to.not.equal(
-        undefined
+      expect(returnStmt.expression.callee.memberBinding).to.equal(undefined);
+
+      const soundness = validateIrSoundness([result.value]);
+      expect(soundness.ok).to.equal(false);
+      expect(
+        soundness.diagnostics.some(
+          (diagnostic) =>
+            diagnostic.code === "TSN5203" &&
+            diagnostic.message.includes("toString")
+        )
+      );
+      expect(
+        soundness.diagnostics.some((diagnostic) => diagnostic.code === "TSN5201")
+      ).to.equal(true);
+    });
+
+    it("binds enum lower-cased toString through js Number semantics instead of CLR case-folding", () => {
+      const source = `
+        interface Number {
+          toString(): string;
+        }
+
+        declare enum Architecture {
+          X = 1
+        }
+
+        declare const current: Architecture;
+
+        export function test(): string {
+          return current.toString();
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/runtime.json", {
+        namespace: "js",
+        types: [
+          {
+            clrName: "js.Number",
+            assemblyName: "js",
+            methods: [
+              {
+                clrName: "toString",
+                normalizedSignature: "toString|():System.String|static=true",
+                parameterCount: 0,
+                declaringClrType: "js.Number",
+                declaringAssemblyName: "js",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const funcDecl = result.value.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[0];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) {
+        return;
+      }
+      if (returnStmt.expression.kind !== "call") return;
+      if (returnStmt.expression.callee.kind !== "memberAccess") return;
+
+      expect(returnStmt.expression.callee.memberBinding).to.not.equal(undefined);
+      expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
+        "js.Number"
       );
       expect(returnStmt.expression.callee.memberBinding?.member).to.equal(
-        "ToString"
+        "toString"
       );
-      expect(returnStmt.expression.callee.memberBinding?.type).to.equal(
-        "System.Enum"
-      );
+      expect(
+        returnStmt.expression.callee.memberBinding?.emitSemantics?.callStyle
+      ).to.equal("static");
+
+      const soundness = validateIrSoundness([result.value]);
+      expect(soundness.ok).to.equal(true);
     });
 
     it("does not case-fold member bindings when multiple CLR spellings would match", () => {

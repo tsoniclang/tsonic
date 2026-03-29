@@ -12,7 +12,7 @@ import {
 } from "./shared.js";
 import {
   resolveFromPackageManifest,
-  resolveFromLegacyBindingsManifest,
+  resolveFromBindingsManifest,
 } from "./manifest-parsing.js";
 import type { NormalizedBindingsManifest } from "./types.js";
 
@@ -63,7 +63,7 @@ export const resolveInstalledPackageBindingsManifest = (
   if (!packageManifest.ok) return packageManifest;
   if (packageManifest.value) return packageManifest;
 
-  return resolveFromLegacyBindingsManifest(
+  return resolveFromBindingsManifest(
     packageRoot,
     info.value.name,
     info.value.version
@@ -73,7 +73,7 @@ export const resolveInstalledPackageBindingsManifest = (
 export const hasInstalledSourcePackageManifest = (
   packageRoot: string
 ): Result<boolean, string> => {
-  const path = join(packageRoot, "tsonic", "package-manifest.json");
+  const path = join(packageRoot, "tsonic.package.json");
   if (!existsSync(path)) return { ok: true, value: false };
 
   const parsed = readJsonObject(
@@ -93,9 +93,6 @@ export const hasInstalledSourcePackageManifest = (
   const kind = parsed.value.kind;
   if (kind === "tsonic-source-package") {
     return { ok: true, value: true };
-  }
-  if (kind === "tsonic-library") {
-    return { ok: true, value: false };
   }
 
   return errorWithCode(

@@ -24,8 +24,14 @@ import {
 import { unknownType } from "./types.js";
 import type { MemberId } from "./types.js";
 import type { TypeSystemState, Site } from "./type-system-state.js";
-import { normalizeToNominal } from "./type-system-state.js";
-import { convertTypeNode } from "./type-system-call-resolution.js";
+import {
+  normalizeToNominal,
+  resolveTypeIdByName,
+} from "./type-system-state.js";
+import {
+  attachTypeIds,
+  convertTypeNode,
+} from "./type-system-call-resolution.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 import {
   buildFunctionTypeFromSignatureShape,
@@ -146,6 +152,60 @@ export const typeOfMemberId = (
     return unknownType;
   }
 
+  if (receiverType) {
+    const normalizedReceiver = normalizeToNominal(state, receiverType);
+    if (normalizedReceiver) {
+      const lookupResult = state.nominalEnv.findMemberDeclaringType(
+        normalizedReceiver.typeId,
+        normalizedReceiver.typeArgs,
+        memberInfo.name
+      );
+
+      if (lookupResult) {
+        const catalogMember = state.unifiedCatalog.getMember(
+          lookupResult.declaringTypeId,
+          memberInfo.name
+        );
+
+        if (catalogMember?.type) {
+          return attachTypeIds(
+            state,
+            irSubstitute(
+              catalogMember.type,
+              lookupResult.substitution as IrSubstitutionMap
+            )
+          );
+        }
+
+        const signatures = catalogMember?.signatures ?? [];
+        if (signatures.length > 0) {
+          const overloadFamily = buildCallableOverloadFamilyType(
+            signatures.map((signature) =>
+              buildFunctionTypeFromSignatureShape(
+                signature.parameters.map((parameter) => ({
+                  name: parameter.name,
+                  type: parameter.type,
+                  isOptional: parameter.isOptional,
+                  isRest: parameter.isRest,
+                  mode: parameter.mode,
+                })),
+                signature.returnType
+              )
+            )
+          );
+
+          return attachTypeIds(
+            state,
+            irSubstitute(
+              overloadFamily,
+              lookupResult.substitution as IrSubstitutionMap
+            )
+          );
+        }
+      }
+    }
+  }
+
   // Otherwise, attempt to recover type deterministically from the member declaration.
   // This is required for namespace imports (`import * as X`) where members are
   // function declarations / const declarations (no typeNode captured by Binding).
@@ -257,12 +317,33 @@ export const typeOfMemberId = (
 
       const parent = decl.parent;
       const declaringType =
-        ts.isInterfaceDeclaration(parent) ||
-        ts.isClassDeclaration(parent) ||
-        ts.isTypeAliasDeclaration(parent)
+        ts.isInterfaceDeclaration(parent) || ts.isClassDeclaration(parent)
           ? parent
           : undefined;
-      if (!declaringType?.name || !declaringType.typeParameters) {
+      if (!declaringType?.name) {
+        return undefined;
+      }
+
+      const normalizedReceiver = normalizeToNominal(state, receiverType);
+      if (normalizedReceiver) {
+        const declaringArity = declaringType.typeParameters?.length;
+        const declaringTypeId =
+          resolveTypeIdByName(state, declaringType.name.text, declaringArity) ??
+          resolveTypeIdByName(state, declaringType.name.text);
+        if (declaringTypeId) {
+          const nominalSubstitution = state.nominalEnv.getInstantiation(
+            normalizedReceiver.typeId,
+            normalizedReceiver.typeArgs,
+            declaringTypeId
+          );
+          if (nominalSubstitution) {
+            return nominalSubstitution;
+          }
+        }
+      }
+
+      const typeParams = declaringType.typeParameters;
+      if (!typeParams || typeParams.length === 0) {
         return undefined;
       }
 
@@ -272,7 +353,6 @@ export const typeOfMemberId = (
         return undefined;
       }
 
-      const typeParams = declaringType.typeParameters;
       if (typeParams.length !== receiverRef.typeArguments.length) {
         return undefined;
       }

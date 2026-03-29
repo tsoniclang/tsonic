@@ -37,7 +37,7 @@ describe("clr-type-parser d.ts utility typing", () => {
     expect(result).to.deep.equal({
       kind: "dictionaryType",
       keyType: { kind: "primitiveType", name: "string" },
-      valueType: { kind: "unknownType" },
+      valueType: { kind: "unknownType", explicit: true },
     });
   });
 
@@ -73,7 +73,7 @@ describe("clr-type-parser d.ts utility typing", () => {
     expect(result).to.deep.equal({
       kind: "dictionaryType",
       keyType: { kind: "referenceType", name: "object" },
-      valueType: { kind: "unknownType" },
+      valueType: { kind: "unknownType", explicit: true },
     });
   });
 

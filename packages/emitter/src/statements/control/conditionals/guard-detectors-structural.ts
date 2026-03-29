@@ -10,7 +10,6 @@ import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { emitTypeAst } from "../../../type-emitter.js";
 import type { CSharpTypeAst } from "../../../core/format/backend-ast/types.js";
 import { hasDeterministicPropertyMembership } from "../../../core/semantic/type-resolution.js";
-import { matchesExpectedEmissionType } from "../../../core/semantic/expected-type-matching.js";
 import {
   findExactRuntimeUnionMemberIndices,
   findRuntimeUnionMemberIndices,
@@ -59,7 +58,7 @@ export const tryResolveInGuard = (
   const propertyName = condition.left.value;
   const originalName = target.name;
 
-  const unionSourceType = target.inferredType ?? condition.right.inferredType;
+  const unionSourceType = condition.right.inferredType ?? target.inferredType;
   if (!unionSourceType) return undefined;
 
   const frame = resolveRuntimeUnionFrame(
@@ -158,7 +157,7 @@ export const tryResolvePredicateGuard = (
       ? target.name
       : getMemberAccessNarrowKey(target);
   if (!originalName) return undefined;
-  const unionSourceType = target.inferredType ?? arg.inferredType;
+  const unionSourceType = arg.inferredType ?? target.inferredType;
   if (!unionSourceType) return undefined;
 
   const frame = resolveRuntimeUnionFrame(
@@ -195,35 +194,8 @@ export const tryResolvePredicateGuard = (
     memberN ?? "subset",
     nextId
   );
-  const currentSubsetBinding = context.narrowedBindings?.get(originalName);
-  const rawContext = currentSubsetBinding
-    ? withoutNarrowedBinding(context, originalName)
-    : context;
-  const rawReceiverType =
-    target.kind === "identifier"
-      ? (rawContext.localSemanticTypes?.get(target.name) ??
-        target.inferredType ??
-        arg.inferredType)
-      : (target.inferredType ?? arg.inferredType);
-  const rawReceiverExpectedType =
-    currentSubsetBinding?.sourceType ??
-    (currentSubsetBinding?.kind === "runtimeSubset"
-      ? (currentSubsetBinding.type ?? unionSourceType)
-      : undefined) ??
-    unionSourceType;
-  const useRawReceiverAst =
-    currentSubsetBinding?.kind === "runtimeSubset" &&
-    !!rawReceiverType &&
-    matchesExpectedEmissionType(
-      rawReceiverType,
-      rawReceiverExpectedType,
-      rawContext
-    );
-  const [argAst] = useRawReceiverAst
-    ? target.kind === "identifier"
-      ? emitIdentifier(target, rawContext)
-      : emitExpressionAst(target, rawContext)
-    : emitExpressionAst(arg, context);
+  const rawContext = withoutNarrowedBinding(context, originalName);
+  const [argAst] = emitExpressionAst(target, rawContext, unionSourceType);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
   const narrowedMap = buildRenameNarrowedMap(
     originalName,
@@ -231,6 +203,7 @@ export const tryResolvePredicateGuard = (
     narrowing.targetType,
     ctxWithId
   );
+  const currentSubsetBinding = context.narrowedBindings?.get(originalName);
   const sourceType =
     currentSubsetBinding?.sourceType ??
     currentSubsetBinding?.type ??
@@ -346,7 +319,7 @@ export const tryResolveInstanceofGuard = (
     type: inferredRhsType ?? undefined,
   });
 
-  const unionSourceType = target.inferredType ?? condition.left.inferredType;
+  const unionSourceType = condition.left.inferredType ?? target.inferredType;
   const currentType =
     context.narrowedBindings?.get(originalName)?.type ?? unionSourceType;
   const runtimeUnionFrame =

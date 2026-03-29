@@ -5,7 +5,7 @@ namespace TestCases.common.arrays.basic
     {
         public static int[] createArray()
         {
-            var arr = new int[] { (int)1, (int)2, (int)3 };
+            var arr = new int[] { 1, 2, 3 };
             return arr;
         }
     }

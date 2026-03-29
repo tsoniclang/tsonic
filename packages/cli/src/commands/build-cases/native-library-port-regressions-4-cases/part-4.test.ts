@@ -18,7 +18,7 @@ import { applyPackageManifestWorkspaceOverlay } from "../../../package-manifests
 import { buildCommand } from "../../build.js";
 
 const repoRoot = resolve(
-  join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
+  join(dirname(fileURLToPath(import.meta.url)), "../../../../../..")
 );
 const localJsPackageRoot = resolve(
   join(repoRoot, "..", "js", "versions", "10")
@@ -157,10 +157,10 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
       expect(generatedText).to.include(
-        'global::Tsonic.JSRuntime.console.error("bad")'
+        'global::js.ConsoleModule.error("bad")'
       );
       expect(generatedText).to.include(
-        'global::Tsonic.JSRuntime.console.log("ok")'
+        'global::js.ConsoleModule.log("ok")'
       );
       expect(generatedText).to.not.include("global::System.Console.Error");
     } finally {

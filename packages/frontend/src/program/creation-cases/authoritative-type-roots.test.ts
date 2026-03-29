@@ -44,7 +44,7 @@ describe("Program Creation – authoritative type roots", function () {
         tempDir,
         "node_modules/@tsonic/nodejs"
       );
-      fs.mkdirSync(projectNodejsRoot, { recursive: true });
+      fs.mkdirSync(path.join(projectNodejsRoot, "src"), { recursive: true });
       fs.writeFileSync(
         path.join(projectNodejsRoot, "package.json"),
         JSON.stringify(
@@ -52,41 +52,50 @@ describe("Program Creation – authoritative type roots", function () {
             name: "@tsonic/nodejs",
             version: "9.9.9",
             type: "module",
-            types: "./index.d.ts",
           },
           null,
           2
         )
       );
       fs.writeFileSync(
-        path.join(projectNodejsRoot, "index.js"),
-        "export {};\n"
+        path.join(projectNodejsRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "fake.nodejs",
+              moduleAliases: {
+                "node:path": "./path.js",
+                "node:process": "./process.js",
+              },
+              exports: {
+                ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
+                "./path.js": "./src/path.ts",
+                "./process.js": "./src/process.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
       );
       fs.writeFileSync(
-        path.join(projectNodejsRoot, "index.d.ts"),
+        path.join(projectNodejsRoot, "src", "index.ts"),
         [
-          '/// <reference path="./node-aliases.d.ts" />',
-          "export declare const path: {",
-          "  join(...parts: string[]): any;",
-          "};",
-          "export declare const process: {",
-          "  cwd(): any;",
-          "};",
+          'export * as path from "./path.ts";',
+          'export * as process from "./process.ts";',
         ].join("\n")
       );
       fs.writeFileSync(
-        path.join(projectNodejsRoot, "node-aliases.d.ts"),
-        [
-          'declare module "node:path" {',
-          '  export { path } from "@tsonic/nodejs/index.js";',
-          '  export const join: typeof import("@tsonic/nodejs/index.js").path.join;',
-          "}",
-          'declare module "node:process" {',
-          '  export { process } from "@tsonic/nodejs/index.js";',
-          '  export const cwd: typeof import("@tsonic/nodejs/index.js").process.cwd;',
-          "}",
-          "export {};",
-        ].join("\n")
+        path.join(projectNodejsRoot, "src", "path.ts"),
+        "export const join = (..._parts: string[]): boolean => false;\n"
+      );
+      fs.writeFileSync(
+        path.join(projectNodejsRoot, "src", "process.ts"),
+        "export const cwd = (): boolean => false;\n"
       );
 
       const entryPath = path.join(srcDir, "index.ts");
@@ -178,7 +187,7 @@ describe("Program Creation – authoritative type roots", function () {
         tempDir,
         "node_modules/@tsonic/nodejs"
       );
-      fs.mkdirSync(projectNodejsRoot, { recursive: true });
+      fs.mkdirSync(path.join(projectNodejsRoot, "src"), { recursive: true });
       fs.writeFileSync(
         path.join(projectNodejsRoot, "package.json"),
         JSON.stringify(
@@ -186,22 +195,36 @@ describe("Program Creation – authoritative type roots", function () {
             name: "@tsonic/nodejs",
             version: "9.9.9",
             type: "module",
-            types: "./index.d.ts",
           },
           null,
           2
         )
       );
       fs.writeFileSync(
-        path.join(projectNodejsRoot, "index.js"),
-        "export {};\n"
+        path.join(projectNodejsRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "fake.nodejs",
+              exports: {
+                ".": "./src/index.ts",
+                "./index.js": "./src/index.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
       );
       fs.writeFileSync(
-        path.join(projectNodejsRoot, "index.d.ts"),
+        path.join(projectNodejsRoot, "src", "index.ts"),
         [
-          "export declare function join(...parts: string[]): any;",
-          "export declare const process: {",
-          "  cwd(): any;",
+          "export const join = (..._parts: string[]): boolean => false;",
+          "export const process = {",
+          "  cwd: (): boolean => false,",
           "};",
         ].join("\n")
       );

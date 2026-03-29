@@ -7,7 +7,11 @@
 
 import * as ts from "typescript";
 import type { ProgramContext } from "../program-context.js";
-import type { IrType } from "../types.js";
+import { stableIrTypeKey, type IrType } from "../types.js";
+import type { BindingInternal } from "../binding/binding-types.js";
+import { simpleBindingContributesTypeIdentity } from "../../program/binding-registry.js";
+import { tsbindgenClrTypeNameToTsTypeName } from "../../tsbindgen/names.js";
+import type { DeclId } from "../type-system/index.js";
 import {
   getAccessPathTarget,
   getCurrentTypeForAccessPath,
@@ -175,90 +179,198 @@ export const resolveInstanceofTargetType = (
   expr: ts.Expression,
   ctx: ProgramContext
 ): IrType | undefined => {
-  const bindingBackedTargetType = (
-    typeName: string
-  ): Extract<IrType, { kind: "referenceType" }> | undefined => {
-    const bindingType = ctx.bindings.getType(typeName);
-    if (!bindingType) return undefined;
+  const tryResolveExplicitGlobalBindingTargetType = (
+    identifier: ts.Identifier
+  ): IrType | undefined => {
+    const simpleBinding = ctx.bindings.getExactBindingByKind(
+      identifier.text,
+      "global"
+    );
+    if (!simpleBinding || !simpleBindingContributesTypeIdentity(simpleBinding)) {
+      return undefined;
+    }
+
     return {
       kind: "referenceType",
-      name: bindingType.alias,
-      resolvedClrType: bindingType.name,
+      name: tsbindgenClrTypeNameToTsTypeName(simpleBinding.type),
     };
   };
-
-  const containsAnyType = (type: IrType): boolean => {
-    switch (type.kind) {
-      case "anyType":
-        return true;
-      case "unionType":
-      case "intersectionType":
-        return type.types.some((member) => containsAnyType(member));
-      default:
-        return false;
-    }
-  };
-
-  const normalize = (type: IrType): IrType =>
-    type.kind === "referenceType" &&
-    !type.typeId &&
-    !type.resolvedClrType &&
-    type.name.endsWith("Constructor")
-      ? {
-          kind: "referenceType",
-          name: type.name.slice(0, -"Constructor".length),
-        }
-      : type;
 
   const isAnonymousStructuralReferenceType = (type: IrType): boolean =>
     type.kind === "referenceType" &&
     type.name.startsWith("__Anon_") &&
     (type.structuralMembers?.length ?? 0) > 0;
 
-  const selectPreferredTargetType = (type: IrType): IrType | undefined => {
-    const normalized = normalize(type);
+  const tryResolveConstructTargetFromTypeNode = (
+    node: ts.TypeNode | undefined
+  ): IrType | undefined => {
+    if (!node) {
+      return undefined;
+    }
 
+    if (ts.isParenthesizedTypeNode(node)) {
+      return tryResolveConstructTargetFromTypeNode(node.type);
+    }
+
+    if (ts.isConstructorTypeNode(node)) {
+      return ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type));
+    }
+
+    if (ts.isTypeLiteralNode(node)) {
+      const candidates = new Map<string, IrType>();
+      for (const member of node.members) {
+        if (!ts.isConstructSignatureDeclaration(member) || !member.type) {
+          continue;
+        }
+
+        const target = ctx.typeSystem.typeFromSyntax(
+          ctx.binding.captureTypeSyntax(member.type)
+        );
+        if (target.kind === "unknownType") {
+          continue;
+        }
+
+        const preferred = selectPreferredTargetType(target) ?? target;
+        candidates.set(stableIrTypeKey(preferred), preferred);
+      }
+
+      return candidates.size === 1 ? Array.from(candidates.values())[0] : undefined;
+    }
+
+    if (ts.isIntersectionTypeNode(node)) {
+      const candidates = new Map<string, IrType>();
+      for (const member of node.types) {
+        const target = tryResolveConstructTargetFromTypeNode(member);
+        if (!target) {
+          continue;
+        }
+        candidates.set(stableIrTypeKey(target), target);
+      }
+
+      return candidates.size === 1 ? Array.from(candidates.values())[0] : undefined;
+    }
+
+    return undefined;
+  };
+
+  const tryResolveConstructTargetFromDecl = (
+    declId: DeclId
+  ): IrType | undefined => {
+    const handleRegistryGetter = (ctx.binding as Partial<BindingInternal>)
+      ._getHandleRegistry;
+    if (typeof handleRegistryGetter !== "function") {
+      return undefined;
+    }
+
+    const declInfo = handleRegistryGetter.call(ctx.binding).getDecl(declId);
+    if (!declInfo) {
+      return undefined;
+    }
+
+    const nodes: (ts.TypeNode | undefined)[] = [
+      declInfo.typeNode as ts.TypeNode | undefined,
+      declInfo.valueDeclNode &&
+      ts.isVariableDeclaration(declInfo.valueDeclNode as ts.Node)
+        ? ((declInfo.valueDeclNode as ts.VariableDeclaration).type as
+            | ts.TypeNode
+            | undefined)
+        : undefined,
+    ];
+
+    for (const node of nodes) {
+      const target = tryResolveConstructTargetFromTypeNode(node);
+      if (target) {
+        return target;
+      }
+    }
+
+    return undefined;
+  };
+
+  const tryResolvePrototypeTargetType = (
+    type: IrType,
+    seen: Set<string>
+  ): IrType | undefined => {
+    const typeKey = stableIrTypeKey(type);
+    if (seen.has(typeKey)) {
+      return undefined;
+    }
+
+    const prototypeType = ctx.typeSystem.typeOfMember(type, {
+      kind: "byName",
+      name: "prototype",
+    });
+    if (!prototypeType || prototypeType.kind === "unknownType") {
+      return undefined;
+    }
+
+    const nextSeen = new Set(seen);
+    nextSeen.add(typeKey);
+    return selectPreferredTargetType(prototypeType, nextSeen);
+  };
+
+  const selectPreferredTargetType = (
+    type: IrType,
+    seen = new Set<string>()
+  ): IrType | undefined => {
     if (
-      normalized.kind === "unknownType" ||
-      normalized.kind === "objectType" ||
-      normalized.kind === "anyType"
+      type.kind === "unknownType" ||
+      type.kind === "objectType" ||
+      type.kind === "anyType"
     ) {
       return undefined;
     }
 
-    if (isAnonymousStructuralReferenceType(normalized)) {
+    if (isAnonymousStructuralReferenceType(type)) {
       return undefined;
     }
 
-    if (normalized.kind === "intersectionType") {
-      if (containsAnyType(normalized)) {
-        return undefined;
-      }
-
-      const referenceMembers = normalized.types
-        .map((member) => normalize(member))
-        .filter(
-          (member): member is Extract<IrType, { kind: "referenceType" }> =>
-            member.kind === "referenceType" &&
-            !isAnonymousStructuralReferenceType(member)
-        );
-
-      if (referenceMembers.length === 1) {
-        return referenceMembers[0];
-      }
-
-      return undefined;
+    if (type.kind === "referenceType") {
+      const prototypeTarget = tryResolvePrototypeTargetType(type, seen);
+      return prototypeTarget ?? type;
     }
 
-    return normalized;
+    if (type.kind === "arrayType" || type.kind === "tupleType") {
+      return type;
+    }
+
+    if (type.kind === "intersectionType") {
+      const prototypeTarget = tryResolvePrototypeTargetType(type, seen);
+      if (prototypeTarget) {
+        return prototypeTarget;
+      }
+
+      const candidates = new Map<string, IrType>();
+      for (const member of type.types) {
+        const selected = selectPreferredTargetType(member, seen);
+        if (!selected) {
+          continue;
+        }
+        candidates.set(stableIrTypeKey(selected), selected);
+      }
+
+      return candidates.size === 1 ? Array.from(candidates.values())[0] : undefined;
+    }
+
+    return undefined;
   };
 
   const unwrapped = unwrapExpr(expr);
 
   if (ts.isIdentifier(unwrapped)) {
-    const fallback = bindingBackedTargetType(unwrapped.text);
+    const explicitBindingTarget =
+      tryResolveExplicitGlobalBindingTargetType(unwrapped);
+    if (explicitBindingTarget) {
+      return explicitBindingTarget;
+    }
+
     const declId = ctx.binding.resolveIdentifier(unwrapped);
     if (declId) {
+      const constructorTarget = tryResolveConstructTargetFromDecl(declId);
+      if (constructorTarget) {
+        return constructorTarget;
+      }
+
       const preferredDeclType = selectPreferredTargetType(
         ctx.typeSystem.typeOfDecl(declId)
       );
@@ -274,7 +386,7 @@ export const resolveInstanceofTargetType = (
       }
     }
 
-    return fallback;
+    return undefined;
   }
 
   const accessTarget = getAccessPathTarget(unwrapped, ctx);
@@ -288,6 +400,5 @@ export const resolveInstanceofTargetType = (
     return preferred;
   }
 
-  const finalSegment = accessTarget.segments.at(-1);
-  return finalSegment ? bindingBackedTargetType(finalSegment) : undefined;
+  return undefined;
 };

@@ -11,7 +11,10 @@ import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
-import { irTypesEqual as compareIrTypes } from "../types/type-ops.js";
+import {
+  irTypesEqual as compareIrTypes,
+  stableIrTypeKey,
+} from "../types/type-ops.js";
 import { unknownType } from "./types.js";
 import type {
   TypeSystemState,
@@ -22,6 +25,7 @@ import {
   emitDiagnostic,
   isNullishPrimitive,
   normalizeToNominal,
+  resolveTypeIdByName,
 } from "./type-system-state.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -83,10 +87,125 @@ export const instantiate = (
 // isAssignableTo — Conservative subtype check
 // ─────────────────────────────────────────────────────────────────────────
 
-export const isAssignableTo = (
+const resolveAliasExpansion = (
+  state: TypeSystemState,
+  type: IrType
+): 
+  | {
+      readonly key: string;
+      readonly expanded: IrType;
+    }
+  | undefined => {
+  if (type.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const typeId =
+    type.typeId ??
+    resolveTypeIdByName(
+      state,
+      type.resolvedClrType ?? type.name,
+      type.typeArguments?.length ?? 0
+    );
+  if (!typeId) {
+    return undefined;
+  }
+
+  const entry = state.unifiedCatalog.getByTypeId(typeId);
+  if (!entry?.aliasedType) {
+    return undefined;
+  }
+
+  let expanded = entry.aliasedType;
+  if (
+    entry.typeParameters.length > 0 &&
+    (type.typeArguments?.length ?? 0) > 0
+  ) {
+    const subst = new Map<string, IrType>();
+    for (
+      let index = 0;
+      index < Math.min(entry.typeParameters.length, type.typeArguments?.length ?? 0);
+      index += 1
+    ) {
+      const typeParameter = entry.typeParameters[index];
+      const typeArgument = type.typeArguments?.[index];
+      if (typeParameter && typeArgument) {
+        subst.set(typeParameter.name, typeArgument);
+      }
+    }
+    if (subst.size > 0) {
+      expanded = irSubstitute(expanded, subst as IrSubstitutionMap);
+    }
+  }
+
+  return {
+    key: `${typeId.stableId}<${(type.typeArguments ?? [])
+      .map((arg) => stableIrTypeKey(arg))
+      .join(",")}>`,
+    expanded,
+  };
+};
+
+type ComparableMethodSignature = {
+  readonly parameters: readonly {
+    readonly type?: IrType;
+  }[];
+  readonly returnType?: IrType;
+};
+
+const resolveNominalMemberEntry = (
+  state: TypeSystemState,
+  source: IrReferenceType,
+  memberName: string
+):
+  | {
+      readonly memberType: IrType | undefined;
+      readonly signatures: readonly ComparableMethodSignature[];
+    }
+  | undefined => {
+  const normalized = normalizeToNominal(state, source);
+  if (!normalized) {
+    return undefined;
+  }
+
+  const lookupResult = state.nominalEnv.findMemberDeclaringType(
+    normalized.typeId,
+    normalized.typeArgs,
+    memberName
+  );
+  if (!lookupResult) {
+    return undefined;
+  }
+
+  const memberEntry = state.unifiedCatalog.getMember(
+    lookupResult.declaringTypeId,
+    memberName
+  );
+  if (!memberEntry) {
+    return undefined;
+  }
+
+  const substituteMemberType = (type: IrType | undefined): IrType | undefined =>
+    type
+      ? irSubstitute(type, lookupResult.substitution as IrSubstitutionMap)
+      : undefined;
+
+  return {
+    memberType: substituteMemberType(memberEntry.type),
+    signatures: (memberEntry.signatures ?? []).map((signature) => ({
+      parameters: signature.parameters.map((parameter) => ({
+        type: substituteMemberType(parameter.type),
+      })),
+      returnType: substituteMemberType(signature.returnType),
+    })),
+  };
+};
+
+const isAssignableToInternal = (
   state: TypeSystemState,
   source: IrType,
-  target: IrType
+  target: IrType,
+  activeAliases: ReadonlySet<string>
 ): boolean => {
   // Same type - always assignable
   if (typesEqual(source, target)) return true;
@@ -108,6 +227,30 @@ export const isAssignableTo = (
     return false;
   }
 
+  const sourceAlias = resolveAliasExpansion(state, source);
+  if (sourceAlias && !activeAliases.has(sourceAlias.key)) {
+    const nextActiveAliases = new Set(activeAliases);
+    nextActiveAliases.add(sourceAlias.key);
+    return isAssignableToInternal(
+      state,
+      sourceAlias.expanded,
+      target,
+      nextActiveAliases
+    );
+  }
+
+  const targetAlias = resolveAliasExpansion(state, target);
+  if (targetAlias && !activeAliases.has(targetAlias.key)) {
+    const nextActiveAliases = new Set(activeAliases);
+    nextActiveAliases.add(targetAlias.key);
+    return isAssignableToInternal(
+      state,
+      source,
+      targetAlias.expanded,
+      nextActiveAliases
+    );
+  }
+
   // Primitives - same primitive type
   if (source.kind === "primitiveType" && target.kind === "primitiveType") {
     return source.name === target.name;
@@ -115,42 +258,181 @@ export const isAssignableTo = (
 
   // Union source - all members must be assignable
   if (source.kind === "unionType") {
-    return source.types.every((t) => isAssignableTo(state, t, target));
+    return source.types.every((t) =>
+      isAssignableToInternal(state, t, target, activeAliases)
+    );
   }
 
   // Union target - source must be assignable to at least one member
   if (target.kind === "unionType") {
-    return target.types.some((t) => isAssignableTo(state, source, t));
+    return target.types.some((t) =>
+      isAssignableToInternal(state, source, t, activeAliases)
+    );
   }
 
   // Array types
   if (source.kind === "arrayType" && target.kind === "arrayType") {
-    return isAssignableTo(state, source.elementType, target.elementType);
+    return isAssignableToInternal(
+      state,
+      source.elementType,
+      target.elementType,
+      activeAliases
+    );
   }
 
   // Reference types - check nominal compatibility via TypeId
   if (source.kind === "referenceType" && target.kind === "referenceType") {
     const sourceNominal = normalizeToNominal(state, source);
     const targetNominal = normalizeToNominal(state, target);
-    if (!sourceNominal || !targetNominal) return false;
+    if (sourceNominal && targetNominal) {
+      if (sourceNominal.typeId.stableId === targetNominal.typeId.stableId) {
+        const sourceArgs = sourceNominal.typeArgs;
+        const targetArgs = targetNominal.typeArgs;
+        if (sourceArgs.length !== targetArgs.length) return false;
+        return sourceArgs.every((sa, i) => {
+          const ta = targetArgs[i];
+          return ta ? typesEqual(sa, ta) : false;
+        });
+      }
 
-    if (sourceNominal.typeId.stableId === targetNominal.typeId.stableId) {
-      const sourceArgs = sourceNominal.typeArgs;
-      const targetArgs = targetNominal.typeArgs;
-      if (sourceArgs.length !== targetArgs.length) return false;
-      return sourceArgs.every((sa, i) => {
-        const ta = targetArgs[i];
-        return ta ? typesEqual(sa, ta) : false;
-      });
+      const chain = state.nominalEnv.getInheritanceChain(sourceNominal.typeId);
+      if (chain.some((t) => t.stableId === targetNominal.typeId.stableId)) {
+        return true;
+      }
     }
 
-    const chain = state.nominalEnv.getInheritanceChain(sourceNominal.typeId);
-    return chain.some((t) => t.stableId === targetNominal.typeId.stableId);
+    const sourceMembers = source.structuralMembers ?? [];
+    const targetMembers = target.structuralMembers ?? [];
+    if (sourceMembers.length === 0 || targetMembers.length === 0) {
+      return false;
+    }
+
+    return targetMembers.every((targetMember) => {
+      if (targetMember.kind === "propertySignature") {
+        const matches = sourceMembers.filter(
+          (
+            candidate
+          ): candidate is Extract<
+            typeof candidate,
+            { readonly kind: "propertySignature" }
+          > =>
+            candidate.kind === "propertySignature" &&
+            candidate.name === targetMember.name
+        );
+        if (matches.length === 1) {
+          const match = matches[0];
+          return (
+            !!match &&
+            isAssignableToInternal(
+              state,
+              match.type,
+              targetMember.type,
+              activeAliases
+            )
+          );
+        }
+
+        if (source.kind !== "referenceType") {
+          return false;
+        }
+
+        const nominalMember = resolveNominalMemberEntry(
+          state,
+          source,
+          targetMember.name
+        );
+        if (!nominalMember?.memberType) {
+          return false;
+        }
+
+        return isAssignableToInternal(
+          state,
+          nominalMember.memberType,
+          targetMember.type,
+          activeAliases
+        );
+      }
+
+      if (targetMember.kind === "methodSignature") {
+        const matches = sourceMembers.filter(
+          (
+            candidate
+          ): candidate is Extract<
+            typeof candidate,
+            { readonly kind: "methodSignature" }
+          > =>
+            candidate.kind === "methodSignature" &&
+            candidate.name === targetMember.name &&
+            candidate.parameters.length === targetMember.parameters.length
+        );
+        const comparableMatches: readonly ComparableMethodSignature[] =
+          matches.length === 1
+            ? matches
+            : source.kind === "referenceType"
+              ? resolveNominalMemberEntry(
+                  state,
+                  source,
+                  targetMember.name
+                )?.signatures.filter(
+                  (signature) =>
+                    signature.parameters.length === targetMember.parameters.length
+                ) ?? []
+              : [];
+
+        if (comparableMatches.length !== 1) {
+          return false;
+        }
+
+        const match = comparableMatches[0];
+        if (!match) {
+          return false;
+        }
+
+        for (
+          let parameterIndex = 0;
+          parameterIndex < targetMember.parameters.length;
+          parameterIndex += 1
+        ) {
+          const sourceParameter = match.parameters[parameterIndex];
+          const targetParameter = targetMember.parameters[parameterIndex];
+          const sourceParameterType = sourceParameter?.type;
+          const targetParameterType = targetParameter?.type;
+          if (!sourceParameterType || !targetParameterType) {
+            continue;
+          }
+          if (
+            !isAssignableToInternal(
+              state,
+              targetParameterType,
+              sourceParameterType,
+              activeAliases
+            )
+          ) {
+            return false;
+          }
+        }
+
+        return isAssignableToInternal(
+          state,
+          match.returnType ?? unknownType,
+          targetMember.returnType ?? unknownType,
+          activeAliases
+        );
+      }
+
+      return false;
+    });
   }
 
   // Conservative - return false if unsure
   return false;
 };
+
+export const isAssignableTo = (
+  state: TypeSystemState,
+  source: IrType,
+  target: IrType
+): boolean => isAssignableToInternal(state, source, target, new Set());
 
 // ─────────────────────────────────────────────────────────────────────────
 // typesEqual — Structural equality check

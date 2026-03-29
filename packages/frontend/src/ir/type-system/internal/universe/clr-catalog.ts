@@ -8,7 +8,7 @@
  * unified type catalog. No parallel lookup paths allowed.
  *
  * The loader:
- * 1. Scans node_modules/@tsonic/* packages for metadata files
+ * 1. Loads only explicitly participating CLR package roots
  * 2. Parses bindings.json for type definitions, members, signatures
  * 4. Converts to NominalEntry structures with proper IrType members
  */
@@ -27,6 +27,22 @@ import {
   convertRawType,
   enrichAssemblyEntriesFromTsBindgenDts,
 } from "./clr-entry-converter.js";
+
+const isSourcePackageRoot = (packagePath: string): boolean => {
+  const manifestPath = path.join(packagePath, "tsonic.package.json");
+  if (!fs.existsSync(manifestPath)) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+      readonly kind?: unknown;
+    };
+    return parsed.kind === "tsonic-source-package";
+  } catch {
+    return false;
+  }
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BARREL RE-EXPORTS
@@ -63,61 +79,22 @@ export {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Find all @tsonic packages in node_modules.
- */
-const findTsonicPackages = (nodeModulesPath: string): string[] => {
-  const tsonicDir = path.join(nodeModulesPath, "@tsonic");
-  if (!fs.existsSync(tsonicDir)) {
-    return [];
-  }
-
-  const packages: string[] = [];
-  for (const entry of fs.readdirSync(tsonicDir, { withFileTypes: true })) {
-    const fullPath = path.join(tsonicDir, entry.name);
-
-    if (entry.isDirectory()) {
-      packages.push(fullPath);
-      continue;
-    }
-
-    // In multi-repo workspaces, @tsonic packages are often symlinked into node_modules.
-    // Dirent reports these as symbolic links, so we must stat the target to detect
-    // directory packages.
-    if (entry.isSymbolicLink()) {
-      try {
-        if (fs.statSync(fullPath).isDirectory()) {
-          packages.push(fullPath);
-        }
-      } catch {
-        // Ignore broken links.
-      }
-    }
-  }
-  return packages;
-};
-
-/**
- * Find all bindings.json files in a package.
+ * Find all bindings.json files in an explicit CLR package root.
  */
 const findBindingsFiles = (packagePath: string): string[] => {
-  const bindingsFiles: string[] = [];
-  const isIgnorableDirReadError = (error: unknown): boolean => {
-    if (!(error instanceof Error)) return false;
-    const err = error as Error & { code?: string };
-    return (
-      err.code === "EACCES" ||
-      err.code === "EPERM" ||
-      err.code === "ENOENT" ||
-      err.code === "ENOTDIR"
-    );
-  };
+  const bindingsFiles = new Set<string>();
+  const visitedDirs = new Set<string>();
 
   const walk = (dir: string) => {
-    if (!fs.existsSync(dir)) return;
+    const resolvedDir = resolveExistingDirectory(dir);
+    if (!resolvedDir || visitedDirs.has(resolvedDir)) {
+      return;
+    }
+    visitedDirs.add(resolvedDir);
 
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = fs.readdirSync(resolvedDir, { withFileTypes: true });
     } catch (error) {
       if (isIgnorableDirReadError(error)) {
         return;
@@ -126,17 +103,58 @@ const findBindingsFiles = (packagePath: string): string[] => {
     }
 
     for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
+      const fullPath = path.join(resolvedDir, entry.name);
+      if (entry.isDirectory() || entry.isSymbolicLink()) {
         walk(fullPath);
-      } else if (entry.name === "bindings.json") {
-        bindingsFiles.push(fullPath);
+      }
+
+      if (entry.name !== "bindings.json") {
+        continue;
+      }
+
+      const resolvedFile = resolveExistingFile(fullPath);
+      if (resolvedFile) {
+        bindingsFiles.add(resolvedFile);
       }
     }
   };
 
   walk(packagePath);
-  return bindingsFiles;
+  return Array.from(bindingsFiles).sort();
+};
+
+const isIgnorableDirReadError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false;
+  const err = error as Error & { code?: string };
+  return err.code === "EACCES" || err.code === "EPERM";
+};
+
+const resolveExistingDirectory = (
+  candidatePath: string
+): string | undefined => {
+  try {
+    const resolved = fs.realpathSync.native(candidatePath);
+    return fs.statSync(resolved).isDirectory() ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveExistingFile = (candidatePath: string): string | undefined => {
+  try {
+    const resolved = fs.realpathSync.native(candidatePath);
+    return fs.statSync(resolved).isFile() ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveExistingCompanionDts = (
+  bindingsPath: string
+): string | undefined => {
+  return resolveExistingFile(
+    path.join(path.dirname(bindingsPath), "internal", "index.d.ts")
+  );
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -144,13 +162,15 @@ const findBindingsFiles = (packagePath: string): string[] => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Load all assembly types from node_modules/@tsonic packages.
+ * Load all assembly types from explicitly participating CLR packages.
  *
- * @param nodeModulesPath - Path to node_modules directory
+ * @param _nodeModulesPath - Unused legacy slot preserved for call-site stability
+ * until callers are fully migrated to the explicit-roots-only model.
+ * @param extraPackageRoots - Explicit CLR package roots participating in this build
  * @returns AssemblyTypeCatalog with all loaded types
  */
 export const loadClrCatalog = (
-  nodeModulesPath: string,
+  _nodeModulesPath: string,
   extraPackageRoots: readonly string[] = []
 ): AssemblyTypeCatalog => {
   const entries = new Map<string, NominalEntry>();
@@ -159,54 +179,51 @@ export const loadClrCatalog = (
   const namespaceToTypeIds = new Map<string, TypeId[]>();
   const dtsFiles = new Set<string>();
 
-  // Find all @tsonic packages
-  const packageRoots = new Set<string>(findTsonicPackages(nodeModulesPath));
+  const packageRoots = new Set<string>();
   for (const extra of extraPackageRoots) {
-    packageRoots.add(extra);
+    const resolvedExtra = resolveExistingDirectory(extra);
+    if (resolvedExtra) {
+      packageRoots.add(resolvedExtra);
+    }
   }
 
   for (const packagePath of Array.from(packageRoots).sort()) {
+    if (isSourcePackageRoot(packagePath)) {
+      continue;
+    }
+
     // Find all bindings.json files
     const bindingsFiles = findBindingsFiles(packagePath);
 
     for (const bindingsPath of bindingsFiles) {
-      try {
-        const internalDtsPath = path.join(
-          path.dirname(bindingsPath),
-          "internal",
-          "index.d.ts"
-        );
-        if (fs.existsSync(internalDtsPath)) {
-          dtsFiles.add(internalDtsPath);
-        }
+      const internalDtsPath = resolveExistingCompanionDts(bindingsPath);
+      if (internalDtsPath) {
+        dtsFiles.add(internalDtsPath);
+      }
 
-        const content = fs.readFileSync(bindingsPath, "utf-8");
-        const parsed = JSON.parse(content) as unknown;
-        const bindings = extractRawDotnetBindingsPayload(parsed) as
-          | RawBindingsPayload
-          | undefined;
-        if (!bindings) {
-          continue;
-        }
+      const content = fs.readFileSync(bindingsPath, "utf-8");
+      const parsed = JSON.parse(content) as unknown;
+      const bindings = extractRawDotnetBindingsPayload(parsed) as
+        | RawBindingsPayload
+        | undefined;
+      if (!bindings) {
+        continue;
+      }
 
-        for (const rawType of bindings.types) {
-          const entry = convertRawType(rawType, bindings.namespace);
+      for (const rawType of bindings.types) {
+        const entry = convertRawType(rawType, bindings.namespace);
 
-          // Add to entries map
-          entries.set(entry.typeId.stableId, entry);
+        // Add to entries map
+        entries.set(entry.typeId.stableId, entry);
 
-          // Add to name lookup maps
-          tsNameToTypeId.set(entry.typeId.tsName, entry.typeId);
-          clrNameToTypeId.set(entry.typeId.clrName, entry.typeId);
+        // Add to name lookup maps
+        tsNameToTypeId.set(entry.typeId.tsName, entry.typeId);
+        clrNameToTypeId.set(entry.typeId.clrName, entry.typeId);
 
-          // Add to namespace map
-          const nsTypes = namespaceToTypeIds.get(bindings.namespace) ?? [];
-          nsTypes.push(entry.typeId);
-          namespaceToTypeIds.set(bindings.namespace, nsTypes);
-        }
-      } catch (e) {
-        // Log but continue - don't fail on malformed files
-        console.warn(`Failed to load metadata from ${bindingsPath}:`, e);
+        // Add to namespace map
+        const nsTypes = namespaceToTypeIds.get(bindings.namespace) ?? [];
+        nsTypes.push(entry.typeId);
+        namespaceToTypeIds.set(bindings.namespace, nsTypes);
       }
     }
   }

@@ -9,6 +9,7 @@
 
 import * as ts from "typescript";
 import { IrType, IrPrimitiveType } from "../../../types.js";
+import { explicitUnknownType } from "../../types.js";
 
 /**
  * CLR numeric type names from @tsonic/core.
@@ -44,7 +45,7 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
     case ts.SyntaxKind.AnyKeyword:
       return { kind: "anyType" };
     case ts.SyntaxKind.UnknownKeyword:
-      return { kind: "unknownType" };
+      return explicitUnknownType;
     case ts.SyntaxKind.NeverKeyword:
       return { kind: "neverType" };
     case ts.SyntaxKind.ObjectKeyword:

@@ -37,6 +37,13 @@ describe("Program Creation – package resolution", function () {
         "@tsonic",
         "nodejs"
       );
+      const authoritativeJsRoot = path.resolve(
+        process.cwd(),
+        "../../../js/versions/10"
+      );
+      expect(
+        fs.existsSync(path.join(authoritativeJsRoot, "package.json"))
+      ).to.equal(true);
       fs.mkdirSync(path.join(nodejsRoot, "src"), { recursive: true });
       fs.mkdirSync(path.join(nodejsRoot, "tsonic"), { recursive: true });
       fs.writeFileSync(
@@ -57,13 +64,14 @@ describe("Program Creation – package resolution", function () {
         )
       );
       fs.writeFileSync(
-        path.join(nodejsRoot, "tsonic", "package-manifest.json"),
+        path.join(nodejsRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "nodejs",
               exports: {
                 ".": "./src/index.ts",
                 "./path.js": "./src/path-module.ts",
@@ -100,7 +108,7 @@ describe("Program Creation – package resolution", function () {
         sourceRoot: srcDir,
         rootNamespace: "Test",
         surface: "@tsonic/js",
-        typeRoots: [path.join(tempDir, "node_modules", "@tsonic", "nodejs")],
+        typeRoots: [authoritativeJsRoot, nodejsRoot],
       });
 
       expect(result.ok).to.equal(true);
@@ -120,7 +128,7 @@ describe("Program Creation – package resolution", function () {
     }
   });
 
-  it("should preserve symlinked source-package paths during program creation", () => {
+  it("should resolve symlinked source-package files through their real paths during program creation", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-symlinked-source-package-")
     );
@@ -148,6 +156,13 @@ describe("Program Creation – package resolution", function () {
         "nodejs"
       );
       fs.mkdirSync(path.dirname(nodejsRoot), { recursive: true });
+      const authoritativeJsRoot = path.resolve(
+        process.cwd(),
+        "../../../js/versions/10"
+      );
+      expect(
+        fs.existsSync(path.join(authoritativeJsRoot, "package.json"))
+      ).to.equal(true);
 
       fs.mkdirSync(path.join(externalRoot, "src"), { recursive: true });
       fs.mkdirSync(path.join(externalRoot, "tsonic"), { recursive: true });
@@ -168,13 +183,14 @@ describe("Program Creation – package resolution", function () {
         )
       );
       fs.writeFileSync(
-        path.join(externalRoot, "tsonic", "package-manifest.json"),
+        path.join(externalRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "nodejs",
               exports: {
                 ".": "./src/index.ts",
                 "./path.js": "./src/path-module.ts",
@@ -209,7 +225,7 @@ describe("Program Creation – package resolution", function () {
         sourceRoot: srcDir,
         rootNamespace: "Test",
         surface: "@tsonic/js",
-        typeRoots: [nodejsRoot],
+        typeRoots: [authoritativeJsRoot, nodejsRoot],
       });
 
       expect(result.ok).to.equal(true);
@@ -218,21 +234,17 @@ describe("Program Creation – package resolution", function () {
       expect(
         result.value.program
           .getSourceFiles()
-          .some(
-            (sourceFile) =>
-              path.resolve(sourceFile.fileName) ===
-              path.resolve(path.join(nodejsRoot, "src", "path-module.ts"))
-          )
-      ).to.equal(true);
-      expect(
-        result.value.program
-          .getSourceFiles()
-          .some(
-            (sourceFile) =>
-              path.resolve(sourceFile.fileName) ===
-              path.resolve(path.join(externalRoot, "src", "path-module.ts"))
-          )
-      ).to.equal(false);
+          .filter((sourceFile) => {
+            try {
+              return (
+                fs.realpathSync(sourceFile.fileName) ===
+                fs.realpathSync(path.join(externalRoot, "src", "path-module.ts"))
+              );
+            } catch {
+              return false;
+            }
+          })
+      ).to.have.lengthOf(1);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
       fs.rmSync(externalRoot, { recursive: true, force: true });

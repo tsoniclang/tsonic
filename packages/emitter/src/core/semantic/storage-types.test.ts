@@ -234,6 +234,73 @@ describe("storage-types", () => {
     });
   });
 
+  it("preserves in-scope nullable unconstrained type-parameter storage by default", () => {
+    const genericContext: EmitterContext = {
+      ...context,
+      typeParameters: new Set(["T"]),
+      typeParamConstraints: new Map([["T", "unconstrained"]]),
+    };
+    const type: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "typeParameterType", name: "T" },
+        { kind: "primitiveType", name: "null" },
+      ],
+    };
+
+    expect(normalizeRuntimeStorageType(type, genericContext)).to.deep.equal(
+      type
+    );
+  });
+
+  it("erases in-scope nullable unconstrained type-parameter storage when requested", () => {
+    const genericContext: EmitterContext = {
+      ...context,
+      typeParameters: new Set(["T"]),
+      typeParamConstraints: new Map([["T", "unconstrained"]]),
+      eraseNullableUnconstrainedTypeParameterStorage: true,
+    };
+    const type: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "typeParameterType", name: "T" },
+        { kind: "primitiveType", name: "null" },
+      ],
+    };
+
+    expect(normalizeRuntimeStorageType(type, genericContext)).to.deep.equal({
+      kind: "unionType",
+      types: [
+        {
+          kind: "referenceType",
+          name: "object",
+          resolvedClrType: "System.Object",
+        },
+        { kind: "primitiveType", name: "null" },
+      ],
+    });
+  });
+
+  it("preserves in-scope nullable constrained type-parameter storage even when requested", () => {
+    const genericContext: EmitterContext = {
+      ...context,
+      typeParameters: new Set(["T"]),
+      typeParamConstraints: new Map([["T", "class"]]),
+      eraseNullableUnconstrainedTypeParameterStorage: true,
+    };
+    const type: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "typeParameterType", name: "T" },
+        { kind: "primitiveType", name: "null" },
+      ],
+    };
+
+    expect(normalizeRuntimeStorageType(type, genericContext)).to.deep.equal(
+      type
+    );
+  });
+
   it("erases out-of-scope type parameters nested in reference types", () => {
     expect(
       normalizeRuntimeStorageType(
@@ -255,6 +322,183 @@ describe("storage-types", () => {
           name: "object",
           resolvedClrType: "System.Object",
         },
+      ],
+    });
+  });
+
+  it("preserves structural alias identity in generic storage types", () => {
+    const genericContext: EmitterContext = {
+      ...context,
+      typeParameters: new Set(["K", "V"]),
+      localTypes: new Map([
+        [
+          "MapEntry",
+          {
+            kind: "typeAlias" as const,
+            typeParameters: ["K", "V"],
+            type: {
+              kind: "objectType",
+              members: [
+                {
+                  kind: "propertySignature",
+                  name: "key",
+                  type: { kind: "typeParameterType", name: "K" },
+                  isOptional: false,
+                  isReadonly: true,
+                },
+                {
+                  kind: "propertySignature",
+                  name: "value",
+                  type: { kind: "typeParameterType", name: "V" },
+                  isOptional: false,
+                  isReadonly: false,
+                },
+              ],
+            },
+          },
+        ],
+      ]),
+    };
+
+    expect(
+      normalizeRuntimeStorageType(
+        {
+          kind: "referenceType",
+          name: "List_1",
+          resolvedClrType: "System.Collections.Generic.List`1",
+          typeArguments: [
+            {
+              kind: "referenceType",
+              name: "MapEntry",
+              typeArguments: [
+                { kind: "typeParameterType", name: "K" },
+                { kind: "typeParameterType", name: "V" },
+              ],
+            },
+          ],
+        },
+        genericContext
+      )
+    ).to.deep.equal({
+      kind: "referenceType",
+      name: "List_1",
+      resolvedClrType: "System.Collections.Generic.List`1",
+      typeArguments: [
+        {
+          kind: "referenceType",
+          name: "MapEntry",
+          typeArguments: [
+            { kind: "typeParameterType", name: "K" },
+            { kind: "typeParameterType", name: "V" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("normalizes out-of-scope type arguments without erasing structural aliases", () => {
+    const aliasContext: EmitterContext = {
+      ...context,
+      localTypes: new Map([
+        [
+          "MapEntry",
+          {
+            kind: "typeAlias" as const,
+            typeParameters: ["K"],
+            type: {
+              kind: "objectType",
+              members: [
+                {
+                  kind: "propertySignature",
+                  name: "key",
+                  type: { kind: "typeParameterType", name: "K" },
+                  isOptional: false,
+                  isReadonly: true,
+                },
+              ],
+            },
+          },
+        ],
+      ]),
+    };
+
+    expect(
+      normalizeRuntimeStorageType(
+        {
+          kind: "referenceType",
+          name: "List_1",
+          resolvedClrType: "System.Collections.Generic.List`1",
+          typeArguments: [
+            {
+              kind: "referenceType",
+              name: "MapEntry",
+              typeArguments: [{ kind: "typeParameterType", name: "T" }],
+            },
+          ],
+        },
+        aliasContext
+      )
+    ).to.deep.equal({
+      kind: "referenceType",
+      name: "List_1",
+      resolvedClrType: "System.Collections.Generic.List`1",
+      typeArguments: [
+        {
+          kind: "referenceType",
+          name: "MapEntry",
+          typeArguments: [
+            {
+              kind: "referenceType",
+              name: "object",
+              resolvedClrType: "System.Object",
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("does not erase source class storage when an unrelated cross-module alias shares the same simple name", () => {
+    const aliasContext: EmitterContext = {
+      ...context,
+      options: {
+        ...context.options,
+        typeAliasIndex: {
+          byFqn: new Map([
+            [
+              "nodejs.child_process.Readable",
+              {
+                name: "Readable",
+                fqn: "nodejs.child_process.Readable",
+                type: { kind: "unknownType" },
+                typeParameters: [],
+              },
+            ],
+          ]),
+        },
+      },
+    };
+
+    expect(
+      normalizeRuntimeStorageType(
+        {
+          kind: "unionType",
+          types: [
+            { kind: "primitiveType", name: "undefined" },
+            {
+              kind: "referenceType",
+              name: "Readable",
+              resolvedClrType: "nodejs.stream.Readable",
+            },
+          ],
+        },
+        aliasContext
+      )
+    ).to.deep.equal({
+      kind: "unionType",
+      types: [
+        { kind: "referenceType", name: "Readable", resolvedClrType: "nodejs.stream.Readable" },
+        { kind: "primitiveType", name: "undefined" },
       ],
     });
   });

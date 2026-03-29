@@ -1,6 +1,6 @@
 /**
  * Tests for BindingRegistry core CRUD operations:
- * add / retrieve / clear / case-insensitive lookup / multiple manifests.
+ * add / retrieve / clear / multiple manifests.
  */
 
 import { describe, it } from "mocha";
@@ -81,25 +81,25 @@ describe("Binding System", () => {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });
-      registry.addBindings("/test/js-runtime/bindings.json", {
-        namespace: "Tsonic.JSRuntime",
+      registry.addBindings("/test/js/bindings.json", {
+        namespace: "js",
         types: [
           {
-            clrName: "Tsonic.JSRuntime.console",
-            assemblyName: "Tsonic.JSRuntime",
+            clrName: "js.console",
+            assemblyName: "js",
             methods: [
               {
                 clrName: "error",
                 normalizedSignature:
                   "error|(System.Object[]):System.Void|static=true",
                 parameterCount: 1,
-                declaringClrType: "Tsonic.JSRuntime.console",
-                declaringAssemblyName: "Tsonic.JSRuntime",
+                declaringClrType: "js.console",
+                declaringAssemblyName: "js",
               },
             ],
             properties: [],
@@ -130,13 +130,13 @@ describe("Binding System", () => {
       });
 
       const overloads = registry.getMemberOverloads(
-        "Tsonic.JSRuntime.console",
+        "js.console",
         "error",
-        false
+        "js.console"
       );
 
       expect(overloads?.map((binding) => binding.binding.type)).to.deep.equal([
-        "Tsonic.JSRuntime.console",
+        "js.console",
       ]);
     });
 
@@ -188,36 +188,15 @@ describe("Binding System", () => {
       expect(registry.getBinding("fs")).not.to.equal(undefined);
     });
 
-    it("should resolve simple bindings case-insensitively", () => {
-      const registry = new BindingRegistry();
-
-      registry.addBindings("/test/manifest.json", {
-        bindings: {
-          console: {
-            kind: "global",
-            assembly: "Tsonic.Runtime",
-            type: "Tsonic.Runtime.console",
-          },
-        },
-      });
-
-      const upper = registry.getBinding("Console");
-      expect(upper).to.deep.equal({
-        kind: "global",
-        assembly: "Tsonic.Runtime",
-        type: "Tsonic.Runtime.console",
-      });
-    });
-
     it("should retain both global and module bindings for the same alias", () => {
       const registry = new BindingRegistry();
 
-      registry.addBindings("/test/js-runtime.json", {
+      registry.addBindings("/test/js.json", {
         bindings: {
           console: {
             kind: "global",
-            assembly: "Tsonic.JSRuntime",
-            type: "Tsonic.JSRuntime.console",
+            assembly: "js",
+            type: "js.console",
           },
         },
       });
@@ -234,13 +213,13 @@ describe("Binding System", () => {
 
       expect(registry.getBinding("console")).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.console",
+        assembly: "js",
+        type: "js.console",
       });
       expect(registry.getBindingByKind("console", "global")).to.deep.equal({
         kind: "global",
-        assembly: "Tsonic.JSRuntime",
-        type: "Tsonic.JSRuntime.console",
+        assembly: "js",
+        type: "js.console",
       });
       expect(registry.getBindingByKind("console", "module")).to.deep.equal({
         kind: "module",

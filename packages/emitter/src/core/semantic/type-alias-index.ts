@@ -4,22 +4,9 @@ import type {
   TypeAliasIndexEntry,
 } from "../../emitter-types/core.js";
 
-const addEntry = (
-  map: Map<string, TypeAliasIndexEntry[]>,
-  entry: TypeAliasIndexEntry
-): void => {
-  const existing = map.get(entry.name);
-  if (existing) {
-    existing.push(entry);
-    return;
-  }
-  map.set(entry.name, [entry]);
-};
-
 export const buildTypeAliasIndex = (
   modules: readonly IrModule[]
 ): TypeAliasIndex => {
-  const byName = new Map<string, TypeAliasIndexEntry[]>();
   const byFqn = new Map<string, TypeAliasIndexEntry>();
 
   for (const module of modules) {
@@ -35,10 +22,9 @@ export const buildTypeAliasIndex = (
         typeParameters: stmt.typeParameters?.map((p) => p.name) ?? [],
       };
 
-      addEntry(byName, entry);
       byFqn.set(entry.fqn, entry);
     }
   }
 
-  return { byName, byFqn };
+  return { byFqn };
 };

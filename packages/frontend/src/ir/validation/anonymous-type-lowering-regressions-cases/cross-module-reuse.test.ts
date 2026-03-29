@@ -325,7 +325,7 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     ).to.equal("Acme.Messages.__Anon_ext_deadbeef");
   });
 
-  it("keeps synthesized anonymous carriers internal when they only reference internal aliases", () => {
+  it("reuses local recursive structural aliases instead of synthesizing anonymous carriers", () => {
     const module = createTestModule(`
       type TreeNode = {
         child?: TreeNode;
@@ -340,20 +340,28 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     `);
 
     const lowered = runAnonymousTypeLoweringPass([module]);
-    const anonModule = lowered.modules.find(
+    const mainModule = lowered.modules.find(
       (candidate) =>
-        candidate.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+        candidate.filePath !== "__tsonic/__tsonic_anonymous_types.g.ts"
     );
-    const anonClass = anonModule?.body.find(
+    const leafDeclaration = mainModule?.body.find(
       (
         stmt
       ): stmt is Extract<
         IrModule["body"][number],
-        { kind: "classDeclaration" }
-      > => stmt.kind === "classDeclaration"
+        { kind: "variableDeclaration" }
+      > => stmt.kind === "variableDeclaration"
+    );
+    const leafType = leafDeclaration?.declarations[0]?.type;
+    const anonModule = lowered.modules.find(
+      (candidate) =>
+        candidate.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
     );
 
-    expect(anonClass?.name).to.match(/^__Anon_/);
-    expect(anonClass?.isExported).to.equal(false);
+    expect(leafType?.kind).to.equal("referenceType");
+    expect(
+      leafType && leafType.kind === "referenceType" ? leafType.name : undefined
+    ).to.equal("TreeNode");
+    expect(anonModule).to.equal(undefined);
   });
 });

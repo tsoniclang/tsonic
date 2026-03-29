@@ -168,7 +168,8 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   actualType: IrType | undefined,
   context: EmitterContext,
   expectedType: IrType | undefined,
-  visited: ReadonlySet<string> = new Set<string>()
+  visited: ReadonlySet<string> = new Set<string>(),
+  selectedSourceMemberNs?: ReadonlySet<number>
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
   if (!actualType || !expectedType) return undefined;
 
@@ -352,7 +353,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   }
 
   const normalizedExpected = normalizedExpectedType;
-  const visitKey = `${stableIrTypeKey(normalizedActualType)}=>${stableIrTypeKey(normalizedExpected)}`;
+  const visitKey = `${stableIrTypeKey(normalizedActualType)}=>${stableIrTypeKey(normalizedExpected)}=>${selectedSourceMemberNs ? Array.from(selectedSourceMemberNs).join(",") : "*"}`;
   if (visited.has(visitKey)) {
     return undefined;
   }
@@ -364,7 +365,8 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     emissionActualType,
     context,
     emissionExpectedType,
-    nextVisited
+    nextVisited,
+    selectedSourceMemberNs
   );
   if (projectedUnion) {
     return projectedUnion;
@@ -381,7 +383,8 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       emissionActualType,
       emissionExpectedType,
       context,
-      emitTypeAst
+      emitTypeAst,
+      selectedSourceMemberNs
     );
     if (materialized) {
       return materialized;
@@ -397,7 +400,8 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     emissionActualType,
     context,
     emissionExpectedType,
-    nextVisited
+    nextVisited,
+    selectedSourceMemberNs
   );
   if (widenedUnion) {
     return widenedUnion;

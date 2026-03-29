@@ -5,7 +5,7 @@ namespace TestCases.common.edgecases.voidexpression
     {
         public static void voidStatementMarker()
         {
-            int x = (int)1;
+            int x = 1;
             var __tsonic_discard = x;
         }
 
@@ -26,7 +26,7 @@ namespace TestCases.common.edgecases.voidexpression
 
         internal static int sideEffect()
         {
-            return (int)42;
+            return 42;
         }
     }
 }

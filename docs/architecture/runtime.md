@@ -1,6 +1,6 @@
 # Runtime
 
-Runtime support is split across focused assemblies/packages.
+Runtime support is split into two layers.
 
 ## Core Runtime
 
@@ -12,28 +12,30 @@ Provides:
 - shared compiler support types
 - other core emitted-runtime dependencies
 
-## JS Runtime
+This is the only runtime DLL that the CLI/test harness syncs locally under `packages/cli/runtime`.
 
-- `Tsonic.JSRuntime`
+## Surface Runtime Overlays
 
-Provides implementation for the JS surface:
+Ambient/module surfaces such as `@tsonic/js` and `@tsonic/nodejs` are source packages.
 
-- `console`
-- `JSON`
-- `Date`
-- timers
-- `Array`/`String`/`Map`/`Set` helper operations
+They contribute runtime requirements through package metadata:
 
-## Node Runtime
+- `tsonic.package.json`
+- `runtime`
+- `dotnet`
 
-- `Tsonic.Nodejs` / `nodejs.dll`
+That metadata can add:
 
-Provides module/runtime support for `node:*` bindings.
+- NuGet package references
+- framework references
+- transitive runtime package requirements
+
+Those requirements are resolved through normal package/restore flow. They are not copied into the CLI runtime directory as ad hoc surface DLLs.
 
 ## Surface Projection
 
 Runtime implementation and surface projection must remain coherent:
 
-- runtime code lives in runtime repos
-- surface package manifests/projection configs describe the ambient/module shape
-- published packages must include the nested bindings/internal declaration trees that member binding lookup needs
+- core emitted runtime support lives in `Tsonic.Runtime`
+- source package manifests describe surface/runtime overlays
+- bindings manifests remain only for CLR / tsbindgen interop packages

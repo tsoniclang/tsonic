@@ -6,9 +6,8 @@
  *   tsonic add npm <packageSpec>
  *
  * Supported manifest contracts (airplane-grade):
- * - `tsonic/package-manifest.json` (package-manifest)
- * - `tsonic/package-manifest.json` with `kind: "tsonic-source-package"`
- * - `tsonic.bindings.json` (legacy/external)
+ * - `tsonic.package.json` (native source-package metadata)
+ * - `tsonic.bindings.json` (CLR bindings metadata)
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -257,7 +256,7 @@ export const addNpmCommand = (
       error:
         `Missing manifest in npm package: ${pkgRoot}\n` +
         `Expected one of:\n` +
-        `- tsonic/package-manifest.json\n` +
+        `- tsonic.package.json\n` +
         `- tsonic.bindings.json`,
     };
   }

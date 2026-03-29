@@ -20,6 +20,7 @@ import { planDuplicateTypeSuppression } from "./duplicate-type-suppression.js";
 import {
   generateModuleContainerAttributeFile,
   generateJsonAotFile,
+  generateJsonRuntimeFile,
 } from "./generated-files.js";
 
 /**
@@ -70,13 +71,11 @@ export const emitCSharpFiles = (
     return { ok: false, errors: duplicatePlan.errors };
   }
 
-  // Create JSON AOT registry only when NativeAOT JSON rewrite is enabled.
-  const jsonAotRegistry: JsonAotRegistry | undefined = options.enableJsonAot
-    ? {
-        rootTypes: new Map(),
-        needsJsonAot: false,
-      }
-    : undefined;
+  const jsonAotRegistry: JsonAotRegistry = {
+    rootTypes: new Map(),
+    needsJsonAot: false,
+    needsRuntimeJsonSupport: false,
+  };
 
   // Detect whether we emitted any module static container classes.
   // If so, we must include the ModuleContainerAttribute definition so those
@@ -124,10 +123,16 @@ export const emitCSharpFiles = (
   }
 
   // Generate __tsonic_json.g.cs if any JsonSerializer calls were detected
-  if (jsonAotRegistry?.needsJsonAot) {
+  if (jsonAotRegistry.needsJsonAot) {
     const rootNamespace = options.rootNamespace ?? "TsonicApp";
     const jsonCode = generateJsonAotFile(jsonAotRegistry, rootNamespace);
     results.set("__tsonic_json.g.cs", jsonCode);
+  }
+
+  if (jsonAotRegistry.needsRuntimeJsonSupport) {
+    const rootNamespace = options.rootNamespace ?? "TsonicApp";
+    const jsonRuntimeCode = generateJsonRuntimeFile(rootNamespace);
+    results.set("__tsonic_json_runtime.g.cs", jsonRuntimeCode);
   }
 
   // Generate __tsonic_module_containers.g.cs if any module emitted a static container.

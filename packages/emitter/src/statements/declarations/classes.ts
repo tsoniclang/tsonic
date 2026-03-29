@@ -217,6 +217,14 @@ export const emitClassDeclaration = (
       reservedTypeParamNames
     );
   currentContext = typeParamContext;
+  const declaringTypeParameterNames = stmt.typeParameters?.map((tp) => tp.name) ?? [];
+  const declaringTypeParameterNameMap = new Map<string, string>();
+  for (const name of declaringTypeParameterNames) {
+    declaringTypeParameterNameMap.set(
+      name,
+      currentContext.typeParameterNameMap?.get(name) ?? name
+    );
+  }
 
   // Base class (extends clause)
   let baseType: CSharpTypeAst | undefined;
@@ -253,6 +261,11 @@ export const emitClassDeclaration = (
   const baseContext = {
     ...withClassName(indent(currentContext), escapedClassName),
     declaringTypeName: stmt.name,
+    declaringTypeParameterNames,
+    declaringTypeParameterNameMap:
+      declaringTypeParameterNameMap.size > 0
+        ? declaringTypeParameterNameMap
+        : undefined,
   };
   const hasConstructorHelper = membersToEmit.some(
     (member) =>
@@ -268,20 +281,22 @@ export const emitClassDeclaration = (
   const memberAsts: CSharpMemberAst[] = [];
   const hoistedInitializerStatements: CSharpStatementAst[] = [];
   for (const member of membersToEmit) {
-    const [memberAst, newContext] = emitClassMember(member, bodyContext);
-    if (
-      shouldHoistInstanceInitializer(member) &&
-      (memberAst.kind === "fieldDeclaration" ||
-        memberAst.kind === "propertyDeclaration") &&
-      memberAst.initializer
-    ) {
-      const hoistedStatement = buildHoistedInitializerStatement(memberAst);
-      if (hoistedStatement) {
-        hoistedInitializerStatements.push(hoistedStatement);
+    const [emittedMembers, newContext] = emitClassMember(member, bodyContext);
+    for (const memberAst of emittedMembers) {
+      if (
+        shouldHoistInstanceInitializer(member) &&
+        (memberAst.kind === "fieldDeclaration" ||
+          memberAst.kind === "propertyDeclaration") &&
+        memberAst.initializer
+      ) {
+        const hoistedStatement = buildHoistedInitializerStatement(memberAst);
+        if (hoistedStatement) {
+          hoistedInitializerStatements.push(hoistedStatement);
+        }
+        memberAsts.push(stripMemberInitializer(memberAst));
+      } else {
+        memberAsts.push(memberAst);
       }
-      memberAsts.push(stripMemberInitializer(memberAst));
-    } else {
-      memberAsts.push(memberAst);
     }
     currentContext = newContext;
   }
@@ -432,8 +447,11 @@ export const emitClassDeclaration = (
     const staticMemberAsts: CSharpMemberAst[] = [];
     let companionContext = companionBodyContext;
     for (const member of staticMembers) {
-      const [memberAst, newContext] = emitClassMember(member, companionContext);
-      staticMemberAsts.push(memberAst);
+      const [emittedMembers, newContext] = emitClassMember(
+        member,
+        companionContext
+      );
+      staticMemberAsts.push(...emittedMembers);
       companionContext = newContext;
     }
 

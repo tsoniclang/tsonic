@@ -26,7 +26,6 @@ export type { GeneratedBindingsKind } from "./add-common/generated-bindings.js";
 export {
   bindingsStoreDir,
   ensureGeneratedBindingsPackageJson,
-  ensurePackageJson,
   installGeneratedBindingsPackage,
 } from "./add-common/generated-bindings.js";
 export type { TsbindgenClosureOutput } from "./add-common/tsbindgen.js";

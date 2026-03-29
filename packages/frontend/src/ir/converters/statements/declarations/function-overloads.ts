@@ -2,6 +2,7 @@ import * as ts from "typescript";
 import {
   IrBlockStatement,
   IrFunctionDeclaration,
+  IrFunctionType,
   IrParameter,
   IrType,
 } from "../../../types.js";
@@ -23,6 +24,7 @@ import {
   getOverloadImplementationName,
   needsAsyncReturnStatementAdaptation,
   needsAsyncWrapperReturnAdaptation,
+  preserveTopLevelRuntimeLayout,
   specializeStatement,
 } from "./overload-lowering.js";
 
@@ -38,6 +40,53 @@ const resolveFunctionReturnType = (
   node.type
     ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
     : undefined;
+
+const countRequiredFunctionParameters = (
+  parameters: readonly IrParameter[]
+): number => {
+  let required = 0;
+  for (const parameter of parameters) {
+    if (
+      parameter.isRest ||
+      parameter.isOptional ||
+      parameter.initializer !== undefined
+    ) {
+      break;
+    }
+    required += 1;
+  }
+  return required;
+};
+
+const isNullishType = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
+const resolveCallableShape = (
+  type: IrType,
+  ctx: ProgramContext
+): IrFunctionType | undefined => {
+  if (type.kind === "functionType") {
+    return type;
+  }
+
+  const delegated = ctx.typeSystem.delegateToFunctionType(type);
+  if (delegated) {
+    return delegated;
+  }
+
+  if (type.kind !== "unionType") {
+    return undefined;
+  }
+
+  const nonNullishMembers = type.types.filter((member) => !isNullishType(member));
+  if (nonNullishMembers.length !== 1) {
+    return undefined;
+  }
+
+  const [callableMember] = nonNullishMembers;
+  return callableMember ? resolveCallableShape(callableMember, ctx) : undefined;
+};
 
 export const convertFunctionOverloadGroup = (
   nodes: readonly ts.FunctionDeclaration[],
@@ -93,6 +142,28 @@ export const convertFunctionOverloadGroup = (
   );
   const isGenerator = !!impl.asteriskToken;
 
+  const collectMissingRuntimeForwardingDeclIds = (
+    signatureParameterCount: number
+  ): ReadonlySet<number> => {
+    const missingDeclIds = new Set<number>();
+    for (
+      let index = signatureParameterCount;
+      index < implParams.length;
+      index += 1
+    ) {
+      const implParameter = implParams[index];
+      const declId = implParamDeclIds[index];
+      if (
+        implParameter &&
+        declId !== undefined &&
+        (implParameter.isRest || implParameter.initializer !== undefined)
+      ) {
+        missingDeclIds.add(declId);
+      }
+    }
+    return missingDeclIds;
+  };
+
   const requiresWrapperLowering = sigs.some((sig) => {
     const sigParams = convertParameters(sig.parameters, ctx);
     if (sigParams.length > implParams.length) {
@@ -111,9 +182,67 @@ export const convertFunctionOverloadGroup = (
       }
     }
 
-    const specialized = specializeStatement(implBody, paramTypesByDeclId);
+    const missingRuntimeForwardingDeclIds =
+      collectMissingRuntimeForwardingDeclIds(sigParams.length);
+    const specialized = specializeStatement(
+      implBody,
+      paramTypesByDeclId,
+      missingRuntimeForwardingDeclIds
+    );
     if (!assertNoIsTypeCalls(specialized)) {
       return false;
+    }
+
+    const requiresCallableAdapter = sigParams.some((parameter, index) => {
+      const implParameter = implParams[index];
+      const sigType = parameter.type;
+      const implType = implParameter?.type;
+      if (!sigType || !implType) {
+        return false;
+      }
+
+      if (ctx.typeSystem.typesEqual(sigType, implType)) {
+        return false;
+      }
+
+      const sigCallable = resolveCallableShape(sigType, ctx);
+      const implCallable = resolveCallableShape(implType, ctx);
+      if (!sigCallable && !implCallable) {
+        return false;
+      }
+      if (!sigCallable || !implCallable) {
+        return true;
+      }
+      if (
+        sigCallable.parameters.length !== implCallable.parameters.length ||
+        countRequiredFunctionParameters(sigCallable.parameters) !==
+          countRequiredFunctionParameters(implCallable.parameters)
+      ) {
+        return true;
+      }
+      return true;
+    });
+    if (requiresCallableAdapter) {
+      return true;
+    }
+
+    const requiresDefaultForwarding = sigParams.some((parameter, index) => {
+      const implParameter = implParams[index];
+      if (!implParameter?.initializer) {
+        return false;
+      }
+
+      return parameter.isOptional && parameter.initializer === undefined;
+    });
+    if (requiresDefaultForwarding) {
+      return true;
+    }
+
+    if (
+      missingRuntimeForwardingDeclIds.size > 0 &&
+      !assertNoMissingParamRefs(specialized, missingRuntimeForwardingDeclIds)
+    ) {
+      return true;
     }
 
     if (sigParams.length >= implParams.length) {
@@ -146,11 +275,15 @@ export const convertFunctionOverloadGroup = (
         implFunction.body,
         implFunction.returnType
       );
+    const helperReturnType = preserveTopLevelRuntimeLayout(
+      implFunction.returnType
+    );
     const helperFunction: IrFunctionDeclaration = {
       ...implFunction,
       name: helperName,
       isExported: false,
       isAsync: helperIsAsync,
+      returnType: helperReturnType,
       overloadFamily: buildImplementationOverloadFamilyMember({
         ownerKind: "function",
         publicName: memberName,
@@ -160,7 +293,7 @@ export const convertFunctionOverloadGroup = (
       }),
       body: adaptReturnStatements(
         implFunction.body,
-        implFunction.returnType,
+        helperReturnType,
         helperIsAsync
       ) as IrBlockStatement,
     };
@@ -187,8 +320,13 @@ export const convertFunctionOverloadGroup = (
           helperName,
           parameters,
           implFunction.parameters,
+          implParamDeclIds,
+          implBody,
+          (implFunction.typeParameters ?? []).map(
+            (typeParameter) => typeParameter.name
+          ),
           true,
-          implFunction.returnType,
+          helperReturnType,
           returnType,
           (sig.typeParameters ?? []).map(
             (typeParameter) => typeParameter.name.text

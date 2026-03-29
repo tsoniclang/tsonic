@@ -239,21 +239,8 @@ export const lowerExpression = (
           parameterTypes: expr.parameterTypes?.map((parameterType) =>
             parameterType ? lowerType(parameterType, ctx) : undefined
           ),
-          surfaceParameterTypes: expr.surfaceParameterTypes?.map(
-            (parameterType) =>
-              parameterType ? lowerType(parameterType, ctx) : undefined
-          ),
-          surfaceRestParameter: expr.surfaceRestParameter
-            ? {
-                ...expr.surfaceRestParameter,
-                arrayType: expr.surfaceRestParameter.arrayType
-                  ? lowerType(expr.surfaceRestParameter.arrayType, ctx)
-                  : undefined,
-                elementType: expr.surfaceRestParameter.elementType
-                  ? lowerType(expr.surfaceRestParameter.elementType, ctx)
-                  : undefined,
-              }
-            : undefined,
+          surfaceParameterTypes: expr.surfaceParameterTypes,
+          surfaceRestParameter: expr.surfaceRestParameter,
           narrowing: expr.narrowing
             ? {
                 ...expr.narrowing,
@@ -275,21 +262,8 @@ export const lowerExpression = (
           parameterTypes: expr.parameterTypes?.map((parameterType) =>
             parameterType ? lowerType(parameterType, ctx) : undefined
           ),
-          surfaceParameterTypes: expr.surfaceParameterTypes?.map(
-            (parameterType) =>
-              parameterType ? lowerType(parameterType, ctx) : undefined
-          ),
-          surfaceRestParameter: expr.surfaceRestParameter
-            ? {
-                ...expr.surfaceRestParameter,
-                arrayType: expr.surfaceRestParameter.arrayType
-                  ? lowerType(expr.surfaceRestParameter.arrayType, ctx)
-                  : undefined,
-                elementType: expr.surfaceRestParameter.elementType
-                  ? lowerType(expr.surfaceRestParameter.elementType, ctx)
-                  : undefined,
-              }
-            : undefined,
+          surfaceParameterTypes: expr.surfaceParameterTypes,
+          surfaceRestParameter: expr.surfaceRestParameter,
         };
 
       case "update":

@@ -29,6 +29,10 @@ import {
 } from "./identifier-storage.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
+import {
+  isExpectedIntegralIrType,
+  maybeCastNumericToExpectedIntegralAst,
+} from "./post-emission-adaptation.js";
 
 /**
  * Emit an identifier as CSharpExpressionAst
@@ -38,6 +42,30 @@ export const emitIdentifier = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  const maybeWrapLocalIntegralCast = (
+    identifierAst: CSharpExpressionAst,
+    currentContext: EmitterContext
+  ): [CSharpExpressionAst, EmitterContext] => {
+    if (
+      !expectedType ||
+      !isExpectedIntegralIrType(expectedType, currentContext)
+    ) {
+      return [identifierAst, currentContext];
+    }
+
+    const storageType = currentContext.localValueTypes?.get(expr.name);
+    if (!storageType) {
+      return [identifierAst, currentContext];
+    }
+
+    return maybeCastNumericToExpectedIntegralAst(
+      identifierAst,
+      storageType,
+      currentContext,
+      expectedType
+    );
+  };
+
   // Special case for undefined -> default
   if (expr.name === "undefined") {
     if (
@@ -72,31 +100,6 @@ export const emitIdentifier = (
   if (context.narrowedBindings) {
     const narrowed = context.narrowedBindings.get(expr.name);
     if (narrowed) {
-      // Storage-compatible fast paths must NOT bypass runtimeSubset
-      // narrowing. When a branch context carries a runtimeSubset binding,
-      // the variable is semantically narrowed to a subset of the carrier
-      // (e.g., first: PathSpec slots within Union<5 members>). Emitting
-      // the raw storage identifier would lose that subset information and
-      // cause incorrect carrier-shape adaptation downstream.
-      if (narrowed.kind !== "runtimeSubset") {
-        const storageFallback = tryEmitStorageCompatibleIdentifier(
-          expr,
-          context,
-          expectedType
-        );
-        if (storageFallback) {
-          return [storageFallback, context];
-        }
-
-        const collapsedStorage = tryEmitCollapsedStorageIdentifier(
-          expr,
-          context
-        );
-        if (collapsedStorage) {
-          return collapsedStorage;
-        }
-      }
-
       if (narrowed.kind === "rename") {
         return [
           identifierExpression(escapeCSharpIdentifier(narrowed.name)),
@@ -196,6 +199,15 @@ export const emitIdentifier = (
     }
   }
 
+  const storageFallback = tryEmitStorageCompatibleIdentifier(
+    expr,
+    context,
+    expectedType
+  );
+  if (storageFallback) {
+    return [storageFallback, context];
+  }
+
   // Lexical remap for locals/parameters (prevents C# CS0136 shadowing errors).
   const reifiedStorage = tryEmitReifiedStorageIdentifier(
     expr,
@@ -206,9 +218,20 @@ export const emitIdentifier = (
     return reifiedStorage;
   }
 
+  const collapsedStorage =
+    expectedType === undefined
+      ? tryEmitCollapsedStorageIdentifier(expr, context)
+      : undefined;
+  if (collapsedStorage) {
+    return collapsedStorage;
+  }
+
   const remappedLocal = context.localNameMap?.get(expr.name);
   if (remappedLocal) {
-    return [identifierExpression(remappedLocal), context];
+    return maybeWrapLocalIntegralCast(
+      identifierExpression(remappedLocal),
+      context
+    );
   }
 
   // Check if this identifier is from an import
@@ -275,7 +298,10 @@ export const emitIdentifier = (
   }
 
   // Fallback: use identifier as-is (escape C# keywords)
-  return [identifierExpression(escapeCSharpIdentifier(expr.name)), context];
+  return maybeWrapLocalIntegralCast(
+    identifierExpression(escapeCSharpIdentifier(expr.name)),
+    context
+  );
 };
 
 /**

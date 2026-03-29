@@ -274,4 +274,5 @@ export type MemberEntry = {
  */
 export type TypeSyntaxEntry = {
   readonly typeNode: ts.TypeNode;
+  readonly referenceDeclId?: DeclId;
 };

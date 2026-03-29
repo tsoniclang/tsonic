@@ -347,11 +347,8 @@ describe("Type Emission", () => {
     const recursiveUnion = {
       kind: "unionType",
       types: [],
-    } as unknown as Extract<
-      import("@tsonic/frontend").IrType,
-      { kind: "unionType" }
-    > & {
-      types: import("@tsonic/frontend").IrType[];
+    } as unknown as Extract<IrType, { kind: "unionType" }> & {
+      types: IrType[];
     };
 
     recursiveUnion.types.push(

@@ -14,25 +14,46 @@ import {
   requiresValueTypeMaterialization,
 } from "./expected-type-matching.js";
 import { unwrapParameterModifierType } from "./parameter-modifier-types.js";
-import { tryBuildRuntimeMaterializationAst } from "./runtime-reification.js";
+import {
+  tryBuildRuntimeMaterializationAst,
+  tryBuildRuntimeReificationPlan,
+} from "./runtime-reification.js";
 import {
   isDefinitelyValueType,
   resolveTypeAlias,
   splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "./type-resolution.js";
+import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 
 const isExactExpressionToType = (
   ast: CSharpExpressionAst,
   typeAst: CSharpTypeAst
 ): boolean => {
-  if (ast.kind !== "castExpression") {
-    return false;
-  }
+  const concreteTarget =
+    typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
 
-  const castType =
-    ast.type.kind === "nullableType" ? ast.type.underlyingType : ast.type;
-  return sameConcreteTypeAstSurface(castType, typeAst);
+  switch (ast.kind) {
+    case "castExpression": {
+      const castType =
+        ast.type.kind === "nullableType" ? ast.type.underlyingType : ast.type;
+      return sameConcreteTypeAstSurface(castType, concreteTarget);
+    }
+    case "defaultExpression":
+      return (
+        ast.type !== undefined &&
+        sameConcreteTypeAstSurface(ast.type, concreteTarget)
+      );
+    case "objectCreationExpression":
+      return sameConcreteTypeAstSurface(ast.type, concreteTarget);
+    case "conditionalExpression":
+      return (
+        isExactExpressionToType(ast.whenTrue, concreteTarget) &&
+        isExactExpressionToType(ast.whenFalse, concreteTarget)
+      );
+    default:
+      return false;
+  }
 };
 
 export const materializeDirectNarrowingAst = (
@@ -87,6 +108,24 @@ export const materializeDirectNarrowingAst = (
     stripNullish(comparableSourceType),
     context
   );
+  const shouldReifyBroadSourceToRuntimeUnion =
+    (resolvedSource.kind === "unknownType" ||
+      resolvedSource.kind === "anyType" ||
+      resolvedSource.kind === "objectType" ||
+      (resolvedSource.kind === "referenceType" &&
+        resolvedSource.name === "object")) &&
+    willCarryAsRuntimeUnion(comparableNarrowedType, context);
+  if (shouldReifyBroadSourceToRuntimeUnion) {
+    const reificationPlan = tryBuildRuntimeReificationPlan(
+      sourceAst,
+      comparableNarrowedType,
+      context,
+      emitTypeAst
+    );
+    if (reificationPlan) {
+      return [reificationPlan.value, reificationPlan.context];
+    }
+  }
   const canReuseAssignableSurface =
     resolvedSource.kind !== "unknownType" &&
     resolvedSource.kind !== "anyType" &&

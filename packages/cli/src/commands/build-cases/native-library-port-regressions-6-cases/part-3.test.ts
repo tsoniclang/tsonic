@@ -20,7 +20,7 @@ import { applyPackageManifestWorkspaceOverlay } from "../../../package-manifests
 import { buildCommand } from "../../build.js";
 
 const repoRoot = resolve(
-  join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
+  join(dirname(fileURLToPath(import.meta.url)), "../../../../../..")
 );
 const localJsPackageRoot = resolve(
   join(repoRoot, "..", "js", "versions", "10")
@@ -125,13 +125,14 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
       writeFileSync(
-        join(sourcePackageRoot, "tsonic/package-manifest.json"),
+        join(sourcePackageRoot, "tsonic.package.json"),
         JSON.stringify(
           {
             schemaVersion: 1,
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "Demo.RenderLike",
               exports: {
                 ".": "./src/index.ts",
               },

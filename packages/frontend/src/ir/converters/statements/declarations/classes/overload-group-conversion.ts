@@ -10,6 +10,7 @@
 import * as ts from "typescript";
 import {
   IrBlockStatement,
+  IrFunctionType,
   IrMethodDeclaration,
   IrParameter,
   IrType,
@@ -24,7 +25,9 @@ import {
 import { detectOverride } from "./override-detection.js";
 import { getClassMemberName } from "./member-names.js";
 import { convertMethod } from "./method-declaration.js";
-import { specializeStatement } from "./overload-specialization.js";
+import {
+  specializeStatement,
+} from "./overload-specialization.js";
 import {
   assertNoIsTypeCalls,
   assertNoMissingParamRefs,
@@ -37,6 +40,7 @@ import {
   createWrapperBody,
   needsAsyncReturnStatementAdaptation,
   needsAsyncWrapperReturnAdaptation,
+  preserveTopLevelRuntimeLayout,
 } from "./overload-wrapper-helpers.js";
 import type { ProgramContext } from "../../../../program-context.js";
 
@@ -46,6 +50,54 @@ export const convertMethodOverloadGroup = (
   ctx: ProgramContext,
   superClass: ts.ExpressionWithTypeArguments | undefined
 ): readonly IrMethodDeclaration[] => {
+  const countRequiredFunctionParameters = (
+    parameters: readonly IrParameter[]
+  ): number => {
+    let required = 0;
+    for (const parameter of parameters) {
+      if (
+        parameter.isRest ||
+        parameter.isOptional ||
+        parameter.initializer !== undefined
+      ) {
+        break;
+      }
+      required += 1;
+    }
+    return required;
+  };
+
+  const isNullishType = (type: IrType): boolean =>
+    type.kind === "primitiveType" &&
+    (type.name === "null" || type.name === "undefined");
+
+  const resolveCallableShape = (
+    type: IrType
+  ): IrFunctionType | undefined => {
+    if (type.kind === "functionType") {
+      return type;
+    }
+
+    const delegated = ctx.typeSystem.delegateToFunctionType(type);
+    if (delegated) {
+      return delegated;
+    }
+
+    if (type.kind !== "unionType") {
+      return undefined;
+    }
+
+    const nonNullishMembers = type.types.filter(
+      (member) => !isNullishType(member)
+    );
+    if (nonNullishMembers.length !== 1) {
+      return undefined;
+    }
+
+    const [callableMember] = nonNullishMembers;
+    return callableMember ? resolveCallableShape(callableMember) : undefined;
+  };
+
   const impls = nodes.filter((n) => !!n.body);
   if (impls.length !== 1) {
     throw new Error(
@@ -98,6 +150,28 @@ export const convertMethodOverloadGroup = (
     superClass
   ) as IrMethodDeclaration;
 
+  const collectMissingRuntimeForwardingDeclIds = (
+    signatureParameterCount: number
+  ): ReadonlySet<number> => {
+    const missingDeclIds = new Set<number>();
+    for (
+      let index = signatureParameterCount;
+      index < implParams.length;
+      index += 1
+    ) {
+      const implParameter = implParams[index];
+      const declId = implParamDeclIds[index];
+      if (
+        implParameter &&
+        declId !== undefined &&
+        (implParameter.isRest || implParameter.initializer !== undefined)
+      ) {
+        missingDeclIds.add(declId);
+      }
+    }
+    return missingDeclIds;
+  };
+
   const requiresWrapperLowering = sigs.some((sig) => {
     const sigParams = convertParameters(sig.parameters, ctx);
     if (sigParams.length > implParams.length) {
@@ -116,8 +190,70 @@ export const convertMethodOverloadGroup = (
       if (t) paramTypesByDeclId.set(declId, t);
     }
 
-    const specialized = specializeStatement(implBody, paramTypesByDeclId);
+    const missingRuntimeForwardingDeclIds =
+      collectMissingRuntimeForwardingDeclIds(sigParams.length);
+    const specialized = specializeStatement(
+      implBody,
+      paramTypesByDeclId,
+      missingRuntimeForwardingDeclIds
+    );
     if (!assertNoIsTypeCalls(specialized)) {
+      return false;
+    }
+
+    const requiresCallableAdapter = sigParams.some((parameter, index) => {
+      const implParameter = implParams[index];
+      const sigType = parameter.type;
+      const implType = implParameter?.type;
+      if (!sigType || !implType) {
+        return false;
+      }
+
+      if (ctx.typeSystem.typesEqual(sigType, implType)) {
+        return false;
+      }
+
+      const sigCallable = resolveCallableShape(sigType);
+      const implCallable = resolveCallableShape(implType);
+      if (!sigCallable && !implCallable) {
+        return false;
+      }
+      if (!sigCallable || !implCallable) {
+        return true;
+      }
+      if (
+        sigCallable.parameters.length !== implCallable.parameters.length ||
+        countRequiredFunctionParameters(sigCallable.parameters) !==
+          countRequiredFunctionParameters(implCallable.parameters)
+      ) {
+        return true;
+      }
+      return true;
+    });
+    if (requiresCallableAdapter) {
+      return true;
+    }
+
+    const requiresDefaultForwarding = sigParams.some((parameter, index) => {
+      const implParameter = implParams[index];
+      if (!implParameter?.initializer) {
+        return false;
+      }
+
+      return parameter.isOptional && parameter.initializer === undefined;
+    });
+    if (requiresDefaultForwarding) {
+      return true;
+    }
+
+    if (
+      missingRuntimeForwardingDeclIds.size > 0 &&
+      !assertNoMissingParamRefs(specialized, missingRuntimeForwardingDeclIds)
+    ) {
+      return true;
+    }
+
+    if (sigParams.length === implParams.length) {
       return false;
     }
 
@@ -147,9 +283,13 @@ export const convertMethodOverloadGroup = (
           implMethod.body,
           implMethod.returnType
         ));
+    const helperReturnType = preserveTopLevelRuntimeLayout(
+      implMethod.returnType
+    );
     const helperMethod: IrMethodDeclaration = {
       ...implMethod,
       name: helperName,
+      returnType: helperReturnType,
       isAsync: helperIsAsync,
       overloadFamily: buildImplementationOverloadFamilyMember({
         ownerKind: "method",
@@ -161,7 +301,7 @@ export const convertMethodOverloadGroup = (
       body: implMethod.body
         ? (adaptReturnStatements(
             implMethod.body,
-            implMethod.returnType,
+            helperReturnType,
             helperIsAsync
           ) as IrBlockStatement)
         : undefined,
@@ -214,8 +354,13 @@ export const convertMethodOverloadGroup = (
           helperName,
           parameters,
           implMethod.parameters,
+          implParamDeclIds,
+          implBody,
+          (implMethod.typeParameters ?? []).map(
+            (typeParameter) => typeParameter.name
+          ),
           isStatic,
-          implMethod.returnType,
+          helperReturnType,
           returnType,
           (sig.typeParameters ?? []).map((tp) => tp.name.text),
           wrapperIsAsync

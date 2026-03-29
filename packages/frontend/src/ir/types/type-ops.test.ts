@@ -1,6 +1,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import type { IrType } from "./index.js";
+import { substituteIrType } from "./ir-substitution.js";
 import {
   getAwaitedIrType,
   isAwaitableIrType,
@@ -211,6 +212,26 @@ describe("type-ops", () => {
       stableIrTypeKey(numberType),
       stableIrTypeKey(stringType),
     ]);
+  });
+
+  it("collapses duplicate unions created by substitution", () => {
+    const duplicated: IrType = {
+      kind: "unionType",
+      types: [
+        { kind: "typeParameterType", name: "TResult" },
+        { kind: "typeParameterType", name: "T" },
+      ],
+    };
+
+    const substituted = substituteIrType(
+      duplicated,
+      new Map<string, IrType>([
+        ["T", stringType],
+        ["TResult", stringType],
+      ])
+    );
+
+    expect(substituted).to.deep.equal(stringType);
   });
 
   it("unwraps Promise/Task/ValueTask wrappers", () => {

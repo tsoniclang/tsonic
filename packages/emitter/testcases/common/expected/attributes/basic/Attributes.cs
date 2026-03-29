@@ -16,7 +16,7 @@ namespace TestCases.common.attributes.basic
 
     [global::System.SerializableAttribute]
     [global::System.ObsoleteAttribute("Deprecated")]
-    public class LegacyService
+    public class AnnotatedService
     {
         public string data { get; set; }
     }

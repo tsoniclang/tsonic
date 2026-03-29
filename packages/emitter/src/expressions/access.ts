@@ -20,6 +20,10 @@ import {
 import { emitCSharpName } from "../naming-policy.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
+import {
+  getIdentifierTypeName,
+  stripNullableTypeAst,
+} from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import {
   buildRuntimeUnionLayout,
@@ -27,6 +31,7 @@ import {
   isRuntimeUnionTypeName,
 } from "../core/semantic/runtime-unions.js";
 import { isSemanticUnion } from "../core/semantic/union-semantics.js";
+import { resolveIteratorResultReferenceType } from "../core/semantic/structural-resolution.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   type MemberAccessUsage,
@@ -34,6 +39,7 @@ import {
   tryEmitStorageCompatibleNarrowedMemberRead,
   hasPropertyFromBindingsRegistry,
   resolveEffectiveReceiverType,
+  resolveEmittedReceiverTypeAst,
   emitMemberName,
 } from "./access-resolution.js";
 import {
@@ -87,6 +93,47 @@ export const emitMemberAccess = (
   }
 
   const objectType = resolveEffectiveReceiverType(expr.object, context);
+  const propertyName = typeof expr.property === "string" ? expr.property : undefined;
+
+  if (
+    !expr.isComputed &&
+    usage === "value" &&
+    !expr.isOptional &&
+    (propertyName === "done" || propertyName === "value")
+  ) {
+    if (
+      (objectType?.kind === "referenceType" &&
+        objectType.name === "IteratorResult") ||
+      (objectType &&
+        resolveIteratorResultReferenceType(objectType, context) !== undefined)
+    ) {
+      const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+      return [
+        {
+          kind: "memberAccessExpression",
+          expression: objectAst,
+          memberName: propertyName,
+        },
+        newContext,
+      ];
+    }
+
+    const [receiverTypeAst] = resolveEmittedReceiverTypeAst(expr.object, context);
+    const receiverTypeName = receiverTypeAst
+      ? getIdentifierTypeName(stripNullableTypeAst(receiverTypeAst))
+      : undefined;
+    if (receiverTypeName === "global::Tsonic.Runtime.IteratorResult") {
+      const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+      return [
+        {
+          kind: "memberAccessExpression",
+          expression: objectAst,
+          memberName: propertyName,
+        },
+        newContext,
+      ];
+    }
+  }
 
   if (
     !expr.isComputed &&
@@ -102,11 +149,11 @@ export const emitMemberAccess = (
     );
     return [
       {
-        kind: "invocationExpression",
-        expression: identifierExpression(
-          "global::Tsonic.JSRuntime.String.length"
-        ),
-        arguments: [stringObjectAst],
+        kind: expr.isOptional
+          ? "conditionalMemberAccessExpression"
+          : "memberAccessExpression",
+        expression: stringObjectAst,
+        memberName: "Length",
       },
       stringContext,
     ];

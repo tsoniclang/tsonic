@@ -81,6 +81,7 @@ export const validateExpression = (
         expr.isComputed && expr.accessKind === "dictionary";
       if (
         expr.inferredType?.kind === "unknownType" &&
+        expr.inferredType.explicit !== true &&
         !expr.allowUnknownInferredType &&
         !allowComputedDictionaryUnknown
       ) {
@@ -146,6 +147,7 @@ export const validateExpression = (
       }
       if (
         expr.inferredType?.kind === "unknownType" &&
+        expr.inferredType.explicit !== true &&
         !expr.allowUnknownInferredType
       ) {
         ctx.diagnostics.push(
@@ -166,7 +168,10 @@ export const validateExpression = (
       expr.typeArguments?.forEach((typeArgument, index) =>
         validateType(typeArgument, ctx, `new type argument ${index}`)
       );
-      if (expr.inferredType?.kind === "unknownType") {
+      if (
+        expr.inferredType?.kind === "unknownType" &&
+        expr.inferredType.explicit !== true
+      ) {
         ctx.diagnostics.push(
           createDiagnostic(
             "TSN5202",

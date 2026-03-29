@@ -21,6 +21,7 @@ import { identifierType } from "../../../core/format/backend-ast/builders.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
 import { emitCSharpName } from "../../../naming-policy.js";
 import {
+  applyRuntimeParameterDefaultShadows,
   captureFunctionScopeContext,
   getAsyncBodyReturnType,
   reserveGeneratorLocals,
@@ -28,10 +29,12 @@ import {
   seedLocalNameMapFromParameters,
 } from "../../declarations/function-shared.js";
 import {
+  buildGeneratorHelperTypeArguments,
   extractGeneratorTypeArgs,
   getGeneratorHelperBaseName,
   hasGeneratorReturnType,
   needsBidirectionalSupport,
+  usesExchangeBasedGeneratorLowering,
 } from "../../../generator-wrapper.js";
 import type {
   CSharpMemberAst,
@@ -39,7 +42,46 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
   CSharpStatementAst,
+  CSharpParameterAst,
 } from "../../../core/format/backend-ast/types.js";
+
+const isVoidReturnType = (typeAst: CSharpTypeAst): boolean =>
+  (typeAst.kind === "identifierType" && typeAst.name === "void") ||
+  (typeAst.kind === "predefinedType" && typeAst.keyword === "void");
+
+const buildForwardedArguments = (
+  parameters: readonly CSharpParameterAst[],
+  suppressedDefaultArguments: readonly (CSharpExpressionAst | undefined)[],
+  prefixLength: number
+): readonly CSharpExpressionAst[] => {
+  const forwarded: CSharpExpressionAst[] = [];
+
+  for (let index = 0; index < prefixLength; index += 1) {
+    const parameter = parameters[index];
+    if (!parameter) continue;
+    forwarded.push({
+      kind: "identifierExpression",
+      identifier: parameter.name,
+    });
+  }
+
+  for (let index = prefixLength; index < parameters.length; index += 1) {
+    const parameter = parameters[index];
+    if (!parameter) continue;
+    if (parameter.modifiers?.includes("params")) {
+      break;
+    }
+    const suppressedDefault = suppressedDefaultArguments[index];
+    if (!suppressedDefault) {
+      throw new Error(
+        `ICE: Missing suppressed default argument for wrapper parameter '${parameter.name}'.`
+      );
+    }
+    forwarded.push(suppressedDefault);
+  }
+
+  return forwarded;
+};
 
 /**
  * Emit a method declaration as CSharpMemberAst
@@ -47,7 +89,7 @@ import type {
 export const emitMethodMember = (
   member: IrClassMember & { kind: "methodDeclaration" },
   context: EmitterContext
-): [CSharpMemberAst, EmitterContext] => {
+): [readonly CSharpMemberAst[], EmitterContext] => {
   const savedScoped = captureFunctionScopeContext(context);
   let currentContext = context;
 
@@ -92,33 +134,75 @@ export const emitMethodMember = (
   const isBidirectional = member.isGenerator
     ? needsBidirectionalSupport(member)
     : false;
+  const usesExchangeBasedLowering = member.isGenerator
+    ? usesExchangeBasedGeneratorLowering(member)
+    : false;
   const generatorHasReturnType =
-    member.isGenerator && isBidirectional
+    member.isGenerator && usesExchangeBasedLowering && isBidirectional
       ? hasGeneratorReturnType(member)
       : false;
+  const generatorHelperTypeArguments = member.isGenerator
+    ? buildGeneratorHelperTypeArguments(
+        [
+          ...(context.declaringTypeParameterNames ?? []),
+          ...(member.typeParameters?.map((typeParameter) => typeParameter.name) ??
+            []),
+        ],
+        currentContext
+      )
+    : [];
 
   let returnTypeAst: CSharpTypeAst;
   if (member.isGenerator) {
+    if (!usesExchangeBasedLowering) {
+      if (!member.returnType) {
+        throw new Error(
+          "ICE: Generator member without declared return type cannot be emitted without exchange-based lowering."
+        );
+      }
+      const [generatorReturnTypeAst, generatorReturnTypeContext] = emitTypeAst(
+        member.returnType,
+        currentContext
+      );
+      currentContext = generatorReturnTypeContext;
+      if (member.isAsync) {
+        modifiers.push("async");
+      }
+      returnTypeAst = generatorReturnTypeAst;
+    } else {
     if (!generatorHelperBaseName) {
       throw new Error(
         "ICE: Generator method helper base name was not resolved."
       );
     }
+    const exchangeType = identifierType(
+      `${generatorHelperBaseName}_exchange`,
+      generatorHelperTypeArguments.length > 0
+        ? generatorHelperTypeArguments
+        : undefined
+    );
+    const wrapperType = identifierType(
+      `${generatorHelperBaseName}_Generator`,
+      generatorHelperTypeArguments.length > 0
+        ? generatorHelperTypeArguments
+        : undefined
+    );
     if (isBidirectional) {
-      returnTypeAst = identifierType(`${generatorHelperBaseName}_Generator`);
+      returnTypeAst = wrapperType;
     } else {
       if (member.isAsync) {
         modifiers.push("async");
         returnTypeAst = identifierType(
           "global::System.Collections.Generic.IAsyncEnumerable",
-          [identifierType(`${generatorHelperBaseName}_exchange`)]
+          [exchangeType]
         );
       } else {
         returnTypeAst = identifierType(
           "global::System.Collections.Generic.IEnumerable",
-          [identifierType(`${generatorHelperBaseName}_exchange`)]
+          [exchangeType]
         );
       }
+    }
     }
   } else if (member.returnType) {
     const [rAst, newContext] = emitTypeAst(member.returnType, currentContext);
@@ -172,20 +256,25 @@ export const emitMethodMember = (
       constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
     };
     return [
-      methodAst,
+      [methodAst],
       restoreFunctionScopeContext(context, currentContext, savedScoped),
     ];
   }
 
   const body = member.body;
 
-  const baseBodyContext = seedLocalNameMapFromParameters(
+  const seededBodyContext = seedLocalNameMapFromParameters(
     member.parameters,
     withAsync(indent(currentContext), member.isAsync)
   );
+  const [runtimeDefaultShadowStmts, runtimeDefaultShadowContext] =
+    applyRuntimeParameterDefaultShadows(
+      paramsResult.runtimeDefaultInitializers,
+      seededBodyContext
+    );
   const reservedLocals = reserveGeneratorLocals(
-    baseBodyContext,
-    member.isGenerator,
+    runtimeDefaultShadowContext,
+    member.isGenerator && usesExchangeBasedLowering,
     isBidirectional,
     generatorHasReturnType
   );
@@ -214,7 +303,7 @@ export const emitMethodMember = (
 
   let mergedBody: CSharpBlockStatementAst;
 
-  if (member.isGenerator && isBidirectional) {
+  if (member.isGenerator && usesExchangeBasedLowering && isBidirectional) {
     if (!generatorHelperBaseName) {
       throw new Error(
         "ICE: Bidirectional generator method helper base name missing."
@@ -222,6 +311,18 @@ export const emitMethodMember = (
     }
     const exchangeName = `${generatorHelperBaseName}_exchange`;
     const wrapperName = `${generatorHelperBaseName}_Generator`;
+    const exchangeType = identifierType(
+      exchangeName,
+      generatorHelperTypeArguments.length > 0
+        ? generatorHelperTypeArguments
+        : undefined
+    );
+    const wrapperType = identifierType(
+      wrapperName,
+      generatorHelperTypeArguments.length > 0
+        ? generatorHelperTypeArguments
+        : undefined
+    );
     const wrapperBodyStatements: CSharpStatementAst[] = [
       {
         kind: "localDeclarationStatement",
@@ -232,7 +333,7 @@ export const emitMethodMember = (
             name: reservedLocals.generatorExchangeVar,
             initializer: {
               kind: "objectCreationExpression",
-              type: identifierType(exchangeName),
+              type: exchangeType,
               arguments: [],
             },
           },
@@ -270,10 +371,10 @@ export const emitMethodMember = (
 
     const enumerableType: CSharpTypeAst = member.isAsync
       ? identifierType("global::System.Collections.Generic.IAsyncEnumerable", [
-          identifierType(exchangeName),
+          exchangeType,
         ])
       : identifierType("global::System.Collections.Generic.IEnumerable", [
-          identifierType(exchangeName),
+          exchangeType,
         ]);
 
     wrapperBodyStatements.push({
@@ -284,7 +385,11 @@ export const emitMethodMember = (
       parameters: [],
       body: {
         kind: "blockStatement",
-        statements: [...paramDestructuringStmts, ...bodyBlockAst.statements],
+        statements: [
+          ...runtimeDefaultShadowStmts,
+          ...paramDestructuringStmts,
+          ...bodyBlockAst.statements,
+        ],
       },
     });
 
@@ -319,7 +424,7 @@ export const emitMethodMember = (
       kind: "returnStatement",
       expression: {
         kind: "objectCreationExpression",
-        type: identifierType(wrapperName),
+        type: wrapperType,
         arguments: constructorArgs,
       },
     });
@@ -329,9 +434,12 @@ export const emitMethodMember = (
       statements: wrapperBodyStatements,
     };
   } else {
-    const preamble: CSharpStatementAst[] = [...paramDestructuringStmts];
+    const preamble: CSharpStatementAst[] = [
+      ...runtimeDefaultShadowStmts,
+      ...paramDestructuringStmts,
+    ];
 
-    if (member.isGenerator) {
+    if (member.isGenerator && usesExchangeBasedLowering) {
       if (!generatorHelperBaseName) {
         throw new Error("ICE: Generator method helper base name missing.");
       }
@@ -344,7 +452,12 @@ export const emitMethodMember = (
             name: reservedLocals.generatorExchangeVar,
             initializer: {
               kind: "objectCreationExpression",
-              type: identifierType(`${generatorHelperBaseName}_exchange`),
+              type: identifierType(
+                `${generatorHelperBaseName}_exchange`,
+                generatorHelperTypeArguments.length > 0
+                  ? generatorHelperTypeArguments
+                  : undefined
+              ),
               arguments: [],
             },
           },
@@ -377,6 +490,24 @@ export const emitMethodMember = (
       }
     }
 
+    for (const runtimeDefault of paramsResult.runtimeDefaultInitializers) {
+      if (runtimeDefault.sourceName) {
+        continue;
+      }
+      preamble.push({
+        kind: "expressionStatement",
+        expression: {
+          kind: "assignmentExpression",
+          operatorToken: "??=",
+          left: {
+            kind: "identifierExpression",
+            identifier: runtimeDefault.paramName,
+          },
+          right: runtimeDefault.initializer,
+        },
+      });
+    }
+
     mergedBody = {
       kind: "blockStatement",
       statements:
@@ -385,6 +516,53 @@ export const emitMethodMember = (
           : [...bodyBlockAst.statements],
     };
   }
+
+  const wrapperTypeArguments =
+    typeParamAsts.length > 0
+      ? typeParamAsts.map((typeParameter) => identifierType(typeParameter.name))
+      : undefined;
+  const wrapperModifiers = modifiers.filter(
+    (modifier) => modifier !== "async" && modifier !== "virtual" && modifier !== "override"
+  );
+  const wrapperMembers: CSharpMemberAst[] = paramsResult.wrapperPrefixLengths.map(
+    (prefixLength) => {
+      const invocation: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: name,
+        },
+        arguments: buildForwardedArguments(
+          paramsResult.parameters,
+          paramsResult.suppressedDefaultArguments,
+          prefixLength
+        ),
+        ...(wrapperTypeArguments && wrapperTypeArguments.length > 0
+          ? { typeArguments: wrapperTypeArguments }
+          : {}),
+      };
+
+      return {
+        kind: "methodDeclaration",
+        attributes: [],
+        modifiers: [...wrapperModifiers],
+        returnType: returnTypeAst,
+        name,
+        typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
+        constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
+        parameters: paramsResult.parameters.slice(0, prefixLength).map((param) => ({
+          ...param,
+          defaultValue: undefined,
+        })),
+        body: {
+          kind: "blockStatement",
+          statements: isVoidReturnType(returnTypeAst)
+            ? [{ kind: "expressionStatement", expression: invocation }]
+            : [{ kind: "returnStatement", expression: invocation }],
+        },
+      };
+    }
+  );
 
   const methodAst: CSharpMemberAst = {
     kind: "methodDeclaration",
@@ -399,7 +577,7 @@ export const emitMethodMember = (
   };
 
   return [
-    methodAst,
+    [...wrapperMembers, methodAst],
     restoreFunctionScopeContext(context, dedent(finalContext), savedScoped),
   ];
 };

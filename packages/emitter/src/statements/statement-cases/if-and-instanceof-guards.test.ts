@@ -221,8 +221,8 @@ describe("Statement Emission", () => {
                     name: "Uint8Array",
                     inferredType: {
                       kind: "referenceType",
-                      name: "Uint8ArrayConstructor",
-                      resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+                      name: "Uint8Array",
+                      resolvedClrType: "js.Uint8Array",
                     },
                   },
                 },
@@ -564,7 +564,7 @@ describe("Statement Emission", () => {
     expect(result).to.include("value.Is3()");
     expect(result).to.include(".Is1())");
     expect(result).to.not.include("@typeof(value)");
-    expect(result).to.not.include("JSArrayStatics.isArray(");
+    expect(result).to.not.include("Array.isArray(");
   });
 
   it("does not emit runtime-union slot guards for concretely stored locals", () => {
@@ -702,7 +702,7 @@ describe("Statement Emission", () => {
         {
           kind: "referenceType",
           name: "RegExp",
-          resolvedClrType: "Tsonic.JSRuntime.RegExp",
+          resolvedClrType: "js.RegExp",
         },
       ],
     };
@@ -773,8 +773,8 @@ describe("Statement Emission", () => {
                     name: "RegExp",
                     inferredType: {
                       kind: "referenceType",
-                      name: "RegExpConstructor",
-                      resolvedClrType: "Tsonic.JSRuntime.RegExp",
+                      name: "RegExp",
+                      resolvedClrType: "js.RegExp",
                     },
                   },
                 },
@@ -837,6 +837,6 @@ describe("Statement Emission", () => {
 
     expect(result).to.include(".Is1())");
     expect(result).to.not.include("(pathSpec.As1()).Is1()");
-    expect(result).to.not.include("JSArrayStatics.isArray(pathSpec)");
+    expect(result).to.not.include("Array.isArray(pathSpec)");
   });
 });

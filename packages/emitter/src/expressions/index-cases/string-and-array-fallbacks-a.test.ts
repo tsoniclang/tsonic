@@ -40,7 +40,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
     expect(result).to.include("value.length");
     expect(result).not.to.include(
-      "global::Tsonic.JSRuntime.String.length(value)"
+      "global::js.String.length(value)"
     );
   });
 
@@ -130,7 +130,7 @@ describe("Expression Emission", () => {
     expect(result).to.not.include("process.argv.length");
   });
 
-  it("should emit JSArray length for imported array references on the JS surface", () => {
+  it("should emit Array length for imported array references on the JS surface", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -174,10 +174,10 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module, { surface: "@tsonic/js" });
     expect(result).to.include("process.argv.Length");
-    expect(result).to.not.include("new global::Tsonic.JSRuntime.JSArray<");
+    expect(result).to.not.include("new global::js.Array<");
   });
 
-  it("should recover JS string length fallback under JS surface when narrowing lost the original binding", () => {
+  it("should lower js-surface string length to CLR Length when narrowing lost the original binding", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -205,7 +205,7 @@ describe("Expression Emission", () => {
     };
 
     const result = emitModule(module, { surface: "@tsonic/js" });
-    expect(result).to.include("global::Tsonic.JSRuntime.String.length(value)");
+    expect(result).to.include("value.Length");
     expect(result).not.to.include("value.length");
   });
 
@@ -222,7 +222,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+              resolvedClrType: "js.Uint8Array",
             },
           ],
         },
@@ -266,9 +266,7 @@ describe("Expression Emission", () => {
 
     const [result] = emitMemberAccess(expr, context);
     const printed = printExpression(result);
-    expect(printed).to.equal(
-      "global::Tsonic.JSRuntime.String.length((value.As1()))"
-    );
+    expect(printed).to.equal("(value.As1()).Length");
   });
 
   it("should recover JS string length fallback when narrowed receivers use string reference types", () => {
@@ -284,7 +282,7 @@ describe("Expression Emission", () => {
             {
               kind: "referenceType" as const,
               name: "Uint8Array",
-              resolvedClrType: "Tsonic.JSRuntime.Uint8Array",
+              resolvedClrType: "js.Uint8Array",
             },
           ],
         },
@@ -327,8 +325,6 @@ describe("Expression Emission", () => {
     };
 
     const [result] = emitMemberAccess(expr, context);
-    expect(printExpression(result)).to.equal(
-      "global::Tsonic.JSRuntime.String.length((value.As1()))"
-    );
+    expect(printExpression(result)).to.equal("(value.As1()).Length");
   });
 });

@@ -16,6 +16,7 @@ import type {
 import {
   buildRuntimeUnionFrame,
   buildRuntimeUnionLayout,
+  buildRuntimeUnionTypeAst,
   emitRuntimeCarrierTypeAst,
   findRuntimeUnionMemberIndex,
 } from "./runtime-unions.js";
@@ -69,24 +70,79 @@ const tryBuildArrayElementMaterializationAst = (
     return undefined;
   }
 
-  const [sourceElementLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
-    sourceElementType,
-    context,
-    emitTypeAst
-  );
-  if (!sourceElementLayout) {
-    return undefined;
-  }
-
   const [sourceElementTypeAst, sourceTypeContext] = emitTypeAst(
     sourceElementType,
-    sourceLayoutContext
+    context
   );
   const [targetElementTypeAst, targetTypeContext] = emitTypeAst(
     targetElementType,
     sourceTypeContext
   );
   if (sameTypeAstSurface(sourceElementTypeAst, targetElementTypeAst)) {
+    return undefined;
+  }
+
+  const [sourceElementLayout, sourceLayoutContext] = buildRuntimeUnionLayout(
+    sourceElementType,
+    targetTypeContext,
+    emitTypeAst
+  );
+  const [targetElementLayout, targetLayoutContext] = buildRuntimeUnionLayout(
+    targetElementType,
+    sourceLayoutContext,
+    emitTypeAst
+  );
+
+  if (!sourceElementLayout && targetElementLayout) {
+    const targetMemberIndex = findRuntimeUnionMemberIndex(
+      targetElementLayout.members,
+      sourceElementType,
+      targetLayoutContext
+    );
+    if (targetMemberIndex !== undefined) {
+      const itemName = "__tsonic_array_item";
+      const itemExpr = identifierExpression(itemName);
+      const selectAst: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: identifierExpression("global::System.Linq.Enumerable.Select"),
+        typeArguments: [sourceElementTypeAst, targetElementTypeAst],
+        arguments: [
+          valueAst,
+          {
+            kind: "lambdaExpression",
+            isAsync: false,
+            parameters: [{ name: itemName }],
+            body: buildRuntimeUnionFactoryCallAst(
+              buildRuntimeUnionTypeAst(targetElementLayout),
+              targetMemberIndex + 1,
+              itemExpr
+            ),
+          },
+        ],
+      };
+      const toArrayAst: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: identifierExpression("global::System.Linq.Enumerable.ToArray"),
+        typeArguments: [targetElementTypeAst],
+        arguments: [selectAst],
+      };
+      const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
+        expectedType,
+        targetLayoutContext
+      );
+
+      return [
+        {
+          kind: "castExpression",
+          type: expectedTypeAst,
+          expression: toArrayAst,
+        },
+        expectedTypeContext,
+      ];
+    }
+  }
+
+  if (!sourceElementLayout) {
     return undefined;
   }
 
@@ -333,7 +389,10 @@ export const tryBuildRuntimeMaterializationAst = (
     });
   }
 
-  return [buildRuntimeUnionMatchAst(valueAst, lambdaArgs), nextContext];
+  return [
+    buildRuntimeUnionMatchAst(valueAst, lambdaArgs, [concreteTargetTypeAst]),
+    nextContext,
+  ];
 };
 
 export const tryBuildRuntimeReificationPlan = (
@@ -520,8 +579,7 @@ export const tryBuildRuntimeReificationPlan = (
     resolvedExpected.kind === "tupleType" ||
     (resolvedExpected.kind === "referenceType" &&
       (resolvedExpected.name === "Array" ||
-        resolvedExpected.name === "ReadonlyArray" ||
-        resolvedExpected.name === "JSArray"))
+        resolvedExpected.name === "ReadonlyArray"))
   ) {
     if (directValueSurfaceType) {
       const elementMaterialization = tryBuildArrayElementMaterializationAst(

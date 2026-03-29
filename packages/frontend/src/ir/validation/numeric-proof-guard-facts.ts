@@ -16,6 +16,7 @@ import {
   isValidIntegerLexeme,
   parseBigIntFromRaw,
 } from "../types.js";
+import { getNumericKindFromType } from "./numeric-proof-inference.js";
 
 /**
  * Context for tracking numeric proofs during IR walk
@@ -33,6 +34,11 @@ type Int32GuardFact = {
   readonly integerChecked: boolean;
   readonly lowerBound?: bigint;
   readonly upperBound?: bigint;
+};
+
+type NumericPredicateFact = {
+  readonly name: string;
+  readonly kind: NumericKind;
 };
 
 /**
@@ -174,6 +180,33 @@ const extractInt32BoundFact = (
   }
 };
 
+const extractNumericPredicateFact = (
+  expr: IrExpression
+): NumericPredicateFact | undefined => {
+  if (expr.kind !== "call" || expr.narrowing?.kind !== "typePredicate") {
+    return undefined;
+  }
+
+  const narrowedArgument = expr.arguments[expr.narrowing.argIndex];
+  if (
+    !narrowedArgument ||
+    narrowedArgument.kind === "spread" ||
+    narrowedArgument.kind !== "identifier"
+  ) {
+    return undefined;
+  }
+
+  const numericKind = getNumericKindFromType(expr.narrowing.targetType);
+  if (!numericKind) {
+    return undefined;
+  }
+
+  return {
+    name: narrowedArgument.name,
+    kind: numericKind,
+  };
+};
+
 const mergeInt32GuardFact = (
   left: Int32GuardFact | undefined,
   right: Int32GuardFact
@@ -238,7 +271,14 @@ export const withInt32ProofsFromTruthyCondition = (
 
   const facts = collectInt32GuardFactsInTruthyCondition(condition);
   if (facts.size === 0) {
-    return ctx;
+    const predicateFact = extractNumericPredicateFact(condition);
+    if (!predicateFact) {
+      return ctx;
+    }
+
+    const next = cloneProofContext(ctx);
+    next.provenVariables.set(predicateFact.name, predicateFact.kind);
+    return next;
   }
 
   const next = cloneProofContext(ctx);
@@ -252,6 +292,11 @@ export const withInt32ProofsFromTruthyCondition = (
     ) {
       next.provenVariables.set(name, "Int32");
     }
+  }
+
+  const predicateFact = extractNumericPredicateFact(condition);
+  if (predicateFact) {
+    next.provenVariables.set(predicateFact.name, predicateFact.kind);
   }
   return next;
 };

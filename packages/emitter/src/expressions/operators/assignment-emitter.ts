@@ -5,28 +5,16 @@
 import { IrExpression, IrType, IrPattern } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
 import { emitRemappedLocalName } from "../../core/format/local-names.js";
 import { lowerAssignmentPatternAst } from "../../patterns.js";
 import { hasInt32Proof } from "./helpers.js";
 import { emitWritableTargetAst } from "./write-targets.js";
-import {
-  resolveTypeAlias,
-  stripNullish,
-} from "../../core/semantic/type-resolution.js";
+import { getTypedArrayStorageElementType } from "../calls/new-emitter-collections.js";
+import { maybeCastNumericToExpectedIntegralAst } from "../post-emission-adaptation.js";
+import { resolveWritableTargetStorageType } from "../../core/semantic/assignment-flow.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
-
-const UINT8ARRAY_CLR_NAME = "Tsonic.JSRuntime.Uint8Array";
-
-const BYTE_IR_TYPE: IrType = {
-  kind: "referenceType",
-  name: "byte",
-  typeId: {
-    stableId: "System.Private.CoreLib:System.Byte",
-    clrName: "System.Byte",
-    assemblyName: "System.Private.CoreLib",
-    tsName: "Byte",
-  },
-};
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 
 /**
  * Emit an assignment expression as CSharpExpressionAst
@@ -38,26 +26,8 @@ export const emitAssignment = (
   expr: Extract<IrExpression, { kind: "assignment" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  // Array element assignment uses native CLR indexer
-  // HARD GATE: Index must be proven Int32 (validated by proof pass)
-  const isUint8ArrayReceiverType = (type: IrType | undefined): boolean => {
-    if (!type) return false;
-    const resolved = resolveTypeAlias(stripNullish(type), context);
-    return (
-      resolved.kind === "referenceType" &&
-      (resolved.resolvedClrType === UINT8ARRAY_CLR_NAME ||
-        resolved.typeId?.clrName === UINT8ARRAY_CLR_NAME ||
-        resolved.name === "Uint8Array")
-    );
-  };
-
-  const isBufferMethodBackedIndexerReceiverType = (
-    type: IrType | undefined
-  ): boolean => {
-    if (!type) return false;
-    const resolved = resolveTypeAlias(stripNullish(type), context);
-    return resolved.kind === "referenceType" && resolved.name === "Buffer";
-  };
+  // Array element assignment uses native CLR indexer.
+  // Protocol-backed source indexers route through explicit member calls.
 
   if (
     expr.operator === "=" &&
@@ -65,8 +35,8 @@ export const emitAssignment = (
     expr.left.kind === "memberAccess" &&
     expr.left.isComputed &&
     (expr.left.object.inferredType?.kind === "arrayType" ||
-      isUint8ArrayReceiverType(expr.left.object.inferredType) ||
-      isBufferMethodBackedIndexerReceiverType(expr.left.object.inferredType))
+      !!getTypedArrayStorageElementType(expr.left.object.inferredType) ||
+      !!expr.left.accessProtocol?.setterMember)
   ) {
     const leftExpr = expr.left as Extract<
       IrExpression,
@@ -90,19 +60,16 @@ export const emitAssignment = (
       indexExpr,
       objectContext
     );
+    const typedArrayStorageElementType = getTypedArrayStorageElementType(
+      leftExpr.object.inferredType
+    );
     const expectedElementType =
       leftExpr.object.inferredType?.kind === "arrayType"
         ? leftExpr.object.inferredType.elementType
-        : isUint8ArrayReceiverType(leftExpr.object.inferredType)
-          ? BYTE_IR_TYPE
-          : isBufferMethodBackedIndexerReceiverType(
-                leftExpr.object.inferredType
-              )
-            ? BYTE_IR_TYPE
-            : undefined;
+        : (typedArrayStorageElementType ?? leftExpr.inferredType);
     if (!expectedElementType) {
       throw new Error(
-        "Internal Compiler Error: CLR indexer assignment reached emitter without a writable element type."
+        "Internal Compiler Error: Writable computed access reached emitter without an element type."
       );
     }
     const [rightAst, rightContext] = emitExpressionAst(
@@ -110,19 +77,72 @@ export const emitAssignment = (
       indexContext,
       expectedElementType
     );
+    const numericAssignmentActualType =
+      ((expr.right.inferredType?.kind === "literalType" &&
+        typeof expr.right.inferredType.value === "number") ||
+        (expr.right.kind === "literal" && typeof expr.right.value === "number"))
+        ? ({ kind: "primitiveType", name: "number" } as const)
+        : expr.right.inferredType;
+    const [adaptedRightAst, adaptedRightContext] =
+      numericAssignmentActualType &&
+      expectedElementType.kind !== "arrayType"
+        ? maybeCastNumericToExpectedIntegralAst(
+            rightAst,
+            numericAssignmentActualType,
+            rightContext,
+            expectedElementType
+          )
+        : [rightAst, rightContext];
 
-    if (isBufferMethodBackedIndexerReceiverType(leftExpr.object.inferredType)) {
+    if (leftExpr.accessProtocol?.setterMember) {
+      const [returnTypeAst] = emitTypeAst(
+        expectedElementType,
+        adaptedRightContext
+      );
+      const setterCall: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: objectAst,
+          memberName: leftExpr.accessProtocol.setterMember,
+        },
+        arguments: [indexAst, adaptedRightAst],
+      };
+
       return [
         {
           kind: "invocationExpression",
           expression: {
-            kind: "memberAccessExpression",
-            expression: objectAst,
-            memberName: "set",
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "castExpression",
+              type: identifierType("global::System.Func", [returnTypeAst]),
+              expression: {
+                kind: "parenthesizedExpression",
+                expression: {
+                  kind: "lambdaExpression",
+                  isAsync: false,
+                  parameters: [],
+                  body: {
+                    kind: "blockStatement",
+                    statements: [
+                      {
+                        kind: "expressionStatement",
+                        expression: setterCall,
+                      },
+                      {
+                        kind: "returnStatement",
+                        expression: adaptedRightAst,
+                      },
+                    ],
+                  },
+                },
+              },
+            },
           },
-          arguments: [indexAst, rightAst],
+          arguments: [],
         },
-        rightContext,
+        adaptedRightContext,
       ];
     }
 
@@ -136,9 +156,9 @@ export const emitAssignment = (
           expression: objectAst,
           arguments: [indexAst],
         },
-        right: rightAst,
+        right: adaptedRightAst,
       },
-      rightContext,
+      adaptedRightContext,
     ];
   }
 
@@ -191,7 +211,15 @@ export const emitAssignment = (
     const [emittedLeftAst, ctx] = emitWritableTargetAst(leftExpr, context);
     leftAst = emittedLeftAst;
     leftContext = ctx;
-    leftType = leftExpr.inferredType;
+    if (leftExpr.kind === "identifier") {
+      leftType =
+        resolveWritableTargetStorageType(leftExpr, ctx) ?? leftExpr.inferredType;
+    } else if (leftExpr.kind === "memberAccess" && !leftExpr.isComputed) {
+      leftType =
+        resolveWritableTargetStorageType(leftExpr, ctx) ?? leftExpr.inferredType;
+    } else {
+      leftType = leftExpr.inferredType;
+    }
   }
 
   // Pass LHS type as expected type to RHS for proper integer handling

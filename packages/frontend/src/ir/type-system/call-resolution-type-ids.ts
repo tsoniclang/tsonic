@@ -30,6 +30,7 @@ import type { TypeSystemState } from "./type-system-state.js";
 import {
   resolveTypeIdByName,
   normalizeToNominal,
+  resolveSourceReferenceFQName,
 } from "./type-system-state.js";
 import { typesEqual } from "./type-system-relations.js";
 
@@ -190,19 +191,21 @@ export const attachInterfaceMemberTypeIds = (
 export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
   switch (type.kind) {
     case "referenceType": {
-      const sourceFqName =
-        !type.resolvedClrType && !type.name.includes(".")
-          ? state.typeRegistry.getFQName(type.name)
-          : undefined;
+      const sourceFqName = resolveSourceReferenceFQName(state, type);
       const typeId =
         type.typeId ??
-        resolveTypeIdByName(
-          state,
-          type.resolvedClrType ?? type.name,
-          type.typeArguments?.length
-        ) ??
+        (type.resolvedClrType
+          ? resolveTypeIdByName(
+              state,
+              type.resolvedClrType,
+              type.typeArguments?.length
+            )
+          : undefined) ??
         (sourceFqName
           ? resolveTypeIdByName(state, sourceFqName, type.typeArguments?.length)
+          : undefined) ??
+        (!sourceFqName
+          ? resolveTypeIdByName(state, type.name, type.typeArguments?.length)
           : undefined);
 
       return {

@@ -1,7 +1,7 @@
 /**
  * Binding Registry - RegistryState type, signature parsing, alias resolution,
- * supertype/base-type helpers, case-insensitive member resolution,
- * and member overload resolution (single owner + hierarchy walk).
+ * supertype/base-type helpers, and member overload resolution
+ * (single owner + hierarchy walk).
  *
  * All functions in this module are pure (side-effect-free) and operate on an
  * explicit `RegistryState` parameter.
@@ -37,20 +37,8 @@ export type RegistryState = {
   readonly tsSupertypes: ReadonlyMap<string, Set<string>>;
   readonly tsBaseTypes: ReadonlyMap<string, string>;
   readonly simpleBindings: ReadonlyMap<string, SimpleBindingDescriptor>;
-  readonly simpleBindingsLowercase: ReadonlyMap<
-    string,
-    SimpleBindingDescriptor
-  >;
   readonly simpleGlobalBindings: ReadonlyMap<string, SimpleBindingDescriptor>;
-  readonly simpleGlobalBindingsLowercase: ReadonlyMap<
-    string,
-    SimpleBindingDescriptor
-  >;
   readonly simpleModuleBindings: ReadonlyMap<string, SimpleBindingDescriptor>;
-  readonly simpleModuleBindingsLowercase: ReadonlyMap<
-    string,
-    SimpleBindingDescriptor
-  >;
   readonly typeLookupAliasMap: ReadonlyMap<string, string>;
   readonly clrTypeNames: ReadonlySet<string>;
 };
@@ -94,26 +82,6 @@ export const splitSignatureTypeList = (str: string): string[] => {
 // Simple binding helpers (used by resolution)
 // ---------------------------------------------------------------------------
 
-const SIMPLE_BINDING_CONSTRUCTOR_SUFFIX = "Constructor";
-
-const getSimpleBindingConstructorBaseAlias = (
-  alias: string
-): string | undefined =>
-  alias.endsWith(SIMPLE_BINDING_CONSTRUCTOR_SUFFIX)
-    ? alias.slice(0, -SIMPLE_BINDING_CONSTRUCTOR_SUFFIX.length)
-    : undefined;
-
-const simpleBindingContributesTypeIdentity = (
-  descriptor: SimpleBindingDescriptor
-): boolean => {
-  const explicit = descriptor.typeSemantics?.contributesTypeIdentity;
-  if (explicit !== undefined) {
-    return explicit;
-  }
-
-  return false;
-};
-
 const getSimpleBindingMemberOwnerClrType = (
   descriptor: SimpleBindingDescriptor
 ): string => descriptor.type;
@@ -131,22 +99,7 @@ const resolveSimpleBindingMemberOwnerAlias = (
   state: RegistryState,
   typeAlias: string
 ): string | undefined => {
-  const directDescriptor =
-    state.simpleBindings.get(typeAlias) ??
-    state.simpleBindingsLowercase.get(typeAlias.toLowerCase());
-  const descriptor =
-    directDescriptor ??
-    (() => {
-      const baseAlias = getSimpleBindingConstructorBaseAlias(typeAlias);
-      if (!baseAlias) return undefined;
-      const baseDescriptor =
-        state.simpleBindings.get(baseAlias) ??
-        state.simpleBindingsLowercase.get(baseAlias.toLowerCase());
-      if (!baseDescriptor) return undefined;
-      return simpleBindingContributesTypeIdentity(baseDescriptor)
-        ? baseDescriptor
-        : undefined;
-    })();
+  const descriptor = state.simpleBindings.get(typeAlias);
   if (!descriptor) return undefined;
   const mapped = tsbindgenClrTypeNameToTsTypeName(
     getSimpleBindingMemberOwnerClrType(descriptor)
@@ -216,56 +169,6 @@ const getMemberLookupOwnerAliases = (
 };
 
 // ---------------------------------------------------------------------------
-// Case-insensitive member resolution
-// ---------------------------------------------------------------------------
-
-const resolveUniqueCaseInsensitiveMemberAlias = (
-  state: RegistryState,
-  ownerAlias: string,
-  memberAlias: string
-): string | undefined => {
-  const type = state.types.get(ownerAlias);
-  if (!type) return undefined;
-
-  const target = memberAlias.toLowerCase();
-  const matches = new Set<string>();
-  for (const member of type.members) {
-    if (member.alias.toLowerCase() === target) {
-      matches.add(member.alias);
-    }
-  }
-
-  if (matches.size !== 1) return undefined;
-  return Array.from(matches)[0];
-};
-
-const getExactOrUniqueCaseInsensitiveMember = <T>(
-  state: RegistryState,
-  ownerAlias: string,
-  memberAlias: string,
-  lookup: (key: string) => T | undefined,
-  allowCaseInsensitiveFallback = true
-): T | undefined => {
-  const exact = lookup(`${ownerAlias}.${memberAlias}`);
-  if (exact !== undefined) return exact;
-
-  if (!allowCaseInsensitiveFallback) {
-    return undefined;
-  }
-
-  const resolvedAlias = resolveUniqueCaseInsensitiveMemberAlias(
-    state,
-    ownerAlias,
-    memberAlias
-  );
-  if (!resolvedAlias || resolvedAlias === memberAlias) {
-    return undefined;
-  }
-
-  return lookup(`${ownerAlias}.${resolvedAlias}`);
-};
-
-// ---------------------------------------------------------------------------
 // Member overload resolution (single owner)
 // ---------------------------------------------------------------------------
 
@@ -273,19 +176,9 @@ const resolveMemberOverloadsForOwner = (
   state: RegistryState,
   ownerAlias: string,
   memberAlias: string,
-  allowCaseInsensitiveFallback = true,
   preferredClrOwner?: string
 ): readonly MemberBinding[] | undefined => {
-  const resolved = getExactOrUniqueCaseInsensitiveMember(
-    state,
-    ownerAlias,
-    memberAlias,
-    (key) => {
-      const overloads = state.memberOverloads.get(key);
-      return overloads && overloads.length > 0 ? overloads : undefined;
-    },
-    allowCaseInsensitiveFallback
-  );
+  const resolved = state.memberOverloads.get(`${ownerAlias}.${memberAlias}`);
   if (!resolved || resolved.length === 0) return resolved;
 
   if (preferredClrOwner) {
@@ -320,14 +213,12 @@ const resolveMemberOverloadsByHierarchy = (
   state: RegistryState,
   ownerAlias: string,
   memberAlias: string,
-  allowCaseInsensitiveFallback = true,
   preferredClrOwner?: string
 ): readonly MemberBinding[] | undefined => {
   const direct = resolveMemberOverloadsForOwner(
     state,
     ownerAlias,
     memberAlias,
-    allowCaseInsensitiveFallback,
     preferredClrOwner
   );
   if (direct && direct.length > 0) {
@@ -358,7 +249,6 @@ const resolveMemberOverloadsByHierarchy = (
       state,
       currentBase,
       memberAlias,
-      allowCaseInsensitiveFallback,
       preferredClrOwner
     );
     if (resolved && resolved.length > 0) {
@@ -393,7 +283,6 @@ const resolveMemberOverloadsByHierarchy = (
         state,
         candidateAlias,
         memberAlias,
-        allowCaseInsensitiveFallback,
         preferredClrOwner
       );
       if (resolved && resolved.length > 0) {
@@ -459,25 +348,35 @@ export const resolveMemberOverloads = (
   state: RegistryState,
   typeAlias: string,
   memberAlias: string,
-  allowCaseInsensitiveFallback = true,
   preferredClrOwner?: string
 ): readonly MemberBinding[] | undefined => {
   const resolvedPreferredClrOwner =
     preferredClrOwner ??
     (state.clrTypeNames.has(typeAlias) ? typeAlias : undefined);
   const normalizedTypeAlias = resolveLookupAlias(state, typeAlias);
-  for (const ownerAlias of getMemberLookupOwnerAliases(
-    state,
-    normalizedTypeAlias
-  )) {
-    const match = resolveMemberOverloadsByHierarchy(
-      state,
-      ownerAlias,
-      memberAlias,
-      allowCaseInsensitiveFallback,
-      resolvedPreferredClrOwner
-    );
-    if (match && match.length > 0) return match;
+  const rootAliases: string[] = [];
+  const seenRoots = new Set<string>();
+  const pushRootAlias = (alias: string | undefined): void => {
+    if (!alias || seenRoots.has(alias)) {
+      return;
+    }
+    seenRoots.add(alias);
+    rootAliases.push(alias);
+  };
+
+  pushRootAlias(typeAlias);
+  pushRootAlias(normalizedTypeAlias);
+
+  for (const rootAlias of rootAliases) {
+    for (const ownerAlias of getMemberLookupOwnerAliases(state, rootAlias)) {
+      const match = resolveMemberOverloadsByHierarchy(
+        state,
+        ownerAlias,
+        memberAlias,
+        resolvedPreferredClrOwner
+      );
+      if (match && match.length > 0) return match;
+    }
   }
 
   return undefined;

@@ -29,7 +29,7 @@ const readPackageName = (pkgJsonPath: string): string | undefined => {
 };
 
 const isSourcePackageRoot = (packageRoot: string): boolean => {
-  const manifestPath = path.join(packageRoot, "tsonic", "package-manifest.json");
+  const manifestPath = path.join(packageRoot, "tsonic.package.json");
   if (!fs.existsSync(manifestPath)) {
     return false;
   }
@@ -106,7 +106,11 @@ const getRepoRoot = (packageRoot: string): string => {
 const findNearestPackageRoot = (
   resolvedFilePath: string
 ): string | undefined => {
-  let currentDir = path.dirname(resolvedFilePath);
+  if (!path.isAbsolute(resolvedFilePath)) {
+    return undefined;
+  }
+
+  let currentDir = path.dirname(path.resolve(resolvedFilePath));
 
   for (;;) {
     if (fs.existsSync(path.join(currentDir, "package.json"))) {
@@ -160,13 +164,16 @@ const tryResolveInstalledPackage = (
     installedPackageRootCache.set(cacheKey, resolvedRoot);
     return resolvedRoot;
   } catch {
-    try {
-      const entryPath = req.resolve(packageName);
-      const resolvedRoot = findNearestPackageRoot(entryPath);
-      if (resolvedRoot) {
-        installedPackageRootCache.set(cacheKey, resolvedRoot);
-        return resolvedRoot;
-      }
+  try {
+    const entryPath = req.resolve(packageName);
+    if (!path.isAbsolute(entryPath)) {
+      return undefined;
+    }
+    const resolvedRoot = findNearestPackageRoot(entryPath);
+    if (resolvedRoot) {
+      installedPackageRootCache.set(cacheKey, resolvedRoot);
+      return resolvedRoot;
+    }
     } catch {
       // ignore and fall through
     }

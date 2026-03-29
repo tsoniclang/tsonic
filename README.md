@@ -164,7 +164,7 @@ tsonic restore
 `tsonic init` now creates npm-publish-ready source packages by default. Each project gets a source manifest at:
 
 ```text
-packages/<project>/tsonic/package-manifest.json
+packages/<project>/tsonic.package.json
 ```
 
 Example:
@@ -176,7 +176,8 @@ Example:
   "surfaces": ["@tsonic/js"],
   "source": {
     "exports": {
-      ".": "./src/App.ts"
+      ".": "./src/App.ts",
+      "./index.js": "./src/App.ts"
     }
   }
 }
