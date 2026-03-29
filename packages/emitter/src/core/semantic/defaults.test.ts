@@ -52,4 +52,34 @@ describe("defaults", () => {
 
     expect(getAcceptedSurfaceType(type, true)).to.equal(type);
   });
+
+  it("flattens optional unions when adding explicit undefined", () => {
+    expect(
+      getAcceptedParameterType(
+        {
+          kind: "unionType",
+          types: [
+            {
+              kind: "arrayType",
+              elementType: { kind: "primitiveType", name: "string" },
+              origin: "explicit",
+            },
+            { kind: "primitiveType", name: "null" },
+          ],
+        },
+        true
+      )
+    ).to.deep.equal({
+      kind: "unionType",
+      types: [
+        {
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+          origin: "explicit",
+        },
+        { kind: "primitiveType", name: "null" },
+        { kind: "primitiveType", name: "undefined" },
+      ],
+    });
+  });
 });

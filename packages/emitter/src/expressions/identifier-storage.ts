@@ -393,7 +393,6 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   if (
     expectedType &&
     isBroadStorageTarget(expectedType, context) &&
-    matchesExpectedEmissionType(storageType, expectedType, context) &&
     !shouldAvoidStorageReuse
   ) {
     if (narrowed.storageExprAst) {

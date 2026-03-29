@@ -881,5 +881,57 @@ describe("IR Builder", function () {
         ],
       });
     });
+
+    it("contextually types explicit lambda parameters from rest callbacks as element values", () => {
+      const source = `
+        type EventListener = (...args: unknown[]) => void;
+
+        declare function consume(listener: EventListener): void;
+
+        export function main(): void {
+          let first: unknown = undefined;
+          let second: unknown = undefined;
+          let third: unknown = undefined;
+
+          consume((arg1, arg2, arg3) => {
+            first = arg1;
+            second = arg2;
+            third = arg3;
+          });
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "main"
+      );
+      expect(fn).to.not.equal(undefined);
+      if (!fn) return;
+
+      const callStmt = fn.body.statements[3];
+      expect(callStmt?.kind).to.equal("expressionStatement");
+      if (!callStmt || callStmt.kind !== "expressionStatement") return;
+      expect(callStmt.expression.kind).to.equal("call");
+      if (callStmt.expression.kind !== "call") return;
+
+      const callback = callStmt.expression.arguments[0];
+      expect(callback?.kind).to.equal("arrowFunction");
+      if (!callback || callback.kind !== "arrowFunction") return;
+
+      for (const parameter of callback.parameters) {
+        expect(parameter.type).to.deep.equal({
+          kind: "unknownType",
+          explicit: true,
+        });
+      }
+    });
   });
 });

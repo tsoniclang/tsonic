@@ -301,10 +301,14 @@ export const extractMembers = (
       const name = tryResolveDeterministicPropertyName(member.name);
       if (!name) continue;
       const existing = result.get(name);
+      const inferredType = inferMemberType(member, convertType);
+      const readableType = ts.isGetAccessorDeclaration(member)
+        ? (inferredType ?? existing?.type)
+        : (existing?.type ?? inferredType);
       result.set(name, {
         kind: "property",
         name,
-        type: inferMemberType(member, convertType) ?? existing?.type,
+        type: readableType,
         isOptional: false,
         isReadonly: ts.isSetAccessorDeclaration(member)
           ? false

@@ -230,6 +230,8 @@ describe("JSON NativeAOT registry", () => {
     expect(runtimeFile).to.not.equal(undefined);
     expect(runtimeFile).to.include("internal static class TsonicJsonRuntime");
     expect(runtimeFile).to.include("TryWriteRuntimeUnion");
+    expect(runtimeFile).to.include("TryWriteReflectedObject");
+    expect(runtimeFile).to.include("GetProperties(");
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
 

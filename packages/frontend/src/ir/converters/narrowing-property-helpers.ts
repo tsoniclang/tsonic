@@ -9,7 +9,7 @@ export const getCurrentTypeForDecl = (
 ): IrType =>
   ctx.typeEnv?.get(declId.id) ?? ctx.typeSystem.typeOfValueRead(declId);
 
-const getMemberTypeForNarrowing = (
+export const getReadableMemberTypeForNarrowing = (
   type: IrType,
   propertyName: string,
   ctx: ProgramContext
@@ -61,7 +61,8 @@ export const narrowTypeByPropertyPresence = (
     (member): member is IrType => {
       const hasMember =
         member !== undefined &&
-        getMemberTypeForNarrowing(member, propertyName, ctx) !== undefined;
+        getReadableMemberTypeForNarrowing(member, propertyName, ctx) !==
+          undefined;
       return hasMember === wantPresent;
     }
   );
@@ -80,7 +81,11 @@ export const narrowTypeByPropertyTruthiness = (
   const kept = collectPropertyNarrowingCandidates(currentType, ctx).filter(
     (member): member is IrType => {
       if (!member) return false;
-      const memberType = getMemberTypeForNarrowing(member, propertyName, ctx);
+      const memberType = getReadableMemberTypeForNarrowing(
+        member,
+        propertyName,
+        ctx
+      );
       if (!memberType || memberType.kind !== "literalType") {
         return false;
       }

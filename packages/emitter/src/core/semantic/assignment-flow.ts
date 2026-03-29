@@ -168,6 +168,8 @@ export const applyAssignmentStatementNarrowing = (
 
   const comparableAssignedType =
     unwrapParameterModifierType(assignedType) ?? assignedType;
+  const comparableReadableType =
+    unwrapParameterModifierType(currentType) ?? currentType;
   const comparableStorageType =
     unwrapParameterModifierType(storageType) ?? storageType;
 
@@ -192,10 +194,13 @@ export const applyAssignmentStatementNarrowing = (
   );
   const preserveReadableMemberSurface =
     bindingTarget.targetExpr.kind === "memberAccess" &&
-    isConcreteStorageType(comparableStorageType, materializedContext) &&
-    !isAssignable(comparableAssignedType, comparableStorageType);
+    isConcreteStorageType(comparableReadableType, materializedContext) &&
+    !isAssignable(comparableAssignedType, comparableReadableType);
 
   const narrowedBindings = new Map(materializedContext.narrowedBindings ?? []);
+  const preservedReadableType = preserveReadableMemberSurface
+    ? comparableReadableType
+    : undefined;
   const nextBinding: NarrowedBinding = {
     kind: "expr",
     exprAst:
@@ -204,10 +209,15 @@ export const applyAssignmentStatementNarrowing = (
         : materializedExprAst,
     storageExprAst: targetExprAst,
     type:
-      preserveConcreteStorageSurface || preserveReadableMemberSurface
+      preserveConcreteStorageSurface
         ? comparableStorageType
-        : comparableAssignedType,
-    sourceType: comparableStorageType,
+        : preservedReadableType ??
+          comparableAssignedType,
+    sourceType:
+      preserveConcreteStorageSurface
+        ? comparableStorageType
+        : preservedReadableType ??
+          comparableStorageType,
   };
   narrowedBindings.set(bindingTarget.bindingKey, nextBinding);
 

@@ -49,12 +49,42 @@ const acceptsExplicitUndefined = (parameter: IrParameter): boolean =>
   !parameter.isRest &&
   (parameter.isOptional || parameter.initializer !== undefined);
 
+const widenForwardedOptionalParameterType = (
+  type: IrType | undefined
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  if (
+    type.kind === "unionType" &&
+    type.types.some(
+      (member) =>
+        member.kind === "primitiveType" && member.name === "undefined"
+    )
+  ) {
+    return type;
+  }
+
+  return {
+    kind: "unionType",
+    types: [type, { kind: "primitiveType", name: "undefined" }],
+  };
+};
+
+const getForwardedParameterType = (
+  parameter: IrParameter
+): IrType | undefined =>
+  acceptsExplicitUndefined(parameter)
+    ? widenForwardedOptionalParameterType(parameter.type)
+    : parameter.type;
+
 const buildWrapperParameterIdentifier = (
   parameter: IrParameter
 ): IrExpression => ({
   kind: "identifier",
   name: getIdentifierPatternName(parameter),
-  inferredType: parameter.type,
+  inferredType: getForwardedParameterType(parameter),
 });
 
 const buildForwardedOptionalDefaultExpression = (
@@ -456,6 +486,7 @@ export const buildForwardedCallArguments = (
   ) {
     const helperParameter = helperParameters[helperIndex];
     if (!helperParameter) continue;
+    const forwardedHelperType = getForwardedParameterType(helperParameter);
 
     if (helperParameter.isRest) {
       if (wrapperRestParameter) {
@@ -479,7 +510,7 @@ export const buildForwardedCallArguments = (
         forwardedArgs.push(
           coerceForwardedArgumentToTargetType(
             directArgument,
-            helperParameter.type
+            forwardedHelperType
           )
         );
       }
@@ -497,7 +528,7 @@ export const buildForwardedCallArguments = (
         forwardedArgs.push(
           coerceForwardedArgumentToTargetType(
             directArgument,
-            helperParameter.type
+            forwardedHelperType
           )
         );
         continue;
@@ -509,7 +540,7 @@ export const buildForwardedCallArguments = (
         buildWrapperRestElementOrUndefinedExpression(
           wrapperRestParameter,
           helperIndex - wrapperRestIndex,
-          helperParameter.type
+          forwardedHelperType
         )
       );
       continue;

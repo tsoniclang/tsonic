@@ -69,16 +69,79 @@ const normalizeExpectedFunctionType = (
   return candidates[0];
 };
 
+const getContextualRestElementType = (
+  type: IrType | undefined,
+  offset: number
+): IrType | undefined => {
+  if (!type) return undefined;
+
+  if (type.kind === "arrayType") {
+    return type.elementType;
+  }
+
+  if (type.kind === "tupleType") {
+    return (
+      type.elementTypes[offset] ??
+      type.elementTypes[type.elementTypes.length - 1]
+    );
+  }
+
+  if (
+    type.kind === "referenceType" &&
+    (type.name === "Array" ||
+      type.name === "ReadonlyArray" ||
+      type.name === "ArrayLike") &&
+    type.typeArguments?.length === 1
+  ) {
+    return type.typeArguments[0];
+  }
+
+  return undefined;
+};
+
 /**
- * Extract parameter types from an expected function type.
+ * Extract lambda parameter types from an expected function type.
  * DETERMINISTIC: Uses only the IR type structure, not TS type inference.
+ *
+ * Rest callbacks contextual-type explicit lambda parameters positionally:
+ * `(first, second)` against `(...args: unknown[]) => void` gives each explicit
+ * parameter the rest element type (`unknown`), not the rest carrier type
+ * (`unknown[]`). Only explicit `...rest` parameters keep the full carrier.
  */
 const extractParamTypesFromExpectedType = (
-  expectedType: IrType | undefined
+  expectedType: IrType | undefined,
+  parameters: readonly ts.ParameterDeclaration[]
 ): readonly (IrType | undefined)[] | undefined => {
   if (!expectedType) return undefined;
   if (expectedType.kind !== "functionType") return undefined;
-  return expectedType.parameters.map((p) => p.type);
+
+  const contextualParameters = expectedType.parameters;
+  const contextualRestIndex = contextualParameters.findIndex(
+    (parameter) => parameter.isRest
+  );
+  const contextualRestParameter =
+    contextualRestIndex >= 0
+      ? contextualParameters[contextualRestIndex]
+      : undefined;
+
+  return parameters.map((parameter, index) => {
+    if (
+      contextualRestParameter === undefined ||
+      contextualRestIndex < 0 ||
+      index < contextualRestIndex
+    ) {
+      return contextualParameters[index]?.type;
+    }
+
+    if (parameter.dotDotDotToken) {
+      return contextualRestParameter.type;
+    }
+
+    return getContextualRestElementType(
+      contextualRestParameter.type,
+      index - contextualRestIndex
+    );
+  });
 };
 
 /**
@@ -97,7 +160,10 @@ const convertLambdaParameters = (
   expectedType: IrType | undefined
 ): readonly IrParameter[] => {
   // DETERMINISTIC: Extract parameter types from expectedType (the ONLY source for unannotated params)
-  const expectedParamTypes = extractParamTypesFromExpectedType(expectedType);
+  const expectedParamTypes = extractParamTypesFromExpectedType(
+    expectedType,
+    node.parameters
+  );
 
   return node.parameters.map((param, index) => {
     let passing: "value" | "ref" | "out" | "in" = "value";

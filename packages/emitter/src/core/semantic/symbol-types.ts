@@ -71,7 +71,7 @@ export const registerParameterTypes = (
 
   return registerLocalSymbolTypes(
     originalName,
-    semanticType,
+    acceptedType ?? semanticType,
     storageType,
     context
   );

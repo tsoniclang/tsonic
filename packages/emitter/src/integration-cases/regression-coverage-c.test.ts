@@ -217,6 +217,31 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("var listener__2 =");
     });
 
+    it("passes boxed storage values through broad calls after typeof-number narrowing", () => {
+      const csharp = compileToCSharp(
+        `
+          const toNumberArg = (value: unknown): number => {
+            return Number(value);
+          };
+
+          export function run(args: readonly unknown[]): number {
+            const arg0 = args.length > 0 ? args[0] : undefined;
+            if (typeof arg0 === "number") {
+              return toNumberArg(arg0);
+            }
+
+            return 0;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include('if (global::Tsonic.Runtime.Operators.@typeof((object?)arg0) == "number")');
+      expect(csharp).to.include("return toNumberArg(arg0);");
+      expect(csharp).not.to.include("toNumberArg((object?)(double)arg0)");
+    });
+
     it("uses declared out locals instead of bare discards for non-lvalue out arguments", () => {
       const csharp = compileToCSharp(`
         declare class Bytes {}
@@ -1863,6 +1888,139 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("global::System.Linq.Enumerable.Select");
       expect(csharp).to.match(/\.From1\(__item\)/);
+    });
+
+    it("treats fixed lambda parameters against rest callbacks as positional values", () => {
+      const csharp = compileToCSharp(`
+        type EventListener = (...args: unknown[]) => void;
+
+        declare function consume(listener: EventListener): void;
+
+        export function main(): void {
+          let first: unknown = undefined;
+          let second: unknown = undefined;
+          let third: unknown = undefined;
+
+          consume((arg1, arg2, arg3) => {
+            first = arg1;
+            second = arg2;
+            third = arg3;
+          });
+        }
+      `);
+
+      expect(csharp).to.include("object? arg1 = __unused_args[0];");
+      expect(csharp).to.include("first = arg1;");
+      expect(csharp).to.not.include("first = (object?[])arg1;");
+    });
+
+    it("forwards optional callbacks through overload wrappers without eager wrapper lambdas", () => {
+      const csharp = compileToCSharp(`
+        class Socket {
+          bind(): void;
+          bind(port: number, address?: string, callback?: () => void): void;
+          bind(port: number, callback: () => void): void;
+          bind(callback: () => void): void;
+          bind(options: { port?: number }, callback?: () => void): void;
+          bind(
+            portOrCallbackOrOptions?: number | (() => void) | { port?: number },
+            addressOrCallback?: string | (() => void),
+            callback?: () => void
+          ): void {
+            let cb: (() => void) | undefined = undefined;
+
+            if (portOrCallbackOrOptions === undefined) {
+              cb =
+                typeof addressOrCallback === "function"
+                  ? addressOrCallback
+                  : callback;
+            } else if (typeof portOrCallbackOrOptions === "function") {
+              cb = portOrCallbackOrOptions;
+            } else if (
+              typeof portOrCallbackOrOptions === "object" &&
+              portOrCallbackOrOptions !== null &&
+              portOrCallbackOrOptions !== undefined
+            ) {
+              cb =
+                typeof addressOrCallback === "function"
+                  ? addressOrCallback
+                  : callback;
+            } else if (typeof addressOrCallback === "function") {
+              cb = addressOrCallback;
+            } else {
+              cb = callback;
+            }
+
+            if (cb !== undefined) {
+              cb();
+            }
+          }
+        }
+
+        export function main(socket: Socket): void {
+          socket.bind(0, "127.0.0.1");
+        }
+      `);
+
+      expect(csharp).to.match(
+        /this\.__tsonic_overload_impl_bind\(global::Tsonic\.Runtime\.Union<global::System\.Action,\s*double,\s*global::Test\.__Anon_[^>]+>\.From2\(portOrCallbackOrOptions\),\s*global::Tsonic\.Runtime\.Union<global::System\.Action,\s*string>\.From2\(addressOrCallback\),\s*callback\);/
+      );
+      expect(csharp).to.not.include("() =>");
+      expect(csharp).to.not.include("callback();");
+    });
+
+    it("preserves nullable array arguments when forwarding identical signatures", () => {
+      const csharp = compileToCSharp(`
+        class Child {}
+
+        function spawn(command: string, args?: string[] | null): Child {
+          return new Child();
+        }
+
+        export function fork(
+          modulePath: string,
+          args?: string[] | null
+        ): Child {
+          return spawn(modulePath, args);
+        }
+      `);
+
+      expect(csharp).to.include("return spawn(modulePath, args);");
+      expect(csharp).to.not.include("(string[])(object)args");
+      expect(csharp).to.not.include("Enumerable.Select<string, string>(args");
+    });
+
+    it("preserves readable array surfaces after setter writes before length reads", () => {
+      const csharp = compileToCSharp(
+        `
+          declare class Assert {
+            static Equal(expected: unknown, actual: unknown): void;
+          }
+
+          class Proc {
+            private _argv: string[] = [];
+
+            get argv(): string[] {
+              return this._argv;
+            }
+
+            set argv(value: string[] | undefined) {
+              this._argv = value ?? [];
+            }
+          }
+
+          export function main(p: Proc): void {
+            p.argv = undefined;
+            Assert.Equal(0, p.argv.length);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("p.argv = default(string[]);");
+      expect(csharp).to.include("Assert.Equal((object)(double)0, (object)(double)p.argv.Length);");
+      expect(csharp).to.not.include("new global::js.Array<object>((object)p.argv).length");
     });
 
     it("erases compiler-generated structural assertion casts for nominal receivers", () => {

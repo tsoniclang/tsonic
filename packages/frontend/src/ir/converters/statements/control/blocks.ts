@@ -23,7 +23,71 @@ import {
   withAppliedNarrowings,
   withAssignedAccessPathType,
 } from "../../flow-narrowing.js";
-import { getAccessPathTarget } from "../../access-paths.js";
+import {
+  getAccessPathTarget,
+  getCurrentTypeForAccessExpression,
+} from "../../access-paths.js";
+import { getReadableMemberTypeForNarrowing } from "../../narrowing-property-helpers.js";
+
+const tryResolveReadableAssignedAccessType = (
+  expr: ts.Expression,
+  ctx: ProgramContext
+): IrType | undefined => {
+  if (ts.isPropertyAccessExpression(expr) || ts.isPropertyAccessChain(expr)) {
+    const receiverType = getCurrentTypeForAccessExpression(expr.expression, ctx);
+    if (!receiverType) {
+      return undefined;
+    }
+
+    return getReadableMemberTypeForNarrowing(receiverType, expr.name.text, ctx);
+  }
+
+  if (
+    ts.isElementAccessExpression(expr) ||
+    ts.isElementAccessChain(expr)
+  ) {
+    const propertyExpr = expr.argumentExpression;
+    if (
+      !propertyExpr ||
+      (!ts.isStringLiteral(propertyExpr) &&
+        !ts.isNoSubstitutionTemplateLiteral(propertyExpr))
+    ) {
+      return undefined;
+    }
+
+    const receiverType = getCurrentTypeForAccessExpression(expr.expression, ctx);
+    if (!receiverType) {
+      return undefined;
+    }
+
+    return getReadableMemberTypeForNarrowing(
+      receiverType,
+      propertyExpr.text,
+      ctx
+    );
+  }
+
+  return undefined;
+};
+
+const resolveAssignedAccessPathFlowType = (
+  expr: ts.Expression,
+  assignedType: IrType | undefined,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const readableType = tryResolveReadableAssignedAccessType(expr, ctx);
+  if (!readableType) {
+    return assignedType;
+  }
+
+  if (!assignedType) {
+    return readableType;
+  }
+
+  return ctx.typeSystem.isAssignableTo(assignedType, readableType)
+    ? assignedType
+    : readableType;
+};
 
 const statementAlwaysTerminates = (stmt: IrStatement): boolean => {
   switch (stmt.kind) {
@@ -109,7 +173,11 @@ export const convertBlockStatement = (
           currentCtx = withAssignedAccessPathType(
             currentCtx,
             target,
-            single.expression.right.inferredType
+            resolveAssignedAccessPathFlowType(
+              expr.left,
+              single.expression.right.inferredType,
+              currentCtx
+            )
           );
         }
         continue;
