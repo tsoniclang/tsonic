@@ -178,6 +178,102 @@ describe("Expression Emission", () => {
     expect(result).to.not.include("new object[] { 5 }");
   });
 
+  it("should lower tuple-rest member calls as positional arguments", () => {
+    const tupleRestType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "tupleType" as const, elementTypes: [] },
+        {
+          kind: "tupleType" as const,
+          elementTypes: [
+            {
+              kind: "arrayType" as const,
+              elementType: {
+                kind: "primitiveType" as const,
+                name: "number" as const,
+              },
+              origin: "explicit" as const,
+            },
+          ],
+        },
+      ],
+    } as const;
+
+    const arrayArgType = {
+      kind: "arrayType" as const,
+      elementType: { kind: "primitiveType" as const, name: "number" as const },
+      origin: "explicit" as const,
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "iterator",
+                inferredType: { kind: "unknownType" },
+              },
+              property: "next",
+              isComputed: false,
+              isOptional: false,
+              inferredType: { kind: "unknownType" },
+            },
+            arguments: [
+              {
+                kind: "array",
+                elements: [
+                  {
+                    kind: "literal",
+                    value: 0.5,
+                    numericIntent: "Double",
+                  },
+                ],
+                inferredType: arrayArgType,
+              },
+            ],
+            isOptional: false,
+            parameterTypes: [tupleRestType],
+            surfaceParameterTypes: [tupleRestType],
+            restParameter: {
+              index: 0,
+              arrayType: tupleRestType,
+              elementType: undefined,
+            },
+            surfaceRestParameter: {
+              index: 0,
+              arrayType: tupleRestType,
+              elementType: undefined,
+            },
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 1,
+              column: 1,
+              length: 15,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("iterator.next(new double[] { 0.5 })");
+    expect(result).to.not.include("Tsonic.Runtime.Union");
+    expect(result).to.not.include("ValueTuple");
+  });
+
   it("preserves broad rest spreads without reifying asserted tuple arrays", () => {
     const assertedTupleArrayType = {
       kind: "arrayType" as const,

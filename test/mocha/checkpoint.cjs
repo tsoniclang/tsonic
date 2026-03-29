@@ -73,6 +73,36 @@ function readPassSet() {
 }
 
 const PASS_SET = readPassSet();
+const HEAVY_TEST_MS = Number(process.env.TSONIC_TEST_HEAVY_MS || "1000");
+
+function formatMs(ms) {
+  const value = Number.isFinite(ms) ? Math.max(0, Math.trunc(ms)) : 0;
+  return `${value}ms`;
+}
+
+function isGoldenTest(test) {
+  return typeof test.file === "string" && /golden-shard-\d+\.test\./.test(test.file);
+}
+
+function shouldLogTiming(test, status) {
+  if (status === "fail") return true;
+  if (isGoldenTest(test)) return true;
+  return Number(test.duration ?? 0) >= HEAVY_TEST_MS;
+}
+
+function logTiming(test, status) {
+  if (!shouldLogTiming(test, status)) {
+    return;
+  }
+  const id = testId(test);
+  const duration = formatMs(test.duration ?? 0);
+  console.log(`[timing][${PKG_NAME}][${status}][${duration}] ${id}`);
+}
+
+function logStart(test) {
+  const id = testId(test);
+  console.log(`[start][${PKG_NAME}] ${id}`);
+}
 
 exports.mochaHooks = {
   beforeEach() {
@@ -86,6 +116,8 @@ exports.mochaHooks = {
       appendJsonl(RESULTS_FILE, { id, status: "skip", reason: "cached-pass", ts: new Date().toISOString() });
       this.skip();
     }
+
+    logStart(t);
   },
 
   afterEach() {
@@ -95,8 +127,10 @@ exports.mochaHooks = {
     const id = testId(t);
     if (t.state === "passed") {
       appendJsonl(RESULTS_FILE, { id, status: "pass", ms: t.duration ?? null, ts: new Date().toISOString() });
+      logTiming(t, "pass");
     } else if (t.state === "failed") {
       appendJsonl(RESULTS_FILE, { id, status: "fail", ms: t.duration ?? null, ts: new Date().toISOString() });
+      logTiming(t, "fail");
     }
   },
 };

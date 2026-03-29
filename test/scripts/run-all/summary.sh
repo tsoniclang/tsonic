@@ -19,6 +19,7 @@ print_summary_and_exit() {
             echo "  Failed: 0" | tee -a "$LOG_FILE"
         fi
     fi
+    echo "  Duration: $(format_duration_ms "$FRESH_BUILD_DURATION_MS")" | tee -a "$LOG_FILE"
     echo "" | tee -a "$LOG_FILE"
 
     echo "Unit & Golden Tests:" | tee -a "$LOG_FILE"
@@ -32,6 +33,7 @@ print_summary_and_exit() {
             echo "  Failed: 0" | tee -a "$LOG_FILE"
         fi
     fi
+    echo "  Duration: $(format_duration_ms "$UNIT_DURATION_MS")" | tee -a "$LOG_FILE"
     echo "" | tee -a "$LOG_FILE"
 
     echo "TypeScript Typecheck:" | tee -a "$LOG_FILE"
@@ -41,17 +43,28 @@ print_summary_and_exit() {
     else
         echo "  Failed: 0" | tee -a "$LOG_FILE"
     fi
+    echo "  Duration: $(format_duration_ms "$TSC_DURATION_MS")" | tee -a "$LOG_FILE"
     echo "" | tee -a "$LOG_FILE"
 
     if [ "$QUICK_MODE" = false ]; then
+        echo "Core Runtime DLL Sync:" | tee -a "$LOG_FILE"
+        echo "  Status: $RUNTIME_SYNC_STATUS" | tee -a "$LOG_FILE"
+        echo "  Duration: $(format_duration_ms "$RUNTIME_SYNC_DURATION_MS")" | tee -a "$LOG_FILE"
+        echo "" | tee -a "$LOG_FILE"
+
+        echo "NativeAOT Preflight:" | tee -a "$LOG_FILE"
+        echo "  Status: $AOT_PREFLIGHT_STATUS" | tee -a "$LOG_FILE"
+        echo "  Duration: $(format_duration_ms "$AOT_PREFLIGHT_DURATION_MS")" | tee -a "$LOG_FILE"
+        echo "" | tee -a "$LOG_FILE"
+
         echo "E2E Dotnet Tests:" | tee -a "$LOG_FILE"
-        echo "  NativeAOT preflight: $AOT_PREFLIGHT_STATUS" | tee -a "$LOG_FILE"
         echo -e "  ${GREEN}Passed: $E2E_DOTNET_PASSED${NC}" | tee -a "$LOG_FILE"
         if [ $E2E_DOTNET_FAILED -gt 0 ]; then
             echo -e "  ${RED}Failed: $E2E_DOTNET_FAILED${NC}" | tee -a "$LOG_FILE"
         else
             echo "  Failed: 0" | tee -a "$LOG_FILE"
         fi
+        echo "  Duration: $(format_duration_ms "$E2E_DOTNET_DURATION_MS")" | tee -a "$LOG_FILE"
         echo "" | tee -a "$LOG_FILE"
 
         echo "Negative Tests:" | tee -a "$LOG_FILE"
@@ -61,6 +74,7 @@ print_summary_and_exit() {
         else
             echo "  Failed: 0" | tee -a "$LOG_FILE"
         fi
+        echo "  Duration: $(format_duration_ms "$E2E_NEGATIVE_DURATION_MS")" | tee -a "$LOG_FILE"
         echo "" | tee -a "$LOG_FILE"
     fi
 

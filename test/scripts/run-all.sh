@@ -53,6 +53,13 @@ UNIT_STATUS="unknown"
 TSC_STATUS="unknown"
 RUNTIME_SYNC_STATUS="unknown"
 AOT_PREFLIGHT_STATUS="not-run"
+FRESH_BUILD_DURATION_MS=0
+UNIT_DURATION_MS=0
+TSC_DURATION_MS=0
+RUNTIME_SYNC_DURATION_MS=0
+AOT_PREFLIGHT_DURATION_MS=0
+E2E_DOTNET_DURATION_MS=0
+E2E_NEGATIVE_DURATION_MS=0
 
 QUICK_MODE=false
 SKIP_UNIT=false
@@ -171,6 +178,7 @@ echo "" | tee -a "$LOG_FILE"
 # ============================================================
 echo -e "${BLUE}--- Running Fresh Workspace Build ---${NC}" | tee -a "$LOG_FILE"
 cd "$ROOT_DIR"
+fresh_build_started_ms="$(now_ms)"
 
 if [ "$SKIP_UNIT" = true ]; then
     echo -e "${YELLOW}SKIP: fresh workspace build (--no-unit)${NC}" | tee -a "$LOG_FILE"
@@ -185,6 +193,8 @@ else
         FRESH_BUILD_FAILED=1
     fi
 fi
+FRESH_BUILD_DURATION_MS=$(( $(now_ms) - fresh_build_started_ms ))
+echo "Duration: $(format_duration_ms "$FRESH_BUILD_DURATION_MS")" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 
@@ -193,6 +203,7 @@ echo "" | tee -a "$LOG_FILE"
 # ============================================================
 echo -e "${BLUE}--- Running Unit & Golden Tests ---${NC}" | tee -a "$LOG_FILE"
 cd "$ROOT_DIR"
+unit_started_ms="$(now_ms)"
 
 if [ "$SKIP_UNIT" = true ]; then
     echo -e "${YELLOW}SKIP: unit + golden tests (--no-unit)${NC}" | tee -a "$LOG_FILE"
@@ -221,6 +232,8 @@ else
         UNIT_FAILED=1
     fi
 fi
+UNIT_DURATION_MS=$(( $(now_ms) - unit_started_ms ))
+echo "Duration: $(format_duration_ms "$UNIT_DURATION_MS")" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 
@@ -228,6 +241,7 @@ echo "" | tee -a "$LOG_FILE"
 # 1.25 TypeScript typecheck (fixtures must pass vanilla tsc)
 # ============================================================
 echo -e "${BLUE}--- Running TypeScript Typecheck (E2E fixtures) ---${NC}" | tee -a "$LOG_FILE"
+tccheck_started_ms="$(now_ms)"
 typecheck_cmd=(bash "$ROOT_DIR/test/scripts/typecheck-fixtures.sh")
 for pat in "${FILTER_PATTERNS[@]}"; do
     typecheck_cmd+=(--filter "$pat")
@@ -250,6 +264,8 @@ fi
 if [ "$TSC_STATUS" = "failed" ] && [ "$TSC_FAILED" -eq 0 ]; then
     TSC_FAILED=1
 fi
+TSC_DURATION_MS=$(( $(now_ms) - tccheck_started_ms ))
+echo "Duration: $(format_duration_ms "$TSC_DURATION_MS")" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 
@@ -260,6 +276,7 @@ else
     # 1.5 Core runtime DLL sync
     # ============================================================
     echo -e "${BLUE}--- Syncing Core Runtime DLL ---${NC}" | tee -a "$LOG_FILE"
+    runtime_sync_started_ms="$(now_ms)"
     if "$ROOT_DIR/scripts/sync-runtime-dlls.sh" 2>&1 | tee -a "$LOG_FILE"; then
         RUNTIME_SYNC_STATUS="passed"
     else
@@ -268,11 +285,14 @@ else
         E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
         echo -e "${RED}FAIL: core runtime DLL sync failed${NC}" | tee -a "$LOG_FILE"
     fi
+    RUNTIME_SYNC_DURATION_MS=$(( $(now_ms) - runtime_sync_started_ms ))
+    echo "Duration: $(format_duration_ms "$RUNTIME_SYNC_DURATION_MS")" | tee -a "$LOG_FILE"
     echo "" | tee -a "$LOG_FILE"
 
     RUN_E2E_FIXTURES=true
     if [ "$RUNTIME_SYNC_STATUS" = "passed" ]; then
         echo -e "${BLUE}--- NativeAOT Preflight ---${NC}" | tee -a "$LOG_FILE"
+        aot_preflight_started_ms="$(now_ms)"
         if nativeaot_preflight_check "$LOG_FILE"; then
             AOT_PREFLIGHT_STATUS="passed"
         else
@@ -282,6 +302,8 @@ else
             E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
             echo -e "${RED}FAIL: NativeAOT preflight failed; skipping fixture execution.${NC}" | tee -a "$LOG_FILE"
         fi
+        AOT_PREFLIGHT_DURATION_MS=$(( $(now_ms) - aot_preflight_started_ms ))
+        echo "Duration: $(format_duration_ms "$AOT_PREFLIGHT_DURATION_MS")" | tee -a "$LOG_FILE"
         echo "" | tee -a "$LOG_FILE"
     else
         AOT_PREFLIGHT_STATUS="skipped"
@@ -293,6 +315,7 @@ else
     # 2. E2E Dotnet Tests (Parallel)
     # ============================================================
     echo -e "${BLUE}--- Running E2E Dotnet Tests (concurrency: $TEST_CONCURRENCY) ---${NC}" | tee -a "$LOG_FILE"
+    e2e_dotnet_started_ms="$(now_ms)"
     stabilize_tsonic_bin
 
     FIXTURES_DIR="$SCRIPT_DIR/../fixtures"
@@ -302,14 +325,19 @@ else
 
     DOTNET_FIXTURES=()
     run_dotnet_test_batch
+    E2E_DOTNET_DURATION_MS=$(( $(now_ms) - e2e_dotnet_started_ms ))
+    echo "Duration: $(format_duration_ms "$E2E_DOTNET_DURATION_MS")" | tee -a "$LOG_FILE"
     echo "" | tee -a "$LOG_FILE"
 
     # ============================================================
     # 3. Negative Tests (expected failures) - Parallel
     # ============================================================
     echo -e "${BLUE}--- Running Negative Tests (concurrency: $TEST_CONCURRENCY) ---${NC}" | tee -a "$LOG_FILE"
+    e2e_negative_started_ms="$(now_ms)"
     NEGATIVE_FIXTURES=()
     run_negative_test_batch
+    E2E_NEGATIVE_DURATION_MS=$(( $(now_ms) - e2e_negative_started_ms ))
+    echo "Duration: $(format_duration_ms "$E2E_NEGATIVE_DURATION_MS")" | tee -a "$LOG_FILE"
     echo "" | tee -a "$LOG_FILE"
     else
         echo -e "${YELLOW}--- Skipping E2E fixture execution (NativeAOT preflight/runtime sync not available) ---${NC}" | tee -a "$LOG_FILE"

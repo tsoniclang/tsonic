@@ -41,6 +41,36 @@ Options:
 EOF
 }
 
+now_ms() {
+  date +%s%3N
+}
+
+format_duration_ms() {
+  local total_ms="${1:-0}"
+  if [ "$total_ms" -lt 1000 ]; then
+    printf '%sms' "$total_ms"
+    return
+  fi
+
+  local total_s=$((total_ms / 1000))
+  local ms=$((total_ms % 1000))
+  local s=$((total_s % 60))
+  local total_m=$((total_s / 60))
+  local m=$((total_m % 60))
+
+  if [ "$total_m" -gt 0 ]; then
+    printf '%dm %02ds' "$total_m" "$s"
+    return
+  fi
+
+  if [ "$ms" -gt 0 ]; then
+    printf '%d.%03ds' "$s" "$ms"
+    return
+  fi
+
+  printf '%ds' "$s"
+}
+
 while [ $# -gt 0 ]; do
   case "${1:-}" in
     --filter)
@@ -402,10 +432,12 @@ echo "=== TypeScript Typecheck (E2E fixtures) ==="
 if [ ${#FILTER_PATTERNS[@]} -gt 0 ]; then
   echo "Filter: ${FILTER_PATTERNS[*]}"
 fi
+typecheck_started_ms="$(now_ms)"
 
 for fixture_dir in "$FIXTURES_DIR"/*/; do
   [ -d "$fixture_dir" ] || continue
   fixture_name="$(basename "$fixture_dir")"
+  fixture_started_ms="$(now_ms)"
 
   if ! matches_filter "$fixture_name"; then
     continue
@@ -423,16 +455,18 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   fi
 
   if [ "$RESUME_MODE" = "1" ] && [ -n "$TYPECHECK_CACHE_DIR" ] && [ -f "$TYPECHECK_CACHE_DIR/$fixture_name.pass" ]; then
-    echo "  $fixture_name: SKIP (cached PASS)"
+    echo "  $fixture_name: SKIP (cached PASS, $(format_duration_ms "$(( $(now_ms) - fixture_started_ms ))"))"
     passed=$((passed + 1))
     continue
   fi
 
   entry="$fixture_dir/packages/$fixture_name/src/index.ts"
   if [ ! -f "$entry" ]; then
-    echo "  $fixture_name: SKIP (no packages/<project>/src/index.ts)"
+    echo "  $fixture_name: SKIP (no packages/<project>/src/index.ts, $(format_duration_ms "$(( $(now_ms) - fixture_started_ms ))"))"
     continue
   fi
+
+  echo "  $fixture_name: START"
 
   out_file="$tmp_dir/$fixture_name.log"
 
@@ -674,7 +708,7 @@ $(for declaration_file in "${declaration_files[@]}"; do
 EOF
 
   if "$TSC" -p "$tsconfig_file" >"$out_file" 2>&1; then
-    echo "  $fixture_name: PASS"
+    echo "  $fixture_name: PASS ($(format_duration_ms "$(( $(now_ms) - fixture_started_ms ))"))"
     passed=$((passed + 1))
     if [ -n "$TYPECHECK_CACHE_DIR" ]; then
       ensure_typecheck_cache_dir
@@ -684,7 +718,7 @@ EOF
       rm -f "$TYPECHECK_CACHE_DIR/$fixture_name.fail" 2>/dev/null || true
     fi
   else
-    echo "  $fixture_name: FAIL"
+    echo "  $fixture_name: FAIL ($(format_duration_ms "$(( $(now_ms) - fixture_started_ms ))"))"
     failed=$((failed + 1))
     sed -n '1,200p' "$out_file"
     if [ -n "$TYPECHECK_CACHE_DIR" ]; then
@@ -698,6 +732,7 @@ EOF
 done
 
 echo ""
+echo "Typecheck duration: $(format_duration_ms "$(( $(now_ms) - typecheck_started_ms ))")"
 echo "Typecheck summary: $passed passed, $failed failed"
 
 if [ "$failed" -gt 0 ]; then

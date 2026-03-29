@@ -18,6 +18,42 @@ Notes:
 EOF
 }
 
+now_ms() {
+    date +%s%3N
+}
+
+format_duration_ms() {
+    local total_ms="${1:-0}"
+    if [ "$total_ms" -lt 1000 ]; then
+        printf '%sms' "$total_ms"
+        return
+    fi
+
+    local total_s=$((total_ms / 1000))
+    local ms=$((total_ms % 1000))
+    local s=$((total_s % 60))
+    local total_m=$((total_s / 60))
+    local m=$((total_m % 60))
+    local h=$((total_m / 60))
+
+    if [ "$h" -gt 0 ]; then
+        printf '%dh %dm %02ds' "$h" "$m" "$s"
+        return
+    fi
+
+    if [ "$m" -gt 0 ]; then
+        printf '%dm %02ds' "$m" "$s"
+        return
+    fi
+
+    if [ "$ms" -gt 0 ]; then
+        printf '%d.%03ds' "$s" "$ms"
+        return
+    fi
+
+    printf '%ds' "$s"
+}
+
 ensure_tsonic_bin() {
     if [[ -f "$TSONIC_BIN" ]]; then
         return 0

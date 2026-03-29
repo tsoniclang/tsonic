@@ -538,73 +538,17 @@ const emitFunctionValueCallArguments = (
   })();
   const providedArgumentCount = args.length;
 
-  const extractTupleRestCandidates = (
-    type: IrType | undefined
-  ): readonly (readonly IrType[])[] | undefined => {
-    if (!type) return undefined;
-    if (type.kind === "tupleType") {
-      return [type.elementTypes];
-    }
-    if (type.kind !== "unionType") {
-      return undefined;
-    }
-    const candidates: (readonly IrType[])[] = [];
-    for (const member of type.types) {
-      if (!member || member.kind !== "tupleType") {
-        return undefined;
-      }
-      candidates.push(member.elementTypes);
-    }
-    return candidates;
-  };
-
-  const tryEmitTupleRestArguments = (
-    startIndex: number,
-    parameterType: IrType | undefined
-  ): [readonly CSharpExpressionAst[], EmitterContext] | undefined => {
-    const remainingArgs = args.slice(startIndex);
-    if (remainingArgs.some((arg) => arg?.kind === "spread")) {
-      return undefined;
-    }
-
-    const tupleCandidates = extractTupleRestCandidates(parameterType);
-    if (!tupleCandidates || tupleCandidates.length === 0) {
-      return undefined;
-    }
-
-    const matchingCandidates = tupleCandidates.filter(
-      (candidate) => candidate.length === remainingArgs.length
-    );
-    if (matchingCandidates.length !== 1) {
-      return undefined;
-    }
-
-    const tupleElements = matchingCandidates[0] ?? [];
-    const emittedArgs: CSharpExpressionAst[] = [];
-    let tupleContext = currentContext;
-
-    for (let index = 0; index < remainingArgs.length; index++) {
-      const arg = remainingArgs[index];
-      const expectedType = tupleElements[index];
-      if (!arg) continue;
-      const [argAst, argContext] = emitExpressionAst(
-        arg,
-        tupleContext,
-        expectedType
-      );
-      emittedArgs.push(argAst);
-      tupleContext = argContext;
-    }
-
-    return [emittedArgs, tupleContext];
-  };
-
   for (let i = 0; i < parameters.length; i++) {
     const parameter = parameters[i];
     if (!parameter) continue;
 
     if (parameter.isRest) {
-      const tupleRestResult = tryEmitTupleRestArguments(i, parameter.type);
+      const tupleRestResult = tryEmitTupleRestArguments(
+        args,
+        i,
+        parameter.type,
+        currentContext
+      );
       if (tupleRestResult) {
         const [tupleArgs, tupleContext] = tupleRestResult;
         argAsts.push(...tupleArgs);
@@ -756,6 +700,69 @@ const emitFunctionValueCallArguments = (
   }
 
   return [argAsts, currentContext];
+};
+
+const extractTupleRestCandidates = (
+  type: IrType | undefined
+): readonly (readonly IrType[])[] | undefined => {
+  if (!type) return undefined;
+  if (type.kind === "tupleType") {
+    return [type.elementTypes];
+  }
+  if (type.kind !== "unionType") {
+    return undefined;
+  }
+  const candidates: (readonly IrType[])[] = [];
+  for (const member of type.types) {
+    if (!member || member.kind !== "tupleType") {
+      return undefined;
+    }
+    candidates.push(member.elementTypes);
+  }
+  return candidates;
+};
+
+const tryEmitTupleRestArguments = (
+  args: readonly (IrExpression | { kind: "spread"; expression: IrExpression })[],
+  startIndex: number,
+  parameterType: IrType | undefined,
+  context: EmitterContext
+): [readonly CSharpExpressionAst[], EmitterContext] | undefined => {
+  const remainingArgs = args.slice(startIndex);
+  if (remainingArgs.some((arg) => arg?.kind === "spread")) {
+    return undefined;
+  }
+
+  const tupleCandidates = extractTupleRestCandidates(parameterType);
+  if (!tupleCandidates || tupleCandidates.length === 0) {
+    return undefined;
+  }
+
+  const matchingCandidates = tupleCandidates.filter(
+    (candidate) => candidate.length === remainingArgs.length
+  );
+  if (matchingCandidates.length !== 1) {
+    return undefined;
+  }
+
+  const tupleElements = matchingCandidates[0] ?? [];
+  const emittedArgs: CSharpExpressionAst[] = [];
+  let tupleContext = context;
+
+  for (let index = 0; index < remainingArgs.length; index++) {
+    const arg = remainingArgs[index];
+    const expectedType = tupleElements[index];
+    if (!arg || arg.kind === "spread") continue;
+    const [argAst, argContext] = emitExpressionAst(
+      arg,
+      tupleContext,
+      expectedType
+    );
+    emittedArgs.push(argAst);
+    tupleContext = argContext;
+  }
+
+  return [emittedArgs, tupleContext];
 };
 
 const shouldPreferZeroArgJsTimerCallback = (
@@ -986,6 +993,20 @@ const emitCallArguments = (
       : undefined;
   let currentContext = context;
   const argAsts: CSharpExpressionAst[] = [];
+
+  if (restParameter) {
+    const tupleRestResult = tryEmitTupleRestArguments(
+      normalizedArgs,
+      restParameter.index,
+      restParameter.arrayType,
+      currentContext
+    );
+    if (tupleRestResult) {
+      const [tupleArgs, tupleContext] = tupleRestResult;
+      argAsts.push(...tupleArgs);
+      return [argAsts, tupleContext];
+    }
+  }
 
   for (let i = 0; i < normalizedArgs.length; i++) {
     const arg = normalizedArgs[i];
