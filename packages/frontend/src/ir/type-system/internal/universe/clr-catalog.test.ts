@@ -344,6 +344,25 @@ describe("loadClrCatalog", () => {
                     declaringAssemblyName: "System.Private.CoreLib",
                     isExtensionMethod: false,
                   },
+                  {
+                    stableId:
+                      "System.Private.CoreLib:System.Span`1::GetEnumerator():Enumerator",
+                    clrName: "GetEnumerator",
+                    canonicalSignature: "():Enumerator",
+                    normalizedSignature:
+                      "GetEnumerator|():Enumerator|static=false",
+                    arity: 0,
+                    parameterCount: 0,
+                    isStatic: false,
+                    isAbstract: false,
+                    isVirtual: false,
+                    isOverride: false,
+                    isSealed: false,
+                    visibility: "Public",
+                    declaringClrType: "System.Span`1",
+                    declaringAssemblyName: "System.Private.CoreLib",
+                    isExtensionMethod: false,
+                  },
                 ],
                 properties: [],
                 fields: [],
@@ -362,8 +381,14 @@ describe("loadClrCatalog", () => {
           "  readonly __tsonic_type_System_Span_1: never;",
           "  Slice(start: int): Span_1<T>;",
           "  ToArray(): T[];",
+          "  GetEnumerator(): Span_1_Enumerator<T>;",
           "}",
           "export type Span_1<T> = Span_1$instance<T>;",
+          "export interface Span_1_Enumerator$instance<T> {",
+          "  readonly __tsonic_type_System_Span_1_Enumerator: never;",
+          "  readonly Current: T;",
+          "}",
+          "export type Span_1_Enumerator<T> = Span_1_Enumerator$instance<T>;",
           "",
         ].join("\n")
       );
@@ -378,8 +403,10 @@ describe("loadClrCatalog", () => {
       const entry = catalog.entries.get(typeId.stableId);
       const slice = entry?.members.get("Slice");
       const toArray = entry?.members.get("ToArray");
+      const getEnumerator = entry?.members.get("GetEnumerator");
       expect(slice?.signatures).to.have.length(1);
       expect(toArray?.signatures).to.have.length(1);
+      expect(getEnumerator?.signatures).to.have.length(1);
 
       const sliceReturn = slice?.signatures?.[0]?.returnType;
       expect(sliceReturn).to.deep.equal({
@@ -392,6 +419,13 @@ describe("loadClrCatalog", () => {
       expect(toArrayReturn).to.deep.equal({
         kind: "arrayType",
         elementType: { kind: "typeParameterType", name: "T" },
+      });
+
+      const enumeratorReturn = getEnumerator?.signatures?.[0]?.returnType;
+      expect(enumeratorReturn).to.deep.equal({
+        kind: "referenceType",
+        name: "Span_1_Enumerator",
+        typeArguments: [{ kind: "typeParameterType", name: "T" }],
       });
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });

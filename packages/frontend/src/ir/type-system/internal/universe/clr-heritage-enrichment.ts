@@ -8,7 +8,7 @@
 
 import type { IrType } from "../../../types/index.js";
 import type { TypeId, NominalEntry, MemberEntry } from "./types.js";
-import { makeMethodSignatureKey } from "./clr-type-parser.js";
+import { makeMethodOverloadKey } from "./clr-type-parser.js";
 import { extractHeritageFromTsBindgenDts } from "./clr-heritage-extraction.js";
 
 export const enrichAssemblyEntriesFromTsBindgenDts = (
@@ -151,7 +151,7 @@ export const enrichAssemblyEntriesFromTsBindgenDts = (
 
         let memberChanged = false;
         const updatedSignatures = member.signatures.map((sig) => {
-          const signatureKey = makeMethodSignatureKey({
+          const signatureKey = makeMethodOverloadKey({
             isStatic: sig.isStatic,
             name: memberName,
             typeParamCount: sig.typeParameters.length,
@@ -159,7 +159,6 @@ export const enrichAssemblyEntriesFromTsBindgenDts = (
               type: p.type,
               isRest: p.isRest,
             })),
-            returnType: sig.returnType,
           });
 
           const surface = signatureSurfaces?.get(signatureKey);

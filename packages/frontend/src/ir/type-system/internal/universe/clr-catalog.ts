@@ -53,7 +53,7 @@ export {
   splitTypeArguments,
   dtsTypeNodeToIrType,
   irTypeToSignatureKey,
-  makeMethodSignatureKey,
+  makeMethodOverloadKey,
   INSTANCE_SUFFIX,
   VIEWS_PREFIX,
   VIEWS_SUFFIX,

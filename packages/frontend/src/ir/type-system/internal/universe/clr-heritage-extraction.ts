@@ -14,7 +14,7 @@ import { tryResolveDeterministicPropertyName } from "../../../syntax/property-na
 import type { TypeId, NominalEntry, HeritageEdge } from "./types.js";
 import {
   dtsTypeNodeToIrType,
-  makeMethodSignatureKey,
+  makeMethodOverloadKey,
   INSTANCE_SUFFIX,
   VIEWS_PREFIX,
   VIEWS_SUFFIX,
@@ -197,12 +197,11 @@ export const extractHeritageFromTsBindgenDts = (
           ) ??
             false));
 
-      const signatureKey = makeMethodSignatureKey({
+      const signatureKey = makeMethodOverloadKey({
         isStatic,
         name: methodName,
         typeParamCount: methodTypeParams.length,
         parameters: params.map((p) => ({ type: p.type, isRest: p.isRest })),
-        returnType,
       });
 
       recordMethodSignatureSurface(baseTsName, signatureKey, {

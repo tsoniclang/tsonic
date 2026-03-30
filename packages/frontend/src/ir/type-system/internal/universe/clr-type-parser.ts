@@ -25,5 +25,5 @@ export {
   getRightmostPropertyAccessText,
   dtsTypeNodeToIrType,
   irTypeToSignatureKey,
-  makeMethodSignatureKey,
+  makeMethodOverloadKey,
 } from "./dts-type-node-conversion.js";
