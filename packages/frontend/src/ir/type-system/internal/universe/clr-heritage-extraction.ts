@@ -30,10 +30,24 @@ export type TsBindgenDtsTypeInfo = {
     string,
     ReadonlyMap<string, IrType>
   >;
+  readonly methodSignatureSurfacesByTsName: ReadonlyMap<
+    string,
+    ReadonlyMap<string, TsBindgenDtsMethodSignatureSurface>
+  >;
   readonly methodSignatureOptionalsByTsName: ReadonlyMap<
     string,
     ReadonlyMap<string, readonly boolean[]>
   >;
+};
+
+export type TsBindgenDtsMethodSignatureSurface = {
+  readonly typeParameterNames: readonly string[];
+  readonly parameters: readonly {
+    readonly type: IrType;
+    readonly isRest: boolean;
+    readonly isOptional: boolean;
+  }[];
+  readonly returnType: IrType;
 };
 
 export const extractHeritageFromTsBindgenDts = (
@@ -44,6 +58,10 @@ export const extractHeritageFromTsBindgenDts = (
   const typeParametersByTsName = new Map<string, readonly string[]>();
   const heritageByTsName = new Map<string, HeritageEdge[]>();
   const memberTypesByTsName = new Map<string, Map<string, IrType>>();
+  const methodSignatureSurfacesByTsName = new Map<
+    string,
+    Map<string, TsBindgenDtsMethodSignatureSurface>
+  >();
   const methodSignatureOptionalsByTsName = new Map<
     string,
     Map<string, readonly boolean[]>
@@ -95,6 +113,20 @@ export const extractHeritageFromTsBindgenDts = (
     if (!map.has(signatureKey)) {
       map.set(signatureKey, optionals);
       methodSignatureOptionalsByTsName.set(sourceTsName, map);
+    }
+  };
+
+  const recordMethodSignatureSurface = (
+    sourceTsName: string,
+    signatureKey: string,
+    surface: TsBindgenDtsMethodSignatureSurface
+  ): void => {
+    const map =
+      methodSignatureSurfacesByTsName.get(sourceTsName) ??
+      new Map<string, TsBindgenDtsMethodSignatureSurface>();
+    if (!map.has(signatureKey)) {
+      map.set(signatureKey, surface);
+      methodSignatureSurfacesByTsName.set(sourceTsName, map);
     }
   };
 
@@ -173,6 +205,11 @@ export const extractHeritageFromTsBindgenDts = (
         returnType,
       });
 
+      recordMethodSignatureSurface(baseTsName, signatureKey, {
+        typeParameterNames: methodTypeParams,
+        parameters: params,
+        returnType,
+      });
       recordMethodSignatureOptionals(
         baseTsName,
         signatureKey,
@@ -460,6 +497,7 @@ export const extractHeritageFromTsBindgenDts = (
     typeParametersByTsName,
     heritageByTsName: dedupedHeritageByTsName,
     memberTypesByTsName,
+    methodSignatureSurfacesByTsName,
     methodSignatureOptionalsByTsName,
   };
 };

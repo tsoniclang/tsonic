@@ -195,6 +195,209 @@ describe("loadClrCatalog", () => {
     }
   });
 
+  it("enriches CLR type parameters from top-level tsbindgen declarations", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-clr-catalog-")
+    );
+
+    try {
+      const nodeModulesRoot = path.join(tempDir, "node_modules");
+      const efcoreRoot = path.join(nodeModulesRoot, "@tsonic", "efcore");
+      const efcoreNsRoot = path.join(
+        efcoreRoot,
+        "Microsoft.EntityFrameworkCore"
+      );
+
+      fs.mkdirSync(efcoreNsRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(efcoreRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/efcore", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(efcoreNsRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            namespace: "Microsoft.EntityFrameworkCore",
+            types: [
+              {
+                stableId:
+                  "Microsoft.EntityFrameworkCore:Microsoft.EntityFrameworkCore.DbSet`1",
+                clrName: "Microsoft.EntityFrameworkCore.DbSet`1",
+                kind: "class",
+                accessibility: "public",
+                isAbstract: false,
+                isSealed: false,
+                isStatic: false,
+                arity: 1,
+                methods: [],
+                properties: [],
+                fields: [],
+                constructors: [],
+                assemblyName: "Microsoft.EntityFrameworkCore",
+              },
+            ],
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(efcoreRoot, "Microsoft.EntityFrameworkCore.d.ts"),
+        [
+          "export interface DbSet_1$instance<TEntity> {",
+          "  readonly __tsonic_type_Microsoft_EntityFrameworkCore_DbSet_1: never;",
+          "}",
+          "export type DbSet_1<TEntity> = DbSet_1$instance<TEntity>;",
+          "",
+        ].join("\n")
+      );
+
+      const catalog = loadClrCatalog(nodeModulesRoot, [efcoreRoot]);
+      const typeId = catalog.tsNameToTypeId.get("DbSet_1");
+      expect(typeId).to.not.equal(undefined);
+      if (!typeId) {
+        return;
+      }
+
+      expect(catalog.entries.get(typeId.stableId)?.typeParameters).to.deep.equal(
+        [{ name: "TEntity" }]
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("hydrates generic-owning CLR method signatures from companion d.ts surfaces", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-clr-catalog-")
+    );
+
+    try {
+      const nodeModulesRoot = path.join(tempDir, "node_modules");
+      const dotnetRoot = path.join(nodeModulesRoot, "@tsonic", "dotnet");
+      const systemRoot = path.join(dotnetRoot, "System");
+
+      fs.mkdirSync(systemRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(dotnetRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/dotnet", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(systemRoot, "bindings.json"),
+        JSON.stringify(
+          {
+            namespace: "System",
+            types: [
+              {
+                stableId: "System.Private.CoreLib:System.Span`1",
+                clrName: "System.Span`1",
+                assemblyName: "System.Private.CoreLib",
+                kind: "Struct",
+                accessibility: "Public",
+                isAbstract: false,
+                isSealed: true,
+                isStatic: false,
+                arity: 1,
+                methods: [
+                  {
+                    stableId:
+                      "System.Private.CoreLib:System.Span`1::Slice(System.Int32):Span_1",
+                    clrName: "Slice",
+                    canonicalSignature: "(System.Int32):Span_1",
+                    normalizedSignature:
+                      "Slice|(System.Int32):Span_1|static=false",
+                    arity: 0,
+                    parameterCount: 1,
+                    isStatic: false,
+                    isAbstract: false,
+                    isVirtual: false,
+                    isOverride: false,
+                    isSealed: false,
+                    visibility: "Public",
+                    declaringClrType: "System.Span`1",
+                    declaringAssemblyName: "System.Private.CoreLib",
+                    isExtensionMethod: false,
+                  },
+                  {
+                    stableId:
+                      "System.Private.CoreLib:System.Span`1::ToArray():T[]",
+                    clrName: "ToArray",
+                    canonicalSignature: "():T[]",
+                    normalizedSignature: "ToArray|():T[]|static=false",
+                    arity: 0,
+                    parameterCount: 0,
+                    isStatic: false,
+                    isAbstract: false,
+                    isVirtual: false,
+                    isOverride: false,
+                    isSealed: false,
+                    visibility: "Public",
+                    declaringClrType: "System.Span`1",
+                    declaringAssemblyName: "System.Private.CoreLib",
+                    isExtensionMethod: false,
+                  },
+                ],
+                properties: [],
+                fields: [],
+                constructors: [],
+              },
+            ],
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(dotnetRoot, "System.d.ts"),
+        [
+          "export interface Span_1$instance<T> {",
+          "  readonly __tsonic_type_System_Span_1: never;",
+          "  Slice(start: int): Span_1<T>;",
+          "  ToArray(): T[];",
+          "}",
+          "export type Span_1<T> = Span_1$instance<T>;",
+          "",
+        ].join("\n")
+      );
+
+      const catalog = loadClrCatalog(nodeModulesRoot, [dotnetRoot]);
+      const typeId = catalog.tsNameToTypeId.get("Span_1");
+      expect(typeId).to.not.equal(undefined);
+      if (!typeId) {
+        return;
+      }
+
+      const entry = catalog.entries.get(typeId.stableId);
+      const slice = entry?.members.get("Slice");
+      const toArray = entry?.members.get("ToArray");
+      expect(slice?.signatures).to.have.length(1);
+      expect(toArray?.signatures).to.have.length(1);
+
+      const sliceReturn = slice?.signatures?.[0]?.returnType;
+      expect(sliceReturn).to.deep.equal({
+        kind: "referenceType",
+        name: "Span_1",
+        typeArguments: [{ kind: "typeParameterType", name: "T" }],
+      });
+
+      const toArrayReturn = toArray?.signatures?.[0]?.returnType;
+      expect(toArrayReturn).to.deep.equal({
+        kind: "arrayType",
+        elementType: { kind: "typeParameterType", name: "T" },
+      });
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("skips unreadable directories while scanning CLR bindings", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-clr-catalog-")

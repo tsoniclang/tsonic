@@ -255,11 +255,11 @@ export const normalizeToNominal = (
     const arity = type.typeArguments?.length;
     const sourceFqName = resolveSourceReferenceFQName(state, type);
     const typeId =
-      (sourceFqName
-        ? resolveTypeIdByName(state, sourceFqName, arity)
-        : undefined) ??
       (type.resolvedClrType
         ? resolveTypeIdByName(state, type.resolvedClrType, arity)
+        : undefined) ??
+      (sourceFqName
+        ? resolveTypeIdByName(state, sourceFqName, arity)
         : undefined) ??
       type.typeId ??
       (!sourceFqName ? resolveTypeIdByName(state, type.name, arity) : undefined);

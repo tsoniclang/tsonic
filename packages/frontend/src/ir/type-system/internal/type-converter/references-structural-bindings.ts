@@ -132,6 +132,7 @@ const buildBindingAliasClrIdentityMap = (
         if (lastDot <= 0) continue;
 
         const namespace = clrName.slice(0, lastDot);
+        aliasToClr.set(tsAlias, clrName);
         aliasToClr.set(`${namespace}.${tsAlias}`, clrName);
       }
     }
@@ -175,7 +176,7 @@ export const resolveSourceClrIdentity = (
 
   if (
     !sourceFile.isDeclarationFile ||
-    !isTsonicBindingsDeclarationFile(sourceFile.fileName)
+    isTsonicSourcePackageFile(sourceFile.fileName)
   ) {
     return undefined;
   }

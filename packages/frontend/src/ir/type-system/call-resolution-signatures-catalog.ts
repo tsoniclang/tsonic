@@ -53,7 +53,8 @@ const enumerateEquivalentDeclaringTypeNames = (
 const resolveDeclaringTypeCandidates = (
   state: TypeSystemState,
   declaringTypeTsName: string,
-  arityHint: number | undefined
+  arityHint: number | undefined,
+  declaringClrType: string | undefined
 ): readonly TypeId[] => {
   const candidates: TypeId[] = [];
   const pushCandidate = (candidate: TypeId | undefined): void => {
@@ -67,6 +68,15 @@ const resolveDeclaringTypeCandidates = (
     }
     candidates.push(candidate);
   };
+
+  pushCandidate(
+    declaringClrType
+      ? resolveTypeIdByName(state, declaringClrType, arityHint)
+      : undefined
+  );
+  pushCandidate(
+    declaringClrType ? resolveTypeIdByName(state, declaringClrType) : undefined
+  );
 
   for (const candidateName of enumerateEquivalentDeclaringTypeNames(
     declaringTypeTsName
@@ -92,6 +102,27 @@ const resolveDeclaringTypeCandidates = (
 // computeReceiverSubstitution — Receiver type → substitution map
 // ─────────────────────────────────────────────────────────────────────────
 
+const resolveDeclaringTypeParameterNames = (
+  state: TypeSystemState,
+  declaringTypeIds: readonly TypeId[],
+  explicitNames: readonly string[] | undefined
+): readonly string[] | undefined => {
+  if (explicitNames && explicitNames.length > 0) {
+    return explicitNames;
+  }
+
+  for (const declaringTypeId of declaringTypeIds) {
+    const typeParameters = state.unifiedCatalog
+      .getTypeParameters(declaringTypeId)
+      .map((parameter) => parameter.name);
+    if (typeParameters.length > 0) {
+      return typeParameters;
+    }
+  }
+
+  return undefined;
+};
+
 /**
  * Compute receiver substitution for a method call.
  *
@@ -105,7 +136,8 @@ export const computeReceiverSubstitution = (
   receiverType: IrType,
   declaringTypeTsName: string,
   _declaringMemberName: string,
-  declaringTypeParameterNames?: readonly string[]
+  declaringTypeParameterNames?: readonly string[],
+  declaringClrType?: string
 ): TypeSubstitutionMap | undefined => {
   const normalized = normalizeToNominal(state, receiverType);
   if (!normalized) {
@@ -119,7 +151,13 @@ export const computeReceiverSubstitution = (
   const declaringTypeIds = resolveDeclaringTypeCandidates(
     state,
     declaringTypeTsName,
-    arityHint
+    arityHint,
+    declaringClrType
+  );
+  const resolvedDeclaringTypeParameterNames = resolveDeclaringTypeParameterNames(
+    state,
+    declaringTypeIds,
+    declaringTypeParameterNames
   );
   let emptyInstantiation: TypeSubstitutionMap | undefined;
 
@@ -137,12 +175,13 @@ export const computeReceiverSubstitution = (
     }
 
     if (
-      declaringTypeParameterNames &&
-      declaringTypeParameterNames.length > 0 &&
+      resolvedDeclaringTypeParameterNames &&
+      resolvedDeclaringTypeParameterNames.length > 0 &&
       normalized.typeId.stableId === declaringTypeId.stableId &&
-      normalized.typeArgs.length === declaringTypeParameterNames.length
+      normalized.typeArgs.length === resolvedDeclaringTypeParameterNames.length
     ) {
-      const directSubstitutionEntries = declaringTypeParameterNames.flatMap(
+      const directSubstitutionEntries =
+        resolvedDeclaringTypeParameterNames.flatMap(
         (name, index) => {
           const typeArgument = normalized.typeArgs[index];
           return typeArgument ? [[name, typeArgument] as const] : [];

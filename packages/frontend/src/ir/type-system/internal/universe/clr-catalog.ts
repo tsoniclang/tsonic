@@ -149,12 +149,26 @@ const resolveExistingFile = (candidatePath: string): string | undefined => {
   }
 };
 
-const resolveExistingCompanionDts = (
+const resolveExistingCompanionDtsFiles = (
   bindingsPath: string
-): string | undefined => {
-  return resolveExistingFile(
-    path.join(path.dirname(bindingsPath), "internal", "index.d.ts")
-  );
+): readonly string[] => {
+  const namespaceDir = path.dirname(bindingsPath);
+  const namespaceName = path.basename(namespaceDir);
+  const packageRoot = path.dirname(namespaceDir);
+  const candidates = [
+    path.join(packageRoot, `${namespaceName}.d.ts`),
+    path.join(namespaceDir, "internal", "index.d.ts"),
+  ];
+
+  const resolvedFiles: string[] = [];
+  for (const candidate of candidates) {
+    const resolved = resolveExistingFile(candidate);
+    if (resolved && !resolvedFiles.includes(resolved)) {
+      resolvedFiles.push(resolved);
+    }
+  }
+
+  return resolvedFiles;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -196,9 +210,10 @@ export const loadClrCatalog = (
     const bindingsFiles = findBindingsFiles(packagePath);
 
     for (const bindingsPath of bindingsFiles) {
-      const internalDtsPath = resolveExistingCompanionDts(bindingsPath);
-      if (internalDtsPath) {
-        dtsFiles.add(internalDtsPath);
+      for (const companionDtsPath of resolveExistingCompanionDtsFiles(
+        bindingsPath
+      )) {
+        dtsFiles.add(companionDtsPath);
       }
 
       const content = fs.readFileSync(bindingsPath, "utf-8");

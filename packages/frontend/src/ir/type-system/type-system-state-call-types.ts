@@ -17,6 +17,7 @@ export type CallQuery = {
   readonly sigId: SignatureId;
   readonly argumentCount: number;
   readonly receiverType?: IrType;
+  readonly declaringClrType?: string;
   readonly explicitTypeArgs?: readonly IrType[];
   readonly argTypes?: readonly (IrType | undefined)[];
   readonly expectedReturnType?: IrType;
