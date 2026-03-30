@@ -8,6 +8,7 @@ import type {
 } from "@tsonic/frontend";
 import type {
   IrType,
+  IrExpression,
   IrInterfaceMember,
   IrClassMember,
 } from "@tsonic/frontend";
@@ -411,6 +412,13 @@ export type EmitterContext = {
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
   readonly localNameMap?: ReadonlyMap<string, string>;
+  /**
+   * Scoped map of local const boolean aliases to their authored condition expressions.
+   *
+   * Used to preserve deterministic narrowing through patterns like:
+   * `const isArray = Array.isArray(value); if (isArray) { ... }`
+   */
+  readonly conditionAliases?: ReadonlyMap<string, IrExpression>;
   /** Semantic (frontend IR) types for locals/parameters — alias names,
    *  union structure, and type-parameter shapes preserved exactly as authored.
    *  Used for narrowing analysis, guard analysis, and effective-type resolution.

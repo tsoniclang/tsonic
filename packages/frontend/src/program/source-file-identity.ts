@@ -161,6 +161,27 @@ export const resolveInstalledSourcePackageNamespace = (
   );
 };
 
+export const resolveContainingSourcePackageNamespace = (
+  filePath: string
+): string | undefined => {
+  const normalizedFilePath = normalizeAbsolutePath(filePath);
+  const packageRoot = findContainingSourcePackageRoot(normalizedFilePath);
+  if (!packageRoot) {
+    return undefined;
+  }
+
+  const metadata = readSourcePackageMetadata(packageRoot);
+  if (!metadata) {
+    return undefined;
+  }
+
+  return getNamespaceFromPath(
+    normalizedFilePath,
+    metadata.sourceRoot,
+    metadata.namespace
+  );
+};
+
 export const resolveSourceFileNamespace = (
   filePath: string,
   sourceRoot: string,

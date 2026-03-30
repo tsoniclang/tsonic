@@ -9,9 +9,9 @@ import {
 } from "./type-resolution.js";
 
 const addUndefinedBranch = (type: IrType): IrType => {
+  const members = type.kind === "unionType" ? type.types : [type];
   if (
-    type.kind === "unionType" &&
-    type.types.some(
+    members.some(
       (member) => member.kind === "primitiveType" && member.name === "undefined"
     )
   ) {
@@ -20,7 +20,7 @@ const addUndefinedBranch = (type: IrType): IrType => {
 
   return {
     kind: "unionType",
-    types: [type, { kind: "primitiveType", name: "undefined" }],
+    types: [...members, { kind: "primitiveType", name: "undefined" }],
   };
 };
 

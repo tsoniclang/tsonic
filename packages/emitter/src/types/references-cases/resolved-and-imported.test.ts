@@ -578,5 +578,89 @@ describe("Reference Type Emission", () => {
 
       expect(printType(typeAst)).to.equal("global::js.ArrayBuffer");
     });
+
+    it("canonicalizes qualified cross-module local type names to the matched local symbol", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "js.TypedArrayBase",
+          resolvedClrType: "js.TypedArrayBase",
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "nodejs",
+          options: {
+            ...baseContext.options,
+            moduleMap: new Map([
+              [
+                "src/typed-array-base",
+                {
+                  namespace: "js",
+                  className: "typed_array_base",
+                  filePath: "src/typed-array-base",
+                  hasRuntimeContainer: false,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "TypedArrayBase",
+                      {
+                        kind: "class",
+                        members: [],
+                        typeParameters: [],
+                        implements: [],
+                      },
+                    ],
+                  ]),
+                },
+              ],
+            ]),
+          },
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("global::js.TypedArrayBase");
+    });
+
+    it("canonicalizes instance-suffixed cross-module local type lookups to the declaring local symbol", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "Object$instance",
+          resolvedClrType: "System.Object",
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "nodejs.assert",
+          options: {
+            ...baseContext.options,
+            moduleMap: new Map([
+              [
+                "src/object",
+                {
+                  namespace: "System",
+                  className: "object",
+                  filePath: "src/object",
+                  hasRuntimeContainer: false,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "Object",
+                      {
+                        kind: "class",
+                        members: [],
+                        typeParameters: [],
+                        implements: [],
+                      },
+                    ],
+                  ]),
+                },
+              ],
+            ]),
+          },
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("global::System.Object");
+    });
   });
 });

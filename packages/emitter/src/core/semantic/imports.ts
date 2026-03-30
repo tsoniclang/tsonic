@@ -102,6 +102,18 @@ export const processImports = (
 ): EmitterContext => {
   const importBindings = new Map<string, ImportBinding>();
 
+  const bindingSupportsTypePositions = (binding: ImportBinding): boolean => {
+    if (binding.kind === "type") {
+      return true;
+    }
+
+    if (binding.kind === "value") {
+      return binding.typeAst !== undefined;
+    }
+
+    return binding.moduleObject !== true;
+  };
+
   const registerImportBinding = (
     spec: IrImportSpecifier,
     binding: { localName: string; importBinding: ImportBinding } | null
@@ -114,7 +126,7 @@ export const processImports = (
 
     if (
       spec.kind === "named" &&
-      spec.isType === true &&
+      bindingSupportsTypePositions(binding.importBinding) &&
       spec.localName !== spec.name &&
       !importBindings.has(spec.name)
     ) {

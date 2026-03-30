@@ -33,13 +33,21 @@ const isExplicitNullishArgument = (arg: IrExpression): boolean =>
   (arg.kind === "identifier" &&
     (arg.name === "undefined" || arg.name === "null"));
 
-const argumentMayBeNullish = (arg: IrExpression): boolean => {
+const argumentMayBeNullish = (
+  arg: IrExpression,
+  context: EmitterContext
+): boolean => {
   if (isExplicitNullishArgument(arg)) {
     return true;
   }
 
-  const split = arg.inferredType
-    ? splitRuntimeNullishUnionMembers(arg.inferredType)
+  const transparentArg = unwrapTransparentExpression(arg);
+  const candidateType =
+    resolveEffectiveExpressionType(transparentArg, context) ??
+    transparentArg.inferredType ??
+    arg.inferredType;
+  const split = candidateType
+    ? splitRuntimeNullishUnionMembers(candidateType)
     : undefined;
   return split?.hasRuntimeNullish ?? false;
 };
@@ -62,7 +70,7 @@ export const normalizeCallArgumentExpectedType = (
     return emissionAlignedType;
   }
 
-  if (argumentMayBeNullish(arg)) {
+  if (argumentMayBeNullish(arg, context)) {
     return emissionAlignedType;
   }
 

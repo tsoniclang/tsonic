@@ -39,6 +39,7 @@ import {
   getRuntimeUnionCastMemberTypeAsts,
   isRuntimeUnionTypeAst,
   maybeCastMaterializedValueAst,
+  tryResolveRuntimeUnionCastSourceIndices,
 } from "./runtime-reification-helpers.js";
 
 export type EmitTypeAstFn = (
@@ -203,12 +204,34 @@ export const tryBuildRuntimeMaterializationAst = (
   selectedSourceMemberNs?: ReadonlySet<number>,
   sourceFrame?: RuntimeMaterializationSourceFrame
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const effectiveSourceFrame =
+    sourceFrame ??
+    (() => {
+      const [sourceLayout] = buildRuntimeUnionLayout(sourceType, context, emitTypeAst);
+      if (!sourceLayout) {
+        return undefined;
+      }
+      const restrictedIndices = tryResolveRuntimeUnionCastSourceIndices(
+        valueAst,
+        sourceLayout.memberTypeAsts
+      );
+      if (!restrictedIndices) {
+        return undefined;
+      }
+      return {
+        members: restrictedIndices.flatMap((index) => {
+          const member = sourceLayout.members[index];
+          return member ? [member] : [];
+        }),
+        candidateMemberNs: restrictedIndices.map((index) => index + 1),
+      };
+    })();
   const [sourceLayout, sourceLayoutContext] = (() => {
-    if (!sourceFrame) {
+    if (!effectiveSourceFrame) {
       return buildRuntimeUnionLayout(sourceType, context, emitTypeAst);
     }
 
-    const members = sourceFrame.members;
+    const members = effectiveSourceFrame.members;
     if (members.length < 2 || members.length > 8) {
       return [undefined, context] as const;
     }
@@ -246,7 +269,7 @@ export const tryBuildRuntimeMaterializationAst = (
       sourceLayout,
       targetLayout,
       context: targetLayoutContext,
-      candidateMemberNs: sourceFrame?.candidateMemberNs,
+      candidateMemberNs: effectiveSourceFrame?.candidateMemberNs,
       selectedSourceMemberNs,
       buildMappedMemberValue: ({
         actualMemberTypeAst,
@@ -311,7 +334,7 @@ export const tryBuildRuntimeMaterializationAst = (
     member &&
     (!selectedSourceMemberNs ||
       selectedSourceMemberNs.has(
-        sourceFrame?.candidateMemberNs?.[index] ?? index + 1
+        effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1
       )) &&
     (isBroadObjectTarget ||
       (() => {
@@ -348,7 +371,8 @@ export const tryBuildRuntimeMaterializationAst = (
       identifier: parameterName,
     };
 
-    const sourceMemberN = sourceFrame?.candidateMemberNs?.[index] ?? index + 1;
+    const sourceMemberN =
+      effectiveSourceFrame?.candidateMemberNs?.[index] ?? index + 1;
 
     if (selectedSourceMemberNs && !selectedSourceMemberNs.has(sourceMemberN)) {
       lambdaArgs.push({

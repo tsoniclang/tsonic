@@ -464,5 +464,28 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include('"Promise rejected"');
       expect(csharp).not.to.include("Promise.reject(");
     });
+
+    it("uses contextual promise result type for Promise.reject in lambda bodies", () => {
+      const source = `
+        declare class Error {
+          constructor(message?: string);
+        }
+
+        declare class Promise<T> {
+          static reject<T = never>(reason?: any): Promise<T>;
+        }
+
+        export function main(): void {
+          const operation = (): Promise<unknown> => Promise.reject(new Error("boom"));
+          void operation;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("System.Func<global::System.Threading.Tasks.Task<object?>>");
+      expect(csharp).to.include("Task.FromException<object?>");
+      expect(csharp).not.to.include("Task.FromException(new");
+    });
   });
 });

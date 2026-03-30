@@ -57,8 +57,8 @@ const buildCallTargetExpectedType = (
     return calleeType;
   }
 
-  const parameterTypes = expr.surfaceParameterTypes ?? expr.parameterTypes;
-  const restParameter = expr.surfaceRestParameter ?? expr.restParameter;
+  const parameterTypes = expr.parameterTypes ?? expr.surfaceParameterTypes;
+  const restParameter = expr.restParameter ?? expr.surfaceRestParameter;
 
   if (!parameterTypes || !expr.inferredType) {
     return undefined;
@@ -216,7 +216,7 @@ export const emitCall = (
   const dynamicImport = emitDynamicImportCall(expr, context);
   if (dynamicImport) return dynamicImport;
 
-  const promiseStaticCall = emitPromiseStaticCall(expr, context);
+  const promiseStaticCall = emitPromiseStaticCall(expr, context, expectedType);
   if (promiseStaticCall) return promiseStaticCall;
 
   const promiseChain = emitPromiseThenCatchFinally(expr, context);

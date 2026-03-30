@@ -43,6 +43,11 @@ export {
 } from "./arrow-return-finalization-pass.js";
 
 export {
+  runCallResolutionRefreshPass,
+  type CallResolutionRefreshResult,
+} from "./call-resolution-refresh-pass.js";
+
+export {
   runVirtualMarkingPass,
   type VirtualMarkingResult,
 } from "./virtual-marking-pass.js";

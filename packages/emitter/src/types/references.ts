@@ -326,7 +326,7 @@ export const emitReferenceType = (
   if (!currentModuleLocalType) {
     const crossModuleLocalType = resolveLocalTypeInfo(type, context);
     if (crossModuleLocalType) {
-      const { info, namespace } = crossModuleLocalType;
+      const { info, namespace, name: resolvedLocalName } = crossModuleLocalType;
 
       if (info.kind === "typeAlias") {
         const underlyingKind = info.type.kind;
@@ -351,13 +351,18 @@ export const emitReferenceType = (
 
         return emitQualifiedLocalType(
           namespace,
-          `${name}__Alias`,
+          `${resolvedLocalName}__Alias`,
           typeArguments,
           context
         );
       }
 
-      return emitQualifiedLocalType(namespace, name, typeArguments, context);
+      return emitQualifiedLocalType(
+        namespace,
+        resolvedLocalName,
+        typeArguments,
+        context
+      );
     }
   }
 

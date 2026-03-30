@@ -173,3 +173,74 @@ export const resolveNarrowedUnionMembers = (
     runtimeUnionArity,
   };
 };
+
+export const resolveAlignedRuntimeUnionMembers = (
+  originalName: string | undefined,
+  effectiveType: IrType | undefined,
+  carrierSourceType: IrType | undefined,
+  context: EmitterContext
+): NarrowedUnionMembers | undefined => {
+  if (!effectiveType) {
+    return undefined;
+  }
+
+  if (originalName) {
+    const boundFrame = resolveNarrowedUnionMembers(
+      originalName,
+      effectiveType,
+      context
+    );
+    if (boundFrame) {
+      return boundFrame;
+    }
+  }
+
+  if (!carrierSourceType) {
+    return undefined;
+  }
+
+  const carrierMembers = getCanonicalRuntimeUnionMembers(
+    carrierSourceType,
+    context
+  );
+  if (!carrierMembers) {
+    return undefined;
+  }
+
+  const semanticEffectiveMembers =
+    getCanonicalRuntimeUnionMembers(effectiveType, context) ??
+    expandRuntimeUnionMembers(effectiveType, context);
+  if (semanticEffectiveMembers.length === 0) {
+    return undefined;
+  }
+
+  const alignedMembers = carrierMembers.flatMap((carrierMember, index) => {
+    const exactMatches = findExactRuntimeUnionMemberIndices(
+      semanticEffectiveMembers,
+      carrierMember,
+      context
+    );
+    if (exactMatches.length > 0) {
+      return [{ member: carrierMember, memberN: index + 1 }];
+    }
+
+    const semanticMatches = findRuntimeUnionMemberIndices(
+      semanticEffectiveMembers,
+      carrierMember,
+      context
+    );
+    return semanticMatches.length > 0
+      ? [{ member: carrierMember, memberN: index + 1 }]
+      : [];
+  });
+
+  if (alignedMembers.length === 0) {
+    return undefined;
+  }
+
+  return {
+    members: alignedMembers.map(({ member }) => member),
+    candidateMemberNs: alignedMembers.map(({ memberN }) => memberN),
+    runtimeUnionArity: carrierMembers.length,
+  };
+};

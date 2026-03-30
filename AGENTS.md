@@ -41,6 +41,8 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 ## Testing Workflow
 
 - Never add code branches, heuristics, compatibility shims, or special cases just to make tests pass.
+- Never add bridge code, temporary compatibility layers, or product-path debug helpers as a “final” fix.
+- If temporary instrumentation or debug code is necessary during investigation, keep it under `.temp/` and out of product codepaths.
 - When a test fails, fix the underlying compiler/runtime/package root cause or remove the invalid assumption from the test.
 
 Fast iteration (OK while developing / on external testbed projects):
@@ -91,6 +93,7 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 ## Compatibility Policy (IMPORTANT)
 
 - Backward compatibility is not required unless specifically and explicitly requested by the maintainer.
+- Always attempt the final-grade architecture directly. Do not land temporary bridge code, intermediate compatibility paths, or staged “fix it now, clean it later” product changes.
 - Do not preserve, add, or route through compatibility shims, bridge code, dual-path behavior, or legacy codepaths for native first-party packages.
 - Prefer breaking stale assumptions and fixing the real architecture over keeping old paths alive.
 

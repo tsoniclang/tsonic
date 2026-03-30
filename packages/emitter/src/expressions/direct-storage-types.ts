@@ -2,6 +2,7 @@ import type { IrExpression, IrType } from "@tsonic/frontend";
 import { identifierExpression } from "../core/format/backend-ast/builders.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import type { EmitterContext } from "../types.js";
+import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { tryResolveRuntimeUnionMemberType } from "../core/semantic/narrowed-expression-types.js";
 import { resolveIdentifierValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
 
@@ -27,6 +28,19 @@ export const resolveIdentifierCarrierStorageType = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   context: EmitterContext
 ): IrType | undefined => {
+  const narrowed = context.narrowedBindings?.get(expr.name);
+  if (narrowed?.kind === "expr") {
+    return narrowed.storageType ?? narrowed.sourceType ?? narrowed.type;
+  }
+
+  if (narrowed?.kind === "runtimeSubset") {
+    return narrowed.sourceType ?? narrowed.type;
+  }
+
+  if (narrowed?.kind === "rename") {
+    return narrowed.sourceType ?? narrowed.type;
+  }
+
   return (
     context.localValueTypes?.get(expr.name) ??
     resolveIdentifierValueSurfaceType(expr, context)
@@ -46,10 +60,7 @@ export const resolveDirectStorageExpressionAst = (
     return narrowed.storageExprAst;
   }
 
-  const remappedLocal = context.localNameMap?.get(expr.name);
-  if (!remappedLocal) {
-    return undefined;
-  }
-
-  return identifierExpression(remappedLocal);
+  return identifierExpression(
+    context.localNameMap?.get(expr.name) ?? escapeCSharpIdentifier(expr.name)
+  );
 };

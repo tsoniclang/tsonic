@@ -9,7 +9,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
 import { IrFunctionDeclaration, IrVariableDeclaration } from "../types.js";
-import { createProgram, createProgramContext } from "./_test-helpers.js";
+import {
+  createFilesystemTestProgram,
+  createProgram,
+  createProgramContext,
+} from "./_test-helpers.js";
 
 const writeFixtureJsSurface = (
   tempDir: string,
@@ -443,6 +447,202 @@ describe("IR Builder", function () {
       }
     });
 
+    it("attaches computed-access protocol for imported class index signatures with at/set", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "app",
+            version: "1.0.0",
+            type: "module",
+          }),
+          "src/index.ts": [
+            'import type { byte, int } from "@tsonic/core/types.js";',
+            'import { Buffer } from "@tsonic/nodejs/buffer.js";',
+            "",
+            "export class Reader {",
+            "  read(buffer: Buffer, index: int): number | undefined {",
+            "    return buffer[index];",
+            "  }",
+            "  write(buffer: Buffer, index: int, value: byte): void {",
+            "    buffer[index] = value;",
+            "  }",
+            "}",
+          ].join("\n"),
+          "node_modules/@tsonic/nodejs/package.json": JSON.stringify({
+            name: "@tsonic/nodejs",
+            version: "1.0.0",
+            type: "module",
+            exports: {
+              "./buffer.js": "./src/buffer/index.ts",
+            },
+          }),
+          "node_modules/@tsonic/nodejs/tsonic.package.json": JSON.stringify({
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: [],
+            source: {
+              namespace: "nodejs",
+              exports: {
+                "./buffer.js": "./src/buffer/index.ts",
+              },
+            },
+          }),
+          "node_modules/@tsonic/nodejs/src/buffer/index.ts": [
+            'import type {} from "../../type-bootstrap.js";',
+            'export { Buffer } from "./buffer.ts";',
+          ].join("\n"),
+          "node_modules/@tsonic/nodejs/src/buffer/buffer.ts": [
+            'import type { byte, int } from "@tsonic/core/types.js";',
+            "",
+            "export class Buffer {",
+            "  [index: number]: byte;",
+            "  at(index: int): number | undefined {",
+            "    void index;",
+            "    return undefined;",
+            "  }",
+            "  set(index: int, value: number): void {",
+            "    void index;",
+            "    void value;",
+            "  }",
+            "}",
+          ].join("\n"),
+          "node_modules/@tsonic/nodejs/type-bootstrap.js": "export {};",
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const readerClass = result.value.body.find(
+          (stmt) =>
+            stmt.kind === "classDeclaration" && stmt.name === "Reader"
+        );
+        expect(readerClass).to.not.equal(undefined);
+        if (!readerClass || readerClass.kind !== "classDeclaration") return;
+
+        const readMethod = readerClass.members.find(
+          (member) => member.kind === "methodDeclaration" && member.name === "read"
+        );
+        expect(readMethod).to.not.equal(undefined);
+        if (
+          !readMethod ||
+          readMethod.kind !== "methodDeclaration" ||
+          !readMethod.body
+        ) {
+          return;
+        }
+
+        const readReturn = readMethod.body.statements[0];
+        expect(readReturn?.kind).to.equal("returnStatement");
+        if (!readReturn || readReturn.kind !== "returnStatement") return;
+
+        const readExpr = readReturn.expression;
+        expect(readExpr?.kind).to.equal("memberAccess");
+        if (!readExpr || readExpr.kind !== "memberAccess") return;
+        expect(readExpr.isComputed).to.equal(true);
+        expect(readExpr.accessProtocol).to.deep.equal({
+          getterMember: "at",
+          setterMember: "set",
+        });
+
+        const writeMethod = readerClass.members.find(
+          (member) =>
+            member.kind === "methodDeclaration" && member.name === "write"
+        );
+        expect(writeMethod).to.not.equal(undefined);
+        if (
+          !writeMethod ||
+          writeMethod.kind !== "methodDeclaration" ||
+          !writeMethod.body
+        ) {
+          return;
+        }
+
+        const writeExprStmt = writeMethod.body.statements[0];
+        expect(writeExprStmt?.kind).to.equal("expressionStatement");
+        if (
+          !writeExprStmt ||
+          writeExprStmt.kind !== "expressionStatement" ||
+          writeExprStmt.expression.kind !== "assignment" ||
+          writeExprStmt.expression.left.kind !== "memberAccess"
+        ) {
+          return;
+        }
+
+        expect(writeExprStmt.expression.left.accessProtocol).to.deep.equal({
+          getterMember: "at",
+          setterMember: "set",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves imported core numeric aliases in installed source-package type annotations", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "package.json": JSON.stringify({
+            name: "app",
+            version: "1.0.0",
+            type: "module",
+          }),
+          "src/index.ts": [
+            'import type { byte } from "@tsonic/core/types.js";',
+            "",
+            "export class Holder {",
+            "  value: byte = 1 as byte;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const holderClass = result.value.body.find(
+          (stmt) =>
+            stmt.kind === "classDeclaration" && stmt.name === "Holder"
+        );
+        expect(holderClass).to.not.equal(undefined);
+        if (!holderClass || holderClass.kind !== "classDeclaration") return;
+
+        const valueProperty = holderClass.members.find(
+          (member) =>
+            member.kind === "propertyDeclaration" && member.name === "value"
+        );
+        expect(valueProperty).to.not.equal(undefined);
+        if (!valueProperty || valueProperty.kind !== "propertyDeclaration") {
+          return;
+        }
+
+        expect(valueProperty.type?.kind).to.equal("referenceType");
+        if (!valueProperty.type || valueProperty.type.kind !== "referenceType") {
+          return;
+        }
+        expect(valueProperty.type.name).to.equal("byte");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("specializes inherited source-package method parameter types through global owner aliases", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tsonic-builder-source-owned-u8-")
@@ -589,6 +789,219 @@ describe("IR Builder", function () {
           kind: "primitiveType",
           name: "number",
         });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps inherited iterable overloads over numeric sibling overloads through global owner aliases", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-source-owned-u8-overload-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+        writeFixtureJsSurface(
+          tempDir,
+          {
+            "./typed-array-core.js": "./src/typed-array-core.ts",
+            "./uint8-array.js": "./src/uint8-array.ts",
+          },
+          {
+            "src/typed-array-core.ts": [
+              'import type { int } from "@tsonic/core/types.js";',
+              "export type TypedArrayInput<TElement extends number> =",
+              "  | TElement[]",
+              "  | Iterable<number>;",
+              "export class TypedArrayBase<",
+              "  TElement extends number,",
+              "  TSelf extends TypedArrayBase<TElement, TSelf>,",
+              "> {",
+              "  public constructor() {}",
+              "  public set(index: int, value: number): void;",
+              "  public set(",
+              "    source: TypedArrayInput<TElement>,",
+              "    offset?: int",
+              "  ): void;",
+              "  public set(",
+              "    sourceOrIndex: int | TypedArrayInput<TElement>,",
+              "    offsetOrValue: int | number = 0 as int",
+              "  ): void {",
+              "    void sourceOrIndex;",
+              "    void offsetOrValue;",
+              "  }",
+              "  public *[Symbol.iterator](): Generator<TElement, undefined, undefined> {",
+              "    return undefined as never;",
+              "  }",
+              "}",
+            ].join("\n"),
+            "src/uint8-array.ts": [
+              'import type { byte } from "@tsonic/core/types.js";',
+              'import { TypedArrayBase } from "./typed-array-core.js";',
+              "export class Uint8Array extends TypedArrayBase<byte, Uint8Array> {",
+              "  public constructor() {",
+              "    super();",
+              "  }",
+              "}",
+            ].join("\n"),
+          },
+          [
+            "declare global {",
+            '  const Uint8Array: typeof import("./src/uint8-array.js").Uint8Array;',
+            "}",
+            "",
+            "export {};",
+            "",
+          ].join("\n")
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export function main(length: number): void {",
+            "  const copy = new Uint8Array();",
+            "  copy.set(copy, length);",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@fixture/js",
+          useStandardLib: false,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const fn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const callStmt = fn.body.statements[1];
+        expect(callStmt?.kind).to.equal("expressionStatement");
+        if (!callStmt || callStmt.kind !== "expressionStatement") return;
+
+        const callExpr = callStmt.expression;
+        expect(callExpr.kind).to.equal("call");
+        if (callExpr.kind !== "call") return;
+
+        const firstParameterType = callExpr.parameterTypes?.[0];
+        const secondParameterType = callExpr.parameterTypes?.[1];
+        const firstSurfaceParameterType = callExpr.surfaceParameterTypes?.[0];
+        const secondSurfaceParameterType = callExpr.surfaceParameterTypes?.[1];
+        expect(firstParameterType).to.not.deep.equal({
+          kind: "primitiveType",
+          name: "int",
+        });
+        expect(firstParameterType?.kind).to.equal("referenceType");
+        if (firstParameterType?.kind === "referenceType") {
+          expect(firstParameterType.name).to.equal("Iterable");
+          expect(firstParameterType.typeArguments).to.deep.equal([
+            {
+              kind: "primitiveType",
+              name: "number",
+            },
+          ]);
+        }
+        expect(firstSurfaceParameterType?.kind).to.equal("unionType");
+        if (firstSurfaceParameterType?.kind === "unionType") {
+          expect(firstSurfaceParameterType.types).to.have.length(3);
+          expect(
+            firstSurfaceParameterType.types.some(
+              (candidate) =>
+                candidate.kind === "primitiveType" &&
+                candidate.name === "int"
+            )
+          ).to.equal(true);
+          expect(
+            firstSurfaceParameterType.types.some(
+              (candidate) =>
+                candidate.kind === "arrayType" &&
+                candidate.elementType.kind === "referenceType" &&
+                candidate.elementType.name === "byte"
+            )
+          ).to.equal(true);
+          expect(
+            firstSurfaceParameterType.types.some(
+              (candidate) =>
+                candidate.kind === "referenceType" &&
+                candidate.name === "Iterable" &&
+                candidate.typeArguments?.[0]?.kind === "primitiveType" &&
+                candidate.typeArguments[0].name === "number"
+            )
+          ).to.equal(true);
+        }
+        expect(secondParameterType).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+        expect(secondSurfaceParameterType?.kind).to.equal("unionType");
+        if (secondSurfaceParameterType?.kind === "unionType") {
+          expect(secondSurfaceParameterType.types).to.have.length(3);
+          expect(
+            secondSurfaceParameterType.types.some(
+              (candidate) =>
+                candidate.kind === "primitiveType" &&
+                candidate.name === "int"
+            )
+          ).to.equal(true);
+          expect(
+            secondSurfaceParameterType.types.some(
+              (candidate) =>
+                candidate.kind === "primitiveType" &&
+                candidate.name === "number"
+            )
+          ).to.equal(true);
+          expect(
+            secondSurfaceParameterType.types.some(
+              (candidate) =>
+                candidate.kind === "primitiveType" &&
+                candidate.name === "undefined"
+            )
+          ).to.equal(true);
+        }
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }

@@ -194,6 +194,66 @@ export const getOrCreateDeclId = (
   return id;
 };
 
+const resolveDeclarationSymbolFQName = (
+  ctx: BindingContext,
+  symbol: ts.Symbol | undefined
+): string | undefined => {
+  if (!symbol) {
+    return undefined;
+  }
+
+  const resolved = resolveTransparentAliases(ctx, symbol);
+  const declId = getOrCreateDeclId(ctx, resolved);
+  return ctx.declMap.get(declId.id)?.fqName;
+};
+
+export const resolveCanonicalDeclaringTypeName = (
+  ctx: BindingContext,
+  decl: ts.SignatureDeclaration | undefined
+): string | undefined => {
+  if (!decl) {
+    return undefined;
+  }
+
+  if (
+    ts.isMethodDeclaration(decl) ||
+    ts.isMethodSignature(decl) ||
+    ts.isConstructorDeclaration(decl) ||
+    ts.isGetAccessorDeclaration(decl) ||
+    ts.isSetAccessorDeclaration(decl)
+  ) {
+    const parent = decl.parent;
+
+    if (
+      (ts.isClassDeclaration(parent) ||
+        ts.isInterfaceDeclaration(parent) ||
+        ts.isTypeAliasDeclaration(parent)) &&
+      parent.name
+    ) {
+      return (
+        resolveDeclarationSymbolFQName(
+          ctx,
+          ctx.checker.getSymbolAtLocation(parent.name)
+        ) ?? parent.name.text
+      );
+    }
+
+    if (ts.isTypeLiteralNode(parent)) {
+      const container = parent.parent;
+      if (ts.isVariableDeclaration(container) && ts.isIdentifier(container.name)) {
+        return (
+          resolveDeclarationSymbolFQName(
+            ctx,
+            ctx.checker.getSymbolAtLocation(container.name)
+          ) ?? container.name.text
+        );
+      }
+    }
+  }
+
+  return undefined;
+};
+
 export const getOrCreateSignatureId = (
   ctx: BindingContext,
   signature: ts.Signature
@@ -233,7 +293,9 @@ export const getOrCreateSignatureId = (
     thisTypeNode: extractThisParameterTypeNode(decl),
     returnTypeNode,
     typeParameters: extractTypeParameterNodes(decl),
-    declaringTypeTsName: declaringIdentity?.typeTsName,
+    declaringTypeTsName:
+      resolveCanonicalDeclaringTypeName(ctx, decl) ??
+      declaringIdentity?.typeTsName,
     declaringTypeParameterNames,
     declaringMemberName: declaringIdentity?.memberName,
     typePredicate,
@@ -313,6 +375,42 @@ export const resolveTransparentAliases = (
   return current;
 };
 
+const resolveTransparentTypeQueryTarget = (
+  ctx: BindingContext,
+  symbol: ts.Symbol
+): ts.Symbol | undefined => {
+  const declarations = symbol.getDeclarations() ?? [];
+
+  for (const declaration of declarations) {
+    const typeNode = getTypeNodeFromDeclaration(declaration);
+    if (!typeNode) {
+      continue;
+    }
+
+    const targetSymbol = (() => {
+      if (ts.isTypeQueryNode(typeNode)) {
+        return ctx.checker.getSymbolAtLocation(typeNode.exprName);
+      }
+
+      if (ts.isImportTypeNode(typeNode) && typeNode.isTypeOf && typeNode.qualifier) {
+        return ctx.checker.getSymbolAtLocation(typeNode.qualifier);
+      }
+
+      return undefined;
+    })();
+    if (!targetSymbol) {
+      continue;
+    }
+
+    const resolvedTarget = resolveTransparentAliases(ctx, targetSymbol);
+    if (resolvedTarget !== symbol) {
+      return resolvedTarget;
+    }
+  }
+
+  return undefined;
+};
+
 export const resolveIdentifier = (
   ctx: BindingContext,
   node: ts.Identifier
@@ -327,6 +425,55 @@ export const resolveTypeReference = (
   ctx: BindingContext,
   node: ts.TypeReferenceNode
 ): DeclId | undefined => {
+  const resolveTransparentTypeAliases = (input: ts.Symbol): ts.Symbol => {
+    const seen = new Set<ts.Symbol>();
+    let current = input;
+
+    while (!seen.has(current)) {
+      seen.add(current);
+
+      const aliased =
+        current.flags & ts.SymbolFlags.Alias
+          ? ctx.checker.getAliasedSymbol(current)
+          : current;
+      if (aliased !== current) {
+        const aliasedDecls = aliased.getDeclarations() ?? [];
+        if (aliasedDecls.length === 0) {
+          break;
+        }
+
+        current = aliased;
+        continue;
+      }
+
+      const decls = current.getDeclarations() ?? [];
+      const exportSpecifier =
+        decls.length === 1 && decls[0] && ts.isExportSpecifier(decls[0])
+          ? decls[0]
+          : undefined;
+      if (exportSpecifier && !exportSpecifier.isTypeOnly) {
+        const targetSymbol =
+          ctx.checker.getExportSpecifierLocalTargetSymbol(exportSpecifier);
+        if (targetSymbol && targetSymbol !== current) {
+          current = targetSymbol;
+          continue;
+        }
+      }
+
+      const transparentTypeQueryTarget = resolveTransparentTypeQueryTarget(
+        ctx,
+        current
+      );
+      if (!transparentTypeQueryTarget || transparentTypeQueryTarget === current) {
+        break;
+      }
+
+      current = transparentTypeQueryTarget;
+    }
+
+    return current;
+  };
+
   const resolveEntityNameSymbol = (
     typeName: ts.EntityName
   ): ts.Symbol | undefined => {
@@ -335,7 +482,7 @@ export const resolveTypeReference = (
       : ctx.checker.getSymbolAtLocation(typeName.right);
     if (!symbol) return undefined;
 
-    return resolveTransparentAliases(ctx, symbol);
+    return resolveTransparentTypeAliases(symbol);
   };
 
   let symbol = resolveEntityNameSymbol(node.typeName);

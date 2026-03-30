@@ -14,6 +14,13 @@ import {
   resolveArrayLikeReceiverType,
   resolveStructuralReferenceType,
 } from "../core/semantic/type-resolution.js";
+import {
+  SYSTEM_ARRAY_STORAGE_TYPE,
+  isBroadArrayStorageTarget,
+  isSystemArrayStorageType,
+  resolveBroadArrayAssertionStorageType,
+} from "../core/semantic/broad-array-storage.js";
+import { resolveDirectStorageExpressionAst } from "./direct-storage-types.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
 import { stripNullableTypeAst } from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
@@ -23,6 +30,7 @@ import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expres
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
 import { adaptStorageErasedValueAst } from "../core/semantic/storage-erased-adaptation.js";
+import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -350,10 +358,161 @@ export const resolveEffectiveReceiverType = (
   context: EmitterContext
 ): IrType | undefined => resolveEffectiveExpressionType(receiverExpr, context);
 
+const tryResolveBroadArrayAssertionReceiverTypeAst = (
+  receiverExpr: IrExpression,
+  context: EmitterContext
+): [CSharpTypeAst | undefined, EmitterContext] | undefined => {
+  const resolveSourceInfo = (
+    sourceExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>
+  ) => {
+    const narrowKey =
+      sourceExpr.kind === "identifier"
+        ? sourceExpr.name
+        : getMemberAccessNarrowKey(sourceExpr);
+    const narrowed = narrowKey
+      ? context.narrowedBindings?.get(narrowKey)
+      : undefined;
+    const sourceStorageType =
+      narrowed?.kind === "expr"
+        ? narrowed.storageType ?? narrowed.sourceType ?? narrowed.type
+        : sourceExpr.kind === "identifier"
+          ? context.localValueTypes?.get(sourceExpr.name)
+          : undefined;
+    const sourceStorageAst =
+      narrowed?.kind === "expr"
+        ? narrowed.storageExprAst
+        : sourceExpr.kind === "identifier"
+          ? resolveDirectStorageExpressionAst(sourceExpr, context)
+          : undefined;
+
+    return { narrowed, sourceStorageType, sourceStorageAst };
+  };
+
+  const resolvePreservedStorageType = () => {
+    if (receiverExpr.kind === "typeAssertion") {
+      const sourceExpr = unwrapTransparentExpression(receiverExpr.expression);
+      if (sourceExpr.kind !== "identifier" && sourceExpr.kind !== "memberAccess") {
+        return undefined;
+      }
+
+      const { sourceStorageType } = resolveSourceInfo(sourceExpr);
+      return resolveBroadArrayAssertionStorageType(
+        receiverExpr.targetType,
+        sourceStorageType,
+        context
+      ) ??
+        (isBroadArrayStorageTarget(receiverExpr.targetType, context)
+          ? SYSTEM_ARRAY_STORAGE_TYPE
+          : undefined);
+    }
+
+    if (receiverExpr.kind !== "identifier" && receiverExpr.kind !== "memberAccess") {
+      return undefined;
+    }
+
+    const targetType =
+      resolveEffectiveExpressionType(receiverExpr, context) ??
+      receiverExpr.inferredType;
+    const { sourceStorageType } = resolveSourceInfo(receiverExpr);
+    return resolveBroadArrayAssertionStorageType(
+      targetType,
+      sourceStorageType,
+      context
+    );
+  };
+
+  const preservedStorageType = resolvePreservedStorageType();
+  if (!preservedStorageType) {
+    return undefined;
+  }
+
+  if (isSystemArrayStorageType(preservedStorageType, context)) {
+    return [identifierType("global::System.Array"), context];
+  }
+
+  return emitTypeAst(preservedStorageType, context);
+};
+
+export const tryEmitBroadArrayAssertionReceiverStorageAst = (
+  receiverExpr: IrExpression,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | undefined => {
+  const sourceExpr =
+    receiverExpr.kind === "typeAssertion"
+      ? unwrapTransparentExpression(receiverExpr.expression)
+      : receiverExpr;
+  if (sourceExpr.kind !== "identifier" && sourceExpr.kind !== "memberAccess") {
+    return undefined;
+  }
+
+  const targetType =
+    receiverExpr.kind === "typeAssertion"
+      ? receiverExpr.targetType
+      : resolveEffectiveExpressionType(receiverExpr, context) ??
+        receiverExpr.inferredType;
+  const narrowKey =
+    sourceExpr.kind === "identifier"
+      ? sourceExpr.name
+      : getMemberAccessNarrowKey(sourceExpr);
+  const narrowed = narrowKey
+    ? context.narrowedBindings?.get(narrowKey)
+    : undefined;
+  const sourceStorageType =
+    narrowed?.kind === "expr"
+      ? narrowed.storageType ?? narrowed.sourceType ?? narrowed.type
+      : sourceExpr.kind === "identifier"
+        ? context.localValueTypes?.get(sourceExpr.name)
+        : undefined;
+  const preservedStorageType =
+    resolveBroadArrayAssertionStorageType(
+      targetType,
+      sourceStorageType,
+      context
+    ) ??
+    (receiverExpr.kind === "typeAssertion" &&
+    isBroadArrayStorageTarget(targetType, context)
+      ? SYSTEM_ARRAY_STORAGE_TYPE
+      : undefined);
+  if (!preservedStorageType) {
+    return undefined;
+  }
+
+  const sourceStorageAst =
+    narrowed?.kind === "expr"
+      ? narrowed.storageExprAst
+      : sourceExpr.kind === "identifier"
+        ? resolveDirectStorageExpressionAst(sourceExpr, context)
+        : undefined;
+  if (!sourceStorageAst) {
+    return undefined;
+  }
+
+  const [typeAst, nextContext] = isSystemArrayStorageType(
+    preservedStorageType,
+    context
+  )
+    ? [identifierType("global::System.Array"), context]
+    : emitTypeAst(preservedStorageType, context);
+  return [
+    {
+      kind: "castExpression",
+      type: typeAst,
+      expression: sourceStorageAst,
+    },
+    nextContext,
+  ];
+};
+
 export const resolveEmittedReceiverTypeAst = (
   receiverExpr: IrExpression,
   context: EmitterContext
 ): [CSharpTypeAst | undefined, EmitterContext] => {
+  const preservedBroadArrayAssertion =
+    tryResolveBroadArrayAssertionReceiverTypeAst(receiverExpr, context);
+  if (preservedBroadArrayAssertion) {
+    return preservedBroadArrayAssertion;
+  }
+
   const baseType = receiverExpr.inferredType;
   if (context.narrowedBindings) {
     const narrowKey =

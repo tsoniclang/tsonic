@@ -19,12 +19,14 @@ export const emitBlockStatementAst = (
   context: EmitterContext
 ): [CSharpBlockStatementAst, EmitterContext] => {
   const outerNameMap = context.localNameMap;
+  const outerConditionAliases = context.conditionAliases;
   const outerSemanticTypes = context.localSemanticTypes;
   const outerValueTypes = context.localValueTypes;
   return withScoped(
     context,
     {
       localNameMap: new Map(outerNameMap ?? []),
+      conditionAliases: new Map(outerConditionAliases ?? []),
       localSemanticTypes: new Map(outerSemanticTypes ?? []),
       localValueTypes: new Map(outerValueTypes ?? []),
     },

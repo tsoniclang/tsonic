@@ -39,6 +39,8 @@ import {
   mergeBranchContextMeta,
   resetBranchFlowState,
 } from "./branch-context.js";
+import { SYSTEM_ARRAY_STORAGE_TYPE } from "../../../core/semantic/broad-array-storage.js";
+import { registerLocalSymbolTypes } from "../../../core/format/local-names.js";
 
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
 type GuardResult = [readonly CSharpStatementAst[], EmitterContext] | undefined;
@@ -240,7 +242,8 @@ export const tryEmitArrayIsArrayGuard = (
       },
       narrowedType,
       undefined,
-      emittedTargetAst
+      emittedTargetAst,
+      SYSTEM_ARRAY_STORAGE_TYPE
     )
   );
 
@@ -250,13 +253,21 @@ export const tryEmitArrayIsArrayGuard = (
     condCtxAfterCond
   );
 
-  const thenCtx: EmitterContext = {
+  const thenBaseCtx: EmitterContext = {
     ...narrowedTypeCtx,
     ...condCtxAfterCondAst,
     narrowedBindings: arrayIsArrayGuard.narrowsInThen
       ? narrowedMap
       : condCtxAfterCond.narrowedBindings,
   };
+  const thenCtx = arrayIsArrayGuard.narrowsInThen
+    ? registerLocalSymbolTypes(
+        arrayIsArrayGuard.originalName,
+        narrowedType,
+        SYSTEM_ARRAY_STORAGE_TYPE,
+        thenBaseCtx
+      )
+    : thenBaseCtx;
   const [thenStmts, thenCtxAfter] = emitStatementAst(
     stmt.thenStatement,
     thenCtx
@@ -272,12 +283,20 @@ export const tryEmitArrayIsArrayGuard = (
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
-    const elseCtx: EmitterContext = {
+    const elseBaseCtx: EmitterContext = {
       ...basePostConditionContext,
       narrowedBindings: arrayIsArrayGuard.narrowsInThen
         ? condCtxAfterCond.narrowedBindings
         : narrowedMap,
     };
+    const elseCtx = !arrayIsArrayGuard.narrowsInThen
+      ? registerLocalSymbolTypes(
+          arrayIsArrayGuard.originalName,
+          narrowedType,
+          SYSTEM_ARRAY_STORAGE_TYPE,
+          elseBaseCtx
+        )
+      : elseBaseCtx;
     const [elseStmts, elseCtxAfter] = emitStatementAst(
       stmt.elseStatement,
       elseCtx
@@ -309,6 +328,13 @@ export const tryEmitArrayIsArrayGuard = (
         emittedTargetAst,
         complementType,
         condCtxAfterCond,
+        finalContext,
+        SYSTEM_ARRAY_STORAGE_TYPE
+      );
+      finalContext = registerLocalSymbolTypes(
+        arrayIsArrayGuard.originalName,
+        complementType,
+        SYSTEM_ARRAY_STORAGE_TYPE,
         finalContext
       );
     }

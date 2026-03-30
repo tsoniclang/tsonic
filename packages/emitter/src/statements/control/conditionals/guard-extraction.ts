@@ -72,6 +72,17 @@ export const narrowTypeByArrayShape = (
 
   const isArrayLike = isArrayLikeNarrowingCandidate(resolved, context);
   if (wantArray) {
+    if (
+      resolved.kind === "unknownType" ||
+      resolved.kind === "anyType" ||
+      resolved.kind === "objectType" ||
+      (resolved.kind === "referenceType" && resolved.name === "object")
+    ) {
+      return {
+        kind: "arrayType",
+        elementType: { kind: "unknownType" },
+      };
+    }
     return isArrayLike ? resolved : undefined;
   }
   return isArrayLike ? undefined : resolved;

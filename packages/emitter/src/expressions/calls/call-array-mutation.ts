@@ -114,25 +114,32 @@ type CapturedAssignableArrayTarget = {
 
 const captureAssignableArrayTarget = (
   expr: IrExpression,
-  context: EmitterContext
+  context: EmitterContext,
+  readExpectedType?: IrType
 ): CapturedAssignableArrayTarget | undefined => {
   const [receiverAst, receiverContext] = emitExpressionAst(expr, context);
 
   if (receiverAst.kind === "identifierExpression") {
+    const [readExpression, readContext] = readExpectedType
+      ? emitExpressionAst(expr, context, readExpectedType)
+      : [receiverAst, receiverContext];
     return {
-      readExpression: receiverAst,
+      readExpression,
       writeExpression: receiverAst,
       setupStatements: [],
-      context: receiverContext,
+      context: readContext,
     };
   }
 
   if (receiverAst.kind === "qualifiedIdentifierExpression") {
+    const [readExpression, readContext] = readExpectedType
+      ? emitExpressionAst(expr, context, readExpectedType)
+      : [receiverAst, receiverContext];
     return {
-      readExpression: receiverAst,
+      readExpression,
       writeExpression: receiverAst,
       setupStatements: [],
-      context: receiverContext,
+      context: readContext,
     };
   }
 
@@ -236,7 +243,11 @@ export const emitArrayMutationInteropCall = (
   )?.elementType;
   if (!receiverElementType) return undefined;
 
-  const captured = captureAssignableArrayTarget(expr.callee.object, context);
+  const captured = captureAssignableArrayTarget(
+    expr.callee.object,
+    context,
+    receiverType
+  );
   if (!captured) return undefined;
 
   let currentContext = captured.context;

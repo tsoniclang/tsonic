@@ -72,12 +72,19 @@ export const tryEmitMemberBindingAccess = (
     bindingTypeLeaf === "Array" ||
     bindingTypeLeaf === "ReadonlyArray" ||
     type.includes("System.Array");
+  const hasSourceDeclaredReceiverMember = hasSourceDeclaredMember(
+    receiverType,
+    sourcePropertyName,
+    usage,
+    context
+  );
   if (
     usage === "value" &&
     typeof expr.property === "string" &&
     isLengthPropertyName(expr.property) &&
     context.options.surface === "@tsonic/js" &&
     !expr.memberBinding.isExtensionMethod &&
+    !hasSourceDeclaredReceiverMember &&
     (arrayLikeReceiver || hasArrayLikeBindingHint)
   ) {
     const [objectAst, withObject] = emitExpressionAst(expr.object, context);
@@ -283,12 +290,7 @@ export const tryEmitMemberBindingAccess = (
       context,
       usage
     );
-    const emittedMemberName = hasSourceDeclaredMember(
-      receiverType,
-      sourcePropertyName,
-      usage,
-      context
-    )
+    const emittedMemberName = hasSourceDeclaredReceiverMember
       ? emittedSourceMemberName
       : escapedMember;
     if (expr.isOptional) {

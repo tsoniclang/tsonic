@@ -342,4 +342,54 @@ describe("Expression Emission", () => {
     expect(printed).to.include("((global::System.Func<byte>)(() =>");
     expect(printed).to.include("buffer.set(0, value)");
   });
+
+  it("should route computed getter access through explicit at protocols", () => {
+    const expr = {
+      kind: "memberAccess" as const,
+      object: {
+        kind: "identifier" as const,
+        name: "buffer",
+        inferredType: {
+          kind: "referenceType" as const,
+          name: "Uint8Array",
+        },
+      },
+      property: {
+        kind: "literal" as const,
+        value: 0,
+        inferredType: {
+          kind: "primitiveType" as const,
+          name: "int" as const,
+        },
+      },
+      isComputed: true,
+      isOptional: false,
+      inferredType: {
+        kind: "referenceType" as const,
+        name: "byte" as const,
+        typeId: {
+          stableId: "System.Private.CoreLib:System.Byte",
+          clrName: "System.Byte",
+          assemblyName: "System.Private.CoreLib",
+          tsName: "Byte",
+        },
+      },
+      accessKind: "clrIndexer" as const,
+      accessProtocol: {
+        getterMember: "at",
+      },
+    } as const;
+
+    const context: EmitterContext = {
+      indentLevel: 0,
+      options: { rootNamespace: "MyApp", surface: "@tsonic/js", indent: 4 },
+      isStatic: false,
+      isAsync: false,
+      usings: new Set<string>(),
+    };
+
+    const [result] = emitExpressionAst(expr, context);
+    const printed = printExpression(result);
+    expect(printed).to.equal("buffer.at(0)");
+  });
 });

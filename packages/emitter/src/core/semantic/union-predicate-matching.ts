@@ -19,6 +19,25 @@ import {
   getAllPropertySignatures,
 } from "./property-member-lookup.js";
 
+const referenceTypesShareNominalIdentity = (
+  left: Extract<IrType, { kind: "referenceType" }>,
+  right: Extract<IrType, { kind: "referenceType" }>
+): boolean => {
+  const leftStableId = left.typeId?.stableId;
+  const rightStableId = right.typeId?.stableId;
+  if (leftStableId && rightStableId && leftStableId === rightStableId) {
+    return true;
+  }
+
+  const leftClrName = left.resolvedClrType ?? left.typeId?.clrName;
+  const rightClrName = right.resolvedClrType ?? right.typeId?.clrName;
+  if (leftClrName && rightClrName && leftClrName === rightClrName) {
+    return true;
+  }
+
+  return false;
+};
+
 /**
  * Select the best union member type to instantiate for an object literal.
  *
@@ -416,6 +435,15 @@ export const findUnionMemberIndex = (
       resolvedMember.kind === "referenceType" &&
       resolvedCandidate.kind === "referenceType"
     ) {
+      if (
+        referenceTypesShareNominalIdentity(
+          resolvedMember,
+          resolvedCandidate
+        )
+      ) {
+        return true;
+      }
+
       if (resolvedMember.name !== resolvedCandidate.name) {
         return false;
       }

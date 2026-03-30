@@ -7,6 +7,7 @@ import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
 import {
   IrClassDeclaration,
+  IrExpressionStatement,
   IrFunctionDeclaration,
   IrMethodDeclaration,
 } from "../types.js";
@@ -480,6 +481,285 @@ describe("IR Builder", function () {
       }
     });
 
+    it("uses narrowed overload surface types for member calls inside overload implementations", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            'import type { int } from "@tsonic/core/types.js";',
+            "",
+            "class Socket {",
+            "  connect(port: int, host?: string, connectionListener?: () => void): void;",
+            "  connect(path: string, connectionListener?: () => void): void;",
+            "  connect(",
+            "    portOrPath: int | string,",
+            "    hostOrListener?: string | (() => void),",
+            "    connectionListener?: () => void",
+            "  ): void {",
+            "    void portOrPath;",
+            "    void hostOrListener;",
+            "    void connectionListener;",
+            "  }",
+            "}",
+            "",
+            "export function open(",
+            "  portOrPath: int | string,",
+            "  hostOrListener?: string | (() => void),",
+            "  connectionListener?: () => void",
+            "): Socket {",
+            "  const socket = new Socket();",
+            '  if (typeof portOrPath === "string") {',
+            '    const listener = typeof hostOrListener === "function" ? hostOrListener : undefined;',
+            "    socket.connect(portOrPath, listener);",
+            "    return socket;",
+            "  }",
+            "  return socket;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const openFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "open"
+        );
+        expect(openFn).to.not.equal(undefined);
+        if (!openFn) return;
+
+        const ifStmt = openFn.body.statements[1];
+        expect(ifStmt?.kind).to.equal("ifStatement");
+        if (!ifStmt || ifStmt.kind !== "ifStatement") return;
+
+        expect(ifStmt.thenStatement.kind).to.equal("blockStatement");
+        if (ifStmt.thenStatement.kind !== "blockStatement") return;
+
+        const callStmt = ifStmt.thenStatement.statements[1];
+        expect(callStmt?.kind).to.equal("expressionStatement");
+        if (
+          !callStmt ||
+          callStmt.kind !== "expressionStatement" ||
+          (callStmt as IrExpressionStatement).expression.kind !== "call"
+        ) {
+          return;
+        }
+
+        const call = (callStmt as IrExpressionStatement).expression;
+        if (call.kind !== "call") return;
+
+        expect(call.parameterTypes?.[0]).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+        expect(call.surfaceParameterTypes?.[0]).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+        expect(call.parameterTypes?.[1]?.kind).to.equal("unionType");
+        expect(call.surfaceParameterTypes?.[1]?.kind).to.equal("unionType");
+        if (
+          call.parameterTypes?.[1]?.kind !== "unionType" ||
+          call.surfaceParameterTypes?.[1]?.kind !== "unionType"
+        ) {
+          return;
+        }
+        expect(call.parameterTypes[1].types).to.deep.equal([
+          {
+            kind: "functionType",
+            parameters: [],
+            returnType: { kind: "voidType" },
+          },
+          { kind: "primitiveType", name: "undefined" },
+        ]);
+        expect(call.surfaceParameterTypes[1].types).to.deep.equal([
+          {
+            kind: "functionType",
+            parameters: [],
+            returnType: { kind: "voidType" },
+          },
+          { kind: "primitiveType", name: "undefined" },
+        ]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps selected object overload surfaces exact for external member calls", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class BindOptions {",
+            "  port?: number;",
+            "  fd?: number;",
+            "  address?: string;",
+            "}",
+            "",
+            "class Socket {",
+            "  bind(): void;",
+            "  bind(port: number, address?: string, callback?: () => void): void;",
+            "  bind(port: number, callback: () => void): void;",
+            "  bind(callback: () => void): void;",
+            "  bind(options: BindOptions, callback?: () => void): void;",
+            "  bind(",
+            "    portOrCallbackOrOptions?: number | (() => void) | BindOptions,",
+            "    addressOrCallback?: string | (() => void),",
+            "    callback?: () => void",
+            "  ): void {}",
+            "}",
+            "",
+            "export function run(socket: Socket): void {",
+            "  const options = new BindOptions();",
+            "  options.port = 0;",
+            '  options.address = "127.0.0.1";',
+            "  socket.bind(options);",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const callStmt = runFn.body.statements[3];
+        expect(callStmt?.kind).to.equal("expressionStatement");
+        if (
+          !callStmt ||
+          callStmt.kind !== "expressionStatement" ||
+          callStmt.expression.kind !== "call"
+        ) {
+          return;
+        }
+
+        const call = callStmt.expression;
+        expect(call.parameterTypes?.[0]?.kind).to.equal("referenceType");
+        expect(call.surfaceParameterTypes?.[0]?.kind).to.equal("referenceType");
+        if (
+          call.parameterTypes?.[0]?.kind !== "referenceType" ||
+          call.surfaceParameterTypes?.[0]?.kind !== "referenceType"
+        ) {
+          return;
+        }
+        expect(call.parameterTypes[0].name).to.equal("BindOptions");
+        expect(call.surfaceParameterTypes[0].name).to.equal("BindOptions");
+        expect(call.parameterTypes).to.have.length(2);
+        expect(call.surfaceParameterTypes).to.have.length(2);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps selected delegate overload surfaces exact for external function calls", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            'import { createServer } from "@fixture/tls/index.js";',
+            "",
+            "export function run(): void {",
+            "  createServer((_socket) => {});",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/tls/package.json": JSON.stringify({
+            name: "@fixture/tls",
+            version: "1.0.0",
+            type: "module",
+          }),
+          "node_modules/@fixture/tls/index.js": [
+            "export function createServer(..._args) {",
+            "  return undefined;",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/tls/index.d.ts": [
+            "export class TLSSocket {}",
+            "export class TlsOptions {",
+            "  requestCert?: boolean;",
+            "}",
+            "export function createServer(",
+            "  options: TlsOptions,",
+            "  secureConnectionListener?: (socket: TLSSocket) => void",
+            "): void;",
+            "export function createServer(",
+            "  secureConnectionListener?: (socket: TLSSocket) => void",
+            "): void;",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const runFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const callStmt = runFn.body.statements[0];
+        expect(callStmt?.kind).to.equal("expressionStatement");
+        if (
+          !callStmt ||
+          callStmt.kind !== "expressionStatement" ||
+          callStmt.expression.kind !== "call"
+        ) {
+          return;
+        }
+
+        const call = callStmt.expression;
+        expect(call.parameterTypes).to.have.length(1);
+        expect(call.surfaceParameterTypes).to.have.length(1);
+        expect(call.parameterTypes?.[0]?.kind).to.equal("functionType");
+        expect(call.surfaceParameterTypes?.[0]?.kind).to.equal("unionType");
+        if (call.surfaceParameterTypes?.[0]?.kind !== "unionType") {
+          return;
+        }
+        expect(call.surfaceParameterTypes[0].types).to.have.length(2);
+        expect(call.surfaceParameterTypes[0].types[0]?.kind).to.equal(
+          "functionType"
+        );
+        expect(call.surfaceParameterTypes[0].types[1]).to.deep.equal({
+          kind: "primitiveType",
+          name: "undefined",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("uses wrapper lowering when overload signatures make initialized implementation parameters optional", () => {
       const fixture = createFilesystemTestProgram(
         {
@@ -819,6 +1099,138 @@ describe("IR Builder", function () {
             (stmt) => stmt.kind === "ifStatement"
           )
         ).to.equal(false);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves checker-resolved overload metadata for narrowed recursive overload calls", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type int = number;",
+            "type byte = number;",
+            "class Buffer {}",
+            "type WritableFsBuffer = byte[] | Buffer;",
+            "",
+            "function resolveWriteLength(",
+            "  buffer: WritableFsBuffer,",
+            "  offset: int,",
+            "  lengthOrEncoding?: int | string",
+            "): int {",
+            "  void buffer;",
+            "  void offset;",
+            "  void lengthOrEncoding;",
+            "  return 1 as int;",
+            "}",
+            "",
+            "export class FS {",
+            "  writeSync(fd: int, buffer: WritableFsBuffer, offset: int, length: int, position: int | null): int;",
+            "  writeSync(fd: int, data: string, position?: int | null, encoding?: string): int;",
+            "  writeSync(",
+            "    fd: int,",
+            "    bufferOrData: WritableFsBuffer | string,",
+            "    offsetOrPosition: int | null = null,",
+            "    lengthOrEncoding?: int | string,",
+            "    position?: int | null",
+            "  ): int {",
+            '    if (typeof bufferOrData === "string") {',
+            "      return this.writeSync(",
+            "        fd,",
+            "        bufferOrData,",
+            "        offsetOrPosition,",
+            '        typeof lengthOrEncoding === "string" ? lengthOrEncoding : undefined',
+            "      );",
+            "    }",
+            "",
+            "    return this.writeSync(",
+            "      fd,",
+            "      bufferOrData,",
+            "      offsetOrPosition ?? (0 as int),",
+            "      resolveWriteLength(",
+            "        bufferOrData,",
+            "        offsetOrPosition ?? (0 as int),",
+            "        lengthOrEncoding",
+            "      ),",
+            "      position ?? null",
+            "    );",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const targetClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "FS"
+        );
+        expect(targetClass).to.not.equal(undefined);
+        if (!targetClass) return;
+
+        const implMethod = targetClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" &&
+            member.name === "__tsonic_overload_impl_writeSync"
+        );
+        expect(implMethod).to.not.equal(undefined);
+        if (!implMethod?.body) return;
+
+        const returnCall = implMethod.body.statements.find(
+          (
+            stmt
+          ): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement" &&
+            stmt.expression?.kind === "call"
+        );
+        expect(returnCall).to.not.equal(undefined);
+        if (!returnCall?.expression || returnCall.expression.kind !== "call") {
+          return;
+        }
+
+        const call = returnCall.expression;
+        expect(call.parameterTypes?.[1]?.kind).to.equal("unionType");
+        expect(call.surfaceParameterTypes?.[1]?.kind).to.equal("unionType");
+        if (
+          call.parameterTypes?.[1]?.kind !== "unionType" ||
+          call.surfaceParameterTypes?.[1]?.kind !== "unionType"
+        ) {
+          return;
+        }
+
+        expect(call.parameterTypes[1].types).to.deep.equal([
+          {
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "number" },
+            origin: "explicit",
+          },
+          {
+            kind: "referenceType",
+            name: "Buffer",
+            typeArguments: undefined,
+            resolvedClrType: undefined,
+            typeId: {
+              stableId: "TestApp:TestApp.Buffer",
+              clrName: "TestApp.Buffer",
+              assemblyName: "TestApp",
+              tsName: "Buffer",
+            },
+          },
+        ]);
+        expect(call.surfaceParameterTypes[1].types).to.deep.equal(
+          call.parameterTypes[1].types
+        );
       } finally {
         fixture.cleanup();
       }

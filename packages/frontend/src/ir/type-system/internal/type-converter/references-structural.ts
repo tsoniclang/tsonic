@@ -10,7 +10,7 @@
 
 export {
   isTsonicBindingsDeclarationFile,
-  isInstalledTsonicSourcePackageFile,
+  isTsonicSourcePackageFile,
   shouldPreserveUserTypeAliasIdentity,
   resolveSourceClrIdentity,
   isSafeToEraseUserTypeAliasTarget,

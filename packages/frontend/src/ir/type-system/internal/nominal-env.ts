@@ -8,7 +8,7 @@
  */
 
 import type { IrType } from "../../types/index.js";
-import { normalizedUnionType } from "../../types/type-ops.js";
+import { normalizedUnionType, stableIrTypeKey } from "../../types/type-ops.js";
 import type {
   UnifiedTypeCatalog,
   TypeId,
@@ -221,7 +221,7 @@ export const buildNominalEnv = (catalog: UnifiedTypeCatalog): NominalEnv => {
    */
   const serializeTypeArgs = (typeArgs: readonly IrType[]): string => {
     if (typeArgs.length === 0) return "";
-    return typeArgs.map((a) => JSON.stringify(a)).join(",");
+    return typeArgs.map((a) => stableIrTypeKey(a)).join(",");
   };
 
   /**
@@ -316,7 +316,10 @@ export const buildNominalEnv = (catalog: UnifiedTypeCatalog): NominalEnv => {
     ): string => {
       const typeParams = catalog.getTypeParameters(typeId);
       return typeParams
-        .map((tp) => JSON.stringify(subst.get(tp.name) ?? null))
+        .map((tp) => {
+          const arg = subst.get(tp.name);
+          return arg ? stableIrTypeKey(arg) : "null";
+        })
         .join(",");
     };
 

@@ -250,7 +250,7 @@ export const tryEmitImplicitNarrowedStorageIdentifier = (
     return undefined;
   }
 
-  const storageType = context.localValueTypes?.get(expr.name);
+  const storageType = narrowed.storageType ?? context.localValueTypes?.get(expr.name);
   if (!storageType) {
     return undefined;
   }
@@ -345,7 +345,7 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   }
 
   const remappedLocal = context.localNameMap?.get(expr.name);
-  const storageType = context.localValueTypes?.get(expr.name);
+  const storageType = narrowed.storageType ?? context.localValueTypes?.get(expr.name);
   if (!storageType) {
     return undefined;
   }
@@ -393,7 +393,6 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
   if (
     expectedType &&
     isBroadStorageTarget(expectedType, context) &&
-    matchesExpectedEmissionType(storageType, expectedType, context) &&
     !shouldAvoidStorageReuse
   ) {
     if (narrowed.storageExprAst) {

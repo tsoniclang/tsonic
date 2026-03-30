@@ -7,6 +7,7 @@ import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
+import { resolveIdentifierCarrierStorageType } from "../../../expressions/direct-storage-types.js";
 import { emitTypeAst } from "../../../type-emitter.js";
 import type { CSharpTypeAst } from "../../../core/format/backend-ast/types.js";
 import { hasDeterministicPropertyMembership } from "../../../core/semantic/type-resolution.js";
@@ -15,8 +16,10 @@ import {
   findRuntimeUnionMemberIndices,
   findRuntimeUnionInstanceofMemberIndices,
 } from "../../../core/semantic/runtime-unions.js";
+import { resolveAlignedRuntimeUnionMembers } from "../../../core/semantic/narrowed-union-resolution.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitRemappedLocalName } from "../../../core/format/local-names.js";
+import { buildRuntimeSubsetExpressionAst } from "../../../core/semantic/narrowing-builders.js";
 import {
   getMemberAccessNarrowKey,
   makeNarrowedLocalName,
@@ -270,10 +273,32 @@ export const tryResolveInstanceofGuard = (
       : getMemberAccessNarrowKey(target);
   if (!originalName) return undefined;
 
-  const [lhsAst, ctxAfterLhs] =
-    target.kind === "identifier"
-      ? emitIdentifier(target, context)
-      : emitExpressionAst(target, context);
+  const unionSourceType = condition.left.inferredType ?? target.inferredType;
+  const currentType =
+    context.narrowedBindings?.get(originalName)?.type ?? unionSourceType;
+  const activeNarrowedBinding = context.narrowedBindings?.get(originalName);
+  const [lhsAst, ctxAfterLhs] = (() => {
+    if (target.kind !== "identifier") {
+      return emitExpressionAst(target, context, currentType);
+    }
+
+    if (activeNarrowedBinding?.kind === "expr") {
+      return [activeNarrowedBinding.exprAst, context] as const;
+    }
+
+    if (activeNarrowedBinding?.kind === "runtimeSubset") {
+      const subsetAst = buildRuntimeSubsetExpressionAst(
+        target,
+        activeNarrowedBinding,
+        context
+      );
+      if (subsetAst) {
+        return subsetAst;
+      }
+    }
+
+    return emitIdentifier(target, context, currentType);
+  })();
   const escapedOrig =
     target.kind === "identifier"
       ? emitRemappedLocalName(originalName, context)
@@ -319,12 +344,20 @@ export const tryResolveInstanceofGuard = (
     type: inferredRhsType ?? undefined,
   });
 
-  const unionSourceType = condition.left.inferredType ?? target.inferredType;
-  const currentType =
-    context.narrowedBindings?.get(originalName)?.type ?? unionSourceType;
+  const carrierSourceType =
+    (target.kind === "identifier"
+      ? resolveIdentifierCarrierStorageType(target, context)
+      : undefined) ??
+    context.narrowedBindings?.get(originalName)?.sourceType ??
+    unionSourceType;
   const runtimeUnionFrame =
     currentType && inferredRhsType
-      ? resolveRuntimeUnionFrame(originalName, currentType, context)
+      ? resolveAlignedRuntimeUnionMembers(
+          originalName,
+          currentType,
+          carrierSourceType,
+          context
+        )
       : undefined;
   const runtimeMatchIndices =
     runtimeUnionFrame && inferredRhsType

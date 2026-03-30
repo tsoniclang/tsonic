@@ -9,12 +9,14 @@ import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
 import { IrModule, IrStatement } from "../ir/types.js";
 import { buildIr } from "../ir/builder/orchestrator.js";
+import { createProgramContext } from "../ir/program-context.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
 import type { CompilerOptions } from "./types.js";
 import type { BindingRegistry, TypeBinding } from "./bindings.js";
 import { discoverAndLoadClrBindings } from "./clr-bindings-discovery.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
+import { runCallResolutionRefreshPass } from "../ir/validation/call-resolution-refresh-pass.js";
 import { runArrowReturnFinalizationPass } from "../ir/validation/arrow-return-finalization-pass.js";
 import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.js";
 import { runCharValidationPass } from "../ir/validation/char-validation-pass.js";
@@ -629,8 +631,8 @@ export const buildModuleDependencyGraph = (
     return error(attributeResult.diagnostics);
   }
 
-  // Run IR soundness gate - validates no anyType leaked through
-  // This is the final validation before emitter can run
+  // Run an initial IR soundness gate on the pre-proof lowered IR.
+  // A second soundness gate runs after later normalization passes.
   const soundnessResult = validateIrSoundness(attributeResult.modules, {
     knownReferenceTypes: new Set([
       ...tsonicProgram.bindings.getEmitterTypeMap().keys(),
@@ -648,9 +650,26 @@ export const buildModuleDependencyGraph = (
     return error(numericResult.diagnostics);
   }
 
+  const refreshContext = createProgramContext(tsonicProgram, {
+    sourceRoot: sourceRootAbs,
+    rootNamespace: options.rootNamespace,
+  });
+  const refreshedCallResolutionResult = runCallResolutionRefreshPass(
+    numericResult.modules,
+    refreshContext
+  );
+  const reloweredAfterRefreshResult = runAnonymousTypeLoweringPass(
+    refreshedCallResolutionResult.modules,
+    {
+      bindings: tsonicProgram.bindings.getEmitterTypeMap(),
+    }
+  );
+
   // Run arrow return finalization pass - infers return types for expression-bodied
   // arrows from their body's inferredType (after numeric proof has run)
-  const arrowResult = runArrowReturnFinalizationPass(numericResult.modules);
+  const arrowResult = runArrowReturnFinalizationPass(
+    reloweredAfterRefreshResult.modules
+  );
 
   // Run numeric coercion pass - validates no implicit int→double conversions
   // This enforces the strict contract: integer literals require explicit widening
@@ -676,6 +695,19 @@ export const buildModuleDependencyGraph = (
   // Run virtual marking pass - marks base class methods as virtual when overridden
   const virtualResult = runVirtualMarkingPass(yieldResult.modules);
   // Note: This pass always succeeds
+
+  // Run a final IR soundness gate on the fully processed modules.
+  // This catches any unsupported type metadata reintroduced by later passes
+  // (for example call-resolution refresh) before the emitter sees the IR.
+  const finalSoundnessResult = validateIrSoundness(virtualResult.modules, {
+    knownReferenceTypes: new Set([
+      ...tsonicProgram.bindings.getEmitterTypeMap().keys(),
+      ...collectSynthesizedTypeNames(virtualResult.modules),
+    ]),
+  });
+  if (!finalSoundnessResult.ok) {
+    return error(finalSoundnessResult.diagnostics);
+  }
 
   // Use the processed modules with proofs, lowered yields, attributes, and virtual marks
   const processedModules = [...virtualResult.modules];

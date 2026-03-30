@@ -450,5 +450,6 @@ internal static class TsonicJsonRuntime
         }
         writer.WriteEndArray();
     }
+
 }
 `;

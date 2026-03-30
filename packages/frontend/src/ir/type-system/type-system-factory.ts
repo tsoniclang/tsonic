@@ -26,16 +26,19 @@ import {
   substitute as relSubstitute,
   instantiate as relInstantiate,
   isAssignableTo as relIsAssignableTo,
+  matchesInstanceofTarget as relMatchesInstanceofTarget,
   typesEqual as relTypesEqual,
   containsTypeParameter as relContainsTypeParameter,
 } from "./type-system-relations.js";
 
 import {
   resolveCall as crResolveCall,
+  resolveCallableType as crResolveCallableType,
   collectExpectedReturnCandidates as crCollectExpectedReturnCandidates,
   collectNarrowingCandidates as crCollectNarrowingCandidates,
   delegateToFunctionType as crDelegateToFunctionType,
 } from "./type-system-call-resolution.js";
+import { selectBestCallCandidate as crSelectBestCallCandidate } from "./call-resolution-candidate-selection.js";
 
 import {
   typeOfDecl as infTypeOfDecl,
@@ -188,6 +191,15 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
 
     // Call resolution (call-resolution module)
     resolveCall: (query) => crResolveCall(state, query),
+    resolveCallableType: (type, query) => {
+      const resolved = crResolveCallableType(state, type, query);
+      return {
+        callableType: resolved?.callableType,
+        resolved: resolved?.resolved,
+      };
+    },
+    selectBestCallCandidate: (fallbackSigId, candidateSigIds, query) =>
+      crSelectBestCallCandidate(state, fallbackSigId, candidateSigIds, query),
     collectExpectedReturnCandidates: (type) =>
       crCollectExpectedReturnCandidates(state, type),
     collectNarrowingCandidates: (type) =>
@@ -206,6 +218,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     // Type relations (relations module)
     isAssignableTo: (source, target) =>
       relIsAssignableTo(state, source, target),
+    matchesInstanceofTarget: (source, target) =>
+      relMatchesInstanceofTarget(state, source, target),
     typesEqual: (a, b) => relTypesEqual(a, b),
     containsTypeParameter: (type) => relContainsTypeParameter(type),
 

@@ -1,6 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { compileToCSharp } from "./helpers.js";
+import { compileProjectToCSharp, compileToCSharp } from "./helpers.js";
 
 describe("End-to-End Integration", () => {
   describe("Regression Coverage", () => {
@@ -215,6 +215,202 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("var listener =");
       expect(csharp).to.include("var listener__1 =");
       expect(csharp).to.include("var listener__2 =");
+    });
+
+    it("passes boxed storage values through broad calls after typeof-number narrowing", () => {
+      const csharp = compileToCSharp(
+        `
+          const toNumberArg = (value: unknown): number => {
+            return Number(value);
+          };
+
+          export function run(args: readonly unknown[]): number {
+            const arg0 = args.length > 0 ? args[0] : undefined;
+            if (typeof arg0 === "number") {
+              return toNumberArg(arg0);
+            }
+
+            return 0;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include('if (global::Tsonic.Runtime.Operators.@typeof((object?)arg0) == "number")');
+      expect(csharp).to.include("return toNumberArg(arg0);");
+      expect(csharp).not.to.include("toNumberArg((object?)(double)arg0)");
+    });
+
+    it("calls exact external member overloads instead of wrapping object arguments into implementation unions", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "package.json": JSON.stringify(
+            { name: "emitter-test-project", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "src/index.ts": [
+            'import { BindOptions, Socket } from "@fixture/net/index.js";',
+            "",
+            "export function run(socket: Socket): void {",
+            "  const options = new BindOptions();",
+            "  options.port = 0;",
+            '  options.address = "127.0.0.1";',
+            "  socket.bind(options);",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/net/package.json": JSON.stringify(
+            { name: "@fixture/net", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "node_modules/@fixture/net/index.js": [
+            "export class BindOptions {}",
+            "export class Socket {}",
+          ].join("\n"),
+          "node_modules/@fixture/net/index.d.ts": [
+            "export class BindOptions {",
+            "  port?: number;",
+            "  fd?: number;",
+            "  address?: string;",
+            "}",
+            "",
+            "export class Socket {",
+            "  bind(): void;",
+            "  bind(port: number, address?: string, callback?: () => void): void;",
+            "  bind(port: number, callback: () => void): void;",
+            "  bind(callback: () => void): void;",
+            "  bind(options: BindOptions, callback?: () => void): void;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      expect(csharp).to.include("socket.bind(options);");
+      expect(csharp).not.to.include(
+        "global::Tsonic.Runtime.Union<global::System.Action, double, BindOptions>.From3(options)"
+      );
+    });
+
+    it("calls exact external delegate overloads instead of the implementation union surface", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "package.json": JSON.stringify(
+            { name: "emitter-test-project", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "src/index.ts": [
+            'import { createServer } from "@fixture/tls/index.js";',
+            "",
+            "export function run(): void {",
+            "  createServer((_socket) => {});",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/tls/package.json": JSON.stringify(
+            { name: "@fixture/tls", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "node_modules/@fixture/tls/index.js": [
+            "export function createServer(..._args) {",
+            "  return undefined;",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/tls/index.d.ts": [
+            "export class TLSSocket {}",
+            "export class TlsOptions {",
+            "  requestCert?: boolean;",
+            "}",
+            "export function createServer(",
+            "  options: TlsOptions,",
+            "  secureConnectionListener?: (socket: TLSSocket) => void",
+            "): void;",
+            "export function createServer(",
+            "  secureConnectionListener?: (socket: TLSSocket) => void",
+            "): void;",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      expect(csharp).to.include(
+        "createServer((global::TLSSocket _socket) =>"
+      );
+      expect(csharp).not.to.include(
+        "global::Tsonic.Runtime.Union<global::System.Action<TLSSocket>, TlsOptions>.From1"
+      );
+    });
+
+    it("materializes source-package function listeners through the runtime union carrier", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "package.json": JSON.stringify(
+            { name: "emitter-test-project", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "src/index.ts": [
+            'import { createServer } from "@fixture/tls/index.js";',
+            "",
+            "export function run(): void {",
+            "  createServer((_socket) => {});",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/tls/package.json": JSON.stringify(
+            {
+              name: "@fixture/tls",
+              version: "1.0.0",
+              type: "module",
+              exports: {
+                "./index.js": "./src/index.ts",
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/tls/tsonic.package.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["clr"],
+              source: {
+                namespace: "fixture.tls",
+                exports: {
+                  "./index.js": "./src/index.ts",
+                },
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/tls/src/index.ts": [
+            "export class TLSSocket {}",
+            "export class TlsOptions {",
+            "  requestCert?: boolean;",
+            "}",
+            "export class TLSServer {}",
+            "export const createServer = (",
+            "  optionsOrListener?: TlsOptions | ((socket: TLSSocket) => void),",
+            "  secureConnectionListener?: (socket: TLSSocket) => void,",
+            "): TLSServer => {",
+            "  void optionsOrListener;",
+            "  void secureConnectionListener;",
+            "  return new TLSServer();",
+            "};",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      expect(csharp).to.include(
+        "global::fixture.tls.index.createServer(global::Tsonic.Runtime.Union<global::System.Action<global::fixture.tls.TLSSocket>, global::fixture.tls.TlsOptions>.From1((global::fixture.tls.TLSSocket _socket) =>"
+      );
+      expect(csharp).not.to.include(
+        "global::fixture.tls.index.createServer((global::fixture.tls.TLSSocket _socket) =>"
+      );
     });
 
     it("uses declared out locals instead of bare discards for non-lvalue out arguments", () => {
@@ -472,6 +668,36 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("__tsonic_overload_impl_readFile");
     });
 
+    it("re-lowers refreshed anonymous array element carriers before emission", () => {
+      const csharp = compileToCSharp(`
+        const buildListenerAttempts = (): { prefixes: string[]; address: string; family: string }[] => {
+          return [
+            {
+              prefixes: ["http://127.0.0.1:8080/"],
+              address: "127.0.0.1",
+              family: "IPv4",
+            },
+          ];
+        };
+
+        export function readAddress(): string {
+          const attempts = buildListenerAttempts();
+
+          for (const attempt of attempts) {
+            return attempt.address;
+          }
+
+          return "";
+        }
+      `);
+
+      expect(csharp).to.include("class __Anon_");
+      expect(csharp).to.include("foreach");
+      expect(csharp).not.to.include(
+        "ICE: Anonymous object type reached emitter"
+      );
+    });
+
     it("null-checks optional typeof runtime-union guards before member tests", () => {
       const csharp = compileToCSharp(`
         import type { int } from "@tsonic/core/types.js";
@@ -675,6 +901,81 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include(
         "fs.mkdirSync(dir, new global::js.__Anon_"
       );
+    });
+
+    it("preserves imported named structural instances at async structural overload call sites", () => {
+      const csharp = compileToCSharp(
+        `
+          import { fs, MkdirOptions } from "@tsonic/nodejs/fs.js";
+
+          export async function ensure(dir: string): Promise<void> {
+            const options = new MkdirOptions();
+            options.recursive = true;
+            await fs.mkdir(dir, options);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("fs.mkdir(dir, options)");
+      expect(csharp).to.not.include(
+        "fs.mkdir(dir, new global::js.__Anon_"
+      );
+    });
+
+    it("materializes imported structural object literals at structural overload call sites", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "package.json": JSON.stringify(
+            { name: "emitter-test-project", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "src/index.ts": [
+            'import { fs, MkdirOptions } from "@tsonic/nodejs/fs.js";',
+            "",
+            "export function ensure(dir: string): void {",
+            "  const options = new MkdirOptions();",
+            "  options.recursive = true;",
+            "  fs.mkdirSync(dir, { recursive: options.recursive, mode: options.mode });",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "fs.mkdirSync(dir, new global::nodejs.MkdirOptions"
+      );
+      expect(csharp).to.not.include("fs.mkdirSync(dir, new global::js.__Anon_");
+    });
+
+    it("materializes imported structural object literals at async structural overload call sites", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "package.json": JSON.stringify(
+            { name: "emitter-test-project", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "src/index.ts": [
+            'import { fs, MkdirOptions } from "@tsonic/nodejs/fs.js";',
+            "",
+            "export async function ensure(dir: string): Promise<void> {",
+            "  const options = new MkdirOptions();",
+            "  options.recursive = true;",
+            "  await fs.mkdir(dir, { recursive: options.recursive, mode: options.mode });",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("new global::nodejs.MkdirOptions");
+      expect(csharp).to.not.include("new global::js.__Anon_");
     });
 
     it("emits generic property empty-array initializers using the declared element type", () => {
@@ -940,6 +1241,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).not.to.include("Union<double[], object?[]>");
       expect(csharp).not.to.include("(double)message");
+      expect(csharp).not.to.include(".toArray().join(\" \")");
     });
 
     it("avoids identity Match projections for identical optional union passthrough calls", () => {
@@ -1816,10 +2118,58 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         "if ((key.As3()) is PrivateKeyObject key__is_2)"
       );
+      expect(csharp).to.include("if (key.Is3())");
+      expect(csharp).not.to.include("if (key is KeyObject");
       expect(csharp).not.to.include("(key.As2()) is PrivateKeyObject");
       expect(csharp).not.to.include(
         "importPublicKey(global::Tsonic.Runtime.Union<string, Bytes>.From2((key.As2())))"
       );
+    });
+
+    it("preserves runtime carrier probes after predicate fallthrough to a base class member", () => {
+      const csharp = compileToCSharp(`
+        class Uint8Array {}
+        class KeyObject { get type(): string { return "key"; } }
+        class PublicKeyObject extends KeyObject {}
+        class PrivateKeyObject extends KeyObject {}
+
+        declare function isStringOrBytesKey(
+          key: KeyObject | string | Uint8Array
+        ): key is string | Uint8Array;
+        declare function importPublicKey(
+          key: string | Uint8Array
+        ): PublicKeyObject;
+        declare function extractPublicKey(
+          key: PrivateKeyObject
+        ): PublicKeyObject;
+
+        export function coercePublicKeyObject(
+          key: KeyObject | string | Uint8Array
+        ): PublicKeyObject {
+          if (isStringOrBytesKey(key)) {
+            return importPublicKey(key);
+          }
+          if (key instanceof PublicKeyObject) {
+            return key;
+          }
+          if (key instanceof PrivateKeyObject) {
+            return extractPublicKey(key);
+          }
+          if (key instanceof KeyObject) {
+            return new PublicKeyObject();
+          }
+          throw new Error("Unexpected key shape");
+        }
+      `);
+
+      expect(csharp).to.include(
+        "if ((key.As2()) is PublicKeyObject key__is_1)"
+      );
+      expect(csharp).to.include(
+        "if ((key.As2()) is PrivateKeyObject key__is_2)"
+      );
+      expect(csharp).to.include("if (key.Is2())");
+      expect(csharp).not.to.include("if (key is KeyObject");
     });
 
     it("fully qualifies module static helpers when class methods shadow the module container name", () => {
@@ -1863,6 +2213,139 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("global::System.Linq.Enumerable.Select");
       expect(csharp).to.match(/\.From1\(__item\)/);
+    });
+
+    it("treats fixed lambda parameters against rest callbacks as positional values", () => {
+      const csharp = compileToCSharp(`
+        type EventListener = (...args: unknown[]) => void;
+
+        declare function consume(listener: EventListener): void;
+
+        export function main(): void {
+          let first: unknown = undefined;
+          let second: unknown = undefined;
+          let third: unknown = undefined;
+
+          consume((arg1, arg2, arg3) => {
+            first = arg1;
+            second = arg2;
+            third = arg3;
+          });
+        }
+      `);
+
+      expect(csharp).to.include("object? arg1 = __unused_args[0];");
+      expect(csharp).to.include("first = arg1;");
+      expect(csharp).to.not.include("first = (object?[])arg1;");
+    });
+
+    it("forwards optional callbacks through overload wrappers without eager wrapper lambdas", () => {
+      const csharp = compileToCSharp(`
+        class Socket {
+          bind(): void;
+          bind(port: number, address?: string, callback?: () => void): void;
+          bind(port: number, callback: () => void): void;
+          bind(callback: () => void): void;
+          bind(options: { port?: number }, callback?: () => void): void;
+          bind(
+            portOrCallbackOrOptions?: number | (() => void) | { port?: number },
+            addressOrCallback?: string | (() => void),
+            callback?: () => void
+          ): void {
+            let cb: (() => void) | undefined = undefined;
+
+            if (portOrCallbackOrOptions === undefined) {
+              cb =
+                typeof addressOrCallback === "function"
+                  ? addressOrCallback
+                  : callback;
+            } else if (typeof portOrCallbackOrOptions === "function") {
+              cb = portOrCallbackOrOptions;
+            } else if (
+              typeof portOrCallbackOrOptions === "object" &&
+              portOrCallbackOrOptions !== null &&
+              portOrCallbackOrOptions !== undefined
+            ) {
+              cb =
+                typeof addressOrCallback === "function"
+                  ? addressOrCallback
+                  : callback;
+            } else if (typeof addressOrCallback === "function") {
+              cb = addressOrCallback;
+            } else {
+              cb = callback;
+            }
+
+            if (cb !== undefined) {
+              cb();
+            }
+          }
+        }
+
+        export function main(socket: Socket): void {
+          socket.bind(0, "127.0.0.1");
+        }
+      `);
+
+      expect(csharp).to.match(
+        /this\.__tsonic_overload_impl_bind\(global::Tsonic\.Runtime\.Union<global::System\.Action,\s*double,\s*global::Test\.__Anon_[^>]+>\.From2\(portOrCallbackOrOptions\),\s*global::Tsonic\.Runtime\.Union<global::System\.Action,\s*string>\.From2\(addressOrCallback\),\s*callback\);/
+      );
+      expect(csharp).to.not.include("() =>");
+      expect(csharp).to.not.include("callback();");
+    });
+
+    it("preserves nullable array arguments when forwarding identical signatures", () => {
+      const csharp = compileToCSharp(`
+        class Child {}
+
+        function spawn(command: string, args?: string[] | null): Child {
+          return new Child();
+        }
+
+        export function fork(
+          modulePath: string,
+          args?: string[] | null
+        ): Child {
+          return spawn(modulePath, args);
+        }
+      `);
+
+      expect(csharp).to.include("return spawn(modulePath, args);");
+      expect(csharp).to.not.include("(string[])(object)args");
+      expect(csharp).to.not.include("Enumerable.Select<string, string>(args");
+    });
+
+    it("preserves readable array surfaces after setter writes before length reads", () => {
+      const csharp = compileToCSharp(
+        `
+          declare class Assert {
+            static Equal(expected: unknown, actual: unknown): void;
+          }
+
+          class Proc {
+            private _argv: string[] = [];
+
+            get argv(): string[] {
+              return this._argv;
+            }
+
+            set argv(value: string[] | undefined) {
+              this._argv = value ?? [];
+            }
+          }
+
+          export function main(p: Proc): void {
+            p.argv = undefined;
+            Assert.Equal(0, p.argv.length);
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("p.argv = default(string[]);");
+      expect(csharp).to.include("Assert.Equal((object)(double)0, (object)(double)p.argv.Length);");
+      expect(csharp).to.not.include("new global::js.Array<object>((object)p.argv).length");
     });
 
     it("erases compiler-generated structural assertion casts for nominal receivers", () => {

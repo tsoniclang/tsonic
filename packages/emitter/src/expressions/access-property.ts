@@ -250,6 +250,15 @@ export const emitPropertyAccess = (
   );
 
   if (usage === "value") {
+    const concreteReceiverLengthAccess = tryEmitConcreteReceiverLengthAccess(
+      expr,
+      receiverAst,
+      receiverContext
+    );
+    if (concreteReceiverLengthAccess) {
+      return concreteReceiverLengthAccess;
+    }
+
     if (
       resolvedObjectType?.kind === "arrayType" ||
       resolvedObjectType?.kind === "tupleType"
@@ -267,15 +276,6 @@ export const emitPropertyAccess = (
         ];
       }
     }
-  }
-
-  const concreteReceiverLengthAccess = tryEmitConcreteReceiverLengthAccess(
-    expr,
-    receiverAst,
-    receiverContext
-  );
-  if (concreteReceiverLengthAccess) {
-    return concreteReceiverLengthAccess;
   }
 
   const erasedLengthAccess = tryEmitErasedLengthAccess(

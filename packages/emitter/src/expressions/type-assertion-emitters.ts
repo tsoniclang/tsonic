@@ -58,6 +58,10 @@ import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
 import { isExactExpressionToType } from "./exact-comparison.js";
 import { isExactArrayCreationToType } from "./exact-comparison.js";
 import { tryAdaptStructuralCollectionExpressionAst } from "./structural-collection-adaptation.js";
+import {
+  SYSTEM_ARRAY_STORAGE_TYPE,
+  isBroadArrayStorageTarget,
+} from "../core/semantic/broad-array-storage.js";
 
 // ---------------------------------------------------------------------------
 // Polymorphic-this helpers (used by orchestrator and emitTypeAssertion)
@@ -410,6 +414,9 @@ export const emitTypeAssertion = (
     willCarryAsRuntimeUnion(currentTransparentSourceType, context) &&
     !willCarryAsRuntimeUnion(runtimeAssertionTarget, context);
   const sourceStorageTypeAtEntry =
+    (sourceNarrowedBinding?.kind === "expr"
+      ? sourceNarrowedBinding.storageType
+      : undefined) ??
     sourceNarrowedBinding?.sourceType ??
     (transparentSourceExpression.kind === "identifier"
       ? resolveIdentifierValueSurfaceType(transparentSourceExpression, context)
@@ -638,12 +645,21 @@ export const emitTypeAssertion = (
     (activeNarrowedBinding?.kind === "runtimeSubset" || strippedSourceNarrowing)
       ? (sourceNarrowedBinding?.sourceType ?? sourceExpressionType)
       : resolveEffectiveExpressionType(expr.expression, sourceLayoutContext);
+  const mustPreserveBroadArrayStorageCast =
+    isBroadArrayStorageTarget(
+      resolvedAssertionTarget,
+      sourceLayoutContext
+    ) && !preservesStorageSurfaceAtEntry;
+  const runtimeCastTarget =
+    mustPreserveBroadArrayStorageCast
+      ? SYSTEM_ARRAY_STORAGE_TYPE
+      : runtimeTarget;
   const [
     runtimeTargetTypeAst,
     runtimeTargetUnionLayout,
     runtimeTargetTypeContext,
   ] = emitRuntimeCarrierTypeAst(
-    runtimeTarget,
+    runtimeCastTarget,
     sourceLayoutContext,
     emitTypeAst
   );

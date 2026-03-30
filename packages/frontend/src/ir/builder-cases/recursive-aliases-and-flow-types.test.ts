@@ -294,6 +294,178 @@ describe("IR Builder", function () {
       }
     });
 
+    it("preserves readable getter surfaces after broader setter assignments", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare class Assert {",
+            "  static Equal(expected: unknown, actual: unknown): void;",
+            "}",
+            "",
+            "class Proc {",
+            "  private _argv: string[] = [];",
+            "",
+            "  get argv(): string[] {",
+            "    return this._argv;",
+            "  }",
+            "",
+            "  set argv(value: string[] | undefined) {",
+            "    this._argv = value ?? [];",
+            "  }",
+            "}",
+            "",
+            "export function main(p: Proc): void {",
+            "  p.argv = undefined;",
+            "  Assert.Equal(0, p.argv.length);",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const assertStmt = fn.body.statements[1];
+        expect(assertStmt?.kind).to.equal("expressionStatement");
+        if (!assertStmt || assertStmt.kind !== "expressionStatement") return;
+        expect(assertStmt.expression.kind).to.equal("call");
+        if (assertStmt.expression.kind !== "call") return;
+
+        const lengthArg = assertStmt.expression.arguments[1];
+        expect(lengthArg?.kind).to.equal("memberAccess");
+        if (!lengthArg || lengthArg.kind !== "memberAccess") return;
+        expect(lengthArg.property).to.equal("length");
+
+        if (lengthArg.object.kind === "typeAssertion") {
+          expect(lengthArg.object.targetType).to.deep.equal({
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "string" },
+            origin: "explicit",
+          });
+
+          expect(lengthArg.object.expression.kind).to.equal("memberAccess");
+          if (lengthArg.object.expression.kind !== "memberAccess") return;
+          expect(lengthArg.object.expression.property).to.equal("argv");
+          return;
+        }
+
+        expect(lengthArg.object.kind).to.equal("memberAccess");
+        if (lengthArg.object.kind !== "memberAccess") return;
+        expect(lengthArg.object.property).to.equal("argv");
+        expect(lengthArg.object.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+          origin: "explicit",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves imported getter surfaces after broader setter assignments", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/process.ts": [
+            "export class Proc {",
+            "  private _argv: string[] = [];",
+            "",
+            "  get argv(): string[] {",
+            "    return this._argv;",
+            "  }",
+            "",
+            "  set argv(value: string[] | undefined) {",
+            "    this._argv = value ?? [];",
+            "  }",
+            "}",
+            "",
+            "export const process = new Proc();",
+          ].join("\n"),
+          "src/index.ts": [
+            'import { process } from "./process.ts";',
+            "declare class Assert {",
+            "  static Equal(expected: unknown, actual: unknown): void;",
+            "}",
+            "",
+            "export function main(): void {",
+            "  process.argv = undefined;",
+            "  Assert.Equal(0, process.argv.length);",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const assertStmt = fn.body.statements[1];
+        expect(assertStmt?.kind).to.equal("expressionStatement");
+        if (!assertStmt || assertStmt.kind !== "expressionStatement") return;
+        expect(assertStmt.expression.kind).to.equal("call");
+        if (assertStmt.expression.kind !== "call") return;
+
+        const lengthArg = assertStmt.expression.arguments[1];
+        expect(lengthArg?.kind).to.equal("memberAccess");
+        if (!lengthArg || lengthArg.kind !== "memberAccess") return;
+        expect(lengthArg.property).to.equal("length");
+
+        if (lengthArg.object.kind === "typeAssertion") {
+          expect(lengthArg.object.targetType).to.deep.equal({
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "string" },
+            origin: "explicit",
+          });
+
+          expect(lengthArg.object.expression.kind).to.equal("memberAccess");
+          if (lengthArg.object.expression.kind !== "memberAccess") return;
+          expect(lengthArg.object.expression.property).to.equal("argv");
+          return;
+        }
+
+        expect(lengthArg.object.kind).to.equal("memberAccess");
+        if (lengthArg.object.kind !== "memberAccess") return;
+        expect(lengthArg.object.property).to.equal("argv");
+        expect(lengthArg.object.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+          origin: "explicit",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("substitutes inherited generic member types across renamed superclass type parameters", () => {
       const fixture = createFilesystemTestProgram(
         {

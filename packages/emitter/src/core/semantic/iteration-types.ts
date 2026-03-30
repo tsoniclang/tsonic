@@ -66,16 +66,32 @@ export const deriveForOfElementType = (
     normalized.typeArguments.length > 0
   ) {
     const [firstTypeArg, secondTypeArg] = normalized.typeArguments;
-    switch (normalized.name) {
+    const simpleName = (normalized.name.split(".").pop() ?? normalized.name).replace(
+      /\$instance$/,
+      ""
+    );
+    const clrSimpleName = normalized.resolvedClrType
+      ?.split(".")
+      .pop()
+      ?.replace(/\$instance$/, "");
+    switch (simpleName) {
       case "Array":
       case "ReadonlyArray":
       case "Iterable":
       case "IterableIterator":
       case "Iterator":
+      case "IEnumerable":
+      case "IEnumerable_1":
+      case "IEnumerator":
+      case "IEnumerator_1":
       case "AsyncIterable":
       case "AsyncIterableIterator":
       case "Generator":
       case "AsyncGenerator":
+      case "IAsyncEnumerable":
+      case "IAsyncEnumerable_1":
+      case "IAsyncEnumerator":
+      case "IAsyncEnumerator_1":
       case "Set":
       case "ReadonlySet":
         return firstTypeArg;
@@ -88,6 +104,14 @@ export const deriveForOfElementType = (
             }
           : undefined;
       default:
+        if (
+          clrSimpleName === "IEnumerable" ||
+          clrSimpleName === "IEnumerator" ||
+          clrSimpleName === "IAsyncEnumerable" ||
+          clrSimpleName === "IAsyncEnumerator"
+        ) {
+          return firstTypeArg;
+        }
         return undefined;
     }
   }

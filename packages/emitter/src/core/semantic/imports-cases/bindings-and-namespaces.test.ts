@@ -5,6 +5,7 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
+import type { TypeBinding as FrontendTypeBinding } from "@tsonic/frontend";
 import { emitModule } from "../../../emitter.js";
 import { IrModule } from "@tsonic/frontend";
 
@@ -312,6 +313,181 @@ describe("Import Handling", () => {
 
     expect(result).to.include("global::nodejs.Buffer.Buffer.alloc(8)");
     expect(result).not.to.include("global::nodejs.Buffer.alloc(8)");
+  });
+
+  it("keeps aliased CLR class imports authoritative in normalized instance-companion type positions", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "@tsonic/dotnet/System.js",
+          isLocal: false,
+          isClr: true,
+          resolvedNamespace: "System",
+          specifiers: [
+            {
+              kind: "named",
+              name: "Object",
+              localName: "DotnetObject",
+              isType: false,
+              resolvedClrType: "System.Object",
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "value" },
+              type: {
+                kind: "referenceType",
+                name: "Object$instance",
+              },
+              initializer: { kind: "literal", value: null },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const fallbackObjectBinding: FrontendTypeBinding = {
+      alias: "Object$instance",
+      name: "js.Object$instance",
+      kind: "interface",
+      members: [],
+    };
+
+    const result = emitModule(module, {
+      clrBindings: new Map([["Object$instance", fallbackObjectBinding]]),
+    });
+
+    expect(result).to.include("global::System.Object value");
+    expect(result).to.not.include("global::js.Object$instance");
+  });
+
+  it("keeps aliased source-package class imports authoritative in normalized instance-companion type positions", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/app.ts",
+      namespace: "MyApp",
+      className: "app",
+      isStaticContainer: true,
+      imports: [
+        {
+          kind: "import",
+          source: "@tsonic/nodejs/buffer.js",
+          isLocal: true,
+          isClr: false,
+          resolvedPath: "/node_modules/@tsonic/nodejs/src/buffer/index.ts",
+          resolvedClrType: "nodejs.buffer",
+          resolvedNamespace: "nodejs",
+          specifiers: [
+            {
+              kind: "named",
+              name: "Buffer",
+              localName: "NodeBuffer",
+              isType: false,
+              resolvedClrType: "nodejs.Buffer.Buffer",
+            },
+          ],
+        },
+      ],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "value" },
+              type: {
+                kind: "referenceType",
+                name: "Buffer$instance",
+              },
+              initializer: { kind: "literal", value: null },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const fallbackBufferBinding: FrontendTypeBinding = {
+      alias: "Buffer$instance",
+      name: "nodejs.buffer.Buffer$instance",
+      kind: "interface",
+      members: [],
+    };
+
+    const result = emitModule(module, {
+      clrBindings: new Map([["Buffer$instance", fallbackBufferBinding]]),
+      moduleMap: new Map([
+        [
+          "node_modules/@tsonic/nodejs/src/buffer/index",
+          {
+            namespace: "nodejs",
+            className: "buffer",
+            filePath: "node_modules/@tsonic/nodejs/src/buffer/index",
+            hasRuntimeContainer: false,
+            hasTopLevelCode: false,
+            imports: [],
+            exports: [],
+            exportedValueKinds: new Map(),
+            localTypes: new Map(),
+            hasTypeCollision: false,
+          },
+        ],
+        [
+          "node_modules/@tsonic/nodejs/src/buffer/buffer",
+          {
+            namespace: "nodejs.Buffer",
+            className: "Buffer",
+            filePath: "node_modules/@tsonic/nodejs/src/buffer/buffer",
+            hasRuntimeContainer: true,
+            hasTopLevelCode: false,
+            imports: [],
+            exports: [],
+            exportedValueKinds: new Map(),
+            localTypes: new Map([
+              [
+                "Buffer",
+                {
+                  kind: "class",
+                  typeParameters: [],
+                  members: [],
+                  implements: [],
+                },
+              ],
+            ]),
+            hasTypeCollision: false,
+          },
+        ],
+      ]),
+      exportMap: new Map([
+        [
+          "node_modules/@tsonic/nodejs/src/buffer/index:Buffer",
+          {
+            sourceFile: "node_modules/@tsonic/nodejs/src/buffer/buffer",
+            sourceName: "Buffer",
+          },
+        ],
+      ]),
+    });
+
+    expect(result).to.include("global::nodejs.Buffer.Buffer value");
+    expect(result).to.not.include("global::nodejs.buffer.Buffer$instance");
   });
 
   it("resolves source-package value re-exports to the generated module container instead of the coarse module binding root", () => {

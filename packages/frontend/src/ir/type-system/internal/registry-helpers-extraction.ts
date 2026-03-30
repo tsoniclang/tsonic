@@ -21,7 +21,10 @@ import {
   convertMethodToSignature,
   convertMethodSignatureToIr,
 } from "./registry-helpers-inference.js";
-import { resolveSourceFileNamespace } from "../../../program/source-file-identity.js";
+import {
+  resolveContainingSourcePackageNamespace,
+  resolveSourceFileNamespace,
+} from "../../../program/source-file-identity.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CANONICAL CLR NAME HELPERS
@@ -203,7 +206,8 @@ export const resolveHeritageTypeName = (
   // Source-authored types use namespace-based FQ names.
   const ns =
     sourceFile && !sourceFile.isDeclarationFile
-      ? resolveSourceFileNamespace(
+      ? resolveContainingSourcePackageNamespace(sourceFile.fileName) ??
+        resolveSourceFileNamespace(
           sourceFile.fileName,
           sourceRoot,
           rootNamespace
@@ -301,10 +305,14 @@ export const extractMembers = (
       const name = tryResolveDeterministicPropertyName(member.name);
       if (!name) continue;
       const existing = result.get(name);
+      const inferredType = inferMemberType(member, convertType);
+      const readableType = ts.isGetAccessorDeclaration(member)
+        ? (inferredType ?? existing?.type)
+        : (existing?.type ?? inferredType);
       result.set(name, {
         kind: "property",
         name,
-        type: inferMemberType(member, convertType) ?? existing?.type,
+        type: readableType,
         isOptional: false,
         isReadonly: ts.isSetAccessorDeclaration(member)
           ? false

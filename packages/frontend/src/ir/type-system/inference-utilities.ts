@@ -22,6 +22,7 @@ import type {
   IrFunctionType,
   IrParameter,
   IrInterfaceMember,
+  IrTypeParameter,
   IrSpreadTupleShape,
 } from "../types/index.js";
 import * as ts from "typescript";
@@ -175,9 +176,11 @@ export const buildFunctionTypeFromSignatureShape = (
     readonly isRest: boolean;
     readonly mode?: IrParameter["passing"];
   }[],
-  returnType: IrType
+  returnType: IrType,
+  typeParameters?: readonly IrTypeParameter[]
 ): IrFunctionType => ({
   kind: "functionType",
+  ...(typeParameters && typeParameters.length > 0 ? { typeParameters } : {}),
   parameters: parameters.map(
     (parameter): IrParameter => ({
       kind: "parameter",
@@ -231,7 +234,8 @@ export const buildStructuralMethodFamilyType = (
           isRest: parameter.isRest,
           mode: parameter.passing,
         })),
-        member.returnType ?? voidType
+        member.returnType ?? voidType,
+        member.typeParameters
       )
     )
   );

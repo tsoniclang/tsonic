@@ -28,10 +28,14 @@ import { getAcceptedParameterType } from "../../core/semantic/defaults.js";
 import { unwrapParameterModifierType } from "../../core/semantic/parameter-modifier-types.js";
 import {
   resolveTypeAlias,
+  splitRuntimeNullishUnionMembers,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
+import { resolveComparableType } from "../../core/semantic/comparable-types.js";
+import { resolveRuntimeMaterializationTargetType } from "../../core/semantic/runtime-materialization-targets.js";
 import { getPassingModifierFromCast, isLValue } from "./call-analysis.js";
 import { shouldPreferRuntimeExpectedType } from "./runtime-expected-type-preference.js";
+import { adaptValueToExpectedTypeAst } from "../expected-type-adaptation.js";
 import {
   normalizeCallArgumentExpectedType,
   expandTupleLikeSpreadArguments,
@@ -646,16 +650,71 @@ const emitFunctionValueCallArguments = (
         currentContext = discardCtx;
         continue;
       }
-      const [argAst, argCtx] = emitExpressionAst(
+      const runtimeParameterType = getAcceptedParameterType(
+        parameter?.type,
+        !!parameter?.isOptional
+      );
+      const selectedParameterType =
+        expr.parameterTypes?.[i] ?? expr.surfaceParameterTypes?.[i];
+      const selectedExpectedType =
+        selectedParameterType === undefined
+          ? undefined
+          : resolveCallArgumentExpectedType(
+              expr,
+              arg,
+              i,
+              selectedParameterType,
+              currentContext
+            );
+      const runtimeExpectedType =
+        runtimeParameterType === undefined
+          ? undefined
+          : normalizeCallArgumentExpectedType(
+              runtimeParameterType,
+              arg,
+              currentContext
+            );
+      const [rawArgAst, rawArgCtx] = emitExpressionAst(
         arg,
         currentContext,
-        resolveCallArgumentExpectedType(
-          expr,
-          arg,
-          i,
-          getAcceptedParameterType(parameter?.type, !!parameter?.isOptional),
+        selectedExpectedType &&
+          runtimeExpectedType &&
+          !preservesSurfaceRuntimeMaterialization(
+            selectedExpectedType,
+            runtimeExpectedType,
+            currentContext
+          )
+          ? runtimeExpectedType
+          : (selectedExpectedType ?? runtimeExpectedType)
+      );
+      const effectiveExpectedType =
+        selectedExpectedType &&
+        runtimeExpectedType &&
+        !preservesSurfaceRuntimeMaterialization(
+          selectedExpectedType,
+          runtimeExpectedType,
           currentContext
         )
+          ? runtimeExpectedType
+          : (selectedExpectedType ?? runtimeExpectedType);
+      const actualArgumentType =
+        resolveActualFunctionTypeForArgument(arg, rawArgCtx) ??
+        resolveEffectiveExpressionType(arg, rawArgCtx) ??
+        arg.inferredType;
+      const [materializedArgAst, materializedArgCtx] =
+        adaptValueToExpectedTypeAst({
+          valueAst: rawArgAst,
+          actualType: actualArgumentType,
+          context: rawArgCtx,
+          expectedType: effectiveExpectedType,
+        }) ?? [rawArgAst, rawArgCtx];
+      const [argAst, argCtx] = adaptFunctionArgumentAst(
+        expr,
+        arg,
+        i,
+        materializedArgAst,
+        effectiveExpectedType,
+        materializedArgCtx
       );
       const modifier =
         passingMode && passingMode !== "value" && isLValue(arg)
@@ -790,6 +849,39 @@ const shouldPreferZeroArgJsTimerCallback = (
   );
 };
 
+const selectDeterministicUnionParameterMember = (
+  expectedType: IrType | undefined,
+  arg: IrExpression,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!expectedType) {
+    return expectedType;
+  }
+
+  const resolvedExpected = resolveTypeAlias(stripNullish(expectedType), context);
+  if (resolvedExpected.kind !== "unionType") {
+    return expectedType;
+  }
+
+  const actualType =
+    resolveEffectiveExpressionType(arg, context) ?? arg.inferredType;
+  if (!actualType) {
+    return expectedType;
+  }
+
+  const comparableActual = stableIrTypeKey(
+    resolveComparableType(actualType, context)
+  );
+  const matchingMembers = resolvedExpected.types.filter((member) => {
+    const comparableMember = stableIrTypeKey(
+      resolveComparableType(member, context)
+    );
+    return comparableActual === comparableMember;
+  });
+
+  return matchingMembers.length === 1 ? matchingMembers[0] : expectedType;
+};
+
 const resolveCallArgumentExpectedType = (
   expr: Extract<IrExpression, { kind: "call" }>,
   arg: IrExpression,
@@ -876,7 +968,39 @@ const resolveCallArgumentExpectedType = (
     };
   }
 
-  return narrowedExpectedType;
+  return selectDeterministicUnionParameterMember(
+    narrowedExpectedType,
+    arg,
+    context
+  );
+};
+
+const preservesSurfaceRuntimeMaterialization = (
+  surfaceExpectedType: IrType | undefined,
+  runtimeExpectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!surfaceExpectedType || !runtimeExpectedType) {
+    return true;
+  }
+
+  const surfaceHasRuntimeNullish =
+    splitRuntimeNullishUnionMembers(surfaceExpectedType)?.hasRuntimeNullish ??
+    false;
+  const runtimeHasRuntimeNullish =
+    splitRuntimeNullishUnionMembers(runtimeExpectedType)?.hasRuntimeNullish ??
+    false;
+  if (runtimeHasRuntimeNullish && !surfaceHasRuntimeNullish) {
+    return false;
+  }
+
+  const surfaceTarget = stableIrTypeKey(
+    resolveRuntimeMaterializationTargetType(surfaceExpectedType, context)
+  );
+  const runtimeTarget = stableIrTypeKey(
+    resolveRuntimeMaterializationTargetType(runtimeExpectedType, context)
+  );
+  return surfaceTarget === runtimeTarget;
 };
 
 /**
@@ -941,30 +1065,35 @@ const emitCallArguments = (
     );
   }
 
-  const parameterTypes =
+  const selectedParameterTypes =
+    expr.parameterTypes && expr.parameterTypes.length > 0
+      ? expr.parameterTypes
+      : expr.surfaceParameterTypes && expr.surfaceParameterTypes.length > 0
+        ? expr.surfaceParameterTypes
+        : ((
+            functionValueSignature?.parameters ?? valueSymbolSignature?.parameters
+          )?.map((parameter) => parameter?.type) ?? []);
+  const runtimeParameterTypes =
     parameterTypeOverrides && parameterTypeOverrides.length > 0
       ? parameterTypeOverrides
       : expr.surfaceParameterTypes && expr.surfaceParameterTypes.length > 0
         ? expr.surfaceParameterTypes
-        : expr.parameterTypes && expr.parameterTypes.length > 0
-          ? expr.parameterTypes
-          : ((
-              functionValueSignature?.parameters ??
-              valueSymbolSignature?.parameters
-            )?.map((parameter) => parameter?.type) ?? []);
-  const restParameter = expr.surfaceRestParameter ?? expr.restParameter;
+        : selectedParameterTypes;
+  const selectedRestParameter = expr.restParameter ?? expr.surfaceRestParameter;
+  const runtimeRestParameter =
+    expr.surfaceRestParameter ?? expr.restParameter;
   const transparentRestPassthroughExpression =
-    restParameter?.arrayType &&
-    args.length === (restParameter.index ?? 0) + 1
+    runtimeRestParameter?.arrayType &&
+    args.length === (runtimeRestParameter.index ?? 0) + 1
       ? getTransparentRestSpreadPassthroughExpression(
-          args[restParameter.index],
-          restParameter.arrayType,
+          args[runtimeRestParameter.index],
+          runtimeRestParameter.arrayType,
           context
         )
       : undefined;
   const normalizedArgs = transparentRestPassthroughExpression
     ? args.map((arg, index) =>
-        index === restParameter?.index && arg?.kind === "spread"
+        index === runtimeRestParameter?.index && arg?.kind === "spread"
           ? {
               kind: "spread" as const,
               expression: transparentRestPassthroughExpression,
@@ -980,25 +1109,25 @@ const emitCallArguments = (
         readonly elementType: IrType;
       }
     | undefined =
-    restParameter?.arrayType &&
-    restParameter.elementType &&
+    runtimeRestParameter?.arrayType &&
+    runtimeRestParameter.elementType &&
     normalizedArgs
-      .slice(restParameter.index)
+      .slice(runtimeRestParameter.index)
       .some((candidate) => candidate?.kind === "spread")
       ? {
-          index: restParameter.index,
-          arrayType: restParameter.arrayType,
-          elementType: restParameter.elementType,
+          index: runtimeRestParameter.index,
+          arrayType: runtimeRestParameter.arrayType,
+          elementType: runtimeRestParameter.elementType,
         }
       : undefined;
   let currentContext = context;
   const argAsts: CSharpExpressionAst[] = [];
 
-  if (restParameter) {
+  if (runtimeRestParameter) {
     const tupleRestResult = tryEmitTupleRestArguments(
       normalizedArgs,
-      restParameter.index,
-      restParameter.arrayType,
+      runtimeRestParameter.index,
+      runtimeRestParameter.arrayType,
       currentContext
     );
     if (tupleRestResult) {
@@ -1030,45 +1159,56 @@ const emitCallArguments = (
       break;
     }
 
-    const surfaceRestElementType =
-      restParameter && i >= restParameter.index
-        ? restParameter.elementType
+    const selectedRestElementType =
+      selectedRestParameter && i >= selectedRestParameter.index
+        ? selectedRestParameter.elementType
         : undefined;
     const expectedType =
-      surfaceRestElementType ??
+      selectedRestElementType ??
       (restInfo && i >= restInfo.index
         ? restInfo.elementType
         : resolveCallArgumentExpectedType(
             expr,
             arg,
             i,
-            parameterTypes[i],
+            selectedParameterTypes[i],
             currentContext
           ));
 
     const runtimeRestElementType =
-      !parameterTypeOverrides &&
-      expr.restParameter &&
-      i >= expr.restParameter.index
-        ? expr.restParameter.elementType
+      runtimeRestParameter && i >= runtimeRestParameter.index
+        ? runtimeRestParameter.elementType
         : undefined;
     const runtimeParameterType =
-      parameterTypeOverrides && parameterTypeOverrides.length > 0
-        ? parameterTypeOverrides[i]
-        : runtimeRestElementType ?? expr.parameterTypes?.[i];
+      runtimeRestElementType ?? runtimeParameterTypes[i];
+    const prefersSelectedSurfaceOverRuntime =
+      !parameterTypeOverrides &&
+      expectedType !== undefined &&
+      normalizedArgs.length > 0 &&
+      runtimeParameterType !== undefined &&
+      stableIrTypeKey(expectedType) !== stableIrTypeKey(runtimeParameterType);
     const effectiveExpectedType = (() => {
       const normalizedRuntime =
         runtimeParameterType === undefined
           ? undefined
-          : resolveCallArgumentExpectedType(
-              expr,
-              arg,
-              i,
+          : normalizeCallArgumentExpectedType(
               runtimeParameterType,
+              arg,
               currentContext
             );
       if (!normalizedRuntime) {
         return expectedType;
+      }
+
+      if (
+        expectedType &&
+        !preservesSurfaceRuntimeMaterialization(
+          expectedType,
+          normalizedRuntime,
+          currentContext
+        )
+      ) {
+        return normalizedRuntime;
       }
 
       const actualArgumentType =
@@ -1082,6 +1222,9 @@ const emitCallArguments = (
           currentContext
         )
       ) {
+        if (prefersSelectedSurfaceOverRuntime) {
+          return expectedType;
+        }
         return normalizedRuntime;
       }
 
@@ -1142,18 +1285,29 @@ const emitCallArguments = (
           currentContext = discardCtx;
           continue;
         }
-        const [argAst, emittedContext] = emitExpressionAst(
+        const [rawArgAst, emittedContext] = emitExpressionAst(
           arg,
           currentContext,
           effectiveExpectedType
         );
+        const actualArgumentType =
+          resolveActualFunctionTypeForArgument(arg, emittedContext) ??
+          resolveEffectiveExpressionType(arg, emittedContext) ??
+          arg.inferredType;
+        const [materializedArgAst, materializedContext] =
+          adaptValueToExpectedTypeAst({
+            valueAst: rawArgAst,
+            actualType: actualArgumentType,
+            context: emittedContext,
+            expectedType: effectiveExpectedType,
+          }) ?? [rawArgAst, emittedContext];
         const [adaptedArgAst, ctx] = adaptFunctionArgumentAst(
           expr,
           arg,
           i,
-          argAst,
+          materializedArgAst,
           effectiveExpectedType,
-          emittedContext
+          materializedContext
         );
         const modifier =
           passingMode && passingMode !== "value" && isLValue(arg)
