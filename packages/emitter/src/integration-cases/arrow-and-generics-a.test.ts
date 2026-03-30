@@ -1,6 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { compileToCSharp } from "./helpers.js";
+import { compileProjectToCSharp, compileToCSharp } from "./helpers.js";
 
 describe("End-to-End Integration", () => {
   describe("Arrow Field Delegates", () => {
@@ -75,6 +75,240 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(".map(trimValue)");
       expect(csharp).to.not.include("__unused_index");
       expect(csharp).to.not.include("__unused_array");
+    });
+
+    it("keeps source-backed JS array callbacks at the selected overload arity", () => {
+      const source = `
+        type Todo = { id: number; title: string; completed: boolean };
+
+        export function getById(todos: Todo[], id: number): Todo | undefined {
+          return todos.find((t) => t.id === id);
+        }
+
+        export function remove(todos: Todo[], id: number): boolean {
+          const index = todos.findIndex((t) => t.id === id);
+          return index !== -1;
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.include(".find((");
+      expect(csharp).to.include(".findIndex((");
+      expect(csharp).to.not.include("__unused_index");
+      expect(csharp).to.not.include("__unused_array");
+    });
+
+    it("uses the unique CLR runtime overload for ambient global timers", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "src/index.ts": [
+            "export function main(): void {",
+            "  setInterval(() => {}, 1000);",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/js/package.json": JSON.stringify(
+            {
+              name: "@fixture/js",
+              version: "1.0.0",
+              type: "module",
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/js/tsonic.surface.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              id: "@fixture/js",
+              extends: [],
+              requiredTypeRoots: ["."],
+              useStandardLib: false,
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/js/globals.ts": [
+            "declare global {",
+            "  function setInterval(",
+            "    handler: (...args: unknown[]) => void,",
+            "    timeout?: number,",
+            "    ...args: unknown[]",
+            "  ): number;",
+            "}",
+            "",
+            "export {};",
+          ].join("\n"),
+          "node_modules/@fixture/js/bindings.json": JSON.stringify(
+            {
+              bindings: {
+                setInterval: {
+                  kind: "global",
+                  assembly: "Tsonic.JSRuntime",
+                  type: "Tsonic.JSRuntime.Timers",
+                  csharpName: "Timers.setInterval",
+                },
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/js/Tsonic.JSRuntime.d.ts": "export {};\n",
+          "node_modules/@fixture/js/Tsonic.JSRuntime/bindings.json": JSON.stringify(
+            {
+              namespace: "Tsonic.JSRuntime",
+              types: [
+                {
+                  clrName: "Tsonic.JSRuntime.Timers",
+                  assemblyName: "Tsonic.JSRuntime",
+                  methods: [
+                    {
+                      clrName: "setInterval",
+                      normalizedSignature:
+                        "setInterval|(System.Action,System.Double):System.Double|static=true",
+                      parameterCount: 2,
+                      declaringClrType: "Tsonic.JSRuntime.Timers",
+                      declaringAssemblyName: "Tsonic.JSRuntime",
+                      semanticSignature: {
+                        parameters: [
+                          {
+                            kind: "parameter",
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "handler",
+                            },
+                            type: {
+                              kind: "referenceType",
+                              name: "System.Action",
+                              resolvedClrType: "System.Action",
+                            },
+                            isOptional: false,
+                            isRest: false,
+                            passing: "value",
+                          },
+                          {
+                            kind: "parameter",
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "timeout",
+                            },
+                            type: {
+                              kind: "primitiveType",
+                              name: "number",
+                            },
+                            isOptional: false,
+                            isRest: false,
+                            passing: "value",
+                          },
+                        ],
+                        returnType: {
+                          kind: "primitiveType",
+                          name: "number",
+                        },
+                      },
+                    },
+                    {
+                      clrName: "setInterval",
+                      normalizedSignature:
+                        "setInterval|(System.Action_1,System.Double,System.Object):System.Double|static=true",
+                      parameterCount: 3,
+                      declaringClrType: "Tsonic.JSRuntime.Timers",
+                      declaringAssemblyName: "Tsonic.JSRuntime",
+                      semanticSignature: {
+                        typeParameters: ["T0"],
+                        parameters: [
+                          {
+                            kind: "parameter",
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "handler",
+                            },
+                            type: {
+                              kind: "referenceType",
+                              name: "Action_1",
+                              resolvedClrType: "System.Action`1",
+                              typeArguments: [
+                                {
+                                  kind: "typeParameterType",
+                                  name: "T0",
+                                },
+                              ],
+                            },
+                            isOptional: false,
+                            isRest: false,
+                            passing: "value",
+                          },
+                          {
+                            kind: "parameter",
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "timeout",
+                            },
+                            type: {
+                              kind: "primitiveType",
+                              name: "number",
+                            },
+                            isOptional: false,
+                            isRest: false,
+                            passing: "value",
+                          },
+                          {
+                            kind: "parameter",
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "arg0",
+                            },
+                            type: {
+                              kind: "typeParameterType",
+                              name: "T0",
+                            },
+                            isOptional: false,
+                            isRest: false,
+                            passing: "value",
+                          },
+                        ],
+                        returnType: {
+                          kind: "primitiveType",
+                          name: "number",
+                        },
+                      },
+                    },
+                  ],
+                  properties: [],
+                  fields: [],
+                },
+              ],
+            },
+            null,
+            2
+          ),
+        },
+        "src/index.ts",
+        {
+          surface: "@fixture/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "global::Tsonic.JSRuntime.Timers.setInterval(() =>"
+      );
+      expect(csharp).to.not.include("__unused_args");
+    });
+
+    it("prefers the resolved runtime callback surface for imported global timers", () => {
+      const source = `
+        export function main(): void {
+          setInterval(() => {}, 1000);
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/nodejs",
+      });
+
+      expect(csharp).to.include(".setInterval(() =>");
+      expect(csharp).to.not.include("__unused_args");
     });
 
     it("keeps explicit lambda parameters at the selected overload arity", () => {

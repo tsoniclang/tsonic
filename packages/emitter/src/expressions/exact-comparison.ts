@@ -16,6 +16,7 @@ import {
 import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import {
+  extractCalleeNameFromAst,
   sameTypeAstSurface,
   stripNullableTypeAst,
 } from "../core/format/backend-ast/utils.js";
@@ -246,8 +247,7 @@ export const isExactArrayCreationToType = (
   }
 
   if (
-    ast.expression.kind !== "identifierExpression" ||
-    ast.expression.identifier !== "global::System.Array.Empty" ||
+    extractCalleeNameFromAst(ast.expression) !== "global::System.Array.Empty" ||
     ast.typeArguments?.length !== 1
   ) {
     return false;

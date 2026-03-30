@@ -286,6 +286,8 @@ describe("build command (native library port regressions)", function () {
       expect(tree).to.include(
         "global::js.timers.setInterval((object?[] __unused_args) =>"
       );
+      expect(tree).to.not.include("__unused_index");
+      expect(tree).to.not.include("__unused_array");
       expect(tree).to.not.include("global::js.Timers.setInterval");
       expect(tree).to.not.include("todos.Find(");
       expect(tree).to.not.include("todos.FindIndex(");

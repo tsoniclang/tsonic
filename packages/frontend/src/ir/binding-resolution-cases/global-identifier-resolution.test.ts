@@ -10,6 +10,11 @@ import {
   BindingRegistry,
 } from "./helpers.js";
 import type { IrIdentifierExpression } from "./helpers.js";
+import {
+  runAnonymousTypeLoweringPass,
+  runCallResolutionRefreshPass,
+  runNumericProofPass,
+} from "../validation/index.js";
 
 describe("Binding Resolution in IR", () => {
   describe("Global Identifier Resolution", () => {
@@ -851,6 +856,239 @@ describe("Binding Resolution in IR", () => {
       expect(calleeExpr.csharpName).to.equal("Timers.setInterval");
       expect(calleeExpr.resolvedClrType).to.equal("js.Timers");
       expect(calleeExpr.resolvedAssembly).to.equal("js");
+    });
+
+    it("uses the unique CLR runtime overload for global bindings while preserving the ambient surface", () => {
+      const source = `
+        declare function setInterval(
+          handler: (...args: unknown[]) => void,
+          timeout?: number,
+          ...args: unknown[]
+        ): number;
+
+        export function test() {
+          setInterval(() => {}, 1000);
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/runtime.json", {
+        bindings: {
+          setInterval: {
+            kind: "global",
+            assembly: "Tsonic.JSRuntime",
+            type: "Tsonic.JSRuntime.Timers",
+            csharpName: "Timers.setInterval",
+          },
+        },
+      });
+      bindings.addBindings("/test/Tsonic.JSRuntime/bindings.json", {
+        namespace: "Tsonic.JSRuntime",
+        types: [
+          {
+            clrName: "Tsonic.JSRuntime.Timers",
+            assemblyName: "Tsonic.JSRuntime",
+            methods: [
+              {
+                clrName: "setInterval",
+                normalizedSignature:
+                  "setInterval|(System.Action,System.Double):System.Double|static=true",
+                parameterCount: 2,
+                declaringClrType: "Tsonic.JSRuntime.Timers",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+                semanticSignature: {
+                  parameters: [
+                    {
+                      kind: "parameter",
+                      pattern: {
+                        kind: "identifierPattern",
+                        name: "handler",
+                      },
+                      type: {
+                        kind: "referenceType",
+                        name: "System.Action",
+                        resolvedClrType: "System.Action",
+                      },
+                      isOptional: false,
+                      isRest: false,
+                      passing: "value",
+                    },
+                    {
+                      kind: "parameter",
+                      pattern: {
+                        kind: "identifierPattern",
+                        name: "timeout",
+                      },
+                      type: {
+                        kind: "primitiveType",
+                        name: "number",
+                      },
+                      isOptional: false,
+                      isRest: false,
+                      passing: "value",
+                    },
+                  ],
+                  returnType: {
+                    kind: "primitiveType",
+                    name: "number",
+                  },
+                },
+              },
+              {
+                clrName: "setInterval",
+                normalizedSignature:
+                  "setInterval|(System.Action_1,System.Double,System.Object):System.Double|static=true",
+                parameterCount: 3,
+                declaringClrType: "Tsonic.JSRuntime.Timers",
+                declaringAssemblyName: "Tsonic.JSRuntime",
+                semanticSignature: {
+                  typeParameters: ["T0"],
+                  parameters: [
+                    {
+                      kind: "parameter",
+                      pattern: {
+                        kind: "identifierPattern",
+                        name: "handler",
+                      },
+                      type: {
+                        kind: "referenceType",
+                        name: "Action_1",
+                        resolvedClrType: "System.Action`1",
+                        typeArguments: [
+                          {
+                            kind: "typeParameterType",
+                            name: "T0",
+                          },
+                        ],
+                      },
+                      isOptional: false,
+                      isRest: false,
+                      passing: "value",
+                    },
+                    {
+                      kind: "parameter",
+                      pattern: {
+                        kind: "identifierPattern",
+                        name: "timeout",
+                      },
+                      type: {
+                        kind: "primitiveType",
+                        name: "number",
+                      },
+                      isOptional: false,
+                      isRest: false,
+                      passing: "value",
+                    },
+                    {
+                      kind: "parameter",
+                      pattern: {
+                        kind: "identifierPattern",
+                        name: "arg0",
+                      },
+                      type: {
+                        kind: "typeParameterType",
+                        name: "T0",
+                      },
+                      isOptional: false,
+                      isRest: false,
+                      passing: "value",
+                    },
+                  ],
+                  returnType: {
+                    kind: "primitiveType",
+                    name: "number",
+                  },
+                },
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      expect(funcDecl?.kind).to.equal("functionDeclaration");
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements[0];
+      expect(exprStmt?.kind).to.equal("expressionStatement");
+      if (exprStmt?.kind !== "expressionStatement") return;
+
+      const callExpr = exprStmt.expression;
+      expect(callExpr.kind).to.equal("call");
+      if (callExpr.kind !== "call") return;
+
+      const runtimeHandlerType = callExpr.parameterTypes?.[0];
+      expect(runtimeHandlerType?.kind).to.equal("referenceType");
+      if (runtimeHandlerType?.kind === "referenceType") {
+        expect(runtimeHandlerType.resolvedClrType).to.equal("System.Action");
+      }
+
+      const surfaceHandlerType = callExpr.surfaceParameterTypes?.[0];
+      expect(surfaceHandlerType?.kind).to.equal("functionType");
+      if (surfaceHandlerType?.kind === "functionType") {
+        expect(surfaceHandlerType.parameters).to.have.length(1);
+        expect(surfaceHandlerType.parameters[0]?.isRest).to.equal(true);
+      }
+
+      const runtimeHandler = callExpr.arguments[0];
+      expect(runtimeHandler?.kind).to.equal("arrowFunction");
+      if (runtimeHandler?.kind === "arrowFunction") {
+        expect(runtimeHandler.inferredType?.kind).to.equal("functionType");
+        if (runtimeHandler.inferredType?.kind === "functionType") {
+          expect(runtimeHandler.inferredType.parameters).to.have.length(0);
+        }
+      }
+
+      const lowered = runAnonymousTypeLoweringPass([module]).modules;
+      const proofResult = runNumericProofPass(lowered);
+      expect(proofResult.ok).to.equal(true);
+      if (!proofResult.ok) return;
+
+      const refreshed = runCallResolutionRefreshPass(
+        proofResult.modules,
+        ctx
+      ).modules[0];
+      const refreshedFuncDecl = refreshed?.body[0];
+      expect(refreshedFuncDecl?.kind).to.equal("functionDeclaration");
+      if (refreshedFuncDecl?.kind !== "functionDeclaration") return;
+
+      const refreshedExprStmt = refreshedFuncDecl.body.statements[0];
+      expect(refreshedExprStmt?.kind).to.equal("expressionStatement");
+      if (refreshedExprStmt?.kind !== "expressionStatement") return;
+
+      const refreshedCallExpr = refreshedExprStmt.expression;
+      expect(refreshedCallExpr.kind).to.equal("call");
+      if (refreshedCallExpr.kind !== "call") return;
+
+      const refreshedRuntimeHandlerType = refreshedCallExpr.parameterTypes?.[0];
+      expect(refreshedRuntimeHandlerType?.kind).to.equal("referenceType");
+      if (refreshedRuntimeHandlerType?.kind === "referenceType") {
+        expect(refreshedRuntimeHandlerType.resolvedClrType).to.equal(
+          "System.Action"
+        );
+      }
+
+      const refreshedSurfaceHandlerType =
+        refreshedCallExpr.surfaceParameterTypes?.[0];
+      expect(refreshedSurfaceHandlerType?.kind).to.equal("functionType");
+      if (refreshedSurfaceHandlerType?.kind === "functionType") {
+        expect(refreshedSurfaceHandlerType.parameters).to.have.length(1);
+        expect(refreshedSurfaceHandlerType.parameters[0]?.isRest).to.equal(
+          true
+        );
+      }
     });
 
     it("prefers typed object overloads over erased unknown overloads for object literals", () => {

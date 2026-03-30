@@ -69,6 +69,16 @@ const normalizeExpectedFunctionType = (
   return candidates[0];
 };
 
+const shouldUseExpectedReturnType = (
+  expectedReturnType: IrType | undefined,
+  typeSystem: ProgramContext["typeSystem"]
+): boolean =>
+  expectedReturnType !== undefined &&
+  expectedReturnType.kind !== "typeParameterType" &&
+  expectedReturnType.kind !== "unknownType" &&
+  expectedReturnType.kind !== "anyType" &&
+  !typeSystem.containsTypeParameter(expectedReturnType);
+
 const getContextualRestElementType = (
   type: IrType | undefined,
   offset: number
@@ -250,6 +260,10 @@ export const convertFunctionExpression = (
     ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
     : undefined;
   const expectedReturnType = expectedFnType?.returnType;
+  const useExpectedReturnType = shouldUseExpectedReturnType(
+    expectedReturnType,
+    typeSystem
+  );
 
   // DETERMINISTIC: Pass expectedType for parameter type inference
   const parameters = convertLambdaParameters(
@@ -275,7 +289,8 @@ export const convertFunctionExpression = (
     return { ...ctx, typeEnv: env };
   })();
 
-  const returnType = declaredReturnType ?? expectedReturnType;
+  const returnType =
+    declaredReturnType ?? (useExpectedReturnType ? expectedReturnType : undefined);
   const inferredReturnType = returnType ?? ({ kind: "unknownType" } as const);
 
   // DETERMINISTIC: Build function type from declared parameters and return type
@@ -324,15 +339,14 @@ export const convertArrowFunction = (
     : undefined;
   // DETERMINISTIC: Use expectedType's return type if no explicit annotation
   const expectedReturnType = expectedFnType?.returnType;
-
-  const shouldUseExpectedReturnType =
-    expectedReturnType !== undefined &&
-    expectedReturnType.kind !== "typeParameterType" &&
-    !typeSystem.containsTypeParameter(expectedReturnType);
+  const useExpectedReturnType = shouldUseExpectedReturnType(
+    expectedReturnType,
+    typeSystem
+  );
 
   const contextualReturnType =
     declaredReturnType ??
-    (shouldUseExpectedReturnType ? expectedReturnType : undefined);
+    (useExpectedReturnType ? expectedReturnType : undefined);
 
   // DETERMINISTIC: Pass expectedType for parameter type inference
   const parameters = convertLambdaParameters(
@@ -371,7 +385,7 @@ export const convertArrowFunction = (
 
   const returnType =
     declaredReturnType ??
-    (shouldUseExpectedReturnType
+    (useExpectedReturnType
       ? expectedReturnType
       : !ts.isBlock(node.body)
         ? ((body as ReturnType<typeof convertExpression>).inferredType ??

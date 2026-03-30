@@ -11,6 +11,7 @@ import { scoreSignatureMatch } from "./call-resolution-scoring.js";
 import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 import {
   containsMethodTypeParameter,
+  delegateToFunctionType,
   expandParameterTypesForArguments,
 } from "./call-resolution-utilities.js";
 
@@ -20,6 +21,7 @@ type CandidateSelection = {
 };
 
 type CandidateScore = readonly [
+  number,
   number,
   number,
   number,
@@ -400,6 +402,49 @@ const countBroadNumberIndependentCompatibleArguments = (
   return compatible;
 };
 
+const countExactFunctionArityMatches = (
+  state: TypeSystemState,
+  resolved: ResolvedCall,
+  argTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): number => {
+  let exactMatches = 0;
+  const pairCount = Math.min(
+    argumentCount,
+    resolved.parameterTypes.length,
+    argTypes.length
+  );
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const parameterType = resolved.parameterTypes[index];
+    const argumentType = argTypes[index];
+    if (!parameterType || !argumentType) {
+      continue;
+    }
+
+    const parameterFunctionType =
+      parameterType.kind === "functionType"
+        ? parameterType
+        : delegateToFunctionType(state, parameterType);
+    const argumentFunctionType =
+      argumentType.kind === "functionType"
+        ? argumentType
+        : delegateToFunctionType(state, argumentType);
+    if (!parameterFunctionType || !argumentFunctionType) {
+      continue;
+    }
+
+    if (
+      parameterFunctionType.parameters.length ===
+      argumentFunctionType.parameters.length
+    ) {
+      exactMatches += 1;
+    }
+  }
+
+  return exactMatches;
+};
+
 const buildCandidateScore = (
   state: TypeSystemState,
   sigId: SignatureId,
@@ -442,6 +487,17 @@ const buildCandidateScore = (
         argumentCount
       )
     : 0;
+  const exactFunctionArityMatches = argTypes
+    ? countExactFunctionArityMatches(
+        state,
+        {
+          ...resolved,
+          parameterTypes: participatingParameterTypes,
+        },
+        participatingArgTypes ?? [],
+        argumentCount
+      )
+    : 0;
   const concreteSurfaceExactness = scoreConcreteSurfaceExactness(
     state,
     sigId,
@@ -464,6 +520,7 @@ const buildCandidateScore = (
   return [
     broadNumberIndependentCompatibleArgumentCount,
     compatibleArgumentCount,
+    exactFunctionArityMatches,
     exactArityNonRest,
     concreteSurfaceExactness,
     surfaceSpecificityScore,

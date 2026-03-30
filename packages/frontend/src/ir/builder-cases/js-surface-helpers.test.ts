@@ -10,6 +10,11 @@ import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
 import { IrFunctionDeclaration, IrVariableDeclaration } from "../types.js";
 import {
+  runAnonymousTypeLoweringPass,
+  runCallResolutionRefreshPass,
+  runNumericProofPass,
+} from "../validation/index.js";
+import {
   createFilesystemTestProgram,
   createProgram,
   createProgramContext,
@@ -1138,6 +1143,485 @@ describe("IR Builder", function () {
       }
     });
 
+    it("uses lambda arity to select source-backed array callback overloads", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-js-array-callback-arity-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+        writeFixtureJsSurface(
+          tempDir,
+          {
+            "./Array.js": "./src/Array.ts",
+          },
+          {
+            "src/Array.ts": [
+              'import type { int } from "@tsonic/core/types.js";',
+              "export class Array<T> {",
+              "  public constructor() {}",
+              "  public find(callback: (value: T) => boolean): T | undefined;",
+              "  public find(callback: (value: T, index: int) => boolean): T | undefined;",
+              "  public find(callback: (value: T, index: int, array: readonly T[]) => boolean): T | undefined;",
+              "  public find(callback: (value: T, index?: int, array?: readonly T[]) => boolean): T | undefined {",
+              "    void callback;",
+              "    return undefined;",
+              "  }",
+              "  public findIndex(callback: (value: T) => boolean): int;",
+              "  public findIndex(callback: (value: T, index: int) => boolean): int;",
+              "  public findIndex(callback: (value: T, index: int, array: readonly T[]) => boolean): int;",
+              "  public findIndex(callback: (value: T, index?: int, array?: readonly T[]) => boolean): int {",
+              "    void callback;",
+              "    return 0 as int;",
+              "  }",
+              "}",
+            ].join("\n"),
+          },
+          [
+            "declare global {",
+            '  interface Array<T> extends import("./src/Array.js").Array<T> {}',
+            '  const Array: typeof import("./src/Array.js").Array;',
+            "}",
+            "",
+            "export {};",
+            "",
+          ].join("\n")
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "type Todo = { id: number; title: string };",
+            "",
+            "export function main(id: number): number {",
+            "  const todos = new Array<Todo>();",
+            "  const todo = todos.find((t) => t.id === id);",
+            "  const index = todos.findIndex((t) => t.id === id);",
+            "  void todo;",
+            "  return index;",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@fixture/js",
+          useStandardLib: false,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const fn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const findDecl = fn.body.statements[1];
+        expect(findDecl?.kind).to.equal("variableDeclaration");
+        if (!findDecl || findDecl.kind !== "variableDeclaration") return;
+        const findCall = findDecl.declarations[0]?.initializer;
+        expect(findCall?.kind).to.equal("call");
+        if (!findCall || findCall.kind !== "call") return;
+
+        const findIndexDecl = fn.body.statements[2];
+        expect(findIndexDecl?.kind).to.equal("variableDeclaration");
+        if (!findIndexDecl || findIndexDecl.kind !== "variableDeclaration") return;
+        const findIndexCall = findIndexDecl.declarations[0]?.initializer;
+        expect(findIndexCall?.kind).to.equal("call");
+        if (!findIndexCall || findIndexCall.kind !== "call") return;
+
+        const findRuntimeCallback = findCall.parameterTypes?.[0];
+        const findSurfaceCallback = findCall.surfaceParameterTypes?.[0];
+        const findIndexRuntimeCallback = findIndexCall.parameterTypes?.[0];
+        const findIndexSurfaceCallback = findIndexCall.surfaceParameterTypes?.[0];
+
+        expect(findRuntimeCallback?.kind).to.equal("functionType");
+        expect(findSurfaceCallback?.kind).to.equal("functionType");
+        expect(findIndexRuntimeCallback?.kind).to.equal("functionType");
+        expect(findIndexSurfaceCallback?.kind).to.equal("functionType");
+
+        if (findRuntimeCallback?.kind === "functionType") {
+          expect(findRuntimeCallback.parameters).to.have.length(1);
+        }
+        if (findSurfaceCallback?.kind === "functionType") {
+          expect(findSurfaceCallback.parameters).to.have.length(1);
+        }
+        if (findIndexRuntimeCallback?.kind === "functionType") {
+          expect(findIndexRuntimeCallback.parameters).to.have.length(1);
+        }
+        if (findIndexSurfaceCallback?.kind === "functionType") {
+          expect(findIndexSurfaceCallback.parameters).to.have.length(1);
+        }
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("infers source-backed array callback returns from expression-bodied lambdas", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-js-array-map-return-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+        const workspaceNodeModules = path.resolve(
+          process.cwd(),
+          "..",
+          "..",
+          "node_modules"
+        );
+        if (fs.existsSync(workspaceNodeModules)) {
+          fs.symlinkSync(
+            workspaceNodeModules,
+            path.join(tempDir, "node_modules"),
+            "dir"
+          );
+        }
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "declare const entries: string[];",
+            "export const values = entries",
+            "  .map((entry) => entry)",
+            "  .filter((value) => value.length > 0);",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const proofResult = runNumericProofPass(lowered);
+        expect(proofResult.ok).to.equal(true);
+        if (!proofResult.ok) return;
+
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          ctx
+        ).modules[0];
+        const valuesDecl = refreshed?.body.find(
+          (statement): statement is IrVariableDeclaration =>
+            statement.kind === "variableDeclaration"
+        );
+        expect(valuesDecl?.kind).to.equal("variableDeclaration");
+        if (!valuesDecl || valuesDecl.kind !== "variableDeclaration") return;
+
+        const filterCall = valuesDecl.declarations[0]?.initializer;
+        expect(filterCall?.kind).to.equal("call");
+        if (!filterCall || filterCall.kind !== "call") return;
+
+        const mapCall =
+          filterCall.callee.kind === "memberAccess"
+            ? filterCall.callee.object
+            : undefined;
+        expect(mapCall?.kind).to.equal("call");
+        if (!mapCall || mapCall.kind !== "call") return;
+
+        const mapCallback = mapCall.arguments[0];
+        expect(mapCallback?.kind).to.equal("arrowFunction");
+        if (!mapCallback || mapCallback.kind !== "arrowFunction") return;
+
+        expect(mapCallback.inferredType?.kind).to.equal("functionType");
+        if (mapCallback.inferredType?.kind === "functionType") {
+          expect(mapCallback.inferredType.returnType).to.deep.equal({
+            kind: "primitiveType",
+            name: "string",
+          });
+        }
+
+        expect(mapCall.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: {
+            kind: "primitiveType",
+            name: "string",
+          },
+          origin: "explicit",
+        });
+
+        const filterCallback = filterCall.parameterTypes?.[0];
+        expect(filterCallback?.kind).to.equal("functionType");
+        if (filterCallback?.kind === "functionType") {
+          expect(filterCallback.parameters[0]?.type).to.deep.equal({
+            kind: "primitiveType",
+            name: "string",
+          });
+        }
+
+        expect(filterCall.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: {
+            kind: "primitiveType",
+            name: "string",
+          },
+          origin: "explicit",
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("threads expected tuple returns into source-backed array map callbacks", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-js-array-map-tuple-return-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            { name: "app", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+        const workspaceNodeModules = path.resolve(
+          process.cwd(),
+          "..",
+          "..",
+          "node_modules"
+        );
+        if (fs.existsSync(workspaceNodeModules)) {
+          fs.symlinkSync(
+            workspaceNodeModules,
+            path.join(tempDir, "node_modules"),
+            "dir"
+          );
+        }
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "type Entry = { readonly name: string; readonly value: string };",
+            "declare const params: Entry[];",
+            "export const entries = (): Array<[string, string]> =>",
+            "  params.map((param) => [param.name, param.value]);",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const proofResult = runNumericProofPass(lowered);
+        expect(proofResult.ok).to.equal(true);
+        if (!proofResult.ok) return;
+
+        const refreshed = runCallResolutionRefreshPass(
+          proofResult.modules,
+          ctx
+        ).modules[0];
+        const entriesDecl = refreshed?.body.find(
+          (statement): statement is IrVariableDeclaration =>
+            statement.kind === "variableDeclaration"
+        );
+        expect(entriesDecl?.kind).to.equal("variableDeclaration");
+        if (!entriesDecl || entriesDecl.kind !== "variableDeclaration") return;
+
+        const entriesFn = entriesDecl.declarations[0]?.initializer;
+        expect(entriesFn?.kind).to.equal("arrowFunction");
+        if (!entriesFn || entriesFn.kind !== "arrowFunction") return;
+
+        const mapCall = entriesFn.body;
+        expect(mapCall?.kind).to.equal("call");
+        if (!mapCall || mapCall.kind !== "call") return;
+
+        expect(mapCall.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: {
+            kind: "tupleType",
+            elementTypes: [
+              {
+                kind: "primitiveType",
+                name: "string",
+              },
+              {
+                kind: "primitiveType",
+                name: "string",
+              },
+            ],
+          },
+          origin: "explicit",
+        });
+
+        const callbackType = mapCall.parameterTypes?.[0];
+        expect(callbackType?.kind).to.equal("functionType");
+        if (callbackType?.kind === "functionType") {
+          expect(callbackType.returnType).to.deep.equal({
+            kind: "tupleType",
+            elementTypes: [
+              {
+                kind: "primitiveType",
+                name: "string",
+              },
+              {
+                kind: "primitiveType",
+                name: "string",
+              },
+            ],
+          });
+        }
+
+        const mapCallback = mapCall.arguments[0];
+        expect(mapCallback?.kind).to.equal("arrowFunction");
+        if (!mapCallback || mapCallback.kind !== "arrowFunction") return;
+
+        expect(mapCallback.inferredType?.kind).to.equal("functionType");
+        if (mapCallback.inferredType?.kind === "functionType") {
+          expect(mapCallback.inferredType.returnType).to.deep.equal({
+            kind: "tupleType",
+            elementTypes: [
+              {
+                kind: "primitiveType",
+                name: "string",
+              },
+              {
+                kind: "primitiveType",
+                name: "string",
+              },
+            ],
+          });
+        }
+
+        expect(mapCallback.body.kind).to.not.equal("blockStatement");
+        if (mapCallback.body.kind !== "blockStatement") {
+          expect(mapCallback.body.inferredType).to.deep.equal({
+            kind: "tupleType",
+            elementTypes: [
+              {
+                kind: "primitiveType",
+                name: "string",
+              },
+              {
+                kind: "primitiveType",
+                name: "string",
+              },
+            ],
+          });
+        }
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
     it("threads generic surface root global bindings into identifier callees", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tsonic-builder-generic-surface-globals-")
@@ -1196,17 +1680,118 @@ describe("IR Builder", function () {
                 },
                 setInterval: {
                   kind: "global",
-                  assembly: "js",
-                  type: "js.Timers",
+                  assembly: "Tsonic.JSRuntime",
+                  type: "Tsonic.JSRuntime.Timers",
                   csharpName: "Timers.setInterval",
                 },
                 clearInterval: {
                   kind: "global",
-                  assembly: "js",
-                  type: "js.Timers",
+                  assembly: "Tsonic.JSRuntime",
+                  type: "Tsonic.JSRuntime.Timers",
                   csharpName: "Timers.clearInterval",
                 },
               },
+            },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(
+          path.join(surfaceRoot, "Tsonic.JSRuntime.d.ts"),
+          "export {};\n"
+        );
+        fs.mkdirSync(path.join(surfaceRoot, "Tsonic.JSRuntime"), {
+          recursive: true,
+        });
+        fs.writeFileSync(
+          path.join(surfaceRoot, "Tsonic.JSRuntime", "bindings.json"),
+          JSON.stringify(
+            {
+              namespace: "Tsonic.JSRuntime",
+              types: [
+                {
+                  clrName: "Tsonic.JSRuntime.Timers",
+                  assemblyName: "Tsonic.JSRuntime",
+                  methods: [
+                    {
+                      clrName: "setInterval",
+                      normalizedSignature:
+                        "setInterval|(System.Action,System.Double):System.Double|static=true",
+                      parameterCount: 2,
+                      declaringClrType: "Tsonic.JSRuntime.Timers",
+                      declaringAssemblyName: "Tsonic.JSRuntime",
+                      semanticSignature: {
+                        parameters: [
+                          {
+                            kind: "parameter",
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "handler",
+                            },
+                            type: {
+                              kind: "referenceType",
+                              name: "System.Action",
+                              resolvedClrType: "System.Action",
+                            },
+                            isOptional: false,
+                            isRest: false,
+                            passing: "value",
+                          },
+                          {
+                            kind: "parameter",
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "timeout",
+                            },
+                            type: {
+                              kind: "primitiveType",
+                              name: "number",
+                            },
+                            isOptional: false,
+                            isRest: false,
+                            passing: "value",
+                          },
+                        ],
+                        returnType: {
+                          kind: "primitiveType",
+                          name: "number",
+                        },
+                      },
+                    },
+                    {
+                      clrName: "clearInterval",
+                      normalizedSignature:
+                        "clearInterval|(System.Double):System.Void|static=true",
+                      parameterCount: 1,
+                      declaringClrType: "Tsonic.JSRuntime.Timers",
+                      declaringAssemblyName: "Tsonic.JSRuntime",
+                      semanticSignature: {
+                        parameters: [
+                          {
+                            kind: "parameter",
+                            pattern: {
+                              kind: "identifierPattern",
+                              name: "id",
+                            },
+                            type: {
+                              kind: "primitiveType",
+                              name: "number",
+                            },
+                            isOptional: false,
+                            isRest: false,
+                            passing: "value",
+                          },
+                        ],
+                        returnType: {
+                          kind: "voidType",
+                        },
+                      },
+                    },
+                  ],
+                  properties: [],
+                  fields: [],
+                },
+              ],
             },
             null,
             2
@@ -1295,14 +1880,38 @@ describe("IR Builder", function () {
 
         expect(setIntervalCall.callee.name).to.equal("setInterval");
         expect(setIntervalCall.callee.resolvedClrType).to.equal(
-          "js.Timers"
+          "Tsonic.JSRuntime.Timers"
         );
         expect(setIntervalCall.callee.resolvedAssembly).to.equal(
-          "js"
+          "Tsonic.JSRuntime"
         );
         expect(setIntervalCall.callee.csharpName).to.equal(
           "Timers.setInterval"
         );
+        expect(setIntervalCall.parameterTypes).to.deep.equal([
+          {
+            kind: "referenceType",
+            name: "System.Action",
+            resolvedClrType: "System.Action",
+          },
+          {
+            kind: "primitiveType",
+            name: "number",
+          },
+        ]);
+        expect(setIntervalCall.surfaceParameterTypes).to.deep.equal([
+          {
+            kind: "referenceType",
+            name: "System.Action",
+            resolvedClrType: "System.Action",
+          },
+          {
+            kind: "primitiveType",
+            name: "number",
+          },
+        ]);
+        expect(setIntervalCall.restParameter).to.equal(undefined);
+        expect(setIntervalCall.surfaceRestParameter).to.equal(undefined);
 
         const clearIntervalStmt = fn.body.statements[1];
         expect(clearIntervalStmt?.kind).to.equal("expressionStatement");
@@ -1510,6 +2119,225 @@ describe("IR Builder", function () {
           "fixture.js.console.console"
         );
         expect(logCallee.object.resolvedAssembly).to.equal("fixture.js");
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("uses source-backed runtime parameter surfaces for ambient globals from dependent source packages", () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tsonic-builder-dependent-source-globals-")
+      );
+
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          JSON.stringify(
+            {
+              name: "app",
+              version: "1.0.0",
+              type: "module",
+              devDependencies: {
+                "@fixture/nodejs": "1.0.0",
+              },
+            },
+            null,
+            2
+          )
+        );
+
+        const srcDir = path.join(tempDir, "src");
+        fs.mkdirSync(srcDir, { recursive: true });
+
+        const jsSurfaceRoot = path.join(tempDir, "node_modules/@fixture/js");
+        fs.mkdirSync(jsSurfaceRoot, { recursive: true });
+        fs.writeFileSync(
+          path.join(jsSurfaceRoot, "package.json"),
+          JSON.stringify(
+            { name: "@fixture/js", version: "1.0.0", type: "module" },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(path.join(jsSurfaceRoot, "index.js"), "export {};\n");
+        fs.writeFileSync(
+          path.join(jsSurfaceRoot, "index.d.ts"),
+          [
+            "declare global {",
+            "  function setInterval(",
+            "    handler: (...args: unknown[]) => void,",
+            "    timeout?: number,",
+            "    ...args: unknown[]",
+            "  ): number;",
+            "}",
+            "",
+            "export {};",
+            "",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(jsSurfaceRoot, "tsonic.surface.json"),
+          JSON.stringify(
+            {
+              schemaVersion: 1,
+              id: "@fixture/js",
+              extends: [],
+              requiredTypeRoots: ["."],
+              useStandardLib: false,
+            },
+            null,
+            2
+          )
+        );
+
+        const nodejsRoot = path.join(tempDir, "node_modules/@fixture/nodejs");
+        fs.mkdirSync(path.join(nodejsRoot, "src"), { recursive: true });
+        fs.writeFileSync(
+          path.join(nodejsRoot, "package.json"),
+          JSON.stringify(
+            {
+              name: "@fixture/nodejs",
+              version: "1.0.0",
+              type: "module",
+              dependencies: {
+                "@fixture/js": "1.0.0",
+              },
+            },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(
+          path.join(nodejsRoot, "tsonic.package.json"),
+          JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@fixture/js"],
+              source: {
+                namespace: "fixture.nodejs",
+                ambient: ["./globals.ts"],
+                exports: {
+                  "./timers.js": "./src/timers-module.ts",
+                },
+              },
+            },
+            null,
+            2
+          )
+        );
+        fs.writeFileSync(
+          path.join(nodejsRoot, "globals.ts"),
+          [
+            "declare global {",
+            "  function setInterval(",
+            "    handler: (...args: unknown[]) => void,",
+            "    timeout?: number,",
+            "    ...args: unknown[]",
+            "  ): number;",
+            "}",
+            "",
+            "export {};",
+            "",
+          ].join("\n")
+        );
+        fs.writeFileSync(
+          path.join(nodejsRoot, "src/timers-module.ts"),
+          [
+            "export const setInterval = (callback: () => void, delay: number = 0): number => {",
+            "  void callback;",
+            "  return delay;",
+            "};",
+          ].join("\n")
+        );
+
+        const entryPath = path.join(srcDir, "index.ts");
+        fs.writeFileSync(
+          entryPath,
+          [
+            "export function main(): void {",
+            "  setInterval(() => {}, 1000);",
+            "}",
+          ].join("\n")
+        );
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+          surface: "@fixture/js",
+          useStandardLib: false,
+        });
+
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const fn = moduleResult.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "main"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const exprStmt = fn.body.statements[0];
+        expect(exprStmt?.kind).to.equal("expressionStatement");
+        if (!exprStmt || exprStmt.kind !== "expressionStatement") return;
+
+        const callExpr = exprStmt.expression;
+        expect(callExpr.kind).to.equal("call");
+        if (callExpr.kind !== "call") return;
+
+        expect(callExpr.callee.kind).to.equal("identifier");
+        if (callExpr.callee.kind !== "identifier") return;
+
+        expect(callExpr.callee.resolvedClrType).to.equal(
+          "fixture.nodejs.TimersModule.setInterval"
+        );
+        expect(callExpr.callee.resolvedAssembly).to.equal("fixture.nodejs");
+
+        expect(callExpr.parameterTypes?.[0]).to.deep.equal({
+          kind: "functionType",
+          parameters: [],
+          returnType: {
+            kind: "voidType",
+          },
+        });
+        expect(callExpr.parameterTypes?.[1]).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+        expect(callExpr.surfaceParameterTypes?.[0]).to.deep.equal({
+          kind: "functionType",
+          parameters: [],
+          returnType: {
+            kind: "voidType",
+          },
+        });
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }

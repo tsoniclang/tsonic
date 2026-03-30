@@ -674,20 +674,7 @@ const emitFunctionValueCallArguments = (
               arg,
               currentContext
             );
-      const [rawArgAst, rawArgCtx] = emitExpressionAst(
-        arg,
-        currentContext,
-        selectedExpectedType &&
-          runtimeExpectedType &&
-          !preservesSurfaceRuntimeMaterialization(
-            selectedExpectedType,
-            runtimeExpectedType,
-            currentContext
-          )
-          ? runtimeExpectedType
-          : (selectedExpectedType ?? runtimeExpectedType)
-      );
-      const effectiveExpectedType =
+      const contextualExpectedType =
         selectedExpectedType &&
         runtimeExpectedType &&
         !preservesSurfaceRuntimeMaterialization(
@@ -697,6 +684,12 @@ const emitFunctionValueCallArguments = (
         )
           ? runtimeExpectedType
           : (selectedExpectedType ?? runtimeExpectedType);
+      const finalExpectedType = runtimeExpectedType ?? contextualExpectedType;
+      const [rawArgAst, rawArgCtx] = emitExpressionAst(
+        arg,
+        currentContext,
+        contextualExpectedType
+      );
       const actualArgumentType =
         resolveActualFunctionTypeForArgument(arg, rawArgCtx) ??
         resolveEffectiveExpressionType(arg, rawArgCtx) ??
@@ -706,14 +699,14 @@ const emitFunctionValueCallArguments = (
           valueAst: rawArgAst,
           actualType: actualArgumentType,
           context: rawArgCtx,
-          expectedType: effectiveExpectedType,
+          expectedType: finalExpectedType,
         }) ?? [rawArgAst, rawArgCtx];
       const [argAst, argCtx] = adaptFunctionArgumentAst(
         expr,
         arg,
         i,
         materializedArgAst,
-        effectiveExpectedType,
+        finalExpectedType,
         materializedArgCtx
       );
       const modifier =
@@ -824,31 +817,6 @@ const tryEmitTupleRestArguments = (
   return [emittedArgs, tupleContext];
 };
 
-const shouldPreferZeroArgJsTimerCallback = (
-  expr: Extract<IrExpression, { kind: "call" }>,
-  arg: IrExpression,
-  argIndex: number,
-  expectedType: IrType | undefined,
-  context: EmitterContext
-): expectedType is Extract<IrType, { kind: "functionType" }> => {
-  if (context.options.surface !== "@tsonic/js") return false;
-  if (argIndex !== 0) return false;
-  if (arg.kind !== "arrowFunction" && arg.kind !== "functionExpression") {
-    return false;
-  }
-  if (arg.parameters.length !== 0) return false;
-  if (expectedType?.kind !== "functionType") return false;
-  if (expectedType.parameters.length !== 1) return false;
-  if (!expectedType.parameters[0]?.isRest) return false;
-  if (expr.arguments.length > 2) return false;
-  if (expr.callee.kind !== "identifier") return false;
-
-  return (
-    expr.callee.csharpName === "Timers.setInterval" ||
-    expr.callee.csharpName === "Timers.setTimeout"
-  );
-};
-
 const selectDeterministicUnionParameterMember = (
   expectedType: IrType | undefined,
   arg: IrExpression,
@@ -952,22 +920,6 @@ const resolveCallArgumentExpectedType = (
       ? bindingExpectedType ?? expectedType
       : expectedType;
 
-  if (
-    shouldPreferZeroArgJsTimerCallback(
-      expr,
-      arg,
-      argIndex,
-      narrowedExpectedType,
-      context
-    )
-  ) {
-    return {
-      kind: "functionType",
-      parameters: [],
-      returnType: narrowedExpectedType.returnType,
-    };
-  }
-
   return selectDeterministicUnionParameterMember(
     narrowedExpectedType,
     arg,
@@ -1036,6 +988,11 @@ const emitCallArguments = (
         (memberObjectImportBinding.memberKinds?.get(expr.callee.property) ===
           "variable" ||
           memberObjectImportBinding.moduleObject === true)));
+  const hasResolvedCallSurface =
+    ((expr.parameterTypes?.length ?? 0) > 0) ||
+    ((expr.surfaceParameterTypes?.length ?? 0) > 0) ||
+    expr.restParameter !== undefined ||
+    expr.surfaceRestParameter !== undefined;
   const directCallableTarget =
     (expr.callee.kind === "identifier" &&
       (context.importBindings?.get(expr.callee.name)?.kind === "value" ||
@@ -1049,6 +1006,7 @@ const emitCallArguments = (
       : undefined;
   if (
     functionValueSignature &&
+    !hasResolvedCallSurface &&
     (!directCallableTarget || importedFunctionValueTarget) &&
     functionValueSignature.parameters.some(
       (parameter) =>
@@ -1078,6 +1036,8 @@ const emitCallArguments = (
       ? parameterTypeOverrides
       : expr.surfaceParameterTypes && expr.surfaceParameterTypes.length > 0
         ? expr.surfaceParameterTypes
+        : expr.parameterTypes && expr.parameterTypes.length > 0
+          ? expr.parameterTypes
         : selectedParameterTypes;
   const selectedRestParameter = expr.restParameter ?? expr.surfaceRestParameter;
   const runtimeRestParameter =
@@ -1181,21 +1141,21 @@ const emitCallArguments = (
         : undefined;
     const runtimeParameterType =
       runtimeRestElementType ?? runtimeParameterTypes[i];
-    const prefersSelectedSurfaceOverRuntime =
+    const prefersSelectedExpectedTypeOverRuntime =
       !parameterTypeOverrides &&
       expectedType !== undefined &&
       normalizedArgs.length > 0 &&
       runtimeParameterType !== undefined &&
       stableIrTypeKey(expectedType) !== stableIrTypeKey(runtimeParameterType);
-    const effectiveExpectedType = (() => {
-      const normalizedRuntime =
-        runtimeParameterType === undefined
-          ? undefined
-          : normalizeCallArgumentExpectedType(
-              runtimeParameterType,
-              arg,
-              currentContext
-            );
+    const normalizedRuntime =
+      runtimeParameterType === undefined
+        ? undefined
+        : normalizeCallArgumentExpectedType(
+            runtimeParameterType,
+            arg,
+            currentContext
+          );
+    const contextualExpectedType = (() => {
       if (!normalizedRuntime) {
         return expectedType;
       }
@@ -1222,7 +1182,7 @@ const emitCallArguments = (
           currentContext
         )
       ) {
-        if (prefersSelectedSurfaceOverRuntime) {
+        if (prefersSelectedExpectedTypeOverRuntime) {
           return expectedType;
         }
         return normalizedRuntime;
@@ -1256,6 +1216,7 @@ const emitCallArguments = (
       }
       return expectedType ?? normalizedRuntime;
     })();
+    const finalExpectedType = normalizedRuntime ?? contextualExpectedType;
 
     if (arg.kind === "spread") {
       const [spreadAst, ctx] = emitExpressionAst(
@@ -1288,7 +1249,7 @@ const emitCallArguments = (
         const [rawArgAst, emittedContext] = emitExpressionAst(
           arg,
           currentContext,
-          effectiveExpectedType
+          contextualExpectedType
         );
         const actualArgumentType =
           resolveActualFunctionTypeForArgument(arg, emittedContext) ??
@@ -1299,14 +1260,14 @@ const emitCallArguments = (
             valueAst: rawArgAst,
             actualType: actualArgumentType,
             context: emittedContext,
-            expectedType: effectiveExpectedType,
+            expectedType: finalExpectedType,
           }) ?? [rawArgAst, emittedContext];
         const [adaptedArgAst, ctx] = adaptFunctionArgumentAst(
           expr,
           arg,
           i,
           materializedArgAst,
-          effectiveExpectedType,
+          finalExpectedType,
           materializedContext
         );
         const modifier =

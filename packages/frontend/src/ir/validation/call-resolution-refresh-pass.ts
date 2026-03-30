@@ -5,6 +5,7 @@ import {
   IrStatement,
 } from "../types.js";
 import { collectResolutionArguments } from "../converters/expressions/calls/call-resolution.js";
+import { getBoundGlobalCallParameterTypes } from "../converters/expressions/calls/bound-global-call-parameters.js";
 
 export type CallResolutionRefreshResult = {
   readonly ok: true;
@@ -107,6 +108,21 @@ const refreshExpression = (
         }
       );
       const resolved = selection.resolved;
+      const boundGlobalCallParameterTypes = getBoundGlobalCallParameterTypes(
+        callee,
+        argumentCount,
+        ctx
+      );
+      const refreshedRestParameter = boundGlobalCallParameterTypes
+        ? boundGlobalCallParameterTypes.restParameter
+        : expr.sourceBackedRestParameter ??
+          resolved?.restParameter ??
+          expr.restParameter;
+      const refreshedSurfaceRestParameter = boundGlobalCallParameterTypes
+        ? boundGlobalCallParameterTypes.restParameter
+        : expr.sourceBackedRestParameter ??
+          resolved?.surfaceRestParameter ??
+          expr.surfaceRestParameter;
 
       return {
         ...expr,
@@ -115,17 +131,25 @@ const refreshExpression = (
         dynamicImportNamespace,
         inferredType: preserveResolvedReturnType(
           expr.inferredType,
-          resolved?.returnType,
+          expr.sourceBackedReturnType ?? resolved?.returnType,
           resolved?.hasDeclaredReturnType
         ),
         allowUnknownInferredType:
           resolved?.hasDeclaredReturnType ?? expr.allowUnknownInferredType,
-        parameterTypes: resolved?.parameterTypes ?? expr.parameterTypes,
+        parameterTypes:
+          boundGlobalCallParameterTypes?.parameterTypes ??
+          expr.sourceBackedParameterTypes ??
+          resolved?.parameterTypes ??
+          expr.parameterTypes,
         surfaceParameterTypes:
-          resolved?.surfaceParameterTypes ?? expr.surfaceParameterTypes,
-        restParameter: resolved?.restParameter ?? expr.restParameter,
+          boundGlobalCallParameterTypes?.parameterTypes ??
+          expr.sourceBackedSurfaceParameterTypes ??
+          resolved?.surfaceParameterTypes ??
+          expr.surfaceParameterTypes,
+        restParameter:
+          refreshedRestParameter,
         surfaceRestParameter:
-          resolved?.surfaceRestParameter ?? expr.surfaceRestParameter,
+          refreshedSurfaceRestParameter,
       };
     }
 

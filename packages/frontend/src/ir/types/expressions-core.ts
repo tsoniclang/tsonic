@@ -261,6 +261,18 @@ export type IrCallExpression = {
     readonly arrayType: IrType | undefined;
     readonly elementType: IrType | undefined;
   };
+  /** Exact source-declared parameter surface retained across refresh passes. */
+  readonly sourceBackedParameterTypes?: readonly (IrType | undefined)[];
+  /** Exact source-declared public parameter surface retained across refresh passes. */
+  readonly sourceBackedSurfaceParameterTypes?: readonly (IrType | undefined)[];
+  /** Exact source-declared rest metadata retained across refresh passes. */
+  readonly sourceBackedRestParameter?: {
+    readonly index: number;
+    readonly arrayType: IrType | undefined;
+    readonly elementType: IrType | undefined;
+  };
+  /** Exact source-declared return type retained across refresh passes. */
+  readonly sourceBackedReturnType?: IrType;
   /** Type predicate narrowing metadata (for `x is T` predicates) */
   readonly narrowing?: {
     readonly kind: "typePredicate";

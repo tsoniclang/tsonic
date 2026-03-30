@@ -117,6 +117,18 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::System.Threading.Tasks.Task<string>");
     });
 
+    it("should emit PromiseLike<T> as Task<T>", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "PromiseLike",
+        typeArguments: [{ kind: "primitiveType", name: "string" }],
+      });
+
+      const result = emitModule(module);
+
+      expect(result).to.include("global::System.Threading.Tasks.Task<string>");
+    });
+
     it("should emit Error when provided through emitter bindings", () => {
       const module = createModuleWithType({
         kind: "referenceType",

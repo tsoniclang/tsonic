@@ -251,6 +251,41 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("preserves tuple returns through source-backed array map callbacks", () => {
+      const source = `
+        import { Directory, Path } from "@tsonic/dotnet/System.IO.js";
+
+        export const readdirSync = (path: string): string[] =>
+          Directory.GetFileSystemEntries(path)
+            .map((entry) => Path.GetFileName(entry) ?? "")
+            .filter((entry) => entry.length > 0);
+
+        type Entry = { readonly name: string; readonly value: string };
+        declare const params: Entry[];
+
+        export const entries = (): Array<[string, string]> =>
+          params.map((param) => [param.name, param.value]);
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("global::System.IO.Directory.GetFileSystemEntries(path)");
+      expect(csharp).to.include(
+        '.map((string entry) => global::System.IO.Path.GetFileName(entry) ?? "").toArray()'
+      );
+      expect(csharp).to.include(
+        '.filter((string entry) => entry.Length > 0).toArray()'
+      );
+      expect(csharp).to.match(
+        /map\(\((?:Entry|Entry__Alias) param\) => \(param\.name, param\.value\)\)\.toArray\(\)/
+      );
+      expect(csharp).to.not.include(
+        "Select<string[], global::System.ValueTuple<string, string>>"
+      );
+      expect(csharp).to.not.include("new string[] { param.name, param.value }");
+    });
+
     it("preserves runtime-union member numbering across nested array and instanceof fallthrough guards", () => {
       const source = `
         type RequestHandler = (value: string) => void;

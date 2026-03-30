@@ -711,6 +711,28 @@ const tryInferSelectedRuntimeUnionMembers = (
     : undefined;
 };
 
+const selectRuntimeUnionMembersFromWrapperReturn = (
+  fallbackType: IrType | undefined,
+  wrapperReturnType: IrType | undefined
+): readonly number[] | undefined => {
+  if (
+    !fallbackType ||
+    !wrapperReturnType ||
+    fallbackType.kind !== "unionType" ||
+    fallbackType.preserveRuntimeLayout !== true
+  ) {
+    return undefined;
+  }
+
+  const matches = fallbackType.types
+    .map((member, index) =>
+      areWrapperTypesEquivalent(member, wrapperReturnType) ? index + 1 : undefined
+    )
+    .filter((member): member is number => member !== undefined);
+
+  return matches.length > 0 ? matches : undefined;
+};
+
 const trimTrailingOptionalHelperParameters = (
   wrapperParameters: readonly IrParameter[],
   helperParameters: readonly IrParameter[]
@@ -1003,13 +1025,43 @@ export const createWrapperBody = (
     implReturnType,
     substitutions
   );
-  const selectedRuntimeUnionMembers = tryInferSelectedRuntimeUnionMembers(
+  const selectedRuntimeUnionMembersFromWrapperReturn =
+    selectRuntimeUnionMembersFromWrapperReturn(
+      specializedImplReturnType,
+      wrapperReturnType
+    );
+  const selectedRuntimeUnionMembersFromBody = tryInferSelectedRuntimeUnionMembers(
     helperBody,
     helperParameters,
     helperParamDeclIds,
     parameters,
     specializedImplReturnType
   );
+  const selectedRuntimeUnionMembers = (() => {
+    if (
+      selectedRuntimeUnionMembersFromWrapperReturn &&
+      selectedRuntimeUnionMembersFromBody
+    ) {
+      const selected = selectedRuntimeUnionMembersFromBody.filter((member) =>
+        selectedRuntimeUnionMembersFromWrapperReturn.includes(member)
+      );
+      if (selected.length > 0) {
+        return selected;
+      }
+    }
+
+    if (
+      selectedRuntimeUnionMembersFromWrapperReturn &&
+      selectedRuntimeUnionMembersFromWrapperReturn.length === 1
+    ) {
+      return selectedRuntimeUnionMembersFromWrapperReturn;
+    }
+
+    return (
+      selectedRuntimeUnionMembersFromBody ??
+      selectedRuntimeUnionMembersFromWrapperReturn
+    );
+  })();
   const helperTypeArguments =
     helperTypeParameterNames.length > 0
       ? helperTypeParameterNames.map(

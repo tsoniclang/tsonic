@@ -4,7 +4,10 @@
 
 import * as ts from "typescript";
 import { IrArrayExpression, IrType, IrExpression } from "../../types.js";
-import { typesEqual } from "../../types/ir-substitution.js";
+import {
+  containsTypeParameter,
+  typesEqual,
+} from "../../types/ir-substitution.js";
 import { stableIrTypeKey } from "../../types/type-ops.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
@@ -310,7 +313,7 @@ export const normalizeExpectedArrayType = (
         !!candidate && !isNullishPrimitive(candidate)
     )) {
     const normalized = normalizeCandidate(member);
-    if (!normalized) continue;
+    if (!normalized || containsTypeParameter(normalized)) continue;
     candidateMap.set(stableIrTypeKey(normalized), normalized);
   }
 
@@ -335,6 +338,30 @@ export const normalizeExpectedArrayType = (
   return widestCandidates.length === 1 ? widestCandidates[0] : undefined;
 };
 
+const normalizeExpectedTupleType = (
+  expectedType: IrType | undefined,
+  ctx: ProgramContext
+): Extract<IrType, { kind: "tupleType" }> | undefined => {
+  if (!expectedType) return undefined;
+
+  const candidates = ctx.typeSystem
+    .collectNarrowingCandidates(expectedType)
+    .filter(
+      (candidate): candidate is IrType =>
+        !!candidate && !isNullishPrimitive(candidate)
+    )
+    .filter(
+      (candidate): candidate is Extract<IrType, { kind: "tupleType" }> =>
+        candidate.kind === "tupleType" && !containsTypeParameter(candidate)
+    );
+
+  if (candidates.length !== 1) {
+    return undefined;
+  }
+
+  return candidates[0];
+};
+
 /**
  * Convert array literal expression
  *
@@ -353,19 +380,25 @@ export const convertArrayLiteral = (
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): IrArrayExpression => {
+  const contextualTupleType = normalizeExpectedTupleType(expectedType, ctx);
   const contextualArrayType = normalizeExpectedArrayType(expectedType, ctx);
 
   // Determine element expected type from array expected type
-  const expectedElementType = contextualArrayType?.elementType;
-
   // Convert all elements, passing expected element type for contextual typing
-  const elements = node.elements.map((elem) => {
+  const elements = node.elements.map((elem, index) => {
+    const expectedElementType =
+      contextualTupleType?.elementTypes[index] ?? contextualArrayType?.elementType;
+
     if (ts.isOmittedExpression(elem)) {
       return undefined; // Hole in sparse array
     }
     if (ts.isSpreadElement(elem)) {
       // Spread element - convert and derive type from expression
-      const spreadExpr = convertExpression(elem.expression, ctx, expectedType);
+      const spreadExpr = convertExpression(
+        elem.expression,
+        ctx,
+        contextualTupleType ?? expectedType
+      );
       return {
         kind: "spread" as const,
         expression: spreadExpr,
@@ -380,8 +413,10 @@ export const convertArrayLiteral = (
   // 1. Expected type from context (e.g., LHS annotation, parameter type)
   // 2. Literal-form inference (derive from element types)
   // 3. Default: number[] (double[]) for ergonomics
-  const inferredType: IrType | undefined = contextualArrayType
-    ? contextualArrayType
+  const inferredType: IrType | undefined = contextualTupleType
+    ? contextualTupleType
+    : contextualArrayType
+      ? contextualArrayType
     : (() => {
         // No expected type - derive from element types
         const elementType = computeArrayElementType(elements, undefined);

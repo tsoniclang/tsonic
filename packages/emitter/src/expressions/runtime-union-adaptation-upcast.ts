@@ -309,7 +309,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     emissionExpectedType,
     maybeAdaptRuntimeUnionExpressionAst
   );
-  if (adapted) {
+  if (adapted && normalizedExpectedType.kind !== "unionType") {
     return adapted;
   }
 
