@@ -12,6 +12,7 @@ import * as ts from "typescript";
 import { IrCallExpression, getSpreadTupleShape } from "../../../types.js";
 import { IrType } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
+import type { ResolvedCall } from "../../../type-system/type-system.js";
 
 // DELETED: getReturnTypeFromFunctionType - Was part of fallback path
 // DELETED: getCalleesDeclaredType - Was part of fallback path
@@ -105,6 +106,117 @@ export const scoreCallableCandidate = (
   ];
 };
 
+const NUMERIC_TYPE_NAMES = new Set([
+  "number",
+  "int",
+  "byte",
+  "sbyte",
+  "short",
+  "ushort",
+  "uint",
+  "long",
+  "ulong",
+  "float",
+  "double",
+  "decimal",
+]);
+
+const isNumericType = (type: IrType): boolean => {
+  if (type.kind === "primitiveType") {
+    return NUMERIC_TYPE_NAMES.has(type.name);
+  }
+
+  if (type.kind === "referenceType") {
+    const simpleName = type.name.split(".").pop() ?? type.name;
+    return NUMERIC_TYPE_NAMES.has(simpleName);
+  }
+
+  return false;
+};
+
+const isDeterministicallyNumericCompatible = (
+  parameterType: IrType,
+  argumentType: IrType
+): boolean => {
+  if (parameterType.kind === "unionType") {
+    return parameterType.types.some((member) =>
+      isDeterministicallyNumericCompatible(member, argumentType)
+    );
+  }
+
+  if (argumentType.kind === "unionType") {
+    return argumentType.types.every((member) =>
+      isDeterministicallyNumericCompatible(parameterType, member)
+    );
+  }
+
+  return isNumericType(parameterType) && isNumericType(argumentType);
+};
+
+const scoreTypeCompatibility = (
+  parameterType: IrType,
+  argumentType: IrType,
+  ctx: ProgramContext
+): number => {
+  if (ctx.typeSystem.typesEqual(parameterType, argumentType)) {
+    return 4;
+  }
+
+  if (ctx.typeSystem.isAssignableTo(argumentType, parameterType)) {
+    return 3;
+  }
+
+  if (isDeterministicallyNumericCompatible(parameterType, argumentType)) {
+    return 2;
+  }
+
+  const parameterFn =
+    parameterType.kind === "functionType"
+      ? parameterType
+      : ctx.typeSystem.delegateToFunctionType(parameterType);
+  const argumentFn =
+    argumentType.kind === "functionType"
+      ? argumentType
+      : ctx.typeSystem.delegateToFunctionType(argumentType);
+  if (parameterFn && argumentFn) {
+    let score = 0;
+
+    if (parameterFn.parameters.length === argumentFn.parameters.length) {
+      score += 8;
+    } else {
+      score -=
+        Math.abs(parameterFn.parameters.length - argumentFn.parameters.length) *
+        2;
+    }
+
+    const pairCount = Math.min(
+      parameterFn.parameters.length,
+      argumentFn.parameters.length
+    );
+    for (let index = 0; index < pairCount; index += 1) {
+      const parameter = parameterFn.parameters[index];
+      const argument = argumentFn.parameters[index];
+      if (!parameter?.type || !argument?.type) continue;
+      score += scoreTypeCompatibility(parameter.type, argument.type, ctx);
+    }
+
+    if (
+      argumentFn.returnType.kind !== "unknownType" &&
+      argumentFn.returnType.kind !== "anyType"
+    ) {
+      score += scoreTypeCompatibility(
+        parameterFn.returnType,
+        argumentFn.returnType,
+        ctx
+      );
+    }
+
+    return score;
+  }
+
+  return 0;
+};
+
 export const compareCallableScores = (
   left: readonly [number, number, number, number],
   right: readonly [number, number, number, number]
@@ -124,30 +236,32 @@ export const compareCallableScores = (
 export const chooseCallableCandidate = (
   type: IrType | undefined,
   argumentCount: number,
-  ctx: ProgramContext
+  ctx: ProgramContext,
+  argTypes?: readonly (IrType | undefined)[]
 ): Extract<IrType, { kind: "functionType" }> | undefined => {
-  const candidates = flattenCallableCandidates(type, ctx).filter((candidate) =>
-    canAcceptArgumentCount(candidate, argumentCount)
-  );
-  if (candidates.length === 0) return undefined;
-
-  let best = candidates[0];
-  let bestScore = best
-    ? scoreCallableCandidate(best, argumentCount)
-    : ([0, 0, 0, 0] as const);
-
-  for (let index = 1; index < candidates.length; index += 1) {
-    const candidate = candidates[index];
-    if (!candidate) continue;
-    const score = scoreCallableCandidate(candidate, argumentCount);
-    if (compareCallableScores(score, bestScore) > 0) {
-      best = candidate;
-      bestScore = score;
-    }
-  }
-
-  return best;
+  return ctx.typeSystem.resolveCallableType(type, {
+    argumentCount,
+    argTypes,
+  }).callableType;
 };
+
+export const resolveCallableCandidate = (
+  type: IrType | undefined,
+  argumentCount: number,
+  ctx: ProgramContext,
+  argTypes?: readonly (IrType | undefined)[],
+  explicitTypeArgs?: readonly IrType[],
+  expectedReturnType?: IrType
+): {
+  readonly callableType: Extract<IrType, { kind: "functionType" }> | undefined;
+  readonly resolved: ResolvedCall | undefined;
+} =>
+  ctx.typeSystem.resolveCallableType(type, {
+    argumentCount,
+    argTypes,
+    explicitTypeArgs,
+    expectedReturnType,
+  });
 
 /**
  * Walk a property access chain and build a qualified name.

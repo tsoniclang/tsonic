@@ -148,11 +148,13 @@ export const buildExprBinding = (
   exprAst: CSharpExpressionAst,
   type: IrType | undefined,
   sourceType: IrType | undefined,
-  storageExprAst?: CSharpExpressionAst
+  storageExprAst?: CSharpExpressionAst,
+  storageType?: IrType
 ): Extract<NarrowedBinding, { kind: "expr" }> => ({
   kind: "expr",
   exprAst,
   storageExprAst,
+  storageType,
   type,
   sourceType,
 });

@@ -40,6 +40,28 @@ import { emitStaticArrowFieldMembers } from "./variable-static-arrow.js";
 import { resolveIdentifierValueSurfaceType } from "../../core/semantic/direct-value-surfaces.js";
 import { matchesEmittedStorageSurface } from "../../expressions/identifier-storage.js";
 
+const registerConditionAlias = (
+  originalName: string,
+  declarationKind: "const" | "let" | "var",
+  initializer: Extract<
+    Extract<IrStatement, { kind: "variableDeclaration" }>["declarations"][number],
+    { kind: "variableDeclarator" }
+  >["initializer"],
+  context: EmitterContext
+): EmitterContext => {
+  const nextAliases = new Map(context.conditionAliases ?? []);
+  if (declarationKind === "const" && initializer) {
+    nextAliases.set(originalName, initializer);
+  } else {
+    nextAliases.delete(originalName);
+  }
+
+  return {
+    ...context,
+    conditionAliases: nextAliases,
+  };
+};
+
 /**
  * Emit a static variable declaration as AST members (fields, methods, delegates).
  */
@@ -255,6 +277,12 @@ export const emitVariableDeclarationAst = (
           decl,
           currentContext
         );
+        currentContext = registerConditionAlias(
+          originalName,
+          stmt.declarationKind,
+          decl.initializer,
+          currentContext
+        );
 
         const expectedInitializerType =
           decl.type ??
@@ -354,6 +382,12 @@ export const emitVariableDeclarationAst = (
       currentContext = registerVariableSymbolTypes(
         originalName,
         decl,
+        currentContext
+      );
+      currentContext = registerConditionAlias(
+        originalName,
+        stmt.declarationKind,
+        decl.initializer,
         currentContext
       );
 

@@ -33,6 +33,7 @@ import {
   isObjectTypeAst,
   emitStorageCompatibleArrayWrapperElementTypeAst,
   resolveEmittedReceiverTypeAst,
+  tryEmitBroadArrayAssertionReceiverStorageAst,
 } from "./access-resolution.js";
 import { buildExactGlobalBindingType } from "./exact-global-bindings.js";
 
@@ -198,9 +199,13 @@ export const tryEmitConcreteReceiverLengthAccess = (
     return undefined;
   }
 
+  const preservedReceiver =
+    tryEmitBroadArrayAssertionReceiverStorageAst(expr.object, context);
+  const effectiveObjectAst = preservedReceiver?.[0] ?? objectAst;
+  const effectiveObjectContext = preservedReceiver?.[1] ?? context;
   const [receiverTypeAst, receiverTypeContext] = resolveEmittedReceiverTypeAst(
     expr.object,
-    context
+    effectiveObjectContext
   );
   const concreteReceiverTypeAst = receiverTypeAst
     ? stripNullableTypeAst(receiverTypeAst)
@@ -216,7 +221,7 @@ export const tryEmitConcreteReceiverLengthAccess = (
         kind: expr.isOptional
           ? "conditionalMemberAccessExpression"
           : "memberAccessExpression",
-        expression: objectAst,
+        expression: effectiveObjectAst,
         memberName: "Length",
       },
       receiverTypeContext,
@@ -235,7 +240,7 @@ export const tryEmitConcreteReceiverLengthAccess = (
         kind: expr.isOptional
           ? "conditionalMemberAccessExpression"
           : "memberAccessExpression",
-        expression: objectAst,
+        expression: effectiveObjectAst,
         memberName: "Length",
       },
       receiverTypeContext,
@@ -251,7 +256,7 @@ export const tryEmitConcreteReceiverLengthAccess = (
         kind: expr.isOptional
           ? "conditionalMemberAccessExpression"
           : "memberAccessExpression",
-        expression: objectAst,
+        expression: effectiveObjectAst,
         memberName: "Count",
       },
       receiverTypeContext,
@@ -307,9 +312,13 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
     ];
   }
 
+  const preservedReceiver =
+    tryEmitBroadArrayAssertionReceiverStorageAst(expr.object, context);
+  const effectiveObjectAst = preservedReceiver?.[0] ?? objectAst;
+  const effectiveObjectContext = preservedReceiver?.[1] ?? context;
   const [receiverTypeAst, receiverTypeContext] = resolveEmittedReceiverTypeAst(
     expr.object,
-    context
+    effectiveObjectContext
   );
   const concreteReceiverTypeAst = receiverTypeAst
     ? stripNullableTypeAst(receiverTypeAst)
@@ -370,6 +379,46 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
             condition: {
               kind: "binaryExpression",
               operatorToken: "==",
+              left: effectiveObjectAst,
+              right: nullLiteral(),
+            },
+            whenTrue: {
+              kind: "defaultExpression",
+              type: nullableType({ kind: "predefinedType", keyword: "int" }),
+            },
+            whenFalse: {
+              kind: "memberAccessExpression",
+              expression: effectiveObjectAst,
+              memberName: "Length",
+            },
+          }
+        : {
+            kind: "memberAccessExpression",
+            expression: effectiveObjectAst,
+            memberName: "Length",
+          },
+      receiverTypeContext,
+    ];
+  }
+
+  const receiverTypeName = concreteReceiverTypeAst
+    ? getIdentifierTypeName(concreteReceiverTypeAst)
+    : undefined;
+  const receiverLeafName = concreteReceiverTypeAst
+    ? getIdentifierTypeLeafName(concreteReceiverTypeAst)
+    : undefined;
+  if (
+    receiverTypeName === "global::System.Array" ||
+    receiverTypeName === "System.Array" ||
+    receiverLeafName === "Array"
+  ) {
+    return [
+      expr.isOptional
+        ? {
+            kind: "conditionalExpression",
+            condition: {
+              kind: "binaryExpression",
+              operatorToken: "==",
               left: objectAst,
               right: nullLiteral(),
             },
@@ -379,13 +428,13 @@ export const tryEmitJsSurfaceArrayLikeLengthAccess = (
             },
             whenFalse: {
               kind: "memberAccessExpression",
-              expression: objectAst,
+              expression: effectiveObjectAst,
               memberName: "Length",
             },
           }
         : {
             kind: "memberAccessExpression",
-            expression: objectAst,
+            expression: effectiveObjectAst,
             memberName: "Length",
           },
       receiverTypeContext,

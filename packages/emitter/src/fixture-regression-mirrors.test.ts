@@ -2,7 +2,10 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { compileToCSharp } from "./integration-cases/helpers.js";
+import {
+  compileProjectToCSharp,
+  compileToCSharp,
+} from "./integration-cases/helpers.js";
 
 const repoRoot = path.resolve(process.cwd(), "../..");
 const readFixtureSource = (fixtureName: string): string =>
@@ -214,6 +217,407 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include('global::System.Console.WriteLine(parts.join("-"));');
     });
 
+    it("preserves narrowed overload carriers for recursive fs-style writeSync calls", () => {
+      const csharp = compileToCSharp(`
+        type int = number;
+        type byte = number;
+
+        class Buffer {}
+
+        type WritableFsBuffer = byte[] | Buffer;
+
+        function resolveWriteLength(
+          buffer: WritableFsBuffer,
+          offset: int,
+          lengthOrEncoding?: int | string
+        ): int {
+          void buffer;
+          void offset;
+          void lengthOrEncoding;
+          return 1 as int;
+        }
+
+        export class FS {
+          writeSync(fd: int, buffer: WritableFsBuffer, offset: int, length: int, position: int | null): int;
+          writeSync(fd: int, data: string, position?: int | null, encoding?: string): int;
+          writeSync(
+            fd: int,
+            bufferOrData: WritableFsBuffer | string,
+            offsetOrPosition: int | null = null,
+            lengthOrEncoding?: int | string,
+            position?: int | null
+          ): int {
+            if (typeof bufferOrData === "string") {
+              return this.writeSync(
+                fd,
+                bufferOrData,
+                offsetOrPosition,
+                typeof lengthOrEncoding === "string" ? lengthOrEncoding : undefined
+              );
+            }
+
+            return this.writeSync(
+              fd,
+              bufferOrData,
+              offsetOrPosition ?? (0 as int),
+              resolveWriteLength(
+                bufferOrData,
+                offsetOrPosition ?? (0 as int),
+                lengthOrEncoding
+              ),
+              position ?? null
+            );
+          }
+        }
+      `);
+
+      expect(csharp).to.include(
+        "return this.writeSync(fd, (global::Tsonic.Runtime.Union<double[], global::Test.Buffer>)bufferOrData.Match<global::Tsonic.Runtime.Union<double[], global::Test.Buffer>>("
+      );
+      expect(csharp).to.not.include(
+        "))).Match<global::Tsonic.Runtime.Union<double[], string, global::Test.Buffer>>"
+      );
+    });
+
+    it("materializes narrowed runtime-union casts with the cast carrier arity", () => {
+      const csharp = compileToCSharp(`
+        class Buffer {}
+
+        declare function isNumberArray(value: number[]): boolean;
+        declare function fromArray(value: number[]): void;
+        declare function fromUint8Array(value: Uint8Array): void;
+
+        function fromNonString(value: number[] | Buffer | Uint8Array): void {
+          if (value instanceof Buffer) {
+            return;
+          }
+
+          if (isNumberArray(value)) {
+            fromArray(value);
+            return;
+          }
+
+          fromUint8Array(value);
+        }
+      `);
+
+      expect(csharp).to.include(
+        ".Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("
+      );
+      expect(csharp).to.not.include(
+        ".Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException(\"Cannot cast runtime union ref#0:global::Test.Buffer:: to arr#0:prim:number:tuple::rest:none\"), __tsonic_union_member_3 =>"
+      );
+    });
+
+    it("keeps predicate-fallthrough imported typed-array calls on the typed-array branch", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "package.json": JSON.stringify(
+            { name: "emitter-test-project", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "src/index.ts": [
+            'import { Uint8Array } from "@fixture/js/index.js";',
+            "",
+            "class Buffer {}",
+            "",
+            "declare function isNumberArray(",
+            "  value: number[] | Buffer | Uint8Array",
+            "): value is number[];",
+            "declare function fromArray(value: number[]): void;",
+            "declare function fromUint8Array(value: Uint8Array): void;",
+            "",
+            "export function fromNonString(",
+            "  value: number[] | Buffer | Uint8Array",
+            "): void {",
+            "  if (value instanceof Buffer) {",
+            "    return;",
+            "  }",
+            "",
+            "  if (isNumberArray(value)) {",
+            "    fromArray(value);",
+            "    return;",
+            "  }",
+            "",
+            "  fromUint8Array(value);",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/js/package.json": JSON.stringify(
+            { name: "@fixture/js", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "node_modules/@fixture/js/globals.ts": [
+            "declare global {",
+            '  const Uint8Array: typeof import("./src/index.js").Uint8Array;',
+            "}",
+            "",
+            "export {};",
+          ].join("\n"),
+          "node_modules/@fixture/js/tsonic.surface.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              id: "@fixture/js",
+              extends: [],
+              requiredTypeRoots: ["."],
+              useStandardLib: false,
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/js/tsonic.package.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@fixture/js"],
+              source: {
+                namespace: "js",
+                ambient: ["./globals.ts"],
+                exports: {
+                  "./index.js": "./src/index.ts",
+                },
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/js/src/index.ts": [
+            "export class Uint8Array {}",
+          ].join("\n"),
+        },
+        "src/index.ts",
+        { surface: "@fixture/js" }
+      );
+
+      expect(csharp).to.include(
+        "fromUint8Array((global::js.Uint8Array)"
+      );
+      expect(csharp).not.to.include(
+        ").Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("
+      );
+    });
+
+    it("keeps static predicate fallthrough calls on the typed-array branch", () => {
+      const csharp = compileProjectToCSharp(
+        {
+          "package.json": JSON.stringify(
+            { name: "emitter-test-project", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "src/index.ts": [
+            'import { Uint8Array } from "@fixture/js/index.js";',
+            "",
+            "export class Buffer {",
+            "  static fromArray(_value: number[]): Buffer {",
+            "    return new Buffer();",
+            "  }",
+            "",
+            "  static fromUint8Array(_value: Uint8Array): Buffer {",
+            "    return new Buffer();",
+            "  }",
+            "",
+            "  private static isNumberArray(",
+            "    value: number[] | Buffer | Uint8Array,",
+            "  ): value is number[] {",
+            "    return Array.isArray(value);",
+            "  }",
+            "",
+            "  static fromNonString(",
+            "    value: number[] | Buffer | Uint8Array,",
+            "  ): Buffer {",
+            "    if (value instanceof Buffer) {",
+            "      return value;",
+            "    }",
+            "    if (Buffer.isNumberArray(value)) {",
+            "      return Buffer.fromArray(value);",
+            "    }",
+            "    return Buffer.fromUint8Array(value);",
+            "  }",
+            "}",
+          ].join("\n"),
+          "node_modules/@fixture/js/package.json": JSON.stringify(
+            { name: "@fixture/js", version: "1.0.0", type: "module" },
+            null,
+            2
+          ),
+          "node_modules/@fixture/js/globals.ts": [
+            "declare global {",
+            '  const Uint8Array: typeof import("./src/index.js").Uint8Array;',
+            "}",
+            "",
+            "export {};",
+          ].join("\n"),
+          "node_modules/@fixture/js/tsonic.surface.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              id: "@fixture/js",
+              extends: [],
+              requiredTypeRoots: ["."],
+              useStandardLib: false,
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/js/tsonic.package.json": JSON.stringify(
+            {
+              schemaVersion: 1,
+              kind: "tsonic-source-package",
+              surfaces: ["@fixture/js"],
+              source: {
+                namespace: "js",
+                ambient: ["./globals.ts"],
+                exports: {
+                  "./index.js": "./src/index.ts",
+                },
+              },
+            },
+            null,
+            2
+          ),
+          "node_modules/@fixture/js/src/index.ts": [
+            "export class Uint8Array {}",
+          ].join("\n"),
+        },
+        "src/index.ts",
+        { surface: "@fixture/js" }
+      );
+
+      expect(csharp).to.include("Buffer.fromUint8Array((global::js.Uint8Array)");
+      expect(csharp).not.to.include(
+        "Buffer.fromUint8Array(((global::Tsonic.Runtime.Union<double[], global::js.Uint8Array>)"
+      );
+      expect(csharp).not.to.include(
+        ").Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("
+      );
+    });
+
+    it("materializes inherited typed-array overload calls through the public union wrapper", () => {
+      const csharp = compileToCSharp(`
+        import type { byte, int } from "@tsonic/core/types.js";
+
+        type TypedArrayInput<TElement extends number> =
+          | TElement[]
+          | Iterable<number>;
+
+        class TypedArrayBase<TElement extends number> {
+          public length: int = 0 as int;
+
+          public set(index: int, value: number): void;
+          public set(source: TypedArrayInput<TElement>, offset?: int): void;
+          public set(
+            sourceOrIndex: int | TypedArrayInput<TElement>,
+            offsetOrValue: int | number = 0 as int
+          ): void {
+            void sourceOrIndex;
+            void offsetOrValue;
+          }
+        }
+
+        class Uint8Array extends TypedArrayBase<byte> {
+          public *[Symbol.iterator](): Generator<byte, undefined, undefined> {
+            return undefined as never;
+          }
+        }
+
+        export function concatBytes(...buffers: Uint8Array[]): Uint8Array {
+          let totalLength = 0 as int;
+          for (let index = 0 as int; index < buffers.length; index += 1) {
+            totalLength += buffers[index]!.length;
+          }
+
+          const result = new Uint8Array();
+          let offset = 0 as int;
+          for (let index = 0 as int; index < buffers.length; index += 1) {
+            const buffer = buffers[index]!;
+            result.set(buffer, offset);
+            offset += buffer.length;
+          }
+          return result;
+        }
+      `);
+
+      expect(csharp).to.include("result.set(");
+      expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
+      expect(csharp).to.include(
+        "result.set(global::Tsonic.Runtime.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
+      );
+      expect(csharp).not.to.include("result.set(buffer, offset);");
+      expect(csharp).not.to.include(
+        "result.set(global::System.Linq.Enumerable.Select<byte, double>(buffer.__tsonic_symbol_iterator(), __item => __item), offset);"
+      );
+      expect(csharp).not.to.include("global::Tsonic.Runtime.Union<int, double>.From1(offset)");
+    });
+
+    it("materializes imported typed-array overload calls through the public union wrapper", () => {
+      const csharp = compileToCSharp(
+        `
+          import { Uint8Array } from "@tsonic/js/index.js";
+
+          export function concatBytes(...buffers: Uint8Array[]): Uint8Array {
+            let totalLength = 0;
+            for (let index = 0; index < buffers.length; index += 1) {
+              totalLength += buffers[index]!.length;
+            }
+
+            const result = new Uint8Array(totalLength);
+            let offset = 0;
+            for (let index = 0; index < buffers.length; index += 1) {
+              const buffer = buffers[index]!;
+              result.set(buffer, offset);
+              offset += buffer.length;
+            }
+            return result;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include(
+        "result.set(global::Tsonic.Runtime.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2("
+      );
+      expect(csharp).to.include("buffer.__tsonic_symbol_iterator()");
+      expect(csharp).not.to.include("result.set(buffer, offset);");
+      expect(csharp).not.to.include(
+        "global::Tsonic.Runtime.Union<int, double>.From1(offset)"
+      );
+    });
+
+    it("keeps selected member overload surfaces exact instead of the implementation union", () => {
+      const csharp = compileToCSharp(`
+        import type { int } from "@tsonic/core/types.js";
+
+        export class BufferLike {
+          set(index: int, value: number): void;
+          set(values: Iterable<number>, offset?: int): void;
+          set(
+            sourceOrIndex: int | Iterable<number>,
+            offsetOrValue: int | number = 0 as int
+          ): void {
+            void sourceOrIndex;
+            void offsetOrValue;
+          }
+        }
+
+        export function write(
+          target: BufferLike,
+          values: Iterable<number>,
+          offset: int
+        ): void {
+          target.set(values, offset);
+        }
+      `);
+
+      expect(csharp).to.include(
+        "target.set(values, offset);"
+      );
+      expect(csharp).to.not.include(
+        "target.set(global::Tsonic.Runtime.Union<double[], global::System.Collections.Generic.IEnumerable<double>, int>.From2(values), global::Tsonic.Runtime.Union<int, double>.From1(offset));"
+      );
+    });
+
     it("mirrors json-native-inline-stringify", () => {
       const csharp = compileToCSharp(
         readFixtureSource("json-native-inline-stringify"),
@@ -243,5 +647,30 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("INLINE.stringify=");
       expect(csharp).to.include("ESCAPES=");
     });
+
+    it("infers explicit unknown through generic createWrapped calls used by flat", () => {
+      const csharp = compileToCSharp(`
+        import type { int } from "@tsonic/core/types.js";
+
+        export class Array<T = unknown> {
+          private readonly valuesStore: T[] = [];
+
+          private createWrapped<TResult>(values: readonly TResult[] | TResult[]): Array<TResult> {
+            void values;
+            return new Array<TResult>();
+          }
+
+          public flat(depth: int = 1 as int): Array<unknown> {
+            const flattened: unknown[] = [];
+            void depth;
+            return this.createWrapped(flattened);
+          }
+        }
+      `);
+
+      expect(csharp).to.include("public Array<object?> flat");
+      expect(csharp).not.to.include("return this.createWrapped((TResult[])");
+    });
+
   });
 });

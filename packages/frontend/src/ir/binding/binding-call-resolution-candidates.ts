@@ -9,7 +9,11 @@
 import ts from "typescript";
 import type { SignatureId } from "../type-system/types.js";
 import type { BindingContext } from "./binding-registry.js";
-import { getOrCreateSignatureId } from "./binding-registry.js";
+import {
+  getOrCreateDeclId,
+  getOrCreateSignatureId,
+  resolveTransparentAliases,
+} from "./binding-registry.js";
 import {
   extractParameterNodes,
   convertTypeParameterDeclarations,
@@ -19,10 +23,41 @@ import {
 // CALL SIGNATURE CANDIDATES
 // ═══════════════════════════════════════════════════════════════════════════
 
+export const isOverloadSurfaceDeclaration = (
+  decl: ts.Declaration
+): decl is ts.SignatureDeclaration =>
+  ts.isFunctionLike(decl) &&
+  !ts.isConstructSignatureDeclaration(decl) &&
+  !ts.isConstructorDeclaration(decl) &&
+  (!("body" in decl) || decl.body === undefined);
+
+export const resolveCallTargetDeclarations = (
+  ctx: BindingContext,
+  node: ts.CallExpression
+): readonly ts.Declaration[] | undefined => {
+  const expr = node.expression;
+  const symbol = (() => {
+    if (ts.isIdentifier(expr)) return ctx.checker.getSymbolAtLocation(expr);
+    if (ts.isPropertyAccessExpression(expr)) {
+      return ctx.checker.getSymbolAtLocation(expr.name);
+    }
+    return undefined;
+  })();
+  if (!symbol) return undefined;
+
+  const resolvedSymbol =
+    symbol.flags & ts.SymbolFlags.Alias
+      ? ctx.checker.getAliasedSymbol(symbol)
+      : symbol;
+
+  return resolvedSymbol.getDeclarations();
+};
+
 export const resolveCallSignatureCandidates = (
   ctx: BindingContext,
   node: ts.CallExpression
 ): readonly SignatureId[] | undefined => {
+
   const collectSignatureCandidates = (
     signatures: readonly ts.Signature[]
   ): readonly SignatureId[] | undefined => {
@@ -55,23 +90,13 @@ export const resolveCallSignatureCandidates = (
   };
 
   const expr = node.expression;
-  const symbol = (() => {
-    if (ts.isIdentifier(expr)) return ctx.checker.getSymbolAtLocation(expr);
-    if (ts.isPropertyAccessExpression(expr)) {
-      return ctx.checker.getSymbolAtLocation(expr.name);
-    }
-    return undefined;
-  })();
-  if (!symbol) return undefined;
-
-  const resolvedSymbol =
-    symbol.flags & ts.SymbolFlags.Alias
-      ? ctx.checker.getAliasedSymbol(symbol)
-      : symbol;
-
-  const decls = resolvedSymbol.getDeclarations();
+  const decls = resolveCallTargetDeclarations(ctx, node);
   if (decls && decls.length > 0) {
-    const directSignatures = decls.flatMap((decl) => {
+    const overloadSurfaceDecls = decls.filter(isOverloadSurfaceDeclaration);
+    const directDecls =
+      overloadSurfaceDecls.length > 0 ? overloadSurfaceDecls : decls;
+
+    const directSignatures = directDecls.flatMap((decl) => {
       if (!ts.isFunctionLike(decl)) return [];
       const sig = ctx.checker.getSignatureFromDeclaration(decl);
       return sig ? [sig] : [];
@@ -119,14 +144,29 @@ export const resolveConstructorSignature = (
 
     const decl = resolvedSymbol?.getDeclarations()?.[0];
 
-    const declaringTypeTsName = (() => {
-      if (decl && ts.isClassDeclaration(decl) && decl.name)
-        return decl.name.text;
-      if (resolvedSymbol) return resolvedSymbol.getName();
-      if (ts.isIdentifier(expr)) return expr.text;
-      if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
-      return undefined;
-    })();
+    const declaringTypeTsName =
+      (() => {
+        if (decl && ts.isClassDeclaration(decl) && decl.name) {
+          const parentSymbol = ctx.checker.getSymbolAtLocation(decl.name);
+          if (parentSymbol) {
+            const declId = getOrCreateDeclId(
+              ctx,
+              resolveTransparentAliases(ctx, parentSymbol)
+            );
+            return ctx.declMap.get(declId.id)?.fqName ?? decl.name.text;
+          }
+        }
+
+        return undefined;
+      })() ??
+      (() => {
+        if (decl && ts.isClassDeclaration(decl) && decl.name)
+          return decl.name.text;
+        if (resolvedSymbol) return resolvedSymbol.getName();
+        if (ts.isIdentifier(expr)) return expr.text;
+        if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+        return undefined;
+      })();
 
     if (declaringTypeTsName) {
       ctx.signatureMap.set(sigId.id, {

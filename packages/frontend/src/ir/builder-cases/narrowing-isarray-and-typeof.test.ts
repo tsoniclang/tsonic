@@ -443,5 +443,230 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
+
+    it("narrows predicate fallthrough after an earlier instanceof exclusion to the remaining member", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class Buffer {}",
+            "class Uint8Array {}",
+            "",
+            "declare function isNumberArray(",
+            "  value: number[] | Uint8Array,",
+            "): value is number[];",
+            "declare function fromArray(value: number[]): void;",
+            "declare function fromUint8Array(value: Uint8Array): void;",
+            "",
+            "export function fromNonString(value: number[] | Buffer | Uint8Array): void {",
+            "  if (value instanceof Buffer) {",
+            "    return;",
+            "  }",
+            "",
+            "  if (isNumberArray(value)) {",
+            "    fromArray(value);",
+            "    return;",
+            "  }",
+            "",
+            "  fromUint8Array(value);",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "fromNonString"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const finalCall = [...fn.body.statements]
+          .reverse()
+          .find(
+            (stmt): stmt is IrExpressionStatement =>
+              stmt.kind === "expressionStatement" &&
+              stmt.expression.kind === "call" &&
+              stmt.expression.callee.kind === "identifier" &&
+              stmt.expression.callee.name === "fromUint8Array"
+          );
+        expect(finalCall).to.not.equal(undefined);
+        if (!finalCall || finalCall.expression.kind !== "call") return;
+
+        const narrowedArg = finalCall.expression.arguments[0];
+        expect(narrowedArg?.inferredType?.kind).to.equal("referenceType");
+        if (narrowedArg?.inferredType?.kind !== "referenceType") return;
+        expect(narrowedArg.inferredType.name).to.equal("Uint8Array");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps static predicate parameter surfaces on the wider carrier after earlier exclusions", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class Uint8Array {}",
+            "",
+            "export class Buffer {",
+            "  private static isNumberArray(",
+            "    value: number[] | Buffer | Uint8Array,",
+            "  ): value is number[] {",
+            "    return Array.isArray(value);",
+            "  }",
+            "",
+            "  static fromNonString(value: number[] | Buffer | Uint8Array): void {",
+            "    if (value instanceof Buffer) {",
+            "      return;",
+            "    }",
+            "",
+            "    if (Buffer.isNumberArray(value)) {",
+            "      return;",
+            "    }",
+            "",
+            "    void value;",
+            "  }",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const bufferClass = result.value.body.find(
+          (stmt): stmt is IrClassDeclaration =>
+            stmt.kind === "classDeclaration" && stmt.name === "Buffer"
+        );
+        expect(bufferClass).to.not.equal(undefined);
+        if (!bufferClass) return;
+
+        const fromNonString = bufferClass.members.find(
+          (member): member is IrMethodDeclaration =>
+            member.kind === "methodDeclaration" && member.name === "fromNonString"
+        );
+        expect(fromNonString).to.not.equal(undefined);
+        if (!fromNonString?.body) return;
+
+        const predicateIf = fromNonString.body.statements.find(
+          (stmt, index): stmt is Extract<typeof fromNonString.body.statements[number], { kind: "ifStatement" }> =>
+            index > 0 &&
+            stmt.kind === "ifStatement" &&
+            stmt.condition.kind === "call" &&
+            stmt.condition.callee.kind === "memberAccess" &&
+            stmt.condition.callee.property === "isNumberArray"
+        );
+        expect(predicateIf).to.not.equal(undefined);
+        if (!predicateIf || predicateIf.condition.kind !== "call") return;
+
+        const parameterType = predicateIf.condition.parameterTypes?.[0];
+        expect(parameterType?.kind).to.equal("unionType");
+        if (!parameterType || parameterType.kind !== "unionType") return;
+        expect(parameterType.types).to.have.length(3);
+        expect(
+          parameterType.types.map((member) =>
+            member.kind === "referenceType" ? member.name : member.kind === "arrayType" ? "array" : member.kind
+          )
+        ).to.deep.equal(["array", "Buffer", "Uint8Array"]);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("preserves instanceof fallthrough across iterable-compatible reference types", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "class Uint8Array {",
+            "  [Symbol.iterator](): Iterator<number> {",
+            "    return undefined as unknown as Iterator<number>;",
+            "  }",
+            "}",
+            "",
+            "class Buffer {",
+            "  [Symbol.iterator](): Iterator<number> {",
+            "    return undefined as unknown as Iterator<number>;",
+            "  }",
+            "}",
+            "",
+            "declare function isNumberArray(",
+            "  value: number[] | Buffer | Uint8Array,",
+            "): value is number[];",
+            "declare function fromUint8Array(value: Uint8Array): void;",
+            "",
+            "export function fromNonString(value: number[] | Buffer | Uint8Array): void {",
+            "  if (value instanceof Buffer) {",
+            "    return;",
+            "  }",
+            "",
+            "  if (isNumberArray(value)) {",
+            "    return;",
+            "  }",
+            "",
+            "  fromUint8Array(value);",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "fromNonString"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const finalCall = [...fn.body.statements]
+          .reverse()
+          .find(
+            (stmt): stmt is IrExpressionStatement =>
+              stmt.kind === "expressionStatement" &&
+              stmt.expression.kind === "call" &&
+              stmt.expression.callee.kind === "identifier" &&
+              stmt.expression.callee.name === "fromUint8Array"
+          );
+        expect(finalCall).to.not.equal(undefined);
+        if (!finalCall || finalCall.expression.kind !== "call") return;
+
+        const narrowedArg = finalCall.expression.arguments[0];
+        expect(narrowedArg?.inferredType?.kind).to.equal("referenceType");
+        if (narrowedArg?.inferredType?.kind !== "referenceType") return;
+        expect(narrowedArg.inferredType.name).to.equal("Uint8Array");
+      } finally {
+        fixture.cleanup();
+      }
+    });
   });
 });

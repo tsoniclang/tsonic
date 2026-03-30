@@ -218,7 +218,8 @@ export const applyExprFallthroughNarrowing = (
   exprAst: CSharpExpressionAst,
   narrowedType: IrType,
   baseContext: EmitterContext,
-  finalContext: EmitterContext
+  finalContext: EmitterContext,
+  storageType?: IrType
 ): EmitterContext => {
   const [narrowedTypeAst, narrowedTypeCtx] = emitTypeAst(
     narrowedType,
@@ -235,7 +236,8 @@ export const applyExprFallthroughNarrowing = (
       },
       narrowedType,
       undefined,
-      exprAst
+      exprAst,
+      storageType
     )
   );
 
@@ -400,12 +402,14 @@ export const emitForcedBlockWithPreambleAst = (
   bodyCtx: EmitterContext
 ): [CSharpBlockStatementAst, EmitterContext] => {
   const outerNameMap = bodyCtx.localNameMap;
+  const outerConditionAliases = bodyCtx.conditionAliases;
   const outerSemanticTypes = bodyCtx.localSemanticTypes;
   const outerValueTypes = bodyCtx.localValueTypes;
   return withScoped(
     bodyCtx,
     {
       localNameMap: new Map(outerNameMap ?? []),
+      conditionAliases: new Map(outerConditionAliases ?? []),
       localSemanticTypes: new Map(outerSemanticTypes ?? []),
       localValueTypes: new Map(outerValueTypes ?? []),
     },

@@ -10,11 +10,12 @@
 import type { IrType, IrReferenceType } from "../types/index.js";
 import { unwrapAsyncWrapperType } from "../types/type-ops.js";
 import { stableIrTypeKey } from "../types/type-ops.js";
-import { unknownType } from "./types.js";
+import { explicitUnknownType, unknownType } from "./types.js";
 import type { TypeParameterInfo } from "./types.js";
 import type { TypeSystemState } from "./type-system-state.js";
 import { normalizeToNominal, isNullishPrimitive } from "./type-system-state.js";
-import { typesEqual } from "./type-system-relations.js";
+import { isAssignableTo, typesEqual } from "./type-system-relations.js";
+import { getIterableShape } from "./iterable-type-shapes.js";
 import {
   mapEntriesEqual,
   delegateToFunctionType,
@@ -40,6 +41,13 @@ export const inferMethodTypeArgsFromArguments = (
   const methodTypeParamNames = new Set(methodTypeParams.map((p) => p.name));
   const substitution = new Map<string, IrType>();
   const activeStructuralPairs = new Set<string>();
+
+  const areDeterministicallyEquivalentInferenceTypes = (
+    left: IrType,
+    right: IrType
+  ): boolean =>
+    typesEqual(left, right) ||
+    (isAssignableTo(state, left, right) && isAssignableTo(state, right, left));
 
   const tryUnify = (
     parameterType: IrType,
@@ -163,8 +171,29 @@ export const inferMethodTypeArgsFromArguments = (
         return true;
       }
 
+      if (argumentType.kind === "anyType") {
+        currentSubstitution.set(parameterType.name, argumentType);
+        return true;
+      }
+
+      if (argumentType.kind === "unknownType") {
+        currentSubstitution.set(
+          parameterType.name,
+          argumentType.explicit === true ? explicitUnknownType : argumentType
+        );
+        return true;
+      }
+
       const existing = currentSubstitution.get(parameterType.name);
       if (existing) {
+        if (existing.kind === "anyType") {
+          return true;
+        }
+
+        if (existing.kind === "unknownType") {
+          return true;
+        }
+
         // A self-mapping like `B -> B` can be produced when a lambda argument was typed
         // contextually from the unresolved expected signature. This provides no real
         // inference signal and must not block later concrete inference.
@@ -176,14 +205,17 @@ export const inferMethodTypeArgsFromArguments = (
           return true;
         }
 
-        return typesEqual(existing, argumentType);
+        return areDeterministicallyEquivalentInferenceTypes(
+          existing,
+          argumentType
+        );
       }
 
       currentSubstitution.set(parameterType.name, argumentType);
       return true;
     }
 
-    // Poison/any provides no deterministic information
+    // Poison/any provides no deterministic information outside direct type-parameter inference.
     if (
       argumentType.kind === "unknownType" ||
       argumentType.kind === "anyType"
@@ -391,6 +423,20 @@ export const inferMethodTypeArgsFromArguments = (
         : true;
     }
 
+    const parameterIterable = getIterableShape(state, parameterType);
+    const argumentIterable = getIterableShape(state, argumentType);
+    if (
+      parameterIterable &&
+      argumentIterable &&
+      parameterIterable.mode === argumentIterable.mode
+    ) {
+      return tryUnify(
+        parameterIterable.elementType,
+        argumentIterable.elementType,
+        currentSubstitution
+      );
+    }
+
     // Same-kind structural unification
     if (parameterType.kind !== argumentType.kind) {
       // Type mismatch provides no deterministic inference signal.
@@ -491,11 +537,11 @@ export const inferMethodTypeArgsFromArguments = (
 
       case "functionType": {
         const argFn = argumentType as typeof parameterType;
-        if (parameterType.parameters.length !== argFn.parameters.length) {
-          return true;
-        }
-
-        for (let i = 0; i < parameterType.parameters.length; i++) {
+        const pairCount = Math.min(
+          parameterType.parameters.length,
+          argFn.parameters.length
+        );
+        for (let i = 0; i < pairCount; i++) {
           const pp = parameterType.parameters[i];
           const ap = argFn.parameters[i];
           const pt = pp?.type;

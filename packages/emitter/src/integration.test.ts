@@ -2,6 +2,7 @@ import "./integration-cases/arrow-and-generics-a.test.js";
 import "./integration-cases/arrow-and-generics-b.test.js";
 import "./integration-cases/full-module-and-promises.test.js";
 import "./integration-cases/await-and-intrinsics.test.js";
+import "./integration-cases/clr-iterable-overloads.test.js";
 import "./integration-cases/regression-coverage-a.test.js";
 import "./integration-cases/regression-coverage-b.test.js";
 import "./integration-cases/regression-coverage-c.test.js";

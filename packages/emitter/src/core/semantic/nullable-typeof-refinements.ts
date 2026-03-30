@@ -35,6 +35,7 @@ import {
   applyDirectTypeNarrowing,
 } from "./narrowing-builders.js";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
+import { SYSTEM_ARRAY_STORAGE_TYPE } from "./broad-array-storage.js";
 
 export const applySimpleNullableRefinement = (
   condition: IrExpression,
@@ -421,7 +422,8 @@ export const applyArrayIsArrayRefinement = (
             currentType,
             context
           ),
-          rawTargetAst
+          rawTargetAst,
+          SYSTEM_ARRAY_STORAGE_TYPE
         ),
         rawTargetContext
       );
@@ -455,6 +457,7 @@ export const applyArrayIsArrayRefinement = (
     direct.targetExpr,
     narrowedType,
     context,
-    emitExprAst
+    emitExprAst,
+    wantArray ? SYSTEM_ARRAY_STORAGE_TYPE : undefined
   );
 };

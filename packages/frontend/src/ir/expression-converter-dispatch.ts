@@ -53,6 +53,7 @@ import {
   getNumericKindFromTypeNode,
   inferThisType,
   getIdentifierStorageType,
+  shouldPreserveExplicitStorageType,
   stripNullish,
 } from "./expression-converter-helpers.js";
 import { resolveAmbientGlobalSourceOwner } from "./converters/expressions/ambient-global-source-owner.js";
@@ -269,12 +270,13 @@ export const convertExpression = (
     };
   }
   if (node.kind === ts.SyntaxKind.NullKeyword) {
-    // Null literal - type is context-dependent, undefined for now
+    // Null literal is deterministically null. Context may later adapt it, but
+    // the literal itself must not erase nullish information here.
     return {
       kind: "literal",
       value: null,
       raw: "null",
-      inferredType: undefined,
+      inferredType: { kind: "primitiveType", name: "null" },
       sourceSpan: getSourceSpan(node),
     };
   }
@@ -379,6 +381,12 @@ export const convertExpression = (
         : undefined;
     const suppressSyntheticFlowAssertion =
       isMemberAccessReceiverExpression(node);
+    const preserveExplicitStorageType = shouldPreserveExplicitStorageType(
+      ctx,
+      declId,
+      fromDecl,
+      fromEnv
+    );
 
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
     const clrBinding = ctx.bindings.getExactBindingByKind(node.text, "global");
@@ -400,6 +408,7 @@ export const convertExpression = (
       };
       if (
         !suppressSyntheticFlowAssertion &&
+        !preserveExplicitStorageType &&
         shouldWrapExpressionWithAssertion(ctx, fromDecl, fromEnv) &&
         fromEnv
       ) {
@@ -428,6 +437,7 @@ export const convertExpression = (
     };
     if (
       !suppressSyntheticFlowAssertion &&
+      !preserveExplicitStorageType &&
       shouldWrapExpressionWithAssertion(ctx, fromDecl, fromEnv) &&
       fromEnv
     ) {

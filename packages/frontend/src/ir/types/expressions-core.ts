@@ -238,8 +238,12 @@ export type IrCallExpression = {
   readonly sourceSpan?: SourceLocation;
   // Opaque handle to the resolved signature (from Binding layer)
   readonly signatureId?: SignatureId;
+  /** Alternate overload candidates for post-proof re-resolution. */
+  readonly candidateSignatureIds?: readonly SignatureId[];
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
+  /** Contextual expected return type used during original overload selection. */
+  readonly resolutionExpectedReturnType?: IrType;
   readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[]; // Passing mode for each argument
   /** Parameter types from resolved signature (for expectedType threading to array literals etc.) */
   readonly parameterTypes?: readonly (IrType | undefined)[];
@@ -278,6 +282,8 @@ export type IrNewExpression = {
   readonly sourceSpan?: SourceLocation;
   // Opaque handle to the resolved constructor signature (from Binding layer)
   readonly signatureId?: SignatureId;
+  /** Contextual expected return type used during original constructor resolution. */
+  readonly resolutionExpectedReturnType?: IrType;
   /** Passing mode for each constructor argument (ref/out/in/value). */
   readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[];
   /** Parameter types from resolved constructor signature (for expectedType threading). */

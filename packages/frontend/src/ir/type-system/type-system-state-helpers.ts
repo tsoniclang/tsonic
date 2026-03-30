@@ -244,10 +244,10 @@ export const normalizeToNominal = (
       (sourceFqName
         ? resolveTypeIdByName(state, sourceFqName, arity)
         : undefined) ??
-      type.typeId ??
       (type.resolvedClrType
         ? resolveTypeIdByName(state, type.resolvedClrType, arity)
         : undefined) ??
+      type.typeId ??
       (!sourceFqName ? resolveTypeIdByName(state, type.name, arity) : undefined);
     if (!typeId) return undefined;
     return { typeId, typeArgs: type.typeArguments ?? [] };

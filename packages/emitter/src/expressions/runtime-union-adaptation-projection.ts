@@ -17,6 +17,7 @@ import { resolveComparableType } from "../core/semantic/comparable-types.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import { maybeAdaptRuntimeUnionExpressionAst } from "./runtime-union-adaptation-upcast.js";
+import { tryResolveRuntimeUnionCastSourceIndices } from "../core/semantic/runtime-reification-helpers.js";
 
 export const maybeWidenRuntimeUnionExpressionAst = (
   ast: CSharpExpressionAst,
@@ -150,6 +151,18 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
     return undefined;
   }
 
+  const restrictedIndices = tryResolveRuntimeUnionCastSourceIndices(
+    ast,
+    actualLayout.memberTypeAsts
+  );
+  const effectiveMembers = restrictedIndices
+    ? restrictedIndices.flatMap((index) => {
+        const member = actualLayout.members[index];
+        return member ? [member] : [];
+      })
+    : actualLayout.members;
+  const candidateMemberNs = restrictedIndices?.map((index) => index + 1);
+
   const [expectedTypeAst, expectedTypeContext] = emitTypeAst(
     expectedType,
     actualLayoutContext
@@ -161,8 +174,8 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
   let currentContext = actualTypeContext;
   let sawMatch = false;
 
-  for (let index = 0; index < actualLayout.members.length; index += 1) {
-    const actualMember = actualLayout.members[index];
+  for (let index = 0; index < effectiveMembers.length; index += 1) {
+    const actualMember = effectiveMembers[index];
     if (!actualMember) continue;
 
     const parameterName = `__tsonic_union_member_${index + 1}`;
@@ -178,7 +191,7 @@ export const maybeProjectRuntimeUnionMemberExpressionAst = (
 
     if (
       selectedSourceMemberNs &&
-      !selectedSourceMemberNs.has(index + 1)
+      !selectedSourceMemberNs.has(candidateMemberNs?.[index] ?? index + 1)
     ) {
       lambdaArgs.push({
         kind: "lambdaExpression",

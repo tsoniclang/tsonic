@@ -7,7 +7,12 @@
  *               type-system-state
  */
 
-import type { IrType, IrReferenceType, IrFunctionType } from "../types/index.js";
+import type {
+  IrType,
+  IrReferenceType,
+  IrFunctionType,
+  IrTypeParameter,
+} from "../types/index.js";
 import * as ts from "typescript";
 import type { DeclId } from "./types.js";
 import { unknownType } from "./types.js";
@@ -17,11 +22,36 @@ import { convertTypeNode } from "./type-system-call-resolution.js";
 import { makeOptionalReadType } from "./inference-utilities.js";
 import { tryInferTypeFromInitializer } from "./inference-initializers.js";
 
+const convertSignatureTypeParameters = (
+  state: TypeSystemState,
+  declaration: ts.SignatureDeclarationBase
+): readonly IrTypeParameter[] | undefined => {
+  if (!declaration.typeParameters || declaration.typeParameters.length === 0) {
+    return undefined;
+  }
+
+  return declaration.typeParameters.map((typeParameter) => ({
+    kind: "typeParameter",
+    name: typeParameter.name.text,
+    constraint: typeParameter.constraint
+      ? convertTypeNode(state, typeParameter.constraint)
+      : undefined,
+    default: typeParameter.default
+      ? convertTypeNode(state, typeParameter.default)
+      : undefined,
+    variance: undefined,
+    isStructuralConstraint:
+      !!typeParameter.constraint && ts.isTypeLiteralNode(typeParameter.constraint),
+    structuralMembers: undefined,
+  }));
+};
+
 const buildFunctionTypeFromSignatureDeclaration = (
   state: TypeSystemState,
   declaration: ts.SignatureDeclarationBase
 ): IrFunctionType => ({
   kind: "functionType",
+  typeParameters: convertSignatureTypeParameters(state, declaration),
   parameters: declaration.parameters.map((parameter) => ({
     kind: "parameter",
     pattern: ts.isIdentifier(parameter.name)

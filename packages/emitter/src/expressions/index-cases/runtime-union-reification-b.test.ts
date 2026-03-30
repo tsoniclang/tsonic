@@ -9,6 +9,7 @@ import {
   type IrModule,
   type IrType,
 } from "./helpers.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 
 describe("Expression Emission", () => {
   it("unwraps parameter-passing modifier wrappers before expected-type adaptation", () => {
@@ -461,6 +462,87 @@ describe("Expression Emission", () => {
     expect(rendered).to.not.include(
       "result is global::js.Uint8Array"
     );
+  });
+
+  it("keeps runtime-union carrier checks when narrowed bindings expose a non-union surface", () => {
+    const keyObjectType: IrType = {
+      kind: "referenceType",
+      name: "KeyObject",
+      resolvedClrType: "global::Test.KeyObject",
+    };
+    const stringOrKeyObjectType: IrType = {
+      kind: "unionType",
+      types: [{ kind: "primitiveType", name: "string" }, keyObjectType],
+    };
+
+    const [result] = emitExpressionAst(
+      {
+        kind: "binary",
+        operator: "instanceof",
+        left: {
+          kind: "identifier",
+          name: "key",
+          inferredType: keyObjectType,
+        },
+        right: {
+          kind: "identifier",
+          name: "KeyObject",
+          inferredType: keyObjectType,
+        },
+        inferredType: { kind: "primitiveType", name: "boolean" },
+      },
+      {
+        indentLevel: 0,
+        options: {
+          rootNamespace: "Test",
+          surface: "@tsonic/js",
+          indent: 4,
+        },
+        isStatic: false,
+        isAsync: false,
+        usings: new Set<string>(),
+        localNameMap: new Map([["key", "key"]]),
+        localSemanticTypes: new Map([["key", keyObjectType]]),
+        localValueTypes: new Map([["key", keyObjectType]]),
+        narrowedBindings: new Map([
+          [
+            "key",
+            {
+              kind: "expr",
+              exprAst: {
+                kind: "castExpression",
+                type: identifierType("global::Test.KeyObject"),
+                expression: {
+                  kind: "parenthesizedExpression",
+                  expression: {
+                    kind: "invocationExpression",
+                    expression: {
+                      kind: "memberAccessExpression",
+                      expression: {
+                        kind: "identifierExpression",
+                        identifier: "key",
+                      },
+                      memberName: "As2",
+                    },
+                    arguments: [],
+                  },
+                },
+              },
+              storageExprAst: {
+                kind: "identifierExpression",
+                identifier: "key",
+              },
+              type: keyObjectType,
+              sourceType: stringOrKeyObjectType,
+            },
+          ],
+        ]),
+      }
+    );
+
+    const rendered = printExpression(result);
+    expect(rendered).to.include("key.Is2()");
+    expect(rendered).to.not.include("key is global::Test.KeyObject");
   });
 
   it("prefers runtime-union carrier guards over narrowed semantic views for Array.isArray", () => {

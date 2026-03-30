@@ -309,6 +309,119 @@ describe("Maximus Validation Coverage", () => {
           `,
         },
       },
+      {
+        name: "imported base constructors across modules keep super-call typing deterministic",
+        source: `
+          import {
+            TypedArrayBase,
+            TypedInput,
+            numericIdentity,
+          } from "/test/typed-array-core.ts";
+
+          function normalizeUint8(value: number): number {
+            return value;
+          }
+
+          function wrapUint8Array(values: number[]): Uint8ArrayLike {
+            void values;
+            return undefined as unknown as Uint8ArrayLike;
+          }
+
+          class Uint8ArrayLike extends TypedArrayBase<number, Uint8ArrayLike> {
+            public static readonly BYTES_PER_ELEMENT: number = 1;
+
+            public constructor(lengthOrValues: number | TypedInput<number, Uint8ArrayLike>) {
+              super(
+                lengthOrValues,
+                Uint8ArrayLike.BYTES_PER_ELEMENT,
+                0,
+                normalizeUint8,
+                numericIdentity,
+                wrapUint8Array
+              );
+            }
+          }
+
+          void Uint8ArrayLike;
+        `,
+        extraFiles: {
+          "/test/typed-array-core.ts": `
+            export type TypedInput<
+              TElement extends number,
+              TSelf extends TypedArrayBase<TElement, TSelf>
+            > =
+              | TElement[]
+              | TSelf
+              | Iterable<number>;
+
+            export class TypedArrayBase<
+              TElement extends number,
+              TSelf extends TypedArrayBase<TElement, TSelf>
+            > {
+              public constructor(
+                lengthOrValues: number | TypedInput<TElement, TSelf>,
+                zeroValue: TElement,
+                normalizeElement: (value: number) => TElement,
+                toNumericValue: (value: TElement) => number,
+                wrap: (values: TElement[]) => TSelf
+              ) {
+                void lengthOrValues;
+                void zeroValue;
+                void normalizeElement;
+                void toNumericValue;
+                void wrap;
+              }
+            }
+
+            export const numericIdentity = <T extends number>(value: T): number => value;
+          `,
+        },
+      },
+      {
+        name: "binding-style imported constructor aliases keep super-call typing deterministic",
+        source: `
+          import { Exception } from "@fixture/dotnet/System.js";
+
+          class ErrorLike extends Exception {
+            public constructor(message?: string) {
+              super(message ?? "");
+            }
+          }
+
+          void ErrorLike;
+        `,
+        extraFiles: {
+          "/test/package.json": JSON.stringify({
+            name: "test-app",
+            type: "module",
+          }),
+          "/test/node_modules/@fixture/dotnet/package.json": JSON.stringify({
+            name: "@fixture/dotnet",
+            type: "module",
+          }),
+          "/test/node_modules/@fixture/dotnet/System.js": "export {};",
+          "/test/node_modules/@fixture/dotnet/System.d.ts": `
+            import type * as Internal from "./System/internal/index.js";
+            export type Exception = Internal.Exception;
+            export const Exception: typeof Internal.Exception;
+          `,
+          "/test/node_modules/@fixture/dotnet/System/internal/index.js": "export {};",
+          "/test/node_modules/@fixture/dotnet/System/internal/index.d.ts": `
+            export interface Exception$instance {
+              readonly Message: string;
+            }
+
+            export interface __Exception$views {}
+
+            export const Exception: {
+              new(): Exception;
+              new(message: string): Exception;
+            };
+
+            export type Exception = Exception$instance & __Exception$views;
+          `,
+        },
+      },
     ];
 
     for (const c of allowCases) {

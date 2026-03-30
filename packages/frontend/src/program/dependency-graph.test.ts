@@ -32,6 +32,41 @@ const installMinimalJsSurface = (projectRoot: string): void => {
   );
 };
 
+const hasNonEmptyObjectTypeMetadata = (value: unknown): boolean => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const inferredType = record.inferredType;
+  if (
+    inferredType &&
+    typeof inferredType === "object" &&
+    (inferredType as { kind?: string }).kind === "objectType"
+  ) {
+    const members = (inferredType as { members?: unknown[] }).members;
+    if (Array.isArray(members) && members.length > 0) {
+      return true;
+    }
+  }
+
+  const contextualType = record.contextualType;
+  if (
+    contextualType &&
+    typeof contextualType === "object" &&
+    (contextualType as { kind?: string }).kind === "objectType"
+  ) {
+    const members = (contextualType as { members?: unknown[] }).members;
+    if (Array.isArray(members) && members.length > 0) {
+      return true;
+    }
+  }
+
+  return Object.values(record).some((entry) =>
+    hasNonEmptyObjectTypeMetadata(entry)
+  );
+};
+
 describe("Dependency Graph", function () {
   this.timeout(60_000);
   it("should traverse imports from installed tsonic source packages", () => {
@@ -206,6 +241,66 @@ describe("Dependency Graph", function () {
             `Invalid source package manifest: ${path.join(packageRoot, "tsonic.package.json")}`
         )
       ).to.equal(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps post-refresh anonymous array element carriers lowered in final IR", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-dependency-graph-refresh-lowering-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      installMinimalJsSurface(tempDir);
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        [
+          "const buildListenerAttempts = (): { prefixes: string[]; address: string; family: string }[] => {",
+          "  return [",
+          "    {",
+          '      prefixes: ["http://127.0.0.1:8080/"],',
+          '      address: "127.0.0.1",',
+          '      family: "IPv4",',
+          "    },",
+          "  ];",
+          "};",
+          "",
+          "export function readAddress(): string {",
+          "  const attempts = buildListenerAttempts();",
+          "  for (const attempt of attempts) {",
+          "    return attempt.address;",
+          "  }",
+          '  return "";',
+          "}",
+        ].join("\n")
+      );
+
+      const result = buildModuleDependencyGraph(entryPath, {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(hasNonEmptyObjectTypeMetadata(result.value.modules)).to.equal(
+        false
+      );
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

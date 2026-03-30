@@ -6,7 +6,12 @@
  */
 
 import * as ts from "typescript";
-import { IrType, IrFunctionType, IrParameter } from "../../../types.js";
+import {
+  IrType,
+  IrFunctionType,
+  IrParameter,
+  IrTypeParameter,
+} from "../../../types.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import type { Binding } from "../../../binding/index.js";
 
@@ -20,9 +25,39 @@ export const convertFunctionType = (
 ): IrFunctionType => {
   return {
     kind: "functionType",
+    typeParameters: convertFunctionTypeParameters(
+      node.typeParameters,
+      binding,
+      convertType
+    ),
     parameters: convertTypeParameters(node.parameters, binding, convertType),
     returnType: convertType(node.type, binding),
   };
+};
+
+const convertFunctionTypeParameters = (
+  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+): readonly IrTypeParameter[] | undefined => {
+  if (!typeParameters || typeParameters.length === 0) {
+    return undefined;
+  }
+
+  return typeParameters.map((typeParameter) => ({
+    kind: "typeParameter",
+    name: typeParameter.name.text,
+    constraint: typeParameter.constraint
+      ? convertType(typeParameter.constraint, binding)
+      : undefined,
+    default: typeParameter.default
+      ? convertType(typeParameter.default, binding)
+      : undefined,
+    variance: undefined,
+    isStructuralConstraint:
+      !!typeParameter.constraint && ts.isTypeLiteralNode(typeParameter.constraint),
+    structuralMembers: undefined,
+  }));
 };
 
 /**

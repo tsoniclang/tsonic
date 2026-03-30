@@ -21,7 +21,10 @@ import {
   convertMethodToSignature,
   convertMethodSignatureToIr,
 } from "./registry-helpers-inference.js";
-import { resolveSourceFileNamespace } from "../../../program/source-file-identity.js";
+import {
+  resolveContainingSourcePackageNamespace,
+  resolveSourceFileNamespace,
+} from "../../../program/source-file-identity.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CANONICAL CLR NAME HELPERS
@@ -203,7 +206,8 @@ export const resolveHeritageTypeName = (
   // Source-authored types use namespace-based FQ names.
   const ns =
     sourceFile && !sourceFile.isDeclarationFile
-      ? resolveSourceFileNamespace(
+      ? resolveContainingSourcePackageNamespace(sourceFile.fileName) ??
+        resolveSourceFileNamespace(
           sourceFile.fileName,
           sourceRoot,
           rootNamespace

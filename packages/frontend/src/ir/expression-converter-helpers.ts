@@ -93,12 +93,46 @@ export const hasExplicitUnknownStorageInitializer = (
   return false;
 };
 
+const isPureNullishType = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+  if (type.kind === "primitiveType") {
+    return type.name === "null" || type.name === "undefined";
+  }
+  if (type.kind !== "unionType") {
+    return false;
+  }
+  return type.types.length > 0 && type.types.every((member) => isPureNullishType(member));
+};
+
+export const shouldPreserveExplicitStorageType = (
+  ctx: ProgramContext,
+  declId: ReturnType<ProgramContext["binding"]["resolveIdentifier"]>,
+  fromDecl: IrType | undefined,
+  fromEnv: IrType | undefined
+): boolean => {
+  if (!fromDecl || !fromEnv || !declId) {
+    return false;
+  }
+
+  const declInfo = (ctx.binding as BindingInternal)
+    ._getHandleRegistry()
+    .getDecl(declId);
+  if (!declInfo?.typeNode) {
+    return false;
+  }
+
+  return isPureNullishType(fromEnv) && !isPureNullishType(fromDecl);
+};
+
 export const getIdentifierStorageType = (
   ctx: ProgramContext,
   declId: ReturnType<ProgramContext["binding"]["resolveIdentifier"]>,
   fromDecl: IrType | undefined,
   fromEnv: IrType | undefined
 ): IrType | undefined => {
+  if (shouldPreserveExplicitStorageType(ctx, declId, fromDecl, fromEnv)) {
+    return fromDecl;
+  }
   if (fromEnv) {
     return fromEnv;
   }

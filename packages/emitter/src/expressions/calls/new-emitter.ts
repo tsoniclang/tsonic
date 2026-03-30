@@ -96,9 +96,9 @@ export const emitNew = (
 
   const argAsts: CSharpExpressionAst[] = [];
   const surfaceParameterTypes =
-    expr.surfaceParameterTypes && expr.surfaceParameterTypes.length > 0
-      ? expr.surfaceParameterTypes
-      : (expr.parameterTypes ?? []);
+    expr.parameterTypes && expr.parameterTypes.length > 0
+      ? expr.parameterTypes
+      : (expr.surfaceParameterTypes ?? []);
   const runtimeParameterTypes = expr.parameterTypes ?? [];
   for (let i = 0; i < expr.arguments.length; i++) {
     const arg = expr.arguments[i];

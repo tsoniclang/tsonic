@@ -11,7 +11,7 @@ import * as ts from "typescript";
 import type { DeclId } from "../../../type-system/types.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { extractRawDotnetBindingTypes } from "../../../../program/dotnet-binding-payload.js";
-import { resolveInstalledSourcePackageNamespace } from "../../../../program/source-file-identity.js";
+import { resolveContainingSourcePackageNamespace } from "../../../../program/source-file-identity.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 import { getTypeAliasRecursionCache } from "./references-normalize.js";
 
@@ -38,17 +38,12 @@ const bindingAliasClrIdentityCache = new Map<
 
 const tsonicSourcePackageFileCache = new Map<string, boolean>();
 
-export const isInstalledTsonicSourcePackageFile = (
+export const isTsonicSourcePackageFile = (
   fileName: string
 ): boolean => {
   const normalized = fileName.replace(/\\/g, "/");
   const cached = tsonicSourcePackageFileCache.get(normalized);
   if (cached !== undefined) return cached;
-
-  if (!normalized.includes("/node_modules/")) {
-    tsonicSourcePackageFileCache.set(normalized, false);
-    return false;
-  }
 
   let currentDir = dirname(fileName);
   while (true) {
@@ -82,7 +77,7 @@ export const shouldPreserveUserTypeAliasIdentity = (
   const sourceFile = decl.getSourceFile();
   return (
     !sourceFile.isDeclarationFile ||
-    isInstalledTsonicSourcePackageFile(sourceFile.fileName)
+    isTsonicSourcePackageFile(sourceFile.fileName)
   );
 };
 
@@ -167,14 +162,14 @@ export const resolveSourceClrIdentity = (
 
   if (
     !sourceFile.isDeclarationFile &&
-    isInstalledTsonicSourcePackageFile(sourceFile.fileName) &&
+    isTsonicSourcePackageFile(sourceFile.fileName) &&
     !ts.isTypeAliasDeclaration(declNode)
   ) {
-    const installedPackageNamespace = resolveInstalledSourcePackageNamespace(
+    const sourcePackageNamespace = resolveContainingSourcePackageNamespace(
       sourceFile.fileName
     );
-    if (installedPackageNamespace) {
-      return `${installedPackageNamespace}.${fqName}`;
+    if (sourcePackageNamespace) {
+      return `${sourcePackageNamespace}.${fqName}`;
     }
   }
 
@@ -330,9 +325,9 @@ export const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
   const fileName = sourceFile.fileName;
   const isSourceBindingsDecl =
     sourceFile.isDeclarationFile && isTsonicBindingsDeclarationFile(fileName);
-  const isInstalledSourcePackageFile =
+  const isSourcePackageFile =
     !sourceFile.isDeclarationFile &&
-    isInstalledTsonicSourcePackageFile(fileName);
+    isTsonicSourcePackageFile(fileName);
 
   // Skip external library types, but keep first-party/source-package bindings
   // extractable even when they are installed under node_modules.
@@ -347,7 +342,7 @@ export const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
   // surface and must preserve structural shape.
   if (
     (!isSourceBindingsDecl &&
-      !isInstalledSourcePackageFile &&
+      !isSourcePackageFile &&
       fileName.includes("node_modules")) ||
     fileName.includes("lib.") ||
     (sourceFile.isDeclarationFile && !isSourceBindingsDecl)

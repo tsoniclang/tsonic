@@ -1,21 +1,29 @@
 import * as ts from "typescript";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import {
   buildIrModule,
   DotnetMetadataRegistry,
   createClrBindingsResolver,
   createBinding,
+  createProgram,
   createProgramContext,
   loadBindings,
   runAnonymousTypeLoweringPass,
   runAttributeCollectionPass,
+  runCallResolutionRefreshPass,
   runNumericProofPass,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import type { EmitterOptions } from "../types.js";
 
 const require = createRequire(import.meta.url);
+const helpersDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(helpersDir, "../../../../");
+const workspaceNodeModulesRoot = path.join(repoRoot, "node_modules");
 const readSourcePackageAmbientPaths = (
   packageRoot: string
 ): readonly string[] => {
@@ -310,7 +318,9 @@ export const compileToCSharp = (
     checker,
     binding: createBinding(checker),
     options: programOptions,
-    sourceFiles: [sourceFile],
+    sourceFiles: tsProgram
+      .getSourceFiles()
+      .filter((candidate) => !candidate.isDeclarationFile),
     declarationSourceFiles: tsProgram
       .getSourceFiles()
       .filter((sourceFile) => sourceFile.isDeclarationFile),
@@ -321,12 +331,20 @@ export const compileToCSharp = (
 
   const options = programOptions;
   const ctx = createProgramContext(tsonicProgram, options);
-  const irResult = buildIrModule(sourceFile, tsonicProgram, options, ctx);
-  if (!irResult.ok) {
-    throw new Error(`IR build failed: ${irResult.error.message}`);
-  }
+  const modules = tsonicProgram.sourceFiles.flatMap((candidateSourceFile) => {
+    const irResult = buildIrModule(
+      candidateSourceFile,
+      tsonicProgram,
+      options,
+      ctx
+    );
+    if (!irResult.ok) {
+      throw new Error(`IR build failed: ${irResult.error.message}`);
+    }
+    return [irResult.value];
+  });
 
-  const loweredModules = runAnonymousTypeLoweringPass([irResult.value]).modules;
+  const loweredModules = runAnonymousTypeLoweringPass(modules).modules;
   const proofResult = runNumericProofPass(loweredModules);
   if (!proofResult.ok) {
     throw new Error(
@@ -334,7 +352,17 @@ export const compileToCSharp = (
     );
   }
 
-  const attributeResult = runAttributeCollectionPass(proofResult.modules);
+  const refreshedCallResolutionResult = runCallResolutionRefreshPass(
+    proofResult.modules,
+    ctx
+  );
+  const reloweredAfterRefreshModules = runAnonymousTypeLoweringPass(
+    refreshedCallResolutionResult.modules
+  ).modules;
+
+  const attributeResult = runAttributeCollectionPass(
+    reloweredAfterRefreshModules
+  );
   if (!attributeResult.ok) {
     throw new Error(
       `Attribute collection failed: ${attributeResult.diagnostics.map((d) => d.message).join("; ")}`
@@ -356,4 +384,134 @@ export const compileToCSharp = (
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, code]) => code)
     .join("\n\n");
+};
+
+export const compileProjectToCSharp = (
+  files: Readonly<Record<string, string>>,
+  entryRelativePath: string,
+  emitOptions: Partial<EmitterOptions> = {},
+  projectOptions?: {
+    readonly sourceRootRelativePath?: string;
+    readonly rootNamespace?: string;
+  }
+): string => {
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "tsonic-emitter-project-")
+  );
+
+  try {
+    const usesCustomNodeModules = Object.keys(files).some((relativePath) =>
+      relativePath.startsWith("node_modules/")
+    );
+    if (!usesCustomNodeModules && fs.existsSync(workspaceNodeModulesRoot)) {
+      fs.symlinkSync(
+        workspaceNodeModulesRoot,
+        path.join(tempDir, "node_modules"),
+        "dir"
+      );
+    }
+
+    for (const [relativePath, contents] of Object.entries(files)) {
+      const absolutePath = path.join(tempDir, relativePath);
+      fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+      fs.writeFileSync(absolutePath, contents);
+    }
+
+    const packageJsonPath = path.join(tempDir, "package.json");
+    if (!fs.existsSync(packageJsonPath)) {
+      fs.writeFileSync(
+        packageJsonPath,
+        JSON.stringify(
+          {
+            name: "emitter-test-project",
+            version: "1.0.0",
+            type: "module",
+          },
+          null,
+          2
+        )
+      );
+    }
+
+    const entryPath = path.join(tempDir, entryRelativePath);
+    const sourceRoot = path.join(
+      tempDir,
+      projectOptions?.sourceRootRelativePath ?? "src"
+    );
+    const rootNamespace = projectOptions?.rootNamespace ?? "Test";
+    const programOptions = {
+      projectRoot: tempDir,
+      sourceRoot,
+      rootNamespace,
+      ...(emitOptions.surface ? { surface: emitOptions.surface } : {}),
+    };
+
+    const programResult = createProgram([entryPath], programOptions);
+    if (!programResult.ok) {
+      throw new Error(
+        `Program creation failed: ${programResult.error.diagnostics.map((diagnostic) => diagnostic.message).join("; ")}`
+      );
+    }
+
+    const program = programResult.value;
+    const ctx = createProgramContext(program, {
+      sourceRoot,
+      rootNamespace,
+    });
+    const modules = program.sourceFiles.flatMap((sourceFile) => {
+      const result = buildIrModule(
+        sourceFile,
+        program,
+        {
+          sourceRoot,
+          rootNamespace,
+        },
+        ctx
+      );
+      return result.ok ? [result.value] : [];
+    });
+
+    const loweredModules = runAnonymousTypeLoweringPass(modules).modules;
+    const proofResult = runNumericProofPass(loweredModules);
+    if (!proofResult.ok) {
+      throw new Error(
+        `Numeric proof validation failed: ${proofResult.diagnostics.map((d) => d.message).join("; ")}`
+      );
+    }
+
+    const refreshedCallResolutionResult = runCallResolutionRefreshPass(
+      proofResult.modules,
+      ctx
+    );
+    const reloweredAfterRefreshModules = runAnonymousTypeLoweringPass(
+      refreshedCallResolutionResult.modules
+    ).modules;
+
+    const attributeResult = runAttributeCollectionPass(
+      reloweredAfterRefreshModules
+    );
+    if (!attributeResult.ok) {
+      throw new Error(
+        `Attribute collection failed: ${attributeResult.diagnostics.map((d) => d.message).join("; ")}`
+      );
+    }
+
+    const emitResult = emitCSharpFiles(attributeResult.modules, {
+      rootNamespace,
+      bindingRegistry: program.bindings,
+      ...emitOptions,
+    });
+    if (!emitResult.ok) {
+      throw new Error(
+        `Emit failed: ${emitResult.errors.map((d) => d.message).join("; ")}`
+      );
+    }
+
+    return [...emitResult.files.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, code]) => code)
+      .join("\n\n");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 };

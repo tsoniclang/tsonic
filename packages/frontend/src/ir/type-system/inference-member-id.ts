@@ -15,6 +15,7 @@ import type {
   IrFunctionType,
   IrParameter,
   IrReferenceType,
+  IrTypeParameter,
 } from "../types/index.js";
 import * as ts from "typescript";
 import {
@@ -39,6 +40,31 @@ import {
   hasStaticModifier,
 } from "./inference-utilities.js";
 import { tryInferTypeFromInitializer } from "./inference-initializers.js";
+
+const convertMethodTypeParameters = (
+  state: TypeSystemState,
+  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
+  applySubstitution: (type: IrType) => IrType
+): readonly IrTypeParameter[] | undefined => {
+  if (!typeParameters || typeParameters.length === 0) {
+    return undefined;
+  }
+
+  return typeParameters.map((typeParameter) => ({
+    kind: "typeParameter",
+    name: typeParameter.name.text,
+    constraint: typeParameter.constraint
+      ? applySubstitution(convertTypeNode(state, typeParameter.constraint))
+      : undefined,
+    default: typeParameter.default
+      ? applySubstitution(convertTypeNode(state, typeParameter.default))
+      : undefined,
+    variance: undefined,
+    isStructuralConstraint:
+      !!typeParameter.constraint && ts.isTypeLiteralNode(typeParameter.constraint),
+    structuralMembers: undefined,
+  }));
+};
 
 export const parseIndexerKeyClrType = (
   stableId: string
@@ -189,7 +215,23 @@ export const typeOfMemberId = (
                   isRest: parameter.isRest,
                   mode: parameter.mode,
                 })),
-                signature.returnType
+                signature.returnType,
+                signature.typeParameters.map((typeParameter) => ({
+                  kind: "typeParameter" as const,
+                  name: typeParameter.name,
+                  constraint: typeParameter.constraint
+                    ? irSubstitute(
+                        typeParameter.constraint,
+                        lookupResult.substitution as IrSubstitutionMap
+                      )
+                    : undefined,
+                  default: typeParameter.defaultType
+                    ? irSubstitute(
+                        typeParameter.defaultType,
+                        lookupResult.substitution as IrSubstitutionMap
+                      )
+                    : undefined,
+                }))
               )
             )
           );
@@ -458,7 +500,12 @@ export const typeOfMemberId = (
               isRest: !!parameter.dotDotDotToken,
               mode: "value",
             })),
-            applySubstitution(convertTypeNode(state, method.type))
+            applySubstitution(convertTypeNode(state, method.type)),
+            convertMethodTypeParameters(
+              state,
+              method.typeParameters,
+              applySubstitution
+            )
           )
         );
       }
@@ -492,6 +539,11 @@ export const typeOfMemberId = (
       const returnType = convertTypeNode(state, decl.type);
       const fnType: IrFunctionType = {
         kind: "functionType",
+        typeParameters: convertMethodTypeParameters(
+          state,
+          decl.typeParameters,
+          (type) => type
+        ),
         parameters,
         returnType,
       };

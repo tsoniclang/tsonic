@@ -18,7 +18,11 @@ import {
   getTypeNodeFromDeclaration,
 } from "./binding-helpers.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
-import { resolveCallSignatureCandidates } from "./binding-call-resolution-candidates.js";
+import {
+  isOverloadSurfaceDeclaration,
+  resolveCallSignatureCandidates,
+  resolveCallTargetDeclarations,
+} from "./binding-call-resolution-candidates.js";
 // ═══════════════════════════════════════════════════════════════════════════
 // CALL SIGNATURE RESOLUTION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -42,13 +46,33 @@ export const resolveCallSignature = (
     return undefined;
   }
 
-  const resolvedId = getOrCreateSignatureId(ctx, signature);
+  const candidates = resolveCallSignatureCandidates(ctx, node);
+  const targetDecls = resolveCallTargetDeclarations(ctx, node);
+  const hasApplicableOverloadSurfaces =
+    !!candidates &&
+    candidates.length > 0 &&
+    !!targetDecls?.some(isOverloadSurfaceDeclaration);
+  const resolvedDecl = signature.getDeclaration();
+  const resolvedIsImplementationDecl =
+    !!resolvedDecl &&
+    ts.isFunctionLike(resolvedDecl) &&
+    !ts.isConstructSignatureDeclaration(resolvedDecl) &&
+    !ts.isConstructorDeclaration(resolvedDecl) &&
+    "body" in resolvedDecl &&
+    resolvedDecl.body !== undefined;
+
+  const resolvedId =
+    resolvedIsImplementationDecl && hasApplicableOverloadSurfaces
+      ? candidates[0]
+      : getOrCreateSignatureId(ctx, signature);
+  if (!resolvedId) {
+    return undefined;
+  }
 
   // Narrow overload selection only from explicit source evidence.
   // We never rescore a correctly resolved TS signature using inferred
   // numeric/string "intent". Only exact authored primitive aliases and exact
   // object-literal structural compatibility may narrow candidates further.
-  const candidates = resolveCallSignatureCandidates(ctx, node);
   if (!candidates || candidates.length < 2) return resolvedId;
 
   const stripParens = (expr: ts.Expression): ts.Expression => {

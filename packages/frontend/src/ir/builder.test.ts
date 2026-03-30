@@ -1,6 +1,7 @@
 import "./builder-cases/call-inference-generics/alias-cache.test.js";
 import "./builder-cases/call-inference-generics/context-threading.test.js";
 import "./builder-cases/clr-identity.test.js";
+import "./builder-cases/clr-iterable-overload-resolution.test.js";
 import "./builder-cases/conditional-narrowing.test.js";
 import "./builder-cases/contextual-typing-middleware.test.js";
 import "./builder-cases/expression-conversion.test.js";
@@ -8,6 +9,7 @@ import "./builder-cases/fluent-and-nullable-params.test.js";
 import "./builder-cases/for-of-loops.test.js";
 import "./builder-cases/implements-and-struct.test.js";
 import "./builder-cases/import-extraction.test.js";
+import "./builder-cases/installed-source-package-deterministic-typing.test.js";
 import "./builder-cases/js-surface-helpers.test.js";
 import "./builder-cases/module-structure-and-exports.test.js";
 import "./builder-cases/namespace-imports-and-function-narrowing.test.js";

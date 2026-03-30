@@ -14,7 +14,11 @@ import { DotnetMetadataRegistry } from "../../dotnet-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
 import { createClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
 import { createBinding } from "../binding/index.js";
-import { createTestProgram, createProgramContext } from "./_test-helpers.js";
+import {
+  createFilesystemTestProgram,
+  createTestProgram,
+  createProgramContext,
+} from "./_test-helpers.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);
@@ -158,6 +162,74 @@ describe("IR Builder", function () {
           kind: "arrayType",
           elementType: { kind: "unknownType" },
         });
+
+      }
+    });
+
+    it("infers generic array callback return types when callbacks omit trailing parameters", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare function inspect(value: unknown): string;",
+            "",
+            "export function format(",
+            "  message?: unknown,",
+            "  optionalParams: readonly unknown[] = []",
+            "): string {",
+            "  const values =",
+            "    message === undefined ? [...optionalParams] : [message, ...optionalParams];",
+            '  return values.map((value) => inspect(value)).join(\" \");',
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "format"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const returnStmt = fn.body.statements.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+            stmt.kind === "returnStatement"
+        );
+        expect(returnStmt?.expression?.kind).to.equal("call");
+        if (!returnStmt?.expression || returnStmt.expression.kind !== "call") {
+          return;
+        }
+
+        const joinCall = returnStmt.expression;
+        expect(joinCall.callee.kind).to.equal("memberAccess");
+        if (joinCall.callee.kind !== "memberAccess") {
+          return;
+        }
+
+        expect(joinCall.callee.object.kind).to.equal("call");
+        if (joinCall.callee.object.kind !== "call") {
+          return;
+        }
+
+        expect(joinCall.callee.object.inferredType).to.deep.equal({
+          kind: "arrayType",
+          elementType: { kind: "primitiveType", name: "string" },
+          origin: "explicit",
+        });
+      } finally {
+        fixture.cleanup();
       }
     });
 

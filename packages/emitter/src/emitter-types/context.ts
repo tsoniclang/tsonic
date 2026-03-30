@@ -85,6 +85,7 @@ type ScopedFields = Pick<
   | "typeParameterNameMap"
   | "returnType"
   | "localNameMap"
+  | "conditionAliases"
   | "localSemanticTypes"
   | "localValueTypes"
   | "narrowedBindings"
@@ -125,6 +126,7 @@ export const withScoped = <T>(
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
     localNameMap: context.localNameMap,
+    conditionAliases: context.conditionAliases,
     localSemanticTypes: context.localSemanticTypes,
     localValueTypes: context.localValueTypes,
     narrowedBindings: context.narrowedBindings,

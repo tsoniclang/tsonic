@@ -240,6 +240,8 @@ export const convertNewExpression = (
     arguments: convertedArgs,
     inferredType,
     sourceSpan: getSourceSpan(node),
+    signatureId: sigId,
+    resolutionExpectedReturnType: expectedType,
     argumentPassing,
     parameterTypes,
     surfaceParameterTypes,

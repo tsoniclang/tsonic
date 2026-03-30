@@ -236,6 +236,9 @@ export const lowerExpression = (
           typeArguments: expr.typeArguments?.map((typeArgument) =>
             lowerType(typeArgument, ctx)
           ),
+          resolutionExpectedReturnType: expr.resolutionExpectedReturnType
+            ? lowerType(expr.resolutionExpectedReturnType, ctx)
+            : undefined,
           parameterTypes: expr.parameterTypes?.map((parameterType) =>
             parameterType ? lowerType(parameterType, ctx) : undefined
           ),
@@ -259,6 +262,9 @@ export const lowerExpression = (
           typeArguments: expr.typeArguments?.map((typeArgument) =>
             lowerType(typeArgument, ctx)
           ),
+          resolutionExpectedReturnType: expr.resolutionExpectedReturnType
+            ? lowerType(expr.resolutionExpectedReturnType, ctx)
+            : undefined,
           parameterTypes: expr.parameterTypes?.map((parameterType) =>
             parameterType ? lowerType(parameterType, ctx) : undefined
           ),

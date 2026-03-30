@@ -187,6 +187,7 @@ export const lookupStructuralMember = (
       if (member.kind === "methodSignature") {
         const funcType: IrFunctionType = {
           kind: "functionType",
+          typeParameters: member.typeParameters,
           parameters: member.parameters,
           returnType: member.returnType ?? voidType,
         };
@@ -209,6 +210,7 @@ export const lookupStructuralMember = (
       if (member.kind === "methodSignature") {
         const funcType: IrFunctionType = {
           kind: "functionType",
+          typeParameters: member.typeParameters,
           parameters: member.parameters,
           returnType: member.returnType ?? voidType,
         };

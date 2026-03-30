@@ -22,6 +22,7 @@ import {
   hasNonComputedClassMemberName,
 } from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
+import { resolveHeritageReferenceType } from "../../../heritage-reference-type.js";
 
 /**
  * Convert a single class member
@@ -282,7 +283,7 @@ export const convertClassDeclaration = (
     name: node.name.text,
     typeParameters: convertTypeParameters(node.typeParameters, ctx),
     superClass: superClass
-      ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(superClass))
+      ? resolveHeritageReferenceType(superClass, ctx)
       : undefined,
     implements: implementsTypes,
     members: finalMembers,

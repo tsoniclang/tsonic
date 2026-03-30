@@ -135,6 +135,33 @@ export type TypeAuthority = {
   resolveCall(query: CallQuery): ResolvedCall;
 
   /**
+   * Resolve the best semantic overload candidate from a candidate set.
+   *
+   * Binding may provide multiple arity-compatible candidates when the TypeScript
+   * layer cannot faithfully distinguish CLR/native-first-party surfaces. This
+   * method lets TypeSystem remain the authority for final semantic selection.
+   */
+  selectBestCallCandidate(
+    fallbackSigId: SignatureId | undefined,
+    candidateSigIds: readonly SignatureId[] | undefined,
+    query: Omit<CallQuery, "sigId">
+  ): {
+    readonly sigId: SignatureId | undefined;
+    readonly resolved: ResolvedCall | undefined;
+  };
+
+  resolveCallableType(
+    type: IrType | undefined,
+    query: Pick<
+      CallQuery,
+      "argumentCount" | "argTypes" | "explicitTypeArgs" | "expectedReturnType"
+    >
+  ): {
+    readonly callableType: IrFunctionType | undefined;
+    readonly resolved: ResolvedCall | undefined;
+  };
+
+  /**
    * Expand a contextual expected type into inference candidates.
    *
    * Used by the frontend before full argument conversion so imported aliases,
@@ -216,6 +243,15 @@ export type TypeAuthority = {
    * Conservative implementation — returns false if unsure.
    */
   isAssignableTo(source: IrType, target: IrType): boolean;
+
+  /**
+   * Check whether a value of `source` can satisfy `value instanceof Target`.
+   *
+   * This is intentionally stricter than general assignability:
+   * `instanceof` must respect constructor-instance identity and inheritance,
+   * not broad structural compatibility such as shared iterable shapes.
+   */
+  matchesInstanceofTarget(source: IrType, target: IrType): boolean;
 
   /**
    * Check if two types are structurally equal.

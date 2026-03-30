@@ -37,7 +37,7 @@ export const getPropertyType = (
 export const resolveLocalTypeInfo = (
   ref: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
-): { readonly info: LocalTypeInfo; readonly namespace: string } | undefined => {
+): { readonly info: LocalTypeInfo; readonly namespace: string; readonly name: string } | undefined => {
   const direct = resolveLocalTypeInfoWithoutBindings(ref, context);
   if (direct) {
     return direct;
@@ -54,17 +54,31 @@ export const resolveLocalTypeInfo = (
 export const resolveLocalTypeInfoWithoutBindings = (
   ref: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
-): { readonly info: LocalTypeInfo; readonly namespace: string } | undefined => {
-  const lookupName = ref.name.includes(".")
+): { readonly info: LocalTypeInfo; readonly namespace: string; readonly name: string } | undefined => {
+  const simpleLookupName = ref.name.includes(".")
     ? (ref.name.split(".").pop() ?? ref.name)
     : ref.name;
+  const lookupCandidates = new Set<string>([simpleLookupName]);
+  if (simpleLookupName.endsWith("$instance")) {
+    const baseName = simpleLookupName.slice(0, -"$instance".length);
+    if (baseName.length > 0) {
+      lookupCandidates.add(baseName);
+      const unsuffixedBaseName = baseName.replace(/_\d+$/, "");
+      if (unsuffixedBaseName.length > 0) {
+        lookupCandidates.add(unsuffixedBaseName);
+      }
+    }
+  }
 
-  const localHit = context.localTypes?.get(lookupName);
-  if (localHit) {
-    return {
-      info: localHit,
-      namespace: context.moduleNamespace ?? context.options.rootNamespace,
-    };
+  for (const lookupName of lookupCandidates) {
+    const localHit = context.localTypes?.get(lookupName);
+    if (localHit) {
+      return {
+        info: localHit,
+        namespace: context.moduleNamespace ?? context.options.rootNamespace,
+        name: lookupName,
+      };
+    }
   }
 
   const moduleMap = context.options.moduleMap;
@@ -73,11 +87,14 @@ export const resolveLocalTypeInfoWithoutBindings = (
   const matches: {
     readonly namespace: string;
     readonly info: LocalTypeInfo;
+    readonly name: string;
   }[] = [];
-  for (const m of moduleMap.values()) {
-    const info = m.localTypes?.get(lookupName);
-    if (!info) continue;
-    matches.push({ namespace: m.namespace, info });
+  for (const lookupName of lookupCandidates) {
+    for (const m of moduleMap.values()) {
+      const info = m.localTypes?.get(lookupName);
+      if (!info) continue;
+      matches.push({ namespace: m.namespace, info, name: lookupName });
+    }
   }
 
   if (matches.length === 0) return undefined;
@@ -86,7 +103,11 @@ export const resolveLocalTypeInfoWithoutBindings = (
     if (!onlyMatch) {
       return undefined;
     }
-    return { info: onlyMatch.info, namespace: onlyMatch.namespace };
+    return {
+      info: onlyMatch.info,
+      namespace: onlyMatch.namespace,
+      name: onlyMatch.name,
+    };
   }
 
   const fqn =
@@ -102,6 +123,7 @@ export const resolveLocalTypeInfoWithoutBindings = (
       return {
         info: scopedMatch.info,
         namespace: scopedMatch.namespace,
+        name: scopedMatch.name,
       };
     }
   }

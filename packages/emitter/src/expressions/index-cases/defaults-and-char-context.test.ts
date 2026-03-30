@@ -407,6 +407,87 @@ describe("Expression Emission", () => {
     expect(result).not.to.include(".Value");
   });
 
+  it("preserves nullable numeric arguments when calling optional numeric parameters", () => {
+    const optionalNumberType = {
+      kind: "unionType" as const,
+      types: [
+        { kind: "primitiveType" as const, name: "number" as const },
+        { kind: "primitiveType" as const, name: "undefined" as const },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "acceptLevel",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "level" },
+              type: { kind: "primitiveType", name: "number" },
+              isOptional: true,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isAsync: false,
+          isGenerator: false,
+          isExported: false,
+        },
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "level" },
+              type: optionalNumberType,
+              initializer: { kind: "identifier", name: "undefined" },
+            },
+          ],
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "acceptLevel" },
+            arguments: [
+              {
+                kind: "typeAssertion",
+                expression: {
+                  kind: "identifier",
+                  name: "level",
+                  inferredType: optionalNumberType,
+                },
+                targetType: optionalNumberType,
+                inferredType: optionalNumberType,
+              },
+            ],
+            parameterTypes: [{ kind: "primitiveType", name: "number" }],
+            surfaceParameterTypes: [optionalNumberType],
+            isOptional: false,
+            inferredType: { kind: "voidType" },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("acceptLevel(level)");
+    expect(result).not.to.include("acceptLevel((double)(object)level)");
+  });
+
   it("should emit char literals for single-character string assertions to char", () => {
     const module: IrModule = {
       kind: "module",

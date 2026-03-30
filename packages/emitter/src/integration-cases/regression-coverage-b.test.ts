@@ -36,7 +36,9 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.include("if (dims != null)");
       expect(csharp).to.not.include("if ((object)dims != null)");
       expect(csharp).to.not.include("return (object)dims;");
@@ -57,9 +59,196 @@ describe("End-to-End Integration", () => {
         }
       `;
 
-      const csharp = compileToCSharp(source);
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
       expect(csharp).to.include("object?[] values = (object?[])value;");
       expect(csharp).to.not.include("object?[] values = value;");
+    });
+
+    it("preserves System.Array storage for broad array assertions after Array.isArray fallthrough guards", () => {
+      const source = `
+        export function firstDefined(value: unknown): boolean {
+          if (!Array.isArray(value)) {
+            return false;
+          }
+
+          return (value as unknown[]).length > 0 && (value as unknown[])[0] !== undefined;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("((global::System.Array)value).Length > 0");
+      expect(csharp).to.include("((global::System.Array)value).GetValue(0)");
+      expect(csharp).to.not.include("(object?[])value");
+    });
+
+    it("preserves System.Array storage for broad array assertions inside nested callbacks", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function compare(
+          left: (index: int) => unknown,
+          right: (index: int) => unknown
+        ): void;
+
+        export function run(left: unknown, right: unknown): void {
+          if (!Array.isArray(left) || !Array.isArray(right)) {
+            return;
+          }
+
+          compare(
+            (index) => (left as unknown[])[index],
+            (index) => (right as unknown[])[index]
+          );
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("((global::System.Array)left).GetValue(index)");
+      expect(csharp).to.include("((global::System.Array)right).GetValue(index)");
+      expect(csharp).to.not.include("((object?[])left)[index]");
+      expect(csharp).to.not.include("((object?[])right)[index]");
+    });
+
+    it("preserves System.Array storage through Array.isArray boolean alias gates", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function compare(
+          left: object,
+          right: object,
+          leftLength: int,
+          rightLength: int,
+          getLeftValue: (index: int) => unknown,
+          getRightValue: (index: int) => unknown
+        ): boolean;
+
+        export function run(left: unknown, right: unknown): boolean {
+          const leftIsArray = Array.isArray(left);
+          const rightIsArray = Array.isArray(right);
+          if (leftIsArray || rightIsArray) {
+            if (!leftIsArray || !rightIsArray) {
+              return false;
+            }
+
+            return compare(
+              left as object,
+              right as object,
+              (left as unknown[]).length,
+              (right as unknown[]).length,
+              (index) => (left as unknown[])[index],
+              (index) => (right as unknown[])[index]
+            );
+          }
+
+          return false;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("((global::System.Array)left).Length");
+      expect(csharp).to.include("((global::System.Array)right).Length");
+      expect(csharp).to.include("((global::System.Array)left).GetValue(index)");
+      expect(csharp).to.include("((global::System.Array)right).GetValue(index)");
+      expect(csharp).to.not.include("(object?[])left");
+      expect(csharp).to.not.include("(object?[])right");
+    });
+
+    it("preserves System.Array storage through bound Array.isArray boolean alias gates", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+        import type {} from "@tsonic/nodejs/type-bootstrap.js";
+
+        declare function compare(
+          left: object,
+          right: object,
+          leftLength: int,
+          rightLength: int,
+          getLeftValue: (index: int) => unknown,
+          getRightValue: (index: int) => unknown
+        ): boolean;
+
+        export function run(left: unknown, right: unknown): boolean {
+          const leftIsArray = Array.isArray(left);
+          const rightIsArray = Array.isArray(right);
+          if (leftIsArray || rightIsArray) {
+            if (!leftIsArray || !rightIsArray) {
+              return false;
+            }
+
+            return compare(
+              left as object,
+              right as object,
+              (left as unknown[]).length,
+              (right as unknown[]).length,
+              (index) => (left as unknown[])[index],
+              (index) => (right as unknown[])[index]
+            );
+          }
+
+          return false;
+        }
+      `;
+
+      const csharp = compileToCSharp(
+        source,
+        "/test/assert-module.ts",
+        { surface: "@tsonic/js" }
+      );
+      expect(csharp).to.include("((global::System.Array)left).Length");
+      expect(csharp).to.include("((global::System.Array)right).Length");
+      expect(csharp).to.include("((global::System.Array)left).GetValue(index)");
+      expect(csharp).to.include("((global::System.Array)right).GetValue(index)");
+      expect(csharp).to.not.include("(object?[])left");
+      expect(csharp).to.not.include("(object?[])right");
+    });
+
+    it("keeps source-declared js.Array length accesses nominal", () => {
+      const source = `
+        import { Array } from "@tsonic/js/index.js";
+        import type { int } from "@tsonic/core/types.js";
+
+        export function readLength(self: Array<int>): int {
+          return self.length;
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("return self.length;");
+      expect(csharp).to.not.include("return self.Length;");
+      expect(csharp).to.not.include("new global::js.Array<int>(self).length");
+    });
+
+    it("materializes narrowed union locals before array mutation wrappers", () => {
+      const source = `
+        export function append(
+          result: Record<string, string | string[]>,
+          key: string,
+          value: string
+        ): void {
+          const existing = result[key];
+          if (existing !== undefined) {
+            if (Array.isArray(existing)) {
+              existing.push(value);
+            } else {
+              result[key] = [existing, value];
+            }
+          } else {
+            result[key] = value;
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.not.include("new global::js.Array<string>(existing)");
+      expect(csharp).to.match(
+        /new global::js\.Array<string>\(\s*existing\.Match<string\[]>\(/
+      );
     });
 
     it("preserves runtime-union member numbering across nested array and instanceof fallthrough guards", () => {

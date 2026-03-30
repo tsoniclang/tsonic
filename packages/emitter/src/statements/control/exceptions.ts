@@ -43,11 +43,13 @@ export const emitTryStatementAst = (
         ? stmt.catchClause.parameter.name
         : "ex";
     const outerMap = currentContext.localNameMap;
+    const outerConditionAliases = currentContext.conditionAliases;
     const outerSemanticTypes = currentContext.localSemanticTypes;
     const outerValueTypes = currentContext.localValueTypes;
     let catchScopeContext: EmitterContext = {
       ...currentContext,
       localNameMap: new Map(outerMap ?? []),
+      conditionAliases: new Map(outerConditionAliases ?? []),
     };
 
     const alloc = allocateLocalName(param, catchScopeContext);
@@ -70,6 +72,7 @@ export const emitTryStatementAst = (
     currentContext = {
       ...catchContext,
       localNameMap: outerMap,
+      conditionAliases: outerConditionAliases,
       localSemanticTypes: outerSemanticTypes,
       localValueTypes: outerValueTypes,
     };

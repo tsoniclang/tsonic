@@ -41,6 +41,8 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 ## Testing Workflow
 
 - Never add code branches, heuristics, compatibility shims, or special cases just to make tests pass.
+- Never add bridge code, temporary compatibility layers, or product-path debug helpers as a “final” fix.
+- If temporary instrumentation or debug code is necessary during investigation, keep it under `.temp/` and out of product codepaths.
 - When a test fails, fix the underlying compiler/runtime/package root cause or remove the invalid assumption from the test.
 
 Fast iteration (OK while developing / on external testbed projects):

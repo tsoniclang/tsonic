@@ -2,7 +2,11 @@
  * Type system types for IR (IrType and its variants)
  */
 
-import { IrParameter, IrInterfaceMember } from "./helpers.js";
+import {
+  IrParameter,
+  IrInterfaceMember,
+  IrTypeParameter,
+} from "./helpers.js";
 import type { TypeId } from "../type-system/index.js";
 
 export type IrType =
@@ -119,6 +123,7 @@ export type IrTupleType = {
 
 export type IrFunctionType = {
   readonly kind: "functionType";
+  readonly typeParameters?: readonly IrTypeParameter[];
   readonly parameters: readonly IrParameter[];
   readonly returnType: IrType;
 };

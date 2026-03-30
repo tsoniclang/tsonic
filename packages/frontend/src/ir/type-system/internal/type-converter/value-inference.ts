@@ -9,6 +9,7 @@ import type {
   IrFunctionType,
   IrObjectType,
   IrInterfaceMember,
+  IrTypeParameter,
 } from "../../../types.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 import {
@@ -54,6 +55,11 @@ export function buildFunctionTypeFromSignatureDeclaration(
 ): IrFunctionType {
   return {
     kind: "functionType",
+    typeParameters: convertFunctionTypeParameters(
+      declaration.typeParameters,
+      binding,
+      convertTypeFn
+    ),
     parameters: declaration.parameters.map((parameter) => ({
       kind: "parameter",
       pattern: ts.isIdentifier(parameter.name)
@@ -77,6 +83,37 @@ export function buildFunctionTypeFromSignatureDeclaration(
       : { kind: "voidType" },
   };
 }
+
+const convertFunctionTypeParameters = (
+  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
+  binding: Binding,
+  convertTypeFn: (node: ts.TypeNode, binding: Binding) => IrType
+): readonly IrTypeParameter[] | undefined => {
+  if (!typeParameters || typeParameters.length === 0) {
+    return undefined;
+  }
+
+  return typeParameters.map((typeParameter) => ({
+    kind: "typeParameter",
+    name: typeParameter.name.text,
+    constraint: typeParameter.constraint
+      ? convertTypeFn(
+          withTypeParameterConstraint(typeParameter.constraint, binding),
+          binding
+        )
+      : undefined,
+    default: typeParameter.default
+      ? convertTypeFn(
+          withTypeParameterConstraint(typeParameter.default, binding),
+          binding
+        )
+      : undefined,
+    variance: undefined,
+    isStructuralConstraint:
+      !!typeParameter.constraint && ts.isTypeLiteralNode(typeParameter.constraint),
+    structuralMembers: undefined,
+  }));
+};
 
 export function inferTypeFromValueDeclaration(
   declaration: ts.Declaration | undefined,

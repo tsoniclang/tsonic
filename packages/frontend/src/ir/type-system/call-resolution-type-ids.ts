@@ -40,101 +40,156 @@ export const substitutePolymorphicThis = (
   type: IrType | undefined,
   receiverType: IrType | undefined
 ): IrType | undefined => {
+  return substitutePolymorphicThisImpl(
+    type,
+    receiverType,
+    new Map<IrType, IrType>()
+  );
+};
+
+const substitutePolymorphicThisImpl = (
+  type: IrType | undefined,
+  receiverType: IrType | undefined,
+  seen: Map<IrType, IrType>
+): IrType | undefined => {
   if (!type || !receiverType) return type;
+
+  if (type.kind !== "typeParameterType") {
+    const cached = seen.get(type);
+    if (cached) {
+      return cached;
+    }
+  }
 
   switch (type.kind) {
     case "typeParameterType":
       return type.name === POLYMORPHIC_THIS_MARKER ? receiverType : type;
     case "arrayType": {
-      const elementType = substitutePolymorphicThis(
+      const substituted = {
+        ...type,
+        elementType: type.elementType,
+      };
+      seen.set(type, substituted);
+      const elementType = substitutePolymorphicThisImpl(
         type.elementType,
-        receiverType
+        receiverType,
+        seen
       );
       if (!elementType) return type;
-      return {
-        ...type,
-        elementType,
-      };
+      substituted.elementType = elementType;
+      return substituted;
     }
-    case "tupleType":
-      return {
+    case "tupleType": {
+      const substituted = {
         ...type,
-        elementTypes: type.elementTypes.map(
-          (element) =>
-            substitutePolymorphicThis(element, receiverType) ?? element
-        ),
+        elementTypes: type.elementTypes,
       };
-    case "dictionaryType":
-      return {
+      seen.set(type, substituted);
+      substituted.elementTypes = type.elementTypes.map(
+        (element) =>
+          substitutePolymorphicThisImpl(element, receiverType, seen) ?? element
+      );
+      return substituted;
+    }
+    case "dictionaryType": {
+      const substituted = {
         ...type,
-        keyType:
-          substitutePolymorphicThis(type.keyType, receiverType) ?? type.keyType,
-        valueType:
-          substitutePolymorphicThis(type.valueType, receiverType) ??
-          type.valueType,
+        keyType: type.keyType,
+        valueType: type.valueType,
       };
-    case "referenceType":
-      return {
+      seen.set(type, substituted);
+      substituted.keyType =
+        substitutePolymorphicThisImpl(type.keyType, receiverType, seen) ??
+        type.keyType;
+      substituted.valueType =
+        substitutePolymorphicThisImpl(type.valueType, receiverType, seen) ??
+        type.valueType;
+      return substituted;
+    }
+    case "referenceType": {
+      const substituted = {
         ...type,
         ...(type.typeArguments
-          ? {
-              typeArguments: type.typeArguments.map(
-                (arg) => substitutePolymorphicThis(arg, receiverType) ?? arg
-              ),
-            }
+          ? { typeArguments: type.typeArguments }
           : {}),
         ...(type.structuralMembers
-          ? {
-              structuralMembers: type.structuralMembers.map((member) =>
-                member.kind === "propertySignature"
-                  ? {
-                      ...member,
-                      type:
-                        substitutePolymorphicThis(member.type, receiverType) ??
-                        member.type,
-                    }
-                  : {
-                      ...member,
-                      parameters: member.parameters.map((parameter) => ({
-                        ...parameter,
-                        type:
-                          substitutePolymorphicThis(
-                            parameter.type,
-                            receiverType
-                          ) ?? parameter.type,
-                      })),
-                      returnType: member.returnType
-                        ? (substitutePolymorphicThis(
-                            member.returnType,
-                            receiverType
-                          ) ?? member.returnType)
-                        : undefined,
-                    }
-              ),
-            }
+          ? { structuralMembers: type.structuralMembers }
           : {}),
       };
+      seen.set(type, substituted);
+      if (type.typeArguments) {
+        substituted.typeArguments = type.typeArguments.map(
+          (element) =>
+            substitutePolymorphicThisImpl(element, receiverType, seen) ??
+            element
+        );
+      }
+      if (type.structuralMembers) {
+        substituted.structuralMembers = type.structuralMembers.map((member) =>
+          member.kind === "propertySignature"
+            ? {
+                ...member,
+                type:
+                  substitutePolymorphicThisImpl(
+                    member.type,
+                    receiverType,
+                    seen
+                  ) ?? member.type,
+              }
+            : {
+                ...member,
+                parameters: member.parameters.map((parameter) => ({
+                  ...parameter,
+                  type:
+                    substitutePolymorphicThisImpl(
+                      parameter.type,
+                      receiverType,
+                      seen
+                    ) ?? parameter.type,
+                })),
+                returnType: member.returnType
+                  ? (substitutePolymorphicThisImpl(
+                      member.returnType,
+                      receiverType,
+                      seen
+                    ) ?? member.returnType)
+                  : undefined,
+              }
+        );
+      }
+      return substituted;
+    }
     case "unionType":
-    case "intersectionType":
-      return {
+    case "intersectionType": {
+      const substituted = {
         ...type,
-        types: type.types.map(
-          (member) => substitutePolymorphicThis(member, receiverType) ?? member
-        ),
+        types: type.types,
       };
-    case "functionType":
-      return {
+      seen.set(type, substituted);
+      substituted.types = type.types.map(
+        (member) =>
+          substitutePolymorphicThisImpl(member, receiverType, seen) ?? member
+      );
+      return substituted;
+    }
+    case "functionType": {
+      const substituted = {
         ...type,
-        parameters: type.parameters.map((parameter) => ({
-          ...parameter,
-          type:
-            substitutePolymorphicThis(parameter.type, receiverType) ??
-            parameter.type,
-        })),
-        returnType:
-          substitutePolymorphicThis(type.returnType, receiverType) ??
-          type.returnType,
+        parameters: type.parameters,
+        returnType: type.returnType,
       };
+      seen.set(type, substituted);
+      substituted.parameters = type.parameters.map((parameter) => ({
+        ...parameter,
+        type:
+          substitutePolymorphicThisImpl(parameter.type, receiverType, seen) ??
+          parameter.type,
+      }));
+      substituted.returnType =
+        substitutePolymorphicThisImpl(type.returnType, receiverType, seen) ??
+        type.returnType;
+      return substituted;
+    }
     default:
       return type;
   }
@@ -193,7 +248,9 @@ export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
     case "referenceType": {
       const sourceFqName = resolveSourceReferenceFQName(state, type);
       const typeId =
-        type.typeId ??
+        (sourceFqName
+          ? resolveTypeIdByName(state, sourceFqName, type.typeArguments?.length)
+          : undefined) ??
         (type.resolvedClrType
           ? resolveTypeIdByName(
               state,
@@ -201,9 +258,7 @@ export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
               type.typeArguments?.length
             )
           : undefined) ??
-        (sourceFqName
-          ? resolveTypeIdByName(state, sourceFqName, type.typeArguments?.length)
-          : undefined) ??
+        type.typeId ??
         (!sourceFqName
           ? resolveTypeIdByName(state, type.name, type.typeArguments?.length)
           : undefined);

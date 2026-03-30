@@ -47,3 +47,4 @@ export {
 } from "./call-resolution-inference.js";
 
 export { resolveCall } from "./call-resolution-resolve.js";
+export { resolveCallableType } from "./call-resolution-callable-types.js";

@@ -51,8 +51,14 @@ export const getDirectIterableElementType = (
     return undefined;
   }
 
-  const simpleName = resolved.name.split(".").pop() ?? resolved.name;
-  const clrSimpleName = resolved.resolvedClrType?.split(".").pop();
+  const simpleName = (resolved.name.split(".").pop() ?? resolved.name).replace(
+    /\$instance$/,
+    ""
+  );
+  const clrSimpleName = resolved.resolvedClrType
+    ?.split(".")
+    .pop()
+    ?.replace(/\$instance$/, "");
   if (
     simpleName === "Iterable" ||
     simpleName === "IterableIterator" ||
@@ -61,6 +67,8 @@ export const getDirectIterableElementType = (
     simpleName === "AsyncIterableIterator" ||
     simpleName === "AsyncGenerator" ||
     simpleName === "IEnumerable" ||
+    simpleName === "IEnumerable_1" ||
+    simpleName === "IAsyncEnumerable_1" ||
     clrSimpleName === "IEnumerable" ||
     clrSimpleName === "IAsyncEnumerable"
   ) {
@@ -143,6 +151,13 @@ const resolveIteratorMemberFromReference = (
   }
   const nextVisited = new Set(visited);
   nextVisited.add(visitKey);
+
+  const structuralDirect = resolvedRef.structuralMembers
+    ? resolveIteratorMemberFromMembers(resolvedRef.structuralMembers, [], undefined)
+    : undefined;
+  if (structuralDirect) {
+    return structuralDirect;
+  }
 
   const localInfoResult = resolveLocalTypeInfo(resolvedRef, context);
   if (!localInfoResult) {

@@ -12,12 +12,45 @@ import {
   applyInstanceofRefinement,
 } from "./narrowing-refinements.js";
 
+const resolveConditionAliasExpression = (
+  condition: IrExpression,
+  context: EmitterContext,
+  seen = new Set<string>()
+): IrExpression => {
+  if (condition.kind !== "identifier") {
+    return condition;
+  }
+
+  if (seen.has(condition.name)) {
+    return condition;
+  }
+
+  const alias = context.conditionAliases?.get(condition.name);
+  if (!alias) {
+    return condition;
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(condition.name);
+  return resolveConditionAliasExpression(alias, context, nextSeen);
+};
+
 export const applyConditionBranchNarrowing = (
   condition: IrExpression,
   branch: BranchTruthiness,
   context: EmitterContext,
   emitExprAst: EmitExprAstFn
 ): EmitterContext => {
+  const resolvedCondition = resolveConditionAliasExpression(condition, context);
+  if (resolvedCondition !== condition) {
+    return applyConditionBranchNarrowing(
+      resolvedCondition,
+      branch,
+      context,
+      emitExprAst
+    );
+  }
+
   if (condition.kind === "unary" && condition.operator === "!") {
     return applyConditionBranchNarrowing(
       condition.expression,

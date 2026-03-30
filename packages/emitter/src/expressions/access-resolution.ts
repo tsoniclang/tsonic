@@ -28,4 +28,5 @@ export {
   tryEmitStorageCompatibleNarrowedMemberRead,
   resolveEffectiveReceiverType,
   resolveEmittedReceiverTypeAst,
+  tryEmitBroadArrayAssertionReceiverStorageAst,
 } from "./access-resolution-receivers.js";

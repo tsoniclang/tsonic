@@ -27,6 +27,160 @@ import {
   normalizeToNominal,
   resolveTypeIdByName,
 } from "./type-system-state.js";
+import { getIterableShape } from "./iterable-type-shapes.js";
+
+const CLR_NUMERIC_PRIMITIVE_NAMES = new Set([
+  "byte",
+  "sbyte",
+  "short",
+  "ushort",
+  "int",
+  "uint",
+  "long",
+  "ulong",
+  "float",
+  "double",
+  "decimal",
+]);
+
+const CLR_PRIMITIVE_ALIAS_NAMES = new Set(["int", "char"]);
+
+const getClrPrimitiveAliasName = (type: IrType): "int" | "char" | undefined => {
+  if (type.kind === "primitiveType") {
+    return CLR_PRIMITIVE_ALIAS_NAMES.has(type.name)
+      ? (type.name as "int" | "char")
+      : undefined;
+  }
+
+  if (type.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const resolvedSimpleName = type.resolvedClrType?.split(".").pop();
+  if (resolvedSimpleName === "Int32" || resolvedSimpleName === "int") {
+    return "int";
+  }
+  if (resolvedSimpleName === "Char" || resolvedSimpleName === "char") {
+    return "char";
+  }
+
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  if (simpleName === "int") {
+    return "int";
+  }
+  if (simpleName === "char") {
+    return "char";
+  }
+
+  return undefined;
+};
+
+const getNumericTypeName = (type: IrType): string | undefined => {
+  if (type.kind === "primitiveType") {
+    return type.name;
+  }
+
+  if (type.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const clrSimpleName = type.resolvedClrType?.split(".").pop();
+  if (clrSimpleName && CLR_NUMERIC_PRIMITIVE_NAMES.has(clrSimpleName)) {
+    return clrSimpleName;
+  }
+
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  return CLR_NUMERIC_PRIMITIVE_NAMES.has(simpleName) ? simpleName : undefined;
+};
+
+const isNumericWideningAssignable = (
+  source: IrType,
+  target: IrType
+): boolean => {
+  const sourceName = getNumericTypeName(source);
+  const targetName = getNumericTypeName(target);
+  return targetName === "number" && sourceName !== undefined && sourceName !== "number";
+};
+
+const isArrayInstanceTarget = (type: IrType): boolean => {
+  if (type.kind === "arrayType" || type.kind === "tupleType") {
+    return true;
+  }
+
+  if (type.kind !== "referenceType") {
+    return false;
+  }
+
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  const clrSimpleName = type.resolvedClrType?.split(".").pop();
+  return (
+    simpleName === "Array" ||
+    simpleName === "ReadonlyArray" ||
+    clrSimpleName === "Array" ||
+    clrSimpleName === "ReadonlyArray"
+  );
+};
+
+const isArrayInstanceCandidate = (type: IrType): boolean => {
+  if (type.kind === "arrayType" || type.kind === "tupleType") {
+    return true;
+  }
+
+  if (type.kind !== "referenceType") {
+    return false;
+  }
+
+  const simpleName = type.name.split(".").pop() ?? type.name;
+  const clrSimpleName = type.resolvedClrType?.split(".").pop();
+  return (
+    simpleName === "Array" ||
+    simpleName === "ReadonlyArray" ||
+    clrSimpleName === "Array" ||
+    clrSimpleName === "ReadonlyArray"
+  );
+};
+
+export const matchesInstanceofTarget = (
+  state: TypeSystemState,
+  source: IrType,
+  target: IrType
+): boolean => {
+  if (typesEqual(source, target)) {
+    return true;
+  }
+
+  if (target.kind === "unionType") {
+    return target.types.some((candidate) =>
+      matchesInstanceofTarget(state, source, candidate)
+    );
+  }
+
+  if (source.kind === "unionType") {
+    return source.types.every((candidate) =>
+      matchesInstanceofTarget(state, candidate, target)
+    );
+  }
+
+  if (isArrayInstanceTarget(target) && isArrayInstanceCandidate(source)) {
+    return true;
+  }
+
+  if (source.kind === "referenceType" && target.kind === "referenceType") {
+    const sourceNominal = normalizeToNominal(state, source);
+    const targetNominal = normalizeToNominal(state, target);
+
+    if (sourceNominal && targetNominal) {
+      if (sourceNominal.typeId.stableId === targetNominal.typeId.stableId) {
+        return true;
+      }
+
+      const chain = state.nominalEnv.getInheritanceChain(sourceNominal.typeId);
+      return chain.some((typeId) => typeId.stableId === targetNominal.typeId.stableId);
+    }
+  }
+
+  return isAssignableTo(state, source, target);
+};
 
 // ─────────────────────────────────────────────────────────────────────────
 // substitute — Delegate to ir-substitution
@@ -210,6 +364,20 @@ const isAssignableToInternal = (
   // Same type - always assignable
   if (typesEqual(source, target)) return true;
 
+  const sourcePrimitiveAlias = getClrPrimitiveAliasName(source);
+  const targetPrimitiveAlias = getClrPrimitiveAliasName(target);
+  if (
+    sourcePrimitiveAlias &&
+    targetPrimitiveAlias &&
+    sourcePrimitiveAlias === targetPrimitiveAlias
+  ) {
+    return true;
+  }
+
+  if (isNumericWideningAssignable(source, target)) {
+    return true;
+  }
+
   // any is assignable to anything, anything is assignable to any
   if (source.kind === "anyType" || target.kind === "anyType") return true;
 
@@ -282,6 +450,21 @@ const isAssignableToInternal = (
 
   // Reference types - check nominal compatibility via TypeId
   if (source.kind === "referenceType" && target.kind === "referenceType") {
+    const sourceIterable = getIterableShape(state, source);
+    const targetIterable = getIterableShape(state, target);
+    if (
+      sourceIterable &&
+      targetIterable &&
+      sourceIterable.mode === targetIterable.mode
+    ) {
+      return isAssignableToInternal(
+        state,
+        sourceIterable.elementType,
+        targetIterable.elementType,
+        activeAliases
+      );
+    }
+
     const sourceNominal = normalizeToNominal(state, source);
     const targetNominal = normalizeToNominal(state, target);
     if (sourceNominal && targetNominal) {

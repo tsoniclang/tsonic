@@ -167,7 +167,12 @@ const tryResolveTruthyNarrowing = (
   if (!targetType) return undefined;
 
   const narrowedType = narrowTypeByAssignableTarget(
-    ctx.typeSystem,
+    {
+      collectNarrowingCandidates: (type) =>
+        ctx.typeSystem.collectNarrowingCandidates(type),
+      isAssignableTo: (source, target) =>
+        ctx.typeSystem.matchesInstanceofTarget(source, target),
+    },
     getCurrentTypeForAccessPath(narrowedTarget, ctx),
     targetType,
     true
@@ -300,7 +305,12 @@ const tryResolveFalsyNarrowing = (
     if (!targetType) return undefined;
 
     const narrowedType = narrowTypeByAssignableTarget(
-      ctx.typeSystem,
+      {
+        collectNarrowingCandidates: (type) =>
+          ctx.typeSystem.collectNarrowingCandidates(type),
+        isAssignableTo: (source, target) =>
+          ctx.typeSystem.matchesInstanceofTarget(source, target),
+      },
       getCurrentTypeForAccessPath(narrowedTarget, ctx),
       targetType,
       false

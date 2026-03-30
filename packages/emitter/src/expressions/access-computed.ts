@@ -17,7 +17,11 @@ import {
   resolveArrayLikeReceiverType,
   stripNullish,
 } from "../core/semantic/type-resolution.js";
-import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
+import {
+  extractCalleeNameFromAst,
+  getIdentifierTypeName,
+  stripNullableTypeAst,
+} from "../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   identifierExpression,
@@ -29,6 +33,8 @@ import {
   hasInt32Proof,
   maybeReifyErasedArrayElement,
   type MemberAccessUsage,
+  resolveEmittedReceiverTypeAst,
+  tryEmitBroadArrayAssertionReceiverStorageAst,
 } from "./access-resolution.js";
 import { buildJsSafeDictionaryReadAst } from "./dictionary-safe-access.js";
 import { normalizeRuntimeStorageType } from "../core/semantic/storage-types.js";
@@ -299,6 +305,52 @@ export const emitComputedAccess = (
         arguments: [propAst],
       },
       finalContext,
+    ];
+  }
+
+  const preservedReceiver =
+    tryEmitBroadArrayAssertionReceiverStorageAst(expr.object, finalContext);
+  const effectiveObjectAst = preservedReceiver?.[0] ?? objectAst;
+  const effectiveObjectContext = preservedReceiver?.[1] ?? finalContext;
+  const [receiverTypeAst, receiverTypeContext] = resolveEmittedReceiverTypeAst(
+    expr.object,
+    effectiveObjectContext
+  );
+  const concreteReceiverTypeAst = receiverTypeAst
+    ? stripNullableTypeAst(receiverTypeAst)
+    : undefined;
+  if (preservedReceiver && concreteReceiverTypeAst?.kind === "arrayType") {
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: effectiveObjectAst,
+          memberName: "GetValue",
+        },
+        arguments: [propAst],
+      },
+      receiverTypeContext,
+    ];
+  }
+  const receiverTypeName = concreteReceiverTypeAst
+    ? getIdentifierTypeName(concreteReceiverTypeAst)
+    : undefined;
+  if (
+    receiverTypeName === "global::System.Array" ||
+    receiverTypeName === "System.Array"
+  ) {
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: effectiveObjectAst,
+          memberName: "GetValue",
+        },
+        arguments: [propAst],
+      },
+      receiverTypeContext,
     ];
   }
 

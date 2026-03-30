@@ -1,4 +1,4 @@
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType, isAwaitableIrType } from "@tsonic/frontend";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
@@ -21,14 +21,18 @@ import {
 
 export const emitPromiseStaticCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] | null => {
   const method = getPromiseStaticMethod(expr);
   if (!method) return null;
 
   let currentContext = context;
-  const [outputTaskType, outputTaskContext] = emitTypeAst(
-    expr.inferredType ?? {
+  const emittedOutputType =
+    expr.inferredType ??
+    (expectedType && isAwaitableIrType(expectedType) ? expectedType : undefined);
+  let [outputTaskType, outputTaskContext] = emitTypeAst(
+    emittedOutputType ?? {
       kind: "referenceType",
       name: "Promise",
       typeArguments: [{ kind: "referenceType", name: "object" }],
@@ -36,7 +40,19 @@ export const emitPromiseStaticCall = (
     currentContext
   );
   currentContext = outputTaskContext;
-  const outputResultType = getTaskResultType(outputTaskType);
+  let outputResultType = getTaskResultType(outputTaskType);
+  if (!outputResultType && expectedType && isAwaitableIrType(expectedType)) {
+    const [expectedTaskType, expectedTaskContext] = emitTypeAst(
+      expectedType,
+      currentContext
+    );
+    const expectedResultType = getTaskResultType(expectedTaskType);
+    if (expectedResultType) {
+      outputTaskType = expectedTaskType;
+      outputResultType = expectedResultType;
+      currentContext = expectedTaskContext;
+    }
+  }
 
   if (method === "resolve") {
     const argument = expr.arguments[0];

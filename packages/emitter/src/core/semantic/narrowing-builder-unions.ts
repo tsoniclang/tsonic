@@ -360,7 +360,8 @@ export const applyDirectTypeNarrowing = (
   targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>,
   narrowedType: IrType,
   context: EmitterContext,
-  emitExprAst: EmitExprAstFn
+  emitExprAst: EmitExprAstFn,
+  storageType?: IrType
 ): EmitterContext => {
   const existingBinding = context.narrowedBindings?.get(bindingKey);
   if (
@@ -513,7 +514,11 @@ export const applyDirectTypeNarrowing = (
       materializedExprAst,
       narrowedType,
       carrierSourceType,
-      carrierAst
+      carrierAst,
+      storageType ??
+        (existingBinding?.kind === "expr"
+          ? existingBinding.storageType
+          : undefined)
     ),
     materializedContext
   );

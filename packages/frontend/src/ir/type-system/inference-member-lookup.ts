@@ -222,7 +222,23 @@ export const resolveMemberTypeNoDiag = (
               isRest: parameter.isRest,
               mode: parameter.mode,
             })),
-            signature.returnType
+            signature.returnType,
+            signature.typeParameters.map((typeParameter) => ({
+              kind: "typeParameter" as const,
+              name: typeParameter.name,
+              constraint: typeParameter.constraint
+                ? irSubstitute(
+                    typeParameter.constraint,
+                    lookupResult.substitution
+                  )
+                : undefined,
+              default: typeParameter.defaultType
+                ? irSubstitute(
+                    typeParameter.defaultType,
+                    lookupResult.substitution
+                  )
+                : undefined,
+            }))
           )
         )
       );

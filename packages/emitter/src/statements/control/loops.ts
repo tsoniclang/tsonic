@@ -72,11 +72,13 @@ export const emitForStatementAst = (
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const outerNameMap = context.localNameMap;
+  const outerConditionAliases = context.conditionAliases;
   const outerSemanticTypes = context.localSemanticTypes;
   const outerValueTypes = context.localValueTypes;
   let currentContext: EmitterContext = {
     ...context,
     localNameMap: new Map(outerNameMap ?? []),
+    conditionAliases: new Map(outerConditionAliases ?? []),
   };
 
   // Check for canonical integer loop pattern
@@ -197,6 +199,7 @@ export const emitForStatementAst = (
     {
       ...finalBodyContext,
       localNameMap: outerNameMap,
+      conditionAliases: outerConditionAliases,
       localSemanticTypes: outerSemanticTypes,
       localValueTypes: outerValueTypes,
     },
@@ -225,11 +228,13 @@ export const emitForOfStatementAst = (
     iterableExpressionType
   );
   const outerNameMap = exprContext.localNameMap;
+  const outerConditionAliases = exprContext.conditionAliases;
   const outerSemanticTypes = exprContext.localSemanticTypes;
   const outerValueTypes = exprContext.localValueTypes;
   let loopContext: EmitterContext = {
     ...exprContext,
     localNameMap: new Map(outerNameMap ?? []),
+    conditionAliases: new Map(outerConditionAliases ?? []),
   };
 
   const semanticElementType = deriveForOfElementType(
@@ -268,6 +273,7 @@ export const emitForOfStatementAst = (
       {
         ...bodyContext,
         localNameMap: outerNameMap,
+        conditionAliases: outerConditionAliases,
         localSemanticTypes: outerSemanticTypes,
         localValueTypes: outerValueTypes,
       },
@@ -323,6 +329,7 @@ export const emitForOfStatementAst = (
     {
       ...bodyContext,
       localNameMap: outerNameMap,
+      conditionAliases: outerConditionAliases,
       localSemanticTypes: outerSemanticTypes,
       localValueTypes: outerValueTypes,
     },
@@ -343,11 +350,13 @@ export const emitForInStatementAst = (
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
   const outerNameMap = exprContext.localNameMap;
+  const outerConditionAliases = exprContext.conditionAliases;
   const outerSemanticTypes = exprContext.localSemanticTypes;
   const outerValueTypes = exprContext.localValueTypes;
   let loopContext: EmitterContext = {
     ...exprContext,
     localNameMap: new Map(outerNameMap ?? []),
+    conditionAliases: new Map(outerConditionAliases ?? []),
   };
 
   if (stmt.variable.kind !== "identifierPattern") {
@@ -404,6 +413,7 @@ export const emitForInStatementAst = (
     {
       ...bodyContext,
       localNameMap: outerNameMap,
+      conditionAliases: outerConditionAliases,
       localSemanticTypes: outerSemanticTypes,
       localValueTypes: outerValueTypes,
     },
