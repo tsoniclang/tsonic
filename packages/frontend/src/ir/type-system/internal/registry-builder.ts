@@ -178,7 +178,15 @@ export const buildTypeRegistry = (
             node.members,
             convert
           )) {
-            mergedMembers.set(memberName, memberInfo);
+            const existingMember = mergedMembers.get(memberName);
+            const preserveExistingAuthoritativeMember =
+              existingMember !== undefined &&
+              existing.isDeclarationFile === false &&
+              sf.isDeclarationFile === true;
+
+            if (!preserveExistingAuthoritativeMember) {
+              mergedMembers.set(memberName, memberInfo);
+            }
           }
           entries.set(fqName, {
             ...existing,

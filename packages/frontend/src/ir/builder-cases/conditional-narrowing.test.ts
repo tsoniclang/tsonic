@@ -6,8 +6,10 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
 import {
+  IrBlockStatement,
   IrClassDeclaration,
   IrFunctionDeclaration,
+  IrIfStatement,
   IrMethodDeclaration,
   IrReturnStatement,
   IrVariableDeclaration,
@@ -147,6 +149,184 @@ describe("IR Builder", function () {
         expect(returnStmt.expression.whenTrue.inferredType?.kind).to.equal(
           "functionType"
         );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("handles recursive nullish coalescing without exploding union deduplication", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "interface TreeNode {",
+            "  value: string;",
+            "  next?: TreeNode;",
+            "}",
+            "",
+            "export function pick(",
+            "  current: TreeNode | undefined,",
+            "  fallback: TreeNode",
+            "): TreeNode {",
+            "  const selected = current ?? fallback;",
+            "  return selected;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const pickFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "pick"
+        );
+        expect(pickFn).to.not.equal(undefined);
+        if (!pickFn) return;
+
+        const selectedDecl = pickFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "selected"
+            )
+        );
+        expect(selectedDecl).to.not.equal(undefined);
+        if (!selectedDecl) return;
+
+        const selectedInit = selectedDecl.declarations[0]?.initializer;
+        expect(selectedInit?.kind).to.equal("logical");
+        if (!selectedInit || selectedInit.kind !== "logical") return;
+
+        expect(selectedInit.operator).to.equal("??");
+        expect(selectedInit.inferredType?.kind).to.equal("referenceType");
+        if (selectedInit.inferredType?.kind !== "referenceType") return;
+
+        expect(stableIrTypeKey(selectedInit.inferredType)).to.include("TreeNode");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("handles recursive generic property access without exploding type-id attachment", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare class Map<K, V> {",
+            "  get(key: K): V | undefined;",
+            "}",
+            "",
+            "interface PageContext {",
+            "  relPermalink: string;",
+            "  site: SiteContext;",
+            "}",
+            "",
+            "interface SiteContext {",
+            "  Taxonomies: Map<string, Map<string, PageContext[]>>;",
+            "  home?: PageContext;",
+            "}",
+            "",
+            "class TaxonomiesValue {",
+            "  constructor(readonly site: SiteContext) {}",
+            "}",
+            "",
+            "class TaxonomyTermsValue {",
+            "  constructor(",
+            "    readonly terms: Map<string, PageContext[]>,",
+            "    readonly site: SiteContext",
+            "  ) {}",
+            "}",
+            "",
+            "type TemplateValue = TaxonomiesValue | TaxonomyTermsValue | undefined;",
+            "",
+            "export function resolve(",
+            "  cur: TemplateValue,",
+            "  seg: string",
+            "): TemplateValue {",
+            "  if (cur instanceof TaxonomiesValue) {",
+            "    const site = cur.site;",
+            "    const terms =",
+            "      site.Taxonomies.get(seg) ??",
+            "      site.Taxonomies.get(seg.toLowerCase());",
+            "    cur = terms !== undefined",
+            "      ? new TaxonomyTermsValue(terms, site)",
+            "      : undefined;",
+            "  }",
+            "  return cur;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const resolveFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "resolve"
+        );
+        expect(resolveFn).to.not.equal(undefined);
+        if (!resolveFn) return;
+
+        const branch = resolveFn.body.statements.find(
+          (stmt): stmt is IrIfStatement => stmt.kind === "ifStatement"
+        );
+        expect(branch).to.not.equal(undefined);
+        if (!branch) return;
+
+        expect(branch.thenStatement.kind).to.equal("blockStatement");
+        if (branch.thenStatement.kind !== "blockStatement") return;
+
+        const thenBlock: IrBlockStatement = branch.thenStatement;
+        const termsDecl = thenBlock.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "terms"
+            )
+        );
+        expect(termsDecl).to.not.equal(undefined);
+        if (!termsDecl) return;
+
+        const termsInit = termsDecl.declarations[0]?.initializer;
+        expect(termsInit?.kind).to.equal("logical");
+        if (!termsInit || termsInit.kind !== "logical") return;
+
+        expect(termsInit.operator).to.equal("??");
+        expect(termsInit.inferredType?.kind).to.equal("unionType");
+        if (!termsInit.inferredType || termsInit.inferredType.kind !== "unionType") {
+          return;
+        }
+
+        const mapMember = termsInit.inferredType.types.find(
+          (
+            type
+          ): type is Extract<(typeof termsInit.inferredType.types)[number], { kind: "referenceType" }> =>
+            type.kind === "referenceType" && type.name === "Map"
+        );
+        expect(mapMember).to.not.equal(undefined);
       } finally {
         fixture.cleanup();
       }

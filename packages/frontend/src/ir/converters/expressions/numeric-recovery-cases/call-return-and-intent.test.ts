@@ -8,7 +8,11 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { compileWithGlobals, findExpression } from "./test-helpers.js";
+import {
+  compileWithGlobals,
+  compileWithJsSurfaceAndStandardLib,
+  findExpression,
+} from "./test-helpers.js";
 import type { IrMemberExpression } from "./test-helpers.js";
 
 describe("Declaration-Based Numeric Intent Recovery", function () {
@@ -36,6 +40,30 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       expect(indexOfCall).to.not.be.undefined;
       // CLR numeric types are represented as primitiveType in IR
       // (see primitives.ts: "When user writes `: int`, it becomes primitiveType(name='int')")
+      expect(indexOfCall?.inferredType).to.deep.equal({
+        kind: "primitiveType",
+        name: "int",
+      });
+    });
+
+    it("keeps js-surface string.indexOf() as int with standard lib enabled", () => {
+      const code = `
+        export function findIndex(source: string, value: string): number {
+          return source.indexOf(value);
+        }
+      `;
+
+      const { modules, ok, error } =
+        compileWithJsSurfaceAndStandardLib(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const indexOfCall = findExpression(modules, (expr) => {
+        if (expr.kind !== "call") return false;
+        if (expr.callee.kind !== "memberAccess") return false;
+        return expr.callee.property === "indexOf";
+      });
+
+      expect(indexOfCall).to.not.be.undefined;
       expect(indexOfCall?.inferredType).to.deep.equal({
         kind: "primitiveType",
         name: "int",

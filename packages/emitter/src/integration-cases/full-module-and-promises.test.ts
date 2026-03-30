@@ -425,6 +425,12 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("Task.WhenAll");
       expect(csharp).to.include("Enumerable.Select");
+      expect(csharp).to.include(
+        "global::System.Threading.Tasks.Task<double>"
+      );
+      expect(csharp).not.to.include(
+        "global::Tsonic.Runtime.Union<global::System.Threading.Tasks.Task<T>, T>"
+      );
       expect(csharp).not.to.include("Promise.all(");
     });
 

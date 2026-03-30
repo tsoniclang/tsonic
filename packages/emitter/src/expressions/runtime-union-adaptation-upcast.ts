@@ -309,7 +309,7 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     emissionExpectedType,
     maybeAdaptRuntimeUnionExpressionAst
   );
-  if (adapted) {
+  if (adapted && normalizedExpectedType.kind !== "unionType") {
     return adapted;
   }
 
@@ -418,6 +418,51 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
   );
   if (!runtimeLayout) {
     return undefined;
+  }
+
+  if (selectedSourceMemberNs && selectedSourceMemberNs.size === 1) {
+    const selectedMemberN = Array.from(selectedSourceMemberNs)[0];
+    const selectedIndex =
+      selectedMemberN !== undefined ? selectedMemberN - 1 : undefined;
+    const selectedMember =
+      selectedIndex !== undefined ? runtimeLayout.members[selectedIndex] : undefined;
+    const selectedMemberTypeAst =
+      selectedIndex !== undefined
+        ? runtimeLayout.memberTypeAsts[selectedIndex]
+        : undefined;
+
+    if (
+      selectedIndex !== undefined &&
+      selectedMember &&
+      selectedMemberTypeAst
+    ) {
+      const nested = maybeAdaptRuntimeUnionExpressionAst(
+        ast,
+        emissionActualType,
+        layoutContext,
+        selectedMember,
+        nextVisited
+      );
+      const selectedValueAst =
+        nested?.[0] ??
+        (isExactExpressionToType(ast, stripNullableTypeAst(selectedMemberTypeAst)) ||
+        isExactArrayCreationToType(ast, selectedMemberTypeAst)
+          ? ast
+          : ({
+              kind: "castExpression",
+              type: selectedMemberTypeAst,
+              expression: ast,
+            } satisfies CSharpExpressionAst));
+
+      return [
+        buildRuntimeUnionFactoryCallAst(
+          buildRuntimeUnionTypeAst(runtimeLayout),
+          selectedIndex + 1,
+          selectedValueAst
+        ),
+        nested?.[1] ?? layoutContext,
+      ];
+    }
   }
 
   if (isBroadReificationSourceType(emissionActualType, layoutContext)) {

@@ -49,6 +49,109 @@ export const inferMethodTypeArgsFromArguments = (
     typesEqual(left, right) ||
     (isAssignableTo(state, left, right) && isAssignableTo(state, right, left));
 
+  const getAsyncWrapperInnerType = (type: IrType): IrType | undefined => {
+    if (type.kind !== "referenceType") {
+      return undefined;
+    }
+
+    const simpleName = type.name.split(".").pop() ?? type.name;
+    if (simpleName !== "PromiseLike" && simpleName !== "Promise") {
+      return undefined;
+    }
+
+    return type.typeArguments?.[0];
+  };
+
+  const getDeterministicAsyncUnionTypeParameter = (
+    parameterType: Extract<IrType, { kind: "unionType" }>
+  ): string | undefined => {
+    let typeParameterName: string | undefined;
+    let sawBareTypeParameter = false;
+    let sawAsyncWrapper = false;
+
+    for (const candidate of parameterType.types) {
+      if (!candidate || isNullishPrimitive(candidate)) {
+        continue;
+      }
+
+      if (
+        candidate.kind === "typeParameterType" &&
+        methodTypeParamNames.has(candidate.name)
+      ) {
+        if (
+          typeParameterName !== undefined &&
+          typeParameterName !== candidate.name
+        ) {
+          return undefined;
+        }
+        typeParameterName = candidate.name;
+        sawBareTypeParameter = true;
+        continue;
+      }
+
+      const inner = getAsyncWrapperInnerType(candidate);
+      if (
+        inner?.kind === "typeParameterType" &&
+        methodTypeParamNames.has(inner.name)
+      ) {
+        if (typeParameterName !== undefined && typeParameterName !== inner.name) {
+          return undefined;
+        }
+        typeParameterName = inner.name;
+        sawAsyncWrapper = true;
+        continue;
+      }
+
+      return undefined;
+    }
+
+    return typeParameterName && sawBareTypeParameter && sawAsyncWrapper
+      ? typeParameterName
+      : undefined;
+  };
+
+  const getDeterministicAsyncUnionArgumentValue = (
+    argumentType: IrType
+  ): IrType | undefined => {
+    const awaited = unwrapAsyncWrapperType(argumentType);
+    if (awaited) {
+      return awaited;
+    }
+
+    if (argumentType.kind !== "unionType") {
+      return undefined;
+    }
+
+    let syncMember: IrType | undefined;
+    let sawAsyncWrapper = false;
+
+    for (const candidate of argumentType.types) {
+      if (!candidate || isNullishPrimitive(candidate)) {
+        continue;
+      }
+
+      const inner = getAsyncWrapperInnerType(candidate);
+      if (inner) {
+        sawAsyncWrapper = true;
+        if (syncMember && !areDeterministicallyEquivalentInferenceTypes(syncMember, inner)) {
+          return undefined;
+        }
+        syncMember = syncMember ?? inner;
+        continue;
+      }
+
+      if (
+        syncMember &&
+        !areDeterministicallyEquivalentInferenceTypes(syncMember, candidate)
+      ) {
+        return undefined;
+      }
+      syncMember = syncMember ?? candidate;
+    }
+
+    return sawAsyncWrapper ? syncMember : undefined;
+  };
+
   const tryUnify = (
     parameterType: IrType,
     argumentType: IrType,
@@ -168,6 +271,18 @@ export const inferMethodTypeArgsFromArguments = (
     if (parameterType.kind === "typeParameterType") {
       if (!methodTypeParamNames.has(parameterType.name)) {
         // Not a method type parameter (could be outer generic) — ignore
+        return true;
+      }
+
+      // A lambda argument typed contextually from an unresolved expected signature
+      // can carry the same method type parameter symbol back into inference
+      // (e.g. parameter `TSource`, argument parameter also typed as `TSource`).
+      // This is not real evidence about the concrete type argument and must not
+      // either create or conflict with a substitution.
+      if (
+        argumentType.kind === "typeParameterType" &&
+        argumentType.name === parameterType.name
+      ) {
         return true;
       }
 
@@ -313,6 +428,20 @@ export const inferMethodTypeArgsFromArguments = (
     // Union parameter type: allow deterministic inference through common nullish unions.
     // Example: constructor(value: T | null) with argument of type T.
     if (parameterType.kind === "unionType") {
+      const asyncUnionTypeParameter =
+        getDeterministicAsyncUnionTypeParameter(parameterType);
+      const asyncUnionArgumentValue =
+        asyncUnionTypeParameter !== undefined
+          ? getDeterministicAsyncUnionArgumentValue(argumentType)
+          : undefined;
+      if (asyncUnionTypeParameter && asyncUnionArgumentValue) {
+        return tryUnify(
+          { kind: "typeParameterType", name: asyncUnionTypeParameter },
+          asyncUnionArgumentValue,
+          currentSubstitution
+        );
+      }
+
       const nonNullish = parameterType.types.filter(
         (t) => t && !isNullishPrimitive(t)
       );

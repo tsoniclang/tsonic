@@ -8,6 +8,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import ts from "typescript";
 import { createProgram } from "../creation.js";
 
 const writeFixtureJsSurface = (
@@ -134,6 +135,16 @@ describe("Program Creation – module bindings", function () {
         packageEntry,
         'export const readFileSync = (filePath: string): string => filePath;\n'
       );
+      const typesRoot = path.join(tempDir, "node_modules", "@types", "node");
+      fs.mkdirSync(typesRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(typesRoot, "fs.d.ts"),
+        [
+          'declare module "node:fs" {',
+          "  export const readFileSync: (filePath: string) => number;",
+          "}",
+        ].join("\n")
+      );
 
       const entryPath = path.join(srcDir, "index.ts");
       fs.writeFileSync(
@@ -156,6 +167,43 @@ describe("Program Creation – module bindings", function () {
       expect(result.value.program.getSourceFile(packageEntry)).to.not.equal(
         undefined
       );
+      const sourceFile = result.value.program.getSourceFile(entryPath);
+      expect(sourceFile).to.not.equal(undefined);
+      if (!sourceFile) return;
+
+      const importDecl = sourceFile.statements.find(
+        (stmt): stmt is ts.ImportDeclaration =>
+          ts.isImportDeclaration(stmt) &&
+          ts.isStringLiteral(stmt.moduleSpecifier) &&
+          stmt.moduleSpecifier.text === "node:fs"
+      );
+      expect(importDecl).to.not.equal(undefined);
+      if (!importDecl?.importClause?.namedBindings) return;
+      expect(ts.isNamedImports(importDecl.importClause.namedBindings)).to.equal(
+        true
+      );
+      if (!ts.isNamedImports(importDecl.importClause.namedBindings)) return;
+
+      const importSpecifier = importDecl.importClause.namedBindings.elements.find(
+        (element) => element.name.text === "readFileSync"
+      );
+      expect(importSpecifier).to.not.equal(undefined);
+      if (!importSpecifier) return;
+
+      const checker = result.value.program.getTypeChecker();
+      const importSymbol = checker.getSymbolAtLocation(importSpecifier.name);
+      expect(importSymbol).to.not.equal(undefined);
+      if (!importSymbol) return;
+
+      const aliasedSymbol =
+        importSymbol.flags & ts.SymbolFlags.Alias
+          ? checker.getAliasedSymbol(importSymbol)
+          : importSymbol;
+      const declarationFiles = (aliasedSymbol.getDeclarations() ?? []).map(
+        (declaration) => path.resolve(declaration.getSourceFile().fileName)
+      );
+      expect(declarationFiles).to.include(path.resolve(packageEntry));
+
       const moduleResolutionErrors = result.value.program
         .getSemanticDiagnostics()
         .filter((diagnostic) => diagnostic.code === 2307);

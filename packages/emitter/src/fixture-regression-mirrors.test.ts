@@ -583,6 +583,60 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include(
         "global::Tsonic.Runtime.Union<int, double>.From1(offset)"
       );
+      expect(csharp).not.to.include(
+        "buffer.__tsonic_symbol_iterator(), __item => __item).__tsonic_symbol_iterator()"
+      );
+    });
+
+    it("does not re-adapt typed-array iterable arguments after contextual emission", () => {
+      const csharp = compileToCSharp(`
+        import type { byte, int } from "@tsonic/core/types.js";
+
+        type TypedArrayInput<TElement extends number> =
+          | TElement[]
+          | Iterable<number>;
+
+        class TypedArrayBase<TElement extends number> {
+          public length: int = 0 as int;
+
+          public set(index: int, value: number): void;
+          public set(source: TypedArrayInput<TElement>, offset?: int): void;
+          public set(
+            sourceOrIndex: int | TypedArrayInput<TElement>,
+            offsetOrValue: int | number = 0 as int
+          ): void {
+            void sourceOrIndex;
+            void offsetOrValue;
+          }
+        }
+
+        class Uint8Array extends TypedArrayBase<byte> {
+          public *[Symbol.iterator](): Generator<byte, undefined, undefined> {
+            return undefined as never;
+          }
+        }
+
+        class Buffer {
+          private readonly _data: Uint8Array;
+
+          public constructor(data: Uint8Array) {
+            this._data = data;
+          }
+
+          public static fromBuffer(buffer: Buffer): Buffer {
+            const copy = new Uint8Array();
+            copy.set(buffer._data);
+            return new Buffer(copy);
+          }
+        }
+      `);
+
+      expect(csharp).to.include(
+        "copy.set(global::Tsonic.Runtime.Union<byte[], global::System.Collections.Generic.IEnumerable<double>>.From2(global::System.Linq.Enumerable.Select<byte, double>(buffer._data.__tsonic_symbol_iterator(), __item => __item)));"
+      );
+      expect(csharp).not.to.include(
+        "buffer._data.__tsonic_symbol_iterator(), __item => __item).__tsonic_symbol_iterator()"
+      );
     });
 
     it("keeps selected member overload surfaces exact instead of the implementation union", () => {

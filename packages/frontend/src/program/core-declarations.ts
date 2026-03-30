@@ -425,7 +425,7 @@ export const createCompilerOptions = (
     return {
       ...baseConfig,
       noLib: false,
-      types: undefined, // Use default type resolution
+      types: [], // Keep standard libs, but never pull ambient @types packages implicitly
     };
   }
 

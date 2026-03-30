@@ -3,8 +3,11 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { BindingRegistry } from "./bindings.js";
-import { resolveSourceBindingFiles } from "./source-binding-imports.js";
+import { BindingRegistry, loadBindings } from "./bindings.js";
+import {
+  resolveSourceBindingFiles,
+  resolveSourceBackedBindingFiles,
+} from "./source-binding-imports.js";
 
 describe("resolveSourceBindingFiles", () => {
   it("prefers authoritative source-package roots over stale installed packages", () => {
@@ -102,6 +105,104 @@ describe("resolveSourceBindingFiles", () => {
       expect(result.value).to.deep.equal([
         path.join(authoritativeJsRoot, "src", "console.ts"),
       ]);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("includes source-owned type member files for authoritative source packages", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-source-backed-binding-files-")
+    );
+
+    try {
+      const projectRoot = path.join(tempDir, "app");
+      const resolverFile = path.join(projectRoot, "__tsonic_resolver__.ts");
+      const surfaceRoot = path.join(projectRoot, "node_modules", "@fixture", "js");
+      const stringPath = path.join(surfaceRoot, "src", "String.ts");
+      const timersPath = path.join(surfaceRoot, "src", "timers.ts");
+
+      fs.mkdirSync(path.join(surfaceRoot, "src"), { recursive: true });
+      fs.writeFileSync(resolverFile, "export {};\n");
+      fs.writeFileSync(
+        path.join(surfaceRoot, "package.json"),
+        JSON.stringify(
+          { name: "@fixture/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(surfaceRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@fixture/js"],
+            source: {
+              namespace: "fixture.js",
+              ambient: ["./globals.ts"],
+              exports: {
+                "./String.js": "./src/String.ts",
+                "./timers.js": "./src/timers.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(surfaceRoot, "globals.ts"),
+        [
+          "declare global {",
+          "  interface String {",
+          "    trim(): string;",
+          "  }",
+          "",
+          "  function setInterval(",
+          "    handler: (...args: unknown[]) => void,",
+          "    timeout?: number,",
+          "    ...args: unknown[]",
+          "  ): number;",
+          "}",
+          "",
+          "export {};",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        stringPath,
+        [
+          "export const trim = (value: string): string => value;",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        timersPath,
+        [
+          "export const setInterval = (",
+          "  _handler: (...args: unknown[]) => void,",
+          "  _timeout?: number,",
+          "  ..._args: unknown[]",
+          "): number => 0;",
+          "",
+        ].join("\n")
+      );
+
+      const bindings = loadBindings([surfaceRoot]);
+      const result = resolveSourceBackedBindingFiles(
+        bindings,
+        resolverFile,
+        projectRoot,
+        "@fixture/js",
+        new Map<string, string>([["@fixture/js", surfaceRoot]])
+      );
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      expect(result.value).to.include(stringPath);
+      expect(result.value).to.include(timersPath);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

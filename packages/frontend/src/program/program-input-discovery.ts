@@ -263,9 +263,12 @@ export const discoverProgramInputs = (
   const currentProjectPackageName = readPackageName(
     path.join(options.projectRoot, "package.json")
   );
+  const currentProjectSourceMetadata = readSourcePackageMetadata(
+    options.projectRoot
+  );
   if (
     currentProjectPackageName &&
-    readSourcePackageMetadata(options.projectRoot)
+    currentProjectSourceMetadata
   ) {
     const normalizedProjectRoot = canonicalizeRootDirPath(options.projectRoot);
     authoritativeTsonicPackageRoots.set(
@@ -354,9 +357,9 @@ export const discoverProgramInputs = (
   const sourcePackageAmbientPaths = typeRoots.flatMap((typeRoot) =>
     readSourcePackageAmbientPaths(typeRoot)
   );
-  const sourcePackageExportPaths = typeRoots.flatMap((typeRoot) =>
-    readSourcePackageExportPaths(typeRoot)
-  );
+  const sourcePackageExportPaths = currentProjectSourceMetadata
+    ? readSourcePackageExportPaths(currentProjectSourceMetadata.packageRoot)
+    : [];
 
   if (options.verbose && typeRoots.length > 0) {
     console.log(`TypeRoots: ${typeRoots.join(", ")}`);
@@ -400,8 +403,8 @@ export const discoverProgramInputs = (
     tsOptions.rootDir = resolveCommonRootDir([
       tsOptions.rootDir,
       ...absolutePaths,
-      ...sourcePackageExportPaths,
       ...sourcePackageAmbientPaths,
+      ...authoritativeTsonicPackageRoots.values(),
     ]);
   }
   const projectDeclarationFiles = collectProjectIncludedDeclarationFiles(
@@ -454,8 +457,8 @@ export const discoverProgramInputs = (
   const allFiles = Array.from(
     new Set([
       ...absolutePaths,
-      ...sourcePackageExportPaths,
       ...sourcePackageAmbientPaths,
+      ...sourcePackageExportPaths,
       ...projectDeclarationFiles,
       ...declarationFiles,
       ...namespaceIndexFiles,

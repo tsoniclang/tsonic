@@ -7,6 +7,7 @@ import {
   createReadPackageRootNamespace,
   createResolveModuleFromPackageRoot,
 } from "../program/module-resolution.js";
+import { readSourcePackageMetadata } from "../program/source-package-metadata.js";
 import { createDiagnostic, type Diagnostic } from "../types/diagnostic.js";
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import { error, ok, type Result } from "../types/result.js";
@@ -537,6 +538,66 @@ export const resolveSourcePackageImportFromPackageRoot = (
   return resolveSourcePackageImportFromRoot(
     parsedSpecifier,
     packageRoot,
+    activeSurface,
+    projectRoot
+  );
+};
+
+export const resolveSourcePackageAliasTarget = (
+  aliasTarget: string,
+  packageRoot: string,
+  activeSurface: SurfaceMode | undefined,
+  projectRoot: string
+): Result<ResolvedSourcePackageImport | null, Diagnostic> => {
+  const metadata = readSourcePackageMetadata(packageRoot);
+  if (!metadata) {
+    return ok(null);
+  }
+
+  if (aliasTarget === ".") {
+    const resolved = resolveModuleFromPackageRoot(packageRoot, undefined);
+    if (!resolved?.resolvedFileName) {
+      return ok(null);
+    }
+
+    return ok({
+      packageName: metadata.packageName,
+      packageRoot,
+      resolvedPath: resolved.resolvedFileName,
+    });
+  }
+
+  if (aliasTarget.startsWith("./")) {
+    const resolved = resolveModuleFromPackageRoot(
+      packageRoot,
+      aliasTarget.slice(2)
+    );
+    if (!resolved?.resolvedFileName) {
+      return ok(null);
+    }
+
+    return ok({
+      packageName: metadata.packageName,
+      packageRoot,
+      resolvedPath: resolved.resolvedFileName,
+    });
+  }
+
+  if (
+    aliasTarget === metadata.packageName ||
+    aliasTarget.startsWith(`${metadata.packageName}/`)
+  ) {
+    return resolveSourcePackageImportFromPackageRoot(
+      aliasTarget,
+      packageRoot,
+      activeSurface,
+      projectRoot
+    );
+  }
+
+  return resolveSourcePackageImport(
+    aliasTarget,
+    path.join(packageRoot, "__tsonic_alias__.ts"),
     activeSurface,
     projectRoot
   );

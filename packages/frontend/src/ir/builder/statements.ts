@@ -19,6 +19,11 @@ import type { ProgramContext } from "../program-context.js";
 import { withVariableTypeEnv } from "../converters/type-env.js";
 import { collectTopLevelFunctionOverloadGroup } from "./top-level-function-overloads.js";
 
+export type ExtractStatementsResult = {
+  readonly body: readonly IrStatement[];
+  readonly topLevelStatementGroups: ReadonlyMap<number, readonly IrStatement[]>;
+};
+
 /**
  * Extract statements from source file.
  *
@@ -34,11 +39,17 @@ import { collectTopLevelFunctionOverloadGroup } from "./top-level-function-overl
 export const extractStatements = (
   sourceFile: ts.SourceFile,
   ctx: ProgramContext
-): readonly IrStatement[] => {
+): readonly IrStatement[] => extractStatementsWithGroups(sourceFile, ctx).body;
+
+export const extractStatementsWithGroups = (
+  sourceFile: ts.SourceFile,
+  ctx: ProgramContext
+): ExtractStatementsResult => {
   // Reset synthetic registry for this file
   resetSyntheticRegistry();
 
   const statements: IrStatement[] = [];
+  const topLevelStatementGroups = new Map<number, readonly IrStatement[]>();
   let currentCtx = ctx;
 
   for (let index = 0; index < sourceFile.statements.length; index++) {
@@ -54,16 +65,21 @@ export const extractStatements = (
         index
       );
       if (overloadGroup) {
-        statements.push(
-          ...convertFunctionOverloadGroup(overloadGroup, currentCtx)
+        const convertedGroup = convertFunctionOverloadGroup(
+          overloadGroup,
+          currentCtx
         );
+        topLevelStatementGroups.set(index, convertedGroup);
+        statements.push(...convertedGroup);
         index += overloadGroup.length - 1;
         continue;
       }
 
       const converted = convertStatement(stmt, currentCtx, undefined);
       // Flatten result (handles both single statements and arrays)
-      statements.push(...flattenStatementResult(converted));
+      const flattened = flattenStatementResult(converted);
+      topLevelStatementGroups.set(index, flattened);
+      statements.push(...flattened);
 
       if (
         ts.isVariableStatement(stmt) &&
@@ -84,10 +100,16 @@ export const extractStatements = (
   // Collect synthetic declarations and prepend them
   const syntheticDecls = getSyntheticDeclarations();
   if (syntheticDecls.length > 0) {
-    return [...syntheticDecls, ...statements];
+    return {
+      body: [...syntheticDecls, ...statements],
+      topLevelStatementGroups,
+    };
   }
 
-  return statements;
+  return {
+    body: statements,
+    topLevelStatementGroups,
+  };
 };
 
 /**

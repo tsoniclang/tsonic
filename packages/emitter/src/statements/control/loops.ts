@@ -15,6 +15,7 @@ import {
 import { deriveForOfElementType } from "../../core/semantic/iteration-types.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
+import { emitCSharpName } from "../../naming-policy.js";
 import {
   allocateLocalName,
   registerLocalName,
@@ -29,11 +30,42 @@ import type {
   CSharpExpressionAst,
   CSharpLocalDeclarationStatementAst,
 } from "../../core/format/backend-ast/types.js";
+import { getIterableSourceShape } from "../../expressions/structural-type-shapes.js";
 import {
   detectCanonicalIntLoop,
   wrapInBlock,
   emitExprAstCb,
 } from "./loop-helpers.js";
+
+const buildForOfSourceAst = (
+  exprAst: CSharpExpressionAst,
+  iterableType: ReturnType<typeof resolveEffectiveExpressionType> | undefined,
+  context: EmitterContext
+): CSharpExpressionAst => {
+  const iterableShape = getIterableSourceShape(iterableType, context);
+  if (!iterableShape || iterableShape.accessKind === "direct") {
+    return exprAst;
+  }
+
+  const memberName = emitCSharpName(
+    "[symbol:iterator]",
+    iterableShape.accessKind === "iteratorMethod" ? "methods" : "properties",
+    context
+  );
+  const memberAccessAst: CSharpExpressionAst = {
+    kind: "memberAccessExpression",
+    expression: exprAst,
+    memberName,
+  };
+
+  return iterableShape.accessKind === "iteratorMethod"
+    ? {
+        kind: "invocationExpression",
+        expression: memberAccessAst,
+        arguments: [],
+      }
+    : memberAccessAst;
+};
 
 /**
  * Emit a while statement as AST
@@ -241,6 +273,11 @@ export const emitForOfStatementAst = (
     iterableExpressionType,
     loopContext
   );
+  const foreachSourceAst = buildForOfSourceAst(
+    exprAst,
+    iterableExpressionType,
+    exprContext
+  );
 
   if (stmt.variable.kind === "identifierPattern") {
     // Simple identifier: for (const x of items) -> foreach (var x in items)
@@ -264,7 +301,7 @@ export const emitForOfStatementAst = (
       isAwait: stmt.isAwait,
       type: { kind: "varType" },
       identifier: varName,
-      expression: exprAst,
+      expression: foreachSourceAst,
       body: wrapInBlock(bodyStmts),
     };
 
@@ -320,7 +357,7 @@ export const emitForOfStatementAst = (
     isAwait: stmt.isAwait,
     type: { kind: "varType" },
     identifier: tempVar,
-    expression: exprAst,
+    expression: foreachSourceAst,
     body: bodyAst,
   };
 

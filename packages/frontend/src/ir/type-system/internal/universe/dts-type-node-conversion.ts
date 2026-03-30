@@ -327,7 +327,7 @@ export const irTypeToSignatureKey = (type: IrType): string => {
   }
 };
 
-export const makeMethodSignatureKey = (args: {
+export const makeMethodOverloadKey = (args: {
   readonly isStatic: boolean;
   readonly name: string;
   readonly typeParamCount: number;
@@ -335,12 +335,11 @@ export const makeMethodSignatureKey = (args: {
     readonly type: IrType;
     readonly isRest: boolean;
   }[];
-  readonly returnType: IrType;
 }): string => {
   const params = args.parameters
     .map((p) => `${p.isRest ? "..." : ""}${irTypeToSignatureKey(p.type)}`)
     .join(",");
   return `${args.isStatic ? "static" : "instance"}|${args.name}|${
     args.typeParamCount
-  }|(${params})->${irTypeToSignatureKey(args.returnType)}`;
+  }|(${params})`;
 };

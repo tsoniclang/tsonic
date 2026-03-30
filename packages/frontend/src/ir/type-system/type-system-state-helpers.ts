@@ -4,6 +4,7 @@ import { stableIrTypeKey } from "../types/type-ops.js";
 import type { TypeId } from "./internal/universe/types.js";
 import type { TypeSystemState } from "./type-system-state-model.js";
 import type { Site } from "./type-system-state-types.js";
+import { BUILTIN_NOMINALS } from "./type-system-state-registry-types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // DIAGNOSTIC HELPERS
@@ -94,9 +95,10 @@ export const addUndefinedToType = (type: IrType): IrType => {
  * Resolve a surface name to a canonical TypeId.
  *
  * Order:
- * 1) AliasTable (primitives/globals/System.* canonicalization)
- * 2) UnifiedTypeCatalog by tsName
- * 3) UnifiedTypeCatalog by clrName
+ * 1) UnifiedTypeCatalog source-authored tsName
+ * 2) AliasTable (primitives/globals/System.* canonicalization)
+ * 3) UnifiedTypeCatalog assembly tsName
+ * 4) UnifiedTypeCatalog by clrName
  *
  * IMPORTANT (airplane-grade):
  * Resolution must be arity-aware when type arguments are present. Facade
@@ -109,6 +111,17 @@ export const resolveTypeIdByName = (
   name: string,
   arity?: number
 ): TypeId | undefined => {
+  const tsNameCandidate = state.unifiedCatalog.resolveTsName(name);
+  const sourceTsNameCandidate =
+    tsNameCandidate &&
+    state.unifiedCatalog.getByTypeId(tsNameCandidate)?.origin === "source"
+      ? tsNameCandidate
+      : undefined;
+  const assemblyTsNameCandidate =
+    tsNameCandidate &&
+    state.unifiedCatalog.getByTypeId(tsNameCandidate)?.origin !== "source"
+      ? tsNameCandidate
+      : undefined;
   const directCandidates: TypeId[] = [];
   const pushCandidate = (candidate: TypeId | undefined): void => {
     if (!candidate) return;
@@ -122,8 +135,9 @@ export const resolveTypeIdByName = (
     directCandidates.push(candidate);
   };
 
+  pushCandidate(sourceTsNameCandidate);
   pushCandidate(state.aliasTable.get(name));
-  pushCandidate(state.unifiedCatalog.resolveTsName(name));
+  pushCandidate(assemblyTsNameCandidate);
   pushCandidate(state.unifiedCatalog.resolveClrName(name));
 
   if (arity === undefined) {
@@ -241,11 +255,11 @@ export const normalizeToNominal = (
     const arity = type.typeArguments?.length;
     const sourceFqName = resolveSourceReferenceFQName(state, type);
     const typeId =
-      (sourceFqName
-        ? resolveTypeIdByName(state, sourceFqName, arity)
-        : undefined) ??
       (type.resolvedClrType
         ? resolveTypeIdByName(state, type.resolvedClrType, arity)
+        : undefined) ??
+      (sourceFqName
+        ? resolveTypeIdByName(state, sourceFqName, arity)
         : undefined) ??
       type.typeId ??
       (!sourceFqName ? resolveTypeIdByName(state, type.name, arity) : undefined);
@@ -254,7 +268,11 @@ export const normalizeToNominal = (
   }
 
   if (type.kind === "primitiveType") {
-    const typeId = resolveTypeIdByName(state, type.name, 0);
+    const builtinNominalName = BUILTIN_NOMINALS[type.name];
+    const typeId =
+      (builtinNominalName
+        ? resolveTypeIdByName(state, builtinNominalName, 0)
+        : undefined) ?? resolveTypeIdByName(state, type.name, 0);
     if (!typeId) return undefined;
     return { typeId, typeArgs: [] };
   }

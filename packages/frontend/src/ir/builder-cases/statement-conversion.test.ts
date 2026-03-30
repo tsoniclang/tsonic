@@ -82,6 +82,41 @@ describe("IR Builder", function () {
       }
     });
 
+    it("reuses converted exported declarations for module exports", () => {
+      const source = `
+        export const config = {
+          retries: 3,
+          features: ["a", "b", "c"],
+        };
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const bodyDeclaration = result.value.body.find(
+        (statement): statement is IrVariableDeclaration =>
+          statement.kind === "variableDeclaration"
+      );
+      expect(bodyDeclaration).to.not.equal(undefined);
+      if (!bodyDeclaration) return;
+
+      const exportDeclaration = result.value.exports.find(
+        (entry): entry is { kind: "declaration"; declaration: IrVariableDeclaration } =>
+          entry.kind === "declaration" &&
+          entry.declaration.kind === "variableDeclaration"
+      );
+      expect(exportDeclaration).to.not.equal(undefined);
+      if (!exportDeclaration) return;
+
+      expect(exportDeclaration.declaration).to.equal(bodyDeclaration);
+    });
+
     it("should convert class declarations", () => {
       const source = `
         export class User {

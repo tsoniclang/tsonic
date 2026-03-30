@@ -460,4 +460,135 @@ export {};
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("includes authoritative source files backing JS globals and member surfaces", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-js-source-backed-globals-")
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const srcDir = path.join(tempDir, "src");
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      const surfaceRoot = path.join(tempDir, "node_modules/@fixture/js");
+      const stringPath = path.join(surfaceRoot, "src", "String.ts");
+      const timersPath = path.join(surfaceRoot, "src", "timers.ts");
+      fs.mkdirSync(path.join(surfaceRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(surfaceRoot, "package.json"),
+        JSON.stringify(
+          { name: "@fixture/js", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(surfaceRoot, "tsonic.surface.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@fixture/js",
+            extends: [],
+            requiredTypeRoots: ["."],
+            useStandardLib: false,
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(surfaceRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@fixture/js"],
+            source: {
+              namespace: "fixture.js",
+              ambient: ["./globals.ts"],
+              exports: {
+                "./String.js": "./src/String.ts",
+                "./timers.js": "./src/timers.ts",
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(surfaceRoot, "globals.ts"),
+        [
+          "declare global {",
+          "  interface String {",
+          "    trim(): string;",
+          "  }",
+          "",
+          "  function setInterval(",
+          "    handler: (...args: unknown[]) => void,",
+          "    timeout?: number,",
+          "    ...args: unknown[]",
+          "  ): number;",
+          "}",
+          "",
+          "export {};",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        stringPath,
+        [
+          "export const trim = (value: string): string => value;",
+          "",
+        ].join("\n")
+      );
+      fs.writeFileSync(
+        timersPath,
+        [
+          "export const setInterval = (",
+          "  _handler: (...args: unknown[]) => void,",
+          "  _timeout?: number,",
+          "  ..._args: unknown[]",
+          "): number => 0;",
+          "",
+        ].join("\n")
+      );
+
+      const entryPath = path.join(srcDir, "index.ts");
+      fs.writeFileSync(
+        entryPath,
+        [
+          'export const text = "  ok  ".trim();',
+          "export const timer = setInterval(() => {}, 1000);",
+        ].join("\n")
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@fixture/js",
+        useStandardLib: false,
+      });
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const programFiles = result.value.sourceFiles.map((sourceFile) =>
+        fs.realpathSync(sourceFile.fileName)
+      );
+      expect(programFiles).to.include(fs.realpathSync(stringPath));
+      expect(programFiles).to.include(fs.realpathSync(timersPath));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

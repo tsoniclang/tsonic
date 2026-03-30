@@ -278,6 +278,8 @@ export const buildUnifiedUniverse = (
   const clrNameToTypeId = new Map<string, TypeId>(
     assemblyCatalog.clrNameToTypeId
   );
+  const sourceTsNamePriority = new Map<string, number>();
+  const sourceClrNamePriority = new Map<string, number>();
 
   // Add source types if registry is provided
   if (sourceRegistry) {
@@ -304,8 +306,30 @@ export const buildUnifiedUniverse = (
       // Add to maps (source types won't collide with assembly types by stableId)
       entries.set(nominalEntry.typeId.stableId, nominalEntry);
       if (!preserveAssemblyIdentity) {
-        tsNameToTypeId.set(nominalEntry.typeId.tsName, nominalEntry.typeId);
-        clrNameToTypeId.set(nominalEntry.typeId.clrName, nominalEntry.typeId);
+        const sourcePriority = entry.isDeclarationFile ? 0 : 1;
+
+        const existingTsPriority =
+          sourceTsNamePriority.get(nominalEntry.typeId.tsName);
+        if (
+          existingTsPriority === undefined ||
+          sourcePriority >= existingTsPriority
+        ) {
+          tsNameToTypeId.set(nominalEntry.typeId.tsName, nominalEntry.typeId);
+          sourceTsNamePriority.set(nominalEntry.typeId.tsName, sourcePriority);
+        }
+
+        const existingClrPriority =
+          sourceClrNamePriority.get(nominalEntry.typeId.clrName);
+        if (
+          existingClrPriority === undefined ||
+          sourcePriority >= existingClrPriority
+        ) {
+          clrNameToTypeId.set(nominalEntry.typeId.clrName, nominalEntry.typeId);
+          sourceClrNamePriority.set(
+            nominalEntry.typeId.clrName,
+            sourcePriority
+          );
+        }
       }
     }
   }

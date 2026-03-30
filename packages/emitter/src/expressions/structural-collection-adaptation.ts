@@ -12,7 +12,10 @@ import {
   identifierType,
   nullLiteral,
 } from "../core/format/backend-ast/builders.js";
-import { sameTypeAstSurface } from "../core/format/backend-ast/utils.js";
+import {
+  extractCalleeNameFromAst,
+  sameTypeAstSurface,
+} from "../core/format/backend-ast/utils.js";
 import { allocateLocalName } from "../core/format/local-names.js";
 import type { EmitterContext } from "../types.js";
 import { emitCSharpName } from "../naming-policy.js";
@@ -75,6 +78,13 @@ const isDirectlyReusableExpression = (
   expression.kind === "identifierExpression" ||
   expression.kind === "memberAccessExpression" ||
   expression.kind === "elementAccessExpression";
+
+const isArrayEmptyInvocation = (
+  expression: CSharpExpressionAst
+): expression is Extract<CSharpExpressionAst, { kind: "invocationExpression" }> =>
+  expression.kind === "invocationExpression" &&
+  extractCalleeNameFromAst(expression.expression) ===
+    "global::System.Array.Empty";
 
 const isIteratorAccessExpression = (
   expression: CSharpExpressionAst,
@@ -193,6 +203,20 @@ export const tryAdaptStructuralCollectionExpressionAst = (
   const targetElementType = getArrayElementType(expectedType, context);
   const sourceElementType = getArrayElementType(sourceType, context);
   if (targetElementType && sourceElementType) {
+    if (isArrayEmptyInvocation(emittedAst)) {
+      const [targetElementTypeAst, , targetElementTypeContext] =
+        emitRuntimeCarrierTypeAst(targetElementType, context, emitTypeAst);
+      return [
+        {
+          kind: "invocationExpression",
+          expression: identifierExpression("global::System.Array.Empty"),
+          typeArguments: [targetElementTypeAst],
+          arguments: [],
+        },
+        targetElementTypeContext,
+      ];
+    }
+
     const item = allocateLocalName("__item", context);
     let currentContext = item.context;
     const itemIdentifier: CSharpExpressionAst = {

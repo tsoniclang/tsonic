@@ -168,9 +168,78 @@ export const parseMethodSignature = (
     }
   }
 
+  const collectReferencedTypeParameterNames = (
+    type: IrType | undefined,
+    names: string[]
+  ): void => {
+    if (!type) {
+      return;
+    }
+
+    switch (type.kind) {
+      case "typeParameterType":
+        if (!names.includes(type.name)) {
+          names.push(type.name);
+        }
+        return;
+      case "arrayType":
+        collectReferencedTypeParameterNames(type.elementType, names);
+        return;
+      case "tupleType":
+        type.elementTypes.forEach((elementType) => {
+          if (elementType) {
+            collectReferencedTypeParameterNames(elementType, names);
+          }
+        });
+        return;
+      case "unionType":
+      case "intersectionType":
+        type.types.forEach((memberType) =>
+          collectReferencedTypeParameterNames(memberType, names)
+        );
+        return;
+      case "dictionaryType":
+        collectReferencedTypeParameterNames(type.keyType, names);
+        collectReferencedTypeParameterNames(type.valueType, names);
+        return;
+      case "referenceType":
+        type.typeArguments?.forEach((typeArgument) =>
+          collectReferencedTypeParameterNames(typeArgument, names)
+        );
+        type.structuralMembers?.forEach((member) => {
+          if (member.kind === "propertySignature") {
+            collectReferencedTypeParameterNames(member.type, names);
+            return;
+          }
+          member.parameters.forEach((parameter) =>
+            collectReferencedTypeParameterNames(parameter.type, names)
+          );
+          collectReferencedTypeParameterNames(member.returnType, names);
+        });
+        return;
+      case "functionType":
+        type.parameters.forEach((parameter) =>
+          collectReferencedTypeParameterNames(parameter.type, names)
+        );
+        collectReferencedTypeParameterNames(type.returnType, names);
+        return;
+      default:
+        return;
+    }
+  };
+
+  const referencedTypeParameterNames: string[] = [];
+  parameters.forEach((parameter) =>
+    collectReferencedTypeParameterNames(parameter.type, referencedTypeParameterNames)
+  );
+  collectReferencedTypeParameterNames(returnType, referencedTypeParameterNames);
   const typeParameters =
     method.arity > 0
-      ? Array.from({ length: method.arity }, (_, i) => ({ name: `T${i}` }))
+      ? Array.from({ length: method.arity }, (_, i) => ({
+          name:
+            referencedTypeParameterNames[i] ??
+            (i === 0 ? "T" : `T${i + 1}`),
+        }))
       : [];
 
   return {

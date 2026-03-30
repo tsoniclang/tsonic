@@ -20,6 +20,7 @@ import {
 } from "../surface/profiles.js";
 import {
   findContainingSourcePackageRoot,
+  resolveSourcePackageAliasTarget,
   resolveSourcePackageImport,
   resolveSourcePackageImportFromPackageRoot,
 } from "../resolver/source-package-resolution.js";
@@ -37,6 +38,7 @@ import {
 } from "./module-resolution.js";
 import { discoverProgramInputs } from "./program-input-discovery.js";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
+import { resolveSourceBackedBindingFiles } from "./source-binding-imports.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -234,8 +236,23 @@ export const createProgram = (
     tsOptions,
   } = discovery;
   const bindings = loadBindings(typeRoots);
+  const bindingSourceFiles = resolveSourceBackedBindingFiles(
+    bindings,
+    path.join(options.projectRoot, "__tsonic_source_bindings__.ts"),
+    options.projectRoot,
+    surface,
+    authoritativeTsonicPackageRoots
+  );
+  if (!bindingSourceFiles.ok) {
+    return error(
+      addDiagnostic(createDiagnosticsCollector(), bindingSourceFiles.error)
+    );
+  }
   const absolutePaths = dedupeCanonicalFilePaths(discoveredAbsolutePaths);
-  const allFiles = dedupeCanonicalFilePaths(discoveredAllFiles);
+  const allFiles = dedupeCanonicalFilePaths([
+    ...discoveredAllFiles,
+    ...bindingSourceFiles.value,
+  ]);
   if (typeof tsOptions.rootDir === "string" && absolutePaths.length > 0) {
     tsOptions.rootDir = resolveCommonRootDir([
       tsOptions.rootDir,
@@ -371,22 +388,12 @@ export const createProgram = (
             continue;
           }
 
-          const resolved =
-            metadata &&
-            (aliasTarget === metadata.packageName ||
-              aliasTarget.startsWith(`${metadata.packageName}/`))
-              ? resolveSourcePackageImportFromPackageRoot(
-                  aliasTarget,
-                  packageRoot,
-                  options.surface,
-                  options.projectRoot
-                )
-              : resolveSourcePackageImport(
-                  aliasTarget,
-                  path.join(packageRoot, "__tsonic_alias__.ts"),
-                  options.surface,
-                  options.projectRoot
-                );
+          const resolved = resolveSourcePackageAliasTarget(
+            aliasTarget,
+            packageRoot,
+            options.surface,
+            options.projectRoot
+          );
 
           if (!resolved.ok || !resolved.value) {
             continue;
@@ -547,18 +554,26 @@ export const createProgram = (
         );
         const redirectedSourcePackage =
           authoritativeAliasRoot !== undefined
-            ? resolveSourcePackageImportFromPackageRoot(
+            ? resolveSourcePackageAliasTarget(
                 declarationAlias.targetSpecifier,
                 authoritativeAliasRoot,
                 options.surface,
                 options.projectRoot
               )
-            : resolveSourcePackageImport(
-                declarationAlias.targetSpecifier,
-                containingFile,
-                options.surface,
-                options.projectRoot
-              );
+            : declarationAlias.targetSpecifier === "." ||
+                declarationAlias.targetSpecifier.startsWith("./")
+              ? resolveSourcePackageAliasTarget(
+                  declarationAlias.targetSpecifier,
+                  path.dirname(declarationAlias.declarationFile),
+                  options.surface,
+                  options.projectRoot
+                )
+              : resolveSourcePackageImport(
+                  declarationAlias.targetSpecifier,
+                  containingFile,
+                  options.surface,
+                  options.projectRoot
+                );
         if (redirectedSourcePackage.ok && redirectedSourcePackage.value) {
           return toTsSourceResolvedModule(
             redirectedSourcePackage.value.resolvedPath

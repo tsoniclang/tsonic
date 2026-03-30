@@ -293,6 +293,26 @@ const collectExistingAnonymousReferences = (
     registerExistingAnonymousReference(value, shapeToExistingReference);
   }
 
+  const asRecord = value as Partial<IrReferenceType> & {
+    readonly kind?: unknown;
+    readonly typeArguments?: unknown;
+  };
+  if (asRecord.kind === "referenceType") {
+    const typeArguments = Array.isArray(asRecord.typeArguments)
+      ? asRecord.typeArguments
+      : undefined;
+    if (typeArguments) {
+      for (const argument of typeArguments) {
+        collectExistingAnonymousReferences(
+          argument,
+          shapeToExistingReference,
+          seen
+        );
+      }
+    }
+    return;
+  }
+
   if (Array.isArray(value)) {
     for (const entry of value) {
       collectExistingAnonymousReferences(entry, shapeToExistingReference, seen);

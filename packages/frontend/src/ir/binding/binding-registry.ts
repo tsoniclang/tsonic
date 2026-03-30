@@ -31,6 +31,7 @@ import {
   extractTypeParameterNodes,
   extractTypePredicate,
   extractDeclaringIdentity,
+  normalizeCapturedDeclaringTypeName,
   extractClassMemberNames,
   isOptionalMember,
   isReadonlyMember,
@@ -230,23 +231,23 @@ export const resolveCanonicalDeclaringTypeName = (
         ts.isTypeAliasDeclaration(parent)) &&
       parent.name
     ) {
-      return (
+      const resolvedName =
         resolveDeclarationSymbolFQName(
           ctx,
           ctx.checker.getSymbolAtLocation(parent.name)
-        ) ?? parent.name.text
-      );
+        ) ?? parent.name.text;
+      return normalizeCapturedDeclaringTypeName(resolvedName);
     }
 
     if (ts.isTypeLiteralNode(parent)) {
       const container = parent.parent;
       if (ts.isVariableDeclaration(container) && ts.isIdentifier(container.name)) {
-        return (
+        const resolvedName =
           resolveDeclarationSymbolFQName(
             ctx,
             ctx.checker.getSymbolAtLocation(container.name)
-          ) ?? container.name.text
-        );
+          ) ?? container.name.text;
+        return normalizeCapturedDeclaringTypeName(resolvedName);
       }
     }
   }

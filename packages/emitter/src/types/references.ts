@@ -288,8 +288,26 @@ export const emitReferenceType = (
 
   // Map PromiseLike to Task
   if (name === "PromiseLike") {
-    // PromiseLike is in both globals packages - safe to map unconditionally
-    return [identifierType("global::System.Threading.Tasks.Task"), context];
+    const firstArg = typeArguments?.[0];
+    if (!firstArg) {
+      return [identifierType("global::System.Threading.Tasks.Task"), context];
+    }
+
+    const [elementTypeAst, newContext] = emitTypeAst(firstArg, context);
+    if (
+      elementTypeAst.kind === "predefinedType" &&
+      elementTypeAst.keyword === "void"
+    ) {
+      return [
+        identifierType("global::System.Threading.Tasks.Task"),
+        newContext,
+      ];
+    }
+
+    return [
+      identifierType("global::System.Threading.Tasks.Task", [elementTypeAst]),
+      newContext,
+    ];
   }
 
   // C# primitive types can be emitted directly

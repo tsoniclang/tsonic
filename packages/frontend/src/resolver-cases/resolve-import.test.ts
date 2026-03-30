@@ -413,6 +413,7 @@ describe("Module Resolver", () => {
             kind: "tsonic-source-package",
             surfaces: ["@tsonic/js"],
             source: {
+              namespace: "nodejs",
               exports: {
                 "./net.js": "./src/net/index.ts",
               },
@@ -436,7 +437,7 @@ describe("Module Resolver", () => {
             [
               "node:net",
               {
-                targetSpecifier: "@tsonic/nodejs/net.js",
+                targetSpecifier: "./net.js",
                 declarationFile: path.join(packageRoot, "node-aliases.d.ts"),
               },
             ],

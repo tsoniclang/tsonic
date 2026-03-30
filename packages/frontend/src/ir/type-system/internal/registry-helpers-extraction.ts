@@ -32,14 +32,17 @@ import {
 
 /**
  * Check if a source file is from a well-known Tsonic library.
- * These libraries contain runtime types that need canonical CLR FQ names.
+ * Only CLR-authored libraries should canonicalize global wrapper names to
+ * their System.* identities.
+ *
+ * First-party source packages like `@tsonic/js` and `@tsonic/nodejs` are
+ * authoritative semantic surfaces and must retain their own namespaces
+ * (`js.Array`, `js.String`, etc.) instead of collapsing onto `System.*`.
  */
 export const isWellKnownLibrary = (fileName: string): boolean => {
   return (
     fileName.includes("__core_globals__.d.ts") ||
     fileName.includes("@tsonic/globals") ||
-    fileName.includes("@tsonic/js") ||
-    fileName.includes("@tsonic/nodejs") ||
     fileName.includes("@tsonic/core") ||
     fileName.includes("@tsonic/dotnet")
   );

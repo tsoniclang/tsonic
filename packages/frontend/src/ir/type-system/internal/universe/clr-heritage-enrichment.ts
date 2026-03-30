@@ -8,7 +8,7 @@
 
 import type { IrType } from "../../../types/index.js";
 import type { TypeId, NominalEntry, MemberEntry } from "./types.js";
-import { makeMethodSignatureKey } from "./clr-type-parser.js";
+import { makeMethodOverloadKey } from "./clr-type-parser.js";
 import { extractHeritageFromTsBindgenDts } from "./clr-heritage-extraction.js";
 
 export const enrichAssemblyEntriesFromTsBindgenDts = (
@@ -16,7 +16,23 @@ export const enrichAssemblyEntriesFromTsBindgenDts = (
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
   dtsPaths: readonly string[]
 ): void => {
+  const mergedTypeParameters = new Map<string, readonly string[]>();
   const mergedMemberTypes = new Map<string, Map<string, IrType>>();
+  const mergedMethodSignatureSurfaces = new Map<
+    string,
+    Map<
+      string,
+      {
+        readonly typeParameterNames: readonly string[];
+        readonly parameters: readonly {
+          readonly type: IrType;
+          readonly isRest: boolean;
+          readonly isOptional: boolean;
+        }[];
+        readonly returnType: IrType;
+      }
+    >
+  >();
   const mergedMethodSignatureOptionals = new Map<
     string,
     Map<string, readonly boolean[]>
@@ -29,6 +45,12 @@ export const enrichAssemblyEntriesFromTsBindgenDts = (
       entries
     );
 
+    for (const [tsName, typeParameters] of info.typeParametersByTsName) {
+      if (!mergedTypeParameters.has(tsName)) {
+        mergedTypeParameters.set(tsName, typeParameters);
+      }
+    }
+
     for (const [tsName, memberTypes] of info.memberTypesByTsName) {
       const merged =
         mergedMemberTypes.get(tsName) ?? new Map<string, IrType>();
@@ -38,6 +60,32 @@ export const enrichAssemblyEntriesFromTsBindgenDts = (
         }
       }
       mergedMemberTypes.set(tsName, merged);
+    }
+
+    for (const [
+      tsName,
+      signatureSurfaces,
+    ] of info.methodSignatureSurfacesByTsName) {
+      const merged =
+        mergedMethodSignatureSurfaces.get(tsName) ??
+        new Map<
+          string,
+          {
+            readonly typeParameterNames: readonly string[];
+            readonly parameters: readonly {
+              readonly type: IrType;
+              readonly isRest: boolean;
+              readonly isOptional: boolean;
+            }[];
+            readonly returnType: IrType;
+          }
+        >();
+      for (const [sigKey, surface] of signatureSurfaces) {
+        if (!merged.has(sigKey)) {
+          merged.set(sigKey, surface);
+        }
+      }
+      mergedMethodSignatureSurfaces.set(tsName, merged);
     }
 
     for (const [
@@ -61,28 +109,49 @@ export const enrichAssemblyEntriesFromTsBindgenDts = (
     const entry = entries.get(typeId.stableId);
     if (!entry) continue;
 
+    const typeParameters = mergedTypeParameters.get(tsName);
     const memberTypes = mergedMemberTypes.get(tsName);
+    const signatureSurfaces = mergedMethodSignatureSurfaces.get(tsName);
     const signatureOptionals = mergedMethodSignatureOptionals.get(tsName);
+    let updatedEntry: NominalEntry | undefined;
+
+    if (
+      typeParameters &&
+      typeParameters.length === entry.typeParameters.length &&
+      typeParameters.some(
+        (name, index) => name !== entry.typeParameters[index]?.name
+      )
+    ) {
+      updatedEntry = {
+        ...entry,
+        typeParameters: entry.typeParameters.map((parameter, index) => ({
+          ...parameter,
+          name: typeParameters[index] ?? parameter.name,
+        })),
+      };
+    }
+
+    const baseEntry = updatedEntry ?? entry;
     let updatedMembers: Map<string, MemberEntry> | undefined;
     if (memberTypes) {
       for (const [memberName, type] of memberTypes) {
-        const member = entry.members.get(memberName);
+        const member = baseEntry.members.get(memberName);
         if (!member) continue;
         if (!updatedMembers) {
-          updatedMembers = new Map(entry.members);
+          updatedMembers = new Map(baseEntry.members);
         }
         updatedMembers.set(memberName, { ...member, type });
       }
     }
 
-    if (signatureOptionals) {
-      const currentMembers = updatedMembers ?? entry.members;
+    if (signatureOptionals || signatureSurfaces) {
+      const currentMembers = updatedMembers ?? baseEntry.members;
       for (const [memberName, member] of currentMembers) {
         if (member.memberKind !== "method" || !member.signatures) continue;
 
         let memberChanged = false;
         const updatedSignatures = member.signatures.map((sig) => {
-          const signatureKey = makeMethodSignatureKey({
+          const signatureKey = makeMethodOverloadKey({
             isStatic: sig.isStatic,
             name: memberName,
             typeParamCount: sig.typeParameters.length,
@@ -90,26 +159,62 @@ export const enrichAssemblyEntriesFromTsBindgenDts = (
               type: p.type,
               isRest: p.isRest,
             })),
-            returnType: sig.returnType,
           });
 
-          const optionals = signatureOptionals.get(signatureKey);
-          if (!optionals) return sig;
-          if (optionals.length !== sig.parameters.length) return sig;
+          const surface = signatureSurfaces?.get(signatureKey);
+          const optionals = signatureOptionals?.get(signatureKey);
+          const updatedParams =
+            surface && surface.parameters.length === sig.parameters.length
+              ? sig.parameters.map((parameter, idx) => {
+                  const surfaceParameter = surface.parameters[idx];
+                  if (!surfaceParameter) {
+                    return parameter;
+                  }
 
-          const updatedParams = sig.parameters.map((p, idx) => {
-            const isOptional = optionals[idx];
-            return isOptional === undefined || isOptional === p.isOptional
-              ? p
-              : { ...p, isOptional };
-          });
+                  return {
+                    ...parameter,
+                    type: surfaceParameter.type,
+                    isOptional: surfaceParameter.isOptional,
+                    isRest: surfaceParameter.isRest,
+                  };
+                })
+              : optionals && optionals.length === sig.parameters.length
+                ? sig.parameters.map((parameter, idx) => {
+                    const isOptional = optionals[idx];
+                    return isOptional === undefined ||
+                      isOptional === parameter.isOptional
+                      ? parameter
+                      : { ...parameter, isOptional };
+                  })
+                : sig.parameters;
 
-          if (updatedParams.every((p, idx) => p === sig.parameters[idx])) {
+          const updatedTypeParameters =
+            surface &&
+            surface.typeParameterNames.length === sig.typeParameters.length
+              ? sig.typeParameters.map((typeParameter, idx) => ({
+                  ...typeParameter,
+                  name: surface.typeParameterNames[idx] ?? typeParameter.name,
+                }))
+              : sig.typeParameters;
+
+          const updatedSignature =
+            updatedParams === sig.parameters &&
+            updatedTypeParameters === sig.typeParameters &&
+            !surface
+              ? sig
+              : {
+                  ...sig,
+                  parameters: updatedParams,
+                  returnType: surface?.returnType ?? sig.returnType,
+                  typeParameters: updatedTypeParameters,
+                };
+
+          if (updatedSignature === sig) {
             return sig;
           }
 
           memberChanged = true;
-          return { ...sig, parameters: updatedParams };
+          return updatedSignature;
         });
 
         if (!memberChanged) continue;
@@ -124,8 +229,11 @@ export const enrichAssemblyEntriesFromTsBindgenDts = (
       }
     }
 
-    if (!updatedMembers) continue;
+    if (!updatedEntry && !updatedMembers) continue;
 
-    entries.set(typeId.stableId, { ...entry, members: updatedMembers });
+    entries.set(typeId.stableId, {
+      ...(updatedEntry ?? entry),
+      members: updatedMembers ?? baseEntry.members,
+    });
   }
 };

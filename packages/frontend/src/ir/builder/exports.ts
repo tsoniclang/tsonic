@@ -6,15 +6,10 @@
 
 import * as ts from "typescript";
 import { IrExport, IrStatement } from "../types.js";
-import {
-  convertStatement,
-  flattenStatementResult,
-} from "../statement-converter.js";
 import { convertExpression } from "../expression-converter.js";
 import { hasExportModifier, hasDefaultModifier } from "./helpers.js";
 import type { Binding } from "../binding/index.js";
 import type { ProgramContext } from "../program-context.js";
-import { convertFunctionOverloadGroup } from "../converters/statements/declarations.js";
 import { collectTopLevelFunctionOverloadGroup } from "./top-level-function-overloads.js";
 
 /**
@@ -80,6 +75,7 @@ export const extractExports = (
  */
 export const extractExportsWithContext = (
   sourceFile: ts.SourceFile,
+  topLevelStatementGroups: ReadonlyMap<number, readonly IrStatement[]>,
   ctx: ProgramContext
 ): readonly IrExport[] => {
   const exports: IrExport[] = [];
@@ -100,7 +96,7 @@ export const extractExportsWithContext = (
           hasExportModifier(declaration) && !hasDefaultModifier(declaration)
       );
       if (hasDefaultExport || hasNamedExport) {
-        const statements = convertFunctionOverloadGroup(overloadGroup, ctx);
+        const statements = topLevelStatementGroups.get(index) ?? [];
         if (hasDefaultExport) {
           if (statements.some(isExportedIrDeclaration)) {
             exports.push({
@@ -166,8 +162,7 @@ export const extractExportsWithContext = (
       const hasDefault = hasDefaultModifier(node);
       if (hasDefault) {
         // export default function/class/etc
-        const result = convertStatement(node, ctx, undefined);
-        const statements = flattenStatementResult(result);
+        const statements = topLevelStatementGroups.get(index) ?? [];
         if (statements.length > 0) {
           exports.push({
             kind: "default",
@@ -179,8 +174,7 @@ export const extractExportsWithContext = (
         }
       } else {
         // regular export - may produce multiple statements (e.g., type aliases with synthetics)
-        const result = convertStatement(node, ctx, undefined);
-        const statements = flattenStatementResult(result);
+        const statements = topLevelStatementGroups.get(index) ?? [];
         for (const stmt of statements) {
           exports.push({
             kind: "declaration",

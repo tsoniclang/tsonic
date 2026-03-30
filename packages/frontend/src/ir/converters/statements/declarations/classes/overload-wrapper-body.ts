@@ -626,6 +626,48 @@ const collectReturnExpressions = (
   }
 };
 
+const resolveCallReturnCarrierType = (
+  expression: Extract<IrExpression, { kind: "call" }>
+): IrType | undefined => {
+  if (
+    expression.inferredType &&
+    expression.inferredType.kind !== "unknownType"
+  ) {
+    return expression.inferredType;
+  }
+
+  if (expression.sourceBackedReturnType) {
+    return expression.sourceBackedReturnType;
+  }
+
+  const calleeType = expression.callee.inferredType;
+  if (!calleeType || calleeType.kind !== "functionType") {
+    return expression.inferredType;
+  }
+
+  if (
+    !calleeType.typeParameters ||
+    calleeType.typeParameters.length === 0 ||
+    !expression.typeArguments ||
+    expression.typeArguments.length === 0
+  ) {
+    return calleeType.returnType;
+  }
+
+  const substitutions = new Map<string, IrType>();
+  for (let index = 0; index < calleeType.typeParameters.length; index += 1) {
+    const typeParameter = calleeType.typeParameters[index];
+    const typeArgument = expression.typeArguments[index];
+    if (!typeParameter || !typeArgument) {
+      continue;
+    }
+
+    substitutions.set(typeParameter.name, typeArgument);
+  }
+
+  return substituteIrType(calleeType.returnType, substitutions);
+};
+
 const unwrapSpecializedReturnCarrierType = (
   expression: IrExpression
 ): IrType | undefined => {
@@ -635,6 +677,10 @@ const unwrapSpecializedReturnCarrierType = (
       expression.expression.inferredType ??
       expression.inferredType
     );
+  }
+
+  if (expression.kind === "call") {
+    return resolveCallReturnCarrierType(expression);
   }
 
   return expression.inferredType;
@@ -709,6 +755,54 @@ const tryInferSelectedRuntimeUnionMembers = (
   return selectedMembers.size > 0
     ? Array.from(selectedMembers).sort((left, right) => left - right)
     : undefined;
+};
+
+const selectRuntimeUnionMembersFromWrapperReturn = (
+  fallbackType: IrType | undefined,
+  wrapperReturnType: IrType | undefined
+): readonly number[] | undefined => {
+  if (
+    !fallbackType ||
+    !wrapperReturnType ||
+    fallbackType.kind !== "unionType" ||
+    fallbackType.preserveRuntimeLayout !== true
+  ) {
+    return undefined;
+  }
+
+  const matches = fallbackType.types
+    .map((member, index) =>
+      areWrapperTypesEquivalent(member, wrapperReturnType) ? index + 1 : undefined
+    )
+    .filter((member): member is number => member !== undefined);
+
+  return matches.length > 0 ? matches : undefined;
+};
+
+const selectRuntimeUnionMembersFromReturnExpression = (
+  fallbackType: IrType | undefined,
+  returnExpression: IrExpression
+): readonly number[] | undefined => {
+  if (
+    !fallbackType ||
+    fallbackType.kind !== "unionType" ||
+    fallbackType.preserveRuntimeLayout !== true
+  ) {
+    return undefined;
+  }
+
+  const actualReturnType = unwrapSpecializedReturnCarrierType(returnExpression);
+  if (!actualReturnType) {
+    return undefined;
+  }
+
+  const matches = fallbackType.types
+    .map((member, index) =>
+      areWrapperTypesEquivalent(member, actualReturnType) ? index + 1 : undefined
+    )
+    .filter((member): member is number => member !== undefined);
+
+  return matches.length > 0 ? matches : undefined;
 };
 
 const trimTrailingOptionalHelperParameters = (
@@ -927,13 +1021,19 @@ export const adaptReturnStatements = (
               inferredType: getAwaitedIrType(stmt.expression.inferredType!),
             } satisfies IrExpression)
           : stmt.expression;
+      const selectedRuntimeUnionMembers =
+        selectRuntimeUnionMembersFromReturnExpression(
+          effectiveReturnType,
+          sourceExpression
+        );
 
       return {
         ...stmt,
         expression: substitutePolymorphicReturn(
           sourceExpression,
           sourceExpression.inferredType,
-          effectiveReturnType
+          effectiveReturnType,
+          selectedRuntimeUnionMembers
         ),
       };
     case "functionDeclaration":
@@ -1003,13 +1103,43 @@ export const createWrapperBody = (
     implReturnType,
     substitutions
   );
-  const selectedRuntimeUnionMembers = tryInferSelectedRuntimeUnionMembers(
+  const selectedRuntimeUnionMembersFromWrapperReturn =
+    selectRuntimeUnionMembersFromWrapperReturn(
+      specializedImplReturnType,
+      wrapperReturnType
+    );
+  const selectedRuntimeUnionMembersFromBody = tryInferSelectedRuntimeUnionMembers(
     helperBody,
     helperParameters,
     helperParamDeclIds,
     parameters,
     specializedImplReturnType
   );
+  const selectedRuntimeUnionMembers = (() => {
+    if (
+      selectedRuntimeUnionMembersFromWrapperReturn &&
+      selectedRuntimeUnionMembersFromBody
+    ) {
+      const selected = selectedRuntimeUnionMembersFromBody.filter((member) =>
+        selectedRuntimeUnionMembersFromWrapperReturn.includes(member)
+      );
+      if (selected.length > 0) {
+        return selected;
+      }
+    }
+
+    if (
+      selectedRuntimeUnionMembersFromWrapperReturn &&
+      selectedRuntimeUnionMembersFromWrapperReturn.length === 1
+    ) {
+      return selectedRuntimeUnionMembersFromWrapperReturn;
+    }
+
+    return (
+      selectedRuntimeUnionMembersFromBody ??
+      selectedRuntimeUnionMembersFromWrapperReturn
+    );
+  })();
   const helperTypeArguments =
     helperTypeParameterNames.length > 0
       ? helperTypeParameterNames.map(

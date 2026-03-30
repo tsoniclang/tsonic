@@ -14,6 +14,11 @@ import {
   createProgram,
   createProgramContext,
 } from "./_test-helpers.js";
+import {
+  runAnonymousTypeLoweringPass,
+  runCallResolutionRefreshPass,
+  runNumericProofPass,
+} from "../validation/index.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);
@@ -213,6 +218,138 @@ describe("IR Builder", function () {
           },
         ],
       });
+      expect(initializer.inferredType).to.deep.equal({
+        kind: "arrayType",
+        elementType: {
+          kind: "primitiveType",
+          name: "number",
+        },
+        origin: "explicit",
+      });
+    });
+
+    it("preserves Promise constructor and Promise.all normalization through refresh passes", () => {
+      const source = `
+        declare function setTimeout(fn: () => void, ms: number): void;
+
+        interface PromiseLike<T> {
+          then<TResult1 = T, TResult2 = never>(
+            onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+          ): PromiseLike<TResult1 | TResult2>;
+        }
+
+        declare class Promise<T> {
+          constructor(
+            executor: (
+              resolve: (value: T | PromiseLike<T>) => void,
+              reject: (reason: unknown) => void
+            ) => void
+          );
+
+          static all<T>(values: readonly (T | PromiseLike<T>)[]): Promise<T[]>;
+        }
+
+        function yieldToEventLoop(): Promise<void> {
+          return new Promise((resolve) => {
+            setTimeout(() => resolve(), 0);
+          });
+        }
+
+        async function runWorker(name: string): Promise<number> {
+          await yieldToEventLoop();
+          return name.length;
+        }
+
+        export async function main(): Promise<void> {
+          const results = await Promise.all([
+            runWorker("a"),
+            runWorker("b"),
+            runWorker("c"),
+          ]);
+          void results;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const lowered = runAnonymousTypeLoweringPass([result.value]);
+      expect(lowered.ok).to.equal(true);
+      if (!lowered.ok) return;
+
+      const proofed = runNumericProofPass(lowered.modules);
+      expect(proofed.ok).to.equal(true);
+      if (!proofed.ok) return;
+
+      const refreshed = runCallResolutionRefreshPass(proofed.modules, ctx);
+      expect(refreshed.ok).to.equal(true);
+      if (!refreshed.ok) return;
+
+      const module = refreshed.modules[0];
+      expect(module).to.not.equal(undefined);
+      if (!module) return;
+
+      const yieldFn = module.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "yieldToEventLoop"
+      );
+      expect(yieldFn).to.not.equal(undefined);
+      if (!yieldFn) return;
+
+      const yieldReturn = yieldFn.body.statements[0];
+      expect(yieldReturn?.kind).to.equal("returnStatement");
+      if (!yieldReturn || yieldReturn.kind !== "returnStatement") return;
+
+      const ctor = yieldReturn.expression;
+      expect(ctor?.kind).to.equal("new");
+      if (!ctor || ctor.kind !== "new") return;
+
+      expect(ctor.inferredType).to.deep.equal({
+        kind: "referenceType",
+        name: "Promise",
+        typeArguments: [{ kind: "voidType" }],
+      });
+
+      const mainFn = module.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "main"
+      );
+      expect(mainFn).to.not.equal(undefined);
+      if (!mainFn) return;
+
+      const decl = mainFn.body.statements[0];
+      expect(decl?.kind).to.equal("variableDeclaration");
+      if (!decl || decl.kind !== "variableDeclaration") return;
+
+      const initializer = decl.declarations[0]?.initializer;
+      expect(initializer?.kind).to.equal("await");
+      if (!initializer || initializer.kind !== "await") return;
+
+      const call = initializer.expression;
+      expect(call?.kind).to.equal("call");
+      if (!call || call.kind !== "call") return;
+
+      expect(call.inferredType).to.deep.include({
+        kind: "referenceType",
+        name: "Promise",
+        typeArguments: [
+          {
+            kind: "arrayType",
+            elementType: {
+              kind: "primitiveType",
+              name: "number",
+            },
+            origin: "explicit",
+          },
+        ],
+      });
+
       expect(initializer.inferredType).to.deep.equal({
         kind: "arrayType",
         elementType: {
@@ -582,6 +719,107 @@ describe("IR Builder", function () {
       expect(selectedMembers).to.deep.equal([[1], [3], [2], [3]]);
     });
 
+    it("tracks the reachable runtime-union members for Array.from implementation returns", () => {
+      const fixtureRoot = path.resolve(
+        "..",
+        "..",
+        "test/fixtures/js-surface-array-from-map-keys/packages/js-surface-array-from-map-keys"
+      );
+      const entryPath = path.join(fixtureRoot, "src/index.ts");
+      const sourceRoot = path.join(fixtureRoot, "src");
+
+      const programResult = createProgram([entryPath], {
+        projectRoot: fixtureRoot,
+        sourceRoot,
+        rootNamespace: "JsSurfaceArrayFromMapKeys",
+        surface: "@tsonic/js",
+      });
+
+      expect(programResult.ok).to.equal(true);
+      if (!programResult.ok) return;
+
+      const program = programResult.value;
+      const arraySourceFile = program.sourceFiles.find((file) =>
+        file.fileName.endsWith("/src/array-object.ts") &&
+        (file.fileName.includes("/node_modules/@tsonic/js/") ||
+          file.fileName.includes("/js/versions/10/"))
+      );
+      expect(arraySourceFile).to.not.equal(undefined);
+      if (!arraySourceFile) return;
+
+      const ctx = createProgramContext(program, {
+        sourceRoot,
+        rootNamespace: "JsSurfaceArrayFromMapKeys",
+      });
+
+      const moduleResult = buildIrModule(
+        arraySourceFile,
+        program,
+        {
+          sourceRoot,
+          rootNamespace: "JsSurfaceArrayFromMapKeys",
+        },
+        ctx
+      );
+
+      expect(moduleResult.ok).to.equal(true);
+      if (!moduleResult.ok) return;
+
+      const arrayClass = moduleResult.value.body.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
+          stmt.kind === "classDeclaration" && stmt.name === "Array"
+      );
+      expect(arrayClass).to.not.equal(undefined);
+      if (!arrayClass) return;
+
+      const helperMethod = arrayClass.members.find(
+        (member): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
+          member.kind === "methodDeclaration" &&
+          member.name === "__tsonic_overload_impl_from" &&
+          !!member.body
+      );
+      expect(helperMethod).to.not.equal(undefined);
+      if (!helperMethod || !helperMethod.body) return;
+
+      const collected: Array<
+        Extract<
+          NonNullable<
+            Extract<
+              (typeof helperMethod.body.statements)[number],
+              { kind: "returnStatement" }
+            >["expression"]
+          >,
+          { kind: "typeAssertion" }
+        >
+      > = [];
+      const collect = (stmt: (typeof helperMethod.body.statements)[number]): void => {
+        switch (stmt.kind) {
+          case "blockStatement":
+            for (const inner of stmt.statements) collect(inner);
+            return;
+          case "ifStatement":
+            collect(stmt.thenStatement);
+            if (stmt.elseStatement) collect(stmt.elseStatement);
+            return;
+          case "returnStatement":
+            if (stmt.expression?.kind === "typeAssertion") {
+              collected.push(stmt.expression);
+            }
+            return;
+          default:
+            return;
+        }
+      };
+      for (const stmt of helperMethod.body.statements) {
+        collect(stmt);
+      }
+
+      const selectedMembers = collected.map(
+        (expr) => expr.selectedRuntimeUnionMembers
+      );
+      expect(selectedMembers).to.deep.equal([[1], [3], [2], [3]]);
+    });
+
     it("preserves receiver substitutions for locals derived from this-owned generic members", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tsonic-builder-this-member-generics-")
@@ -932,6 +1170,83 @@ describe("IR Builder", function () {
           explicit: true,
         });
       }
+    });
+
+    it("does not treat contextual Queryable selector parameters as concrete method inference", () => {
+      const source = `
+        interface IQueryable_1<T> {}
+        interface IOrderedQueryable_1<T> extends IQueryable_1<T> {}
+        interface Expression_1<TDelegate> {}
+        interface DateTime {}
+
+        interface PostEntity {
+          CreatedAt: DateTime;
+        }
+
+        declare class Queryable {
+          static OrderByDescending<TSource, TKey>(
+            source: IQueryable_1<TSource>,
+            keySelector: Expression_1<(value: TSource) => TKey>
+          ): IOrderedQueryable_1<TSource>;
+        }
+
+        declare const posts: IQueryable_1<PostEntity>;
+
+        export function run() {
+          const query = Queryable.OrderByDescending(posts, (p) => p.CreatedAt);
+          return query;
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const fn = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(fn).to.not.equal(undefined);
+      if (!fn) return;
+
+      const decl = fn.body.statements[0];
+      expect(decl?.kind).to.equal("variableDeclaration");
+      if (!decl || decl.kind !== "variableDeclaration") return;
+
+      const queryDecl = decl.declarations[0];
+      expect(queryDecl?.initializer?.kind).to.equal("call");
+      if (!queryDecl?.initializer || queryDecl.initializer.kind !== "call") return;
+
+      const call = queryDecl.initializer;
+      expect(call.inferredType).to.not.equal(undefined);
+      if (!call.inferredType) return;
+      expect(call.inferredType.kind).to.equal("referenceType");
+      if (call.inferredType.kind !== "referenceType") return;
+      expect(call.inferredType.name).to.equal("IOrderedQueryable_1");
+      expect(call.inferredType.typeArguments?.[0]).to.deep.include({
+        kind: "referenceType",
+        name: "PostEntity",
+      });
+
+      const selector = call.arguments[1];
+      expect(selector?.kind).to.equal("arrowFunction");
+      if (!selector || selector.kind !== "arrowFunction") return;
+
+      const selectorSurface = call.surfaceParameterTypes?.[1];
+      expect(selectorSurface?.kind).to.equal("referenceType");
+      if (!selectorSurface || selectorSurface.kind !== "referenceType") return;
+      expect(selectorSurface.name).to.equal("Expression_1");
+      const selectorFn = selectorSurface.typeArguments?.[0];
+      expect(selectorFn?.kind).to.equal("functionType");
+      if (!selectorFn || selectorFn.kind !== "functionType") return;
+      expect(selectorFn.parameters[0]?.type).to.deep.include({
+        kind: "referenceType",
+        name: "PostEntity",
+      });
     });
   });
 });

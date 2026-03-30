@@ -204,6 +204,163 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.not.include("(object?[])right");
     });
 
+    it("materializes Object.entries Array.isArray fallthrough assertions to CLR arrays", () => {
+      const source = `
+        export function parse(root: unknown): number {
+          if (root === null || typeof root !== "object" || Array.isArray(root)) {
+            return 0;
+          }
+
+          const entries = Object.entries(root);
+          for (let i = 0; i < entries.length; i++) {
+            const [key, value] = entries[i]!;
+            if (key.toLowerCase() !== "mounts" || !Array.isArray(value)) {
+              continue;
+            }
+
+            const mountsValue = value as unknown[];
+            return mountsValue.length;
+          }
+
+          return 0;
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("!(value is global::System.Array)");
+      expect(csharp).to.include("object?[] mountsValue = (object?[])value;");
+      expect(csharp).to.not.include("(global::js.Array)value");
+    });
+
+    it("keeps nullable reference assignments nominal after local null guards", () => {
+      const source = `
+        class PageContext {
+          readonly slug: string;
+
+          constructor(slug: string) {
+            this.slug = slug;
+          }
+        }
+
+        class MenuEntry {
+          page: PageContext | undefined;
+
+          constructor() {
+            this.page = undefined;
+          }
+        }
+
+        const findPageByRef = (pageRef: string): PageContext | undefined => {
+          if (pageRef === "") {
+            return undefined;
+          }
+
+          return new PageContext(pageRef);
+        };
+
+        export function attach(entry: MenuEntry, pageRef: string): void {
+          const resolved = findPageByRef(pageRef);
+          if (resolved !== undefined) {
+            entry.page = resolved;
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("if (resolved != null)");
+      expect(csharp).to.include("entry.page = resolved;");
+      expect(csharp).to.not.include("entry.page = (object)resolved;");
+    });
+
+    it("selects the exact reachable runtime-union array arm for overloaded generic returns", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+
+        declare function mapString(source: string): string[];
+        declare function mapStringMapped<TResult>(
+          source: string,
+          mapfn: (value: string, index: int) => TResult
+        ): TResult[];
+        declare function mapIterable<T>(source: Iterable<T>): T[];
+        declare function mapIterableMapped<T, TResult>(
+          source: Iterable<T>,
+          mapfn: (value: T, index: int) => TResult
+        ): TResult[];
+
+        export class Array<T = unknown> {
+          public static from(source: string): string[];
+          public static from<TResult>(
+            source: string,
+            mapfn: (value: string, index: int) => TResult
+          ): TResult[];
+          public static from<T>(source: Iterable<T>): T[];
+          public static from<T, TResult>(
+            source: Iterable<T>,
+            mapfn: (value: T, index: int) => TResult
+          ): TResult[];
+          public static from<T, TResult>(
+            source: string | Iterable<T>,
+            mapfn?:
+              | ((value: string, index: int) => TResult)
+              | ((value: T, index: int) => TResult)
+          ): string[] | T[] | TResult[] {
+            if (typeof source === "string") {
+              if (mapfn === undefined) {
+                return mapString(source);
+              }
+
+              return mapStringMapped(
+                source,
+                mapfn as (value: string, index: int) => TResult
+              );
+            }
+
+            if (mapfn === undefined) {
+              return mapIterable(source);
+            }
+
+            return mapIterableMapped(
+              source,
+              mapfn as (value: T, index: int) => TResult
+            );
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+
+      expect(csharp).to.match(
+        /Union<string\[\], T\[\], TResult\[\]>\.From2\(\(T\[\]\)(?:global::js\.ArrayObject\.)?mapIterable\(\(global::System\.Collections\.Generic\.IEnumerable<T>\)\(source\.As1\(\)\)\)\)/
+      );
+      expect(csharp).to.not.match(
+        /mapIterable\(\(global::System\.Collections\.Generic\.IEnumerable<T>\)\(source\.As1\(\)\)\)\s+is\s+global::System\.Array\s+\?\s+global::Tsonic\.Runtime\.Union<string\[\], T\[\], TResult\[\]>\.From1/
+      );
+    });
+
+    it("routes source-backed map for-of loops through symbol iterators", () => {
+      const source = `
+        export function visit(menuBuilders: Map<string, string[]>): void {
+          for (const [menuName, builders] of menuBuilders) {
+            console.log(menuName, builders.length.toString());
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include(
+        "foreach (var __item in menuBuilders.__tsonic_symbol_iterator())"
+      );
+      expect(csharp).to.not.include("foreach (var __item in menuBuilders)");
+    });
+
     it("keeps source-declared js.Array length accesses nominal", () => {
       const source = `
         import { Array } from "@tsonic/js/index.js";
@@ -249,6 +406,41 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(
         /new global::js\.Array<string>\(\s*existing\.Match<string\[]>\(/
       );
+    });
+
+    it("preserves tuple returns through source-backed array map callbacks", () => {
+      const source = `
+        import { Directory, Path } from "@tsonic/dotnet/System.IO.js";
+
+        export const readdirSync = (path: string): string[] =>
+          Directory.GetFileSystemEntries(path)
+            .map((entry) => Path.GetFileName(entry) ?? "")
+            .filter((entry) => entry.length > 0);
+
+        type Entry = { readonly name: string; readonly value: string };
+        declare const params: Entry[];
+
+        export const entries = (): Array<[string, string]> =>
+          params.map((param) => [param.name, param.value]);
+      `;
+
+      const csharp = compileToCSharp(source, "/test/test.ts", {
+        surface: "@tsonic/js",
+      });
+      expect(csharp).to.include("global::System.IO.Directory.GetFileSystemEntries(path)");
+      expect(csharp).to.include(
+        '.map((string entry) => global::System.IO.Path.GetFileName(entry) ?? "").toArray()'
+      );
+      expect(csharp).to.include(
+        '.filter((string entry) => entry.Length > 0).toArray()'
+      );
+      expect(csharp).to.match(
+        /map\(\((?:Entry|Entry__Alias) param\) => \(param\.name, param\.value\)\)\.toArray\(\)/
+      );
+      expect(csharp).to.not.include(
+        "Select<string[], global::System.ValueTuple<string, string>>"
+      );
+      expect(csharp).to.not.include("new string[] { param.name, param.value }");
     });
 
     it("preserves runtime-union member numbering across nested array and instanceof fallthrough guards", () => {
