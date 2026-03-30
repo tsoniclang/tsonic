@@ -214,6 +214,12 @@ export const substituteTypeParameters = (
         valueType: substituteRequired(type.valueType, substitutions),
       };
     case "referenceType":
+      if (!type.typeArguments || type.typeArguments.length === 0) {
+        const substituted = substitutions.get(type.name);
+        if (substituted) {
+          return substituted;
+        }
+      }
       return {
         ...type,
         ...(type.typeArguments

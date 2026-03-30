@@ -24,6 +24,7 @@ import {
   withAppliedNarrowings,
 } from "../flow-narrowing.js";
 import { resolveInstanceofTargetType } from "../narrowing-resolvers-equality.js";
+import { getAccessPathKey, getAccessPathTarget } from "../access-paths.js";
 import {
   NumericKind,
   getBinaryResultKind,
@@ -115,6 +116,32 @@ const makeUnionType = (types: readonly IrType[]): IrType => {
 
   if (unique.length === 1 && unique[0]) return unique[0];
   return { kind: "unionType", types: unique };
+};
+
+const withoutExactAssignmentTargetReadNarrowing = (
+  expr: ts.Expression,
+  ctx: ProgramContext
+): ProgramContext => {
+  if (!ctx.accessEnv || ctx.accessEnv.size === 0) {
+    return ctx;
+  }
+
+  const target = getAccessPathTarget(expr, ctx);
+  if (!target) {
+    return ctx;
+  }
+
+  const targetKey = getAccessPathKey(target);
+  if (!ctx.accessEnv.has(targetKey)) {
+    return ctx;
+  }
+
+  const nextAccessEnv = new Map(ctx.accessEnv);
+  nextAccessEnv.delete(targetKey);
+  return {
+    ...ctx,
+    accessEnv: nextAccessEnv,
+  };
 };
 
 /**
@@ -270,6 +297,8 @@ export const convertBinaryExpression = (
   // Handle assignment separately
   // Thread LHS type to RHS for deterministic typing (e.g., x = 10 where x: int)
   if (isAssignmentOperator(node.operatorToken)) {
+    const leftCtx = withoutExactAssignmentTargetReadNarrowing(node.left, ctx);
+
     // DETERMINISTIC: Derive LHS type from declaration (for identifiers)
     const leftExpr = ts.isIdentifier(node.left)
       ? {
@@ -278,7 +307,7 @@ export const convertBinaryExpression = (
           inferredType: deriveIdentifierType(node.left, ctx),
           sourceSpan: getSourceSpan(node.left),
         }
-      : convertExpression(node.left, ctx, undefined);
+      : convertExpression(node.left, leftCtx, undefined);
 
     const lhsType = leftExpr.inferredType;
     const rightExpr = convertExpression(node.right, ctx, lhsType);

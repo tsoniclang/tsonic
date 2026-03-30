@@ -719,6 +719,107 @@ describe("IR Builder", function () {
       expect(selectedMembers).to.deep.equal([[1], [3], [2], [3]]);
     });
 
+    it("tracks the reachable runtime-union members for Array.from implementation returns", () => {
+      const fixtureRoot = path.resolve(
+        "..",
+        "..",
+        "test/fixtures/js-surface-array-from-map-keys/packages/js-surface-array-from-map-keys"
+      );
+      const entryPath = path.join(fixtureRoot, "src/index.ts");
+      const sourceRoot = path.join(fixtureRoot, "src");
+
+      const programResult = createProgram([entryPath], {
+        projectRoot: fixtureRoot,
+        sourceRoot,
+        rootNamespace: "JsSurfaceArrayFromMapKeys",
+        surface: "@tsonic/js",
+      });
+
+      expect(programResult.ok).to.equal(true);
+      if (!programResult.ok) return;
+
+      const program = programResult.value;
+      const arraySourceFile = program.sourceFiles.find((file) =>
+        file.fileName.endsWith("/src/array-object.ts") &&
+        (file.fileName.includes("/node_modules/@tsonic/js/") ||
+          file.fileName.includes("/js/versions/10/"))
+      );
+      expect(arraySourceFile).to.not.equal(undefined);
+      if (!arraySourceFile) return;
+
+      const ctx = createProgramContext(program, {
+        sourceRoot,
+        rootNamespace: "JsSurfaceArrayFromMapKeys",
+      });
+
+      const moduleResult = buildIrModule(
+        arraySourceFile,
+        program,
+        {
+          sourceRoot,
+          rootNamespace: "JsSurfaceArrayFromMapKeys",
+        },
+        ctx
+      );
+
+      expect(moduleResult.ok).to.equal(true);
+      if (!moduleResult.ok) return;
+
+      const arrayClass = moduleResult.value.body.find(
+        (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
+          stmt.kind === "classDeclaration" && stmt.name === "Array"
+      );
+      expect(arrayClass).to.not.equal(undefined);
+      if (!arrayClass) return;
+
+      const helperMethod = arrayClass.members.find(
+        (member): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
+          member.kind === "methodDeclaration" &&
+          member.name === "__tsonic_overload_impl_from" &&
+          !!member.body
+      );
+      expect(helperMethod).to.not.equal(undefined);
+      if (!helperMethod || !helperMethod.body) return;
+
+      const collected: Array<
+        Extract<
+          NonNullable<
+            Extract<
+              (typeof helperMethod.body.statements)[number],
+              { kind: "returnStatement" }
+            >["expression"]
+          >,
+          { kind: "typeAssertion" }
+        >
+      > = [];
+      const collect = (stmt: (typeof helperMethod.body.statements)[number]): void => {
+        switch (stmt.kind) {
+          case "blockStatement":
+            for (const inner of stmt.statements) collect(inner);
+            return;
+          case "ifStatement":
+            collect(stmt.thenStatement);
+            if (stmt.elseStatement) collect(stmt.elseStatement);
+            return;
+          case "returnStatement":
+            if (stmt.expression?.kind === "typeAssertion") {
+              collected.push(stmt.expression);
+            }
+            return;
+          default:
+            return;
+        }
+      };
+      for (const stmt of helperMethod.body.statements) {
+        collect(stmt);
+      }
+
+      const selectedMembers = collected.map(
+        (expr) => expr.selectedRuntimeUnionMembers
+      );
+      expect(selectedMembers).to.deep.equal([[1], [3], [2], [3]]);
+    });
+
     it("preserves receiver substitutions for locals derived from this-owned generic members", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tsonic-builder-this-member-generics-")

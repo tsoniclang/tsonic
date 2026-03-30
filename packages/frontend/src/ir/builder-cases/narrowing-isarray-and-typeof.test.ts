@@ -247,6 +247,92 @@ describe("IR Builder", function () {
       }
     });
 
+    it("keeps Object.entries tuple values as unknown[] after Array.isArray fallthrough guards", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "export function parse(root: unknown): number {",
+            '  if (root === null || typeof root !== "object" || Array.isArray(root)) {',
+            "    return 0;",
+            "  }",
+            "  const entries = Object.entries(root);",
+            "  for (let i = 0; i < entries.length; i++) {",
+            "    const [key, value] = entries[i]!;",
+            '    if (key.toLowerCase() !== "mounts" || !Array.isArray(value)) {',
+            "      continue;",
+            "    }",
+            "    const mountsValue = value as unknown[];",
+            "    return mountsValue.length;",
+            "  }",
+            "  return 0;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const parseFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "parse"
+        );
+        expect(parseFn).to.not.equal(undefined);
+        if (!parseFn) return;
+
+        const loop = parseFn.body.statements.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "forStatement" }> =>
+            stmt.kind === "forStatement"
+        );
+        expect(loop).to.not.equal(undefined);
+        if (!loop || loop.body.kind !== "blockStatement") return;
+
+        const mountsDecl = loop.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "mountsValue"
+            )
+        );
+        expect(mountsDecl).to.not.equal(undefined);
+        if (!mountsDecl) return;
+
+        const mountsInit = mountsDecl.declarations[0]?.initializer;
+        expect(mountsInit?.kind).to.equal("typeAssertion");
+        if (!mountsInit || mountsInit.kind !== "typeAssertion") return;
+
+        expect(mountsInit.expression.inferredType?.kind).to.equal("arrayType");
+        if (
+          !mountsInit.expression.inferredType ||
+          mountsInit.expression.inferredType.kind !== "arrayType"
+        ) {
+          return;
+        }
+        expect(mountsInit.expression.inferredType.elementType.kind).to.equal(
+          "unknownType"
+        );
+
+        expect(mountsInit.targetType?.kind).to.equal("arrayType");
+        if (!mountsInit.targetType || mountsInit.targetType.kind !== "arrayType") {
+          return;
+        }
+        expect(mountsInit.targetType.elementType.kind).to.equal("unknownType");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("preserves typeof fallthrough narrowing for class properties after early-return string branches", () => {
       const fixture = createFilesystemTestProgram(
         {

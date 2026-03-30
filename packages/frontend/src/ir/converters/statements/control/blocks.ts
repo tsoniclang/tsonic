@@ -94,6 +94,8 @@ const statementAlwaysTerminates = (stmt: IrStatement): boolean => {
     case "returnStatement":
     case "throwStatement":
     case "generatorReturnStatement":
+    case "breakStatement":
+    case "continueStatement":
       return true;
     case "blockStatement":
       return stmt.statements.some((inner) => statementAlwaysTerminates(inner));
