@@ -15,6 +15,7 @@ import {
   isPathWithinBoundary,
   resolveInstalledPackageImport,
   resolveInstalledPackageImportFromPackageRoot,
+  resolveSourcePackageAliasTarget,
   resolveSourcePackageImport,
   resolveSourcePackageImportFromPackageRoot,
 } from "./source-package-resolution.js";
@@ -153,18 +154,26 @@ export const resolveImport = (
       );
       const declarationAliasTarget =
         authoritativePackageRoot !== undefined
-          ? resolveSourcePackageImportFromPackageRoot(
+          ? resolveSourcePackageAliasTarget(
               declarationAlias.targetSpecifier,
               authoritativePackageRoot,
               opts.surface,
               opts.projectRoot
             )
-          : resolveSourcePackageImport(
-              declarationAlias.targetSpecifier,
-              containingFile,
-              opts.surface,
-              opts.projectRoot
-            );
+          : declarationAlias.targetSpecifier === "." ||
+              declarationAlias.targetSpecifier.startsWith("./")
+            ? resolveSourcePackageAliasTarget(
+                declarationAlias.targetSpecifier,
+                path.dirname(declarationAlias.declarationFile),
+                opts.surface,
+                opts.projectRoot
+              )
+            : resolveSourcePackageImport(
+                declarationAlias.targetSpecifier,
+                containingFile,
+                opts.surface,
+                opts.projectRoot
+              );
       if (!declarationAliasTarget.ok) {
         return declarationAliasTarget;
       }

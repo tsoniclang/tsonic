@@ -276,35 +276,9 @@ export const getPackageInfo = (
   }
 };
 
-export const isTsonicClrPackage = (
-  pkgRoot: string,
-  packageInfoCache: Map<
-    string,
-    | {
-        readonly name: string | undefined;
-        readonly keywords: readonly string[];
-        readonly peerDependencies: Readonly<Record<string, string>>;
-      }
-    | undefined
-  >
-): boolean => {
-  const info = getPackageInfo(pkgRoot, packageInfoCache);
-  if (!info) return false;
-
-  if (info.name?.startsWith("@tsonic/")) return true;
-  if (info.keywords.includes("tsonic")) return true;
-  if (
-    Object.prototype.hasOwnProperty.call(info.peerDependencies, "@tsonic/core")
-  ) {
-    return true;
-  }
-
-  return false;
-};
-
 export const packageHasClrMetadata = (
   pkgRoot: string,
-  packageInfoCache: Map<
+  _packageInfoCache: Map<
     string,
     | {
         readonly name: string | undefined;
@@ -315,9 +289,6 @@ export const packageHasClrMetadata = (
   >,
   packageHasMetadataCache: Map<string, boolean>
 ): boolean => {
-  // Only treat explicitly marked Tsonic packages as CLR bindings packages.
-  if (!isTsonicClrPackage(pkgRoot, packageInfoCache)) return false;
-
   const cached = packageHasMetadataCache.get(pkgRoot);
   if (cached !== undefined) return cached;
 

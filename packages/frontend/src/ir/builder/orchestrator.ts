@@ -20,7 +20,10 @@ import {
 import { IrBuildOptions } from "./types.js";
 import { extractImports } from "./imports.js";
 import { extractExportsWithContext } from "./exports.js";
-import { extractStatements, isExecutableStatement } from "./statements.js";
+import {
+  extractStatementsWithGroups,
+  isExecutableStatement,
+} from "./statements.js";
 import { validateClassImplements } from "./validation.js";
 import { resolveSourceFileIdentity } from "../../program/source-file-identity.js";
 
@@ -48,8 +51,15 @@ export const buildIrModule = (
     const { namespace, className } = sourceIdentity;
 
     const imports = extractImports(sourceFile, ctx);
-    const exports = extractExportsWithContext(sourceFile, ctx);
-    const statements = extractStatements(sourceFile, ctx);
+    const {
+      body: statements,
+      topLevelStatementGroups,
+    } = extractStatementsWithGroups(sourceFile, ctx);
+    const exports = extractExportsWithContext(
+      sourceFile,
+      topLevelStatementGroups,
+      ctx
+    );
 
     // Check for file name / export name collision (Issue #4)
     // When file name matches an exported function/variable name, C# will have illegal code

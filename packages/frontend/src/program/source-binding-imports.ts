@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { Diagnostic } from "../types/diagnostic.js";
 import { ok, type Result } from "../types/result.js";
 import {
@@ -89,4 +91,59 @@ export const resolveSourceBindingFiles = (
   }
 
   return ok(resolvedPaths);
+};
+
+const collectSourceOwnedTypeFiles = (
+  bindings: BindingRegistry
+): readonly string[] => {
+  const seenPaths = new Set<string>();
+  const resolvedPaths: string[] = [];
+
+  for (const type of bindings.getTypesMap().values()) {
+    for (const member of type.members) {
+      const sourceFilePath = member.sourceOrigin?.filePath;
+      if (!sourceFilePath) {
+        continue;
+      }
+
+      const resolvedPath = path.resolve(sourceFilePath);
+      if (seenPaths.has(resolvedPath) || !fs.existsSync(resolvedPath)) {
+        continue;
+      }
+
+      seenPaths.add(resolvedPath);
+      resolvedPaths.push(resolvedPath);
+    }
+  }
+
+  return resolvedPaths;
+};
+
+export const resolveSourceBackedBindingFiles = (
+  bindings: BindingRegistry,
+  containingFile: string,
+  projectRoot: string,
+  surface: SurfaceMode,
+  authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>
+): Result<readonly string[], Diagnostic> => {
+  const resolvedSimpleBindings = resolveSourceBindingFiles(
+    bindings,
+    ["global", "module"],
+    containingFile,
+    projectRoot,
+    surface,
+    authoritativeTsonicPackageRoots
+  );
+  if (!resolvedSimpleBindings.ok) {
+    return resolvedSimpleBindings;
+  }
+
+  return ok(
+    Array.from(
+      new Set([
+        ...resolvedSimpleBindings.value,
+        ...collectSourceOwnedTypeFiles(bindings),
+      ])
+    )
+  );
 };

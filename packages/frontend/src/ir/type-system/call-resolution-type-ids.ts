@@ -205,45 +205,65 @@ const substitutePolymorphicThisImpl = (
  * This keeps nominal identity stable throughout the pipeline and enables
  * emit-time resolution without relying on string name matching.
  */
-export const attachParameterTypeIds = (
+type AttachTypeIdsCache = Map<IrType, IrType>;
+
+const attachParameterTypeIdsImpl = (
   state: TypeSystemState,
-  p: IrParameter
+  p: IrParameter,
+  cache: AttachTypeIdsCache
 ): IrParameter => ({
   ...p,
-  type: p.type ? attachTypeIds(state, p.type) : undefined,
+  type: p.type ? attachTypeIdsImpl(state, p.type, cache) : undefined,
 });
 
-export const attachTypeParameterTypeIds = (
+const attachTypeParameterTypeIdsImpl = (
   state: TypeSystemState,
-  tp: IrTypeParameter
+  tp: IrTypeParameter,
+  cache: AttachTypeIdsCache
 ): IrTypeParameter => ({
   ...tp,
-  constraint: tp.constraint ? attachTypeIds(state, tp.constraint) : undefined,
-  default: tp.default ? attachTypeIds(state, tp.default) : undefined,
+  constraint: tp.constraint
+    ? attachTypeIdsImpl(state, tp.constraint, cache)
+    : undefined,
+  default: tp.default ? attachTypeIdsImpl(state, tp.default, cache) : undefined,
   structuralMembers: tp.structuralMembers?.map((m) =>
-    attachInterfaceMemberTypeIds(state, m)
+    attachInterfaceMemberTypeIdsImpl(state, m, cache)
   ),
 });
 
-export const attachInterfaceMemberTypeIds = (
+const attachInterfaceMemberTypeIdsImpl = (
   state: TypeSystemState,
-  m: IrInterfaceMember
+  m: IrInterfaceMember,
+  cache: AttachTypeIdsCache
 ): IrInterfaceMember => {
   if (m.kind === "propertySignature") {
-    return { ...m, type: attachTypeIds(state, m.type) };
+    return { ...m, type: attachTypeIdsImpl(state, m.type, cache) };
   }
 
   return {
     ...m,
     typeParameters: m.typeParameters?.map((tp) =>
-      attachTypeParameterTypeIds(state, tp)
+      attachTypeParameterTypeIdsImpl(state, tp, cache)
     ),
-    parameters: m.parameters.map((p) => attachParameterTypeIds(state, p)),
-    returnType: m.returnType ? attachTypeIds(state, m.returnType) : undefined,
+    parameters: m.parameters.map((p) =>
+      attachParameterTypeIdsImpl(state, p, cache)
+    ),
+    returnType: m.returnType
+      ? attachTypeIdsImpl(state, m.returnType, cache)
+      : undefined,
   };
 };
 
-export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
+const attachTypeIdsImpl = (
+  state: TypeSystemState,
+  type: IrType,
+  cache: AttachTypeIdsCache
+): IrType => {
+  const cached = cache.get(type);
+  if (cached) {
+    return cached;
+  }
+
   switch (type.kind) {
     case "referenceType": {
       const sourceFqName = resolveSourceReferenceFQName(state, type);
@@ -263,67 +283,119 @@ export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
           ? resolveTypeIdByName(state, type.name, type.typeArguments?.length)
           : undefined);
 
-      return {
+      const attached = {
         ...type,
-        ...(type.typeArguments
-          ? {
-              typeArguments: type.typeArguments.map((t) =>
-                attachTypeIds(state, t)
-              ),
-            }
-          : {}),
-        ...(type.structuralMembers
-          ? {
-              structuralMembers: type.structuralMembers.map((m) =>
-                attachInterfaceMemberTypeIds(state, m)
-              ),
-            }
-          : {}),
         ...(typeId ? { typeId } : {}),
       };
+      cache.set(type, attached);
+
+      if (type.typeArguments) {
+        attached.typeArguments = type.typeArguments.map((t) =>
+          attachTypeIdsImpl(state, t, cache)
+        );
+      }
+
+      if (type.structuralMembers) {
+        attached.structuralMembers = type.structuralMembers.map((m) =>
+          attachInterfaceMemberTypeIdsImpl(state, m, cache)
+        );
+      }
+
+      return attached;
     }
 
-    case "arrayType":
-      return { ...type, elementType: attachTypeIds(state, type.elementType) };
+    case "arrayType": {
+      const attached = { ...type, elementType: type.elementType };
+      cache.set(type, attached);
+      attached.elementType = attachTypeIdsImpl(state, type.elementType, cache);
+      return attached;
+    }
 
-    case "tupleType":
-      return {
+    case "tupleType": {
+      const attached = {
         ...type,
-        elementTypes: type.elementTypes.map((t) => attachTypeIds(state, t)),
+        elementTypes: type.elementTypes,
       };
+      cache.set(type, attached);
+      attached.elementTypes = type.elementTypes.map((t) =>
+        attachTypeIdsImpl(state, t, cache)
+      );
+      return attached;
+    }
 
-    case "functionType":
-      return {
+    case "functionType": {
+      const attached = {
         ...type,
-        parameters: type.parameters.map((p) =>
-          attachParameterTypeIds(state, p)
-        ),
-        returnType: attachTypeIds(state, type.returnType),
+        parameters: type.parameters,
+        returnType: type.returnType,
       };
+      cache.set(type, attached);
+      attached.parameters = type.parameters.map((p) =>
+        attachParameterTypeIdsImpl(state, p, cache)
+      );
+      attached.returnType = attachTypeIdsImpl(state, type.returnType, cache);
+      return attached;
+    }
 
-    case "objectType":
-      return {
+    case "objectType": {
+      const attached = {
         ...type,
-        members: type.members.map((m) =>
-          attachInterfaceMemberTypeIds(state, m)
-        ),
+        members: type.members,
       };
+      cache.set(type, attached);
+      attached.members = type.members.map((m) =>
+        attachInterfaceMemberTypeIdsImpl(state, m, cache)
+      );
+      return attached;
+    }
 
-    case "dictionaryType":
-      return {
+    case "dictionaryType": {
+      const attached = {
         ...type,
-        keyType: attachTypeIds(state, type.keyType),
-        valueType: attachTypeIds(state, type.valueType),
+        keyType: type.keyType,
+        valueType: type.valueType,
       };
+      cache.set(type, attached);
+      attached.keyType = attachTypeIdsImpl(state, type.keyType, cache);
+      attached.valueType = attachTypeIdsImpl(state, type.valueType, cache);
+      return attached;
+    }
 
     case "unionType":
-    case "intersectionType":
-      return { ...type, types: type.types.map((t) => attachTypeIds(state, t)) };
+    case "intersectionType": {
+      const attached = {
+        ...type,
+        types: type.types,
+      };
+      cache.set(type, attached);
+      attached.types = type.types.map((t) => attachTypeIdsImpl(state, t, cache));
+      return attached;
+    }
 
     default:
       return type;
   }
 };
+
+export const attachParameterTypeIds = (
+  state: TypeSystemState,
+  p: IrParameter
+): IrParameter => attachParameterTypeIdsImpl(state, p, new Map<IrType, IrType>());
+
+export const attachTypeParameterTypeIds = (
+  state: TypeSystemState,
+  tp: IrTypeParameter
+): IrTypeParameter =>
+  attachTypeParameterTypeIdsImpl(state, tp, new Map<IrType, IrType>());
+
+export const attachInterfaceMemberTypeIds = (
+  state: TypeSystemState,
+  m: IrInterfaceMember
+): IrInterfaceMember =>
+  attachInterfaceMemberTypeIdsImpl(state, m, new Map<IrType, IrType>());
+
+export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType =>
+  attachTypeIdsImpl(state, type, new Map<IrType, IrType>());
 
 // ─────────────────────────────────────────────────────────────────────────
 // convertTypeNode — Deterministic type syntax conversion

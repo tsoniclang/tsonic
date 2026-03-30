@@ -10,6 +10,7 @@ import {
   IrBinaryOperator,
   IrAssignmentOperator,
   IrType,
+  stableIrTypeKey,
 } from "../../types.js";
 import {
   deriveIdentifierType,
@@ -106,7 +107,7 @@ const makeUnionType = (types: readonly IrType[]): IrType => {
   const seen = new Set<string>();
   const unique: IrType[] = [];
   for (const t of flattened) {
-    const key = JSON.stringify(t);
+    const key = stableIrTypeKey(t);
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(t);

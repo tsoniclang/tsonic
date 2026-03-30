@@ -131,7 +131,8 @@ export const convertBlockStatement = (
   let currentCtx = ctx;
   const statements: IrStatement[] = [];
 
-  for (const s of node.statements) {
+  for (let index = 0; index < node.statements.length; index++) {
+    const s = node.statements[index]!;
     const converted = convertStatement(s, currentCtx, expectedReturnType);
     statements.push(...flattenStatementResult(converted));
 

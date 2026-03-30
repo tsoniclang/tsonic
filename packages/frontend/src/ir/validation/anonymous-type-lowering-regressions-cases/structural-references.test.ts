@@ -251,6 +251,122 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     );
   });
 
+  it("treats mutually recursive named structural references as opaque during existing-carrier discovery", () => {
+    const siteContextType = {
+      kind: "referenceType",
+      name: "SiteContext",
+      typeId: {
+        stableId: "Test.SiteContext",
+        tsName: "SiteContext",
+        clrName: "Test.SiteContext",
+      },
+      structuralMembers: [],
+    } as unknown as IrReferenceType;
+
+    const pageContextType = {
+      kind: "referenceType",
+      name: "PageContext",
+      typeId: {
+        stableId: "Test.PageContext",
+        tsName: "PageContext",
+        clrName: "Test.PageContext",
+      },
+      structuralMembers: [],
+    } as unknown as IrReferenceType;
+
+    const pageContextArray: IrType = {
+      kind: "arrayType",
+      elementType: pageContextType,
+    };
+
+    (
+      siteContextType as IrReferenceType & {
+        structuralMembers: unknown[];
+      }
+    ).structuralMembers = [
+      {
+        kind: "propertySignature",
+        name: "pages",
+        type: pageContextArray,
+        isOptional: false,
+        isReadonly: false,
+      },
+    ];
+
+    (
+      pageContextType as IrReferenceType & {
+        structuralMembers: unknown[];
+      }
+    ).structuralMembers = [
+      {
+        kind: "propertySignature",
+        name: "site",
+        type: siteContextType,
+        isOptional: false,
+        isReadonly: false,
+      },
+      {
+        kind: "propertySignature",
+        name: "translations",
+        type: pageContextArray,
+        isOptional: false,
+        isReadonly: false,
+      },
+    ];
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "site.ts",
+      namespace: "TestApp",
+      className: "Site",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "view" },
+              initializer: {
+                kind: "object",
+                properties: [],
+                inferredType: {
+                  kind: "objectType",
+                  members: [
+                    {
+                      kind: "propertySignature",
+                      name: "site",
+                      type: siteContextType,
+                      isOptional: false,
+                      isReadonly: false,
+                    },
+                    {
+                      kind: "propertySignature",
+                      name: "page",
+                      type: pageContextType,
+                      isOptional: false,
+                      isReadonly: false,
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const lowered = runAnonymousTypeLoweringPass([module]);
+    const soundness = validateIrSoundness(lowered.modules);
+
+    expect(soundness.diagnostics.length).to.equal(0);
+    expect(lowered.modules.length).to.be.greaterThan(0);
+  });
+
   it("reuses exact local structural aliases instead of generating anonymous carriers", () => {
     const createInputType: IrType = {
       kind: "objectType",

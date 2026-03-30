@@ -4,7 +4,7 @@
  */
 
 import * as ts from "typescript";
-import { isAbsolute, relative, resolve } from "path";
+import { dirname, isAbsolute, relative, resolve } from "path";
 import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
 import { IrModule, IrStatement } from "../ir/types.js";
@@ -29,6 +29,7 @@ import { validateProgram } from "../validation/orchestrator.js";
 import {
   getLocalResolutionBoundary,
   resolveInstalledPackageImport,
+  resolveSourcePackageAliasTarget,
   resolveSourcePackageImport,
 } from "../resolver/source-package-resolution.js";
 import { resolveImport } from "../resolver.js";
@@ -449,12 +450,21 @@ export const buildModuleDependencyGraph = (
 
       const declarationAlias = declarationModuleAliases.get(importSpecifier);
       if (declarationAlias) {
-        const redirectedSourcePackage = resolveSourcePackageImport(
-          declarationAlias.targetSpecifier,
-          currentFile,
-          options.surface,
-          options.projectRoot
-        );
+        const redirectedSourcePackage =
+          declarationAlias.targetSpecifier === "." ||
+          declarationAlias.targetSpecifier.startsWith("./")
+            ? resolveSourcePackageAliasTarget(
+                declarationAlias.targetSpecifier,
+                dirname(declarationAlias.declarationFile),
+                options.surface,
+                options.projectRoot
+              )
+            : resolveSourcePackageImport(
+                declarationAlias.targetSpecifier,
+                currentFile,
+                options.surface,
+                options.projectRoot
+              );
         if (!redirectedSourcePackage.ok) {
           diagnostics.push({
             ...redirectedSourcePackage.error,

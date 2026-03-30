@@ -1237,6 +1237,11 @@ const convertDetachedSourceTypeNode = (
         ),
       };
     }
+    case ts.SyntaxKind.ThisType:
+      return {
+        kind: "typeParameterType",
+        name: "__tsonic_polymorphic_this",
+      };
     case ts.SyntaxKind.LiteralType: {
       const literalNode = node as ts.LiteralTypeNode;
       if (ts.isStringLiteral(literalNode.literal)) {
@@ -1827,6 +1832,28 @@ const getExplicitExtensionReceiverExpectedType = (
   );
 };
 
+const hasSourceBackedMemberOverloads = (
+  binding:
+    | Extract<IrCallExpression["callee"], { kind: "memberAccess" }>["memberBinding"]
+    | undefined,
+  ctx: ProgramContext
+): boolean => {
+  if (!binding) {
+    return false;
+  }
+
+  const overloads = ctx.bindings.getClrMemberOverloads(
+    binding.assembly,
+    binding.type,
+    binding.member
+  );
+  if (!overloads || overloads.length === 0) {
+    return false;
+  }
+
+  return overloads.some((candidate) => candidate.sourceOrigin !== undefined);
+};
+
 /**
  * Convert call expression
  */
@@ -1867,7 +1894,14 @@ export const convertCallExpression = (
   const typeSystem = ctx.typeSystem;
   const sigId = ctx.binding.resolveCallSignature(node);
   const candidateSigIds = ctx.binding.resolveCallSignatureCandidates(node);
-  const useDirectCallableCandidateResolution = !sigId;
+  const prefersSourceBackedCallableResolution =
+    callee.kind === "memberAccess" &&
+    callee.memberBinding !== undefined &&
+    callee.inferredType !== undefined &&
+    callee.inferredType.kind !== "unknownType" &&
+    hasSourceBackedMemberOverloads(callee.memberBinding, ctx);
+  const useDirectCallableCandidateResolution =
+    !sigId || prefersSourceBackedCallableResolution;
   const argumentCount = node.arguments.length;
   const callSiteArgModifiers: (CallSiteArgModifier | undefined)[] = new Array(
     argumentCount
@@ -1897,6 +1931,12 @@ export const convertCallExpression = (
   const specializedMemberCallableType = (() => {
     if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
     if (!receiverIrType) return undefined;
+    if (
+      callee.inferredType !== undefined &&
+      callee.inferredType.kind !== "unknownType"
+    ) {
+      return undefined;
+    }
 
     const memberId = ctx.binding.resolvePropertyAccess(node.expression);
     if (!memberId) return undefined;

@@ -4,12 +4,57 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as ts from "typescript";
 import { createProgramContext } from "./program-context.js";
+import { packageHasClrMetadata } from "./program-context-types.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { createBinding } from "./binding/index.js";
 
 describe("createProgramContext", () => {
+  it("treats participating non-@tsonic packages with bindings.json as CLR metadata packages", () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-program-context-metadata-")
+    );
+
+    try {
+      const pkgRoot = path.join(tempDir, "node_modules", "markdig-types");
+      fs.mkdirSync(path.join(pkgRoot, "Markdig.Syntax"), { recursive: true });
+      fs.writeFileSync(
+        path.join(pkgRoot, "package.json"),
+        JSON.stringify(
+          { name: "markdig-types", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+      fs.writeFileSync(
+        path.join(pkgRoot, "Markdig.Syntax", "bindings.json"),
+        JSON.stringify(
+          {
+            namespace: "Markdig.Syntax",
+            assemblyName: "Markdig",
+            types: [],
+          },
+          null,
+          2
+        )
+      );
+
+      const packageInfoCache = new Map();
+      const packageHasMetadataCache = new Map<string, boolean>();
+
+      expect(
+        packageHasClrMetadata(
+          pkgRoot,
+          packageInfoCache,
+          packageHasMetadataCache
+        )
+      ).to.equal(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("ignores stray ancestor package roots outside the project boundary", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "tsonic-program-context-")
