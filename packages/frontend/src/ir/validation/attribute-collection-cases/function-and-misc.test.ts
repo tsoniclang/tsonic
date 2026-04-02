@@ -1,5 +1,5 @@
 /**
- * Tests for A.on(fn).type.add(Attr) pattern, modules without attributes,
+ * Tests for A(fn).add(Attr) pattern, modules without attributes,
  * and multiple attributes on the same declaration.
  */
 
@@ -9,17 +9,18 @@ import {
   describe,
   expect,
   it,
+  makeFunctionMarkerCall,
   makeMarkerCall,
   runAttributeCollectionPass,
 } from "./helpers.js";
 import type { IrClassDeclaration, IrFunctionDeclaration } from "./helpers.js";
 
 describe("Attribute Collection Pass", () => {
-  describe("A.on(fn).type.add(Attr) pattern", () => {
+  describe("A(fn).add(Attr) pattern", () => {
     it("should attach attribute to function declaration", () => {
       // IR representation of:
       // function greet() {}
-      // A.on(greet).type.add(PureAttribute);
+      // A(greet).add(PureAttribute);
       const module = createModule([
         {
           kind: "functionDeclaration",
@@ -30,7 +31,7 @@ describe("Attribute Collection Pass", () => {
           isGenerator: false,
           isExported: true,
         } as IrFunctionDeclaration,
-        makeMarkerCall(
+        makeFunctionMarkerCall(
           "greet",
           "PureAttribute",
           [],
@@ -74,8 +75,8 @@ describe("Attribute Collection Pass", () => {
     it("should attach multiple attributes to same declaration", () => {
       // IR representation of:
       // class User {}
-      // A.on(User).type.add(SerializableAttribute);
-      // A.on(User).type.add(ObsoleteAttribute, "Deprecated");
+      // A<User>().add(SerializableAttribute);
+      // A<User>().add(ObsoleteAttribute, "Deprecated");
       const module = createModule([
         {
           kind: "classDeclaration",

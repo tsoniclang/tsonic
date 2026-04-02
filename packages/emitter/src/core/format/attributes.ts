@@ -5,9 +5,9 @@
  *
  * Example:
  * ```typescript
- * A.on(User).type.add(SerializableAttribute);
- * A.on(User).type.add(DataContractAttribute, { Name: "UserDTO" });
- * A.on(User).method((x) => x.foo).target("return").add(MarshalAsAttribute, UnmanagedType.Bool);
+ * A<User>().add(SerializableAttribute);
+ * A<User>().add(DataContractAttribute, { Name: "UserDTO" });
+ * A<User>().method((x) => x.foo).target("return").add(MarshalAsAttribute, UnmanagedType.Bool);
  * ```
  *
  * Emits:

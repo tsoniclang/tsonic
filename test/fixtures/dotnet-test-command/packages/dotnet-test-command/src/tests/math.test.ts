@@ -9,6 +9,6 @@ export class MathTests {
   }
 }
 
-A.on(MathTests)
+A<MathTests>()
   .method((t) => t.add_numbers)
   .add(FactAttribute);

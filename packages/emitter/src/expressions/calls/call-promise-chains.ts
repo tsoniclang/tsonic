@@ -1,4 +1,4 @@
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import type {
@@ -27,6 +27,80 @@ import {
   normalizePromiseChainResultIrType,
 } from "./call-promise-ir-types.js";
 import { buildAwait, buildInvocation } from "./call-promise-normalization.js";
+
+const containsUnscopedPromiseChainTypeParameter = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  switch (type.kind) {
+    case "typeParameterType":
+      return !(context.typeParameters?.has(type.name) ?? false);
+    case "referenceType":
+      return (type.typeArguments ?? []).some((member) =>
+        containsUnscopedPromiseChainTypeParameter(member, context)
+      );
+    case "arrayType":
+      return containsUnscopedPromiseChainTypeParameter(
+        type.elementType,
+        context
+      );
+    case "dictionaryType":
+      return (
+        containsUnscopedPromiseChainTypeParameter(type.keyType, context) ||
+        containsUnscopedPromiseChainTypeParameter(type.valueType, context)
+      );
+    case "tupleType":
+      return type.elementTypes.some((member) =>
+        containsUnscopedPromiseChainTypeParameter(member, context)
+      );
+    case "unionType":
+    case "intersectionType":
+      return type.types.some(
+        (member) =>
+          !!member && containsUnscopedPromiseChainTypeParameter(member, context)
+      );
+    default:
+      return false;
+  }
+};
+
+const prefersFrontendPromiseChainResultType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): type is IrType =>
+  !!type &&
+  !containsPromiseChainArtifact(type) &&
+  !containsUnscopedPromiseChainTypeParameter(type, context);
+
+const buildPromiseChainCallbackExpectedType = (
+  callbackExpr: IrExpression,
+  returnType: IrType,
+  parameterTypeOverrides: readonly (IrType | undefined)[]
+): Extract<IrType, { kind: "functionType" }> | undefined => {
+  const baseFunctionType =
+    callbackExpr.inferredType?.kind === "functionType"
+      ? callbackExpr.inferredType
+      : callbackExpr.kind === "arrowFunction" ||
+          callbackExpr.kind === "functionExpression"
+        ? {
+            kind: "functionType" as const,
+            parameters: callbackExpr.parameters,
+            returnType,
+          }
+        : undefined;
+  if (!baseFunctionType) {
+    return undefined;
+  }
+
+  return {
+    ...baseFunctionType,
+    parameters: baseFunctionType.parameters.map((parameter, index) => {
+      const overrideType = parameterTypeOverrides[index];
+      return overrideType ? { ...parameter, type: overrideType } : parameter;
+    }),
+    returnType,
+  };
+};
 
 export const emitPromiseThenCatchFinally = (
   expr: Extract<IrExpression, { kind: "call" }>,
@@ -79,22 +153,68 @@ export const emitPromiseThenCatchFinally = (
   const finallyArg =
     expr.callee.property === "finally" ? expr.arguments[0] : undefined;
 
+  const fulfilledExpectedType =
+    fulfilledArg && fulfilledArg.kind !== "spread"
+      ? buildPromiseChainCallbackExpectedType(
+          fulfilledArg as IrExpression,
+          getCallbackDelegateReturnType(fulfilledArg as IrExpression) ?? {
+            kind: "voidType",
+          },
+          sourceResultIr !== undefined &&
+            callbackParameterCount(fulfilledArg as IrExpression) > 0
+            ? [sourceResultIr]
+            : []
+        )
+      : undefined;
+  const rejectedExpectedType =
+    rejectedArg && rejectedArg.kind !== "spread"
+      ? buildPromiseChainCallbackExpectedType(
+          rejectedArg as IrExpression,
+          getCallbackDelegateReturnType(rejectedArg as IrExpression) ?? {
+            kind: "voidType",
+          },
+          []
+        )
+      : undefined;
+  const finallyExpectedType =
+    finallyArg && finallyArg.kind !== "spread"
+      ? buildPromiseChainCallbackExpectedType(
+          finallyArg as IrExpression,
+          getCallbackDelegateReturnType(finallyArg as IrExpression) ?? {
+            kind: "voidType",
+          },
+          []
+        )
+      : undefined;
+
   let fulfilledAst: CSharpExpressionAst | undefined;
   let rejectedAst: CSharpExpressionAst | undefined;
   let finallyAst: CSharpExpressionAst | undefined;
 
   if (fulfilledArg && fulfilledArg.kind !== "spread") {
-    const [fAst, fCtx] = emitExpressionAst(fulfilledArg, currentContext);
+    const [fAst, fCtx] = emitExpressionAst(
+      fulfilledArg,
+      currentContext,
+      fulfilledExpectedType
+    );
     fulfilledAst = fAst;
     currentContext = fCtx;
   }
   if (rejectedArg && rejectedArg.kind !== "spread") {
-    const [rAst, rCtx] = emitExpressionAst(rejectedArg, currentContext);
+    const [rAst, rCtx] = emitExpressionAst(
+      rejectedArg,
+      currentContext,
+      rejectedExpectedType
+    );
     rejectedAst = rAst;
     currentContext = rCtx;
   }
   if (finallyArg && finallyArg.kind !== "spread") {
-    const [fiAst, fiCtx] = emitExpressionAst(finallyArg, currentContext);
+    const [fiAst, fiCtx] = emitExpressionAst(
+      finallyArg,
+      currentContext,
+      finallyExpectedType
+    );
     finallyAst = fiAst;
     currentContext = fiCtx;
   }
@@ -132,8 +252,10 @@ export const emitPromiseThenCatchFinally = (
   const normalizedFrontendPromiseChainResultIr =
     normalizePromiseChainResultIrType(expr.inferredType);
   const preferredPromiseChainResultIr =
-    normalizedFrontendPromiseChainResultIr &&
-    !containsPromiseChainArtifact(normalizedFrontendPromiseChainResultIr)
+    prefersFrontendPromiseChainResultType(
+      normalizedFrontendPromiseChainResultIr,
+      currentContext
+    )
       ? normalizedFrontendPromiseChainResultIr
       : normalizedPromiseChainResultIr;
 

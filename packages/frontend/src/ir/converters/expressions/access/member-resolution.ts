@@ -35,6 +35,159 @@ const memberHasExplicitUnknownAnnotation = (
   );
 };
 
+const isCompilerGeneratedStructuralCarrier = (
+  type: IrType | undefined
+): boolean =>
+  type?.kind === "referenceType" &&
+  (type.name.startsWith("__Anon_") || /__\d+$/.test(type.name));
+
+const hasExplicitStructuralReference = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+
+  if (type.kind === "referenceType") {
+    if (
+      !isCompilerGeneratedStructuralCarrier(type) &&
+      (type.structuralMembers?.length ?? 0) > 0
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  if (type.kind === "functionType") {
+    return (
+      type.parameters.some((parameter) =>
+        hasExplicitStructuralReference(parameter.type)
+      ) || hasExplicitStructuralReference(type.returnType)
+    );
+  }
+
+  if (type.kind === "intersectionType" || type.kind === "unionType") {
+    return type.types.some((member) => hasExplicitStructuralReference(member));
+  }
+
+  return false;
+};
+
+const hasInlineOrGeneratedStructuralCarrier = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+
+  if (type.kind === "objectType") {
+    return type.members.length > 0;
+  }
+
+  if (isCompilerGeneratedStructuralCarrier(type)) {
+    return true;
+  }
+
+  if (type.kind === "functionType") {
+    return (
+      type.parameters.some((parameter) =>
+        hasInlineOrGeneratedStructuralCarrier(parameter.type)
+      ) || hasInlineOrGeneratedStructuralCarrier(type.returnType)
+    );
+  }
+
+  if (type.kind === "intersectionType" || type.kind === "unionType") {
+    return type.types.some((member) => hasInlineOrGeneratedStructuralCarrier(member));
+  }
+
+  return false;
+};
+
+const getDirectStructuralMemberType = (
+  receiverIrType: IrType | undefined,
+  propertyName: string
+): IrType | undefined => {
+  const members =
+    receiverIrType?.kind === "referenceType"
+      ? receiverIrType.structuralMembers
+      : receiverIrType?.kind === "objectType"
+        ? receiverIrType.members
+        : undefined;
+  if (!members || members.length === 0) {
+    return undefined;
+  }
+
+  const matchingMembers = members.filter((member) => member.name === propertyName);
+  if (matchingMembers.length === 0) {
+    return undefined;
+  }
+
+  const methodMembers = matchingMembers.filter(
+    (
+      member
+    ): member is Extract<(typeof matchingMembers)[number], { kind: "methodSignature" }> =>
+      member.kind === "methodSignature"
+  );
+  if (methodMembers.length > 0) {
+    const callableTypes = methodMembers.map((member) => ({
+      kind: "functionType" as const,
+      typeParameters: member.typeParameters,
+      parameters: member.parameters,
+      returnType: member.returnType ?? { kind: "unknownType" as const },
+    }));
+
+    return callableTypes.length === 1
+      ? callableTypes[0]
+      : {
+          kind: "intersectionType",
+          types: callableTypes,
+        };
+  }
+
+  const propertyMember = matchingMembers.find(
+    (
+      member
+    ): member is Extract<(typeof matchingMembers)[number], { kind: "propertySignature" }> =>
+      member.kind === "propertySignature"
+  );
+  return propertyMember?.type;
+};
+
+const hasStrongerNumericIntent = (
+  candidate: IrType | undefined,
+  current: IrType | undefined
+): boolean => {
+  if (!candidate || !current) {
+    return false;
+  }
+
+  const candidateNumeric = getNumericKindFromIrType(candidate);
+  const currentNumeric = getNumericKindFromIrType(current);
+  if (candidateNumeric && currentNumeric) {
+    return currentNumeric === "Double" && candidateNumeric !== "Double";
+  }
+
+  if (candidate.kind === "functionType" && current.kind === "functionType") {
+    if (candidate.parameters.length !== current.parameters.length) {
+      return false;
+    }
+
+    const candidateReturnNumeric = getNumericKindFromIrType(candidate.returnType);
+    const currentReturnNumeric = getNumericKindFromIrType(current.returnType);
+    if (
+      candidateReturnNumeric &&
+      currentReturnNumeric &&
+      currentReturnNumeric === "Double" &&
+      candidateReturnNumeric !== "Double"
+    ) {
+      return true;
+    }
+
+    return candidate.parameters.some((parameter, index) => {
+      const currentParameter = current.parameters[index];
+      return (
+        currentParameter !== undefined &&
+        hasStrongerNumericIntent(parameter.type, currentParameter.type)
+      );
+    });
+  }
+
+  return false;
+};
+
 export const hasDeclaredMemberByName = (
   receiverIrType: IrType | undefined,
   propertyName: string,
@@ -102,6 +255,17 @@ export const getDeclaredPropertyType = (
   }
 
   const typeSystem = ctx.typeSystem;
+  const directStructuralMemberType = getDirectStructuralMemberType(
+    receiverIrType,
+    propertyName
+  );
+  const receiverMemberType =
+    receiverIrType && receiverIrType.kind !== "unknownType"
+      ? typeSystem.typeOfMember(receiverIrType, {
+          kind: "byName",
+          name: propertyName,
+        })
+      : undefined;
   const memberId = ctx.binding.resolvePropertyAccess(node);
   if (memberId) {
     const exactMemberType = typeSystem.typeOfMemberId(memberId, receiverIrType);
@@ -113,7 +277,20 @@ export const getDeclaredPropertyType = (
         exactMemberType
       );
     }
+    if (
+      exactMemberType.kind !== "unknownType" &&
+      directStructuralMemberType &&
+      hasExplicitStructuralReference(directStructuralMemberType) &&
+      hasInlineOrGeneratedStructuralCarrier(exactMemberType) &&
+      typeSystem.isAssignableTo(exactMemberType, directStructuralMemberType) &&
+      typeSystem.isAssignableTo(directStructuralMemberType, exactMemberType)
+    ) {
+      return directStructuralMemberType;
+    }
     if (exactMemberType.kind !== "unknownType") {
+      if (hasStrongerNumericIntent(receiverMemberType, exactMemberType)) {
+        return receiverMemberType;
+      }
       return exactMemberType;
     }
     if (memberHasExplicitUnknownAnnotation(node, ctx)) {
@@ -122,10 +299,7 @@ export const getDeclaredPropertyType = (
   }
 
   if (receiverIrType && receiverIrType.kind !== "unknownType") {
-    const memberType = typeSystem.typeOfMember(receiverIrType, {
-      kind: "byName",
-      name: propertyName,
-    });
+    const memberType = receiverMemberType;
     if (DEBUG) {
       console.log(
         "[getDeclaredPropertyType]",
@@ -135,7 +309,7 @@ export const getDeclaredPropertyType = (
       );
     }
     // If TypeSystem returned a valid type (not unknownType), use it
-    if (memberType.kind !== "unknownType") {
+    if (memberType && memberType.kind !== "unknownType") {
       return memberType;
     }
     if (hasDeclaredMemberByName(receiverIrType, propertyName, ctx)) {

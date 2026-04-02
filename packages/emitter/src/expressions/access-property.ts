@@ -11,6 +11,7 @@
 import { type IrType } from "@tsonic/frontend";
 import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
+import { emitExpressionAst } from "../expression-emitter.js";
 import {
   isExplicitViewProperty,
   extractInterfaceNameFromView,
@@ -22,7 +23,10 @@ import {
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { identifierType } from "../core/format/backend-ast/builders.js";
-import { stripNullableTypeAst } from "../core/format/backend-ast/utils.js";
+import {
+  sameTypeAstSurface,
+  stripNullableTypeAst,
+} from "../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   type MemberAccessUsage,
@@ -30,6 +34,7 @@ import {
   maybeReifyStorageErasedMemberRead,
   resolveEmittedReceiverTypeAst,
   emitMemberName,
+  tryEmitBroadArrayAssertionReceiverStorageAst,
 } from "./access-resolution.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { resolveTypeMemberKind } from "../core/semantic/member-surfaces.js";
@@ -50,6 +55,7 @@ export const emitPropertyAccess = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
   objectAst: CSharpExpressionAst,
   objectType: IrType | undefined,
+  receiverSourceContext: EmitterContext,
   context: EmitterContext,
   usage: MemberAccessUsage = "value",
   expectedType?: IrType
@@ -66,9 +72,19 @@ export const emitPropertyAccess = (
     expr.object.kind === "asinterface" ||
     expr.object.kind === "trycast"
   ) {
+    const preservedBroadArrayReceiver =
+      expr.object.kind === "typeAssertion"
+        ? tryEmitBroadArrayAssertionReceiverStorageAst(
+            expr.object,
+            receiverSourceContext
+          )
+        : undefined;
     const transparentReceiver = unwrapTransparentExpression(expr.object.expression);
     const transparentReceiverType =
-      resolveEffectiveExpressionType(transparentReceiver, context) ??
+      resolveEffectiveExpressionType(
+        transparentReceiver,
+        receiverSourceContext
+      ) ??
       transparentReceiver.inferredType;
     const transparentMemberResolutionType =
       expr.isOptional && transparentReceiverType
@@ -80,12 +96,40 @@ export const emitPropertyAccess = (
         undefined;
     const [emittedReceiverTypeAst, emittedReceiverContext] =
       resolveEmittedReceiverTypeAst(expr.object, context);
-    if (
+    const [transparentReceiverTypeAst] = resolveEmittedReceiverTypeAst(
+      transparentReceiver,
+      receiverSourceContext
+    );
+    const transparentReceiverSurface = transparentReceiverTypeAst
+      ? stripNullableTypeAst(transparentReceiverTypeAst)
+      : undefined;
+    const emittedReceiverSurface = emittedReceiverTypeAst
+      ? stripNullableTypeAst(emittedReceiverTypeAst)
+      : undefined;
+    if (preservedBroadArrayReceiver) {
+      receiverAst = preservedBroadArrayReceiver[0];
+      receiverContext = preservedBroadArrayReceiver[1];
+    } else if (
+      receiverAlreadyExposesMember &&
+      transparentReceiverSurface &&
+      emittedReceiverSurface &&
+      !sameTypeAstSurface(emittedReceiverSurface, transparentReceiverSurface)
+    ) {
+      const [transparentReceiverAst, transparentReceiverContext] =
+        emitExpressionAst(transparentReceiver, receiverSourceContext);
+      receiverAst = transparentReceiverAst;
+      receiverContext = transparentReceiverContext;
+    } else if (
       !receiverAlreadyExposesMember &&
       emittedReceiverTypeAst &&
+      !(
+        transparentReceiverSurface &&
+        emittedReceiverSurface &&
+        sameTypeAstSurface(emittedReceiverSurface, transparentReceiverSurface)
+      ) &&
       !isExactExpressionToType(
         receiverAst,
-        stripNullableTypeAst(emittedReceiverTypeAst)
+        emittedReceiverSurface ?? stripNullableTypeAst(emittedReceiverTypeAst)
       )
     ) {
       receiverAst = {
@@ -248,12 +292,18 @@ export const emitPropertyAccess = (
     context,
     usage
   );
+  const receiverResolutionContext =
+    expr.object.kind === "typeAssertion" ||
+    expr.object.kind === "asinterface" ||
+    expr.object.kind === "trycast"
+      ? context
+      : receiverContext;
 
   if (usage === "value") {
     const concreteReceiverLengthAccess = tryEmitConcreteReceiverLengthAccess(
       expr,
       receiverAst,
-      receiverContext
+      receiverResolutionContext
     );
     if (concreteReceiverLengthAccess) {
       return concreteReceiverLengthAccess;
@@ -282,7 +332,7 @@ export const emitPropertyAccess = (
     expr,
     receiverAst,
     objectType,
-    receiverContext
+    receiverResolutionContext
   );
   if (erasedLengthAccess) {
     return erasedLengthAccess;

@@ -23,7 +23,7 @@ import { getMemberAccessNarrowKey } from "../../../core/semantic/narrowing-keys.
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { resolveRuntimeUnionFrame } from "./guard-analysis.js";
 import {
-  buildExprBinding,
+  buildProjectedExprBinding,
   buildUnionNarrowAst,
   withoutNarrowedBinding,
 } from "./branch-context.js";
@@ -51,6 +51,21 @@ export const isArrayLikeNarrowingCandidate = (
   return false;
 };
 
+const isBroadJsValueType = (type: IrType): boolean =>
+  type.kind === "referenceType" &&
+  (type.name === "JsValue" ||
+    type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
+    type.resolvedClrType === "global::Tsonic.Runtime.JsValue");
+
+const JS_VALUE_ARRAY_TYPE: IrType = {
+  kind: "arrayType",
+  elementType: {
+    kind: "referenceType",
+    name: "JsValue",
+    resolvedClrType: "Tsonic.Runtime.JsValue",
+  },
+};
+
 export const narrowTypeByArrayShape = (
   currentType: IrType | undefined,
   wantArray: boolean,
@@ -76,12 +91,10 @@ export const narrowTypeByArrayShape = (
       resolved.kind === "unknownType" ||
       resolved.kind === "anyType" ||
       resolved.kind === "objectType" ||
-      (resolved.kind === "referenceType" && resolved.name === "object")
+      (resolved.kind === "referenceType" && resolved.name === "object") ||
+      isBroadJsValueType(resolved)
     ) {
-      return {
-        kind: "arrayType",
-        elementType: { kind: "unknownType" },
-      };
+      return JS_VALUE_ARRAY_TYPE;
     }
     return isArrayLike ? resolved : undefined;
   }
@@ -379,7 +392,7 @@ export const applyTypeofGuardRefinements = (
 
         nextBindings.set(
           refinement.bindingKey,
-          buildExprBinding(
+          buildProjectedExprBinding(
             buildUnionNarrowAst(rawTargetAst, memberN),
             memberType,
             currentType,
@@ -425,7 +438,7 @@ export const applyTypeofGuardRefinements = (
     );
     nextBindings.set(
       refinement.bindingKey,
-      buildExprBinding(
+      buildProjectedExprBinding(
         {
           kind: "castExpression",
           type: narrowedTypeAst,

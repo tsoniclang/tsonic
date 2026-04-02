@@ -32,6 +32,7 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "./type-resolution.js";
+import { isBroadObjectSlotType } from "./js-value-types.js";
 import {
   boxValueAst,
   buildArrayShapeCondition,
@@ -318,16 +319,7 @@ export const tryBuildRuntimeMaterializationAst = (
   const concreteTargetTypeKey = stableConcreteTypeKeyFromAst(
     concreteTargetTypeAst
   );
-  const resolvedTarget = resolveTypeAlias(
-    stripNullish(targetType),
-    nextContext
-  );
-  const isBroadObjectTarget =
-    resolvedTarget.kind === "unknownType" ||
-    resolvedTarget.kind === "anyType" ||
-    resolvedTarget.kind === "objectType" ||
-    (resolvedTarget.kind === "referenceType" &&
-      resolvedTarget.name === "object");
+  const isBroadObjectTarget = isBroadObjectSlotType(targetType, nextContext);
   const sourceSurfaceMemberTypeAsts =
     getRuntimeUnionCastMemberTypeAsts(valueAst);
   const matchingSourceIndices = sourceLayout.members.flatMap((member, index) =>

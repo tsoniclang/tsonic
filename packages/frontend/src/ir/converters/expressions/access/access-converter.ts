@@ -181,7 +181,6 @@ export const convertMemberExpression = (
         : memberBinding
           ? undefined
           : { kind: "unknownType" as const };
-    const allowUnknownInferredType = declaredType?.kind === "unknownType";
 
     const baseMemberAccess: IrExpression = {
       kind: "memberAccess",
@@ -190,7 +189,6 @@ export const convertMemberExpression = (
       isComputed: false,
       isOptional,
       inferredType: declaredType ?? propertyInferredType,
-      allowUnknownInferredType,
       sourceSpan,
       memberBinding,
     };
@@ -280,7 +278,6 @@ export const convertMemberExpression = (
           isComputed: false,
           isOptional,
           inferredType: declaredType,
-          allowUnknownInferredType: declaredType.kind === "unknownType",
           sourceSpan,
           memberBinding,
         };
@@ -324,11 +321,6 @@ export const convertMemberExpression = (
     const elementType =
       narrowedAccessType ??
       deriveElementType(objectType, ctx, node.argumentExpression);
-    const allowUnknownInferredType =
-      elementType?.kind === "unknownType" &&
-      accessKind !== "unknown" &&
-      objectType !== undefined &&
-      objectType.kind !== "unknownType";
     const accessProtocol = resolveComputedAccessProtocol(objectType, ctx);
 
     const baseElementAccess: IrExpression = {
@@ -342,7 +334,6 @@ export const convertMemberExpression = (
         ctx,
         node.argumentExpression
       ),
-      allowUnknownInferredType,
       sourceSpan,
       accessKind,
       accessProtocol,

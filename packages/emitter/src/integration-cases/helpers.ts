@@ -2,187 +2,165 @@ import * as ts from "typescript";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
   buildIrModule,
-  DotnetMetadataRegistry,
-  createClrBindingsResolver,
-  createBinding,
   createProgram,
   createProgramContext,
-  loadBindings,
   runAnonymousTypeLoweringPass,
   runAttributeCollectionPass,
   runCallResolutionRefreshPass,
   runNumericProofPass,
+  runOverloadCollectionPass,
+  runOverloadFamilyConsistencyPass,
+  validateProgram,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import type { EmitterOptions } from "../types.js";
 
-const require = createRequire(import.meta.url);
 const helpersDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(helpersDir, "../../../../");
+const workspaceRoot = path.resolve(repoRoot, "..");
 const workspaceNodeModulesRoot = path.join(repoRoot, "node_modules");
-const readSourcePackageAmbientPaths = (
-  packageRoot: string
-): readonly string[] => {
-  const manifestPath = path.join(packageRoot, "tsonic.package.json");
-  if (!ts.sys.fileExists(manifestPath)) {
-    return [];
+
+const symlinkWorkspaceEntry = (
+  sourcePath: string,
+  targetPath: string
+): void => {
+  if (fs.existsSync(targetPath)) {
+    return;
+  }
+
+  const stat = fs.lstatSync(sourcePath);
+  fs.symlinkSync(sourcePath, targetPath, stat.isDirectory() ? "dir" : "file");
+};
+
+const getExplicitNodeModulesPackageRoots = (
+  files: Readonly<Record<string, string>>
+): ReadonlySet<string> => {
+  const explicitPackageRoots = new Set<string>();
+
+  for (const relativePath of Object.keys(files)) {
+    if (!relativePath.startsWith("node_modules/")) {
+      continue;
+    }
+
+    const segments = relativePath.split("/");
+    if (segments.length < 2) {
+      continue;
+    }
+
+    const packageRootSegments =
+      segments[1]?.startsWith("@") && segments.length >= 3
+        ? segments.slice(0, 3)
+        : segments.slice(0, 2);
+    explicitPackageRoots.add(packageRootSegments.join("/"));
+  }
+
+  return explicitPackageRoots;
+};
+
+const populateAuthoritativeWorkspaceNodeModules = (
+  tempDir: string,
+  explicitPackageRoots: ReadonlySet<string>
+): void => {
+  if (!fs.existsSync(workspaceNodeModulesRoot)) {
+    return;
+  }
+
+  const tempNodeModulesRoot = path.join(tempDir, "node_modules");
+  fs.mkdirSync(tempNodeModulesRoot, { recursive: true });
+
+  const entries = fs.readdirSync(workspaceNodeModulesRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    const sourcePath = path.join(workspaceNodeModulesRoot, entry.name);
+    const targetPath = path.join(tempNodeModulesRoot, entry.name);
+
+    if (!entry.isDirectory()) {
+      symlinkWorkspaceEntry(sourcePath, targetPath);
+      continue;
+    }
+
+    if (entry.name !== "@tsonic") {
+      if (explicitPackageRoots.has(`node_modules/${entry.name}`)) {
+        continue;
+      }
+      symlinkWorkspaceEntry(sourcePath, targetPath);
+      continue;
+    }
+
+    fs.mkdirSync(targetPath, { recursive: true });
+    const scopedEntries = fs.readdirSync(sourcePath, { withFileTypes: true });
+    for (const scopedEntry of scopedEntries) {
+      const packageName = `@tsonic/${scopedEntry.name}`;
+      if (explicitPackageRoots.has(`node_modules/@tsonic/${scopedEntry.name}`)) {
+        continue;
+      }
+      const authoritativeRoot = findAuthoritativePackageRoot(packageName);
+      const scopedSourcePath =
+        authoritativeRoot ?? path.join(sourcePath, scopedEntry.name);
+      const scopedTargetPath = path.join(targetPath, scopedEntry.name);
+      symlinkWorkspaceEntry(scopedSourcePath, scopedTargetPath);
+    }
+  }
+};
+
+const readJsonObject = (filePath: string): Record<string, unknown> | undefined => {
+  if (!ts.sys.fileExists(filePath)) {
+    return undefined;
   }
 
   try {
-    const parsed = JSON.parse(ts.sys.readFile(manifestPath) ?? "") as {
-      readonly kind?: unknown;
-      readonly source?: { readonly ambient?: unknown };
-    };
-    if (parsed.kind !== "tsonic-source-package") {
-      return [];
+    const text = ts.sys.readFile(filePath);
+    if (!text) {
+      return undefined;
+    }
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const findAuthoritativePackageRoot = (
+  packageName: string
+): string | undefined => {
+  const shortName = packageName.replace(/^@tsonic\//, "");
+  const candidates = [
+    path.join(workspaceRoot, shortName, "versions", "10"),
+    path.join(workspaceRoot, shortName),
+    path.join(workspaceRoot, shortName, "packages", shortName),
+  ];
+
+  for (const candidate of candidates) {
+    const manifestPath = path.join(candidate, "tsonic.package.json");
+    const packageJsonPath = path.join(candidate, "package.json");
+    if (ts.sys.fileExists(packageJsonPath)) {
+      const packageJson = readJsonObject(packageJsonPath);
+      if (packageJson?.name === packageName) {
+        return candidate;
+      }
     }
 
-    const ambientEntries = Array.isArray(parsed.source?.ambient)
-      ? parsed.source.ambient.filter(
+    if (!ts.sys.fileExists(manifestPath)) {
+      continue;
+    }
+
+    const manifest = readJsonObject(manifestPath);
+    const surfaces = Array.isArray(manifest?.surfaces)
+      ? manifest.surfaces.filter(
           (entry): entry is string =>
             typeof entry === "string" && entry.trim().length > 0
         )
       : [];
-
-    return ambientEntries
-      .map((entry) => path.resolve(packageRoot, entry))
-      .filter((entry) => ts.sys.fileExists(entry));
-  } catch {
-    return [];
-  }
-};
-
-const isNativeSourcePackageRoot = (packageRoot: string): boolean =>
-  readSourcePackageAmbientPaths(packageRoot).length > 0 ||
-  ts.sys.fileExists(path.join(packageRoot, "tsonic.package.json"));
-
-const findNearestPackageRoot = (
-  resolvedFilePath: string
-): string | undefined => {
-  let currentDir = path.dirname(resolvedFilePath);
-
-  for (;;) {
-    const packageJsonPath = path.join(currentDir, "package.json");
-    if (ts.sys.fileExists(packageJsonPath)) {
-      return currentDir;
-    }
-
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) {
-      return undefined;
-    }
-    currentDir = parentDir;
-  }
-};
-
-const resolveModuleFilePath = (
-  resolvedFilePath: string,
-  packageRoot: string
-): string => {
-  if (isNativeSourcePackageRoot(packageRoot)) {
-    return resolvedFilePath;
-  }
-
-  if (resolvedFilePath.endsWith(".d.ts") || resolvedFilePath.endsWith(".ts")) {
-    return resolvedFilePath;
-  }
-
-  if (resolvedFilePath.endsWith(".js")) {
-    const declarationPath = resolvedFilePath.replace(/\.js$/, ".d.ts");
-    if (ts.sys.fileExists(declarationPath)) {
-      return declarationPath;
+    if (surfaces.includes(packageName)) {
+      return candidate;
     }
   }
 
-  return resolvedFilePath;
-};
-
-const scanDeclarationFiles = (dir: string): readonly string[] => {
-  const ambientPaths = readSourcePackageAmbientPaths(dir);
-  if (ambientPaths.length > 0) {
-    return ambientPaths;
-  }
-
-  if (!ts.sys.directoryExists(dir)) {
-    return [];
-  }
-
-  const results: string[] = [];
-  for (const entry of ts.sys.readDirectory(dir, [".d.ts"], undefined, [
-    "**/*.d.ts",
-  ])) {
-    const relativeEntry = path.relative(dir, path.resolve(entry));
-    if (relativeEntry.startsWith("..")) {
-      continue;
-    }
-
-    const relativeSegments = relativeEntry.split(path.sep);
-    if (
-      relativeSegments.includes("node_modules") ||
-      entry.endsWith("/core-globals.d.ts")
-    ) {
-      continue;
-    }
-    results.push(path.resolve(entry));
-  }
-  return results;
-};
-
-const getModuleResolutionExtension = (
-  resolvedFilePath: string
-): ts.Extension => {
-  if (resolvedFilePath.endsWith(".d.ts")) {
-    return ts.Extension.Dts;
-  }
-  if (resolvedFilePath.endsWith(".ts")) {
-    return ts.Extension.Ts;
-  }
-  return ts.Extension.Js;
-};
-
-const coreTypesResolvedPath = require.resolve("@tsonic/core/types.js");
-const corePackageRoot =
-  findNearestPackageRoot(coreTypesResolvedPath) ??
-  path.dirname(coreTypesResolvedPath);
-const coreTypesPath = path.join(corePackageRoot, "types.d.ts");
-const coreLangPath = path.join(corePackageRoot, "lang.d.ts");
-
-const resolveTsonicModule = (
-  moduleName: string
-):
-  | {
-      readonly filePath: string;
-      readonly packageRoot: string;
-      readonly extension: ts.Extension;
-    }
-  | undefined => {
-  if (!moduleName.startsWith("@tsonic/")) {
-    return undefined;
-  }
-
-  let resolvedFilePath: string;
-  try {
-    resolvedFilePath = require.resolve(moduleName);
-  } catch {
-    return undefined;
-  }
-
-  const packageRoot = findNearestPackageRoot(resolvedFilePath);
-  if (!packageRoot) {
-    return undefined;
-  }
-
-  const modulePath = resolveModuleFilePath(resolvedFilePath, packageRoot);
-
-  return {
-    filePath: modulePath,
-    packageRoot,
-    extension: getModuleResolutionExtension(modulePath),
-  };
+  return undefined;
 };
 
 export const compileToCSharp = (
@@ -190,200 +168,29 @@ export const compileToCSharp = (
   fileName = "/test/test.ts",
   emitOptions: Partial<EmitterOptions> = {}
 ): string => {
-  const resolvedPackageRoots = new Set<string>();
-  resolvedPackageRoots.add(corePackageRoot);
+  const normalizedFileName = fileName.replace(/\\/g, "/");
+  const pathWithoutDrive = normalizedFileName.replace(/^[A-Za-z]:/, "");
+  const relativeSegments = pathWithoutDrive
+    .split("/")
+    .filter((segment) => segment.length > 0);
+  const entryRelativePath =
+    relativeSegments.length > 0
+      ? path.posix.join(...relativeSegments)
+      : "test.ts";
+  const sourceRootRelativePath =
+    relativeSegments.length > 1 ? relativeSegments[0]! : ".";
 
-  if (
-    typeof emitOptions.surface === "string" &&
-    emitOptions.surface.startsWith("@")
-  ) {
-    const surfaceEntry = resolveTsonicModule(`${emitOptions.surface}/index.js`);
-    if (surfaceEntry) {
-      resolvedPackageRoots.add(surfaceEntry.packageRoot);
+  return compileProjectToCSharp(
+    {
+      [entryRelativePath]: source,
+    },
+    entryRelativePath,
+    emitOptions,
+    {
+      sourceRootRelativePath,
+      rootNamespace: "Test",
     }
-  }
-
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
   );
-
-  const compilerOptions: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.NodeNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    strict: true,
-    noEmit: true,
-    noLib: true,
-    skipLibCheck: true,
-    allowImportingTsExtensions: true,
-  };
-
-  const host = ts.createCompilerHost(compilerOptions);
-  const originalGetSourceFile = host.getSourceFile;
-  const originalResolveModuleNames = host.resolveModuleNames?.bind(host);
-  host.getSourceFile = (
-    name: string,
-    languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
-    onError?: (message: string) => void,
-    shouldCreateNewSourceFile?: boolean
-  ) => {
-    if (name === fileName) {
-      return sourceFile;
-    }
-    return originalGetSourceFile.call(
-      host,
-      name,
-      languageVersionOrOptions,
-      onError,
-      shouldCreateNewSourceFile
-    );
-  };
-  host.resolveModuleNames = (
-    moduleNames: string[],
-    containingFile: string,
-    reusedNames?: string[],
-    redirectedReference?: ts.ResolvedProjectReference,
-    options?: ts.CompilerOptions
-  ): (ts.ResolvedModule | undefined)[] => {
-    const resolutionOptions = options ?? compilerOptions;
-    return moduleNames.map((moduleName) => {
-      const resolvedTsonicModule =
-        moduleName === "@tsonic/core/types.js"
-          ? {
-              filePath: coreTypesPath,
-              packageRoot: corePackageRoot,
-              extension: ts.Extension.Dts,
-            }
-          : moduleName === "@tsonic/core/lang.js"
-            ? {
-                filePath: coreLangPath,
-                packageRoot: corePackageRoot,
-                extension: ts.Extension.Dts,
-              }
-            : resolveTsonicModule(moduleName);
-      if (resolvedTsonicModule) {
-        resolvedPackageRoots.add(resolvedTsonicModule.packageRoot);
-        return {
-          resolvedFileName: resolvedTsonicModule.filePath,
-          extension: resolvedTsonicModule.extension,
-          isExternalLibraryImport: true,
-        };
-      }
-      return (
-        originalResolveModuleNames?.(
-          [moduleName],
-          containingFile,
-          reusedNames,
-          redirectedReference,
-          resolutionOptions
-        )?.[0] ??
-        ts.resolveModuleName(
-          moduleName,
-          containingFile,
-          resolutionOptions,
-          host
-        ).resolvedModule
-      );
-    });
-  };
-
-  const declarationRootFiles = Array.from(
-    new Set(
-      Array.from(resolvedPackageRoots).flatMap((packageRoot) =>
-        scanDeclarationFiles(packageRoot)
-      )
-    )
-  );
-
-  const tsProgram = ts.createProgram(
-    [fileName, ...declarationRootFiles],
-    compilerOptions,
-    host
-  );
-  const checker = tsProgram.getTypeChecker();
-
-  const programOptions = {
-    projectRoot: "/test",
-    sourceRoot: "/test",
-    rootNamespace: "Test",
-    ...(emitOptions.surface ? { surface: emitOptions.surface } : {}),
-  };
-
-  const tsonicProgram = {
-    program: tsProgram,
-    checker,
-    binding: createBinding(checker),
-    options: programOptions,
-    sourceFiles: tsProgram
-      .getSourceFiles()
-      .filter((candidate) => !candidate.isDeclarationFile),
-    declarationSourceFiles: tsProgram
-      .getSourceFiles()
-      .filter((sourceFile) => sourceFile.isDeclarationFile),
-    metadata: new DotnetMetadataRegistry(),
-    bindings: loadBindings(Array.from(resolvedPackageRoots)),
-    clrResolver: createClrBindingsResolver("/test"),
-  };
-
-  const options = programOptions;
-  const ctx = createProgramContext(tsonicProgram, options);
-  const modules = tsonicProgram.sourceFiles.flatMap((candidateSourceFile) => {
-    const irResult = buildIrModule(
-      candidateSourceFile,
-      tsonicProgram,
-      options,
-      ctx
-    );
-    if (!irResult.ok) {
-      throw new Error(`IR build failed: ${irResult.error.message}`);
-    }
-    return [irResult.value];
-  });
-
-  const loweredModules = runAnonymousTypeLoweringPass(modules).modules;
-  const proofResult = runNumericProofPass(loweredModules);
-  if (!proofResult.ok) {
-    throw new Error(
-      `Numeric proof validation failed: ${proofResult.diagnostics.map((d) => d.message).join("; ")}`
-    );
-  }
-
-  const refreshedCallResolutionResult = runCallResolutionRefreshPass(
-    proofResult.modules,
-    ctx
-  );
-  const reloweredAfterRefreshModules = runAnonymousTypeLoweringPass(
-    refreshedCallResolutionResult.modules
-  ).modules;
-
-  const attributeResult = runAttributeCollectionPass(
-    reloweredAfterRefreshModules
-  );
-  if (!attributeResult.ok) {
-    throw new Error(
-      `Attribute collection failed: ${attributeResult.diagnostics.map((d) => d.message).join("; ")}`
-    );
-  }
-
-  const emitResult = emitCSharpFiles(attributeResult.modules, {
-    rootNamespace: "Test",
-    bindingRegistry: tsonicProgram.bindings,
-    ...emitOptions,
-  });
-  if (!emitResult.ok) {
-    throw new Error(
-      `Emit failed: ${emitResult.errors.map((d) => d.message).join("; ")}`
-    );
-  }
-
-  return [...emitResult.files.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, code]) => code)
-    .join("\n\n");
 };
 
 export const compileProjectToCSharp = (
@@ -400,16 +207,11 @@ export const compileProjectToCSharp = (
   );
 
   try {
-    const usesCustomNodeModules = Object.keys(files).some((relativePath) =>
-      relativePath.startsWith("node_modules/")
+    const explicitNodeModulesPackageRoots = getExplicitNodeModulesPackageRoots(files);
+    populateAuthoritativeWorkspaceNodeModules(
+      tempDir,
+      explicitNodeModulesPackageRoots
     );
-    if (!usesCustomNodeModules && fs.existsSync(workspaceNodeModulesRoot)) {
-      fs.symlinkSync(
-        workspaceNodeModulesRoot,
-        path.join(tempDir, "node_modules"),
-        "dir"
-      );
-    }
 
     for (const [relativePath, contents] of Object.entries(files)) {
       const absolutePath = path.join(tempDir, relativePath);
@@ -454,6 +256,12 @@ export const compileProjectToCSharp = (
     }
 
     const program = programResult.value;
+    const validationDiagnostics = validateProgram(program);
+    if (validationDiagnostics.hasErrors) {
+      throw new Error(
+        `Program validation failed: ${validationDiagnostics.diagnostics.map((diagnostic) => diagnostic.message).join("; ")}`
+      );
+    }
     const ctx = createProgramContext(program, {
       sourceRoot,
       rootNamespace,
@@ -472,7 +280,32 @@ export const compileProjectToCSharp = (
     });
 
     const loweredModules = runAnonymousTypeLoweringPass(modules).modules;
-    const proofResult = runNumericProofPass(loweredModules);
+    const overloadResult = runOverloadCollectionPass(loweredModules);
+    if (!overloadResult.ok) {
+      throw new Error(
+        `Overload collection failed: ${overloadResult.diagnostics.map((d) => d.message).join("; ")}`
+      );
+    }
+
+    const overloadConsistencyResult = runOverloadFamilyConsistencyPass(
+      overloadResult.modules
+    );
+    if (!overloadConsistencyResult.ok) {
+      throw new Error(
+        `Overload family consistency failed: ${overloadConsistencyResult.diagnostics.map((d) => d.message).join("; ")}`
+      );
+    }
+
+    const attributeResult = runAttributeCollectionPass(
+      overloadConsistencyResult.modules
+    );
+    if (!attributeResult.ok) {
+      throw new Error(
+        `Attribute collection failed: ${attributeResult.diagnostics.map((d) => d.message).join("; ")}`
+      );
+    }
+
+    const proofResult = runNumericProofPass(attributeResult.modules);
     if (!proofResult.ok) {
       throw new Error(
         `Numeric proof validation failed: ${proofResult.diagnostics.map((d) => d.message).join("; ")}`
@@ -487,16 +320,7 @@ export const compileProjectToCSharp = (
       refreshedCallResolutionResult.modules
     ).modules;
 
-    const attributeResult = runAttributeCollectionPass(
-      reloweredAfterRefreshModules
-    );
-    if (!attributeResult.ok) {
-      throw new Error(
-        `Attribute collection failed: ${attributeResult.diagnostics.map((d) => d.message).join("; ")}`
-      );
-    }
-
-    const emitResult = emitCSharpFiles(attributeResult.modules, {
+    const emitResult = emitCSharpFiles(reloweredAfterRefreshModules, {
       rootNamespace,
       bindingRegistry: program.bindings,
       ...emitOptions,

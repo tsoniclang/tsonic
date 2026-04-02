@@ -15,10 +15,28 @@ import {
   runNumericProofPass,
 } from "../validation/index.js";
 import {
-  createFilesystemTestProgram,
   createProgram,
   createProgramContext,
 } from "./_test-helpers.js";
+import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
+
+const repoGlobalsRoot = path.resolve(process.cwd(), "../../../globals/versions/10");
+const repoCoreRoot = path.resolve(process.cwd(), "../../../core/versions/10");
+
+const installRepoPackage = (
+  tempDir: string,
+  packageName: string,
+  sourceRoot: string
+): void => {
+  const packageRoot = path.join(tempDir, "node_modules", ...packageName.split("/"));
+  fs.mkdirSync(path.dirname(packageRoot), { recursive: true });
+  fs.cpSync(sourceRoot, packageRoot, { recursive: true });
+};
+
+const installMinimalClrRoots = (tempDir: string): void => {
+  installRepoPackage(tempDir, "@tsonic/globals", repoGlobalsRoot);
+  installRepoPackage(tempDir, "@tsonic/core", repoCoreRoot);
+};
 
 const writeFixtureJsSurface = (
   tempDir: string,
@@ -26,6 +44,7 @@ const writeFixtureJsSurface = (
   sourceFiles: Readonly<Record<string, string>>,
   ambientSource: string
 ): string => {
+  installMinimalClrRoots(tempDir);
   const surfaceRoot = path.join(tempDir, "node_modules", "@fixture", "js");
   fs.mkdirSync(path.join(surfaceRoot, "src"), { recursive: true });
   fs.writeFileSync(
@@ -42,9 +61,8 @@ const writeFixtureJsSurface = (
       {
         schemaVersion: 1,
         id: "@fixture/js",
-        extends: [],
+        extends: ["clr"],
         requiredTypeRoots: ["."],
-        useStandardLib: false,
       },
       null,
       2
@@ -78,87 +96,39 @@ const writeFixtureJsSurface = (
   return surfaceRoot;
 };
 
+const materializeJsSurfaceHelpersFixture = (
+  fixtureNames: string | readonly string[]
+) =>
+  materializeFrontendFixture(
+    (Array.isArray(fixtureNames) ? fixtureNames : [fixtureNames]).map(
+      (fixtureName) =>
+        fixtureName.startsWith("fragments/")
+          ? fixtureName
+          : `ir/js-surface-helpers/${fixtureName}`
+    )
+  );
+
 describe("IR Builder", function () {
   this.timeout(90_000);
 
   describe("JS surface helpers", () => {
     it("attaches explicit computed-access protocol for class index signatures with at/set", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-builder-computed-access-protocol-")
-      );
+      const fixture = materializeJsSurfaceHelpersFixture([
+        "fragments/module-bindings/basic-fixture-js-surface",
+        "regexp-surface",
+        "computed-access-protocol",
+      ]);
 
       try {
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-        writeFixtureJsSurface(
-          tempDir,
-          {
-            "./RegExp.js": "./src/RegExp.ts",
-          },
-          {
-            "src/RegExp.ts": [
-              "export class RegExp {",
-              "  public constructor(_pattern: string, _flags?: string) {}",
-              "  public test(_value: string): boolean {",
-              "    return true;",
-              "  }",
-              "}",
-            ].join("\n"),
-          },
-          [
-            'declare global {',
-            '  const RegExp: typeof import("./src/RegExp.js").RegExp;',
-            "}",
-            "",
-            "export {};",
-            "",
-          ].join("\n")
-        );
-
-        const entryPath = path.join(srcDir, "index.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            'import type { int } from "@tsonic/core/types.js";',
-            "class Vec {",
-            "  [index: number]: number;",
-            "  at(index: int): number | undefined {",
-            "    return 0;",
-            "  }",
-            "  set(index: int, value: number): void {}",
-            "  read(index: int): number | undefined {",
-            "    return this[index];",
-            "  }",
-            "  write(index: int, value: number): void {",
-            "    this[index] = value as byte;",
-            "  }",
-            "}",
-            "class Holder {",
-            "  private readonly data: Vec = new Vec();",
-            "  read(index: int): number | undefined {",
-            "    return this.data[index];",
-            "  }",
-            "  write(index: int, value: number): void {",
-            "    this.data[index] = value;",
-            "  }",
-            "}",
-            "export { Vec, Holder };",
-          ].join("\n")
-        );
+        const projectRoot = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
 
         const programResult = createProgram([entryPath], {
-          projectRoot: tempDir,
+          projectRoot,
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
+          surface: "@fixture/js",
         });
 
         expect(programResult.ok).to.equal(true);
@@ -276,89 +246,27 @@ describe("IR Builder", function () {
           setterMember: "set",
         });
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("attaches explicit computed-access protocol through inherited class index signatures with at/set", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(
-          os.tmpdir(),
-          "tsonic-builder-inherited-computed-access-protocol-"
-        )
-      );
+      const fixture = materializeJsSurfaceHelpersFixture([
+        "fragments/module-bindings/basic-fixture-js-surface",
+        "regexp-surface",
+        "inherited-computed-access-protocol",
+      ]);
 
       try {
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-        writeFixtureJsSurface(
-          tempDir,
-          {
-            "./RegExp.js": "./src/RegExp.ts",
-          },
-          {
-            "src/RegExp.ts": [
-              "export class RegExp {",
-              "  public constructor(_pattern: string, _flags?: string) {}",
-              "  public test(_value: string): boolean {",
-              "    return true;",
-              "  }",
-              "}",
-            ].join("\n"),
-          },
-          [
-            "declare global {",
-            '  const RegExp: typeof import("./src/RegExp.js").RegExp;',
-            "}",
-            "",
-            "export {};",
-            "",
-          ].join("\n")
-        );
-
-        const entryPath = path.join(srcDir, "index.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            'import type { int } from "@tsonic/core/types.js";',
-            "abstract class VecBase<T> {",
-            "  [index: number]: T;",
-            "  public at(index: int): T | undefined {",
-            "    void index;",
-            "    return undefined;",
-            "  }",
-            "  public set(index: int, value: T): void {",
-            "    void index;",
-            "    void value;",
-            "  }",
-            "}",
-            "class Vec extends VecBase<number> {}",
-            "class Holder {",
-            "  private readonly data: Vec = new Vec();",
-            "  read(index: int): number | undefined {",
-            "    return this.data[index];",
-            "  }",
-            "  write(index: int, value: number): void {",
-            "    this.data[index] = value;",
-            "  }",
-            "}",
-            "export { Vec, Holder };",
-          ].join("\n")
-        );
+        const projectRoot = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
 
         const programResult = createProgram([entryPath], {
-          projectRoot: tempDir,
+          projectRoot,
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
+          surface: "@fixture/js",
         });
 
         expect(programResult.ok).to.equal(true);
@@ -448,80 +356,41 @@ describe("IR Builder", function () {
           setterMember: "set",
         });
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("attaches computed-access protocol for imported class index signatures with at/set", () => {
-      const fixture = createFilesystemTestProgram(
-        {
-          "package.json": JSON.stringify({
-            name: "app",
-            version: "1.0.0",
-            type: "module",
-          }),
-          "src/index.ts": [
-            'import type { byte, int } from "@tsonic/core/types.js";',
-            'import { Buffer } from "@tsonic/nodejs/buffer.js";',
-            "",
-            "export class Reader {",
-            "  read(buffer: Buffer, index: int): number | undefined {",
-            "    return buffer[index];",
-            "  }",
-            "  write(buffer: Buffer, index: int, value: byte): void {",
-            "    buffer[index] = value;",
-            "  }",
-            "}",
-          ].join("\n"),
-          "node_modules/@tsonic/nodejs/package.json": JSON.stringify({
-            name: "@tsonic/nodejs",
-            version: "1.0.0",
-            type: "module",
-            exports: {
-              "./buffer.js": "./src/buffer/index.ts",
-            },
-          }),
-          "node_modules/@tsonic/nodejs/tsonic.package.json": JSON.stringify({
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: [],
-            source: {
-              namespace: "nodejs",
-              exports: {
-                "./buffer.js": "./src/buffer/index.ts",
-              },
-            },
-          }),
-          "node_modules/@tsonic/nodejs/src/buffer/index.ts": [
-            'import type {} from "../../type-bootstrap.js";',
-            'export { Buffer } from "./buffer.ts";',
-          ].join("\n"),
-          "node_modules/@tsonic/nodejs/src/buffer/buffer.ts": [
-            'import type { byte, int } from "@tsonic/core/types.js";',
-            "",
-            "export class Buffer {",
-            "  [index: number]: byte;",
-            "  at(index: int): number | undefined {",
-            "    void index;",
-            "    return undefined;",
-            "  }",
-            "  set(index: int, value: number): void {",
-            "    void index;",
-            "    void value;",
-            "  }",
-            "}",
-          ].join("\n"),
-          "node_modules/@tsonic/nodejs/type-bootstrap.js": "export {};",
-        },
-        "src/index.ts"
-      );
+      const fixture = materializeJsSurfaceHelpersFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "imported-buffer-computed-access",
+      ]);
 
       try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
         const result = buildIrModule(
-          fixture.sourceFile,
-          fixture.testProgram,
-          fixture.options,
-          fixture.ctx
+          programResult.value.sourceFiles.find(
+            (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+          )!,
+          programResult.value,
+          {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          },
+          createProgramContext(programResult.value, {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          })
         );
 
         expect(result.ok).to.equal(true);
@@ -593,30 +462,36 @@ describe("IR Builder", function () {
     });
 
     it("preserves imported core numeric aliases in installed source-package type annotations", () => {
-      const fixture = createFilesystemTestProgram(
-        {
-          "package.json": JSON.stringify({
-            name: "app",
-            version: "1.0.0",
-            type: "module",
-          }),
-          "src/index.ts": [
-            'import type { byte } from "@tsonic/core/types.js";',
-            "",
-            "export class Holder {",
-            "  value: byte = 1 as byte;",
-            "}",
-          ].join("\n"),
-        },
-        "src/index.ts"
-      );
+      const fixture = materializeJsSurfaceHelpersFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "core-byte-alias-property",
+      ]);
 
       try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
         const result = buildIrModule(
-          fixture.sourceFile,
-          fixture.testProgram,
-          fixture.options,
-          fixture.ctx
+          programResult.value.sourceFiles.find(
+            (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+          )!,
+          programResult.value,
+          {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          },
+          createProgramContext(programResult.value, {
+            sourceRoot,
+            rootNamespace: "TestApp",
+          })
         );
 
         expect(result.ok).to.equal(true);
@@ -649,81 +524,22 @@ describe("IR Builder", function () {
     });
 
     it("specializes inherited source-package method parameter types through global owner aliases", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-builder-source-owned-u8-")
-      );
+      const fixture = materializeJsSurfaceHelpersFixture([
+        "fragments/module-bindings/basic-fixture-js-surface",
+        "typed-array-global-surface-basic",
+        "specializes-inherited-method-params",
+      ]);
 
       try {
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-        writeFixtureJsSurface(
-          tempDir,
-          {
-            "./typed-array-core.js": "./src/typed-array-core.ts",
-            "./uint8-array.js": "./src/uint8-array.ts",
-          },
-          {
-            "src/typed-array-core.ts": [
-              'import type { int } from "@tsonic/core/types.js";',
-              "export type TypedArrayInput<TElement extends number> =",
-              "  | TElement[]",
-              "  | Iterable<number>;",
-              "export class TypedArrayBase<",
-              "  TElement extends number,",
-              "  TSelf extends TypedArrayBase<TElement, TSelf>,",
-              "> {",
-              "  public constructor() {}",
-              "  public set(source: TypedArrayInput<TElement>, offset?: int): void {",
-              "    void source;",
-              "    void offset;",
-              "  }",
-              "}",
-            ].join("\n"),
-            "src/uint8-array.ts": [
-              'import { TypedArrayBase } from "./typed-array-core.js";',
-              "export class Uint8Array extends TypedArrayBase<number, Uint8Array> {",
-              "  public constructor() {",
-              "    super();",
-              "  }",
-              "}",
-            ].join("\n"),
-          },
-          [
-            "declare global {",
-            '  const Uint8Array: typeof import("./src/uint8-array.js").Uint8Array;',
-            "}",
-            "",
-            "export {};",
-            "",
-          ].join("\n")
-        );
-
-        const entryPath = path.join(srcDir, "index.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            "export function main(): void {",
-            "  const copy = new Uint8Array();",
-            "  copy.set(copy);",
-            "}",
-          ].join("\n")
-        );
+        const projectRoot = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
 
         const programResult = createProgram([entryPath], {
-          projectRoot: tempDir,
+          projectRoot,
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);
@@ -795,98 +611,27 @@ describe("IR Builder", function () {
           name: "number",
         });
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("keeps inherited iterable overloads over numeric sibling overloads through global owner aliases", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-builder-source-owned-u8-overload-")
-      );
+      const fixture = materializeJsSurfaceHelpersFixture([
+        "fragments/module-bindings/basic-fixture-js-surface",
+        "typed-array-global-surface-overload",
+        "inherited-iterable-overloads",
+      ]);
 
       try {
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-        writeFixtureJsSurface(
-          tempDir,
-          {
-            "./typed-array-core.js": "./src/typed-array-core.ts",
-            "./uint8-array.js": "./src/uint8-array.ts",
-          },
-          {
-            "src/typed-array-core.ts": [
-              'import type { int } from "@tsonic/core/types.js";',
-              "export type TypedArrayInput<TElement extends number> =",
-              "  | TElement[]",
-              "  | Iterable<number>;",
-              "export class TypedArrayBase<",
-              "  TElement extends number,",
-              "  TSelf extends TypedArrayBase<TElement, TSelf>,",
-              "> {",
-              "  public constructor() {}",
-              "  public set(index: int, value: number): void;",
-              "  public set(",
-              "    source: TypedArrayInput<TElement>,",
-              "    offset?: int",
-              "  ): void;",
-              "  public set(",
-              "    sourceOrIndex: int | TypedArrayInput<TElement>,",
-              "    offsetOrValue: int | number = 0 as int",
-              "  ): void {",
-              "    void sourceOrIndex;",
-              "    void offsetOrValue;",
-              "  }",
-              "  public *[Symbol.iterator](): Generator<TElement, undefined, undefined> {",
-              "    return undefined as never;",
-              "  }",
-              "}",
-            ].join("\n"),
-            "src/uint8-array.ts": [
-              'import type { byte } from "@tsonic/core/types.js";',
-              'import { TypedArrayBase } from "./typed-array-core.js";',
-              "export class Uint8Array extends TypedArrayBase<byte, Uint8Array> {",
-              "  public constructor() {",
-              "    super();",
-              "  }",
-              "}",
-            ].join("\n"),
-          },
-          [
-            "declare global {",
-            '  const Uint8Array: typeof import("./src/uint8-array.js").Uint8Array;',
-            "}",
-            "",
-            "export {};",
-            "",
-          ].join("\n")
-        );
-
-        const entryPath = path.join(srcDir, "index.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            "export function main(length: number): void {",
-            "  const copy = new Uint8Array();",
-            "  copy.set(copy, length);",
-            "}",
-          ].join("\n")
-        );
+        const projectRoot = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
 
         const programResult = createProgram([entryPath], {
-          projectRoot: tempDir,
+          projectRoot,
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);
@@ -952,14 +697,7 @@ describe("IR Builder", function () {
         }
         expect(firstSurfaceParameterType?.kind).to.equal("unionType");
         if (firstSurfaceParameterType?.kind === "unionType") {
-          expect(firstSurfaceParameterType.types).to.have.length(3);
-          expect(
-            firstSurfaceParameterType.types.some(
-              (candidate) =>
-                candidate.kind === "primitiveType" &&
-                candidate.name === "int"
-            )
-          ).to.equal(true);
+          expect(firstSurfaceParameterType.types).to.have.length(2);
           expect(
             firstSurfaceParameterType.types.some(
               (candidate) =>
@@ -979,12 +717,21 @@ describe("IR Builder", function () {
           ).to.equal(true);
         }
         expect(secondParameterType).to.deep.equal({
-          kind: "primitiveType",
-          name: "number",
+          kind: "unionType",
+          types: [
+            {
+              kind: "primitiveType",
+              name: "int",
+            },
+            {
+              kind: "primitiveType",
+              name: "undefined",
+            },
+          ],
         });
         expect(secondSurfaceParameterType?.kind).to.equal("unionType");
         if (secondSurfaceParameterType?.kind === "unionType") {
-          expect(secondSurfaceParameterType.types).to.have.length(3);
+          expect(secondSurfaceParameterType.types).to.have.length(2);
           expect(
             secondSurfaceParameterType.types.some(
               (candidate) =>
@@ -996,88 +743,32 @@ describe("IR Builder", function () {
             secondSurfaceParameterType.types.some(
               (candidate) =>
                 candidate.kind === "primitiveType" &&
-                candidate.name === "number"
-            )
-          ).to.equal(true);
-          expect(
-            secondSurfaceParameterType.types.some(
-              (candidate) =>
-                candidate.kind === "primitiveType" &&
                 candidate.name === "undefined"
             )
           ).to.equal(true);
         }
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("specializes direct generic source-package members through global owner aliases", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-builder-source-owned-map-")
-      );
+      const fixture = materializeJsSurfaceHelpersFixture([
+        "fragments/module-bindings/basic-fixture-js-surface",
+        "map-global-surface",
+        "direct-generic-members",
+      ]);
 
       try {
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-        writeFixtureJsSurface(
-          tempDir,
-          {
-            "./map-object.js": "./src/map-object.ts",
-          },
-          {
-            "src/map-object.ts": [
-              "export class Map<K, V> {",
-              "  public constructor() {}",
-              "  public get(key: K): V | undefined {",
-              "    void key;",
-              "    return undefined;",
-              "  }",
-              "  public set(key: K, value: V): void {",
-              "    void key;",
-              "    void value;",
-              "  }",
-              "}",
-            ].join("\n"),
-          },
-          [
-            "declare global {",
-            '  const Map: typeof import("./src/map-object.js").Map;',
-            "}",
-            "",
-            "export {};",
-            "",
-          ].join("\n")
-        );
-
-        const entryPath = path.join(srcDir, "index.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            "export function main(label: string = \"default\"): number {",
-            "  const counters = new Map<string, number>();",
-            "  const next = counters.get(label) ?? 0;",
-            "  counters.set(label, next);",
-            "  return next;",
-            "}",
-          ].join("\n")
-        );
+        const projectRoot = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
 
         const programResult = createProgram([entryPath], {
-          projectRoot: tempDir,
+          projectRoot,
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);
@@ -1139,7 +830,7 @@ describe("IR Builder", function () {
           name: "string",
         });
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
@@ -1219,7 +910,6 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);
@@ -1639,6 +1329,7 @@ describe("IR Builder", function () {
 
         const srcDir = path.join(tempDir, "src");
         fs.mkdirSync(srcDir, { recursive: true });
+        installMinimalClrRoots(tempDir);
 
         const surfaceRoot = path.join(tempDir, "node_modules/@fixture/js");
         fs.mkdirSync(surfaceRoot, { recursive: true });
@@ -1803,9 +1494,8 @@ describe("IR Builder", function () {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: [],
+              extends: ["clr"],
               requiredTypeRoots: ["."],
-              useStandardLib: false,
             },
             null,
             2
@@ -1829,7 +1519,6 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);
@@ -1951,6 +1640,7 @@ describe("IR Builder", function () {
 
         const srcDir = path.join(tempDir, "src");
         fs.mkdirSync(srcDir, { recursive: true });
+        installMinimalClrRoots(tempDir);
 
         const surfaceRoot = path.join(tempDir, "node_modules/@fixture/js");
         fs.mkdirSync(path.join(surfaceRoot, "src"), { recursive: true });
@@ -1988,9 +1678,8 @@ describe("IR Builder", function () {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: [],
+              extends: ["clr"],
               requiredTypeRoots: ["."],
-              useStandardLib: false,
             },
             null,
             2
@@ -2046,7 +1735,6 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);
@@ -2148,6 +1836,7 @@ describe("IR Builder", function () {
 
         const srcDir = path.join(tempDir, "src");
         fs.mkdirSync(srcDir, { recursive: true });
+        installMinimalClrRoots(tempDir);
 
         const jsSurfaceRoot = path.join(tempDir, "node_modules/@fixture/js");
         fs.mkdirSync(jsSurfaceRoot, { recursive: true });
@@ -2181,9 +1870,8 @@ describe("IR Builder", function () {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: [],
+              extends: ["clr"],
               requiredTypeRoots: ["."],
-              useStandardLib: false,
             },
             null,
             2
@@ -2266,7 +1954,6 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);
@@ -2379,6 +2066,7 @@ describe("IR Builder", function () {
             2
           )
         );
+        installMinimalClrRoots(tempDir);
 
         const surfaceRoot = path.join(tempDir, "node_modules", "@fixture", "js");
         fs.mkdirSync(surfaceRoot, { recursive: true });
@@ -2396,9 +2084,8 @@ describe("IR Builder", function () {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: [],
+              extends: ["clr"],
               requiredTypeRoots: ["."],
-              useStandardLib: false,
             },
             null,
             2
@@ -2471,7 +2158,6 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "Fixture.Lib",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);
@@ -2622,6 +2308,7 @@ describe("IR Builder", function () {
 
         const srcDir = path.join(tempDir, "src");
         fs.mkdirSync(srcDir, { recursive: true });
+        installMinimalClrRoots(tempDir);
 
         const surfaceRoot = path.join(tempDir, "node_modules/@fixture/js");
         fs.mkdirSync(path.join(surfaceRoot, "src"), { recursive: true });
@@ -2658,9 +2345,8 @@ describe("IR Builder", function () {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: [],
+              extends: ["clr"],
               requiredTypeRoots: ["."],
-              useStandardLib: false,
             },
             null,
             2
@@ -2709,7 +2395,6 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);
@@ -2800,7 +2485,6 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);
@@ -2937,7 +2621,6 @@ describe("IR Builder", function () {
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
-          useStandardLib: false,
         });
 
         expect(programResult.ok).to.equal(true);

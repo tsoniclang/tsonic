@@ -178,6 +178,10 @@ export class BindingRegistry {
       : this.simpleModuleBindings.get(name);
   }
 
+  hasSourceOwnedTypeAlias(typeAlias: string): boolean {
+    return this.sourceOwnedTypeAliases.has(typeAlias);
+  }
+
   /**
    * Look up a namespace binding by TS alias
    */

@@ -4,8 +4,6 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
 import { IrFunctionDeclaration, IrVariableDeclaration } from "../types.js";
@@ -18,7 +16,9 @@ import {
   runAnonymousTypeLoweringPass,
   runCallResolutionRefreshPass,
   runNumericProofPass,
+  runOverloadCollectionPass,
 } from "../validation/index.js";
+import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);
@@ -29,14 +29,14 @@ describe("IR Builder", function () {
         declare class Promise<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): Promise<TResult1 | TResult2>;
         }
 
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -93,7 +93,7 @@ describe("IR Builder", function () {
         declare class PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -101,7 +101,7 @@ describe("IR Builder", function () {
           constructor(
             executor: (
               resolve: (value: T | PromiseLike<T>) => void,
-              reject: (reason: unknown) => void
+              reject: (reason: JsValue) => void
             ) => void
           );
         }
@@ -155,7 +155,7 @@ describe("IR Builder", function () {
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -235,7 +235,7 @@ describe("IR Builder", function () {
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -243,7 +243,7 @@ describe("IR Builder", function () {
           constructor(
             executor: (
               resolve: (value: T | PromiseLike<T>) => void,
-              reject: (reason: unknown) => void
+              reject: (reason: JsValue) => void
             ) => void
           );
 
@@ -361,105 +361,14 @@ describe("IR Builder", function () {
     });
 
     it("preserves generic receiver substitutions for js-surface method calls", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-builder-map-keys-")
+      const fixture = materializeFrontendFixture(
+        "ir/promise-callback-typing/js-surface-generic-receiver"
       );
 
       try {
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-
-        const jsRoot = path.join(tempDir, "node_modules", "@tsonic", "js");
-        fs.mkdirSync(jsRoot, { recursive: true });
-        fs.writeFileSync(
-          path.join(jsRoot, "package.json"),
-          JSON.stringify(
-            { name: "@tsonic/js", version: "0.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
-        fs.writeFileSync(
-          path.join(jsRoot, "tsonic.surface.json"),
-          JSON.stringify(
-            {
-              schemaVersion: 1,
-              id: "@tsonic/js",
-              extends: [],
-              requiredTypeRoots: ["."],
-              useStandardLib: false,
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(jsRoot, "index.d.ts"),
-          [
-            "declare global {",
-            "  interface SymbolConstructor {",
-            "    readonly iterator: symbol;",
-            "  }",
-            "  const Symbol: SymbolConstructor;",
-            "  interface IteratorResult<T> {",
-            "    done: boolean;",
-            "    value: T;",
-            "  }",
-            "  interface Iterator<T> {",
-            "    next(): IteratorResult<T>;",
-            "  }",
-            "  interface Iterable<T> {",
-            "    [Symbol.iterator](): Iterator<T>;",
-            "  }",
-            "  interface IterableIterator<T>",
-            "    extends Iterator<T>, Iterable<T> {",
-            "    [Symbol.iterator](): IterableIterator<T>;",
-            "  }",
-            "  interface ArrayLike<T> {",
-            "    readonly length: int;",
-            "    readonly [index: int]: T;",
-            "  }",
-            "  interface Array<T> {",
-            "    readonly length: int;",
-            "    readonly [index: int]: T;",
-            "  }",
-            "  interface ArrayConstructor {",
-            "    from<T>(source: Iterable<T> | ArrayLike<T>): T[];",
-            "  }",
-            "  interface Map<K, V> {",
-            "    set(key: K, value: V): this;",
-            "    keys(): IterableIterator<K>;",
-            "  }",
-            "  interface MapConstructor {",
-            "    new <K, V>(): Map<K, V>;",
-            "  }",
-            "  const Array: ArrayConstructor;",
-            "  const Map: MapConstructor;",
-            "}",
-            "export {};",
-            "",
-          ].join("\n")
-        );
-
-        const entryPath = path.join(srcDir, "index.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            "const counts = new Map<string, number>();",
-            'counts.set("alpha", 1);',
-            "export const keys = Array.from(counts.keys());",
-          ].join("\n")
-        );
+        const tempDir = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
 
         const programResult = createProgram([entryPath], {
           projectRoot: tempDir,
@@ -546,7 +455,7 @@ describe("IR Builder", function () {
           ]);
         }
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
@@ -638,7 +547,7 @@ describe("IR Builder", function () {
       ]);
     });
 
-    it("tracks the reachable runtime-union members for specialized Array.from overload wrappers", () => {
+    it("keeps family-marked Array.from entrypoints split into real overload bodies", () => {
       const fixtureRoot = path.resolve(
         "..",
         "..",
@@ -684,42 +593,71 @@ describe("IR Builder", function () {
       expect(moduleResult.ok).to.equal(true);
       if (!moduleResult.ok) return;
 
-      const arrayClass = moduleResult.value.body.find(
+      const overloadResult = runOverloadCollectionPass([moduleResult.value]);
+      expect(overloadResult.ok).to.equal(true);
+      if (!overloadResult.ok) return;
+
+      const collectedModule = overloadResult.modules[0];
+      expect(collectedModule).to.not.equal(undefined);
+      if (!collectedModule) return;
+
+      const arrayClass = collectedModule.body.find(
         (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
           stmt.kind === "classDeclaration" && stmt.name === "Array"
       );
       expect(arrayClass).to.not.equal(undefined);
       if (!arrayClass) return;
 
-      const fromWrappers = arrayClass.members.filter(
+      const fromMethods = arrayClass.members.filter(
         (member): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
           member.kind === "methodDeclaration" &&
           member.isStatic &&
-          member.name === "from" &&
+          member.overloadFamily?.publicName === "from" &&
           !!member.body
       );
-      expect(fromWrappers).to.have.length(4);
+      expect(fromMethods).to.have.length(4);
 
-      const selectedMembers = fromWrappers.map((wrapper) => {
-        const returnStmt = wrapper.body!.statements[0];
+      expect(
+        fromMethods.map((method) => method.name)
+      ).to.deep.equal([
+        "from_string",
+        "from_stringMapped",
+        "from_iterable",
+        "from_iterableMapped",
+      ]);
+      expect(
+        fromMethods.map((method) => method.overloadFamily?.publicSignatureIndex)
+      ).to.deep.equal([0, 1, 2, 3]);
+
+      const helperCalls = fromMethods.map((method) => {
+        const returnStmt = method.body!.statements[0];
         expect(returnStmt?.kind).to.equal("returnStatement");
         if (!returnStmt || returnStmt.kind !== "returnStatement") {
           return undefined;
         }
 
         const expr = returnStmt.expression;
-        expect(expr?.kind).to.equal("typeAssertion");
-        if (!expr || expr.kind !== "typeAssertion") {
+        expect(expr?.kind).to.equal("call");
+        if (!expr || expr.kind !== "call") {
+          return undefined;
+        }
+        expect(expr.callee.kind).to.equal("identifier");
+        if (expr.callee.kind !== "identifier") {
           return undefined;
         }
 
-        return expr.selectedRuntimeUnionMembers;
+        return expr.callee.name;
       });
 
-      expect(selectedMembers).to.deep.equal([[1], [3], [2], [3]]);
+      expect(helperCalls).to.deep.equal([
+        "mapString",
+        "mapStringMapped",
+        "mapIterable",
+        "mapIterableMapped",
+      ]);
     });
 
-    it("tracks the reachable runtime-union members for Array.from implementation returns", () => {
+    it("keeps family-marked Array.from bodies specialized to their real helpers", () => {
       const fixtureRoot = path.resolve(
         "..",
         "..",
@@ -765,150 +703,94 @@ describe("IR Builder", function () {
       expect(moduleResult.ok).to.equal(true);
       if (!moduleResult.ok) return;
 
-      const arrayClass = moduleResult.value.body.find(
+      const overloadResult = runOverloadCollectionPass([moduleResult.value]);
+      expect(overloadResult.ok).to.equal(true);
+      if (!overloadResult.ok) return;
+
+      const collectedModule = overloadResult.modules[0];
+      expect(collectedModule).to.not.equal(undefined);
+      if (!collectedModule) return;
+
+      const arrayClass = collectedModule.body.find(
         (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
           stmt.kind === "classDeclaration" && stmt.name === "Array"
       );
       expect(arrayClass).to.not.equal(undefined);
       if (!arrayClass) return;
 
-      const helperMethod = arrayClass.members.find(
+      const fromMethods = arrayClass.members.filter(
         (member): member is Extract<typeof member, { kind: "methodDeclaration" }> =>
           member.kind === "methodDeclaration" &&
-          member.name === "__tsonic_overload_impl_from" &&
+          member.isStatic &&
+          member.overloadFamily?.publicName === "from" &&
           !!member.body
       );
-      expect(helperMethod).to.not.equal(undefined);
-      if (!helperMethod || !helperMethod.body) return;
+      expect(fromMethods).to.have.length(4);
 
-      const collected: Array<
-        Extract<
-          NonNullable<
-            Extract<
-              (typeof helperMethod.body.statements)[number],
-              { kind: "returnStatement" }
-            >["expression"]
-          >,
-          { kind: "typeAssertion" }
-        >
-      > = [];
-      const collect = (stmt: (typeof helperMethod.body.statements)[number]): void => {
-        switch (stmt.kind) {
-          case "blockStatement":
-            for (const inner of stmt.statements) collect(inner);
-            return;
-          case "ifStatement":
-            collect(stmt.thenStatement);
-            if (stmt.elseStatement) collect(stmt.elseStatement);
-            return;
-          case "returnStatement":
-            if (stmt.expression?.kind === "typeAssertion") {
-              collected.push(stmt.expression);
-            }
-            return;
-          default:
-            return;
+      const helperCalls = fromMethods.map((method) => {
+        const returnStmt = method.body!.statements[0];
+        expect(returnStmt?.kind).to.equal("returnStatement");
+        if (!returnStmt || returnStmt.kind !== "returnStatement") {
+          return undefined;
         }
-      };
-      for (const stmt of helperMethod.body.statements) {
-        collect(stmt);
-      }
 
-      const selectedMembers = collected.map(
-        (expr) => expr.selectedRuntimeUnionMembers
-      );
-      expect(selectedMembers).to.deep.equal([[1], [3], [2], [3]]);
+        const expr = returnStmt.expression;
+        expect(expr?.kind).to.equal("call");
+        if (!expr || expr.kind !== "call") {
+          return undefined;
+        }
+
+        expect(expr.callee.kind).to.equal("identifier");
+        if (expr.callee.kind !== "identifier") {
+          return undefined;
+        }
+
+        return {
+          bodyName: method.name,
+          calleeName: expr.callee.name,
+          parameterTypes: expr.parameterTypes?.map((type) =>
+            type?.kind === "referenceType"
+              ? type.name
+              : type?.kind === "primitiveType"
+                ? type.name
+                : type?.kind ?? "missing"
+          ),
+        };
+      });
+
+      expect(helperCalls).to.deep.equal([
+        {
+          bodyName: "from_string",
+          calleeName: "mapString",
+          parameterTypes: ["string"],
+        },
+        {
+          bodyName: "from_stringMapped",
+          calleeName: "mapStringMapped",
+          parameterTypes: ["string", "functionType"],
+        },
+        {
+          bodyName: "from_iterable",
+          calleeName: "mapIterable",
+          parameterTypes: ["Iterable"],
+        },
+        {
+          bodyName: "from_iterableMapped",
+          calleeName: "mapIterableMapped",
+          parameterTypes: ["Iterable", "functionType"],
+        },
+      ]);
     });
 
     it("preserves receiver substitutions for locals derived from this-owned generic members", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-builder-this-member-generics-")
+      const fixture = materializeFrontendFixture(
+        "ir/promise-callback-typing/this-member-generics"
       );
 
       try {
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-
-        const jsRoot = path.join(tempDir, "node_modules", "@tsonic", "js");
-        fs.mkdirSync(jsRoot, { recursive: true });
-        fs.writeFileSync(
-          path.join(jsRoot, "package.json"),
-          JSON.stringify(
-            { name: "@tsonic/js", version: "0.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(path.join(jsRoot, "index.js"), "export {};\n");
-        fs.writeFileSync(
-          path.join(jsRoot, "tsonic.surface.json"),
-          JSON.stringify(
-            {
-              schemaVersion: 1,
-              id: "@tsonic/js",
-              extends: [],
-              requiredTypeRoots: ["."],
-              useStandardLib: false,
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(jsRoot, "index.d.ts"),
-          [
-            "declare global {",
-            "  interface Array<T> {",
-            "    readonly length: int;",
-            "    slice(start?: int, end?: int): T[];",
-            "  }",
-            "  interface Map<K, V> {",
-            "    get(key: K): V | undefined;",
-            "  }",
-            "  interface MapConstructor {",
-            "    new <K, V>(): Map<K, V>;",
-            "  }",
-            "  const Map: MapConstructor;",
-            "}",
-            "export {};",
-            "",
-          ].join("\n")
-        );
-
-        const entryPath = path.join(srcDir, "index.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            "type EventListener = (...args: unknown[]) => void;",
-            "type ListenerRegistration = {",
-            "  readonly invoke: EventListener;",
-            "};",
-            "export class Emitter {",
-            "  private readonly listenersByEvent: Map<string, ListenerRegistration[]> =",
-            "    new Map<string, ListenerRegistration[]>();",
-            "  public emit(eventName: string, ...args: unknown[]): boolean {",
-            "    const registrations = this.listenersByEvent.get(eventName);",
-            "    if (registrations === undefined || registrations.length === 0) {",
-            "      return false;",
-            "    }",
-            "    const snapshot = registrations.slice();",
-            "    for (const registration of snapshot) {",
-            "      registration.invoke(...args);",
-            "    }",
-            "    return true;",
-            "  }",
-            "}",
-          ].join("\n")
-        );
+        const tempDir = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
 
         const programResult = createProgram([entryPath], {
           projectRoot: tempDir,
@@ -1024,11 +906,7 @@ describe("IR Builder", function () {
             {
               kind: "parameter",
               pattern: { kind: "identifierPattern", name: "args" },
-              type: {
-                kind: "arrayType",
-                elementType: { kind: "unknownType", explicit: true },
-                origin: "explicit",
-              },
+              type: emitMethod.parameters[1]?.type,
               initializer: undefined,
               isOptional: false,
               isRest: true,
@@ -1038,21 +916,21 @@ describe("IR Builder", function () {
           returnType: { kind: "voidType" },
         });
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
-    it("threads constructor surface parameter types for unknown-typed arguments", () => {
+    it("threads constructor surface parameter types for JsValue-typed arguments", () => {
       const source = `
         class AssertionError extends Error {
-          public actual: unknown = undefined;
-          public expected: unknown = undefined;
+          public actual: JsValue | undefined = undefined;
+          public expected: JsValue | undefined = undefined;
           public operator: string = "";
 
           public constructor(
             message?: string,
-            actual?: unknown,
-            expected?: unknown,
+            actual?: JsValue,
+            expected?: JsValue,
             operator: string = ""
           ) {
             super(message);
@@ -1075,6 +953,23 @@ describe("IR Builder", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
+      const assertionErrorClass = result.value.body.find(
+        (stmt) => stmt.kind === "classDeclaration" && stmt.name === "AssertionError"
+      );
+      expect(assertionErrorClass).to.not.equal(undefined);
+      if (
+        !assertionErrorClass ||
+        assertionErrorClass.kind !== "classDeclaration"
+      ) {
+        return;
+      }
+
+      const ctorDecl = assertionErrorClass.members.find(
+        (member) => member.kind === "constructorDeclaration"
+      );
+      expect(ctorDecl).to.not.equal(undefined);
+      if (!ctorDecl || ctorDecl.kind !== "constructorDeclaration") return;
+
       const fn = result.value.body.find(
         (stmt): stmt is IrFunctionDeclaration =>
           stmt.kind === "functionDeclaration" && stmt.name === "create"
@@ -1090,46 +985,37 @@ describe("IR Builder", function () {
       expect(ctor?.kind).to.equal("new");
       if (!ctor || ctor.kind !== "new") return;
 
-      expect(ctor.parameterTypes?.[1]).to.deep.equal({
-        kind: "unionType",
+      const actualType = ctorDecl.parameters[1]?.type;
+      const expectedType = ctorDecl.parameters[2]?.type;
+      expect(actualType).to.not.equal(undefined);
+      expect(expectedType).to.not.equal(undefined);
+      const optionalActualType = {
+        kind: "unionType" as const,
+        types: [actualType!, { kind: "primitiveType" as const, name: "undefined" }],
+      };
+      const optionalExpectedType = {
+        kind: "unionType" as const,
         types: [
-          { kind: "unknownType", explicit: true },
-          { kind: "primitiveType", name: "undefined" },
+          expectedType!,
+          { kind: "primitiveType" as const, name: "undefined" },
         ],
-      });
-      expect(ctor.surfaceParameterTypes?.[1]).to.deep.equal({
-        kind: "unionType",
-        types: [
-          { kind: "unknownType", explicit: true },
-          { kind: "primitiveType", name: "undefined" },
-        ],
-      });
-      expect(ctor.parameterTypes?.[2]).to.deep.equal({
-        kind: "unionType",
-        types: [
-          { kind: "unknownType", explicit: true },
-          { kind: "primitiveType", name: "undefined" },
-        ],
-      });
-      expect(ctor.surfaceParameterTypes?.[2]).to.deep.equal({
-        kind: "unionType",
-        types: [
-          { kind: "unknownType", explicit: true },
-          { kind: "primitiveType", name: "undefined" },
-        ],
-      });
+      };
+      expect(ctor.parameterTypes?.[1]).to.deep.equal(optionalActualType);
+      expect(ctor.surfaceParameterTypes?.[1]).to.deep.equal(optionalActualType);
+      expect(ctor.parameterTypes?.[2]).to.deep.equal(optionalExpectedType);
+      expect(ctor.surfaceParameterTypes?.[2]).to.deep.equal(optionalExpectedType);
     });
 
     it("contextually types explicit lambda parameters from rest callbacks as element values", () => {
       const source = `
-        type EventListener = (...args: unknown[]) => void;
+        type EventListener = (...args: JsValue[]) => void;
 
         declare function consume(listener: EventListener): void;
 
         export function main(): void {
-          let first: unknown = undefined;
-          let second: unknown = undefined;
-          let third: unknown = undefined;
+          let first: JsValue = undefined;
+          let second: JsValue = undefined;
+          let third: JsValue = undefined;
 
           consume((arg1, arg2, arg3) => {
             first = arg1;
@@ -1164,11 +1050,17 @@ describe("IR Builder", function () {
       expect(callback?.kind).to.equal("arrowFunction");
       if (!callback || callback.kind !== "arrowFunction") return;
 
+      const listenerSurface = callStmt.expression.surfaceParameterTypes?.[0];
+      expect(listenerSurface?.kind).to.equal("functionType");
+      if (!listenerSurface || listenerSurface.kind !== "functionType") return;
+      const listenerParameterType = listenerSurface.parameters[0]?.type;
+      expect(listenerParameterType?.kind).to.equal("arrayType");
+      if (!listenerParameterType || listenerParameterType.kind !== "arrayType") {
+        return;
+      }
+
       for (const parameter of callback.parameters) {
-        expect(parameter.type).to.deep.equal({
-          kind: "unknownType",
-          explicit: true,
-        });
+        expect(parameter.type).to.deep.equal(listenerParameterType.elementType);
       }
     });
 

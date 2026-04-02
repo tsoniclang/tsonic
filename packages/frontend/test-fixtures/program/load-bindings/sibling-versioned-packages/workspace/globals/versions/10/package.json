@@ -1,0 +1,7 @@
+{
+  "name": "@tsonic/globals",
+  "version": "1.0.0",
+  "dependencies": {
+    "@tsonic/dotnet": "1.0.0"
+  }
+}

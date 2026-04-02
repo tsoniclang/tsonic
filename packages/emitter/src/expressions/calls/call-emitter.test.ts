@@ -361,4 +361,73 @@ describe("call-emitter", () => {
       "global::js.Number.toString(global::System.Convert.ToDouble(arch))"
     );
   });
+
+  it("erases callable static generic accessors back to direct CLR property access", () => {
+    const context = createContext({ rootNamespace: "Test" });
+
+    const expr = {
+      kind: "call" as const,
+      callee: {
+        kind: "memberAccess" as const,
+        object: {
+          kind: "identifier" as const,
+          name: "ArrayPool_1",
+        },
+        property: "Shared",
+        isComputed: false,
+        isOptional: false,
+        inferredType: {
+          kind: "functionType" as const,
+          parameters: [],
+          returnType: {
+            kind: "referenceType" as const,
+            name: "ArrayPool_1",
+            resolvedClrType: "System.Buffers.ArrayPool`1",
+            typeArguments: [
+              {
+                kind: "referenceType" as const,
+                name: "byte" as const,
+                resolvedClrType: "System.Byte",
+              },
+            ],
+          },
+        },
+        memberBinding: {
+          kind: "property" as const,
+          assembly: "System.Memory",
+          type: "System.Buffers.ArrayPool`1",
+          member: "Shared",
+          emitSemantics: {
+            callableStaticAccessorKind: "property" as const,
+          },
+        },
+      },
+      arguments: [],
+      isOptional: false,
+      typeArguments: [
+        {
+          kind: "referenceType" as const,
+          name: "byte" as const,
+          resolvedClrType: "System.Byte",
+        },
+      ],
+      inferredType: {
+        kind: "referenceType" as const,
+        name: "ArrayPool_1",
+        resolvedClrType: "System.Buffers.ArrayPool`1",
+        typeArguments: [
+          {
+            kind: "referenceType" as const,
+            name: "byte" as const,
+            resolvedClrType: "System.Byte",
+          },
+        ],
+      },
+    };
+
+    const [ast] = emitCall(expr, context);
+    expect(printExpression(ast)).to.equal(
+      "global::System.Buffers.ArrayPool<byte>.Shared"
+    );
+  });
 });

@@ -3,9 +3,28 @@ import { getClassNameFromPath } from "../../../resolver/naming.js";
 import { resolveImport } from "../../../resolver.js";
 import type { ProgramContext } from "../../program-context.js";
 import { resolveSourceFileNamespace } from "../../../program/source-file-identity.js";
+import { readSourcePackageMetadata } from "../../../program/source-package-metadata.js";
 
 const normalizeFilePath = (filePath: string): string =>
   filePath.replace(/\\/g, "/");
+
+const getAmbientDeclarationName = (
+  declaration: ts.Declaration
+): string | undefined => {
+  if (
+    (ts.isFunctionDeclaration(declaration) ||
+      ts.isVariableDeclaration(declaration) ||
+      ts.isClassDeclaration(declaration) ||
+      ts.isInterfaceDeclaration(declaration) ||
+      ts.isEnumDeclaration(declaration)) &&
+    declaration.name &&
+    ts.isIdentifier(declaration.name)
+  ) {
+    return declaration.name.text;
+  }
+
+  return undefined;
+};
 
 const getDeclarationTypeNode = (
   declaration: ts.Declaration
@@ -233,6 +252,52 @@ const resolveExportOwnerFromSourceFile = (
   return undefined;
 };
 
+const resolveAmbientExportOwnerByName = (
+  declaration: ts.Declaration,
+  exportName: string,
+  ctx: ProgramContext
+): string | undefined => {
+  const declarationFilePath = normalizeFilePath(declaration.getSourceFile().fileName);
+
+  const packageMetadata = [...ctx.authoritativeTsonicPackageRoots.values()]
+    .map((packageRoot) => readSourcePackageMetadata(packageRoot))
+    .find(
+      (metadata) =>
+        metadata !== null &&
+        metadata.ambientPaths.some(
+          (ambientPath) => normalizeFilePath(ambientPath) === declarationFilePath
+        )
+    );
+
+  if (!packageMetadata) {
+    return undefined;
+  }
+
+  const owners = new Set<string>();
+  for (const exportPath of packageMetadata.exportPaths) {
+    const sourceFile = ctx.sourceFilesByPath.get(normalizeFilePath(exportPath));
+    if (!sourceFile || sourceFile.isDeclarationFile) {
+      continue;
+    }
+
+    const owner = resolveExportOwnerFromSourceFile(
+      sourceFile,
+      exportName,
+      ctx,
+      new Set()
+    );
+    if (owner) {
+      owners.add(owner);
+    }
+  }
+
+  if (owners.size !== 1) {
+    return undefined;
+  }
+
+  return [...owners][0];
+};
+
 export const resolveAmbientGlobalSourceOwner = (
   declarations: readonly ts.Declaration[],
   ctx: ProgramContext
@@ -272,6 +337,22 @@ export const resolveAmbientGlobalSourceOwner = (
       target.exportName,
       ctx,
       new Set()
+    );
+    if (owner) {
+      return owner;
+    }
+  }
+
+  for (const declaration of declarations) {
+    const declarationName = getAmbientDeclarationName(declaration);
+    if (!declarationName) {
+      continue;
+    }
+
+    const owner = resolveAmbientExportOwnerByName(
+      declaration,
+      declarationName,
+      ctx
     );
     if (owner) {
       return owner;

@@ -1,4 +1,6 @@
-const isObject = (value: unknown): value is Record<string, unknown> => {
+import type { JsValue } from "@tsonic/core/types.js";
+
+const isObject = (value: JsValue): value is Record<string, JsValue> => {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 };
 

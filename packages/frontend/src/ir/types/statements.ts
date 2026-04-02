@@ -59,6 +59,8 @@ export type IrFunctionDeclaration = {
   readonly parameters: readonly IrParameter[];
   readonly returnType?: IrType;
   readonly body: IrBlockStatement;
+  /** True when sourced from a bodyless TS declaration signature. */
+  readonly isDeclarationOnly?: boolean;
   readonly isAsync: boolean;
   readonly isGenerator: boolean;
   readonly isExported: boolean;
@@ -83,7 +85,7 @@ export type IrClassDeclaration = {
   /**
    * C# attributes to emit before ALL constructors on this class.
    *
-   * Used by the compiler-only attribute API: `A.on(Class).ctor.add(...)`.
+   * Used by the compiler-only attribute API: `A<Class>().ctor.add(...)`.
    * These attributes are applied to:
    * - an explicit TS constructor (if present)
    * - synthesized forwarding constructors (when needed for base ctor forwarding)
@@ -182,6 +184,8 @@ export type IrInterfaceDeclaration = {
   readonly isExported: boolean;
   /** True if this interface should be emitted as a C# struct instead of a class */
   readonly isStruct: boolean;
+  /** C# attributes to emit before the interface/class/struct declaration */
+  readonly attributes?: readonly IrAttribute[];
 };
 
 export type IrEnumDeclaration = {

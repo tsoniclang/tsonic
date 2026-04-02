@@ -1,106 +1,17 @@
 import { expect } from "chai";
 import * as fs from "node:fs";
 import { createRequire, syncBuiltinESMExports } from "node:module";
-import * as os from "node:os";
 import * as path from "node:path";
 import { loadClrCatalog } from "./clr-catalog.js";
+import { materializeFrontendFixture } from "../../../../testing/filesystem-fixtures.js";
 
 describe("loadClrCatalog", () => {
   it("loads only explicitly participating CLR packages", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-clr-catalog-")
-    );
+    const fixture = materializeFrontendFixture("ir/clr-catalog/explicit-packages");
 
     try {
-      const nodeModulesRoot = path.join(tempDir, "node_modules");
-      const loadedRoot = path.join(nodeModulesRoot, "@tsonic", "loaded");
-      const skippedRoot = path.join(nodeModulesRoot, "@tsonic", "skipped");
-
-      fs.mkdirSync(path.join(loadedRoot, "Loaded.Namespace", "internal"), {
-        recursive: true,
-      });
-      fs.mkdirSync(path.join(skippedRoot, "Skipped.Namespace", "internal"), {
-        recursive: true,
-      });
-
-      fs.writeFileSync(
-        path.join(loadedRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/loaded", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(skippedRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/skipped", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(loadedRoot, "Loaded.Namespace", "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "Loaded.Namespace",
-            types: [
-              {
-                stableId: "Loaded.Namespace:Loaded.Namespace.Console",
-                clrName: "Loaded.Namespace.Console",
-                kind: "class",
-                accessibility: "public",
-                isAbstract: false,
-                isSealed: true,
-                isStatic: true,
-                arity: 0,
-                methods: [],
-                properties: [],
-                fields: [],
-                constructors: [],
-                assemblyName: "Loaded.Assembly",
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(skippedRoot, "Skipped.Namespace", "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "Skipped.Namespace",
-            types: [
-              {
-                stableId: "Skipped.Namespace:Skipped.Namespace.Console",
-                clrName: "Skipped.Namespace.Console",
-                kind: "class",
-                accessibility: "public",
-                isAbstract: false,
-                isSealed: true,
-                isStatic: true,
-                arity: 0,
-                methods: [],
-                properties: [],
-                fields: [],
-                constructors: [],
-                assemblyName: "Skipped.Assembly",
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(loadedRoot, "Loaded.Namespace", "internal", "index.d.ts"),
-        "export declare class Console {}\n"
-      );
-      fs.writeFileSync(
-        path.join(skippedRoot, "Skipped.Namespace", "internal", "index.d.ts"),
-        "export declare class Console {}\n"
-      );
+      const nodeModulesRoot = fixture.path("node_modules");
+      const loadedRoot = fixture.path("node_modules/@tsonic/loaded");
 
       const catalog = loadClrCatalog(nodeModulesRoot, [loadedRoot]);
       expect(
@@ -110,80 +21,43 @@ describe("loadClrCatalog", () => {
         catalog.entries.has("Skipped.Namespace:Skipped.Namespace.Console")
       ).to.equal(false);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
+    }
+  });
+
+  it("traverses source-package dependencies to load participating CLR packages", () => {
+    const fixture = materializeFrontendFixture(
+      "ir/clr-catalog/source-package-dependency"
+    );
+
+    try {
+      const nodeModulesRoot = fixture.path("node_modules");
+      const globalsRoot = fixture.path("node_modules/@tsonic/globals");
+
+      const catalog = loadClrCatalog(nodeModulesRoot, [globalsRoot]);
+      const stringId = catalog.tsNameToTypeId.get("String");
+      expect(stringId).to.not.equal(undefined);
+      if (!stringId) {
+        return;
+      }
+
+      expect(stringId.stableId).to.equal(
+        "System.Private.CoreLib:System.String"
+      );
+      expect(catalog.entries.has(stringId.stableId)).to.equal(true);
+    } finally {
+      fixture.cleanup();
     }
   });
 
   it("ignores surface binding manifests that do not carry CLR types", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-clr-catalog-")
+    const fixture = materializeFrontendFixture(
+      "ir/clr-catalog/surface-bindings-ignore"
     );
 
     try {
-      const nodeModulesRoot = path.join(tempDir, "node_modules");
-      const jsRoot = path.join(nodeModulesRoot, "@tsonic", "js");
-      const runtimeNsRoot = path.join(jsRoot, "js");
-      const runtimeInternalRoot = path.join(runtimeNsRoot, "internal");
-
-      fs.mkdirSync(runtimeInternalRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(jsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-
-      fs.writeFileSync(
-        path.join(jsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            bindings: {
-              console: {
-                kind: "global",
-                assembly: "js",
-                type: "js.console",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-
-      fs.writeFileSync(
-        path.join(runtimeNsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "js",
-            types: [
-              {
-                stableId: "js:js.console",
-                clrName: "js.console",
-                kind: "class",
-                accessibility: "public",
-                isAbstract: false,
-                isSealed: false,
-                isStatic: true,
-                arity: 0,
-                methods: [],
-                properties: [],
-                fields: [],
-                constructors: [],
-                assemblyName: "js",
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
-
-      fs.writeFileSync(
-        path.join(runtimeInternalRoot, "index.d.ts"),
-        "export {};\n"
-      );
+      const nodeModulesRoot = fixture.path("node_modules");
+      const jsRoot = fixture.path("node_modules/@tsonic/js");
 
       const catalog = loadClrCatalog(nodeModulesRoot, [jsRoot]);
       expect(catalog.entries.size).to.equal(1);
@@ -191,70 +65,18 @@ describe("loadClrCatalog", () => {
         catalog.entries.has("js:js.console")
       ).to.equal(true);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("enriches CLR type parameters from top-level tsbindgen declarations", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-clr-catalog-")
+    const fixture = materializeFrontendFixture(
+      "ir/clr-catalog/tsbindgen-top-level-types"
     );
 
     try {
-      const nodeModulesRoot = path.join(tempDir, "node_modules");
-      const efcoreRoot = path.join(nodeModulesRoot, "@tsonic", "efcore");
-      const efcoreNsRoot = path.join(
-        efcoreRoot,
-        "Microsoft.EntityFrameworkCore"
-      );
-
-      fs.mkdirSync(efcoreNsRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(efcoreRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/efcore", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(efcoreNsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "Microsoft.EntityFrameworkCore",
-            types: [
-              {
-                stableId:
-                  "Microsoft.EntityFrameworkCore:Microsoft.EntityFrameworkCore.DbSet`1",
-                clrName: "Microsoft.EntityFrameworkCore.DbSet`1",
-                kind: "class",
-                accessibility: "public",
-                isAbstract: false,
-                isSealed: false,
-                isStatic: false,
-                arity: 1,
-                methods: [],
-                properties: [],
-                fields: [],
-                constructors: [],
-                assemblyName: "Microsoft.EntityFrameworkCore",
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(efcoreRoot, "Microsoft.EntityFrameworkCore.d.ts"),
-        [
-          "export interface DbSet_1$instance<TEntity> {",
-          "  readonly __tsonic_type_Microsoft_EntityFrameworkCore_DbSet_1: never;",
-          "}",
-          "export type DbSet_1<TEntity> = DbSet_1$instance<TEntity>;",
-          "",
-        ].join("\n")
-      );
+      const nodeModulesRoot = fixture.path("node_modules");
+      const efcoreRoot = fixture.path("node_modules/@tsonic/efcore");
 
       const catalog = loadClrCatalog(nodeModulesRoot, [efcoreRoot]);
       const typeId = catalog.tsNameToTypeId.get("DbSet_1");
@@ -267,131 +89,18 @@ describe("loadClrCatalog", () => {
         [{ name: "TEntity" }]
       );
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("hydrates generic-owning CLR method signatures from companion d.ts surfaces", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-clr-catalog-")
+    const fixture = materializeFrontendFixture(
+      "ir/clr-catalog/generic-owning-signatures"
     );
 
     try {
-      const nodeModulesRoot = path.join(tempDir, "node_modules");
-      const dotnetRoot = path.join(nodeModulesRoot, "@tsonic", "dotnet");
-      const systemRoot = path.join(dotnetRoot, "System");
-
-      fs.mkdirSync(systemRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(dotnetRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/dotnet", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(systemRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "System",
-            types: [
-              {
-                stableId: "System.Private.CoreLib:System.Span`1",
-                clrName: "System.Span`1",
-                assemblyName: "System.Private.CoreLib",
-                kind: "Struct",
-                accessibility: "Public",
-                isAbstract: false,
-                isSealed: true,
-                isStatic: false,
-                arity: 1,
-                methods: [
-                  {
-                    stableId:
-                      "System.Private.CoreLib:System.Span`1::Slice(System.Int32):Span_1",
-                    clrName: "Slice",
-                    canonicalSignature: "(System.Int32):Span_1",
-                    normalizedSignature:
-                      "Slice|(System.Int32):Span_1|static=false",
-                    arity: 0,
-                    parameterCount: 1,
-                    isStatic: false,
-                    isAbstract: false,
-                    isVirtual: false,
-                    isOverride: false,
-                    isSealed: false,
-                    visibility: "Public",
-                    declaringClrType: "System.Span`1",
-                    declaringAssemblyName: "System.Private.CoreLib",
-                    isExtensionMethod: false,
-                  },
-                  {
-                    stableId:
-                      "System.Private.CoreLib:System.Span`1::ToArray():T[]",
-                    clrName: "ToArray",
-                    canonicalSignature: "():T[]",
-                    normalizedSignature: "ToArray|():T[]|static=false",
-                    arity: 0,
-                    parameterCount: 0,
-                    isStatic: false,
-                    isAbstract: false,
-                    isVirtual: false,
-                    isOverride: false,
-                    isSealed: false,
-                    visibility: "Public",
-                    declaringClrType: "System.Span`1",
-                    declaringAssemblyName: "System.Private.CoreLib",
-                    isExtensionMethod: false,
-                  },
-                  {
-                    stableId:
-                      "System.Private.CoreLib:System.Span`1::GetEnumerator():Enumerator",
-                    clrName: "GetEnumerator",
-                    canonicalSignature: "():Enumerator",
-                    normalizedSignature:
-                      "GetEnumerator|():Enumerator|static=false",
-                    arity: 0,
-                    parameterCount: 0,
-                    isStatic: false,
-                    isAbstract: false,
-                    isVirtual: false,
-                    isOverride: false,
-                    isSealed: false,
-                    visibility: "Public",
-                    declaringClrType: "System.Span`1",
-                    declaringAssemblyName: "System.Private.CoreLib",
-                    isExtensionMethod: false,
-                  },
-                ],
-                properties: [],
-                fields: [],
-                constructors: [],
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(dotnetRoot, "System.d.ts"),
-        [
-          "export interface Span_1$instance<T> {",
-          "  readonly __tsonic_type_System_Span_1: never;",
-          "  Slice(start: int): Span_1<T>;",
-          "  ToArray(): T[];",
-          "  GetEnumerator(): Span_1_Enumerator<T>;",
-          "}",
-          "export type Span_1<T> = Span_1$instance<T>;",
-          "export interface Span_1_Enumerator$instance<T> {",
-          "  readonly __tsonic_type_System_Span_1_Enumerator: never;",
-          "  readonly Current: T;",
-          "}",
-          "export type Span_1_Enumerator<T> = Span_1_Enumerator$instance<T>;",
-          "",
-        ].join("\n")
-      );
+      const nodeModulesRoot = fixture.path("node_modules");
+      const dotnetRoot = fixture.path("node_modules/@tsonic/dotnet");
 
       const catalog = loadClrCatalog(nodeModulesRoot, [dotnetRoot]);
       const typeId = catalog.tsNameToTypeId.get("Span_1");
@@ -428,138 +137,66 @@ describe("loadClrCatalog", () => {
         typeArguments: [{ kind: "typeParameterType", name: "T" }],
       });
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
+    }
+  });
+
+  it("hydrates null-bearing method returns from companion d.ts surfaces", () => {
+    const fixture = materializeFrontendFixture(
+      "ir/clr-catalog/null-bearing-returns"
+    );
+
+    try {
+      const nodeModulesRoot = fixture.path("node_modules");
+      const jsonRoot = fixture.path("node_modules/@tsonic/json");
+
+      const catalog = loadClrCatalog(nodeModulesRoot, [jsonRoot]);
+      const typeId = catalog.tsNameToTypeId.get("JsonElement");
+      expect(typeId).to.not.equal(undefined);
+      if (!typeId) {
+        return;
+      }
+
+      const entry = catalog.entries.get(typeId.stableId);
+      const getString = entry?.members.get("GetString");
+      expect(getString?.signatures).to.have.length(1);
+      expect(getString?.signatures?.[0]?.returnType).to.deep.equal({
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "null" },
+        ],
+      });
+    } finally {
+      fixture.cleanup();
     }
   });
 
   it("skips unreadable directories while scanning CLR bindings", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-clr-catalog-")
-    );
-
-    const unreadableDir = path.join(
-      tempDir,
-      "node_modules",
-      "@tsonic",
-      "dotnet",
-      "secret"
-    );
+    const fixture = materializeFrontendFixture("ir/clr-catalog/unreadable-dir");
+    const unreadableDir = fixture.path("node_modules/@tsonic/dotnet/secret");
 
     try {
-      const nodeModulesRoot = path.join(tempDir, "node_modules");
-      const dotnetRoot = path.join(nodeModulesRoot, "@tsonic", "dotnet");
-      const dotnetNsRoot = path.join(dotnetRoot, "System");
-      const dotnetInternalRoot = path.join(dotnetNsRoot, "internal");
-
-      fs.mkdirSync(dotnetInternalRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(dotnetRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/dotnet", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(dotnetNsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "System",
-            types: [
-              {
-                stableId: "System:System.Console",
-                clrName: "System.Console",
-                kind: "class",
-                accessibility: "public",
-                isAbstract: false,
-                isSealed: true,
-                isStatic: true,
-                arity: 0,
-                methods: [],
-                properties: [],
-                fields: [],
-                constructors: [],
-                assemblyName: "System.Console",
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(dotnetInternalRoot, "index.d.ts"),
-        "export {};\n"
-      );
-
-      fs.mkdirSync(unreadableDir, { recursive: true });
       fs.chmodSync(unreadableDir, 0);
 
+      const nodeModulesRoot = fixture.path("node_modules");
+      const dotnetRoot = fixture.path("node_modules/@tsonic/dotnet");
       const catalog = loadClrCatalog(nodeModulesRoot, [dotnetRoot]);
       expect(catalog.entries.has("System:System.Console")).to.equal(true);
     } finally {
       if (fs.existsSync(unreadableDir)) {
         fs.chmodSync(unreadableDir, 0o755);
       }
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("canonicalizes symlinked CLR metadata paths before reading them", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-clr-catalog-")
-    );
+    const fixture = materializeFrontendFixture("ir/clr-catalog/symlinked-metadata");
 
     try {
-      const nodeModulesRoot = path.join(tempDir, "node_modules");
-      const realPackagesRoot = path.join(tempDir, ".tsonic", "bindings");
-      const jsRoot = path.join(realPackagesRoot, "@tsonic", "js");
-      const runtimeNsRoot = path.join(jsRoot, "js");
-      const runtimeInternalRoot = path.join(runtimeNsRoot, "internal");
-      const symlinkedJsRoot = path.join(nodeModulesRoot, "@tsonic", "js");
-
-      fs.mkdirSync(runtimeInternalRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(jsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(runtimeNsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "js",
-            types: [
-              {
-                stableId: "js:js.console",
-                clrName: "js.console",
-                kind: "class",
-                accessibility: "public",
-                isAbstract: false,
-                isSealed: false,
-                isStatic: true,
-                arity: 0,
-                methods: [],
-                properties: [],
-                fields: [],
-                constructors: [],
-                assemblyName: "js",
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(runtimeInternalRoot, "index.d.ts"),
-        "export declare class console {}\n"
-      );
-      fs.mkdirSync(path.dirname(symlinkedJsRoot), { recursive: true });
-      fs.symlinkSync(jsRoot, symlinkedJsRoot, "dir");
+      const nodeModulesRoot = fixture.path("node_modules");
+      const symlinkedJsRoot = fixture.path("node_modules/@tsonic/js");
 
       const warnings: string[] = [];
       const originalWarn = console.warn;
@@ -597,7 +234,7 @@ describe("loadClrCatalog", () => {
         syncBuiltinESMExports();
       }
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 });

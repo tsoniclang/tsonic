@@ -12,15 +12,30 @@ import type {
   IrReferenceType,
   IrFunctionType,
   IrTypeParameter,
+  IrInterfaceMember,
 } from "../types/index.js";
 import * as ts from "typescript";
 import type { DeclId } from "./types.js";
 import { unknownType } from "./types.js";
 import type { TypeSystemState, DeclKind } from "./type-system-state.js";
 import { emitDiagnostic } from "./type-system-state.js";
+import { resolveTypeIdByName } from "./type-system-state.js";
 import { convertTypeNode } from "./type-system-call-resolution.js";
 import { makeOptionalReadType } from "./inference-utilities.js";
 import { tryInferTypeFromInitializer } from "./inference-initializers.js";
+
+const CATCH_VARIABLE_JS_VALUE_TYPE: IrReferenceType = {
+  kind: "referenceType",
+  name: "JsValue",
+  resolvedClrType: "Tsonic.Runtime.JsValue",
+};
+
+const isCatchVariableDeclaration = (
+  declaration: ts.Declaration | undefined
+): declaration is ts.VariableDeclaration =>
+  !!declaration &&
+  ts.isVariableDeclaration(declaration) &&
+  ts.isCatchClause(declaration.parent);
 
 const convertSignatureTypeParameters = (
   state: TypeSystemState,
@@ -67,6 +82,210 @@ const buildFunctionTypeFromSignatureDeclaration = (
     ? convertTypeNode(state, declaration.type)
     : unknownType,
 });
+
+const getNamedRuntimeDeclarationDeclId = (
+  state: TypeSystemState,
+  declaration: ts.Declaration
+): DeclId | undefined => {
+  if (
+    ts.isFunctionDeclaration(declaration) ||
+    ts.isClassDeclaration(declaration) ||
+    ts.isEnumDeclaration(declaration)
+  ) {
+    return declaration.name && ts.isIdentifier(declaration.name)
+      ? state.resolveIdentifier(declaration.name)
+      : undefined;
+  }
+
+  if (ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name)) {
+    return state.resolveIdentifier(declaration.name);
+  }
+
+  return undefined;
+};
+
+const buildModuleNamespaceTypeFromSymbol = (
+  state: TypeSystemState,
+  input: ts.Symbol,
+  seen: Set<ts.Symbol>
+): IrType => {
+  const moduleSymbol =
+    input.flags & ts.SymbolFlags.Alias
+      ? state.checker.getAliasedSymbol(input)
+      : input;
+
+  if (seen.has(moduleSymbol)) {
+    emitDiagnostic(
+      state,
+      "TSN5203",
+      `Circular module namespace export surface is not supported deterministically`
+    );
+    return unknownType;
+  }
+
+  seen.add(moduleSymbol);
+
+  const exportSymbols = [...state.checker.getExportsOfModule(moduleSymbol)].sort(
+    (left, right) => left.getName().localeCompare(right.getName())
+  );
+
+  const members: IrInterfaceMember[] = [];
+
+  for (const exportSymbol of exportSymbols) {
+    const actualSymbol =
+      exportSymbol.flags & ts.SymbolFlags.Alias
+        ? state.checker.getAliasedSymbol(exportSymbol)
+        : exportSymbol;
+
+    if ((actualSymbol.flags & ts.SymbolFlags.Value) === 0) {
+      continue;
+    }
+
+    const memberType = (() => {
+      if (
+        actualSymbol.flags &
+        (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule)
+      ) {
+        return buildModuleNamespaceTypeFromSymbol(state, actualSymbol, seen);
+      }
+
+      for (const declaration of actualSymbol.getDeclarations() ?? []) {
+        const declId = getNamedRuntimeDeclarationDeclId(state, declaration);
+        if (!declId) {
+          continue;
+        }
+        return typeOfDecl(state, declId);
+      }
+
+      return undefined;
+    })();
+
+    if (!memberType || memberType.kind === "unknownType") {
+      seen.delete(moduleSymbol);
+      emitDiagnostic(
+        state,
+        "TSN5203",
+        `Namespace import export '${exportSymbol.getName()}' could not be represented deterministically`
+      );
+      return unknownType;
+    }
+
+    members.push({
+      kind: "propertySignature",
+      name: exportSymbol.getName(),
+      type: memberType,
+      isOptional: false,
+      isReadonly: true,
+    });
+  }
+
+  seen.delete(moduleSymbol);
+  return {
+    kind: "objectType",
+    members,
+  };
+};
+
+const buildNamespaceImportType = (
+  state: TypeSystemState,
+  declaration: ts.NamespaceImport
+): IrType => {
+  const importClause = declaration.parent;
+  const importDeclaration = importClause.parent;
+
+  if (
+    !ts.isImportClause(importClause) ||
+    !ts.isImportDeclaration(importDeclaration) ||
+    !ts.isStringLiteral(importDeclaration.moduleSpecifier)
+  ) {
+    emitDiagnostic(
+      state,
+      "TSN5203",
+      "Cannot resolve namespace import declaration"
+    );
+    return unknownType;
+  }
+
+  const moduleSymbol = state.checker.getSymbolAtLocation(
+    importDeclaration.moduleSpecifier
+  );
+  if (!moduleSymbol) {
+    emitDiagnostic(
+      state,
+      "TSN5203",
+      `Cannot resolve namespace import '${importDeclaration.moduleSpecifier.text}'`
+    );
+    return unknownType;
+  }
+
+  return buildModuleNamespaceTypeFromSymbol(state, moduleSymbol, new Set());
+};
+
+const buildSourceFileModuleNamespaceType = (
+  state: TypeSystemState,
+  sourceFile: ts.SourceFile
+): IrType => {
+  const directSymbol = state.checker.getSymbolAtLocation(sourceFile);
+  const sourceFileWithSymbol = sourceFile as ts.SourceFile & {
+    readonly symbol?: ts.Symbol;
+  };
+  const moduleSymbol = directSymbol ?? sourceFileWithSymbol.symbol;
+
+  if (!moduleSymbol) {
+    emitDiagnostic(
+      state,
+      "TSN5203",
+      `Cannot resolve external module namespace for '${sourceFile.fileName}'`
+    );
+    return unknownType;
+  }
+
+  return buildModuleNamespaceTypeFromSymbol(state, moduleSymbol, new Set());
+};
+
+const getDeclarationTypeParameterArity = (
+  declaration: ts.Declaration | undefined
+): number | undefined => {
+  if (!declaration) {
+    return undefined;
+  }
+
+  if (
+    ts.isClassDeclaration(declaration) ||
+    ts.isInterfaceDeclaration(declaration) ||
+    ts.isTypeAliasDeclaration(declaration) ||
+    ts.isFunctionDeclaration(declaration) ||
+    ts.isMethodDeclaration(declaration)
+  ) {
+    return declaration.typeParameters?.length;
+  }
+
+  return undefined;
+};
+
+const buildNominalReferenceType = (
+  state: TypeSystemState,
+  declInfo: NonNullable<ReturnType<TypeSystemState["handleRegistry"]["getDecl"]>>,
+  declaration: ts.Declaration | undefined
+): IrReferenceType => {
+  const namedDeclaration = declaration as ts.NamedDeclaration | undefined;
+  const simpleName =
+    namedDeclaration?.name && ts.isIdentifier(namedDeclaration.name)
+      ? namedDeclaration.name.text
+      : undefined;
+  const arity = getDeclarationTypeParameterArity(declaration);
+  const typeId =
+    (declInfo.fqName
+      ? resolveTypeIdByName(state, declInfo.fqName, arity)
+      : undefined) ??
+    (simpleName ? resolveTypeIdByName(state, simpleName, arity) : undefined);
+
+  return {
+    kind: "referenceType",
+    name: declInfo.fqName ?? simpleName ?? "unknown",
+    ...(typeId ? { typeId, resolvedClrType: typeId.clrName } : {}),
+  };
+};
 
 // ─────────────────────────────────────────────────────────────────────────
 // typeOfDecl — Get declared type of a declaration
@@ -145,6 +364,14 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
   let result: IrType;
 
   if (
+    effectiveDeclNode &&
+    ts.isSourceFile(effectiveDeclNode) &&
+    ts.isExternalModule(effectiveDeclNode)
+  ) {
+    result = buildSourceFileModuleNamespaceType(state, effectiveDeclNode);
+  } else if (effectiveDeclNode && ts.isNamespaceImport(effectiveDeclNode)) {
+    result = buildNamespaceImportType(state, effectiveDeclNode);
+  } else if (
     effectiveFunctionValueDecl &&
     (ts.isFunctionDeclaration(effectiveFunctionValueDecl) ||
       ts.isMethodDeclaration(effectiveFunctionValueDecl) ||
@@ -171,10 +398,7 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
     effectiveKind === "enum"
   ) {
     // Class/interface/enum - return reference type
-    result = {
-      kind: "referenceType",
-      name: declInfo.fqName ?? "unknown",
-    } as IrReferenceType;
+    result = buildNominalReferenceType(state, declInfo, effectiveDeclNode);
   } else if (effectiveKind === "function") {
     // Function without type annotation - need to build function type from signature
     // For now, return unknownType as we need the signature ID
@@ -189,6 +413,8 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
     const inferred = tryInferTypeFromInitializer(state, effectiveDeclNode);
     if (inferred) {
       result = inferred;
+    } else if (isCatchVariableDeclaration(effectiveDeclNode)) {
+      result = CATCH_VARIABLE_JS_VALUE_TYPE;
     } else {
       // Not a simple literal - require explicit type annotation
       emitDiagnostic(
@@ -199,6 +425,11 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
       result = unknownType;
     }
   } else {
+    if (isCatchVariableDeclaration(effectiveDeclNode)) {
+      result = CATCH_VARIABLE_JS_VALUE_TYPE;
+      state.declTypeCache.set(declId.id, result);
+      return result;
+    }
     // Parameter or other declaration without type annotation
     emitDiagnostic(
       state,

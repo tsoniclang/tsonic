@@ -10,6 +10,7 @@ import type {
   ResolvedCall,
   TypeSystemState,
 } from "./type-system-state.js";
+import { addUndefinedToType } from "./type-system-state.js";
 import { unknownType } from "./types.js";
 import {
   buildResolvedRestParameter,
@@ -211,6 +212,88 @@ const countCompatibleArguments = (
   return compatible;
 };
 
+const countBroadNumberIndependentCompatibleArguments = (
+  state: TypeSystemState,
+  resolved: ResolvedCall,
+  argTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): number => {
+  let compatible = 0;
+  const pairCount = Math.min(
+    argumentCount,
+    resolved.parameterTypes.length,
+    argTypes.length
+  );
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const parameterType = resolved.parameterTypes[index];
+    const argumentType = argTypes[index];
+    if (!parameterType || !argumentType) {
+      continue;
+    }
+
+    if (
+      argumentType.kind === "primitiveType" &&
+      argumentType.name === "number"
+    ) {
+      continue;
+    }
+
+    if (scoreSignatureMatch(state, [parameterType], [argumentType], 1) > 0) {
+      compatible += 1;
+    }
+  }
+
+  return compatible;
+};
+
+const explicitlyAcceptsBroadNumber = (type: IrType | undefined): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  if (type.kind === "primitiveType") {
+    return type.name === "number";
+  }
+
+  if (type.kind === "unionType") {
+    return type.types.some((member) => explicitlyAcceptsBroadNumber(member));
+  }
+
+  return false;
+};
+
+const countBroadNumberExplicitlyAcceptedArguments = (
+  resolved: ResolvedCall,
+  argTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): number => {
+  let compatible = 0;
+  const pairCount = Math.min(
+    argumentCount,
+    resolved.parameterTypes.length,
+    argTypes.length
+  );
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const parameterType = resolved.parameterTypes[index];
+    const argumentType = argTypes[index];
+    if (!parameterType || !argumentType) {
+      continue;
+    }
+
+    if (
+      argumentType.kind === "primitiveType" &&
+      argumentType.name === "number" &&
+      explicitlyAcceptsBroadNumber(parameterType)
+    ) {
+      compatible += 1;
+    }
+  }
+
+  return compatible;
+};
+
 const countUnresolvedMethodParameterOccurrences = (
   candidate: IrFunctionType,
   resolved: ResolvedCall,
@@ -242,7 +325,7 @@ const buildCallableScore = (
   candidate: IrFunctionType,
   resolved: ResolvedCall,
   query: CallableTypeQuery
-): readonly [number, number, number, number, number, number] => {
+): readonly [number, number, number, number, number, number, number, number] => {
   const hasRest = candidate.parameters.some((parameter) => parameter.isRest);
   const exactArity =
     !hasRest && candidate.parameters.length === query.argumentCount;
@@ -257,6 +340,21 @@ const buildCallableScore = (
   const compatibleArgumentCount = query.argTypes
     ? countCompatibleArguments(
         state,
+        resolved,
+        query.argTypes,
+        query.argumentCount
+      )
+    : 0;
+  const broadNumberIndependentCompatibleArgumentCount = query.argTypes
+    ? countBroadNumberIndependentCompatibleArguments(
+        state,
+        resolved,
+        query.argTypes,
+        query.argumentCount
+      )
+    : 0;
+  const broadNumberExplicitlyAcceptedArgumentCount = query.argTypes
+    ? countBroadNumberExplicitlyAcceptedArguments(
         resolved,
         query.argTypes,
         query.argumentCount
@@ -277,6 +375,8 @@ const buildCallableScore = (
     );
 
   return [
+    broadNumberIndependentCompatibleArgumentCount,
+    broadNumberExplicitlyAcceptedArgumentCount,
     compatibleArgumentCount,
     exactArity ? 1 : 0,
     -unresolvedMethodParameterOccurrences,
@@ -287,8 +387,8 @@ const buildCallableScore = (
 };
 
 const compareCallableScores = (
-  left: readonly [number, number, number, number, number, number],
-  right: readonly [number, number, number, number, number, number]
+  left: readonly [number, number, number, number, number, number, number, number],
+  right: readonly [number, number, number, number, number, number, number, number]
 ): number => {
   for (let index = 0; index < left.length; index += 1) {
     const delta = left[index]! - right[index]!;
@@ -360,22 +460,31 @@ const resolveCallableTypeCandidate = (
     }
   }
 
+  const normalizedParams = workingParams.map((parameter, index) =>
+    parameter && rawSig.parameterFlags[index]?.isOptional
+      ? addUndefinedToType(parameter)
+      : parameter
+  );
+
   const resolved: ResolvedCall = {
     thisParameterType: undefined,
-    restParameter: buildResolvedRestParameter(rawSig.parameterFlags, workingParams),
+    restParameter: buildResolvedRestParameter(
+      rawSig.parameterFlags,
+      normalizedParams
+    ),
     surfaceRestParameter: buildResolvedRestParameter(
       rawSig.parameterFlags,
-      workingParams
+      normalizedParams
     ),
     surfaceParameterTypes: expandParameterTypesForArguments(
       rawSig.parameterFlags,
-      workingParams,
+      normalizedParams,
       query.argumentCount
     ),
     parameterTypes: refineResolvedParameterTypesForArguments(
       state,
       rawSig.parameterFlags,
-      workingParams,
+      normalizedParams,
       query.argTypes,
       query.argumentCount
     ),
@@ -406,7 +515,7 @@ export const resolveCallableType = (
 
   let best: ResolvedCallableType | undefined;
   let bestScore:
-    | readonly [number, number, number, number, number, number]
+    | readonly [number, number, number, number, number, number, number, number]
     | undefined;
 
   for (const candidate of candidates) {

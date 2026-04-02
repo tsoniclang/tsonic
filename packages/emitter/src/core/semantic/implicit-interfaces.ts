@@ -1,5 +1,7 @@
 import {
+  getIrMemberPublicName,
   stableIrTypeKey,
+  substituteIrType,
   type IrClassMember,
   type IrInterfaceMember,
   type IrType,
@@ -84,76 +86,40 @@ const typeKeyEquals = (
   return stableIrTypeKey(source) === stableIrTypeKey(target);
 };
 
-const isTypeStructurallyAssignable = (
-  source: IrType | undefined,
-  target: IrType | undefined
-): boolean => {
-  if (!source || !target) return source === target;
-  if (typeKeyEquals(source, target)) return true;
-
-  if (target.kind === "unionType") {
-    return target.types.some((member) =>
-      member ? isTypeStructurallyAssignable(source, member) : false
-    );
+const buildCanonicalMethodTypeSubstitution = (
+  typeParameters:
+    | readonly { readonly name: string }[]
+    | undefined
+):
+  | ReadonlyMap<string, IrType>
+  | undefined => {
+  if (!typeParameters || typeParameters.length === 0) {
+    return undefined;
   }
 
-  if (source.kind === "unionType") {
-    return source.types.every((member) =>
-      member ? isTypeStructurallyAssignable(member, target) : false
-    );
+  const substitution = new Map<string, IrType>();
+  for (let index = 0; index < typeParameters.length; index += 1) {
+    const typeParameter = typeParameters[index];
+    if (!typeParameter) continue;
+    substitution.set(typeParameter.name, {
+      kind: "typeParameterType",
+      name: `__method_${index}`,
+    });
   }
+  return substitution;
+};
 
-  if (
-    target.kind === "referenceType" &&
-    target.name === "object" &&
-    source.kind !== "voidType" &&
-    source.kind !== "neverType"
-  ) {
-    return true;
+const canonicalizeMethodType = (
+  type: IrType | undefined,
+  typeParameters:
+    | readonly { readonly name: string }[]
+    | undefined
+): IrType | undefined => {
+  const substitution = buildCanonicalMethodTypeSubstitution(typeParameters);
+  if (!type || !substitution || substitution.size === 0) {
+    return type;
   }
-
-  if (source.kind === "referenceType" && target.kind === "referenceType") {
-    const sameName =
-      source.name === target.name ||
-      (source.resolvedClrType &&
-        target.resolvedClrType &&
-        source.resolvedClrType === target.resolvedClrType);
-    if (sameName) {
-      const sourceArgs = source.typeArguments ?? [];
-      const targetArgs = target.typeArguments ?? [];
-      if (sourceArgs.length !== targetArgs.length) return false;
-      return sourceArgs.every((arg, index) => {
-        const targetArg = targetArgs[index];
-        return targetArg ? isTypeStructurallyAssignable(arg, targetArg) : false;
-      });
-    }
-  }
-
-  if (source.kind === "functionType" && target.kind === "functionType") {
-    if (source.parameters.length !== target.parameters.length) return false;
-    for (let index = 0; index < source.parameters.length; index += 1) {
-      const sourceParam = source.parameters[index];
-      const targetParam = target.parameters[index];
-      if (!sourceParam || !targetParam) return false;
-      if (
-        sourceParam.isOptional !== targetParam.isOptional ||
-        sourceParam.isRest !== targetParam.isRest ||
-        sourceParam.passing !== targetParam.passing
-      ) {
-        return false;
-      }
-      if (
-        !isTypeStructurallyAssignable(targetParam.type, sourceParam.type) ||
-        !isTypeStructurallyAssignable(sourceParam.type, targetParam.type)
-      ) {
-        return false;
-      }
-    }
-
-    return isTypeStructurallyAssignable(source.returnType, target.returnType);
-  }
-
-  return false;
+  return substituteIrType(type, substitution);
 };
 
 const getPublicInstanceClassMembers = (
@@ -162,67 +128,97 @@ const getPublicInstanceClassMembers = (
 
 const findCompatibleProperty = (
   members: readonly IrClassMember[],
-  target: Extract<IrInterfaceMember, { kind: "propertySignature" }>
-): Extract<IrClassMember, { kind: "propertyDeclaration" }> | undefined =>
-  members.find(
-    (
-      member
-    ): member is Extract<IrClassMember, { kind: "propertyDeclaration" }> =>
-      member.kind === "propertyDeclaration" &&
-      member.name === target.name &&
-      isTypeStructurallyAssignable(member.type, target.type)
-  );
+  target: Extract<IrInterfaceMember, { kind: "propertySignature" }>,
+  usedIndices: Set<number>
+): Extract<IrClassMember, { kind: "propertyDeclaration" }> | undefined => {
+  for (let index = 0; index < members.length; index += 1) {
+    if (usedIndices.has(index)) continue;
+    const member = members[index];
+    if (member?.kind !== "propertyDeclaration") continue;
+    if (member.name !== target.name) continue;
+    if (!typeKeyEquals(member.type, target.type)) continue;
+    usedIndices.add(index);
+    return member;
+  }
+  return undefined;
+};
 
 const findCompatibleMethod = (
   members: readonly IrClassMember[],
-  target: Extract<IrInterfaceMember, { kind: "methodSignature" }>
-): Extract<IrClassMember, { kind: "methodDeclaration" }> | undefined =>
-  members.find(
-    (
-      member
-    ): member is Extract<IrClassMember, { kind: "methodDeclaration" }> => {
-      if (member.kind !== "methodDeclaration" || member.name !== target.name) {
-        return false;
+  target: Extract<IrInterfaceMember, { kind: "methodSignature" }>,
+  usedIndices: Set<number>
+): Extract<IrClassMember, { kind: "methodDeclaration" }> | undefined => {
+  const targetName = getIrMemberPublicName(target);
+  const targetTypeParameters = target.typeParameters;
+  const targetReturnType = canonicalizeMethodType(
+    target.returnType ?? VOID_TYPE,
+    targetTypeParameters
+  );
+
+  for (let index = 0; index < members.length; index += 1) {
+    if (usedIndices.has(index)) continue;
+    const member = members[index];
+    if (member?.kind !== "methodDeclaration") continue;
+    if (getIrMemberPublicName(member) !== targetName) continue;
+    if (
+      (member.typeParameters?.length ?? 0) !==
+      (targetTypeParameters?.length ?? 0)
+    ) {
+      continue;
+    }
+    if (member.parameters.length !== target.parameters.length) {
+      continue;
+    }
+
+    const memberTypeParameters = member.typeParameters;
+    let parametersMatch = true;
+    for (let paramIndex = 0; paramIndex < member.parameters.length; paramIndex += 1) {
+      const sourceParam = member.parameters[paramIndex];
+      const targetParam = target.parameters[paramIndex];
+      if (!sourceParam || !targetParam) {
+        parametersMatch = false;
+        break;
       }
 
       if (
-        (member.typeParameters?.length ?? 0) !==
-        (target.typeParameters?.length ?? 0)
+        sourceParam.isOptional !== targetParam.isOptional ||
+        sourceParam.isRest !== targetParam.isRest ||
+        sourceParam.passing !== targetParam.passing
       ) {
-        return false;
+        parametersMatch = false;
+        break;
       }
 
-      if (member.parameters.length !== target.parameters.length) {
-        return false;
+      if (
+        !typeKeyEquals(
+          canonicalizeMethodType(sourceParam.type, memberTypeParameters),
+          canonicalizeMethodType(targetParam.type, targetTypeParameters)
+        )
+      ) {
+        parametersMatch = false;
+        break;
       }
-
-      for (let index = 0; index < member.parameters.length; index += 1) {
-        const sourceParam = member.parameters[index];
-        const targetParam = target.parameters[index];
-        if (!sourceParam || !targetParam) return false;
-
-        if (
-          sourceParam.isOptional !== targetParam.isOptional ||
-          sourceParam.isRest !== targetParam.isRest ||
-          sourceParam.passing !== targetParam.passing
-        ) {
-          return false;
-        }
-
-        if (
-          !isTypeStructurallyAssignable(targetParam.type, sourceParam.type) ||
-          !isTypeStructurallyAssignable(sourceParam.type, targetParam.type)
-        ) {
-          return false;
-        }
-      }
-
-      return isTypeStructurallyAssignable(
-        member.returnType ?? VOID_TYPE,
-        target.returnType ?? VOID_TYPE
-      );
     }
-  );
+
+    if (!parametersMatch) {
+      continue;
+    }
+
+    if (
+      !typeKeyEquals(
+        canonicalizeMethodType(member.returnType ?? VOID_TYPE, memberTypeParameters),
+        targetReturnType
+      )
+    ) {
+      continue;
+    }
+
+    usedIndices.add(index);
+    return member;
+  }
+
+  return undefined;
+};
 
 const collectCompatibleMembers = (
   classInfo: Extract<LocalTypeInfo, { kind: "class" }>,
@@ -236,16 +232,26 @@ const collectCompatibleMembers = (
   const classMembers = getPublicInstanceClassMembers(classInfo);
   const propertyMatches: CompatibleInterfacePropertyMatch[] = [];
   const methodMatches: CompatibleInterfaceMethodMatch[] = [];
+  const usedPropertyIndices = new Set<number>();
+  const usedMethodIndices = new Set<number>();
 
   for (const member of interfaceInfo.members) {
     if (member.kind === "propertySignature") {
-      const classMember = findCompatibleProperty(classMembers, member);
+      const classMember = findCompatibleProperty(
+        classMembers,
+        member,
+        usedPropertyIndices
+      );
       if (!classMember) return undefined;
       propertyMatches.push({ interfaceMember: member, classMember });
       continue;
     }
 
-    const classMember = findCompatibleMethod(classMembers, member);
+    const classMember = findCompatibleMethod(
+      classMembers,
+      member,
+      usedMethodIndices
+    );
     if (!classMember) return undefined;
     methodMatches.push({ interfaceMember: member, classMember });
   }

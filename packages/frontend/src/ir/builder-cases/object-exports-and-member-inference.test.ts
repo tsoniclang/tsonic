@@ -4,8 +4,6 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
 import { IrFunctionDeclaration } from "../types.js";
@@ -14,102 +12,27 @@ import {
   createProgram,
   createProgramContext,
 } from "./_test-helpers.js";
+import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);
 
   describe("Native library port regressions – object exports and member inference", () => {
     it("recovers object-literal export members from source-package module objects", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-builder-source-package-object-")
+      const fixture = materializeFrontendFixture(
+        "ir/object-exports-and-member-inference/source-package-object"
       );
 
       try {
-        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
-        expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
-
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-
-        const packageRoot = path.join(tempDir, "node_modules", "@demo", "pkg");
-        fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-        fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-        fs.writeFileSync(
-          path.join(packageRoot, "package.json"),
-          JSON.stringify(
-            {
-              name: "@demo/pkg",
-              version: "0.0.0-test",
-              type: "module",
-              exports: {
-                ".": "./src/index.ts",
-                "./index.js": "./src/index.ts",
-              },
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(packageRoot, "tsonic.package.json"),
-          JSON.stringify(
-            {
-              schemaVersion: 1,
-              kind: "tsonic-source-package",
-              surfaces: ["@tsonic/js"],
-              source: {
-                namespace: "demo.pkg",
-                exports: {
-                  ".": "./src/index.ts",
-                },
-              },
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(packageRoot, "src", "index.ts"),
-          [
-            "export type Parsed = { base: string };",
-            "export const basename = (value: string): string => value;",
-            "export const parse = (value: string): Parsed => ({ base: value });",
-            "const pathObject = {",
-            '  sep: "/",',
-            "  basename,",
-            "  parse,",
-            "};",
-            "export { pathObject as path };",
-          ].join("\n")
-        );
-
-        const entryPath = path.join(srcDir, "index.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            'import { path } from "@demo/pkg";',
-            "export function run(): string {",
-            '  const parsed = path.parse("file.txt");',
-            "  return path.basename(parsed.base) + path.sep;",
-            "}",
-          ].join("\n")
-        );
+        const tempDir = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
 
         const programResult = createProgram([entryPath], {
           projectRoot: tempDir,
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@tsonic/js",
-          typeRoots: [jsRoot, packageRoot],
         });
 
         expect(programResult.ok).to.equal(true);
@@ -167,7 +90,7 @@ describe("IR Builder", function () {
         if (left.callee.kind !== "memberAccess") return;
         expect(left.callee.inferredType?.kind).to.equal("functionType");
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 

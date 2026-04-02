@@ -26,15 +26,19 @@ const readFixtureSource = (fixtureName: string): string =>
 describe("End-to-End Integration", () => {
   describe("Fixture regression mirrors", () => {
     it("mirrors js-surface-array-from-map-keys", () => {
-      const csharp = compileToCSharp(
-        readFixtureSource("js-surface-array-from-map-keys"),
-        "/test/test.ts",
+      const csharp = compileProjectToCSharp(
+        {
+          "src/index.ts": readFixtureSource("js-surface-array-from-map-keys"),
+        },
+        "src/index.ts",
         { surface: "@tsonic/js" }
       );
 
       expect(csharp).to.include("var keys = global::js.Array.from(");
       expect(csharp).to.include("counts.keys()");
-      expect(csharp).to.include('global::js.ConsoleModule.log(keys.join(","));');
+      expect(csharp).to.include(
+        'global::js.ConsoleModule.log(global::js.ArrayObject.wrapArray(keys).join(","));'
+      );
     });
 
     it("mirrors js-surface-json-unknown-entries", () => {
@@ -74,10 +78,10 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include('var chars = global::js.Array.from("abcd");');
       expect(csharp).to.include("var more = global::js.Array.of(6, 7, 8);");
       expect(csharp).to.include(
-        "var joined = new global::js.Array<int>(filtered).join(\",\");"
+        "var joined = global::js.ArrayObject.wrapArray(filtered).join(\",\");"
       );
       expect(csharp).to.include(
-        "var joinedDefault = new global::js.Array<int>(filtered).join();"
+        "var joinedDefault = global::js.ArrayObject.wrapArray(filtered).join();"
       );
       expect(csharp).to.include("global::js.Globals.parseInt(\"123\")");
     });
@@ -99,7 +103,7 @@ describe("End-to-End Integration", () => {
         'string[][] allMatches = global::System.Linq.Enumerable.ToArray(global::js.String.matchAll("a-a", "a"));'
       );
       expect(csharp).to.include(
-        'return new global::js.Array<string>(parts).join(",");'
+        'return global::js.ArrayObject.wrapArray(parts).join(",");'
       );
       expect(csharp).to.include(
         "global::js.ConsoleModule.log(takeParts(parts), firstMatch, firstAll, global::js.Number.toString(selected.Length));"
@@ -219,8 +223,8 @@ describe("End-to-End Integration", () => {
 
     it("preserves narrowed overload carriers for recursive fs-style writeSync calls", () => {
       const csharp = compileToCSharp(`
-        type int = number;
-        type byte = number;
+        import { overloads as O } from "@tsonic/core/lang.js";
+        import type { byte, int } from "@tsonic/core/types.js";
 
         class Buffer {}
 
@@ -240,42 +244,57 @@ describe("End-to-End Integration", () => {
         export class FS {
           writeSync(fd: int, buffer: WritableFsBuffer, offset: int, length: int, position: int | null): int;
           writeSync(fd: int, data: string, position?: int | null, encoding?: string): int;
-          writeSync(
+          writeSync(_fd: any, _bufferOrData: any, _offsetOrPosition?: any, _lengthOrEncoding?: any, _position?: any): any {
+            throw new Error("stub");
+          }
+
+          writeSync_buffer(
             fd: int,
-            bufferOrData: WritableFsBuffer | string,
-            offsetOrPosition: int | null = null,
-            lengthOrEncoding?: int | string,
-            position?: int | null
+            buffer: WritableFsBuffer,
+            offset: int,
+            length: int,
+            position: int | null
           ): int {
+            void fd;
+            void buffer;
+            void offset;
+            void length;
+            void position;
+            return 1 as int;
+          }
+
+          writeSync_text(
+            fd: int,
+            data: string,
+            position?: int | null,
+            encoding?: string
+          ): int {
+            let bufferOrData: WritableFsBuffer | string = data;
             if (typeof bufferOrData === "string") {
-              return this.writeSync(
-                fd,
-                bufferOrData,
-                offsetOrPosition,
-                typeof lengthOrEncoding === "string" ? lengthOrEncoding : undefined
-              );
+              bufferOrData = new Buffer();
             }
 
             return this.writeSync(
               fd,
               bufferOrData,
-              offsetOrPosition ?? (0 as int),
-              resolveWriteLength(
-                bufferOrData,
-                offsetOrPosition ?? (0 as int),
-                lengthOrEncoding
-              ),
+              0 as int,
+              resolveWriteLength(bufferOrData, 0 as int, encoding),
               position ?? null
             );
           }
         }
+
+        O<FS>().method(x => x.writeSync_buffer).family(x => x.writeSync);
+        O<FS>().method(x => x.writeSync_text).family(x => x.writeSync);
       `);
 
-      expect(csharp).to.include(
-        "return this.writeSync(fd, (global::Tsonic.Runtime.Union<double[], global::Test.Buffer>)bufferOrData.Match<global::Tsonic.Runtime.Union<double[], global::Test.Buffer>>("
-      );
+      expect(
+        csharp.match(
+          /bufferOrData\.Match<global::Tsonic\.Runtime\.Union<byte\[], global::Test\.Buffer>>\(/g
+        )?.length
+      ).to.equal(2);
       expect(csharp).to.not.include(
-        "))).Match<global::Tsonic.Runtime.Union<double[], string, global::Test.Buffer>>"
+        "return this.writeSync(fd, (global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer>)bufferOrData"
       );
     });
 
@@ -299,7 +318,7 @@ describe("End-to-End Integration", () => {
 
           fromUint8Array(value);
         }
-      `);
+      `, "/test/test.ts", { surface: "@tsonic/js" });
 
       expect(csharp).to.include(
         ".Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("
@@ -359,9 +378,8 @@ describe("End-to-End Integration", () => {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: [],
+              extends: ["clr"],
               requiredTypeRoots: ["."],
-              useStandardLib: false,
             },
             null,
             2
@@ -391,7 +409,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "fromUint8Array((global::js.Uint8Array)"
+        "fromUint8Array((value.As2()));"
       );
       expect(csharp).not.to.include(
         ").Match<double[]>(__tsonic_union_member_1 => __tsonic_union_member_1, __tsonic_union_member_2 => throw new global::System.InvalidCastException("
@@ -453,9 +471,8 @@ describe("End-to-End Integration", () => {
             {
               schemaVersion: 1,
               id: "@fixture/js",
-              extends: [],
+              extends: ["clr"],
               requiredTypeRoots: ["."],
-              useStandardLib: false,
             },
             null,
             2
@@ -484,7 +501,7 @@ describe("End-to-End Integration", () => {
         { surface: "@fixture/js" }
       );
 
-      expect(csharp).to.include("Buffer.fromUint8Array((global::js.Uint8Array)");
+      expect(csharp).to.include("Buffer.fromUint8Array((value.As3()));");
       expect(csharp).not.to.include(
         "Buffer.fromUint8Array(((global::Tsonic.Runtime.Union<double[], global::js.Uint8Array>)"
       );
@@ -495,7 +512,9 @@ describe("End-to-End Integration", () => {
 
     it("materializes inherited typed-array overload calls through the public union wrapper", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
         import type { byte, int } from "@tsonic/core/types.js";
+        import { overloads as O } from "@tsonic/core/lang.js";
 
         type TypedArrayInput<TElement extends number> =
           | TElement[]
@@ -506,14 +525,26 @@ describe("End-to-End Integration", () => {
 
           public set(index: int, value: number): void;
           public set(source: TypedArrayInput<TElement>, offset?: int): void;
-          public set(
-            sourceOrIndex: int | TypedArrayInput<TElement>,
-            offsetOrValue: int | number = 0 as int
+          public set(_sourceOrIndex: any, _offsetOrValue: any = 0 as int): any {
+            throw new Error("stub");
+          }
+
+          public set_index(index: int, value: number): void {
+            void index;
+            void value;
+          }
+
+          public set_source(
+            source: TypedArrayInput<TElement>,
+            offset?: int
           ): void {
-            void sourceOrIndex;
-            void offsetOrValue;
+            void source;
+            void offset;
           }
         }
+
+        O<InstanceType<typeof TypedArrayBase>>().method(x => x.set_index).family(x => x.set);
+        O<InstanceType<typeof TypedArrayBase>>().method(x => x.set_source).family(x => x.set);
 
         class Uint8Array extends TypedArrayBase<byte> {
           public *[Symbol.iterator](): Generator<byte, undefined, undefined> {
@@ -590,6 +621,7 @@ describe("End-to-End Integration", () => {
 
     it("does not re-adapt typed-array iterable arguments after contextual emission", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
         import type { byte, int } from "@tsonic/core/types.js";
 
         type TypedArrayInput<TElement extends number> =
@@ -601,14 +633,24 @@ describe("End-to-End Integration", () => {
 
           public set(index: int, value: number): void;
           public set(source: TypedArrayInput<TElement>, offset?: int): void;
-          public set(
-            sourceOrIndex: int | TypedArrayInput<TElement>,
-            offsetOrValue: int | number = 0 as int
+          public set(_sourceOrIndex: unknown, _offsetOrValue: unknown): void {}
+
+          public set_index(index: int, value: number): void {
+            void index;
+            void value;
+          }
+
+          public set_source(
+            source: TypedArrayInput<TElement>,
+            offset?: int
           ): void {
-            void sourceOrIndex;
-            void offsetOrValue;
+            void source;
+            void offset;
           }
         }
+
+        O<TypedArrayBase<byte>>().method(x => x.set_index).family(x => x.set);
+        O<TypedArrayBase<byte>>().method(x => x.set_source).family(x => x.set);
 
         class Uint8Array extends TypedArrayBase<byte> {
           public *[Symbol.iterator](): Generator<byte, undefined, undefined> {
@@ -641,19 +683,27 @@ describe("End-to-End Integration", () => {
 
     it("keeps selected member overload surfaces exact instead of the implementation union", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
         import type { int } from "@tsonic/core/types.js";
 
         export class BufferLike {
           set(index: int, value: number): void;
           set(values: Iterable<number>, offset?: int): void;
-          set(
-            sourceOrIndex: int | Iterable<number>,
-            offsetOrValue: int | number = 0 as int
-          ): void {
-            void sourceOrIndex;
-            void offsetOrValue;
+          set(_sourceOrIndex: unknown, _offsetOrValue: unknown): void {}
+
+          set_index(index: int, value: number): void {
+            void index;
+            void value;
+          }
+
+          set_values(values: Iterable<number>, offset?: int): void {
+            void values;
+            void offset;
           }
         }
+
+        O<BufferLike>().method(x => x.set_index).family(x => x.set);
+        O<BufferLike>().method(x => x.set_values).family(x => x.set);
 
         export function write(
           target: BufferLike,
@@ -689,24 +739,30 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(
         readFixtureSource("json-native-roundtrip"),
         "/test/test.ts",
-        { enableJsonAot: true }
+        { surface: "@tsonic/js", enableJsonAot: true }
       );
 
-      expect(csharp).to.include("var parsed = JSON.parse<Payload__Alias>(json);");
       expect(csharp).to.include(
-        'var roundtrip = JSON.stringify(parsed);'
+        "var parsed = global::System.Text.Json.JsonSerializer.Deserialize<Payload__Alias>(json, global::Test.TsonicJson.Options);"
       );
-      expect(csharp).to.include('var parsedNumber = JSON.parse<double>("123");');
-      expect(csharp).to.include('var parsedBool = JSON.parse<bool>("true");');
+      expect(csharp).to.include(
+        'var roundtrip = global::System.Text.Json.JsonSerializer.Serialize(parsed, global::Test.TsonicJson.Options);'
+      );
+      expect(csharp).to.include(
+        'var parsedNumber = global::System.Text.Json.JsonSerializer.Deserialize<double>("123", global::Test.TsonicJson.Options);'
+      );
+      expect(csharp).to.include(
+        'var parsedBool = global::System.Text.Json.JsonSerializer.Deserialize<bool>("true", global::Test.TsonicJson.Options);'
+      );
       expect(csharp).to.include("INLINE.stringify=");
       expect(csharp).to.include("ESCAPES=");
     });
 
-    it("infers explicit unknown through generic createWrapped calls used by flat", () => {
+    it("infers explicit JsValue through generic createWrapped calls used by flat", () => {
       const csharp = compileToCSharp(`
-        import type { int } from "@tsonic/core/types.js";
+        import type { int, JsValue } from "@tsonic/core/types.js";
 
-        export class Array<T = unknown> {
+        export class Array<T = JsValue> {
           private readonly valuesStore: T[] = [];
 
           private createWrapped<TResult>(values: readonly TResult[] | TResult[]): Array<TResult> {
@@ -714,8 +770,8 @@ describe("End-to-End Integration", () => {
             return new Array<TResult>();
           }
 
-          public flat(depth: int = 1 as int): Array<unknown> {
-            const flattened: unknown[] = [];
+          public flat(depth: int = 1 as int): Array<JsValue> {
+            const flattened: JsValue[] = [];
             void depth;
             return this.createWrapped(flattened);
           }

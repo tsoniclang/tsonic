@@ -129,7 +129,7 @@ export const registerVariableSymbolTypes = (
 /**
  * Register catch variable types.
  *
- * Semantic: unknownType (matching TypeScript's default catch clause type).
+ * Semantic: JsValue (broad JS-visible thrown value channel).
  * Storage: System.Exception (the CLR catch carrier).
  */
 export const registerCatchVariableTypes = (
@@ -138,7 +138,11 @@ export const registerCatchVariableTypes = (
 ): EmitterContext =>
   registerLocalSymbolTypes(
     originalName,
-    { kind: "unknownType" },
+    {
+      kind: "referenceType",
+      name: "JsValue",
+      resolvedClrType: "Tsonic.Runtime.JsValue",
+    },
     {
       kind: "referenceType",
       name: "System.Exception",

@@ -1,0 +1,16 @@
+{
+  "copyDirectories": [
+    {
+      "from": "../core/versions/10",
+      "to": "app/node_modules/@tsonic/core"
+    },
+    {
+      "from": "../dotnet/versions/10",
+      "to": "app/node_modules/@tsonic/dotnet"
+    },
+    {
+      "from": "../js/versions/10",
+      "to": "app/node_modules/@tsonic/js"
+    }
+  ]
+}

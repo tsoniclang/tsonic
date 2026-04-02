@@ -3,7 +3,6 @@ import type { EmitterContext } from "../../types.js";
 import type { CSharpTypeAst } from "../format/backend-ast/types.js";
 import { stableTypeKeyFromAst } from "../format/backend-ast/utils.js";
 import { identifierType } from "../format/backend-ast/builders.js";
-import { resolveTypeAlias } from "./type-resolution.js";
 import type {
   EmitTypeAstLike,
   RuntimeUnionFrame,
@@ -12,7 +11,8 @@ import type {
 import {
   collectRuntimeUnionRawMembers,
   expandRuntimeUnionMembers,
-  isRuntimeUnionElementFamily,
+  hasRuntimeUnionArrayMemberWithRuntimeUnionElements as hasRuntimeUnionArrayMemberWithRuntimeUnionElementsFromExpansion,
+  shouldEraseRecursiveRuntimeUnionArrayElement as shouldEraseRecursiveRuntimeUnionArrayElementFromExpansion,
 } from "./runtime-union-expansion.js";
 import { getRuntimeUnionMemberSortKey } from "./runtime-union-ordering.js";
 import { resolveStructuralReferenceType } from "./structural-shape-matching.js";
@@ -141,22 +141,17 @@ export const buildRuntimeUnionFrame = (
 export const hasRuntimeUnionArrayMemberWithRuntimeUnionElements = (
   type: IrType,
   context: EmitterContext
-): boolean => {
-  return collectRuntimeUnionRawMembers(type, context).some((member) => {
-    const resolvedMember = resolveTypeAlias(member, context);
-    return (
-      resolvedMember.kind === "arrayType" &&
-      isRuntimeUnionElementFamily(resolvedMember.elementType, context)
-    );
-  });
-};
+): boolean =>
+  hasRuntimeUnionArrayMemberWithRuntimeUnionElementsFromExpansion(
+    type,
+    context
+  );
 
 export const shouldEraseRecursiveRuntimeUnionArrayElement = (
   type: IrType,
   context: EmitterContext
-): boolean => {
-  return hasRuntimeUnionArrayMemberWithRuntimeUnionElements(type, context);
-};
+): boolean =>
+  shouldEraseRecursiveRuntimeUnionArrayElementFromExpansion(type, context);
 
 export const getCanonicalRuntimeUnionMembers = (
   type: IrType,

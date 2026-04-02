@@ -7,6 +7,7 @@
 import * as ts from "typescript";
 import {
   IrBlockStatement,
+  IrClassMember,
   IrFunctionExpression,
   IrFunctionType,
   IrInterfaceMember,
@@ -151,12 +152,15 @@ export const finalizeObjectLiteralMethodExpression = (
 
   const functionInferredType =
     expr.inferredType?.kind === "functionType" ? expr.inferredType : undefined;
+  const hasDeclaredReturnType = expr.returnType !== undefined;
   const inferredReturnType =
     expr.returnType ?? functionInferredType?.returnType;
   const needsInference =
-    inferredReturnType === undefined ||
-    inferredReturnType.kind === "unknownType" ||
-    inferredReturnType.kind === "anyType";
+    !hasDeclaredReturnType &&
+    (inferredReturnType === undefined ||
+      inferredReturnType.kind === "unknownType" ||
+      inferredReturnType.kind === "anyType" ||
+      inferredReturnType.kind === "voidType");
 
   if (!needsInference) return expr;
 
@@ -174,6 +178,457 @@ export const finalizeObjectLiteralMethodExpression = (
       returnType: recoveredReturnType,
     },
   } satisfies IrFunctionExpression;
+};
+
+const rebindObjectLiteralThisInBlock = (
+  block: IrBlockStatement,
+  objectLiteralThisType: IrType
+): IrBlockStatement => ({
+  ...block,
+  statements: block.statements.map((statement) =>
+    rebindObjectLiteralThisInStatement(statement, objectLiteralThisType)
+  ),
+});
+
+const rebindObjectLiteralThisInStatement = (
+  stmt: IrStatement,
+  objectLiteralThisType: IrType
+): IrStatement => {
+  switch (stmt.kind) {
+    case "expressionStatement":
+      return {
+        ...stmt,
+        expression: rebindObjectLiteralThisInExpression(
+          stmt.expression,
+          objectLiteralThisType
+        ),
+      };
+
+    case "returnStatement":
+      return {
+        ...stmt,
+        expression: stmt.expression
+          ? rebindObjectLiteralThisInExpression(
+              stmt.expression,
+              objectLiteralThisType
+            )
+          : undefined,
+      };
+
+    case "variableDeclaration":
+      return {
+        ...stmt,
+        declarations: stmt.declarations.map((declaration) => ({
+          ...declaration,
+          initializer: declaration.initializer
+            ? rebindObjectLiteralThisInExpression(
+                declaration.initializer,
+                objectLiteralThisType
+              )
+            : undefined,
+        })),
+      };
+
+    case "ifStatement":
+      return {
+        ...stmt,
+        condition: rebindObjectLiteralThisInExpression(
+          stmt.condition,
+          objectLiteralThisType
+        ),
+        thenStatement: rebindObjectLiteralThisInStatement(
+          stmt.thenStatement,
+          objectLiteralThisType
+        ),
+        elseStatement: stmt.elseStatement
+          ? rebindObjectLiteralThisInStatement(
+              stmt.elseStatement,
+              objectLiteralThisType
+            )
+          : undefined,
+      };
+
+    case "blockStatement":
+      return rebindObjectLiteralThisInBlock(stmt, objectLiteralThisType);
+
+    case "forStatement":
+      return {
+        ...stmt,
+        initializer:
+          stmt.initializer?.kind === "variableDeclaration"
+            ? (rebindObjectLiteralThisInStatement(
+                stmt.initializer,
+                objectLiteralThisType
+              ) as typeof stmt.initializer)
+            : stmt.initializer
+              ? rebindObjectLiteralThisInExpression(
+                  stmt.initializer,
+                  objectLiteralThisType
+                )
+              : undefined,
+        condition: stmt.condition
+          ? rebindObjectLiteralThisInExpression(
+              stmt.condition,
+              objectLiteralThisType
+            )
+          : undefined,
+        update: stmt.update
+          ? rebindObjectLiteralThisInExpression(
+              stmt.update,
+              objectLiteralThisType
+            )
+          : undefined,
+        body: rebindObjectLiteralThisInStatement(stmt.body, objectLiteralThisType),
+      };
+
+    case "forOfStatement":
+    case "forInStatement":
+      return {
+        ...stmt,
+        expression: rebindObjectLiteralThisInExpression(
+          stmt.expression,
+          objectLiteralThisType
+        ),
+        body: rebindObjectLiteralThisInStatement(stmt.body, objectLiteralThisType),
+      };
+
+    case "whileStatement":
+      return {
+        ...stmt,
+        condition: rebindObjectLiteralThisInExpression(
+          stmt.condition,
+          objectLiteralThisType
+        ),
+        body: rebindObjectLiteralThisInStatement(stmt.body, objectLiteralThisType),
+      };
+
+    case "switchStatement":
+      return {
+        ...stmt,
+        expression: rebindObjectLiteralThisInExpression(
+          stmt.expression,
+          objectLiteralThisType
+        ),
+        cases: stmt.cases.map((switchCase) => ({
+          ...switchCase,
+          test: switchCase.test
+            ? rebindObjectLiteralThisInExpression(
+                switchCase.test,
+                objectLiteralThisType
+              )
+            : undefined,
+          statements: switchCase.statements.map((statement) =>
+            rebindObjectLiteralThisInStatement(statement, objectLiteralThisType)
+          ),
+        })),
+      };
+
+    case "throwStatement":
+      return {
+        ...stmt,
+        expression: rebindObjectLiteralThisInExpression(
+          stmt.expression,
+          objectLiteralThisType
+        ),
+      };
+
+    case "tryStatement":
+      return {
+        ...stmt,
+        tryBlock: rebindObjectLiteralThisInBlock(
+          stmt.tryBlock,
+          objectLiteralThisType
+        ),
+        catchClause: stmt.catchClause
+          ? {
+              ...stmt.catchClause,
+              body: rebindObjectLiteralThisInBlock(
+                stmt.catchClause.body,
+                objectLiteralThisType
+              ),
+            }
+          : undefined,
+        finallyBlock: stmt.finallyBlock
+          ? rebindObjectLiteralThisInBlock(
+              stmt.finallyBlock,
+              objectLiteralThisType
+            )
+          : undefined,
+      };
+
+    default:
+      return stmt;
+  }
+};
+
+export const rebindObjectLiteralThisInExpression = (
+  expr: IrExpression,
+  objectLiteralThisType: IrType
+): IrExpression => {
+  switch (expr.kind) {
+    case "this":
+      return {
+        ...expr,
+        inferredType: objectLiteralThisType,
+      };
+
+    case "call":
+      return {
+        ...expr,
+        callee: rebindObjectLiteralThisInExpression(
+          expr.callee,
+          objectLiteralThisType
+        ),
+        arguments: expr.arguments.map((argument) =>
+          argument.kind === "spread"
+            ? {
+                ...argument,
+                expression: rebindObjectLiteralThisInExpression(
+                  argument.expression,
+                  objectLiteralThisType
+                ),
+              }
+            : rebindObjectLiteralThisInExpression(
+                argument,
+                objectLiteralThisType
+              )
+        ),
+        dynamicImportNamespace: expr.dynamicImportNamespace
+          ? (rebindObjectLiteralThisInExpression(
+              expr.dynamicImportNamespace,
+              objectLiteralThisType
+            ) as typeof expr.dynamicImportNamespace)
+          : undefined,
+      };
+
+    case "new":
+      return {
+        ...expr,
+        callee: rebindObjectLiteralThisInExpression(
+          expr.callee,
+          objectLiteralThisType
+        ),
+        arguments: expr.arguments.map((argument) =>
+          argument.kind === "spread"
+            ? {
+                ...argument,
+                expression: rebindObjectLiteralThisInExpression(
+                  argument.expression,
+                  objectLiteralThisType
+                ),
+              }
+            : rebindObjectLiteralThisInExpression(
+                argument,
+                objectLiteralThisType
+              )
+        ),
+      };
+
+    case "memberAccess":
+      return {
+        ...expr,
+        object: rebindObjectLiteralThisInExpression(
+          expr.object,
+          objectLiteralThisType
+        ),
+        property:
+          typeof expr.property === "string"
+            ? expr.property
+            : rebindObjectLiteralThisInExpression(
+                expr.property,
+                objectLiteralThisType
+              ),
+      };
+
+    case "binary":
+    case "logical":
+      return {
+        ...expr,
+        left: rebindObjectLiteralThisInExpression(
+          expr.left,
+          objectLiteralThisType
+        ),
+        right: rebindObjectLiteralThisInExpression(
+          expr.right,
+          objectLiteralThisType
+        ),
+      };
+
+    case "conditional":
+      return {
+        ...expr,
+        condition: rebindObjectLiteralThisInExpression(
+          expr.condition,
+          objectLiteralThisType
+        ),
+        whenTrue: rebindObjectLiteralThisInExpression(
+          expr.whenTrue,
+          objectLiteralThisType
+        ),
+        whenFalse: rebindObjectLiteralThisInExpression(
+          expr.whenFalse,
+          objectLiteralThisType
+        ),
+      };
+
+    case "assignment":
+      return {
+        ...expr,
+        left:
+          expr.left.kind === "identifierPattern" ||
+          expr.left.kind === "arrayPattern" ||
+          expr.left.kind === "objectPattern"
+            ? expr.left
+            : rebindObjectLiteralThisInExpression(
+                expr.left,
+                objectLiteralThisType
+              ),
+        right: rebindObjectLiteralThisInExpression(
+          expr.right,
+          objectLiteralThisType
+        ),
+      };
+
+    case "array":
+      return {
+        ...expr,
+        elements: expr.elements.map((element) =>
+          element?.kind === "spread"
+            ? {
+                ...element,
+                expression: rebindObjectLiteralThisInExpression(
+                  element.expression,
+                  objectLiteralThisType
+                ),
+              }
+            : element
+              ? rebindObjectLiteralThisInExpression(
+                  element,
+                  objectLiteralThisType
+                )
+              : undefined
+        ),
+      };
+
+    case "object":
+      return {
+        ...expr,
+        properties: expr.properties.map((property) =>
+          property.kind === "spread"
+            ? {
+                ...property,
+                expression: rebindObjectLiteralThisInExpression(
+                  property.expression,
+                  objectLiteralThisType
+                ),
+              }
+            : {
+                ...property,
+                key:
+                  typeof property.key === "string"
+                    ? property.key
+                    : rebindObjectLiteralThisInExpression(
+                        property.key,
+                        objectLiteralThisType
+                      ),
+                value: rebindObjectLiteralThisInExpression(
+                  property.value,
+                  objectLiteralThisType
+                ),
+              }
+        ),
+        behaviorMembers: expr.behaviorMembers?.map((member) =>
+          rebindObjectLiteralThisInClassMember(member, objectLiteralThisType)
+        ),
+      };
+
+    case "functionExpression":
+      return {
+        ...expr,
+        body: rebindObjectLiteralThisInBlock(expr.body, objectLiteralThisType),
+      };
+
+    case "arrowFunction":
+      return {
+        ...expr,
+        body:
+          expr.body.kind === "blockStatement"
+            ? rebindObjectLiteralThisInBlock(expr.body, objectLiteralThisType)
+            : rebindObjectLiteralThisInExpression(
+                expr.body,
+                objectLiteralThisType
+              ),
+      };
+
+    case "await":
+    case "unary":
+    case "update":
+    case "typeAssertion":
+    case "numericNarrowing":
+    case "asinterface":
+    case "trycast":
+      return {
+        ...expr,
+        expression: rebindObjectLiteralThisInExpression(
+          expr.expression,
+          objectLiteralThisType
+        ),
+      };
+
+    case "yield":
+      return {
+        ...expr,
+        expression: expr.expression
+          ? rebindObjectLiteralThisInExpression(
+              expr.expression,
+              objectLiteralThisType
+            )
+          : undefined,
+      };
+
+    case "templateLiteral":
+      return {
+        ...expr,
+        expressions: expr.expressions.map((expression) =>
+          rebindObjectLiteralThisInExpression(expression, objectLiteralThisType)
+        ),
+      };
+
+    default:
+      return expr;
+  }
+};
+
+export const rebindObjectLiteralThisInClassMember = (
+  member: IrClassMember,
+  objectLiteralThisType: IrType
+): IrClassMember => {
+  if (member.kind === "methodDeclaration" && member.body) {
+    return {
+      ...member,
+      body: rebindObjectLiteralThisInBlock(member.body, objectLiteralThisType),
+    };
+  }
+
+  if (member.kind === "propertyDeclaration") {
+    return {
+      ...member,
+      initializer: member.initializer
+        ? rebindObjectLiteralThisInExpression(
+            member.initializer,
+            objectLiteralThisType
+          )
+        : undefined,
+      getterBody: member.getterBody
+        ? rebindObjectLiteralThisInBlock(member.getterBody, objectLiteralThisType)
+        : undefined,
+      setterBody: member.setterBody
+        ? rebindObjectLiteralThisInBlock(member.setterBody, objectLiteralThisType)
+        : undefined,
+    };
+  }
+
+  return member;
 };
 
 export const collectSynthesizedObjectMembers = (

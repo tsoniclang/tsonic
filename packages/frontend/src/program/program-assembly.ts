@@ -214,8 +214,6 @@ export const createProgram = (
       JSON.stringify(surfaceCapabilities.resolvedModes) ||
     JSON.stringify(finalSurfaceCapabilities.requiredTypeRoots) !==
       JSON.stringify(surfaceCapabilities.requiredTypeRoots) ||
-    finalSurfaceCapabilities.useStandardLib !==
-      surfaceCapabilities.useStandardLib ||
     finalSurfaceCapabilities.includesClr !== surfaceCapabilities.includesClr;
 
   if (surfaceCapabilitiesChanged) {
@@ -231,11 +229,14 @@ export const createProgram = (
     authoritativeTsonicPackageRoots,
     namespaceIndexFiles,
     declarationModuleAliases,
-    virtualDeclarationSources,
     allFiles: discoveredAllFiles,
     tsOptions,
   } = discovery;
-  const bindings = loadBindings(typeRoots);
+  const bindingRoots = dedupeCanonicalFilePaths([
+    ...typeRoots,
+    ...authoritativeTsonicPackageRoots.values(),
+  ]);
+  const bindings = loadBindings(bindingRoots);
   const bindingSourceFiles = resolveSourceBackedBindingFiles(
     bindings,
     path.join(options.projectRoot, "__tsonic_source_bindings__.ts"),
@@ -268,26 +269,6 @@ export const createProgram = (
 
   // Create custom compiler host with virtual .NET module declarations
   const host = ts.createCompilerHost(tsOptions);
-  const normalizeVirtualFilePath = (filePath: string): string =>
-    path.resolve(filePath);
-  const isPackageCoreGlobalsFile = (filePath: string): boolean =>
-    path.basename(filePath) === "core-globals.d.ts";
-  const getVirtualDeclarationText = (filePath: string): string | undefined =>
-    virtualDeclarationSources.get(normalizeVirtualFilePath(filePath));
-
-  const originalFileExists = host.fileExists;
-  host.fileExists = (fileName: string): boolean => {
-    if (getVirtualDeclarationText(fileName) !== undefined) return true;
-    return originalFileExists(fileName);
-  };
-
-  const originalReadFile = host.readFile;
-  host.readFile = (fileName: string): string | undefined => {
-    const virtualText = getVirtualDeclarationText(fileName);
-    if (virtualText !== undefined) return virtualText;
-    if (isPackageCoreGlobalsFile(fileName)) return "export {};\n";
-    return originalReadFile(fileName);
-  };
   const originalRealpath = host.realpath?.bind(host);
   host.realpath = (fileName: string): string => {
     if (tsOptions.preserveSymlinks) {
@@ -323,19 +304,6 @@ export const createProgram = (
     onError?: (message: string) => void,
     shouldCreateNewSourceFile?: boolean
   ): ts.SourceFile | undefined => {
-    const virtualText = getVirtualDeclarationText(fileName);
-    if (virtualText !== undefined) {
-      return ts.createSourceFile(fileName, virtualText, languageVersion, true);
-    }
-    if (isPackageCoreGlobalsFile(fileName)) {
-      return ts.createSourceFile(
-        fileName,
-        "export {};\n",
-        languageVersion,
-        true
-      );
-    }
-
     // Check if this is a .NET namespace being imported
     const baseName = path.basename(fileName, path.extname(fileName));
     const declarationPath = namespaceFiles.get(baseName);

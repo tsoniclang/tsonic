@@ -5,129 +5,78 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { createProgram } from "../creation.js";
+import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
 describe("Program Creation – core type checking", function () {
   this.timeout(90_000);
 
-  it("should provide string index access from compiler-owned core globals", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-core-string-index-")
+  it("should provide string index access from installed core globals", () => {
+    const fixture = materializeFrontendFixture(
+      "program/creation/core-type-checking/string-index-access"
     );
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        [
-          'const source = "abc";',
-          "const first = source[0];",
-          "export const ok = first;",
-        ].join("\n")
-      );
+      const projectRoot = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
 
       const result = createProgram([entryPath], {
-        projectRoot: tempDir,
+        projectRoot,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        surface: "clr",
       });
 
       expect(result.ok).to.equal(true);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should typecheck core IArguments.length in noLib mode", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-core-iarguments-")
+    const fixture = materializeFrontendFixture(
+      "program/creation/core-type-checking/arguments-length"
     );
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        [
-          "export function count(x: number, y: number): number {",
-          "  return arguments.length + x + y;",
-          "}",
-        ].join("\n")
-      );
+      const projectRoot = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
 
       const result = createProgram([entryPath], {
-        projectRoot: tempDir,
+        projectRoot,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        surface: "clr",
       });
 
       expect(result.ok).to.equal(true);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should typecheck core IArguments index access in noLib mode", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-core-iarguments-index-")
+    const fixture = materializeFrontendFixture(
+      "program/creation/core-type-checking/arguments-index-access"
     );
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        [
-          "export function first(x: number, y: number): number {",
-          "  return (arguments[0] as number) + y;",
-          "}",
-        ].join("\n")
-      );
+      const projectRoot = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
 
       const result = createProgram([entryPath], {
-        projectRoot: tempDir,
+        projectRoot,
         sourceRoot: srcDir,
         rootNamespace: "Test",
+        surface: "clr",
       });
 
       expect(result.ok).to.equal(true);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 });

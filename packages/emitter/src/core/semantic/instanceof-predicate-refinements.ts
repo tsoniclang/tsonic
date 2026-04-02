@@ -21,7 +21,7 @@ import {
   buildSubsetUnionType,
   withoutNarrowedBinding,
   applyBinding,
-  buildExprBinding,
+  buildProjectedExprBinding,
   narrowTypeByNotAssignableTarget,
   currentNarrowedType,
   resolveRuntimeUnionFrame,
@@ -30,6 +30,7 @@ import {
   buildRuntimeUnionComplementBinding,
   applyDirectTypeNarrowing,
 } from "./narrowing-builders.js";
+import { SYSTEM_ARRAY_STORAGE_TYPE } from "./broad-array-storage.js";
 
 export const applyInstanceofRefinement = (
   condition: IrExpression,
@@ -215,7 +216,7 @@ export const applyInstanceofRefinement = (
 
   return applyBinding(
     guard.originalName,
-    buildExprBinding(
+    buildProjectedExprBinding(
       exprAst,
       guard.targetType,
       resolveExistingNarrowingSourceType(
@@ -283,11 +284,21 @@ export const applyPredicateCallRefinement = (
     return undefined;
   }
 
+  const isArrayIsArrayPredicate =
+    condition.callee.kind === "memberAccess" &&
+    !condition.callee.isComputed &&
+    condition.callee.property === "isArray" &&
+    condition.callee.object.kind === "identifier" &&
+    condition.callee.object.name === "Array";
+
   return applyDirectTypeNarrowing(
     bindingKey,
     target,
     narrowedType,
     context,
-    emitExprAst
+    emitExprAst,
+    branch === "truthy" && isArrayIsArrayPredicate
+      ? SYSTEM_ARRAY_STORAGE_TYPE
+      : undefined
   );
 };

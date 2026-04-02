@@ -13,19 +13,13 @@ export function main(): void {
   }, undefined);
   t1.Wait();
 
-  const t2 = Task.CompletedTask.ContinueWith<Task>(
-    (_t: Task, _state: unknown) => {
-      Console.WriteLine("CONT-2");
-      return Task.CompletedTask;
-    },
-    undefined
-  );
+  const t2 = Task.CompletedTask.ContinueWith<Task>((_t: Task, _state) => {
+    Console.WriteLine("CONT-2");
+    return Task.CompletedTask;
+  }, undefined);
   t2.Wait();
 
-  const t3 = Task.CompletedTask.ContinueWith<Task>(function (
-    _t: Task,
-    _state: unknown
-  ) {
+  const t3 = Task.CompletedTask.ContinueWith<Task>(function (_t: Task, _state) {
     Console.WriteLine("CONT-3");
     return Task.CompletedTask;
   }, undefined);

@@ -1,0 +1,14 @@
+{
+  "copyDirectories": [
+    {
+      "from": "../core/versions/10",
+      "to": "app/node_modules/@tsonic/core"
+    }
+  ],
+  "copyFiles": [
+    {
+      "from": "../globals/versions/10/core-globals.d.ts",
+      "to": "app/node_modules/@tsonic/globals/core-globals.d.ts"
+    }
+  ]
+}

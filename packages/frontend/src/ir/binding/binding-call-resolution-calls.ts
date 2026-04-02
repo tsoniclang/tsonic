@@ -101,9 +101,180 @@ export const resolveCallSignature = (
     "double",
     "decimal",
   ]);
+  const KNOWN_SYNC_ITERABLE_TYPE_NAMES = new Set([
+    "Array",
+    "ReadonlyArray",
+    "Iterable",
+    "IterableIterator",
+    "Iterator",
+    "Generator",
+    "Set",
+    "ReadonlySet",
+    "Map",
+    "ReadonlyMap",
+    "IEnumerable",
+    "IEnumerable_1",
+  ]);
+  const KNOWN_ASYNC_ITERABLE_TYPE_NAMES = new Set([
+    "AsyncIterable",
+    "AsyncIterableIterator",
+    "AsyncGenerator",
+    "IAsyncEnumerable",
+    "IAsyncEnumerable_1",
+  ]);
 
   const getEntityNameLeaf = (name: ts.EntityName): string =>
     ts.isIdentifier(name) ? name.text : name.right.text;
+
+  const normalizeKnownIterableTypeName = (
+    name: string | undefined
+  ): string | undefined => name?.replace(/\$instance$/, "");
+
+  const getKnownIterableModeFromName = (
+    name: string | undefined
+  ): "sync" | "async" | undefined => {
+    const normalized = normalizeKnownIterableTypeName(name);
+    if (!normalized) {
+      return undefined;
+    }
+    if (KNOWN_SYNC_ITERABLE_TYPE_NAMES.has(normalized)) {
+      return "sync";
+    }
+    if (KNOWN_ASYNC_ITERABLE_TYPE_NAMES.has(normalized)) {
+      return "async";
+    }
+    return undefined;
+  };
+
+  const getIteratorMemberMode = (
+    members:
+      | readonly ts.TypeElement[]
+      | ts.NodeArray<ts.ClassElement>
+      | undefined
+  ): "sync" | "async" | undefined => {
+    if (!members) {
+      return undefined;
+    }
+
+    for (const member of members) {
+      if (
+        !ts.isMethodSignature(member) &&
+        !ts.isMethodDeclaration(member) &&
+        !ts.isPropertySignature(member) &&
+        !ts.isPropertyDeclaration(member)
+      ) {
+        continue;
+      }
+
+      const name = member.name;
+      if (!name || !ts.isComputedPropertyName(name)) {
+        continue;
+      }
+
+      const expression = name.expression;
+      if (
+        !ts.isPropertyAccessExpression(expression) ||
+        !ts.isIdentifier(expression.expression) ||
+        expression.expression.text !== "Symbol"
+      ) {
+        continue;
+      }
+
+      if (expression.name.text === "iterator") {
+        return "sync";
+      }
+      if (expression.name.text === "asyncIterator") {
+        return "async";
+      }
+    }
+
+    return undefined;
+  };
+
+  const getDeclarationIterableMode = (
+    declaration: ts.Declaration,
+    seenSymbols: Set<ts.Symbol>
+  ): "sync" | "async" | undefined => {
+    if (ts.isInterfaceDeclaration(declaration) || ts.isClassDeclaration(declaration)) {
+      const memberMode = getIteratorMemberMode(declaration.members);
+      if (memberMode) {
+        return memberMode;
+      }
+    }
+
+    if (ts.isTypeLiteralNode(declaration)) {
+      const memberMode = getIteratorMemberMode(declaration.members);
+      if (memberMode) {
+        return memberMode;
+      }
+    }
+
+    const typeNode = getTypeNodeFromDeclaration(declaration);
+    if (!typeNode) {
+      return undefined;
+    }
+
+    return getTypeNodeIterableMode(typeNode, seenSymbols);
+  };
+
+  const getTypeNodeIterableMode = (
+    typeNode: ts.TypeNode | undefined,
+    seenSymbols = new Set<ts.Symbol>()
+  ): "sync" | "async" | undefined => {
+    if (!typeNode) {
+      return undefined;
+    }
+
+    const node = ts.isParenthesizedTypeNode(typeNode) ? typeNode.type : typeNode;
+
+    if (ts.isArrayTypeNode(node) || ts.isTupleTypeNode(node)) {
+      return "sync";
+    }
+
+    if (ts.isUnionTypeNode(node)) {
+      const modes = new Set(
+        node.types
+          .map((member) => getTypeNodeIterableMode(member, seenSymbols))
+          .filter((mode): mode is "sync" | "async" => mode !== undefined)
+      );
+      return modes.size === 1 ? [...modes][0] : undefined;
+    }
+
+    if (!ts.isTypeReferenceNode(node)) {
+      return undefined;
+    }
+
+    const namedMode = getKnownIterableModeFromName(getEntityNameLeaf(node.typeName));
+    if (namedMode) {
+      return namedMode;
+    }
+
+    const symbol = ctx.checker.getSymbolAtLocation(node.typeName);
+    if (!symbol) {
+      return undefined;
+    }
+
+    const resolvedSymbol =
+      symbol.flags & ts.SymbolFlags.Alias
+        ? ctx.checker.getAliasedSymbol(symbol)
+        : symbol;
+    if (seenSymbols.has(resolvedSymbol)) {
+      return undefined;
+    }
+    seenSymbols.add(resolvedSymbol);
+
+    for (const declaration of resolvedSymbol.getDeclarations() ?? []) {
+      const declarationMode = getDeclarationIterableMode(
+        declaration,
+        seenSymbols
+      );
+      if (declarationMode) {
+        return declarationMode;
+      }
+    }
+
+    return undefined;
+  };
 
   const getExplicitClrPrimitiveAlias = (
     typeNode: ts.TypeNode | undefined
@@ -295,6 +466,80 @@ export const resolveCallSignature = (
     }
 
     return checkerStringEvidence;
+  };
+
+  const getExplicitIterableEvidence = (
+    arg: ts.Expression,
+    seen = new Set<ts.Node>()
+  ): "sync" | "async" | undefined => {
+    const expr = stripParens(arg);
+    if (seen.has(expr)) {
+      return undefined;
+    }
+    seen.add(expr);
+
+    if (ts.isAsExpression(expr) || ts.isTypeAssertionExpression(expr)) {
+      const explicit = getTypeNodeIterableMode(expr.type);
+      return explicit ?? getExplicitIterableEvidence(expr.expression, seen);
+    }
+
+    if (ts.isIdentifier(expr)) {
+      const symbol = ctx.checker.getSymbolAtLocation(expr);
+      if (!symbol) {
+        return undefined;
+      }
+
+      const resolvedSymbol =
+        symbol.flags & ts.SymbolFlags.Alias
+          ? ctx.checker.getAliasedSymbol(symbol)
+          : symbol;
+      for (const declaration of resolvedSymbol.getDeclarations() ?? []) {
+        const mode = getDeclarationIterableMode(declaration, new Set());
+        if (mode) {
+          return mode;
+        }
+      }
+      return undefined;
+    }
+
+    if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
+      const lookupNode = ts.isPropertyAccessExpression(expr)
+        ? expr.name
+        : expr.argumentExpression ?? expr.expression;
+      const symbol = ctx.checker.getSymbolAtLocation(lookupNode);
+      if (!symbol) {
+        return undefined;
+      }
+
+      const resolvedSymbol =
+        symbol.flags & ts.SymbolFlags.Alias
+          ? ctx.checker.getAliasedSymbol(symbol)
+          : symbol;
+      for (const declaration of resolvedSymbol.getDeclarations() ?? []) {
+        const mode = getDeclarationIterableMode(declaration, new Set());
+        if (mode) {
+          return mode;
+        }
+      }
+      return undefined;
+    }
+
+    if (ts.isCallExpression(expr)) {
+      const signature = ctx.checker.getResolvedSignature(expr);
+      return getTypeNodeIterableMode(
+        getReturnTypeNode(
+          signature?.getDeclaration() as ts.SignatureDeclaration | undefined
+        )
+      );
+    }
+
+    if (ts.isConditionalExpression(expr)) {
+      const whenTrue = getExplicitIterableEvidence(expr.whenTrue, seen);
+      const whenFalse = getExplicitIterableEvidence(expr.whenFalse, seen);
+      return whenTrue && whenTrue === whenFalse ? whenTrue : undefined;
+    }
+
+    return undefined;
   };
 
   const getExplicitArgumentClrPrimitiveAlias = (
@@ -684,6 +929,22 @@ export const resolveCallSignature = (
     return "other";
   };
 
+  const paramIterableModeForArgIndex = (
+    entry: SignatureEntry,
+    argIndex: number
+  ): "sync" | "async" | undefined => {
+    const params = entry.parameters;
+    const direct = params[argIndex];
+    const param = direct ?? params[params.length - 1];
+    if (!param) {
+      return undefined;
+    }
+    if (!direct && !param.isRest) {
+      return undefined;
+    }
+    return getTypeNodeIterableMode(param.typeNode as ts.TypeNode | undefined);
+  };
+
   const getTypeNodeDisplayText = (
     typeNode: ts.TypeNode | undefined
   ): string | undefined => {
@@ -787,6 +1048,7 @@ export const resolveCallSignature = (
 
   const args = node.arguments;
   const wantsStringAt: number[] = [];
+  const wantsIterableAt = new Map<number, "sync" | "async">();
   const wantsBroadNumberAt: number[] = [];
   const wantsExactClrAliasAt = new Map<number, string>();
   const objectLiteralArgs = new Map<number, readonly string[]>();
@@ -798,6 +1060,11 @@ export const resolveCallSignature = (
 
     if (getExplicitStringEvidence(arg) === "string") {
       wantsStringAt.push(i);
+    }
+
+    const explicitIterableMode = getExplicitIterableEvidence(arg);
+    if (explicitIterableMode) {
+      wantsIterableAt.set(i, explicitIterableMode);
     }
 
     const exactClrAlias = getExplicitArgumentClrPrimitiveAlias(arg);
@@ -815,6 +1082,7 @@ export const resolveCallSignature = (
 
   if (
     wantsStringAt.length === 0 &&
+    wantsIterableAt.size === 0 &&
     wantsBroadNumberAt.length === 0 &&
     wantsExactClrAliasAt.size === 0 &&
     objectLiteralArgs.size === 0
@@ -865,40 +1133,6 @@ export const resolveCallSignature = (
   }
 
   let remaining = Array.from(candidateMap.values());
-  const resolvedSignatureParameterDisplayTexts =
-    getResolvedSignatureParameterDisplayTexts();
-
-  if (
-    resolvedSignatureParameterDisplayTexts.length > 0 &&
-    resolvedSignatureParameterDisplayTexts.every(
-      isInformativeResolvedSignatureDisplayText
-    )
-  ) {
-    const matchingResolvedShape = remaining.filter((candidate) => {
-      const entry = ctx.signatureMap.get(candidate.id);
-      if (!entry) return false;
-      if (entry.parameters.length !== resolvedSignatureParameterDisplayTexts.length) {
-        return false;
-      }
-      return entry.parameters.every((parameter, index) => {
-        const expected = resolvedSignatureParameterDisplayTexts[index];
-        return (
-          expected !== undefined &&
-          getTypeNodeDisplayText(parameter.typeNode as ts.TypeNode | undefined) ===
-            expected
-        );
-      });
-    });
-    if (
-      matchingResolvedShape.length > 0 &&
-      matchingResolvedShape.length < remaining.length
-    ) {
-      remaining = matchingResolvedShape;
-    }
-    if (remaining.length === 1) {
-      return remaining[0]!;
-    }
-  }
 
   for (const argIndex of wantsStringAt) {
     const matching = remaining.filter((candidate) => {
@@ -906,6 +1140,22 @@ export const resolveCallSignature = (
       return entry !== undefined && paramClassForArgIndex(entry, argIndex) === "string";
     });
     if (matching.length > 0) {
+      remaining = matching;
+    }
+    if (remaining.length === 1) {
+      return remaining[0]!;
+    }
+  }
+
+  for (const [argIndex, iterableMode] of wantsIterableAt) {
+    const matching = remaining.filter((candidate) => {
+      const entry = ctx.signatureMap.get(candidate.id);
+      return (
+        entry !== undefined &&
+        paramIterableModeForArgIndex(entry, argIndex) === iterableMode
+      );
+    });
+    if (matching.length > 0 && matching.length < remaining.length) {
       remaining = matching;
     }
     if (remaining.length === 1) {
@@ -969,6 +1219,41 @@ export const resolveCallSignature = (
     });
     if (matching.length > 0 && matching.length < remaining.length) {
       remaining = matching;
+    }
+    if (remaining.length === 1) {
+      return remaining[0]!;
+    }
+  }
+
+  const resolvedSignatureParameterDisplayTexts =
+    getResolvedSignatureParameterDisplayTexts();
+
+  if (
+    resolvedSignatureParameterDisplayTexts.length > 0 &&
+    resolvedSignatureParameterDisplayTexts.every(
+      isInformativeResolvedSignatureDisplayText
+    )
+  ) {
+    const matchingResolvedShape = remaining.filter((candidate) => {
+      const entry = ctx.signatureMap.get(candidate.id);
+      if (!entry) return false;
+      if (entry.parameters.length !== resolvedSignatureParameterDisplayTexts.length) {
+        return false;
+      }
+      return entry.parameters.every((parameter, index) => {
+        const expected = resolvedSignatureParameterDisplayTexts[index];
+        return (
+          expected !== undefined &&
+          getTypeNodeDisplayText(parameter.typeNode as ts.TypeNode | undefined) ===
+            expected
+        );
+      });
+    });
+    if (
+      matchingResolvedShape.length > 0 &&
+      matchingResolvedShape.length < remaining.length
+    ) {
+      remaining = matchingResolvedShape;
     }
     if (remaining.length === 1) {
       return remaining[0]!;

@@ -175,6 +175,35 @@ const createWideRecursiveMiddlewareGraph = (): IrType => {
   return middlewareLike;
 };
 
+const createRecursiveGenericBox = (): IrType => {
+  const boxType = {
+    kind: "referenceType",
+    name: "Box",
+    structuralMembers: [],
+  } as unknown as Extract<IrType, { kind: "referenceType" }> & {
+    structuralMembers: unknown[];
+  };
+
+  boxType.structuralMembers = [
+    {
+      kind: "propertySignature",
+      name: "value",
+      isReadonly: false,
+      isOptional: false,
+      type: { kind: "typeParameterType", name: "T" },
+    },
+    {
+      kind: "propertySignature",
+      name: "next",
+      isReadonly: false,
+      isOptional: false,
+      type: boxType,
+    },
+  ];
+
+  return boxType;
+};
+
 describe("type-ops", () => {
   it("treats union member order as equal", () => {
     const left: IrType = {
@@ -335,5 +364,35 @@ describe("type-ops", () => {
     expect(() => stableIrTypeKey(left)).not.to.throw();
     expect(stableIrTypeKey(left)).to.equal(stableIrTypeKey(right));
     expect(irTypesEqual(left, right)).to.equal(true);
+  });
+
+  it("substitutes recursive structural graphs without overflowing", () => {
+    const recursive = createRecursiveGenericBox();
+
+    const substituted = substituteIrType(
+      recursive,
+      new Map<string, IrType>([["T", stringType]])
+    );
+
+    expect(() => stableIrTypeKey(substituted)).not.to.throw();
+    expect(substituted.kind).to.equal("referenceType");
+    if (substituted.kind !== "referenceType") return;
+
+    const valueMember = substituted.structuralMembers?.find(
+      (member) =>
+        member.kind === "propertySignature" && member.name === "value"
+    );
+    expect(valueMember).to.not.equal(undefined);
+    if (!valueMember || valueMember.kind !== "propertySignature") return;
+    expect(valueMember.type).to.deep.equal(stringType);
+
+    const nextMember = substituted.structuralMembers?.find(
+      (member) => member.kind === "propertySignature" && member.name === "next"
+    );
+    expect(nextMember).to.not.equal(undefined);
+    if (!nextMember || nextMember.kind !== "propertySignature") return;
+    expect(stableIrTypeKey(nextMember.type)).to.equal(
+      stableIrTypeKey(substituted)
+    );
   });
 });

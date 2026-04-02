@@ -9,7 +9,7 @@ namespace TestCases.common.classes.inheritance
             this.name = name;
         }
 
-        public string makeSound()
+        public virtual string makeSound()
         {
             return "Some sound";
         }

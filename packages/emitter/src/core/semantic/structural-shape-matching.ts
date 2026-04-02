@@ -206,7 +206,11 @@ type StructuralReferenceCandidate = {
 
 const isCompilerGeneratedStructuralName = (
   name: string | undefined
-): boolean => !!name && (name.startsWith("__Anon_") || name.startsWith("__Rest_"));
+): boolean =>
+  !!name &&
+  (name.startsWith("__Anon_") ||
+    name.startsWith("__Rest_") ||
+    /Like__\d+$/.test(name));
 
 export const isCompilerGeneratedStructuralReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>

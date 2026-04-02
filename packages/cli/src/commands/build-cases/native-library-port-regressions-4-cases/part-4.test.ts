@@ -115,9 +115,11 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "src", "index.ts"),
         [
+          'import type { JsValue } from "@tsonic/core/types.js";',
+          "",
           "declare class Console {",
-          "  log(...data: unknown[]): void;",
-          "  error(...data: unknown[]): void;",
+          "  log(...data: JsValue[]): void;",
+          "  error(...data: JsValue[]): void;",
           "}",
           "",
           "declare const console: Console;",

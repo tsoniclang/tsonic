@@ -1,56 +1,21 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 import { discoverProgramInputs } from "./program-input-discovery.js";
 
 describe("discoverProgramInputs", () => {
   it("treats the current project source package as authoritative input state", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-inputs-self-package-")
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/self-package-authoritative"
     );
 
     try {
-      const projectRoot = path.join(tempDir, "packages", "js-like");
-      const sourceRoot = path.join(projectRoot, "src");
-      const entryFile = path.join(sourceRoot, "index.ts");
-      const ambientFile = path.join(projectRoot, "globals.ts");
-
-      fs.mkdirSync(sourceRoot, { recursive: true });
-      fs.writeFileSync(entryFile, "export const value = 'ok';\n");
-      fs.writeFileSync(
-        ambientFile,
-        "export {};\ndeclare global { interface String { trimStart(): string; } }\n"
-      );
-      fs.writeFileSync(
-        path.join(projectRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/js-like", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(projectRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "acme.jslike",
-              ambient: ["./globals.ts"],
-              exports: {
-                ".": "./src/index.ts",
-                "./index.js": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
+      const projectRoot = fixture.path("workspace/packages/js-like");
+      const sourceRoot = fixture.path("workspace/packages/js-like/src");
+      const entryFile = fixture.path("workspace/packages/js-like/src/index.ts");
+      const ambientFile = fixture.path("workspace/packages/js-like/globals.ts");
 
       const discovery = discoverProgramInputs(
         [entryFile],
@@ -72,32 +37,22 @@ describe("discoverProgramInputs", () => {
       expect(discovery.typeRoots).to.include(projectRoot);
       expect(discovery.allFiles).to.include(ambientFile);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("widens rootDir to include external installed source package files", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-inputs-rootdir-")
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/rootdir-external"
     );
 
     try {
-      const workspaceRoot = path.join(tempDir, "workspace");
-      const projectRoot = path.join(workspaceRoot, "packages", "app");
-      const sourceRoot = path.join(projectRoot, "src");
-      const entryFile = path.join(sourceRoot, "App.ts");
-      const externalPackageFile = path.join(
-        tempDir,
-        "external",
-        "nodejs-next",
-        "src",
-        "fs-module.ts"
+      const projectRoot = fixture.path("workspace/packages/app");
+      const sourceRoot = fixture.path("workspace/packages/app/src");
+      const entryFile = fixture.path("workspace/packages/app/src/App.ts");
+      const externalPackageFile = fixture.path(
+        "external/nodejs-next/src/fs-module.ts"
       );
-
-      fs.mkdirSync(path.dirname(entryFile), { recursive: true });
-      fs.mkdirSync(path.dirname(externalPackageFile), { recursive: true });
-      fs.writeFileSync(entryFile, "export {};\n");
-      fs.writeFileSync(externalPackageFile, "export {};\n");
 
       const discovery = discoverProgramInputs(
         [entryFile, externalPackageFile],
@@ -128,44 +83,25 @@ describe("discoverProgramInputs", () => {
       expect(relativeToExternal.startsWith("..")).to.equal(false);
       expect(path.isAbsolute(relativeToExternal)).to.equal(false);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("widens rootDir to include symlinked source package files by real path", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-inputs-symlink-rootdir-")
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/rootdir-symlink"
     );
 
     try {
-      const workspaceRoot = path.join(tempDir, "workspace");
-      const projectRoot = path.join(workspaceRoot, "packages", "app");
-      const sourceRoot = path.join(projectRoot, "src");
-      const entryFile = path.join(sourceRoot, "App.ts");
-      const externalPackageRoot = path.join(tempDir, "external", "nodejs-next");
-      const externalPackageFile = path.join(
-        externalPackageRoot,
-        "src",
-        "fs-module.ts"
+      const projectRoot = fixture.path("workspace/packages/app");
+      const sourceRoot = fixture.path("workspace/packages/app/src");
+      const entryFile = fixture.path("workspace/packages/app/src/App.ts");
+      const externalPackageFile = fixture.path(
+        "external/nodejs-next/src/fs-module.ts"
       );
-      const linkedPackageRoot = path.join(
-        workspaceRoot,
-        "node_modules",
-        "@tsonic",
-        "nodejs"
+      const linkedPackageFile = fixture.path(
+        "workspace/node_modules/@tsonic/nodejs/src/fs-module.ts"
       );
-      const linkedPackageFile = path.join(
-        linkedPackageRoot,
-        "src",
-        "fs-module.ts"
-      );
-
-      fs.mkdirSync(path.dirname(entryFile), { recursive: true });
-      fs.mkdirSync(path.dirname(externalPackageFile), { recursive: true });
-      fs.mkdirSync(path.dirname(linkedPackageRoot), { recursive: true });
-      fs.writeFileSync(entryFile, "export {};\n");
-      fs.writeFileSync(externalPackageFile, "export {};\n");
-      fs.symlinkSync(externalPackageRoot, linkedPackageRoot, "dir");
 
       const discovery = discoverProgramInputs(
         [entryFile, linkedPackageFile],
@@ -196,135 +132,26 @@ describe("discoverProgramInputs", () => {
       expect(relativeToExternal.startsWith("..")).to.equal(false);
       expect(path.isAbsolute(relativeToExternal)).to.equal(false);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("expands sibling source-package waves beyond stale installed @tsonic roots", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-inputs-wave-rootdir-")
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/sibling-wave"
     );
 
     try {
-      const workspaceRoot = path.join(tempDir, "tsoniclang");
-      const projectRoot = path.join(workspaceRoot, "proof", "js");
-      const sourceRoot = path.join(projectRoot, "src");
-      const entryFile = path.join(sourceRoot, "App.ts");
-      const installedNodejsRoot = path.join(
-        projectRoot,
-        "node_modules",
-        "@tsonic",
-        "nodejs"
+      const projectRoot = fixture.path("workspace/proof/js");
+      const sourceRoot = fixture.path("workspace/proof/js/src");
+      const entryFile = fixture.path("workspace/proof/js/src/App.ts");
+      const installedNodejsRoot = fixture.path(
+        "workspace/proof/js/node_modules/@tsonic/nodejs"
       );
-      const installedJsRoot = path.join(
-        projectRoot,
-        "node_modules",
-        "@tsonic",
-        "js"
+      const installedJsRoot = fixture.path(
+        "workspace/proof/js/node_modules/@tsonic/js"
       );
-      const nodejsExternalRoot = path.join(
-        workspaceRoot,
-        "nodejs-next",
-        "versions",
-        "10"
-      );
-      const jsSiblingRoot = path.join(
-        workspaceRoot,
-        "js-next",
-        "versions",
-        "10"
-      );
-
-      fs.mkdirSync(path.dirname(entryFile), { recursive: true });
-      fs.mkdirSync(path.dirname(installedNodejsRoot), { recursive: true });
-      fs.mkdirSync(installedJsRoot, { recursive: true });
-      fs.mkdirSync(path.join(nodejsExternalRoot, "tsonic"), {
-        recursive: true,
-      });
-      fs.mkdirSync(path.join(jsSiblingRoot, "tsonic"), { recursive: true });
-      fs.writeFileSync(entryFile, "export {};\n");
-
-      fs.writeFileSync(
-        path.join(nodejsExternalRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: "@tsonic/nodejs",
-            version: "10.0.0",
-            type: "module",
-            peerDependencies: {
-              "@tsonic/js": "10.0.0",
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(nodejsExternalRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "nodejs",
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.mkdirSync(path.join(nodejsExternalRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(nodejsExternalRoot, "src", "index.ts"),
-        "export {};\n"
-      );
-
-      fs.writeFileSync(
-        path.join(jsSiblingRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "10.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(jsSiblingRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "js",
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.mkdirSync(path.join(jsSiblingRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(jsSiblingRoot, "src", "index.ts"),
-        "export {};\n"
-      );
-
-      fs.writeFileSync(
-        path.join(installedJsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "9.9.9", type: "module" },
-          null,
-          2
-        )
-      );
-
-      fs.symlinkSync(nodejsExternalRoot, installedNodejsRoot, "dir");
+      const jsSiblingRoot = fixture.path("workspace/js-next/versions/10");
 
       const discovery = discoverProgramInputs(
         [entryFile],
@@ -361,7 +188,42 @@ describe("discoverProgramInputs", () => {
       expect(relativeToJsSibling.startsWith("..")).to.equal(false);
       expect(path.isAbsolute(relativeToJsSibling)).to.equal(false);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
+    }
+  });
+
+  it("does not activate unrelated installed source-package ambients for clr compilations", () => {
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/no-js-leak-clr"
+    );
+
+    try {
+      const projectRoot = fixture.path("app");
+      const sourceRoot = fixture.path("app/src");
+      const entryFile = fixture.path("app/src/index.ts");
+      const jsRoot = fixture.path("app/node_modules/@tsonic/js");
+      const jsAmbientFile = fixture.path("app/node_modules/@tsonic/js/globals.ts");
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "App",
+        },
+        {
+          requiredTypeRoots: [],
+          resolvedModes: ["clr"],
+        }
+      );
+
+      expect(
+        discovery.authoritativeTsonicPackageRoots.get("@tsonic/js")
+      ).to.equal(jsRoot);
+      expect(discovery.typeRoots.includes(jsRoot)).to.equal(false);
+      expect(discovery.allFiles.includes(jsAmbientFile)).to.equal(false);
+    } finally {
+      fixture.cleanup();
     }
   });
 });

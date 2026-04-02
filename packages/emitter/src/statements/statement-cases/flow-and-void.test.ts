@@ -145,11 +145,19 @@ describe("Statement Emission", () => {
                       },
                       targetType: {
                         kind: "arrayType",
-                        elementType: { kind: "unknownType" },
+                        elementType: {
+                          kind: "referenceType",
+                          name: "object",
+                          resolvedClrType: "System.Object",
+                        },
                       },
                       inferredType: {
                         kind: "arrayType",
-                        elementType: { kind: "unknownType" },
+                        elementType: {
+                          kind: "referenceType",
+                          name: "object",
+                          resolvedClrType: "System.Object",
+                        },
                       },
                     },
                   },
@@ -170,7 +178,7 @@ describe("Statement Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("object?[] items = (object?[])value;");
+    expect(result).to.include("object[] items = (object[])value;");
   });
 
   it("should drop method-group-only void statements without emitting discard assignments", () => {

@@ -19,9 +19,11 @@ export type ParameterModifier = {
 };
 
 export type EmitCallStyle = "receiver" | "static";
+export type EmitCallableStaticAccessorKind = "property" | "field";
 
 export type EmitSemantics = {
-  readonly callStyle: EmitCallStyle;
+  readonly callStyle?: EmitCallStyle;
+  readonly callableStaticAccessorKind?: EmitCallableStaticAccessorKind;
 };
 
 export type TypeSemantics = {
@@ -144,6 +146,7 @@ export type TsbindgenProperty = {
   readonly semanticOptional?: boolean;
   readonly declaringClrType: string;
   readonly declaringAssemblyName: string;
+  readonly emitSemantics?: EmitSemantics;
 };
 
 export type TsbindgenField = {
@@ -153,6 +156,7 @@ export type TsbindgenField = {
   readonly semanticOptional?: boolean;
   readonly declaringClrType: string;
   readonly declaringAssemblyName: string;
+  readonly emitSemantics?: EmitSemantics;
 };
 
 export type TsbindgenTypeRef = {
@@ -238,6 +242,11 @@ export type FirstPartyBindingsFileV2 = {
 const isValidEmitCallStyle = (value: unknown): value is EmitCallStyle =>
   value === "receiver" || value === "static";
 
+const isValidEmitCallableStaticAccessorKind = (
+  value: unknown
+): value is EmitCallableStaticAccessorKind =>
+  value === "property" || value === "field";
+
 const validateEmitSemantics = (
   value: unknown,
   filePath: string,
@@ -249,8 +258,25 @@ const validateEmitSemantics = (
   }
 
   const record = value as Record<string, unknown>;
-  if (!isValidEmitCallStyle(record.callStyle)) {
+  if (
+    "callStyle" in record &&
+    record.callStyle !== undefined &&
+    !isValidEmitCallStyle(record.callStyle)
+  ) {
     return `${filePath}: '${label}.callStyle' must be 'receiver' or 'static'`;
+  }
+  if (
+    "callableStaticAccessorKind" in record &&
+    record.callableStaticAccessorKind !== undefined &&
+    !isValidEmitCallableStaticAccessorKind(record.callableStaticAccessorKind)
+  ) {
+    return `${filePath}: '${label}.callableStaticAccessorKind' must be 'property' or 'field'`;
+  }
+  if (
+    record.callStyle === undefined &&
+    record.callableStaticAccessorKind === undefined
+  ) {
+    return `${filePath}: '${label}' must define at least one known emit semantics property`;
   }
 
   return undefined;

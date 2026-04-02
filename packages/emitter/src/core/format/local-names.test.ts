@@ -31,7 +31,11 @@ const baseContext: EmitterContext = {
 
 const stringType: IrType = { kind: "primitiveType", name: "string" };
 const numberType: IrType = { kind: "primitiveType", name: "number" };
-const unknownType: IrType = { kind: "unknownType" };
+const jsValueType: IrType = {
+  kind: "referenceType",
+  name: "JsValue",
+  resolvedClrType: "Tsonic.Runtime.JsValue",
+};
 
 const aliasedUnion: IrType = {
   kind: "unionType",
@@ -262,7 +266,7 @@ describe("local-names semantic/storage channels", () => {
       // Simulate catch scope: add catch variable
       const catchCtx = registerLocalSymbolTypes(
         "ex",
-        unknownType,
+        jsValueType,
         {
           kind: "referenceType",
           name: "System.Exception",
@@ -272,7 +276,7 @@ describe("local-names semantic/storage channels", () => {
       );
 
       // Verify catch scope has the binding
-      expect(catchCtx.localSemanticTypes?.get("ex")).to.deep.equal(unknownType);
+      expect(catchCtx.localSemanticTypes?.get("ex")).to.deep.equal(jsValueType);
       expect(catchCtx.localValueTypes?.get("ex")?.kind).to.equal(
         "referenceType"
       );

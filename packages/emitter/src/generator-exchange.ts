@@ -110,7 +110,14 @@ export const generateExchangeClassAst = (
 
       if (typeRef.typeArguments.length > 2) {
         const nextTypeArg = typeRef.typeArguments[2];
-        if (nextTypeArg) {
+        if (
+          nextTypeArg &&
+          nextTypeArg.kind !== "voidType" &&
+          !(
+            nextTypeArg.kind === "primitiveType" &&
+            nextTypeArg.name === "undefined"
+          )
+        ) {
           const [nextAst, ctx2] = emitTypeAst(nextTypeArg, currentContext);
           currentContext = ctx2;
           inputTypeAst = nextAst;

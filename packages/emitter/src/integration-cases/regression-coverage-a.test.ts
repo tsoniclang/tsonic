@@ -40,7 +40,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("string name = default(string);");
     });
 
-    it("prefers typed CLR option overloads over erased unknown for object literals", () => {
+    it("prefers typed CLR option overloads over erased JsValue for object literals", () => {
       const source = `
         declare class MkdirOptions {
           readonly __tsonic_type_nodejs_MkdirOptions: never;
@@ -50,7 +50,7 @@ describe("End-to-End Integration", () => {
         declare const fs: {
           mkdirSync(path: string, options: MkdirOptions): void;
           mkdirSync(path: string, recursive?: boolean): void;
-          mkdirSync(path: string, options: unknown): void;
+          mkdirSync(path: string, options: JsValue): void;
         };
 
         export function ensure(dir: string): void {
@@ -63,6 +63,23 @@ describe("End-to-End Integration", () => {
         "fs.mkdirSync(dir, new global::Test.MkdirOptions"
       );
       expect(csharp).not.to.include("Dictionary<string, object?>");
+    });
+
+    it("uses explicit JsValue dictionary fallback for broad object literal arguments", () => {
+      const source = `
+        declare function deepEqual(left: JsValue, right: JsValue): void;
+
+        export function run(): void {
+          deepEqual({ name: "Alice" }, { name: "Bob" });
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "new global::System.Collections.Generic.Dictionary<string, object?>"
+      );
+      expect(csharp).to.include('["name"] = "Alice"');
+      expect(csharp).to.include('["name"] = "Bob"');
     });
 
     it("emits indexer access for alias-wrapped string dictionaries", () => {
@@ -109,7 +126,7 @@ describe("End-to-End Integration", () => {
 
     it("passes broad object call expectations through narrowed record locals without storage casts", () => {
       const source = `
-        const isObject = (value: unknown): value is Record<string, unknown> => {
+        const isObject = (value: JsValue): value is Record<string, JsValue> => {
           return value !== null && typeof value === "object" && !Array.isArray(value);
         };
 
@@ -275,11 +292,11 @@ describe("End-to-End Integration", () => {
 
     it("preserves generic target assertions after iterable narrowing", () => {
       const source = `
-        function isIterableObject(value: unknown): value is Iterable<unknown> {
+        function isIterableObject(value: JsValue): value is Iterable<JsValue> {
           return true;
         }
 
-        export function first<T>(item: unknown): T | undefined {
+        export function first<T>(item: JsValue): T | undefined {
           if (isIterableObject(item)) {
             for (const value of item as Iterable<T>) {
               return value;
@@ -297,12 +314,12 @@ describe("End-to-End Integration", () => {
 
     it("preserves class-generic iterable assertions after iterable narrowing", () => {
       const source = `
-        function isIterableObject(value: unknown): value is Iterable<unknown> {
+        function isIterableObject(value: JsValue): value is Iterable<JsValue> {
           return true;
         }
 
         export class Box<T> {
-          first(item: unknown): T | undefined {
+          first(item: JsValue): T | undefined {
             if (isIterableObject(item)) {
               for (const value of item as Iterable<T>) {
                 return value;
@@ -321,12 +338,12 @@ describe("End-to-End Integration", () => {
 
     it("preserves class-generic iterable assertions under the js surface", () => {
       const source = `
-        function isIterableObject(value: unknown): value is Iterable<unknown> {
+        function isIterableObject(value: JsValue): value is Iterable<JsValue> {
           return true;
         }
 
         export class Box<T> {
-          first(item: unknown): T | undefined {
+          first(item: JsValue): T | undefined {
             if (isIterableObject(item)) {
               for (const value of item as Iterable<T>) {
                 return value;
@@ -347,11 +364,11 @@ describe("End-to-End Integration", () => {
 
     it("preserves narrowed iterable casts in for-of loops", () => {
       const source = `
-        function isIterableObject(value: unknown): value is Iterable<unknown> {
+        function isIterableObject(value: JsValue): value is Iterable<JsValue> {
           return true;
         }
 
-        export function first(value: unknown): unknown {
+        export function first(value: JsValue): JsValue {
           if (isIterableObject(value)) {
             for (const item of value) {
               return item;
@@ -371,15 +388,15 @@ describe("End-to-End Integration", () => {
 
     it("casts structural receiver assertions before well-known-symbol property reads", () => {
       const source = `
-        export function getIterator(source: Iterable<string> | ArrayLike<string>): unknown {
-          const iterator = (source as { readonly [Symbol.iterator]?: unknown })[Symbol.iterator];
+        export function getIterator(source: Iterable<string> | ArrayLike<string>): JsValue {
+          const iterator = (source as { readonly [Symbol.iterator]?: JsValue })[Symbol.iterator];
           return iterator;
         }
       `;
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.match(
-        /var iterator = \(object\?\)\(\((?:global::[A-Za-z0-9_.]+)?__Anon_[A-Za-z0-9_]+\)source\)\.__tsonic_symbol_iterator;/
+        /var iterator = (?:\(object\?\))?\(\((?:global::[A-Za-z0-9_.]+)?__Anon_[A-Za-z0-9_]+\)source\)\.__tsonic_symbol_iterator;/
       );
     });
 
@@ -418,7 +435,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
       expect(csharp).to.not.include(".Value");
       expect(csharp).to.include(
-        'return ((global::System.Object)(lengthOrEncoding)) == null || ((global::System.Object)(lengthOrEncoding)) != null && lengthOrEncoding.Is2() ? 0 : (int)(lengthOrEncoding.As1());'
+        'return ((global::System.Object)(lengthOrEncoding)) == null || ((global::System.Object)(lengthOrEncoding)) != null && lengthOrEncoding.Is2() ? 0 : (lengthOrEncoding.As1());'
       );
     });
 
@@ -467,25 +484,6 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("int __defaulted_delay = delay ?? 1;");
       expect(csharp).to.include("return __defaulted_delay;");
       expect(csharp).to.include("return new DelayBox().wait((int?)delay);");
-    });
-
-    it("preserves nullish forwarding for overload wrappers targeting value-type defaults", () => {
-      const source = `
-        import type { int } from "@tsonic/core/types.js";
-
-        class DelayBox {
-          wait(): int;
-          wait(delay?: int): int;
-          wait(delay: int = 1 as int): int {
-            return delay;
-          }
-        }
-      `;
-
-      const csharp = compileToCSharp(source);
-      expect(csharp).to.include("public int wait(int? delay = default)");
-      expect(csharp).to.include("return this.__tsonic_overload_impl_wait(delay ?? 1);");
-      expect(csharp).to.not.include("return this.__tsonic_overload_impl_wait(delay);");
     });
 
     it("preserves nullable shadow storage for null-valued parameter defaults", () => {
@@ -548,7 +546,7 @@ describe("End-to-End Integration", () => {
           ToArray(): T[];
         }
 
-        export function run<TResult>(values: List<unknown>): TResult[] {
+        export function run<TResult>(values: List<JsValue>): TResult[] {
           return values.ToArray() as TResult[];
         }
       `;
@@ -565,7 +563,7 @@ describe("End-to-End Integration", () => {
         export class TimersPromises {
           public async *setInterval(
             value?: string
-          ): AsyncGenerator<string, void, unknown> {
+          ): AsyncGenerator<string, void, JsValue> {
             while (true) {
               yield value ?? "tick";
             }

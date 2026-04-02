@@ -1,0 +1,8 @@
+{
+  "name": "@tsonic/nodejs",
+  "version": "10.0.49-next.0",
+  "type": "module",
+  "peerDependencies": {
+    "@tsonic/js": "10.0.49-next.0"
+  }
+}

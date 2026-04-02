@@ -1,4 +1,4 @@
-// Test: type-level attributes using A.on(X).type.add(Y) pattern
+// Test: declaration-level attributes using A<T>().add(...) pattern
 import { attributes as A } from "@tsonic/core/lang.js";
 import {
   SerializableAttribute,
@@ -10,17 +10,17 @@ export class User {
   name!: string;
   age!: number;
 }
-A.on(User).type.add(SerializableAttribute);
+A<User>().add(SerializableAttribute);
 
 // Class with attribute and positional argument
 export class Config {
   setting!: string;
 }
-A.on(Config).type.add(ObsoleteAttribute, "Use NewConfig instead");
+A<Config>().add(ObsoleteAttribute, "Use NewConfig instead");
 
 // Class with multiple attributes
 export class AnnotatedService {
   data!: string;
 }
-A.on(AnnotatedService).type.add(SerializableAttribute);
-A.on(AnnotatedService).type.add(ObsoleteAttribute, "Deprecated");
+A<AnnotatedService>().add(SerializableAttribute);
+A<AnnotatedService>().add(ObsoleteAttribute, "Deprecated");

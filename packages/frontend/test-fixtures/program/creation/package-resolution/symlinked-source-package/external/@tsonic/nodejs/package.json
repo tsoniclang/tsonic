@@ -1,0 +1,9 @@
+{
+  "name": "@tsonic/nodejs",
+  "version": "10.0.99-test",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./path.js": "./src/path-module.ts"
+  }
+}

@@ -9,20 +9,34 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { resolveArrayLikeReceiverType } from "../../core/semantic/type-resolution.js";
 import { needsIntCast } from "./call-analysis.js";
 import {
   emitCallArguments,
   wrapIntCast,
-  emitArrayWrapperElementTypeAst,
 } from "./call-arguments.js";
 import {
   isArrayWrapperBindingType,
   hasDirectNativeArrayLikeInteropShape,
   nativeArrayReturningInteropMembers,
 } from "./call-array-mutation.js";
-import { buildExactGlobalBindingType } from "../exact-global-bindings.js";
+
+const buildNativeArrayWrapperAst = (
+  receiverAst: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: {
+    kind: "memberAccessExpression",
+    expression: {
+      kind: "typeReferenceExpression",
+      type: identifierType("global::js.ArrayObject"),
+    },
+    memberName: "wrapArray",
+  },
+  arguments: [receiverAst],
+});
 
 const isArrayLikeIrType = (type: IrType | undefined): boolean => {
   if (!type) return false;
@@ -136,21 +150,7 @@ export const emitArrayWrapperInteropCall = (
   );
   currentContext = receiverContext;
 
-  const [elementTypeAst, elementTypeContext] = emitArrayWrapperElementTypeAst(
-    receiverType ?? {
-      kind: "arrayType",
-      elementType: receiverElementType,
-      origin: "explicit",
-    },
-    currentContext
-  );
-  currentContext = elementTypeContext;
-
-  const wrapperAst: CSharpExpressionAst = {
-    kind: "objectCreationExpression",
-    type: buildExactGlobalBindingType("Array", [elementTypeAst], currentContext),
-    arguments: [receiverAst],
-  };
+  const wrapperAst = buildNativeArrayWrapperAst(receiverAst);
 
   const [argAsts, argContext] = emitCallArguments(
     expr.arguments,

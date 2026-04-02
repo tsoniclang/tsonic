@@ -13,11 +13,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import {
-  compile,
-  buildIr,
-  runNumericProofPass,
-  runAttributeCollectionPass,
-  runAnonymousTypeLoweringPass,
+  buildModuleDependencyGraph,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../src/emitter.js";
 import { parseConfigYaml } from "../src/golden-tests/config-parser.js";
@@ -69,60 +65,26 @@ const generateAndWrite = (
     const rootNamespace = ["TestCases", ...namespaceParts].join(".");
     const sourceRoot = path.dirname(inputPath);
 
-    // Compile
-    const compileResult = compile(tsFiles.length ? tsFiles : [inputPath], {
+    // Build the authoritative processed module graph.
+    const graphResult = buildModuleDependencyGraph(inputPath, {
       projectRoot: monorepoRoot,
       sourceRoot,
       rootNamespace,
       typeRoots,
     });
 
-    if (!compileResult.ok) {
+    if (!graphResult.ok) {
       console.error(`  ERROR: Compilation failed`);
-      for (const d of compileResult.error.diagnostics) {
+      for (const d of graphResult.error) {
         console.error(`    ${d.code}: ${d.message}`);
       }
       return false;
     }
 
-    // Build IR
-    const irResult = buildIr(compileResult.value.program, {
-      sourceRoot,
+    // Emit C# from the authoritative dependency-graph modules.
+    const emitResult = emitCSharpFiles(graphResult.value.modules, {
       rootNamespace,
-    });
-
-    if (!irResult.ok) {
-      console.error(`  ERROR: IR build failed`);
-      return false;
-    }
-
-    // Run anonymous type lowering pass (keeps update script consistent with golden runner).
-    const anonTypeResult = runAnonymousTypeLoweringPass(irResult.value);
-    const loweredModules = anonTypeResult.modules;
-
-    // Run numeric proof pass
-    const proofResult = runNumericProofPass(loweredModules);
-    if (!proofResult.ok) {
-      console.error(`  ERROR: Proof pass failed`);
-      for (const d of proofResult.diagnostics) {
-        console.error(`    ${d.code}: ${d.message}`);
-      }
-      return false;
-    }
-
-    // Run attribute collection pass (extracts A.on(X).type(Y) markers)
-    const attributeResult = runAttributeCollectionPass(proofResult.modules);
-    if (!attributeResult.ok) {
-      console.error(`  ERROR: Attribute collection failed`);
-      for (const d of attributeResult.diagnostics) {
-        console.error(`    ${d.code}: ${d.message}`);
-      }
-      return false;
-    }
-
-    // Emit C# using processed modules from attribute pass
-    const emitResult = emitCSharpFiles(attributeResult.modules, {
-      rootNamespace,
+      bindingRegistry: graphResult.value.bindingRegistry,
     });
 
     if (!emitResult.ok) {

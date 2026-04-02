@@ -1,18 +1,35 @@
 declare module "@tsonic/core/lang.js" {
+  export type JsPrimitive = string | number | boolean | bigint | symbol;
+  export type JsValue = object | JsPrimitive | null;
+
   export type Ctor<
-    T = unknown,
-    Args extends readonly any[] = readonly any[],
+    T = JsValue,
+    Args extends readonly JsValue[] = readonly JsValue[],
   > = new (...args: Args) => T;
 
-  export type InstanceOf<C extends Ctor<any, any>> =
-    C extends Ctor<infer I, any> ? I : never;
+  export type AttributeCtor = Ctor<object, readonly JsValue[]>;
+
+  export interface AttributeDescriptor {
+    readonly kind: "attribute";
+    readonly ctor: AttributeCtor;
+    readonly args: readonly JsValue[];
+  }
+
+  export type InstanceOf<C extends Ctor<object, readonly JsValue[]>> =
+    C extends Ctor<infer I, readonly JsValue[]> ? I : never;
+
+  export declare function asinterface<T>(value: JsValue): T;
 
   export type MethodKeys<T> = {
-    [K in keyof T]-?: T[K] extends (...args: any[]) => any ? K : never;
+    [K in keyof T]-?: T[K] extends (...args: infer _Args) => infer _Result
+      ? K
+      : never;
   }[keyof T];
 
   export type PropertyKeys<T> = {
-    [K in keyof T]-?: T[K] extends (...args: any[]) => any ? never : K;
+    [K in keyof T]-?: T[K] extends (...args: infer _Args) => infer _Result
+      ? never
+      : K;
   }[keyof T];
 
   export interface AttributeTargets {
@@ -33,13 +50,12 @@ declare module "@tsonic/core/lang.js" {
 
   export interface AttributeTargetBuilder {
     target(target: AttributeTarget): AttributeTargetBuilder;
-    add(ctor: any, ...args: any[]): void;
-    add(descriptor: any): void;
+    add(ctor: AttributeCtor, ...args: readonly JsValue[]): void;
+    add(descriptor: AttributeDescriptor): void;
   }
 
-  export interface OnBuilder<T> {
-    type: AttributeTargetBuilder;
-    ctor: AttributeTargetBuilder;
+  export interface TypeAttributeBuilder<T> extends AttributeTargetBuilder {
+    readonly ctor: AttributeTargetBuilder;
     method<K extends MethodKeys<T>>(
       selector: (t: T) => T[K]
     ): AttributeTargetBuilder;
@@ -48,10 +64,47 @@ declare module "@tsonic/core/lang.js" {
     ): AttributeTargetBuilder;
   }
 
+  export interface FunctionAttributeBuilder {
+    add(ctor: AttributeCtor, ...args: readonly JsValue[]): void;
+    add(descriptor: AttributeDescriptor): void;
+  }
+
   export interface AttributesApi {
-    on<C extends Ctor<any, any>>(ctor: C): OnBuilder<InstanceOf<C>>;
-    attr(ctor: any, ...args: any[]): any;
+    <T>(): TypeAttributeBuilder<T>;
+    <F extends Function>(fn: F): FunctionAttributeBuilder;
+    attr(
+      ctor: AttributeCtor,
+      ...args: readonly JsValue[]
+    ): AttributeDescriptor;
   }
 
   export declare const attributes: AttributesApi;
+
+  /**
+   * Overload-family marker API.
+   *
+   * Examples:
+   *   O<Parser>().method(x => x.parse_string).family(x => x.Parse);
+   *   O(parse_bytes).family(parse);
+   */
+  export interface OverloadMethodFamilyBuilder<T> {
+    family<K extends MethodKeys<T>>(selector: (t: T) => T[K]): void;
+  }
+
+  export interface OverloadTypeBuilder<T> {
+    method<K extends MethodKeys<T>>(
+      selector: (t: T) => T[K]
+    ): OverloadMethodFamilyBuilder<T>;
+  }
+
+  export interface OverloadFunctionFamilyBuilder {
+    family<F extends Function>(fn: F): void;
+  }
+
+  export interface OverloadsApi {
+    <T>(): OverloadTypeBuilder<T>;
+    <F extends Function>(fn: F): OverloadFunctionFamilyBuilder;
+  }
+
+  export declare const overloads: OverloadsApi;
 }

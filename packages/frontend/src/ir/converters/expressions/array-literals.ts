@@ -302,6 +302,11 @@ export const normalizeExpectedArrayType = (
     return undefined;
   };
 
+  const directCandidate = normalizeCandidate(expectedType);
+  if (directCandidate) {
+    return directCandidate;
+  }
+
   const candidateMap = new Map<
     string,
     Extract<IrType, { kind: "arrayType" }>

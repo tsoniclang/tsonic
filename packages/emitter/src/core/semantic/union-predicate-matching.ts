@@ -14,6 +14,7 @@ import {
   stripNullish,
   getArrayLikeElementType,
 } from "./nullish-value-helpers.js";
+import { shouldEraseRecursiveRuntimeUnionArrayElement } from "./runtime-union-expansion.js";
 import {
   resolveLocalTypeInfo,
   getAllPropertySignatures,
@@ -37,6 +38,12 @@ const referenceTypesShareNominalIdentity = (
 
   return false;
 };
+
+const isBroadObjectReferenceType = (type: IrType): boolean =>
+  type.kind === "referenceType" &&
+  (type.name === "object" ||
+    type.resolvedClrType === "System.Object" ||
+    type.resolvedClrType === "global::System.Object");
 
 /**
  * Select the best union member type to instantiate for an object literal.
@@ -331,6 +338,16 @@ export const findUnionMemberIndex = (
       resolvedMember.kind === "arrayType" &&
       resolvedCandidate.kind === "arrayType"
     ) {
+      if (
+        isBroadObjectReferenceType(resolvedMember.elementType) &&
+        shouldEraseRecursiveRuntimeUnionArrayElement(
+          resolvedCandidate.elementType,
+          context
+        )
+      ) {
+        return true;
+      }
+
       if (
         resolvedMember.elementType.kind === "unknownType" ||
         resolvedCandidate.elementType.kind === "unknownType"

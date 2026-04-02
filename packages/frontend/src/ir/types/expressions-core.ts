@@ -214,7 +214,8 @@ export type IrMemberExpression = {
     readonly isExtensionMethod?: boolean;
     readonly receiverExpectedType?: IrType;
     readonly emitSemantics?: {
-      readonly callStyle: "receiver" | "static";
+      readonly callStyle?: "receiver" | "static";
+      readonly callableStaticAccessorKind?: "property" | "field";
     };
   };
   // Classification for computed access lowering (set during IR build)
@@ -229,6 +230,7 @@ export type IrCallExpression = {
   readonly callee: IrExpression;
   readonly arguments: readonly (IrExpression | IrSpreadExpression)[];
   readonly isOptional: boolean; // true for func?.()
+  readonly intrinsicKind?: "globalSymbol";
   readonly inferredType?: IrType;
   /**
    * True when `unknown` is the declared return type (for example JSON.parse())

@@ -11,6 +11,7 @@ import {
   IrCallExpression,
   IrClassDeclaration,
   IrAttribute,
+  IrInterfaceDeclaration,
   IrVariableDeclaration,
 } from "../../types.js";
 import {
@@ -32,12 +33,21 @@ import {
 export type CollectedAttributes = {
   readonly removedStatementIndices: ReadonlySet<number>;
   readonly classAttributes: ReadonlyMap<number, readonly IrAttribute[]>;
+  readonly interfaceAttributes: ReadonlyMap<number, readonly IrAttribute[]>;
   readonly classCtorAttributes: ReadonlyMap<number, readonly IrAttribute[]>;
   readonly classMethodAttributes: ReadonlyMap<
     number,
     ReadonlyMap<string, readonly IrAttribute[]>
   >;
   readonly classPropAttributes: ReadonlyMap<
+    number,
+    ReadonlyMap<string, readonly IrAttribute[]>
+  >;
+  readonly interfaceMethodAttributes: ReadonlyMap<
+    number,
+    ReadonlyMap<string, readonly IrAttribute[]>
+  >;
+  readonly interfacePropAttributes: ReadonlyMap<
     number,
     ReadonlyMap<string, readonly IrAttribute[]>
   >;
@@ -124,7 +134,7 @@ export const collectModuleAttributes = (
         createDiagnostic(
           "TSN4005",
           "error",
-          `Invalid attribute marker call. Expected one of: A.on(X).type.add(...), A.on(X).ctor.add(...), A.on(X).method(x => x.m).add(...), A.on(X).prop(x => x.p).add(...), with optional .target(...) before .add(...)`,
+          `Invalid attribute marker call. Expected one of: A<T>().add(...), A<T>().ctor.add(...), A<T>().method(x => x.m).add(...), A<T>().prop(x => x.p).add(...), or A(fn).add(...), with optional .target(...) before .add(...) on ctor/method/prop targets.`,
           createLocation(module.filePath, expr.sourceSpan)
         )
       );
@@ -139,11 +149,14 @@ export const collectModuleAttributes = (
 
   // Build map of declaration names to their indices
   const classDeclarations = new Map<string, number>();
+  const interfaceDeclarations = new Map<string, number>();
   const functionDeclarations = new Map<string, number>();
 
   module.body.forEach((stmt, i) => {
     if (stmt.kind === "classDeclaration") {
       classDeclarations.set(stmt.name, i);
+    } else if (stmt.kind === "interfaceDeclaration") {
+      interfaceDeclarations.set(stmt.name, i);
     } else if (stmt.kind === "functionDeclaration") {
       functionDeclarations.set(stmt.name, i);
     }
@@ -151,15 +164,15 @@ export const collectModuleAttributes = (
 
   // Build map of attributes per declaration
   const classAttributes = new Map<number, IrAttribute[]>();
+  const interfaceAttributes = new Map<number, IrAttribute[]>();
   const classCtorAttributes = new Map<number, IrAttribute[]>();
   const classMethodAttributes = new Map<number, Map<string, IrAttribute[]>>();
   const classPropAttributes = new Map<number, Map<string, IrAttribute[]>>();
+  const interfaceMethodAttributes = new Map<number, Map<string, IrAttribute[]>>();
+  const interfacePropAttributes = new Map<number, Map<string, IrAttribute[]>>();
   const functionAttributes = new Map<number, IrAttribute[]>();
 
   for (const marker of markers) {
-    const classIndex = classDeclarations.get(marker.targetName);
-    const funcIndex = functionDeclarations.get(marker.targetName);
-
     const attr: IrAttribute = {
       kind: "attribute",
       target: marker.attributeTarget,
@@ -168,13 +181,61 @@ export const collectModuleAttributes = (
       namedArgs: marker.namedArgs,
     };
 
-    if (marker.targetSelector === "type") {
-      if (classIndex !== undefined && funcIndex !== undefined) {
+    if (marker.target.kind === "function") {
+      const funcIndex = functionDeclarations.get(marker.target.name);
+      if (funcIndex === undefined) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4007",
+            "error",
+            `Attribute target '${marker.target.name}' not found in module`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+      if (marker.targetSelector !== "root") {
         diagnostics.push(
           createDiagnostic(
             "TSN4005",
             "error",
-            `Attribute target '${marker.targetName}' is ambiguous (matches both class and function)`,
+            `Invalid attribute marker: free functions only support root A(fn).add(...) attributes.`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+      const attrs = functionAttributes.get(funcIndex) ?? [];
+      attrs.push(attr);
+      functionAttributes.set(funcIndex, attrs);
+      continue;
+    }
+
+    const classIndex = classDeclarations.get(marker.target.name);
+    const interfaceIndex = interfaceDeclarations.get(marker.target.name);
+
+    if (classIndex !== undefined && interfaceIndex !== undefined) {
+      diagnostics.push(
+        createDiagnostic(
+          "TSN4005",
+          "error",
+          `Attribute target '${marker.target.name}' is ambiguous (matches both class and interface)`,
+          createLocation(module.filePath, marker.sourceSpan)
+        )
+      );
+      continue;
+    }
+
+    if (marker.targetSelector === "root") {
+      if (
+        marker.attributeTarget !== undefined &&
+        marker.attributeTarget !== "type"
+      ) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4005",
+            "error",
+            `Invalid attribute target '${marker.attributeTarget}' for declaration attribute. Expected 'type' or omit .target(...)`,
             createLocation(module.filePath, marker.sourceSpan)
           )
         );
@@ -182,41 +243,16 @@ export const collectModuleAttributes = (
       }
 
       if (classIndex !== undefined) {
-        if (
-          marker.attributeTarget !== undefined &&
-          marker.attributeTarget !== "type"
-        ) {
-          diagnostics.push(
-            createDiagnostic(
-              "TSN4005",
-              "error",
-              `Invalid attribute target '${marker.attributeTarget}' for type attribute. Expected 'type' or omit .target(...)`,
-              createLocation(module.filePath, marker.sourceSpan)
-            )
-          );
-          continue;
-        }
         const attrs = classAttributes.get(classIndex) ?? [];
         attrs.push(attr);
         classAttributes.set(classIndex, attrs);
         continue;
       }
 
-      if (funcIndex !== undefined) {
-        if (marker.attributeTarget !== undefined) {
-          diagnostics.push(
-            createDiagnostic(
-              "TSN4005",
-              "error",
-              `.target(...) is not supported for function attributes via A.on(fn).type. Use A.on(Class).method(...) instead.`,
-              createLocation(module.filePath, marker.sourceSpan)
-            )
-          );
-          continue;
-        }
-        const attrs = functionAttributes.get(funcIndex) ?? [];
+      if (interfaceIndex !== undefined) {
+        const attrs = interfaceAttributes.get(interfaceIndex) ?? [];
         attrs.push(attr);
-        functionAttributes.set(funcIndex, attrs);
+        interfaceAttributes.set(interfaceIndex, attrs);
         continue;
       }
 
@@ -224,28 +260,39 @@ export const collectModuleAttributes = (
         createDiagnostic(
           "TSN4007",
           "error",
-          `Attribute target '${marker.targetName}' not found in module`,
+          `Attribute target '${marker.target.name}' not found in module`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );
       continue;
     }
 
-    if (classIndex === undefined) {
+    if (classIndex === undefined && interfaceIndex === undefined) {
       diagnostics.push(
         createDiagnostic(
           "TSN4007",
           "error",
-          `Attribute target '${marker.targetName}' not found in module`,
+          `Attribute target '${marker.target.name}' not found in module`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );
       continue;
     }
 
-    const classStmt = module.body[classIndex] as IrClassDeclaration;
-
     if (marker.targetSelector === "ctor") {
+      if (classIndex === undefined) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4005",
+            "error",
+            `Constructor attributes can only target classes. '${marker.target.name}' is not a class target.`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+
+      const classStmt = module.body[classIndex] as IrClassDeclaration;
       if (
         marker.attributeTarget !== undefined &&
         marker.attributeTarget !== "method"
@@ -308,25 +355,74 @@ export const collectModuleAttributes = (
         );
         continue;
       }
-      const hasMember = classStmt.members.some(
-        (m) => m.kind === "methodDeclaration" && m.name === memberName
+
+      if (classIndex !== undefined) {
+        const classStmt = module.body[classIndex] as IrClassDeclaration;
+        const matchingMembers = classStmt.members.filter(
+          (m) => m.kind === "methodDeclaration" && m.name === memberName
+        );
+        if (matchingMembers.length === 0) {
+          diagnostics.push(
+            createDiagnostic(
+              "TSN4007",
+              "error",
+              `Method '${classStmt.name}.${memberName}' not found for attribute target`,
+              createLocation(module.filePath, marker.sourceSpan)
+            )
+          );
+          continue;
+        }
+        if (matchingMembers.length > 1) {
+          diagnostics.push(
+            createDiagnostic(
+              "TSN4005",
+              "error",
+              `Method attribute target '${classStmt.name}.${memberName}' is ambiguous. Selectors must resolve to exactly one surviving method.`,
+              createLocation(module.filePath, marker.sourceSpan)
+            )
+          );
+          continue;
+        }
+        const perClass = classMethodAttributes.get(classIndex) ?? new Map();
+        const attrs = perClass.get(memberName) ?? [];
+        attrs.push(attr);
+        perClass.set(memberName, attrs);
+        classMethodAttributes.set(classIndex, perClass);
+        continue;
+      }
+
+      const interfaceStmt = module.body[interfaceIndex!] as IrInterfaceDeclaration;
+      const matchingMembers = interfaceStmt.members.filter(
+        (m) => m.kind === "methodSignature" && m.name === memberName
       );
-      if (!hasMember) {
+      if (matchingMembers.length === 0) {
         diagnostics.push(
           createDiagnostic(
             "TSN4007",
             "error",
-            `Method '${classStmt.name}.${memberName}' not found for attribute target`,
+            `Method '${interfaceStmt.name}.${memberName}' not found for attribute target`,
             createLocation(module.filePath, marker.sourceSpan)
           )
         );
         continue;
       }
-      const perClass = classMethodAttributes.get(classIndex) ?? new Map();
-      const attrs = perClass.get(memberName) ?? [];
+      if (matchingMembers.length > 1) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4005",
+            "error",
+            `Method attribute target '${interfaceStmt.name}.${memberName}' is ambiguous. Selectors must resolve to exactly one interface method signature.`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+      const perInterface =
+        interfaceMethodAttributes.get(interfaceIndex!) ?? new Map();
+      const attrs = perInterface.get(memberName) ?? [];
       attrs.push(attr);
-      perClass.set(memberName, attrs);
-      classMethodAttributes.set(classIndex, perClass);
+      perInterface.set(memberName, attrs);
+      interfaceMethodAttributes.set(interfaceIndex!, perInterface);
       continue;
     }
 
@@ -343,15 +439,133 @@ export const collectModuleAttributes = (
         );
         continue;
       }
-      const member = classStmt.members.find(
-        (m) => m.kind === "propertyDeclaration" && m.name === memberName
+
+      if (classIndex !== undefined) {
+        const classStmt = module.body[classIndex] as IrClassDeclaration;
+        const matchingMembers = classStmt.members.filter(
+          (m) => m.kind === "propertyDeclaration" && m.name === memberName
+        );
+        if (matchingMembers.length === 0) {
+          diagnostics.push(
+            createDiagnostic(
+              "TSN4007",
+              "error",
+              `Property '${classStmt.name}.${memberName}' not found for attribute target`,
+              createLocation(module.filePath, marker.sourceSpan)
+            )
+          );
+          continue;
+        }
+        if (matchingMembers.length > 1) {
+          diagnostics.push(
+            createDiagnostic(
+              "TSN4005",
+              "error",
+              `Property attribute target '${classStmt.name}.${memberName}' is ambiguous. Selectors must resolve to exactly one surviving property.`,
+              createLocation(module.filePath, marker.sourceSpan)
+            )
+          );
+          continue;
+        }
+        const member = matchingMembers[0];
+        if (!member || member.kind !== "propertyDeclaration") {
+          diagnostics.push(
+            createDiagnostic(
+              "TSN4007",
+              "error",
+              `Property '${classStmt.name}.${memberName}' not found for attribute target`,
+              createLocation(module.filePath, marker.sourceSpan)
+            )
+          );
+          continue;
+        }
+
+        if (marker.attributeTarget !== undefined) {
+          if (member.emitAsField) {
+            if (marker.attributeTarget !== "field") {
+              diagnostics.push(
+                createDiagnostic(
+                  "TSN4005",
+                  "error",
+                  `Invalid attribute target '${marker.attributeTarget}' for field-emitted property '${classStmt.name}.${memberName}'. Expected 'field' or omit .target(...)`,
+                  createLocation(module.filePath, marker.sourceSpan)
+                )
+              );
+              continue;
+            }
+          } else if (
+            marker.attributeTarget !== "property" &&
+            marker.attributeTarget !== "field"
+          ) {
+            diagnostics.push(
+              createDiagnostic(
+                "TSN4005",
+                "error",
+                `Invalid attribute target '${marker.attributeTarget}' for property attribute. Expected 'property', 'field', or omit .target(...)`,
+                createLocation(module.filePath, marker.sourceSpan)
+              )
+            );
+            continue;
+          }
+
+          if (marker.attributeTarget === "field") {
+            const isAccessorProperty =
+              member.getterBody !== undefined || member.setterBody !== undefined;
+            if (isAccessorProperty) {
+              diagnostics.push(
+                createDiagnostic(
+                  "TSN4005",
+                  "error",
+                  `Cannot apply [field: ...] attribute target to accessor property '${classStmt.name}.${memberName}'. Apply the attribute to the actual field instead.`,
+                  createLocation(module.filePath, marker.sourceSpan)
+                )
+              );
+              continue;
+            }
+          }
+        }
+
+        const perClass = classPropAttributes.get(classIndex) ?? new Map();
+        const attrs = perClass.get(memberName) ?? [];
+        attrs.push(attr);
+        perClass.set(memberName, attrs);
+        classPropAttributes.set(classIndex, perClass);
+        continue;
+      }
+
+      const interfaceStmt = module.body[interfaceIndex!] as IrInterfaceDeclaration;
+      const matchingMembers = interfaceStmt.members.filter(
+        (m) => m.kind === "propertySignature" && m.name === memberName
       );
-      if (!member || member.kind !== "propertyDeclaration") {
+      if (matchingMembers.length === 0) {
         diagnostics.push(
           createDiagnostic(
             "TSN4007",
             "error",
-            `Property '${classStmt.name}.${memberName}' not found for attribute target`,
+            `Property '${interfaceStmt.name}.${memberName}' not found for attribute target`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+      if (matchingMembers.length > 1) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4005",
+            "error",
+            `Property attribute target '${interfaceStmt.name}.${memberName}' is ambiguous. Selectors must resolve to exactly one interface property signature.`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+      const member = matchingMembers[0];
+      if (!member || member.kind !== "propertySignature") {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4007",
+            "error",
+            `Property '${interfaceStmt.name}.${memberName}' not found for attribute target`,
             createLocation(module.filePath, marker.sourceSpan)
           )
         );
@@ -359,19 +573,7 @@ export const collectModuleAttributes = (
       }
 
       if (marker.attributeTarget !== undefined) {
-        if (member.emitAsField) {
-          if (marker.attributeTarget !== "field") {
-            diagnostics.push(
-              createDiagnostic(
-                "TSN4005",
-                "error",
-                `Invalid attribute target '${marker.attributeTarget}' for field-emitted property '${classStmt.name}.${memberName}'. Expected 'field' or omit .target(...)`,
-                createLocation(module.filePath, marker.sourceSpan)
-              )
-            );
-            continue;
-          }
-        } else if (
+        if (
           marker.attributeTarget !== "property" &&
           marker.attributeTarget !== "field"
         ) {
@@ -387,36 +589,36 @@ export const collectModuleAttributes = (
         }
 
         if (marker.attributeTarget === "field") {
-          const isAccessorProperty =
-            member.getterBody !== undefined || member.setterBody !== undefined;
-          if (isAccessorProperty) {
-            diagnostics.push(
-              createDiagnostic(
-                "TSN4005",
-                "error",
-                `Cannot apply [field: ...] attribute target to accessor property '${classStmt.name}.${memberName}'. Apply the attribute to the actual field instead.`,
-                createLocation(module.filePath, marker.sourceSpan)
-              )
-            );
-            continue;
-          }
+          diagnostics.push(
+            createDiagnostic(
+              "TSN4005",
+              "error",
+              `Cannot apply [field: ...] attribute target to interface property '${interfaceStmt.name}.${memberName}'. Interfaces do not declare backing fields.`,
+              createLocation(module.filePath, marker.sourceSpan)
+            )
+          );
+          continue;
         }
       }
 
-      const perClass = classPropAttributes.get(classIndex) ?? new Map();
-      const attrs = perClass.get(memberName) ?? [];
+      const perInterface =
+        interfacePropAttributes.get(interfaceIndex!) ?? new Map();
+      const attrs = perInterface.get(memberName) ?? [];
       attrs.push(attr);
-      perClass.set(memberName, attrs);
-      classPropAttributes.set(classIndex, perClass);
+      perInterface.set(memberName, attrs);
+      interfacePropAttributes.set(interfaceIndex!, perInterface);
     }
   }
 
   return {
     removedStatementIndices,
     classAttributes,
+    interfaceAttributes,
     classCtorAttributes,
     classMethodAttributes,
     classPropAttributes,
+    interfaceMethodAttributes,
+    interfacePropAttributes,
     functionAttributes,
   };
 };

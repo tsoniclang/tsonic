@@ -129,29 +129,4 @@ describe("Static readonly property emission", () => {
     expect(code).to.not.include("private set");
   });
 
-  it("uses private set for readonly properties when constructor helpers are active", () => {
-    const context = createContext({
-      declaringTypeName: "SocketHolder",
-      hasConstructorHelper: true,
-    });
-    const member: IrClassMember = {
-      kind: "propertyDeclaration",
-      name: "Options",
-      type: {
-        kind: "referenceType",
-        name: "SocketOptions",
-        resolvedClrType: "Test.SocketOptions",
-      },
-      isStatic: false,
-      isReadonly: true,
-      accessibility: "public",
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [ast] = emitPropertyMember(member as any, context);
-    const code = printMember(ast, "");
-    expect(code).to.include("public global::Test.SocketOptions Options");
-    expect(code).to.include("{ get; private set; }");
-    expect(code).to.not.include("init");
-  });
 });

@@ -7,6 +7,12 @@ import {
   type IrType,
 } from "./helpers.js";
 
+const jsValueType: IrType = {
+  kind: "referenceType",
+  name: "JsValue",
+  resolvedClrType: "Tsonic.Runtime.JsValue",
+};
+
 describe("Expression Emission", () => {
   it("widens alias-subset carrier to broader carrier with correct Match slot mapping", () => {
     // Simulates the overload forwarding case:
@@ -20,7 +26,7 @@ describe("Expression Emission", () => {
       types: [
         {
           kind: "arrayType",
-          elementType: { kind: "unknownType" },
+          elementType: jsValueType,
           origin: "explicit",
         },
         { kind: "primitiveType", name: "string" },
@@ -49,7 +55,7 @@ describe("Expression Emission", () => {
           passing: "value",
         },
       ],
-      returnType: { kind: "unknownType" },
+      returnType: jsValueType,
     };
 
     const routerType: IrType = {
@@ -123,7 +129,7 @@ describe("Expression Emission", () => {
           passing: "value",
         },
       ],
-      returnType: { kind: "unknownType" },
+      returnType: jsValueType,
     };
 
     const routerType: IrType = {
@@ -280,7 +286,7 @@ describe("Expression Emission", () => {
           passing: "value",
         },
       ],
-      returnType: { kind: "unknownType" },
+      returnType: jsValueType,
     };
 
     const routerType: IrType = {

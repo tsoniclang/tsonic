@@ -127,7 +127,7 @@ describe("build command (native library port regressions)", function () {
           "export interface Request { path: string; }",
           "export interface Response { send(text: string): void; }",
           "export interface RequestHandler {",
-          "  (req: Request, res: Response, next: NextFunction): unknown | Promise<unknown>;",
+          "  (req: Request, res: Response, next: NextFunction): void | Promise<void>;",
           "}",
           "export const useHandler = async (_handler: RequestHandler): Promise<void> => {};",
         ].join("\n"),

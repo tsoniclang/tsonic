@@ -1,0 +1,12 @@
+{
+  "namespace": "Acme.Core",
+  "types": [
+    {
+      "clrName": "Acme.Core.Ok__Alias`1",
+      "assemblyName": "Acme.Core",
+      "methods": [],
+      "properties": [],
+      "fields": []
+    }
+  ]
+}

@@ -29,6 +29,7 @@ import {
 } from "./runtime-union-projection.js";
 import { materializeDirectNarrowingAst } from "./materialized-narrowing.js";
 import { tryBuildRuntimeMaterializationAst } from "./runtime-reification.js";
+import { willCarryAsRuntimeUnion } from "./union-semantics.js";
 import {
   type RuntimeUnionFrame,
   type RuntimeSubsetSourceInfo,
@@ -39,6 +40,7 @@ import {
   withoutNarrowedBinding,
   applyBinding,
   buildExprBinding,
+  buildProjectedExprBinding,
   buildConditionalNullishGuardAst,
   currentNarrowedType,
   resolveRuntimeSubsetSourceInfo,
@@ -86,7 +88,7 @@ export const buildRuntimeUnionComplementBinding = (
       remaining.runtimeMemberN
     );
     if (!hasRuntimeNullish) {
-      return buildExprBinding(
+      return buildProjectedExprBinding(
         narrowedExpr,
         narrowedType,
         carrierSourceType,
@@ -100,7 +102,7 @@ export const buildRuntimeUnionComplementBinding = (
       narrowedType,
       context
     );
-    return buildExprBinding(
+    return buildProjectedExprBinding(
       nullAwareExpr,
       narrowedType,
       carrierSourceType,
@@ -148,7 +150,7 @@ export const buildRuntimeUnionComplementBinding = (
       narrowedType,
       materialized[1]
     );
-    return buildExprBinding(
+    return buildProjectedExprBinding(
       nullAwareExpr,
       narrowedType,
       carrierSourceType,
@@ -239,7 +241,7 @@ export const buildRuntimeUnionSubsetBinding = (
       return undefined;
     }
     return [
-      buildExprBinding(
+      buildProjectedExprBinding(
         buildUnionNarrowAst(narrowedReceiverAst, selected.runtimeMemberN),
         narrowedType,
         narrowedReceiverSourceType,
@@ -263,7 +265,7 @@ export const buildRuntimeUnionSubsetBinding = (
         narrowedReceiverContext
       );
     return [
-      buildExprBinding(
+      buildProjectedExprBinding(
         materializedExprAst,
         narrowedType,
         narrowedReceiverSourceType,
@@ -345,7 +347,7 @@ export const buildRuntimeUnionSubsetBinding = (
     : matchExpr;
 
   return [
-    buildExprBinding(
+    buildProjectedExprBinding(
       exprAst,
       narrowedType,
       narrowedReceiverSourceType,
@@ -411,6 +413,8 @@ export const applyDirectTypeNarrowing = (
         ? resolveRuntimeUnionFrame(bindingKey, currentType, context)
         : undefined;
       if (existingBinding.storageExprAst && exprCarrierFrame) {
+        const existingCarrierAst =
+          existingBinding.carrierExprAst ?? existingBinding.storageExprAst;
         const existingBindingTypeKey = existingBinding.type
           ? stableIrTypeKey(resolveTypeAlias(existingBinding.type, context))
           : undefined;
@@ -420,15 +424,19 @@ export const applyDirectTypeNarrowing = (
         const existingBindingSourceTypeKey = existingBinding.sourceType
           ? stableIrTypeKey(resolveTypeAlias(existingBinding.sourceType, context))
           : undefined;
+        const sourceCarrierStillUsesRuntimeUnion =
+          !!existingBinding.sourceType &&
+          willCarryAsRuntimeUnion(existingBinding.sourceType, context);
         const shouldPreferOriginalStorageCarrier =
           existingBindingTypeKey !== undefined &&
           currentTypeKey !== undefined &&
           existingBindingTypeKey === currentTypeKey &&
           existingBindingSourceTypeKey !== undefined &&
-          existingBindingSourceTypeKey !== currentTypeKey;
+          existingBindingSourceTypeKey !== currentTypeKey &&
+          sourceCarrierStillUsesRuntimeUnion;
         if (shouldPreferOriginalStorageCarrier) {
           return [
-            existingBinding.storageExprAst,
+            existingCarrierAst,
             context,
             exprCarrierType,
           ] as const;
@@ -441,7 +449,7 @@ export const applyDirectTypeNarrowing = (
           return [existingBinding.exprAst, context, exprCarrierType] as const;
         }
         return [
-          existingBinding.storageExprAst,
+          existingCarrierAst,
           context,
           exprCarrierType,
         ] as const;
@@ -507,18 +515,46 @@ export const applyDirectTypeNarrowing = (
       narrowedType,
       carrierContext
     );
+  const carrierStorageAst =
+    existingBinding?.kind === "expr"
+      ? (existingBinding.storageExprAst ??
+        existingBinding.carrierExprAst ??
+        carrierAst)
+      : carrierAst;
+  const preservedCarrierAst =
+    existingBinding?.kind === "expr"
+      ? (existingBinding.carrierExprAst ??
+        existingBinding.storageExprAst ??
+        carrierAst)
+      : carrierAst;
+  const effectiveStorageType =
+    storageType ??
+    (existingBinding?.kind === "expr"
+      ? existingBinding.storageType
+      : undefined);
+
+  if (effectiveStorageType) {
+    return applyBinding(
+      bindingKey,
+      buildExprBinding(
+        materializedExprAst,
+        narrowedType,
+        carrierSourceType,
+        carrierStorageAst,
+        effectiveStorageType,
+        preservedCarrierAst
+      ),
+      materializedContext
+    );
+  }
 
   return applyBinding(
     bindingKey,
-    buildExprBinding(
+    buildProjectedExprBinding(
       materializedExprAst,
       narrowedType,
       carrierSourceType,
-      carrierAst,
-      storageType ??
-        (existingBinding?.kind === "expr"
-          ? existingBinding.storageType
-          : undefined)
+      preservedCarrierAst
     ),
     materializedContext
   );

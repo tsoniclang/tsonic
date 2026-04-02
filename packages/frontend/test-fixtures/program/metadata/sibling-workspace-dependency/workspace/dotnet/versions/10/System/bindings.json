@@ -1,0 +1,16 @@
+{
+  "namespace": "System",
+  "types": [
+    {
+      "clrName": "System.String",
+      "kind": "Class",
+      "methods": [
+        {
+          "clrName": "Trim",
+          "parameterCount": 0,
+          "canonicalSignature": "():System.String"
+        }
+      ]
+    }
+  ]
+}

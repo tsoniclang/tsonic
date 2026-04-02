@@ -125,7 +125,7 @@ describe("End-to-End Integration", () => {
       const source = `
         type NextControl = "route" | string | undefined;
         type NextFunction = (value?: NextControl) => void | Promise<void>;
-        type RequestHandler = (next: NextFunction) => unknown | Promise<unknown>;
+        type RequestHandler = (next: NextFunction) => JsValue | Promise<JsValue>;
 
         export function build(): RequestHandler {
           const handler: RequestHandler = async (next) => {

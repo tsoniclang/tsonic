@@ -87,7 +87,7 @@ const resolveEffectiveConfig = (
 describe("build command (native library port regressions)", function () {
   this.timeout(buildTestTimeoutMs);
 
-  it("builds typeof-narrowed unknown entry assignments with concrete CLR casts", () => {
+  it("builds typeof-narrowed JsValue entry assignments with concrete CLR casts", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-typeof-entry-casts-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
@@ -139,7 +139,9 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "src", "index.ts"),
         [
-          "export function readFirst(root: Record<string, unknown>): string {",
+          'import type { JsValue } from "@tsonic/core/types.js";',
+          "",
+          "export function readFirst(root: Record<string, JsValue>): string {",
           "  const first = Object.entries(root)[0];",
           '  let title = "";',
           "  let enabled = false;",
@@ -248,7 +250,9 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "src", "index.ts"),
         [
-          "const isObject = (value: unknown): value is Record<string, unknown> => {",
+          'import type { JsValue } from "@tsonic/core/types.js";',
+          "",
+          "const isObject = (value: JsValue): value is Record<string, JsValue> => {",
           '  return value !== null && typeof value === "object" && !Array.isArray(value);',
           "};",
           "",

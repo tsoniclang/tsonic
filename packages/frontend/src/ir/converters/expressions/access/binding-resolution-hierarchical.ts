@@ -52,9 +52,12 @@ export const resolveHierarchicalBinding = (
       return false;
     })();
 
+    if (isDeclarationModuleGlobal) {
+      return true;
+    }
+
     return (
-      (sourceFile.isDeclarationFile &&
-        (!ts.isExternalModule(sourceFile) || isDeclarationModuleGlobal)) ||
+      (sourceFile.isDeclarationFile && !ts.isExternalModule(sourceFile)) ||
       (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient) !== 0
     );
   };
@@ -291,6 +294,25 @@ export const resolveHierarchicalBinding = (
           if (instanceBinding) {
             return instanceBinding;
           }
+        }
+      }
+
+      if (simpleBinding) {
+        const sourceOwnedAliases = [
+          simpleBinding.type
+            ? tsbindgenClrTypeNameToTsTypeName(simpleBinding.type)
+            : undefined,
+          simpleBinding.staticType
+            ? tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType)
+            : undefined,
+        ].filter((candidate): candidate is string => typeof candidate === "string");
+
+        if (
+          sourceOwnedAliases.some((alias) =>
+            ctx.bindings.hasSourceOwnedTypeAlias(alias)
+          )
+        ) {
+          return undefined;
         }
       }
     }

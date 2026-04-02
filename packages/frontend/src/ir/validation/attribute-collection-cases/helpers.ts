@@ -8,6 +8,7 @@ export { runAttributeCollectionPass } from "../attribute-collection-pass.js";
 export type {
   IrModule,
   IrClassDeclaration,
+  IrInterfaceDeclaration,
   IrFunctionDeclaration,
 } from "../../types.js";
 import type { IrModule } from "../../types.js";
@@ -107,11 +108,16 @@ export const makeMemberAccess = (object: any, property: string): any => ({
  * Helper to create a minimal call IR
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const makeCall = (callee: any, args: readonly any[]): any => ({
+export const makeCall = (
+  callee: any,
+  args: readonly any[],
+  typeArguments?: readonly any[]
+): any => ({
   kind: "call" as const,
   callee,
   arguments: args,
   isOptional: false,
+  ...(typeArguments ? { typeArguments } : {}),
 });
 
 /**
@@ -194,8 +200,14 @@ export const makeBadSelectorCallBody = (memberName: string) => ({
   body: makeCall(makeMemberAccess(makeIdentifier("x"), memberName), []),
 });
 
+export const makeTypeRootCall = (targetName: string, apiObjectName = "A") =>
+  makeCall(makeIdentifier(apiObjectName), [], [makeRefType(targetName)]);
+
+export const makeFunctionRootCall = (targetName: string, apiObjectName = "A") =>
+  makeCall(makeIdentifier(apiObjectName), [makeIdentifier(targetName)]);
+
 /**
- * Helper to create an attribute marker call IR for A.on(Target).type.add(Attr, ...args)
+ * Helper to create an attribute marker call IR for A<T>().add(Attr, ...args)
  */
 export const makeMarkerCall = (
   targetName: string,
@@ -206,15 +218,7 @@ export const makeMarkerCall = (
 ) => ({
   kind: "expressionStatement" as const,
   expression: makeCall(
-    makeMemberAccess(
-      makeMemberAccess(
-        makeCall(makeMemberAccess(makeIdentifier(apiObjectName), "on"), [
-          makeIdentifier(targetName),
-        ]),
-        "type"
-      ),
-      "add"
-    ),
+    makeMemberAccess(makeTypeRootCall(targetName, apiObjectName), "add"),
     [
       makeIdentifier(attrName, resolvedClrType),
       ...args.map((a) => makeLiteral(a.value)),
@@ -231,18 +235,7 @@ export const makeTypeMarkerCallWithTarget = (
   kind: "expressionStatement" as const,
   expression: makeCall(
     makeMemberAccess(
-      makeCall(
-        makeMemberAccess(
-          makeMemberAccess(
-            makeCall(makeMemberAccess(makeIdentifier(apiObjectName), "on"), [
-              makeIdentifier(targetName),
-            ]),
-            "type"
-          ),
-          "target"
-        ),
-        [targetArg]
-      ),
+      makeCall(makeMemberAccess(makeTypeRootCall(targetName, apiObjectName), "target"), [targetArg]),
       "add"
     ),
     [makeIdentifier(attrName, `Test.${attrName}`)]
@@ -253,12 +246,7 @@ export const makeCtorMarkerCall = (targetName: string, attrName: string) => ({
   kind: "expressionStatement" as const,
   expression: makeCall(
     makeMemberAccess(
-      makeMemberAccess(
-        makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-          makeIdentifier(targetName),
-        ]),
-        "ctor"
-      ),
+      makeMemberAccess(makeTypeRootCall(targetName), "ctor"),
       "add"
     ),
     [makeIdentifier(attrName, `Test.${attrName}`)]
@@ -274,15 +262,7 @@ export const makeCtorMarkerCallWithTarget = (
   expression: makeCall(
     makeMemberAccess(
       makeCall(
-        makeMemberAccess(
-          makeMemberAccess(
-            makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-              makeIdentifier(targetName),
-            ]),
-            "ctor"
-          ),
-          "target"
-        ),
+        makeMemberAccess(makeMemberAccess(makeTypeRootCall(targetName), "ctor"), "target"),
         [targetArg]
       ),
       "add"
@@ -300,12 +280,7 @@ export const makeMethodMarkerCall = (
   expression: makeCall(
     makeMemberAccess(
       makeCall(
-        makeMemberAccess(
-          makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-            makeIdentifier(targetName),
-          ]),
-          "method"
-        ),
+        makeMemberAccess(makeTypeRootCall(targetName), "method"),
         [selector]
       ),
       "add"
@@ -325,15 +300,7 @@ export const makeMethodMarkerCallWithTarget = (
     makeMemberAccess(
       makeCall(
         makeMemberAccess(
-          makeCall(
-            makeMemberAccess(
-              makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                makeIdentifier(targetName),
-              ]),
-              "method"
-            ),
-            [selector]
-          ),
+          makeCall(makeMemberAccess(makeTypeRootCall(targetName), "method"), [selector]),
           "target"
         ),
         [targetArg]
@@ -354,12 +321,7 @@ export const makePropMarkerCall = (
   expression: makeCall(
     makeMemberAccess(
       makeCall(
-        makeMemberAccess(
-          makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-            makeIdentifier(targetName),
-          ]),
-          "prop"
-        ),
+        makeMemberAccess(makeTypeRootCall(targetName), "prop"),
         [selector]
       ),
       "add"
@@ -379,15 +341,7 @@ export const makePropMarkerCallWithTarget = (
     makeMemberAccess(
       makeCall(
         makeMemberAccess(
-          makeCall(
-            makeMemberAccess(
-              makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                makeIdentifier(targetName),
-              ]),
-              "prop"
-            ),
-            [makeSelector(propName)]
-          ),
+          makeCall(makeMemberAccess(makeTypeRootCall(targetName), "prop"), [makeSelector(propName)]),
           "target"
         ),
         [targetArg]
@@ -420,15 +374,7 @@ export const makeAddDescriptorMarkerCall = (
 ) => ({
   kind: "expressionStatement" as const,
   expression: makeCall(
-    makeMemberAccess(
-      makeMemberAccess(
-        makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-          makeIdentifier(targetName),
-        ]),
-        "type"
-      ),
-      "add"
-    ),
+    makeMemberAccess(makeTypeRootCall(targetName), "add"),
     [makeIdentifier(varName)]
   ),
 });
@@ -439,20 +385,29 @@ export const makeInlineDescriptorMarkerCall = (
 ) => ({
   kind: "expressionStatement" as const,
   expression: makeCall(
-    makeMemberAccess(
-      makeMemberAccess(
-        makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-          makeIdentifier(targetName),
-        ]),
-        "type"
-      ),
-      "add"
-    ),
+    makeMemberAccess(makeTypeRootCall(targetName), "add"),
     [
       makeCall(makeMemberAccess(makeIdentifier("A"), "attr"), [
         makeIdentifier(attrName, `Test.${attrName}`),
         makeLiteral("msg"),
       ]),
+    ]
+  ),
+});
+
+export const makeFunctionMarkerCall = (
+  functionName: string,
+  attrName: string,
+  args: Array<{ kind: "literal"; value: string | number | boolean }> = [],
+  resolvedClrType?: string,
+  apiObjectName = "A"
+) => ({
+  kind: "expressionStatement" as const,
+  expression: makeCall(
+    makeMemberAccess(makeFunctionRootCall(functionName, apiObjectName), "add"),
+    [
+      makeIdentifier(attrName, resolvedClrType),
+      ...args.map((a) => makeLiteral(a.value)),
     ]
   ),
 });

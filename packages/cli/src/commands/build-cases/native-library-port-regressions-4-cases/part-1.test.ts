@@ -120,7 +120,7 @@ describe("build command (native library port regressions)", function () {
           "interface Request { path: string; }",
           "interface Response { send(text: string): void; }",
           "interface RequestHandler {",
-          "  (req: Request, res: Response, next: NextFunction): unknown | Promise<unknown>;",
+          "  (req: Request, res: Response, next: NextFunction): void | Promise<void>;",
           "}",
           "type MiddlewareParam = RequestHandler | readonly MiddlewareParam[];",
           "type MiddlewareLike = MiddlewareParam | Router | readonly MiddlewareLike[];",

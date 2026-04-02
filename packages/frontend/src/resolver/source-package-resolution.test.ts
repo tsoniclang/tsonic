@@ -1,7 +1,5 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import {
   getLocalResolutionBoundary,
@@ -9,67 +7,18 @@ import {
   resolveSourcePackageImport,
   resolveSourcePackageImportFromPackageRoot,
 } from "./source-package-resolution.js";
+import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 
 describe("Source Package Resolution", () => {
   it("should resolve installed source packages without relying on package.json exports", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-source-package-resolution-")
+    const fixture = materializeFrontendFixture(
+      "resolver/source-package-resolution/installed-source-package"
     );
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(entryPath, 'import { clamp } from "@acme/math";\n');
-
-      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: "@acme/math",
-            version: "1.0.0",
-            type: "module",
-            exports: {
-              ".": "./dist/index.js",
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "index.ts"),
-        "export const clamp = (x: number): number => x;\n"
-      );
+      const tempDir = fixture.path("app");
+      const entryPath = fixture.path("app/src/index.ts");
+      const packageRoot = fixture.path("app/node_modules/@acme/math");
 
       const result = resolveSourcePackageImport(
         "@acme/math",
@@ -86,55 +35,25 @@ describe("Source Package Resolution", () => {
         path.join(packageRoot, "src", "index.ts")
       );
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should use the source package root as the local resolution boundary", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-source-package-boundary-")
+    const fixture = materializeFrontendFixture(
+      "resolver/source-package-resolution/installed-source-package"
     );
 
     try {
-      const sourceRoot = path.join(tempDir, "src");
-      fs.mkdirSync(sourceRoot, { recursive: true });
-
-      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
-      const packageEntry = path.join(packageRoot, "src", "index.ts");
-      fs.mkdirSync(path.dirname(packageEntry), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/math", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(packageEntry, "export const clamp = 1;\n");
+      const sourceRoot = fixture.path("app/src");
+      const packageRoot = fixture.path("app/node_modules/@acme/math");
+      const packageEntry = fixture.path("app/node_modules/@acme/math/src/index.ts");
 
       expect(getLocalResolutionBoundary(packageEntry, sourceRoot)).to.equal(
         packageRoot
       );
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
@@ -149,41 +68,13 @@ describe("Source Package Resolution", () => {
   });
 
   it("should reject builtin-style specifiers as source package imports", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-source-package-builtins-")
+    const fixture = materializeFrontendFixture(
+      "resolver/source-package-resolution/builtin-source-package"
     );
 
     try {
-      const packageRoot = path.join(tempDir, "node_modules", "@tsonic", "nodejs");
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-                "./http.js": "./src/http.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(path.join(packageRoot, "src", "index.ts"), "export {};\n");
-      fs.writeFileSync(path.join(packageRoot, "src", "http.ts"), "export {};\n");
+      const tempDir = fixture.path("app");
+      const packageRoot = fixture.path("app/node_modules/@tsonic/nodejs");
 
       const result = resolveSourcePackageImportFromPackageRoot(
         "node:http",
@@ -196,7 +87,7 @@ describe("Source Package Resolution", () => {
       if (!result.ok) return;
       expect(result.value).to.equal(null);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 });

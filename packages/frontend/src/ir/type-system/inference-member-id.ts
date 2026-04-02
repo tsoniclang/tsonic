@@ -537,13 +537,14 @@ export const typeOfMemberId = (
       }));
 
       const returnType = convertTypeNode(state, decl.type);
+      const typeParameters = convertMethodTypeParameters(
+        state,
+        decl.typeParameters,
+        (type) => type
+      );
       const fnType: IrFunctionType = {
         kind: "functionType",
-        typeParameters: convertMethodTypeParameters(
-          state,
-          decl.typeParameters,
-          (type) => type
-        ),
+        ...(typeParameters ? { typeParameters } : {}),
         parameters,
         returnType,
       };

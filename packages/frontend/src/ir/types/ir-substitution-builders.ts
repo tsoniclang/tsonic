@@ -35,235 +35,239 @@ export const substituteIrType = (
 ): IrType => {
   if (substitutions.size === 0) return type;
 
-  switch (type.kind) {
-    case "typeParameterType": {
-      const substituted = substitutions.get(type.name);
-      return substituted ?? type;
+  const cache = new Map<IrType, IrType>();
+
+  const substitute = (currentType: IrType): IrType => {
+    const cached = cache.get(currentType);
+    if (cached) {
+      return cached;
     }
 
-    case "referenceType": {
-      // Some converter paths represent bare type parameters as referenceType nodes.
-      // If the type name matches a substitution key and has no type arguments,
-      // treat it as a bare type parameter (e.g., TEntity) and substitute directly.
-      if (!type.typeArguments || type.typeArguments.length === 0) {
-        const substituted = substitutions.get(type.name);
-        if (substituted) {
-          return substituted;
-        }
-        if (!type.structuralMembers || type.structuralMembers.length === 0) {
-          return type;
-        }
+    switch (currentType.kind) {
+      case "typeParameterType": {
+        const substituted = substitutions.get(currentType.name);
+        return substituted ?? currentType;
       }
-      const newArgs = type.typeArguments?.map((arg) =>
-        substituteIrType(arg, substitutions)
-      );
-      const newStructuralMembers = type.structuralMembers?.map((member) => {
-        if (member.kind === "propertySignature") {
-          const substitutedType = substituteIrType(member.type, substitutions);
-          return substitutedType === member.type
-            ? member
-            : { ...member, type: substitutedType };
+
+      case "referenceType": {
+        if (
+          (!currentType.typeArguments || currentType.typeArguments.length === 0) &&
+          (!currentType.structuralMembers ||
+            currentType.structuralMembers.length === 0)
+        ) {
+          const substituted = substitutions.get(currentType.name);
+          return substituted ?? currentType;
         }
 
-        const substitutedReturnType = member.returnType
-          ? substituteIrType(member.returnType, substitutions)
-          : member.returnType;
-        const substitutedParameters = member.parameters.map((parameter) =>
+        const draft = { ...currentType } as Extract<
+          IrType,
+          { kind: "referenceType" }
+        >;
+        cache.set(currentType, draft);
+
+        const newArgs = currentType.typeArguments?.map((arg) =>
+          substitute(arg)
+        );
+        const newStructuralMembers = currentType.structuralMembers?.map(
+          (member) => {
+            if (member.kind === "propertySignature") {
+              return {
+                ...member,
+                type: substitute(member.type),
+              };
+            }
+
+            return {
+              ...member,
+              returnType: member.returnType
+                ? substitute(member.returnType)
+                : member.returnType,
+              parameters: member.parameters.map((parameter) =>
+                parameter.type
+                  ? {
+                      ...parameter,
+                      type: substitute(parameter.type),
+                    }
+                  : parameter
+              ),
+            };
+          }
+        );
+
+        (draft as { typeArguments?: readonly IrType[] }).typeArguments = newArgs;
+        if (newStructuralMembers !== undefined) {
+          (
+            draft as {
+              structuralMembers?: NonNullable<
+                Extract<IrType, { kind: "referenceType" }>["structuralMembers"]
+              >;
+            }
+          ).structuralMembers = newStructuralMembers;
+        }
+        return draft;
+      }
+
+      case "arrayType": {
+        const draft = { ...currentType } as Extract<
+          IrType,
+          { kind: "arrayType" }
+        >;
+        cache.set(currentType, draft);
+        (
+          draft as {
+            elementType: IrType;
+            tuplePrefixElementTypes?: readonly IrType[];
+            tupleRestElementType?: IrType;
+          }
+        ).elementType = substitute(currentType.elementType);
+        if (currentType.tuplePrefixElementTypes) {
+          (
+            draft as {
+              tuplePrefixElementTypes?: readonly IrType[];
+            }
+          ).tuplePrefixElementTypes = currentType.tuplePrefixElementTypes.map(
+            (elementType) => substitute(elementType)
+          );
+        }
+        if (currentType.tupleRestElementType) {
+          (
+            draft as {
+              tupleRestElementType?: IrType;
+            }
+          ).tupleRestElementType = substitute(currentType.tupleRestElementType);
+        }
+        return draft;
+      }
+
+      case "tupleType": {
+        const draft = { ...currentType } as Extract<
+          IrType,
+          { kind: "tupleType" }
+        >;
+        cache.set(currentType, draft);
+        (
+          draft as { elementTypes: readonly IrType[] }
+        ).elementTypes = currentType.elementTypes.map((elementType) =>
+          substitute(elementType)
+        );
+        return draft;
+      }
+
+      case "unionType": {
+        const draft = { ...currentType } as Extract<
+          IrType,
+          { kind: "unionType" }
+        >;
+        cache.set(currentType, draft);
+        const normalized = normalizedUnionType(
+          currentType.types.map((memberType) => substitute(memberType))
+        );
+        cache.set(currentType, normalized);
+        return normalized;
+      }
+
+      case "intersectionType": {
+        const draft = { ...currentType } as Extract<
+          IrType,
+          { kind: "intersectionType" }
+        >;
+        cache.set(currentType, draft);
+        (draft as { types: readonly IrType[] }).types = currentType.types.map(
+          (memberType) => substitute(memberType)
+        );
+        return draft;
+      }
+
+      case "dictionaryType": {
+        const draft = { ...currentType } as Extract<
+          IrType,
+          { kind: "dictionaryType" }
+        >;
+        cache.set(currentType, draft);
+        (
+          draft as {
+            keyType: IrType;
+            valueType: IrType;
+          }
+        ).keyType = substitute(currentType.keyType);
+        (
+          draft as {
+            valueType: IrType;
+          }
+        ).valueType = substitute(currentType.valueType);
+        return draft;
+      }
+
+      case "functionType": {
+        const draft = { ...currentType } as Extract<
+          IrType,
+          { kind: "functionType" }
+        >;
+        cache.set(currentType, draft);
+        (
+          draft as {
+            returnType: IrType;
+            parameters: typeof currentType.parameters;
+          }
+        ).returnType = substitute(currentType.returnType);
+        (
+          draft as {
+            parameters: typeof currentType.parameters;
+          }
+        ).parameters = currentType.parameters.map((parameter) =>
           parameter.type
             ? {
                 ...parameter,
-                type: substituteIrType(parameter.type, substitutions),
+                type: substitute(parameter.type),
               }
             : parameter
         );
-
-        const unchangedParameters = substitutedParameters.every(
-          (parameter, index) => {
-            const original = member.parameters[index];
-            return original ? parameter.type === original.type : true;
-          }
-        );
-
-        if (
-          substitutedReturnType === member.returnType &&
-          unchangedParameters
-        ) {
-          return member;
-        }
-
-        return {
-          ...member,
-          returnType: substitutedReturnType,
-          parameters: substitutedParameters,
-        };
-      });
-      const argsChanged =
-        newArgs?.some((newArg, i) => {
-          const origArg = type.typeArguments?.[i];
-          return origArg ? newArg !== origArg : false;
-        }) ?? false;
-      const structuralChanged =
-        newStructuralMembers?.some((member, i) => {
-          const original = type.structuralMembers?.[i];
-          return original ? member !== original : false;
-        }) ?? false;
-      if (!argsChanged && !structuralChanged) return type;
-      return {
-        ...type,
-        typeArguments: newArgs,
-        ...(newStructuralMembers
-          ? { structuralMembers: newStructuralMembers }
-          : {}),
-      };
-    }
-
-    case "arrayType": {
-      const newElementType = substituteIrType(type.elementType, substitutions);
-      const newTuplePrefixElementTypes = type.tuplePrefixElementTypes?.map(
-        (elementType) => substituteIrType(elementType, substitutions)
-      );
-      const newTupleRestElementType = type.tupleRestElementType
-        ? substituteIrType(type.tupleRestElementType, substitutions)
-        : undefined;
-      const tuplePrefixChanged =
-        newTuplePrefixElementTypes?.some(
-          (elementType, index) =>
-            elementType !== type.tuplePrefixElementTypes?.[index]
-        ) ?? false;
-      const tupleRestChanged =
-        newTupleRestElementType !== type.tupleRestElementType;
-      if (
-        newElementType === type.elementType &&
-        !tuplePrefixChanged &&
-        !tupleRestChanged
-      ) {
-        return type;
+        return draft;
       }
-      return {
-        ...type,
-        elementType: newElementType,
-        ...((newTuplePrefixElementTypes?.length ?? 0) > 0
-          ? { tuplePrefixElementTypes: newTuplePrefixElementTypes }
-          : {}),
-        ...(newTupleRestElementType
-          ? { tupleRestElementType: newTupleRestElementType }
-          : {}),
-      };
-    }
 
-    case "tupleType": {
-      const newElements = type.elementTypes.map((el) =>
-        substituteIrType(el, substitutions)
-      );
-      const changed = newElements.some((el, i) => el !== type.elementTypes[i]);
-      if (!changed) return type;
-      return {
-        ...type,
-        elementTypes: newElements,
-      };
-    }
-
-    case "unionType": {
-      const newTypes = type.types.map((t) =>
-        substituteIrType(t, substitutions)
-      );
-      const changed = newTypes.some((t, i) => t !== type.types[i]);
-      if (!changed) return type;
-      return normalizedUnionType(newTypes);
-    }
-
-    case "intersectionType": {
-      const newTypes = type.types.map((t) =>
-        substituteIrType(t, substitutions)
-      );
-      const changed = newTypes.some((t, i) => t !== type.types[i]);
-      if (!changed) return type;
-      return {
-        ...type,
-        types: newTypes,
-      };
-    }
-
-    case "dictionaryType": {
-      const newKeyType = substituteIrType(type.keyType, substitutions);
-      const newValueType = substituteIrType(type.valueType, substitutions);
-      if (newKeyType === type.keyType && newValueType === type.valueType) {
-        return type;
+      case "objectType": {
+        const draft = { ...currentType } as Extract<
+          IrType,
+          { kind: "objectType" }
+        >;
+        cache.set(currentType, draft);
+        (draft as { members: typeof currentType.members }).members =
+          currentType.members.map((member) => {
+            if (member.kind === "propertySignature") {
+              return {
+                ...member,
+                type: substitute(member.type),
+              };
+            }
+            return {
+              ...member,
+              returnType: member.returnType
+                ? substitute(member.returnType)
+                : member.returnType,
+              parameters: member.parameters.map((parameter) =>
+                parameter.type
+                  ? {
+                      ...parameter,
+                      type: substitute(parameter.type),
+                    }
+                  : parameter
+              ),
+            };
+          });
+        return draft;
       }
-      return {
-        ...type,
-        keyType: newKeyType,
-        valueType: newValueType,
-      };
-    }
 
-    case "functionType": {
-      const newReturnType = substituteIrType(type.returnType, substitutions);
-      const newParams = type.parameters.map((p) =>
-        p.type ? { ...p, type: substituteIrType(p.type, substitutions) } : p
-      );
-      const returnChanged = newReturnType !== type.returnType;
-      const paramsChanged = newParams.some((p, i) => {
-        const orig = type.parameters[i];
-        return orig ? p.type !== orig.type : false;
-      });
-      if (!returnChanged && !paramsChanged) return type;
-      return {
-        ...type,
-        returnType: newReturnType,
-        parameters: newParams,
-      };
+      case "primitiveType":
+      case "literalType":
+      case "anyType":
+      case "unknownType":
+      case "voidType":
+      case "neverType":
+        return currentType;
     }
+  };
 
-    case "objectType": {
-      // Substitute within object type members
-      const newMembers = type.members.map((m) => {
-        if (m.kind === "propertySignature") {
-          const newType = substituteIrType(m.type, substitutions);
-          if (newType === m.type) return m;
-          return { ...m, type: newType };
-        }
-        if (m.kind === "methodSignature") {
-          const newReturnType = m.returnType
-            ? substituteIrType(m.returnType, substitutions)
-            : m.returnType;
-          const newParams = m.parameters.map((p) =>
-            p.type ? { ...p, type: substituteIrType(p.type, substitutions) } : p
-          );
-          if (
-            newReturnType === m.returnType &&
-            newParams.every((p, i) => {
-              const orig = m.parameters[i];
-              return orig ? p.type === orig.type : true;
-            })
-          ) {
-            return m;
-          }
-          return {
-            ...m,
-            returnType: newReturnType,
-            parameters: newParams,
-          };
-        }
-        return m;
-      });
-      const changed = newMembers.some((m, i) => m !== type.members[i]);
-      if (!changed) return type;
-      return {
-        ...type,
-        members: newMembers,
-      };
-    }
-
-    // Types that don't contain type parameters - return unchanged
-    case "primitiveType":
-    case "literalType":
-    case "anyType":
-    case "unknownType":
-    case "voidType":
-    case "neverType":
-      return type;
-  }
+  return substitute(type);
 };
 
 /**

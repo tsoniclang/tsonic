@@ -26,6 +26,7 @@ import {
   RuntimeMaterializationSourceFrame,
   tryBuildRuntimeMaterializationAst,
 } from "./runtime-reification.js";
+import { registerLocalSymbolTypes } from "../format/local-names.js";
 
 export type BranchTruthiness = "truthy" | "falsy";
 
@@ -97,10 +98,37 @@ export const applyBinding = (
 ): EmitterContext => {
   const narrowedBindings = new Map(context.narrowedBindings ?? []);
   narrowedBindings.set(bindingKey, binding);
-  return {
+  const narrowedContext: EmitterContext = {
     ...context,
     narrowedBindings,
   };
+
+  if (
+    bindingKey === "this" ||
+    bindingKey.startsWith("this.") ||
+    bindingKey.includes(".")
+  ) {
+    return narrowedContext;
+  }
+
+  const semanticType = binding.type ?? binding.sourceType;
+  const storageType = (() => {
+    switch (binding.kind) {
+      case "rename":
+        return binding.sourceType ?? binding.type;
+      case "expr":
+        return binding.storageType ?? binding.sourceType ?? binding.type;
+      case "runtimeSubset":
+        return binding.sourceType ?? binding.type;
+    }
+  })();
+
+  return registerLocalSymbolTypes(
+    bindingKey,
+    semanticType,
+    storageType,
+    narrowedContext
+  );
 };
 
 export const resolveRuntimeSubsetSourceInfo = (
@@ -149,15 +177,33 @@ export const buildExprBinding = (
   type: IrType | undefined,
   sourceType: IrType | undefined,
   storageExprAst?: CSharpExpressionAst,
-  storageType?: IrType
+  storageType?: IrType,
+  carrierExprAst?: CSharpExpressionAst
 ): Extract<NarrowedBinding, { kind: "expr" }> => ({
   kind: "expr",
   exprAst,
   storageExprAst,
+  carrierExprAst,
   storageType,
   type,
   sourceType,
 });
+
+export const buildProjectedExprBinding = (
+  exprAst: CSharpExpressionAst,
+  type: IrType | undefined,
+  sourceType: IrType | undefined,
+  carrierExprAst: CSharpExpressionAst,
+  storageType?: IrType
+): Extract<NarrowedBinding, { kind: "expr" }> =>
+  buildExprBinding(
+    exprAst,
+    type,
+    sourceType,
+    exprAst,
+    storageType ?? type,
+    carrierExprAst
+  );
 
 export const resolveExistingNarrowingSourceType = (
   bindingKey: string,
@@ -283,6 +329,21 @@ export const isArrayLikeNarrowingCandidate = (
   return false;
 };
 
+const isBroadJsValueType = (type: IrType): boolean =>
+  type.kind === "referenceType" &&
+  (type.name === "JsValue" ||
+    type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
+    type.resolvedClrType === "global::Tsonic.Runtime.JsValue");
+
+const JS_VALUE_ARRAY_TYPE: IrType = {
+  kind: "arrayType",
+  elementType: {
+    kind: "referenceType",
+    name: "JsValue",
+    resolvedClrType: "Tsonic.Runtime.JsValue",
+  },
+};
+
 export const narrowTypeByArrayShape = (
   currentType: IrType | undefined,
   wantArray: boolean,
@@ -302,9 +363,20 @@ export const narrowTypeByArrayShape = (
     return normalizedUnionType(kept);
   }
 
-  return isArrayLikeNarrowingCandidate(currentType, context) === wantArray
-    ? currentType
-    : undefined;
+  const isArrayLike = isArrayLikeNarrowingCandidate(resolved, context);
+  if (wantArray) {
+    if (
+      resolved.kind === "unknownType" ||
+      resolved.kind === "anyType" ||
+      resolved.kind === "objectType" ||
+      (resolved.kind === "referenceType" && resolved.name === "object") ||
+      isBroadJsValueType(resolved)
+    ) {
+      return JS_VALUE_ARRAY_TYPE;
+    }
+    return isArrayLike ? resolved : undefined;
+  }
+  return isArrayLike ? undefined : resolved;
 };
 
 export const narrowTypeByNotAssignableTarget = (

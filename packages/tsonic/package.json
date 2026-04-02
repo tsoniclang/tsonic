@@ -1,0 +1,14 @@
+{
+  "name": "tsonic",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/App.ts",
+    "./index.js": "./src/App.ts"
+  },
+  "files": [
+    "src",
+    "tsonic.package.json",
+    "README.md"
+  ]
+}

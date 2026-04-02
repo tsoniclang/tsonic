@@ -31,6 +31,7 @@ import {
   getDirectIterableElementType,
   getIterableSourceShape,
 } from "./structural-type-shapes.js";
+import { normalizeStructuralEmissionType } from "../core/semantic/type-resolution.js";
 import {
   isExactArrayCreationToType,
   isExactExpressionToType,
@@ -64,6 +65,32 @@ const tryResolveExactCollectionSurfaceMatch = (
 
   if (!targetExactTypeAst) {
     return [false, targetExactContext];
+  }
+
+  const sourceArrayElementType = getArrayElementType(sourceType, context);
+  const targetArrayElementType = getArrayElementType(targetType, context);
+  if (sourceArrayElementType && targetArrayElementType) {
+    return [
+      hasMatchingRuntimeCarrierElementType(
+        sourceArrayElementType,
+        targetArrayElementType,
+        targetExactContext
+      ),
+      targetExactContext,
+    ];
+  }
+
+  const sourceDictionaryValueType = getDictionaryValueType(sourceType, context);
+  const targetDictionaryValueType = getDictionaryValueType(targetType, context);
+  if (sourceDictionaryValueType && targetDictionaryValueType) {
+    return [
+      hasMatchingRuntimeCarrierElementType(
+        sourceDictionaryValueType,
+        targetDictionaryValueType,
+        targetExactContext
+      ),
+      targetExactContext,
+    ];
   }
 
   return [
@@ -162,13 +189,21 @@ const hasMatchingRuntimeCarrierElementType = (
   targetType: IrType,
   context: EmitterContext
 ): boolean => {
-  const [sourceTypeAst, , sourceContext] = emitRuntimeCarrierTypeAst(
+  const normalizedSourceType = normalizeStructuralEmissionType(
     sourceType,
+    context
+  );
+  const normalizedTargetType = normalizeStructuralEmissionType(
+    targetType,
+    context
+  );
+  const [sourceTypeAst, , sourceContext] = emitRuntimeCarrierTypeAst(
+    normalizedSourceType,
     context,
     emitTypeAst
   );
   const [targetTypeAst] = emitRuntimeCarrierTypeAst(
-    targetType,
+    normalizedTargetType,
     sourceContext,
     emitTypeAst
   );
@@ -203,9 +238,21 @@ export const tryAdaptStructuralCollectionExpressionAst = (
   const targetElementType = getArrayElementType(expectedType, context);
   const sourceElementType = getArrayElementType(sourceType, context);
   if (targetElementType && sourceElementType) {
+    const emissionSourceElementType = normalizeStructuralEmissionType(
+      sourceElementType,
+      context
+    );
+    const emissionTargetElementType = normalizeStructuralEmissionType(
+      targetElementType,
+      context
+    );
     if (isArrayEmptyInvocation(emittedAst)) {
       const [targetElementTypeAst, , targetElementTypeContext] =
-        emitRuntimeCarrierTypeAst(targetElementType, context, emitTypeAst);
+        emitRuntimeCarrierTypeAst(
+          emissionTargetElementType,
+          context,
+          emitTypeAst
+        );
       return [
         {
           kind: "invocationExpression",
@@ -256,21 +303,25 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       adaptedElementAst !== undefined || !runtimeCarrierMatches;
     if (
       !needsElementAdaptation &&
-      matchesExpectedEmissionType(sourceElementType, targetElementType, context)
+      matchesExpectedEmissionType(
+        emissionSourceElementType,
+        emissionTargetElementType,
+        context
+      )
     ) {
       return [emittedAst, currentContext];
     }
     if (needsElementAdaptation) {
       const [sourceElementTypeAst, , sourceElementTypeContext] =
         emitRuntimeCarrierTypeAst(
-          sourceElementType,
+          emissionSourceElementType,
           currentContext,
           emitTypeAst
         );
       currentContext = sourceElementTypeContext;
       const [targetElementTypeAst, , targetElementTypeContext] =
         emitRuntimeCarrierTypeAst(
-          targetElementType,
+          emissionTargetElementType,
           currentContext,
           emitTypeAst
         );
@@ -348,6 +399,14 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       : undefined;
   const sourceIterable = buildIterableSourceAst(emittedAst, sourceType, context);
   if (targetIterableElementType && sourceIterable) {
+    const emissionSourceIterableElementType = normalizeStructuralEmissionType(
+      sourceIterable.elementType,
+      sourceIterable.context
+    );
+    const emissionTargetIterableElementType = normalizeStructuralEmissionType(
+      targetIterableElementType,
+      sourceIterable.context
+    );
     const item = allocateLocalName("__item", sourceIterable.context);
     let currentContext = item.context;
     const itemIdentifier: CSharpExpressionAst = {
@@ -391,8 +450,8 @@ export const tryAdaptStructuralCollectionExpressionAst = (
       if (
         sourceIterable.sourceAst === emittedAst &&
         matchesExpectedEmissionType(
-          sourceIterable.elementType,
-          targetIterableElementType,
+          emissionSourceIterableElementType,
+          emissionTargetIterableElementType,
           context
         )
       ) {
@@ -404,14 +463,14 @@ export const tryAdaptStructuralCollectionExpressionAst = (
 
     const [sourceElementTypeAst, , sourceElementTypeContext] =
       emitRuntimeCarrierTypeAst(
-        sourceIterable.elementType,
+        emissionSourceIterableElementType,
         currentContext,
         emitTypeAst
       );
     currentContext = sourceElementTypeContext;
     const [targetElementTypeAst, , targetElementTypeContext] =
       emitRuntimeCarrierTypeAst(
-        targetIterableElementType,
+        emissionTargetIterableElementType,
         currentContext,
         emitTypeAst
       );
@@ -460,10 +519,14 @@ export const tryAdaptStructuralCollectionExpressionAst = (
   if (!targetValueType || !sourceValueType) {
     return undefined;
   }
+  const emissionTargetValueType = normalizeStructuralEmissionType(
+    targetValueType,
+    context
+  );
 
   let currentContext = context;
   const [targetValueTypeAst, valueTypeContext] = emitTypeAst(
-    targetValueType,
+    emissionTargetValueType,
     currentContext
   );
   currentContext = valueTypeContext;

@@ -10,7 +10,6 @@ import { expect } from "chai";
 import {
   compileWithGlobals,
   compileWithJsSurface,
-  compileWithJsSurfaceAndStandardLib,
   findExpression,
   unwrapTransparentExpression,
 } from "./test-helpers.js";
@@ -209,14 +208,14 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       expect(lengthExpr.memberBinding?.member.toLowerCase()).to.equal("length");
     });
 
-    it("keeps js-surface array length as int with standard lib enabled", () => {
+    it("keeps js-surface array length as int", () => {
       const code = `
         export function getLen<T>(values: T[]): number {
           return values.length;
         }
       `;
 
-      const { modules, ok, error } = compileWithJsSurfaceAndStandardLib(code);
+      const { modules, ok, error } = compileWithJsSurface(code);
       expect(ok, `Compile failed: ${error}`).to.be.true;
 
       const lengthExpr = findExpression(

@@ -1,7 +1,5 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { buildModuleDependencyGraph } from "./dependency-graph.js";
 import type {
@@ -12,44 +10,7 @@ import type {
   IrModule,
   IrStatement,
 } from "../ir/types.js";
-
-const installMinimalJsSurface = (projectRoot: string): void => {
-  const jsRoot = path.join(projectRoot, "node_modules", "@tsonic", "js");
-  fs.mkdirSync(jsRoot, { recursive: true });
-  fs.writeFileSync(
-    path.join(jsRoot, "package.json"),
-    JSON.stringify(
-      { name: "@tsonic/js", version: "1.0.0", type: "module" },
-      null,
-      2
-    )
-  );
-  fs.writeFileSync(
-    path.join(jsRoot, "tsonic.surface.json"),
-    JSON.stringify(
-      {
-        schemaVersion: 1,
-        id: "@tsonic/js",
-        extends: [],
-        requiredTypeRoots: [],
-        useStandardLib: true,
-      },
-      null,
-      2
-    )
-  );
-};
-
-const writeFixture = (
-  tempDir: string,
-  files: Record<string, string>
-): void => {
-  for (const [relativePath, contents] of Object.entries(files)) {
-    const absolutePath = path.join(tempDir, relativePath);
-    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-    fs.writeFileSync(absolutePath, contents);
-  }
-};
+import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 
 const findModuleByFilePath = (
   modules: readonly IrModule[],
@@ -175,82 +136,13 @@ describe("Dependency Graph", function () {
   this.timeout(60_000);
 
   it("specializes tsbindgen instance receiver calls before resolving returns and parameters", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dbset-instance-")
+    const fixture = materializeFrontendFixture(
+      "program/tsbindgen-instance-receiver/base"
     );
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-      writeFixture(tempDir, {
-        "src/db.ts": [
-          'import type { int } from "@tsonic/core/types.js";',
-          'import type { DbContext, DbSet_1, EntityEntry_1 } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";',
-          "",
-          "export interface PostEntity {",
-          "  Id: int;",
-          "}",
-          "",
-          "export class BlogDbContext implements DbContext {",
-          "  readonly __tsonic_type_Microsoft_EntityFrameworkCore_DbContext!: never;",
-          "  posts!: DbSet_1<PostEntity>;",
-          '  Remove<TEntity>(entity: TEntity): EntityEntry_1<TEntity> { throw new Error(\"not reached\"); }',
-          "}",
-        ].join("\n"),
-        "src/index.ts": [
-          'import type { int } from "@tsonic/core/types.js";',
-          'import { BlogDbContext } from "./db.js";',
-          "",
-          "export function run(postId: int): void {",
-          "  const db = new BlogDbContext();",
-          "  const post = db.posts.Find(postId);",
-          "  if (post !== undefined) {",
-          "    db.Remove(post);",
-          "  }",
-          "}",
-        ].join("\n"),
-        "node_modules/@tsonic/core/package.json": JSON.stringify({
-          name: "@tsonic/core",
-          version: "1.0.0",
-          type: "module",
-        }),
-        "node_modules/@tsonic/core/types.js": "export {};",
-        "node_modules/@tsonic/core/types.d.ts": "export type int = number;\n",
-        "node_modules/@tsonic/efcore/package.json": JSON.stringify({
-          name: "@tsonic/efcore",
-          version: "1.0.0",
-          type: "module",
-        }),
-        "node_modules/@tsonic/efcore/Microsoft.EntityFrameworkCore.js":
-          "export {};",
-        "node_modules/@tsonic/efcore/Microsoft.EntityFrameworkCore.d.ts": [
-          "export interface EntityEntry_1$instance<TEntity> {",
-          "  readonly __tsonic_type_Microsoft_EntityFrameworkCore_ChangeTracking_EntityEntry_1: never;",
-          "}",
-          "export type EntityEntry_1<TEntity> = EntityEntry_1$instance<TEntity>;",
-          "",
-          "export interface DbSet_1$instance<TEntity> {",
-          "  readonly __tsonic_type_Microsoft_EntityFrameworkCore_DbSet_1: never;",
-          "  Find(...keyValues: unknown[]): TEntity | undefined;",
-          "}",
-          "export type DbSet_1<TEntity> = DbSet_1$instance<TEntity>;",
-          "",
-          "export interface DbContext$instance {",
-          "  readonly __tsonic_type_Microsoft_EntityFrameworkCore_DbContext: never;",
-          "  Remove<TEntity>(entity: TEntity): EntityEntry_1<TEntity>;",
-          "}",
-          "export type DbContext = DbContext$instance;",
-        ].join("\n"),
-      });
-
-      const entryPath = path.join(tempDir, "src", "index.ts");
+      const tempDir = fixture.path("app");
+      const entryPath = fixture.path("app/src/index.ts");
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
         sourceRoot: path.join(tempDir, "src"),
@@ -306,181 +198,19 @@ describe("Dependency Graph", function () {
         name: "PostEntity",
       });
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("specializes bound tsbindgen receiver calls from exact CLR member owners", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dbset-instance-bindings-")
-    );
+    const fixture = materializeFrontendFixture([
+      "program/tsbindgen-instance-receiver/base",
+      "program/tsbindgen-instance-receiver/with-bindings",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-      writeFixture(tempDir, {
-        "src/db.ts": [
-          'import type { int } from "@tsonic/core/types.js";',
-          'import type { DbContext, DbSet_1, EntityEntry_1 } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";',
-          "",
-          "export interface PostEntity {",
-          "  Id: int;",
-          "}",
-          "",
-          "export class BlogDbContext implements DbContext {",
-          "  readonly __tsonic_type_Microsoft_EntityFrameworkCore_DbContext!: never;",
-          "  posts!: DbSet_1<PostEntity>;",
-          '  Remove<TEntity>(entity: TEntity): EntityEntry_1<TEntity> { throw new Error(\"not reached\"); }',
-          "}",
-        ].join("\n"),
-        "src/index.ts": [
-          'import type { int } from "@tsonic/core/types.js";',
-          'import { BlogDbContext } from "./db.js";',
-          "",
-          "export function run(postId: int): void {",
-          "  const db = new BlogDbContext();",
-          "  const post = db.posts.Find(postId);",
-          "  if (post !== undefined) {",
-          "    db.Remove(post);",
-          "  }",
-          "}",
-        ].join("\n"),
-        "node_modules/@tsonic/core/package.json": JSON.stringify({
-          name: "@tsonic/core",
-          version: "1.0.0",
-          type: "module",
-        }),
-        "node_modules/@tsonic/core/types.js": "export {};",
-        "node_modules/@tsonic/core/types.d.ts": "export type int = number;\n",
-        "node_modules/@tsonic/efcore/package.json": JSON.stringify({
-          name: "@tsonic/efcore",
-          version: "1.0.0",
-          type: "module",
-        }),
-        "node_modules/@tsonic/efcore/Microsoft.EntityFrameworkCore.js":
-          "export {};",
-        "node_modules/@tsonic/efcore/Microsoft.EntityFrameworkCore.d.ts": [
-          "export interface EntityEntry_1$instance<TEntity> {",
-          "  readonly __tsonic_type_Microsoft_EntityFrameworkCore_ChangeTracking_EntityEntry_1: never;",
-          "}",
-          "export type EntityEntry_1<TEntity> = EntityEntry_1$instance<TEntity>;",
-          "",
-          "export interface DbSet_1$instance<TEntity> {",
-          "  readonly __tsonic_type_Microsoft_EntityFrameworkCore_DbSet_1: never;",
-          "  Find(...keyValues: unknown[]): TEntity | undefined;",
-          "}",
-          "export type DbSet_1<TEntity> = DbSet_1$instance<TEntity>;",
-          "",
-          "export interface DbContext$instance {",
-          "  readonly __tsonic_type_Microsoft_EntityFrameworkCore_DbContext: never;",
-          "  Remove<TEntity>(entity: TEntity): EntityEntry_1<TEntity>;",
-          "}",
-          "export type DbContext = DbContext$instance;",
-        ].join("\n"),
-        "node_modules/@tsonic/efcore/Microsoft.EntityFrameworkCore/bindings.json":
-          JSON.stringify(
-            {
-              namespace: "Microsoft.EntityFrameworkCore",
-              contributingAssemblies: ["Microsoft.EntityFrameworkCore"],
-              types: [
-                {
-                  stableId:
-                    "Microsoft.EntityFrameworkCore:Microsoft.EntityFrameworkCore.DbContext",
-                  clrName: "Microsoft.EntityFrameworkCore.DbContext",
-                  assemblyName: "Microsoft.EntityFrameworkCore",
-                  metadataToken: 0,
-                  kind: "Class",
-                  accessibility: "Public",
-                  isAbstract: false,
-                  isSealed: false,
-                  isStatic: false,
-                  arity: 0,
-                  methods: [
-                    {
-                      stableId:
-                        "Microsoft.EntityFrameworkCore:Microsoft.EntityFrameworkCore.DbContext::Remove(TEntity):EntityEntry_1",
-                      clrName: "Remove",
-                      metadataToken: 0,
-                      canonicalSignature: "(TEntity):EntityEntry_1",
-                      normalizedSignature:
-                        "Remove|(TEntity):EntityEntry_1|static=false",
-                      emitScope: "ClassSurface",
-                      provenance: "Original",
-                      arity: 1,
-                      parameterCount: 1,
-                      isStatic: false,
-                      isAbstract: false,
-                      isVirtual: true,
-                      isOverride: false,
-                      isSealed: false,
-                      visibility: "Public",
-                      declaringClrType: "Microsoft.EntityFrameworkCore.DbContext",
-                      declaringAssemblyName: "Microsoft.EntityFrameworkCore",
-                      isExtensionMethod: false,
-                    },
-                  ],
-                  properties: [],
-                  fields: [],
-                  events: [],
-                  constructors: [],
-                },
-                {
-                  stableId:
-                    "Microsoft.EntityFrameworkCore:Microsoft.EntityFrameworkCore.DbSet`1",
-                  clrName: "Microsoft.EntityFrameworkCore.DbSet`1",
-                  assemblyName: "Microsoft.EntityFrameworkCore",
-                  metadataToken: 0,
-                  kind: "Class",
-                  accessibility: "Public",
-                  isAbstract: false,
-                  isSealed: false,
-                  isStatic: false,
-                  arity: 1,
-                  methods: [
-                    {
-                      stableId:
-                        "Microsoft.EntityFrameworkCore:Microsoft.EntityFrameworkCore.DbSet`1::Find(System.Object[]):TEntity",
-                      clrName: "Find",
-                      metadataToken: 0,
-                      canonicalSignature: "(System.Object[]):TEntity",
-                      normalizedSignature:
-                        "Find|(System.Object[]):TEntity|static=false",
-                      emitScope: "ClassSurface",
-                      provenance: "Original",
-                      arity: 0,
-                      parameterCount: 1,
-                      isStatic: false,
-                      isAbstract: false,
-                      isVirtual: true,
-                      isOverride: false,
-                      isSealed: false,
-                      visibility: "Public",
-                      declaringClrType:
-                        "Microsoft.EntityFrameworkCore.DbSet`1",
-                      declaringAssemblyName: "Microsoft.EntityFrameworkCore",
-                      isExtensionMethod: false,
-                    },
-                  ],
-                  properties: [],
-                  fields: [],
-                  events: [],
-                  constructors: [],
-                },
-              ],
-            },
-            null,
-            2
-          ),
-      });
-
-      const entryPath = path.join(tempDir, "src", "index.ts");
+      const tempDir = fixture.path("app");
+      const entryPath = fixture.path("app/src/index.ts");
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
         sourceRoot: path.join(tempDir, "src"),
@@ -543,7 +273,7 @@ describe("Dependency Graph", function () {
         name: "PostEntity",
       });
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 });

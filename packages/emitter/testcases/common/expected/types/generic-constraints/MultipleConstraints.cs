@@ -2,12 +2,12 @@ namespace TestCases.common.types.genericconstraints
 {
     public class ComparableShowable<T>
     {
-        public int compareTo(T other)
+        public virtual int compareTo(T other)
         {
             return 0;
         }
 
-        public string show()
+        public virtual string show()
         {
             return "";
         }

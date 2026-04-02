@@ -1,4 +1,5 @@
 import { int } from "@tsonic/core/types.js";
+import { asinterface } from "@tsonic/core/lang.js";
 import { Console } from "@tsonic/dotnet/System.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 import { Queryable } from "@tsonic/dotnet/System.Linq.js";
@@ -16,7 +17,7 @@ export function main(): void {
   numbers.Add(3);
   numbers.Add(4);
 
-  const q = Queryable.AsQueryable(numbers) as unknown as LinqQ<int>;
+  const q = asinterface<LinqQ<int>>(Queryable.AsQueryable(numbers));
 
   const staticEven = Queryable.Where(q, (n) => n % 2 === 0);
   const staticDoubled = Queryable.Select(staticEven, (n) => n * 2);

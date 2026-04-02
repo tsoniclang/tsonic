@@ -13,7 +13,7 @@ type NullablePerson = NullableProps<Person>;
 
 function acceptNullablePerson(_value: NullablePerson): void {}
 
-const person = { name: "Alice", age: 30 } as unknown as NullablePerson;
+const person: NullablePerson = { name: "Alice", age: 30 };
 acceptNullablePerson(person);
 
 Console.WriteLine("mapped ok");

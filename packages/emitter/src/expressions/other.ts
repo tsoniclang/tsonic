@@ -34,6 +34,26 @@ const typeMayBeNullish = (type: IrType | undefined): boolean => {
   return false;
 };
 
+const isDefinitelyJsPrimitiveStringifiable = (
+  type: IrType | undefined
+): boolean => {
+  if (!type) return false;
+  if (type.kind === "literalType") return true;
+  if (type.kind === "primitiveType") {
+    return type.name !== "null" && type.name !== "undefined";
+  }
+  if (type.kind === "unionType") {
+    return type.types.every(
+      (member) =>
+        member.kind === "literalType" ||
+        (member.kind === "primitiveType" &&
+          member.name !== "null" &&
+          member.name !== "undefined")
+    );
+  }
+  return false;
+};
+
 /**
  * Escape a string for use in a C# interpolated string literal.
  * Handles backslashes, quotes, newlines, carriage returns, tabs,
@@ -116,7 +136,9 @@ export const emitTemplateLiteral = (
 
       const interpolationExpr =
         currentContext.options.surface === "@tsonic/js"
-          ? buildJsStringCoercionExpr(exprAst, currentContext)
+          ? isDefinitelyJsPrimitiveStringifiable(exprAtIndex.inferredType)
+            ? exprAst
+            : buildJsStringCoercionExpr(exprAst, currentContext)
           : typeMayBeNullish(exprAtIndex.inferredType)
             ? buildNullishSafeExpr(exprAst)
             : exprAst;

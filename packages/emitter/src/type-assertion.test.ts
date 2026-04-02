@@ -12,6 +12,12 @@ import { emitAssignment } from "./expressions/operators/assignment-emitter.js";
 import { printExpression } from "./core/format/backend-ast/printer.js";
 import { emitExpressionAst } from "./expression-emitter.js";
 
+const jsValueType: IrType = {
+  kind: "referenceType",
+  name: "JsValue",
+  resolvedClrType: "Tsonic.Runtime.JsValue",
+};
+
 describe("Type Assertion Emission", () => {
   it("should strip 'as' type assertions", () => {
     const module: IrModule = {
@@ -162,13 +168,17 @@ describe("Type Assertion Emission", () => {
             {
               kind: "parameter",
               pattern: { kind: "identifierPattern", name: "input" },
-              type: { kind: "unknownType" },
+              type: jsValueType,
               isOptional: false,
               isRest: false,
               passing: "value",
             },
           ],
-          returnType: { kind: "unknownType" },
+          returnType: {
+            kind: "dictionaryType",
+            keyType: { kind: "primitiveType", name: "string" },
+            valueType: jsValueType,
+          },
           body: {
             kind: "blockStatement",
             statements: [
@@ -179,17 +189,17 @@ describe("Type Assertion Emission", () => {
                   expression: {
                     kind: "identifier",
                     name: "input",
-                    inferredType: { kind: "unknownType" },
+                    inferredType: jsValueType,
                   },
                   targetType: {
                     kind: "dictionaryType",
                     keyType: { kind: "primitiveType", name: "string" },
-                    valueType: { kind: "unknownType" },
+                    valueType: jsValueType,
                   },
                   inferredType: {
                     kind: "dictionaryType",
                     keyType: { kind: "primitiveType", name: "string" },
-                    valueType: { kind: "unknownType" },
+                    valueType: jsValueType,
                   },
                 },
               },
@@ -223,7 +233,7 @@ describe("Type Assertion Emission", () => {
           kind: "functionDeclaration",
           name: "value",
           parameters: [],
-          returnType: { kind: "unknownType" },
+          returnType: jsValueType,
           body: {
             kind: "blockStatement",
             statements: [

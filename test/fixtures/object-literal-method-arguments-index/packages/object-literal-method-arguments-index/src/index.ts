@@ -1,8 +1,9 @@
 import { Console } from "@tsonic/dotnet/System.js";
+import type { JsValue } from "@tsonic/core/types.js";
 
 declare global {
   interface __ObjectLiteralMethodArgumentsIndexable {
-    readonly [index: number]: unknown;
+    readonly [index: number]: JsValue;
   }
 
   interface IArguments {

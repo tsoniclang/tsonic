@@ -101,8 +101,8 @@ export const applyConditionBranchNarrowing = (
   return (
     applyDirectTypeofRefinement(condition, branch, context, emitExprAst) ??
     applySimpleNullableRefinement(condition, branch, context, emitExprAst) ??
-    applyPredicateCallRefinement(condition, branch, context, emitExprAst) ??
     applyArrayIsArrayRefinement(condition, branch, context, emitExprAst) ??
+    applyPredicateCallRefinement(condition, branch, context, emitExprAst) ??
     applyInstanceofRefinement(condition, branch, context, emitExprAst) ??
     context
   );

@@ -215,6 +215,8 @@ export const dtsTypeNodeToIrType = (
       return { kind: "literalType", value: true };
     if (lit.kind === ts.SyntaxKind.FalseKeyword)
       return { kind: "literalType", value: false };
+    if (lit.kind === ts.SyntaxKind.NullKeyword)
+      return { kind: "primitiveType", name: "null" };
   }
 
   // Keywords

@@ -41,14 +41,25 @@ export const matchesSemanticExpectedType = (
     unwrapParameterModifierType(actualType) ?? actualType;
   const expectedComparableType =
     unwrapParameterModifierType(expectedType) ?? expectedType;
+  const resolvedActualComparableType = resolveComparableType(
+    actualComparableType,
+    context
+  );
+  const resolvedExpectedComparableType = resolveComparableType(
+    expectedComparableType,
+    context
+  );
 
-  if (isAssignable(actualComparableType, expectedComparableType)) {
+  if (
+    isAssignable(actualComparableType, expectedComparableType) ||
+    isAssignable(resolvedActualComparableType, resolvedExpectedComparableType)
+  ) {
     return true;
   }
 
   return (
-    stableIrTypeKey(resolveComparableType(actualComparableType, context)) ===
-    stableIrTypeKey(resolveComparableType(expectedComparableType, context))
+    stableIrTypeKey(resolvedActualComparableType) ===
+    stableIrTypeKey(resolvedExpectedComparableType)
   );
 };
 

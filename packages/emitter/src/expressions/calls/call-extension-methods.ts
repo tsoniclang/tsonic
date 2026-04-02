@@ -27,6 +27,7 @@ import type {
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
 import { isPrimitiveReceiverExtensionCall } from "./call-binding-resolution.js";
+import { matchesExpectedEmissionType } from "../../core/semantic/expected-type-matching.js";
 import {
   shouldPreferNativeArrayWrapperInterop,
   shouldNormalizeArrayLikeInteropResult,
@@ -110,8 +111,27 @@ const adaptExtensionReceiverAst = (
     return [receiverAst, context];
   }
 
+  const adaptationSourceExpr =
+    receiverExpr.kind === "asinterface" ? receiverExpr.expression : receiverExpr;
+  const adaptationSourceType =
+    receiverExpr.kind === "asinterface"
+      ? resolveEffectiveExpressionType(receiverExpr.expression, context) ??
+        receiverExpr.expression.inferredType
+      : receiverType;
+
+  if (
+    adaptationSourceType &&
+    matchesExpectedEmissionType(
+      adaptationSourceType,
+      expectedReceiverType,
+      context
+    )
+  ) {
+    return [receiverAst, context];
+  }
+
   const [adaptedAst, adaptedContext] = adaptEmittedExpressionAst({
-    expr: receiverExpr,
+    expr: adaptationSourceExpr,
     valueAst: receiverAst,
     context,
     expectedType: expectedReceiverType,
@@ -119,7 +139,7 @@ const adaptExtensionReceiverAst = (
 
   return maybeConvertReceiverToExpectedJsNumberAst(
     adaptedAst,
-    receiverType,
+    adaptationSourceType,
     expectedReceiverType,
     adaptedContext
   );

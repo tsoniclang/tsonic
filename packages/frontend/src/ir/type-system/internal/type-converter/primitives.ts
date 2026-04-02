@@ -31,6 +31,13 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
       return { kind: "primitiveType", name: "number" };
     case ts.SyntaxKind.BooleanKeyword:
       return { kind: "primitiveType", name: "boolean" };
+    case ts.SyntaxKind.BigIntKeyword:
+      return {
+        kind: "referenceType",
+        name: "BigInteger",
+        typeArguments: [],
+        resolvedClrType: "System.Numerics.BigInteger",
+      };
     case ts.SyntaxKind.SymbolKeyword:
       // TypeScript `symbol` is lowered as an opaque object identity handle.
       // This keeps AOT semantics deterministic without introducing JS runtime symbol

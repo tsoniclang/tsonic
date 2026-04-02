@@ -1,4 +1,4 @@
-import { attributes as A } from "@tsonic/core/lang.js";
+import { asinterface, attributes as A } from "@tsonic/core/lang.js";
 import {
   Attribute,
   Console,
@@ -38,19 +38,19 @@ export class NoCtor {
 
 const d = A.attr(ObsoleteAttribute, "type");
 
-A.on(User).type.add(SerializableAttribute);
-A.on(User).type.add(d);
-A.on(User).type.add(NamesAttribute, ["Alice", "Bob"]);
+A<User>().add(SerializableAttribute);
+A<User>().add(d);
+A<User>().add(NamesAttribute, ["Alice", "Bob"]);
 
-A.on(User).ctor.add(ObsoleteAttribute, "ctor");
-A.on(User)
+A<User>().ctor.add(ObsoleteAttribute, "ctor");
+A<User>()
   .method((u) => u.save)
   .add(ObsoleteAttribute, "method");
-A.on(User)
+A<User>()
   .prop((u) => u.name)
   .add(ObsoleteAttribute, "prop");
 
-A.on(NoCtor).ctor.add(ObsoleteAttribute, "implicit");
+A<NoCtor>().ctor.add(ObsoleteAttribute, "implicit");
 
 const ok = (value: boolean): string => (value ? "ok" : "fail");
 
@@ -60,7 +60,7 @@ const hasAttribute = (
 ): boolean => {
   const attrs = member.GetCustomAttributes(true);
   for (const a of attrs) {
-    const obj = a as unknown as ClrObject;
+    const obj = a as ClrObject;
     const t = obj.GetType() as Type;
     if (t.FullName === attributeFullName) return true;
   }
@@ -73,16 +73,16 @@ user.save();
 
 const userType = user.GetType();
 Console.WriteLine(
-  `User.Serializable: ${ok(hasAttribute(userType as unknown as ICustomAttributeProvider, "System.SerializableAttribute"))}`
+  `User.Serializable: ${ok(hasAttribute(asinterface<ICustomAttributeProvider>(userType), "System.SerializableAttribute"))}`
 );
 
 let namesOk = false;
 const typeAttrs = userType.GetCustomAttributes(true);
 for (const a of typeAttrs) {
-  const obj = a as unknown as ClrObject;
+  const obj = a as ClrObject;
   const t = obj.GetType() as Type;
   if (t.FullName === "AttributesComprehensive.NamesAttribute") {
-    const na = a as unknown as NamesAttribute;
+    const na = a as NamesAttribute;
     namesOk =
       na.Names.Length === 2 && na.Names[0] === "Alice" && na.Names[1] === "Bob";
     break;

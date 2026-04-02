@@ -21,6 +21,8 @@ import { runArrowReturnFinalizationPass } from "../ir/validation/arrow-return-fi
 import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.js";
 import { runCharValidationPass } from "../ir/validation/char-validation-pass.js";
 import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
+import { runOverloadCollectionPass } from "../ir/validation/overload-collection-pass.js";
+import { runOverloadFamilyConsistencyPass } from "../ir/validation/overload-family-consistency-pass.js";
 import { runAttributeCollectionPass } from "../ir/validation/attribute-collection-pass.js";
 import { runAnonymousTypeLoweringPass } from "../ir/validation/anonymous-type-lowering-pass.js";
 import { runRestTypeSynthesisPass } from "../ir/validation/rest-type-synthesis-pass.js";
@@ -623,20 +625,38 @@ export const buildModuleDependencyGraph = (
 
   // Run anonymous type lowering pass - transforms objectType to generated named types
   // This must run before soundness validation so the emitter never sees objectType
-  const anonTypeResult = runAnonymousTypeLoweringPass(restResult.modules, {
-    bindings: tsonicProgram.bindings.getEmitterTypeMap(),
-  });
+  const anonTypeResult = runAnonymousTypeLoweringPass(restResult.modules);
   // Note: This pass always succeeds (no diagnostics), but we use the lowered modules
   const loweredModules = anonTypeResult.modules;
 
-  // Run attribute collection pass - extracts A.on(X).type.add(...) marker calls
+  // Run overload collection pass - extracts O<T>().method(...).family(...)
+  // and O(fn).family(...) marker calls
+  // and attaches overload-family metadata to declarations.
+  //
+  // IMPORTANT: This must run BEFORE the IR soundness gate. Overload markers are
+  // compiler-only and must be removed before the normal validation/emission pipeline.
+  const overloadResult = runOverloadCollectionPass(loweredModules);
+  if (!overloadResult.ok) {
+    return error(overloadResult.diagnostics);
+  }
+
+  const overloadConsistencyResult = runOverloadFamilyConsistencyPass(
+    overloadResult.modules
+  );
+  if (!overloadConsistencyResult.ok) {
+    return error(overloadConsistencyResult.diagnostics);
+  }
+
+  // Run attribute collection pass - extracts A<T>().add(...) / A(fn).add(...) marker calls
   // and attaches them as attributes to declarations.
   //
   // IMPORTANT: This must run BEFORE the IR soundness gate. Attribute markers are
   // compiler-only and may introduce types that are not representable in the runtime
   // subset (e.g., AttributeDescriptor<>). The pass removes all recognized marker
   // statements so the emitter/soundness gate never see them.
-  const attributeResult = runAttributeCollectionPass(loweredModules);
+  const attributeResult = runAttributeCollectionPass(
+    overloadConsistencyResult.modules
+  );
   if (!attributeResult.ok) {
     return error(attributeResult.diagnostics);
   }
@@ -669,10 +689,7 @@ export const buildModuleDependencyGraph = (
     refreshContext
   );
   const reloweredAfterRefreshResult = runAnonymousTypeLoweringPass(
-    refreshedCallResolutionResult.modules,
-    {
-      bindings: tsonicProgram.bindings.getEmitterTypeMap(),
-    }
+    refreshedCallResolutionResult.modules
   );
 
   // Run arrow return finalization pass - infers return types for expression-bodied

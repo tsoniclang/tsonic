@@ -14,6 +14,7 @@ import type {
   CSharpExpressionAst,
   CSharpStatementAst,
 } from "../../core/format/backend-ast/types.js";
+import { identifierType } from "../../core/format/backend-ast/builders.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import { resolveArrayLikeReceiverType } from "../../core/semantic/type-resolution.js";
 import { allocateLocalName } from "../../core/format/local-names.js";
@@ -21,10 +22,23 @@ import { needsIntCast } from "./call-analysis.js";
 import {
   emitCallArguments,
   wrapIntCast,
-  emitArrayWrapperElementTypeAst,
 } from "./call-arguments.js";
 import { buildDelegateType } from "./call-promise.js";
-import { buildExactGlobalBindingType } from "../exact-global-bindings.js";
+
+const buildNativeArrayWrapperAst = (
+  receiverAst: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression: {
+    kind: "memberAccessExpression",
+    expression: {
+      kind: "typeReferenceExpression",
+      type: identifierType("global::js.ArrayObject"),
+    },
+    memberName: "wrapArray",
+  },
+  arguments: [receiverAst],
+});
 
 const stripClrGenericArity = (typeName: string): string =>
   typeName.replace(/`\d+$/, "");
@@ -114,32 +128,25 @@ type CapturedAssignableArrayTarget = {
 
 const captureAssignableArrayTarget = (
   expr: IrExpression,
-  context: EmitterContext,
-  readExpectedType?: IrType
+  context: EmitterContext
 ): CapturedAssignableArrayTarget | undefined => {
   const [receiverAst, receiverContext] = emitExpressionAst(expr, context);
 
   if (receiverAst.kind === "identifierExpression") {
-    const [readExpression, readContext] = readExpectedType
-      ? emitExpressionAst(expr, context, readExpectedType)
-      : [receiverAst, receiverContext];
     return {
-      readExpression,
+      readExpression: receiverAst,
       writeExpression: receiverAst,
       setupStatements: [],
-      context: readContext,
+      context: receiverContext,
     };
   }
 
   if (receiverAst.kind === "qualifiedIdentifierExpression") {
-    const [readExpression, readContext] = readExpectedType
-      ? emitExpressionAst(expr, context, readExpectedType)
-      : [receiverAst, receiverContext];
     return {
-      readExpression,
+      readExpression: receiverAst,
       writeExpression: receiverAst,
       setupStatements: [],
-      context: readContext,
+      context: receiverContext,
     };
   }
 
@@ -243,24 +250,10 @@ export const emitArrayMutationInteropCall = (
   )?.elementType;
   if (!receiverElementType) return undefined;
 
-  const captured = captureAssignableArrayTarget(
-    expr.callee.object,
-    context,
-    receiverType
-  );
+  const captured = captureAssignableArrayTarget(expr.callee.object, context);
   if (!captured) return undefined;
 
   let currentContext = captured.context;
-
-  const [elementTypeAst, elementTypeContext] = emitArrayWrapperElementTypeAst(
-    receiverType ?? {
-      kind: "arrayType",
-      elementType: receiverElementType,
-      origin: "explicit",
-    },
-    currentContext
-  );
-  currentContext = elementTypeContext;
 
   const wrapperTemp = allocateLocalName(
     "__tsonic_arrayWrapper",
@@ -342,13 +335,7 @@ export const emitArrayMutationInteropCall = (
       statements: [
         ...captured.setupStatements,
         createVarLocal(wrapperTemp.emittedName, {
-          kind: "objectCreationExpression",
-          type: buildExactGlobalBindingType(
-            "Array",
-            [elementTypeAst],
-            currentContext
-          ),
-          arguments: [captured.readExpression],
+          ...buildNativeArrayWrapperAst(captured.readExpression),
         }),
         createVarLocal(resultTemp.emittedName, mutationCall),
         {

@@ -7,8 +7,8 @@ function build(): number {
   const table: SymbolTable = {};
   const mixed: MixedTable = {};
 
-  const keyA = { tag: "a" } as unknown as symbol;
-  const keyB = { tag: "b" } as unknown as symbol;
+  const keyA = Symbol("a");
+  const keyB = Symbol("b");
 
   table[keyA] = 10;
   table[keyB] = 20;

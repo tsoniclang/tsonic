@@ -2,11 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  buildIr,
-  compile,
-  runAnonymousTypeLoweringPass,
-  runAttributeCollectionPass,
-  runNumericProofPass,
+  buildModuleDependencyGraph,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../dist/emitter.js";
 import { discoverScenarios } from "../dist/golden-tests/index.js";
@@ -35,50 +31,24 @@ for (const scenario of scenarios) {
   const namespaceParts = scenario.pathParts.map((part) => part.replace(/-/g, ""));
   const rootNamespace = ["TestCases", ...namespaceParts].join(".");
 
-  const compileResult = compile([scenario.inputPath], {
+  const graphResult = buildModuleDependencyGraph(scenario.inputPath, {
     projectRoot: monorepoRoot,
     sourceRoot,
     rootNamespace,
     typeRoots: [globalsPath, corePath],
   });
 
-  if (!compileResult.ok) {
-    const errors = compileResult.error.diagnostics
+  if (!graphResult.ok) {
+    const errors = graphResult.error
       .map((d) => `${d.code}: ${d.message}`)
       .join("\n");
     throw new Error(`Compilation failed for ${scenario.inputPath}:\n${errors}`);
   }
 
-  const irResult = buildIr(compileResult.value.program, {
-    sourceRoot,
+  const emitResult = emitCSharpFiles(graphResult.value.modules, {
     rootNamespace,
+    bindingRegistry: graphResult.value.bindingRegistry,
   });
-
-  if (!irResult.ok) {
-    const errors = irResult.error.map((d) => `${d.code}: ${d.message}`).join("\n");
-    throw new Error(`IR build failed for ${scenario.inputPath}:\n${errors}`);
-  }
-
-  const anonTypeResult = runAnonymousTypeLoweringPass(irResult.value);
-  const proofResult = runNumericProofPass(anonTypeResult.modules);
-  if (!proofResult.ok) {
-    const errors = proofResult.diagnostics
-      .map((d) => `${d.code}: ${d.message}`)
-      .join("\n");
-    throw new Error(`Numeric proof failed for ${scenario.inputPath}:\n${errors}`);
-  }
-
-  const attributeResult = runAttributeCollectionPass(proofResult.modules);
-  if (!attributeResult.ok) {
-    const errors = attributeResult.diagnostics
-      .map((d) => `${d.code}: ${d.message}`)
-      .join("\n");
-    throw new Error(
-      `Attribute collection failed for ${scenario.inputPath}:\n${errors}`
-    );
-  }
-
-  const emitResult = emitCSharpFiles(attributeResult.modules, { rootNamespace });
   if (!emitResult.ok) {
     const errors = emitResult.errors.map((d) => `${d.code}: ${d.message}`).join("\n");
     throw new Error(`Emit failed for ${scenario.inputPath}:\n${errors}`);

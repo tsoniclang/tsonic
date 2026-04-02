@@ -444,9 +444,7 @@ describe("Statement Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include("if (optionsOrInput.Is1())");
-    expect(result).to.include(
-      "options.input = (Readable)(optionsOrInput.As2());"
-    );
+    expect(result).to.include("options.input = (optionsOrInput.As2());");
     expect(result).to.not.include("options.input = optionsOrInput;");
   });
 
@@ -695,7 +693,11 @@ describe("Statement Emission", () => {
       types: [
         {
           kind: "arrayType",
-          elementType: { kind: "unknownType" },
+          elementType: {
+            kind: "referenceType",
+            name: "JsValue",
+            resolvedClrType: "Tsonic.Runtime.JsValue",
+          },
           origin: "explicit",
         },
         { kind: "primitiveType", name: "string" },

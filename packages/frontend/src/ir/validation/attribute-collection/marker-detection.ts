@@ -11,7 +11,6 @@ import {
   IrExpression,
   IrCallExpression,
   IrMemberExpression,
-  IrIdentifierExpression,
   IrAttributeTarget,
   IrArrowFunctionExpression,
   IrSpreadExpression,
@@ -115,6 +114,7 @@ export const looksLikeAttributesApiUsage = (
   switch (expr.kind) {
     case "call":
       return (
+        isAttributesApiIdentifier(expr.callee, apiNames) ||
         looksLikeAttributesApiUsage(expr.callee, apiNames) ||
         expr.arguments.some(
           (arg: IrExpression | IrSpreadExpression) =>
@@ -125,7 +125,7 @@ export const looksLikeAttributesApiUsage = (
       return (
         looksLikeAttributesApiUsage(expr.object, apiNames) ||
         (typeof expr.property === "string" &&
-          (expr.property === "on" || expr.property === "attr") &&
+          expr.property === "attr" &&
           isAttributesApiIdentifier(expr.object, apiNames))
       );
     case "arrowFunction":
@@ -172,20 +172,71 @@ export const parseOnCall = (
   expr: IrExpression,
   module: IrModule,
   apiNames: ReadonlySet<string>
-): ParseResult<{
-  readonly target: IrIdentifierExpression;
-  readonly sourceSpan?: SourceLocation;
-}> => {
+): ParseResult<
+  | {
+      readonly kind: "type";
+      readonly name: string;
+      readonly sourceSpan?: SourceLocation;
+    }
+  | {
+      readonly kind: "function";
+      readonly name: string;
+      readonly sourceSpan?: SourceLocation;
+    }
+> => {
   if (expr.kind !== "call") return { kind: "notMatch" };
   const call = expr as IrCallExpression;
-  if (call.callee.kind !== "memberAccess") return { kind: "notMatch" };
+  if (!isAttributesApiIdentifier(call.callee, apiNames)) {
+    return { kind: "notMatch" };
+  }
 
-  const member = call.callee as IrMemberExpression;
-  if (member.isComputed || typeof member.property !== "string")
-    return { kind: "notMatch" };
-  if (member.property !== "on") return { kind: "notMatch" };
-  if (!isAttributesApiIdentifier(member.object, apiNames))
-    return { kind: "notMatch" };
+  if (call.typeArguments && call.typeArguments.length > 0) {
+    if (call.arguments.length !== 0) {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4005",
+          "error",
+          `Invalid attribute marker: A<T>() does not accept runtime arguments.`,
+          createLocation(module.filePath, call.sourceSpan)
+        ),
+      };
+    }
+
+    if (call.typeArguments.length !== 1) {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4005",
+          "error",
+          `Invalid attribute marker: A<T>() expects exactly 1 type argument.`,
+          createLocation(module.filePath, call.sourceSpan)
+        ),
+      };
+    }
+
+    const targetType = call.typeArguments[0];
+    if (!targetType || targetType.kind !== "referenceType") {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4005",
+          "error",
+          `Invalid attribute marker: A<T>() expects a named class or interface target.`,
+          createLocation(module.filePath, call.sourceSpan)
+        ),
+      };
+    }
+
+    return {
+      kind: "ok",
+      value: {
+        kind: "type",
+        name: targetType.name,
+        sourceSpan: call.sourceSpan,
+      },
+    };
+  }
 
   if (call.arguments.length !== 1) {
     return {
@@ -193,7 +244,7 @@ export const parseOnCall = (
       diagnostic: createDiagnostic(
         "TSN4005",
         "error",
-        `Invalid attribute marker: A.on(...) expects exactly 1 argument`,
+        `Invalid attribute marker: A(fn) expects exactly 1 function argument, or use A<T>() for class/interface targets.`,
         createLocation(module.filePath, call.sourceSpan)
       ),
     };
@@ -206,7 +257,7 @@ export const parseOnCall = (
       diagnostic: createDiagnostic(
         "TSN4005",
         "error",
-        `Invalid attribute marker: A.on(...) does not accept spread arguments`,
+        `Invalid attribute marker: A(fn) does not accept spread arguments.`,
         createLocation(module.filePath, call.sourceSpan)
       ),
     };
@@ -218,7 +269,7 @@ export const parseOnCall = (
       diagnostic: createDiagnostic(
         "TSN4005",
         "error",
-        `Invalid attribute marker: A.on(Target) target must be an identifier`,
+        `Invalid attribute marker: A(fn) target must be a function identifier.`,
         createLocation(module.filePath, call.sourceSpan)
       ),
     };
@@ -227,11 +278,18 @@ export const parseOnCall = (
   return {
     kind: "ok",
     value: {
-      target: arg0 as IrIdentifierExpression,
+      kind: "function",
+      name: arg0.name,
       sourceSpan: call.sourceSpan,
     },
   };
 };
+
+export const parseRootCall = (
+  expr: IrExpression,
+  module: IrModule,
+  apiNames: ReadonlySet<string>
+): ReturnType<typeof parseOnCall> => parseOnCall(expr, module, apiNames);
 
 export const parseSelector = (
   selector: IrExpression,

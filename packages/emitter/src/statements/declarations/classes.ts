@@ -18,7 +18,6 @@ import { substituteType } from "../../specialization/substitution.js";
 import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { resolveCompatibleImplementedInterfaces } from "../../core/semantic/implicit-interfaces.js";
-import { generateExplicitInterfaceBridgeMembers } from "./interface-bridges.js";
 import type {
   CSharpAttributeAst,
   CSharpTypeDeclarationAst,
@@ -199,8 +198,9 @@ export const emitClassDeclaration = (
   const reservedTypeParamNames = new Set<string>();
   for (const member of membersToEmit) {
     if (member.kind === "methodDeclaration") {
+      const publicName = member.overloadFamily?.publicName ?? member.name;
       reservedTypeParamNames.add(
-        emitCSharpName(member.name, "methods", context)
+        emitCSharpName(publicName, "methods", context)
       );
       continue;
     }
@@ -245,7 +245,8 @@ export const emitClassDeclaration = (
     currentContext
   );
   const emittedInterfaceKeys = new Set<string>();
-  for (const impl of stmt.implements) {
+  for (const match of compatibleInterfaces) {
+    const impl = match.ref;
     if (impl.kind !== "referenceType") continue;
     const implKey = stableIrTypeKey(impl);
     if (emittedInterfaceKeys.has(implKey)) continue;
@@ -267,14 +268,8 @@ export const emitClassDeclaration = (
         ? declaringTypeParameterNameMap
         : undefined,
   };
-  const hasConstructorHelper = membersToEmit.some(
-    (member) =>
-      member.kind === "methodDeclaration" &&
-      member.name === "__tsonic_ctor_impl"
-  );
   const bodyContext: EmitterContext = {
     ...baseContext,
-    hasConstructorHelper,
     hasSuperClass: stmt.superClass ? true : undefined,
   };
 
@@ -300,17 +295,6 @@ export const emitClassDeclaration = (
     }
     currentContext = newContext;
   }
-
-  const [interfaceBridgeMembers, bridgeContext] =
-    generateExplicitInterfaceBridgeMembers(
-      compatibleInterfaces.filter(
-        (match) =>
-          match.isExplicit && isInterfaceReference(match.ref, bodyContext)
-      ),
-      bodyContext
-    );
-  currentContext = bridgeContext;
-  memberAsts.push(...interfaceBridgeMembers);
 
   const memberAstsWithHoistedInitializers = (() => {
     if (hoistedInitializerStatements.length === 0) {

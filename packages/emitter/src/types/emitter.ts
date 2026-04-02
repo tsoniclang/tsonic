@@ -20,10 +20,7 @@ import { emitUnionType } from "./unions.js";
 import { emitIntersectionType } from "./intersections.js";
 import { emitLiteralType } from "./literals.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
-import {
-  identifierType,
-  nullableType,
-} from "../core/format/backend-ast/builders.js";
+import { identifierType } from "../core/format/backend-ast/builders.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 const RECURSIVE_TYPE_FALLBACK_AST: CSharpTypeAst = {
@@ -68,6 +65,24 @@ const withTypeEmissionGuard = (
       activeTypeEmissionKeys: context.activeTypeEmissionKeys,
     },
   ];
+};
+
+const buildEmitterIceContext = (context: EmitterContext): string => {
+  const parts: string[] = [];
+  const moduleFilePath = context.options.currentModuleFilePath;
+  if (moduleFilePath) {
+    parts.push(`module=${moduleFilePath}`);
+  }
+  if (context.declaringTypeName) {
+    parts.push(`declaringType=${context.declaringTypeName}`);
+  }
+  if (context.className) {
+    parts.push(`class=${context.className}`);
+  }
+  if (parts.length === 0) {
+    return "";
+  }
+  return ` (${parts.join(", ")})`;
 };
 
 /**
@@ -147,11 +162,10 @@ export const emitTypeAst = (
         );
 
       case "unknownType":
-        // 'unknown' is a legitimate type - emit as nullable object
-        return [
-          nullableType({ kind: "predefinedType", keyword: "object" }),
-          guardedContext,
-        ];
+        throw new Error(
+          "ICE: 'unknown' type reached emitter - validated programs must erase overload stubs and reject unknown elsewhere" +
+            buildEmitterIceContext(guardedContext)
+        );
 
       case "voidType":
         return [{ kind: "predefinedType", keyword: "void" }, guardedContext];

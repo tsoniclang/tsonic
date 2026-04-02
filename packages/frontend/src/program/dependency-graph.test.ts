@@ -1,36 +1,8 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { buildModuleDependencyGraph } from "./dependency-graph.js";
-
-const installMinimalJsSurface = (projectRoot: string): void => {
-  const jsRoot = path.join(projectRoot, "node_modules", "@tsonic", "js");
-  fs.mkdirSync(jsRoot, { recursive: true });
-  fs.writeFileSync(
-    path.join(jsRoot, "package.json"),
-    JSON.stringify(
-      { name: "@tsonic/js", version: "1.0.0", type: "module" },
-      null,
-      2
-    )
-  );
-  fs.writeFileSync(
-    path.join(jsRoot, "tsonic.surface.json"),
-    JSON.stringify(
-      {
-        schemaVersion: 1,
-        id: "@tsonic/js",
-        extends: [],
-        requiredTypeRoots: [],
-        useStandardLib: true,
-      },
-      null,
-      2
-    )
-  );
-};
+import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 
 const hasNonEmptyObjectTypeMetadata = (value: unknown): boolean => {
   if (!value || typeof value !== "object") {
@@ -70,74 +42,15 @@ const hasNonEmptyObjectTypeMetadata = (value: unknown): boolean => {
 describe("Dependency Graph", function () {
   this.timeout(60_000);
   it("should traverse imports from installed tsonic source packages", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-source-package-")
-    );
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/installed-source-package",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        'import { clamp } from "@acme/math";\nexport const value = clamp(10, 0, 5);\n'
-      );
-
-      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/math", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "Acme.Math",
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      const packageHelper = path.join(packageRoot, "src", "helpers.ts");
-      fs.writeFileSync(
-        packageHelper,
-        "export const clampMin = (x: number, min: number): number => x < min ? min : x;\n"
-      );
-      const packageEntry = path.join(packageRoot, "src", "index.ts");
-      fs.writeFileSync(
-        packageEntry,
-        [
-          'import { clampMin } from "./helpers.ts";',
-          "export function clamp(x: number, min: number, max: number): number {",
-          "  const lower = clampMin(x, min);",
-          "  return lower > max ? max : lower;",
-          "}",
-        ].join("\n")
-      );
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -161,65 +74,21 @@ describe("Dependency Graph", function () {
         )
       ).to.equal(true);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("reports invalid native source package metadata as TSN1004 diagnostics", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-invalid-source-package-")
-    );
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/invalid-source-package",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        'import { clamp } from "@acme/math";\nexport const value = clamp(10, 0, 5);\n'
-      );
-
-      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/math", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "index.ts"),
-        "export const clamp = (x: number, min: number, max: number): number => x < min ? min : x > max ? max : x;\n"
-      );
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
+      const packageRoot = fixture.path("app/node_modules/@acme/math");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -242,51 +111,20 @@ describe("Dependency Graph", function () {
         )
       ).to.equal(true);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("keeps post-refresh anonymous array element carriers lowered in final IR", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-refresh-lowering-")
-    );
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/refresh-lowering",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        [
-          "const buildListenerAttempts = (): { prefixes: string[]; address: string; family: string }[] => {",
-          "  return [",
-          "    {",
-          '      prefixes: ["http://127.0.0.1:8080/"],',
-          '      address: "127.0.0.1",',
-          '      family: "IPv4",',
-          "    },",
-          "  ];",
-          "};",
-          "",
-          "export function readAddress(): string {",
-          "  const attempts = buildListenerAttempts();",
-          "  for (const attempt of attempts) {",
-          "    return attempt.address;",
-          "  }",
-          '  return "";',
-          "}",
-        ].join("\n")
-      );
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -302,84 +140,21 @@ describe("Dependency Graph", function () {
         false
       );
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should traverse source-package modules behind declaration aliases", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-module-redirect-")
-    );
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/module-redirect",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        'import { createServer } from "demo:http";\nexport const value = createServer();\n'
-      );
-
-      const packageRoot = path.join(
-        tempDir,
-        "node_modules",
-        "@tsonic",
-        "nodejs"
-      );
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src", "http"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "nodejs",
-              moduleAliases: {
-                "demo:http": "./http.js",
-              },
-              exports: {
-                "./http.js": "./src/http/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      const packageHelper = path.join(packageRoot, "src", "http", "helper.ts");
-      fs.writeFileSync(
-        packageHelper,
-        "export const createValue = (): number => 42;\n"
-      );
-      const packageEntry = path.join(packageRoot, "src", "http", "index.ts");
-      fs.writeFileSync(
-        packageEntry,
-        [
-          'import { createValue } from "./helper.ts";',
-          "export const createServer = (): number => createValue();",
-        ].join("\n")
-      );
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
+      const packageRoot = fixture.path("app/node_modules/@tsonic/nodejs");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -417,106 +192,19 @@ describe("Dependency Graph", function () {
       expect(packageHelperModule?.namespace).to.equal("nodejs.http");
       expect(packageHelperModule?.className).to.equal("helper");
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should traverse source-package redirects behind global bindings", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-global-redirect-")
+    const fixture = materializeFrontendFixture(
+      "program/dependency-graph/global-redirect"
     );
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        'export const value = console.log("hello");\n'
-      );
-
-      const packageRoot = path.join(tempDir, "node_modules", "@fixture", "js");
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@fixture/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "globals.ts"),
-        [
-          "declare global {",
-          '  const console: typeof import("./src/console.js").console;',
-          "}",
-          "",
-          "export {};",
-          "",
-        ].join("\n")
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@fixture/js",
-            extends: [],
-            requiredTypeRoots: ["."],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@fixture/js"],
-            source: {
-              namespace: "Fixture.Js",
-              ambient: ["./globals.ts"],
-              exports: {
-                "./console.js": "./src/console.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      const packageHelper = path.join(packageRoot, "src", "helper.ts");
-      fs.writeFileSync(
-        packageHelper,
-        "export const stringify = (message: string): string => message;\n"
-      );
-      const packageEntry = path.join(packageRoot, "src", "console.ts");
-      fs.writeFileSync(
-        packageEntry,
-        [
-          'import { stringify } from "./helper.ts";',
-          "export abstract class console {",
-          "  public static log(message: string): void {",
-          "    void stringify(message);",
-          "  }",
-          "}",
-        ].join("\n")
-      );
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -543,111 +231,19 @@ describe("Dependency Graph", function () {
       expect(packageHelperModule?.namespace).to.equal("Fixture.Js");
       expect(packageHelperModule?.className).to.equal("helper");
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should traverse symlinked source-package redirects behind global ambient declarations", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-global-redirect-link-")
-    );
-    const externalRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-global-pkg-link-")
+    const fixture = materializeFrontendFixture(
+      "program/dependency-graph/global-redirect-symlink"
     );
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        'export const value = console.log("hello");\n'
-      );
-
-      fs.mkdirSync(path.join(externalRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(externalRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(externalRoot, "package.json"),
-        JSON.stringify(
-          { name: "@fixture/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(path.join(externalRoot, "index.js"), "export {};\n");
-      fs.writeFileSync(
-        path.join(externalRoot, "globals.ts"),
-        [
-          "declare global {",
-          '  const console: typeof import("./src/console.js").console;',
-          "}",
-          "",
-          "export {};",
-          "",
-        ].join("\n")
-      );
-      fs.writeFileSync(
-        path.join(externalRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@fixture/js",
-            extends: [],
-            requiredTypeRoots: ["."],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(externalRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@fixture/js"],
-            source: {
-              namespace: "Fixture.Js",
-              ambient: ["./globals.ts"],
-              exports: {
-                "./console.js": "./src/console.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(externalRoot, "src", "helper.ts"),
-        "export const stringify = (message: string): string => message;\n"
-      );
-      fs.writeFileSync(
-        path.join(externalRoot, "src", "console.ts"),
-        [
-          'import { stringify } from "./helper.ts";',
-          "export abstract class console {",
-          "  public static log(message: string): void {",
-          "    void stringify(message);",
-          "  }",
-          "}",
-        ].join("\n")
-      );
-
-      const scopeRoot = path.join(tempDir, "node_modules", "@fixture");
-      fs.mkdirSync(scopeRoot, { recursive: true });
-      fs.symlinkSync(externalRoot, path.join(scopeRoot, "js"), "dir");
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -675,82 +271,21 @@ describe("Dependency Graph", function () {
       expect(packageEntryModule?.namespace).to.equal("Fixture.Js");
       expect(packageHelperModule?.namespace).to.equal("Fixture.Js");
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-      fs.rmSync(externalRoot, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("uses the shared module-binding namespace root for source-package root entrypoints", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-root-entry-")
-    );
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/root-entrypoint",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        'import { EventEmitter } from "@tsonic/nodejs/index.js";\nexport const value = new EventEmitter();\n'
-      );
-
-      const packageRoot = path.join(
-        tempDir,
-        "node_modules",
-        "@tsonic",
-        "nodejs"
-      );
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "nodejs",
-              moduleAliases: {
-                "node:events": "./events.js",
-              },
-              exports: {
-                ".": "./src/index.ts",
-                "./index.js": "./src/index.ts",
-                "./events.js": "./src/events-module.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "index.ts"),
-        'export { EventEmitter } from "./events-module.ts";\n'
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "events-module.ts"),
-        "export class EventEmitter {}\n"
-      );
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
+      const packageRoot = fixture.path("app/node_modules/@tsonic/nodejs");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -777,81 +312,21 @@ describe("Dependency Graph", function () {
       expect(eventsModule?.namespace).to.equal("nodejs");
       expect(eventsModule?.className).to.equal("EventsModule");
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("nests sibling files under the module namespace when an index export would otherwise collide", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-index-sibling-")
-    );
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/index-sibling",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        'import { createBuffer } from "demo:buffer";\nexport const value = createBuffer();\n'
-      );
-
-      const packageRoot = path.join(
-        tempDir,
-        "node_modules",
-        "@tsonic",
-        "nodejs"
-      );
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src", "buffer"), {
-        recursive: true,
-      });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "nodejs",
-              moduleAliases: {
-                "demo:buffer": "./buffer.js",
-              },
-              exports: {
-                "./buffer.js": "./src/buffer/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "buffer", "index.ts"),
-        'export { createBuffer } from "./buffer.ts";\n'
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "buffer", "buffer.ts"),
-        "export const createBuffer = (): number => 42;\n"
-      );
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
+      const packageRoot = fixture.path("app/node_modules/@tsonic/nodejs");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -878,76 +353,21 @@ describe("Dependency Graph", function () {
       expect(bufferModule?.namespace).to.equal("nodejs.buffer");
       expect(bufferModule?.className).to.equal("buffer");
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("keeps non-index source-package entry class names for module-bound redirects", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-module-file-redirect-")
-    );
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/module-file-redirect",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        'import { process } from "demo:process";\nexport const value = process.version;\n'
-      );
-
-      const packageRoot = path.join(
-        tempDir,
-        "node_modules",
-        "@tsonic",
-        "nodejs"
-      );
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(srcDir, { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "nodejs",
-              moduleAliases: {
-                "demo:process": "./process.js",
-              },
-              exports: {
-                "./process.js": "./src/process-module.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "process-module.ts"),
-        'export const process = { version: "v1.0.0" };\n'
-      );
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
+      const packageRoot = fixture.path("app/node_modules/@tsonic/nodejs");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -968,37 +388,20 @@ describe("Dependency Graph", function () {
       expect(processModule?.namespace).to.equal("nodejs");
       expect(processModule?.className).to.equal("ProcessModule");
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("uses the builtin Error type when native packages publish no simple global bindings", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-simple-bindings-")
-    );
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/builtin-error",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(srcDir, { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      fs.writeFileSync(
-        entryPath,
-        [
-          "const cb: (err: Error | undefined) => void = (_err) => {};",
-          "cb(undefined);",
-          "export const ok = true;",
-        ].join("\n")
-      );
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -1026,41 +429,20 @@ describe("Dependency Graph", function () {
         })
       ).to.include('"name":"Error"');
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should traverse awaited relative dynamic-import side effects", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-dynamic-import-")
-    );
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/dynamic-import-side-effects",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(path.join(srcDir, "nested"), { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      const importedPath = path.join(srcDir, "nested", "module.ts");
-
-      fs.writeFileSync(
-        entryPath,
-        [
-          "async function load(): Promise<void> {",
-          '  await import("./nested/module.js");',
-          "}",
-          "void load();",
-        ].join("\n")
-      );
-      fs.writeFileSync(importedPath, "export const loaded = true;\n");
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -1074,48 +456,24 @@ describe("Dependency Graph", function () {
 
       expect(
         result.value.modules.some(
-          (module) =>
-            module.filePath ===
-            path.relative(srcDir, path.resolve(importedPath))
+          (module) => module.filePath === "nested/module.ts"
         )
       ).to.equal(true);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should traverse value-consuming closed-world dynamic imports", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-dependency-graph-dynamic-import-value-")
-    );
+    const fixture = materializeFrontendFixture([
+      "fragments/minimal-surfaces/tsonic-js",
+      "program/dependency-graph/dynamic-import-value",
+    ]);
 
     try {
-      fs.writeFileSync(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(
-          { name: "app", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      installMinimalJsSurface(tempDir);
-
-      const srcDir = path.join(tempDir, "src");
-      fs.mkdirSync(path.join(srcDir, "nested"), { recursive: true });
-      const entryPath = path.join(srcDir, "index.ts");
-      const importedPath = path.join(srcDir, "nested", "module.ts");
-
-      fs.writeFileSync(
-        entryPath,
-        [
-          "async function load(): Promise<number> {",
-          '  const module = await import("./nested/module.js");',
-          "  return module.value;",
-          "}",
-          "void load();",
-        ].join("\n")
-      );
-      fs.writeFileSync(importedPath, "export const value = 42;\n");
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const entryPath = fixture.path("app/src/index.ts");
 
       const result = buildModuleDependencyGraph(entryPath, {
         projectRoot: tempDir,
@@ -1129,13 +487,11 @@ describe("Dependency Graph", function () {
 
       expect(
         result.value.modules.some(
-          (module) =>
-            module.filePath ===
-            path.relative(srcDir, path.resolve(importedPath))
+          (module) => module.filePath === "nested/module.ts"
         )
       ).to.equal(true);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 });

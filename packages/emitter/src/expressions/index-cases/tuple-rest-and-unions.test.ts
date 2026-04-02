@@ -1,4 +1,17 @@
-import { describe, it, expect, emitModule, type IrModule } from "./helpers.js";
+import {
+  describe,
+  it,
+  expect,
+  emitModule,
+  type IrModule,
+  type IrType,
+} from "./helpers.js";
+
+const jsValueType: IrType = {
+  kind: "referenceType",
+  name: "JsValue",
+  resolvedClrType: "Tsonic.Runtime.JsValue",
+};
 
 describe("Expression Emission", () => {
   it("should preserve contextual char typing for ternary single-character literals", () => {
@@ -154,13 +167,13 @@ describe("Expression Emission", () => {
                     passing: "value",
                   },
                 ],
-                returnType: { kind: "unknownType" },
+                returnType: jsValueType,
               },
             },
             arguments: [{ kind: "literal", value: 5, numericIntent: "Int32" }],
             isOptional: false,
             parameterTypes: [tupleRestType],
-            inferredType: { kind: "unknownType" },
+            inferredType: jsValueType,
             sourceSpan: {
               file: "/src/test.ts",
               line: 1,
@@ -222,12 +235,12 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "iterator",
-                inferredType: { kind: "unknownType" },
+                inferredType: jsValueType,
               },
               property: "next",
               isComputed: false,
               isOptional: false,
-              inferredType: { kind: "unknownType" },
+              inferredType: jsValueType,
             },
             arguments: [
               {
@@ -255,7 +268,7 @@ describe("Expression Emission", () => {
               arrayType: tupleRestType,
               elementType: undefined,
             },
-            inferredType: { kind: "unknownType" },
+            inferredType: jsValueType,
             sourceSpan: {
               file: "/src/test.ts",
               line: 1,
@@ -315,7 +328,7 @@ describe("Expression Emission", () => {
               name: { kind: "identifierPattern", name: "args" },
               type: {
                 kind: "arrayType",
-                elementType: { kind: "unknownType" },
+                elementType: jsValueType,
                 origin: "explicit",
               },
               initializer: { kind: "array", elements: [] },
@@ -337,7 +350,7 @@ describe("Expression Emission", () => {
                     pattern: { kind: "identifierPattern", name: "items" },
                     type: {
                       kind: "arrayType",
-                      elementType: { kind: "unknownType" },
+                      elementType: jsValueType,
                       origin: "explicit",
                     },
                     isOptional: false,
@@ -358,7 +371,7 @@ describe("Expression Emission", () => {
                     name: "args",
                     inferredType: {
                       kind: "arrayType",
-                      elementType: { kind: "unknownType" },
+                      elementType: jsValueType,
                       origin: "explicit",
                     },
                   },
@@ -372,7 +385,7 @@ describe("Expression Emission", () => {
             parameterTypes: [
               {
                 kind: "arrayType",
-                elementType: { kind: "unknownType" },
+                elementType: jsValueType,
                 origin: "explicit",
               },
             ],
@@ -380,10 +393,10 @@ describe("Expression Emission", () => {
               index: 0,
               arrayType: {
                 kind: "arrayType",
-                elementType: { kind: "unknownType" },
+                elementType: jsValueType,
                 origin: "explicit",
               },
-              elementType: { kind: "unknownType" },
+              elementType: jsValueType,
             },
             inferredType: { kind: "voidType" },
           },

@@ -1,4 +1,4 @@
-import type { thisarg } from "@tsonic/core/lang.js";
+import { asinterface, type thisarg } from "@tsonic/core/lang.js";
 import { int } from "@tsonic/core/types.js";
 import { Console } from "@tsonic/dotnet/System.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
@@ -18,7 +18,7 @@ export function run(): void {
   numbers.Add(3);
   numbers.Add(4);
 
-  const xs = numbers as unknown as LinqSeq<int>;
+  const xs = asinterface<LinqSeq<int>>(numbers);
   const doubled = xs
     .Where((n) => n % 2 === 0)
     .Select((n) => n * 2)

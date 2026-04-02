@@ -1,7 +1,13 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { runAnonymousTypeLoweringPass, validateIrSoundness } from "../index.js";
-import type { IrModule, IrReferenceType, IrType } from "../../types.js";
+import type {
+  IrClassDeclaration,
+  IrModule,
+  IrReferenceType,
+  IrType,
+} from "../../types.js";
+import { computeShapeSignature } from "../anon-type-shape-analysis.js";
 
 describe("Anonymous Type Lowering Regression Coverage (structural references)", () => {
   it("does not recurse infinitely through cyclic structural reference members", () => {
@@ -453,5 +459,296 @@ describe("Anonymous Type Lowering Regression Coverage (structural references)", 
     expect(
       lowered.modules.some((entry) => entry.filePath === "__tsonic/__tsonic_anonymous_types.g.ts")
     ).to.equal(false);
+  });
+
+  it("reuses exact local structural classes instead of generating anonymous carriers", () => {
+    const mkdirOptionsType: IrType = {
+      kind: "objectType",
+      members: [
+        {
+          kind: "propertySignature",
+          name: "recursive",
+          type: { kind: "primitiveType", name: "boolean" },
+          isOptional: true,
+          isReadonly: false,
+        },
+        {
+          kind: "propertySignature",
+          name: "mode",
+          type: { kind: "primitiveType", name: "int" },
+          isOptional: true,
+          isReadonly: false,
+        },
+      ],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "fs.ts",
+      namespace: "Test",
+      className: "Fs",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "classDeclaration",
+          name: "MkdirOptions",
+          typeParameters: undefined,
+          superClass: undefined,
+          implements: [],
+          members: [
+            {
+              kind: "propertyDeclaration",
+              name: "recursive",
+              type: {
+                kind: "unionType",
+                types: [
+                  { kind: "primitiveType", name: "boolean" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+              initializer: undefined,
+              emitAsAutoProperty: true,
+              isStatic: false,
+              isReadonly: false,
+              accessibility: "public",
+              isRequired: false,
+            },
+            {
+              kind: "propertyDeclaration",
+              name: "mode",
+              type: {
+                kind: "unionType",
+                types: [
+                  { kind: "primitiveType", name: "int" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+              initializer: undefined,
+              emitAsAutoProperty: true,
+              isStatic: false,
+              isReadonly: false,
+              accessibility: "public",
+              isRequired: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "mkdirSync",
+          typeParameters: undefined,
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "path" },
+              type: { kind: "primitiveType", name: "string" },
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "options" },
+              type: mkdirOptionsType,
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+    };
+
+    const lowered = runAnonymousTypeLoweringPass([module]);
+    const loweredModule = lowered.modules.find((entry) => entry.filePath === "fs.ts");
+    const functionDecl = loweredModule?.body.find(
+      (stmt): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
+        stmt.kind === "functionDeclaration" && stmt.name === "mkdirSync"
+    );
+    const parameterType = functionDecl?.parameters[1]?.type;
+
+    expect(parameterType?.kind).to.equal("referenceType");
+    if (parameterType?.kind !== "referenceType") {
+      throw new Error("Expected lowered parameter type to be a referenceType");
+    }
+    expect(parameterType.name).to.equal("MkdirOptions");
+    expect(
+      lowered.modules.some(
+        (entry) => entry.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+      )
+    ).to.equal(false);
+  });
+
+  it("prefers authored local structural classes over compiler-generated carrier names", () => {
+    const mkdirOptionsType: IrType = {
+      kind: "objectType",
+      members: [
+        {
+          kind: "propertySignature",
+          name: "recursive",
+          type: { kind: "primitiveType", name: "boolean" },
+          isOptional: true,
+          isReadonly: false,
+        },
+        {
+          kind: "propertySignature",
+          name: "mode",
+          type: { kind: "primitiveType", name: "int" },
+          isOptional: true,
+          isReadonly: false,
+        },
+      ],
+    };
+
+    const makeCarrierClass = (name: string): IrClassDeclaration => ({
+      kind: "classDeclaration" as const,
+      name,
+      typeParameters: undefined,
+      superClass: undefined,
+      implements: [],
+      members: [
+        {
+          kind: "propertyDeclaration" as const,
+          name: "recursive",
+          type: {
+            kind: "unionType" as const,
+            types: [
+              { kind: "primitiveType" as const, name: "boolean" },
+              { kind: "primitiveType" as const, name: "undefined" },
+            ],
+          },
+          initializer: undefined,
+          emitAsAutoProperty: true,
+          isStatic: false,
+          isReadonly: false,
+          accessibility: "public" as const,
+          isRequired: false,
+        },
+        {
+          kind: "propertyDeclaration" as const,
+          name: "mode",
+          type: {
+            kind: "unionType" as const,
+            types: [
+              { kind: "primitiveType" as const, name: "int" },
+              { kind: "primitiveType" as const, name: "undefined" },
+            ],
+          },
+          initializer: undefined,
+          emitAsAutoProperty: true,
+          isStatic: false,
+          isReadonly: false,
+          accessibility: "public" as const,
+          isRequired: false,
+        },
+      ],
+      isExported: false,
+      isStruct: false,
+    });
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "fs.ts",
+      namespace: "Test",
+      className: "Fs",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        makeCarrierClass("MkdirOptionsLike__0"),
+        makeCarrierClass("MkdirOptions"),
+        {
+          kind: "functionDeclaration",
+          name: "mkdirSync",
+          typeParameters: undefined,
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "path" },
+              type: { kind: "primitiveType", name: "string" },
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "options" },
+              type: mkdirOptionsType,
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: { kind: "blockStatement", statements: [] },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+    };
+
+    const lowered = runAnonymousTypeLoweringPass([module]);
+    const loweredModule = lowered.modules.find((entry) => entry.filePath === "fs.ts");
+    const functionDecl = loweredModule?.body.find(
+      (stmt): stmt is Extract<typeof stmt, { kind: "functionDeclaration" }> =>
+        stmt.kind === "functionDeclaration" && stmt.name === "mkdirSync"
+    );
+    const parameterType = functionDecl?.parameters[1]?.type;
+
+    expect(parameterType?.kind).to.equal("referenceType");
+    if (parameterType?.kind !== "referenceType") {
+      throw new Error("Expected lowered parameter type to be a referenceType");
+    }
+    expect(parameterType.name).to.equal("MkdirOptions");
+  });
+
+  it("canonicalizes optional properties and explicit undefined to the same structural carrier shape", () => {
+    const optionalShape: IrType = {
+      kind: "objectType",
+      members: [
+        {
+          kind: "propertySignature",
+          name: "botType",
+          type: { kind: "primitiveType", name: "int" },
+          isOptional: true,
+          isReadonly: false,
+        },
+      ],
+    };
+    const explicitUndefinedShape: IrType = {
+      kind: "objectType",
+      members: [
+        {
+          kind: "propertySignature",
+          name: "botType",
+          type: {
+            kind: "unionType",
+            types: [
+              { kind: "primitiveType", name: "int" },
+              { kind: "primitiveType", name: "undefined" },
+            ],
+          },
+          isOptional: false,
+          isReadonly: false,
+        },
+      ],
+    };
+
+    expect(computeShapeSignature(optionalShape)).to.equal(
+      computeShapeSignature(explicitUndefinedShape)
+    );
   });
 });

@@ -22,6 +22,7 @@ export {
   collectTypeParameterNames,
   collectReferencedTypeNames,
   collectPubliclyReachableAnonymousTypes,
+  normalizeStructuralPropertySignature,
   stripNullishFromType,
   stripUndefinedFromType,
   addUndefinedToType,

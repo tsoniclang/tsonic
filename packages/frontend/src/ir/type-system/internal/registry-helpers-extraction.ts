@@ -41,7 +41,6 @@ import {
  */
 export const isWellKnownLibrary = (fileName: string): boolean => {
   return (
-    fileName.includes("__core_globals__.d.ts") ||
     fileName.includes("@tsonic/globals") ||
     fileName.includes("@tsonic/core") ||
     fileName.includes("@tsonic/dotnet")

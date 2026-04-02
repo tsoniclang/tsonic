@@ -3,7 +3,7 @@ namespace TestCases.common.types.functorpatterns
     public class Functor<T>
         where T : class
     {
-        public Functor<U> map<U>(global::System.Func<T, U> fn)
+        public virtual Functor<U> map<U>(global::System.Func<T, U> fn)
             where U : class
         {
             throw "Not implemented";

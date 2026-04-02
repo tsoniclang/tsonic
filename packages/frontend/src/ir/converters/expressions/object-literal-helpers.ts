@@ -27,5 +27,7 @@ export {
   collectReturnExpressionTypes,
   inferDeterministicReturnTypeFromBlock,
   finalizeObjectLiteralMethodExpression,
+  rebindObjectLiteralThisInExpression,
+  rebindObjectLiteralThisInClassMember,
   collectSynthesizedObjectMembers,
 } from "./object-literal-synthesis.js";

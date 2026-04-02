@@ -5,13 +5,16 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { buildIrModule } from "../builder.js";
+import { runNumericProofPass } from "../validation/numeric-proof-pass.js";
+import { runCallResolutionRefreshPass } from "../validation/call-resolution-refresh-pass.js";
+import { validateIrSoundness } from "../validation/soundness-gate.js";
 import {
   IrFunctionDeclaration,
   IrVariableDeclaration,
   IrClassDeclaration,
   IrInterfaceDeclaration,
 } from "../types.js";
-import { createTestProgram } from "./_test-helpers.js";
+import { createProgramContext, createTestProgram } from "./_test-helpers.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);
@@ -243,6 +246,7 @@ describe("IR Builder", function () {
         if (firstExpr.expression.callee.kind === "identifier") {
           expect(firstExpr.expression.callee.name).to.equal("super");
         }
+        expect(firstExpr.expression.inferredType?.kind).to.equal("voidType");
       }
 
       expect(secondExpr.expression.kind).to.equal("assignment");
@@ -253,97 +257,53 @@ describe("IR Builder", function () {
           expect(secondExpr.expression.left.property).to.equal("value");
         }
       }
-    });
 
-    it("groups constructor overload signatures behind a single helper body", () => {
-      const source = `
-        export class Server {
-          constructor(port: number);
-          constructor(host: string, port: number);
-          constructor(arg1: string | number, arg2?: number) {}
-        }
-      `;
+      const soundness = validateIrSoundness([result.value]);
+      expect(soundness.ok).to.equal(true);
 
-      const { testProgram, ctx, options } = createTestProgram(source);
-      const sourceFile = testProgram.sourceFiles[0];
-      if (!sourceFile) throw new Error("Failed to create source file");
+      const numeric = runNumericProofPass([result.value]);
+      expect(numeric.ok).to.equal(true);
+      if (!numeric.ok) return;
 
-      const result = buildIrModule(sourceFile, testProgram, options, ctx);
-
-      expect(result.ok).to.equal(true);
-      if (!result.ok) return;
-
-      const cls = result.value.body.find(
+      const refreshCtx = createProgramContext(testProgram, options);
+      const refreshed = runCallResolutionRefreshPass(numeric.modules, refreshCtx);
+      const refreshedClass = refreshed.modules[0]?.body.find(
         (stmt): stmt is IrClassDeclaration =>
-          stmt.kind === "classDeclaration" && stmt.name === "Server"
+          stmt.kind === "classDeclaration" && stmt.name === "Derived"
       );
-      expect(cls).to.not.equal(undefined);
-      if (!cls) return;
+      expect(refreshedClass).to.not.equal(undefined);
+      if (!refreshedClass) return;
 
-      const constructors = cls.members.filter(
+      const refreshedCtor = refreshedClass.members.find(
         (member) => member.kind === "constructorDeclaration"
       );
-      expect(constructors).to.have.length(2);
-      expect(constructors[0]?.kind).to.equal("constructorDeclaration");
-      expect(constructors[1]?.kind).to.equal("constructorDeclaration");
+      expect(refreshedCtor).to.not.equal(undefined);
+      expect(refreshedCtor?.kind).to.equal("constructorDeclaration");
       if (
-        constructors[0]?.kind !== "constructorDeclaration" ||
-        constructors[1]?.kind !== "constructorDeclaration"
+        !refreshedCtor ||
+        refreshedCtor.kind !== "constructorDeclaration" ||
+        !refreshedCtor.body
       ) {
         return;
       }
 
-      expect(constructors[0].parameters).to.have.length(1);
-      expect(constructors[1].parameters).to.have.length(2);
-
-      const helper = cls.members.find(
-        (member) =>
-          member.kind === "methodDeclaration" &&
-          member.name === "__tsonic_ctor_impl"
-      );
-      expect(helper).to.not.equal(undefined);
-      expect(helper?.kind).to.equal("methodDeclaration");
-      if (!helper || helper.kind !== "methodDeclaration" || !helper.body)
+      const refreshedFirstStmt = refreshedCtor.body.statements[0];
+      expect(refreshedFirstStmt?.kind).to.equal("expressionStatement");
+      if (
+        !refreshedFirstStmt ||
+        refreshedFirstStmt.kind !== "expressionStatement" ||
+        refreshedFirstStmt.expression.kind !== "call"
+      ) {
         return;
+      }
 
-      expect(helper.accessibility).to.equal("private");
-      expect(helper.returnType).to.deep.equal({ kind: "voidType" });
+      expect(refreshedFirstStmt.expression.inferredType?.kind).to.equal(
+        "voidType"
+      );
+
+      const refreshedSoundness = validateIrSoundness(refreshed.modules);
+      expect(refreshedSoundness.ok).to.equal(true);
     });
 
-    it("extracts parameter properties from the constructor implementation in overload groups", () => {
-      const source = `
-        export class BoolValue {
-          constructor(value: boolean);
-          constructor(readonly value: boolean) {}
-        }
-      `;
-
-      const { testProgram, ctx, options } = createTestProgram(source);
-      const sourceFile = testProgram.sourceFiles[0];
-      if (!sourceFile) throw new Error("Failed to create source file");
-
-      const result = buildIrModule(sourceFile, testProgram, options, ctx);
-
-      expect(result.ok).to.equal(true);
-      if (!result.ok) return;
-
-      const cls = result.value.body.find(
-        (stmt): stmt is IrClassDeclaration =>
-          stmt.kind === "classDeclaration" && stmt.name === "BoolValue"
-      );
-      expect(cls).to.not.equal(undefined);
-      if (!cls) return;
-
-      const valueProp = cls.members.find(
-        (member) =>
-          member.kind === "propertyDeclaration" && member.name === "value"
-      );
-      expect(valueProp).to.not.equal(undefined);
-      expect(valueProp?.kind).to.equal("propertyDeclaration");
-      if (!valueProp || valueProp.kind !== "propertyDeclaration") return;
-
-      expect(valueProp.isReadonly).to.equal(true);
-      expect(valueProp.accessibility).to.equal("public");
-    });
   });
 });

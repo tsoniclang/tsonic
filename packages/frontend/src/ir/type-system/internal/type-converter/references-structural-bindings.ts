@@ -187,10 +187,14 @@ export const resolveSourceClrIdentity = (
   if (bindingsPath) {
     const exactClrName =
       buildBindingAliasClrIdentityMap(bindingsPath).get(fqName);
-    if (exactClrName) return exactClrName;
+    return exactClrName ?? fqName;
   }
 
-  return fqName;
+  if (fqName.includes(".")) {
+    return fqName;
+  }
+
+  return undefined;
 };
 
 /**

@@ -30,6 +30,7 @@ type CandidateScore = readonly [
   number,
   number,
   number,
+  number,
 ];
 
 const scoreSurfaceTypeSpecificity = (type: IrType | undefined): number => {
@@ -402,6 +403,53 @@ const countBroadNumberIndependentCompatibleArguments = (
   return compatible;
 };
 
+const explicitlyAcceptsBroadNumber = (type: IrType | undefined): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  if (type.kind === "primitiveType") {
+    return type.name === "number";
+  }
+
+  if (type.kind === "unionType") {
+    return type.types.some((member) => explicitlyAcceptsBroadNumber(member));
+  }
+
+  return false;
+};
+
+const countBroadNumberExplicitlyAcceptedArguments = (
+  resolved: ResolvedCall,
+  argTypes: readonly (IrType | undefined)[],
+  argumentCount: number
+): number => {
+  let compatible = 0;
+  const pairCount = Math.min(
+    argumentCount,
+    resolved.parameterTypes.length,
+    argTypes.length
+  );
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const parameterType = resolved.parameterTypes[index];
+    const argumentType = argTypes[index];
+    if (!parameterType || !argumentType) {
+      continue;
+    }
+
+    if (
+      argumentType.kind === "primitiveType" &&
+      argumentType.name === "number" &&
+      explicitlyAcceptsBroadNumber(parameterType)
+    ) {
+      compatible += 1;
+    }
+  }
+
+  return compatible;
+};
+
 const countExactFunctionArityMatches = (
   state: TypeSystemState,
   resolved: ResolvedCall,
@@ -487,6 +535,16 @@ const buildCandidateScore = (
         argumentCount
       )
     : 0;
+  const broadNumberExplicitlyAcceptedArgumentCount = argTypes
+    ? countBroadNumberExplicitlyAcceptedArguments(
+        {
+          ...resolved,
+          parameterTypes: participatingParameterTypes,
+        },
+        participatingArgTypes ?? [],
+        argumentCount
+      )
+    : 0;
   const exactFunctionArityMatches = argTypes
     ? countExactFunctionArityMatches(
         state,
@@ -519,6 +577,7 @@ const buildCandidateScore = (
 
   return [
     broadNumberIndependentCompatibleArgumentCount,
+    broadNumberExplicitlyAcceptedArgumentCount,
     compatibleArgumentCount,
     exactFunctionArityMatches,
     exactArityNonRest,

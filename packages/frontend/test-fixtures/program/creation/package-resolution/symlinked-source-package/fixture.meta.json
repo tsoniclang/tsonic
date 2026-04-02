@@ -1,0 +1,15 @@
+{
+  "copyDirectories": [
+    {
+      "from": "../js/versions/10",
+      "to": "type-roots/@tsonic/js"
+    }
+  ],
+  "symlinks": [
+    {
+      "from": "external/@tsonic/nodejs",
+      "to": "app/node_modules/@tsonic/nodejs",
+      "type": "dir"
+    }
+  ]
+}

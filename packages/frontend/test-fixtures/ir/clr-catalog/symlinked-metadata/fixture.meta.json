@@ -1,0 +1,9 @@
+{
+  "symlinks": [
+    {
+      "from": ".tsonic/bindings/@tsonic/js",
+      "to": "node_modules/@tsonic/js",
+      "type": "dir"
+    }
+  ]
+}

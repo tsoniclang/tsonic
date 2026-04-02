@@ -1,5 +1,6 @@
 // Test recursive tree-like structures
 // Verifies self-referential types compile and execute correctly
+import { asinterface } from "@tsonic/core/lang.js";
 import { Console } from "@tsonic/dotnet/System.js";
 import { List, IList } from "@tsonic/dotnet/System.Collections.Generic.js";
 
@@ -12,7 +13,7 @@ class TreeNode {
   constructor(value: number) {
     this.value = value;
     // Cast to IList to satisfy the field type
-    this.children = new List<TreeNode>() as unknown as IList<TreeNode>;
+    this.children = asinterface<IList<TreeNode>>(new List<TreeNode>());
   }
 
   addChild(value: number): TreeNode {

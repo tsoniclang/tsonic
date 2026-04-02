@@ -1,0 +1,9 @@
+{
+  "symlinks": [
+    {
+      "from": "external/nodejs-next",
+      "to": "workspace/node_modules/@tsonic/nodejs",
+      "type": "dir"
+    }
+  ]
+}

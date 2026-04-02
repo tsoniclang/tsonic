@@ -21,7 +21,7 @@ namespace TestCases.common.classes.genericinheritance
 
         public string describe()
         {
-            return $"{this.label}: {this.value}";
+            return $"{this.label}: {(global::js.Globals.String(this.value))}";
         }
     }
 

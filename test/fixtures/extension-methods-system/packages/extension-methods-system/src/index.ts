@@ -1,4 +1,5 @@
 import type { ExtensionMethods as SystemExt } from "@tsonic/dotnet/System.js";
+import { asinterface } from "@tsonic/core/lang.js";
 import { Console } from "@tsonic/dotnet/System.js";
 import { int } from "@tsonic/core/types.js";
 
@@ -9,8 +10,8 @@ export function main(): void {
 
   const s = "hello";
 
-  const a = (s as unknown as Ext<string>).AsSpan();
-  const b = (s as unknown as Ext<string>).AsSpan(1);
+  const a = asinterface<Ext<string>>(s).AsSpan();
+  const b = asinterface<Ext<string>>(s).AsSpan(1);
 
   const ok1 = a.Overlaps(b);
 

@@ -10,7 +10,7 @@ namespace TestCases.common.edgecases.objectliteralunknown
 
         public static object? passPlainObjectLiteral()
         {
-            return takesUnknown(new global::System.Collections.Generic.Dictionary<string, object?> { ["ok"] = true, ["n"] = 1, ["s"] = "x" });
+            return takesUnknown(new global::System.Collections.Generic.Dictionary<string, object?> { ["ok"] = true, ["n"] = (object)(double)1, ["s"] = "x" });
         }
 
         public static object? passNestedObjectLiteral()

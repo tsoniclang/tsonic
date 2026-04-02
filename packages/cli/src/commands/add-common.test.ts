@@ -1,6 +1,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolvePackageRoot, resolveTsbindgenDllPath } from "./add-common.js";
@@ -41,6 +42,34 @@ describe("add-common module resolution", () => {
       expect(resolve(result.value)).to.equal(
         resolve(join(pkgRoot, "lib", "tsbindgen.dll"))
       );
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the CLI's own tsbindgen when the workspace does not provide one", () => {
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-resolve-tsbindgen-self-")
+    );
+
+    try {
+      writeJson(join(projectRoot, "package.json"), {
+        name: "test",
+        private: true,
+        type: "module",
+      });
+
+      const selfReq = createRequire(import.meta.url);
+      const selfPkgRoot = resolve(
+        selfReq.resolve("@tsonic/tsbindgen"),
+        ".."
+      );
+      const expectedDll = resolve(selfPkgRoot, "lib", "tsbindgen.dll");
+
+      const result = resolveTsbindgenDllPath(projectRoot);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+      expect(resolve(result.value)).to.equal(expectedDll);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }

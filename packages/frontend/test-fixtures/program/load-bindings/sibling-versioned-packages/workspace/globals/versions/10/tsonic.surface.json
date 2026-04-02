@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "id": "clr",
+  "extends": [],
+  "requiredTypeRoots": ["."]
+}

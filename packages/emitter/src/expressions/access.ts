@@ -300,6 +300,7 @@ export const emitMemberAccess = (
       expr,
       objectAst,
       objectType,
+      context,
       newContext,
       usage,
       expectedType
@@ -310,6 +311,7 @@ export const emitMemberAccess = (
     expr,
     objectAst,
     objectType,
+    context,
     newContext,
     usage,
     expectedType

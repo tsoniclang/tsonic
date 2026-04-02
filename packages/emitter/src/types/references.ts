@@ -9,13 +9,16 @@ import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitTypeAst } from "./emitter.js";
 import {
+  resolveTypeAlias,
   resolveStructuralReferenceType,
   resolveLocalTypeInfo,
   substituteTypeArgs,
 } from "../core/semantic/type-resolution.js";
+import { resolveLocalTypeInfoWithoutBindings } from "../core/semantic/property-lookup-resolution.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 import {
   identifierType,
+  nullableType,
   withTypeArguments,
 } from "../core/format/backend-ast/builders.js";
 import {
@@ -97,7 +100,30 @@ export const emitReferenceType = (
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
   const { name, typeArguments, resolvedClrType, typeId } = type;
-  const currentModuleLocalType = context.localTypes?.get(name);
+
+  const resolvedAlias = resolveTypeAlias(type, context, {
+    preserveObjectTypeAliases: true,
+  });
+  if (
+    stableIrTypeKey(resolvedAlias) !== stableIrTypeKey(type)
+  ) {
+    return emitTypeAst(resolvedAlias, context);
+  }
+
+  const currentModuleNamespace =
+    context.moduleNamespace ?? context.options.rootNamespace;
+  const currentModuleLocalResolution = resolveLocalTypeInfoWithoutBindings(
+    type,
+    context
+  );
+  const currentModuleLocalType =
+    currentModuleLocalResolution?.namespace === currentModuleNamespace
+      ? currentModuleLocalResolution.info
+      : undefined;
+  const currentModuleLocalName =
+    currentModuleLocalResolution?.namespace === currentModuleNamespace
+      ? currentModuleLocalResolution.name
+      : undefined;
 
   // Explicit import contracts are authoritative and must win before any
   // structural or binding-backed rebound. Otherwise same-named sibling types
@@ -286,6 +312,17 @@ export const emitReferenceType = (
 
   // NOTE: Map and Set must be explicitly imported (not ambient)
 
+  if (name === "JsPrimitive") {
+    return [{ kind: "predefinedType", keyword: "object" }, context];
+  }
+
+  if (name === "JsValue") {
+    return [
+      nullableType({ kind: "predefinedType", keyword: "object" }),
+      context,
+    ];
+  }
+
   // Map PromiseLike to Task
   if (name === "PromiseLike") {
     const firstArg = typeArguments?.[0];
@@ -449,7 +486,9 @@ export const emitReferenceType = (
   // to `System.ComponentModel.Container` from the binding registry.
   const localTypeInfo = currentModuleLocalType;
   if (localTypeInfo) {
-    let csharpName = name;
+    let csharpName = currentModuleLocalName ?? name;
+    const shouldForceQualifiedLocalType =
+      csharpName.startsWith("__Anon_") || csharpName.startsWith("__Rest_");
 
     // Type aliases with objectType underlying type are emitted as classes with __Alias suffix
     // (per spec/16-types-and-interfaces.md §3.4)
@@ -463,7 +502,7 @@ export const emitReferenceType = (
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
 
-      if (!context.qualifyLocalTypes) {
+      if (!context.qualifyLocalTypes && !shouldForceQualifiedLocalType) {
         return [identifierTypeWithArgs(csharpName, typeArgAsts), newContext];
       }
 
@@ -489,7 +528,7 @@ export const emitReferenceType = (
       ];
     }
 
-    if (!context.qualifyLocalTypes) {
+    if (!context.qualifyLocalTypes && !shouldForceQualifiedLocalType) {
       return [identifierType(csharpName), context];
     }
 

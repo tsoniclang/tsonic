@@ -175,7 +175,7 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
     ).to.equal("Acme.Messages.__Anon_ext_deadbeef");
   });
 
-  it("reuses anonymous binding carrier types for imported facade object shapes", () => {
+  it("does not reuse anonymous binding carrier types for imported facade object shapes", () => {
     const consumerModule: IrModule = {
       kind: "module",
       filePath: "app.ts",
@@ -235,65 +235,7 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
       ],
     };
 
-    const lowered = runAnonymousTypeLoweringPass([consumerModule], {
-      bindings: new Map([
-        [
-          "__Anon_ext_deadbeef",
-          {
-            alias: "__Anon_ext_deadbeef",
-            name: "Acme.Messages.__Anon_ext_deadbeef",
-            kind: "class",
-            members: [
-              {
-                kind: "property",
-                name: "type",
-                alias: "type",
-                semanticType: { kind: "primitiveType", name: "string" },
-                binding: {
-                  assembly: "Acme.Messages",
-                  type: "Acme.Messages.__Anon_ext_deadbeef",
-                  member: "type",
-                },
-              },
-              {
-                kind: "property",
-                name: "to",
-                alias: "to",
-                semanticType: { kind: "primitiveType", name: "string" },
-                binding: {
-                  assembly: "Acme.Messages",
-                  type: "Acme.Messages.__Anon_ext_deadbeef",
-                  member: "to",
-                },
-              },
-              {
-                kind: "property",
-                name: "topic",
-                alias: "topic",
-                semanticType: { kind: "primitiveType", name: "string" },
-                semanticOptional: true,
-                binding: {
-                  assembly: "Acme.Messages",
-                  type: "Acme.Messages.__Anon_ext_deadbeef",
-                  member: "topic",
-                },
-              },
-              {
-                kind: "property",
-                name: "content",
-                alias: "content",
-                semanticType: { kind: "primitiveType", name: "string" },
-                binding: {
-                  assembly: "Acme.Messages",
-                  type: "Acme.Messages.__Anon_ext_deadbeef",
-                  member: "content",
-                },
-              },
-            ],
-          },
-        ],
-      ]),
-    });
+    const lowered = runAnonymousTypeLoweringPass([consumerModule]);
 
     const loweredConsumerModule = lowered.modules.find(
       (module) =>
@@ -317,12 +259,12 @@ describe("Anonymous Type Lowering Regression Coverage (cross-module reuse)", () 
       loweredElementType &&
         loweredElementType.kind === "referenceType" &&
         loweredElementType.name
-    ).to.equal("__Anon_ext_deadbeef");
+    ).to.match(/^__Anon_/);
     expect(
       loweredElementType &&
         loweredElementType.kind === "referenceType" &&
         loweredElementType.resolvedClrType
-    ).to.equal("Acme.Messages.__Anon_ext_deadbeef");
+    ).to.equal(undefined);
   });
 
   it("reuses local recursive structural aliases instead of synthesizing anonymous carriers", () => {

@@ -5,8 +5,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
 import {
@@ -15,6 +13,19 @@ import {
   createFilesystemTestProgram,
   createTestProgram,
 } from "./_test-helpers.js";
+import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
+
+const materializeImportExtractionFixture = (
+  fixtureNames: string | readonly string[]
+) =>
+  materializeFrontendFixture(
+    (Array.isArray(fixtureNames) ? fixtureNames : [fixtureNames]).map(
+      (fixtureName) =>
+        fixtureName.startsWith("fragments/")
+          ? fixtureName
+          : `ir/import-extraction/${fixtureName}`
+    )
+  );
 
 describe("IR Builder", function () {
   this.timeout(90_000);
@@ -181,40 +192,12 @@ describe("IR Builder", function () {
 
       const { testProgram, ctx, options } = createTestProgram(source);
 
-      const tempRoot = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-system-console-")
+      const fixture = materializeImportExtractionFixture(
+        "facade-namespace-owner"
       );
-      const declPath = path.join(
-        tempRoot,
-        "Internal",
-        "internal",
-        "index.d.ts"
-      );
-      const internalBindingsPath = path.join(
-        tempRoot,
-        "Internal",
-        "bindings.json"
-      );
-      const systemBindingsPath = path.join(tempRoot, "System", "bindings.json");
-
-      fs.mkdirSync(path.dirname(declPath), { recursive: true });
-      fs.mkdirSync(path.dirname(internalBindingsPath), { recursive: true });
-      fs.mkdirSync(path.dirname(systemBindingsPath), { recursive: true });
-      fs.writeFileSync(
-        declPath,
-        "export declare const Console: { WriteLine(value: string): void };\n",
-        "utf-8"
-      );
-      fs.writeFileSync(
-        internalBindingsPath,
-        JSON.stringify({ namespace: "Internal" }),
-        "utf-8"
-      );
-      fs.writeFileSync(
-        systemBindingsPath,
-        JSON.stringify({ namespace: "System" }),
-        "utf-8"
-      );
+      const declPath = fixture.path("Internal/internal/index.d.ts");
+      const internalBindingsPath = fixture.path("Internal/bindings.json");
+      const systemBindingsPath = fixture.path("System/bindings.json");
 
       (
         ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
@@ -289,85 +272,41 @@ describe("IR Builder", function () {
         expect(spec.isType).to.not.equal(true);
         expect(spec.resolvedClrType).to.equal("System.Console");
       } finally {
-        fs.rmSync(tempRoot, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("attaches CLR identities for installed declaration-package facade imports", () => {
-      const {
-        tempDir,
-        sourceFile,
-        testProgram,
-        ctx,
-        options,
-        cleanup,
-      } = createFilesystemTestProgram(
-        {
-          "src/test.ts": `
-            import { Console as DotnetConsole, DateTimeOffset } from "@tsonic/dotnet/System.js";
-            void DotnetConsole;
-            void DateTimeOffset;
-          `,
-          "node_modules/@tsonic/dotnet/package.json": JSON.stringify(
-            {
-              name: "@tsonic/dotnet",
-              type: "module",
-            },
-            null,
-            2
-          ),
-          "node_modules/@tsonic/dotnet/System.js": "export {};\n",
-          "node_modules/@tsonic/dotnet/System.d.ts": `
-            export { Console$instance as Console, DateTimeOffset } from "./System/internal/index.js";
-          `,
-          "node_modules/@tsonic/dotnet/System/internal/index.d.ts": `
-            export declare const Console$instance: { WriteLine(value: string): void };
-            export declare class DateTimeOffset {}
-          `,
-          "node_modules/@tsonic/dotnet/System/bindings.json": JSON.stringify(
-            {
-              namespace: "System",
-              types: [
-                {
-                  alias: "Console",
-                  stableId: "System.Console:System.Console",
-                  clrName: "System.Console",
-                  assemblyName: "System.Console",
-                  kind: "Class",
-                  accessibility: "Public",
-                  isAbstract: false,
-                  isSealed: false,
-                  isStatic: true,
-                  arity: 0,
-                  methods: [],
-                  properties: [],
-                  fields: [],
-                  constructors: [],
-                },
-                {
-                  alias: "DateTimeOffset",
-                  stableId: "System.Runtime:System.DateTimeOffset",
-                  clrName: "System.DateTimeOffset",
-                  assemblyName: "System.Runtime",
-                  kind: "Class",
-                  accessibility: "Public",
-                  isAbstract: false,
-                  isSealed: true,
-                  isStatic: false,
-                  arity: 0,
-                  methods: [],
-                  properties: [],
-                  fields: [],
-                  constructors: [],
-                },
-              ],
-            },
-            null,
-            2
-          ),
-        },
-        "src/test.ts"
+      const fixture = materializeImportExtractionFixture([
+        "fragments/surface-isolation/custom-clr-surface",
+        "declaration-package-facade",
+      ]);
+      const tempDir = fixture.path("app");
+      const entryPath = fixture.path("app/src/test.ts");
+      const programResult = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: fixture.path("app/src"),
+        rootNamespace: "TestApp",
+        surface: "clr",
+      });
+      expect(programResult.ok).to.equal(true);
+      if (!programResult.ok) {
+        fixture.cleanup();
+        return;
+      }
+      const testProgram = programResult.value;
+      const sourceFile = testProgram.sourceFiles.find(
+        (file) => path.resolve(file.fileName) === path.resolve(entryPath)
       );
+      if (!sourceFile) {
+        fixture.cleanup();
+        throw new Error("Failed to create source file");
+      }
+      const options = {
+        sourceRoot: fixture.path("app/src"),
+        rootNamespace: "TestApp",
+      };
+      const ctx = createProgramContext(testProgram, options);
 
       const systemBindingsPath = path.join(
         tempDir,
@@ -427,7 +366,7 @@ describe("IR Builder", function () {
         expect(consoleImport.resolvedClrValue).to.equal(undefined);
         expect(dateImport.resolvedClrType).to.equal("System.DateTimeOffset");
       } finally {
-        cleanup();
+        fixture.cleanup();
       }
     });
 
@@ -658,53 +597,38 @@ describe("IR Builder", function () {
     });
 
     it("prefers installed source-package imports over CLR resolution", () => {
-      const project = createFilesystemTestProgram(
-        {
-          "src/test.ts": `
-            import { process } from "@tsonic/nodejs/process.js";
-            void process.version;
-          `,
-          "node_modules/@tsonic/nodejs/package.json": JSON.stringify(
-            {
-              name: "@tsonic/nodejs",
-              version: "1.0.0",
-              type: "module",
-            },
-            null,
-            2
-          ),
-          "node_modules/@tsonic/nodejs/tsonic.package.json": JSON.stringify(
-            {
-              schemaVersion: 1,
-              kind: "tsonic-source-package",
-              surfaces: ["@tsonic/js"],
-              source: {
-                namespace: "nodejs",
-                exports: {
-                  "./process.js": "./src/process-module.ts",
-                },
-              },
-            },
-            null,
-            2
-          ),
-          "node_modules/@tsonic/nodejs/src/process-module.ts": `
-            export const process = {
-              version: "v1.0.0-tsonic",
-            };
-          `,
-        },
-        "src/test.ts"
-      );
+      const fixture = materializeImportExtractionFixture([
+        "fragments/minimal-surfaces/tsonic-js",
+        "source-package-preferred-over-clr",
+      ]);
 
       try {
+        const entryPath = fixture.path("app/src/test.ts");
+        const programResult = createProgram([entryPath], {
+          projectRoot: fixture.path("app"),
+          sourceRoot: fixture.path("app/src"),
+          rootNamespace: "TestApp",
+          surface: "@tsonic/js",
+        });
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const testProgram = programResult.value;
+        const sourceFile = testProgram.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
         const options = {
-          ...project.options,
+          sourceRoot: fixture.path("app/src"),
+          rootNamespace: "TestApp",
           surface: "@tsonic/js" as const,
         };
-        (project.ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
+        const ctx = createProgramContext(testProgram, options);
+        (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
         (
-          project.ctx as unknown as {
+          ctx as unknown as {
             clrResolver: { resolve: (specifier: string) => unknown };
           }
         ).clrResolver = {
@@ -718,10 +642,10 @@ describe("IR Builder", function () {
         };
 
         const result = buildIrModule(
-          project.sourceFile,
-          project.testProgram,
+          sourceFile,
+          testProgram,
           options,
-          project.ctx
+          ctx
         );
 
         expect(result.ok).to.equal(true);
@@ -735,17 +659,12 @@ describe("IR Builder", function () {
         expect(imp.resolvedNamespace).to.equal(undefined);
         expect(imp.resolvedClrType).to.equal(undefined);
         expect(imp.resolvedPath).to.equal(
-          path.join(
-            project.tempDir,
-            "node_modules",
-            "@tsonic",
-            "nodejs",
-            "src",
-            "process-module.ts"
+          fixture.path(
+            "app/node_modules/@tsonic/nodejs/src/process-module.ts"
           )
         );
       } finally {
-        project.cleanup();
+        fixture.cleanup();
       }
     });
 
@@ -778,23 +697,10 @@ describe("IR Builder", function () {
         },
       });
 
-      const tempRoot = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-node-http-")
+      const fixture = materializeImportExtractionFixture(
+        "module-bound-type-clauses"
       );
-      const declPath = path.join(
-        tempRoot,
-        "nodejs.Http",
-        "internal",
-        "index.d.ts"
-      );
-      const bindingsPath = path.join(tempRoot, "nodejs.Http", "bindings.json");
-      fs.mkdirSync(path.dirname(declPath), { recursive: true });
-      fs.writeFileSync(declPath, "export type IncomingMessage = unknown;\n");
-      fs.writeFileSync(
-        bindingsPath,
-        JSON.stringify({ namespace: "nodejs.Http" }),
-        "utf-8"
-      );
+      const declPath = fixture.path("nodejs.Http/internal/index.d.ts");
 
       const bindingApi = ctx.binding as unknown as {
         resolveImport: (node: ts.ImportSpecifier) => number | undefined;
@@ -833,96 +739,26 @@ describe("IR Builder", function () {
         expect(response.isType).to.equal(true);
         expect(response.resolvedClrType).to.equal("nodejs.Http.ServerResponse");
       } finally {
-        fs.rmSync(tempRoot, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("preserves installed source-package redirect metadata without CLR bindings", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-import-source-redirect-")
-      );
+      const fixture = materializeImportExtractionFixture([
+        "fragments/minimal-surfaces/tsonic-js",
+        "source-package-redirect",
+      ]);
 
       try {
-        const authoritativeJsRoot = path.resolve(
-          process.cwd(),
-          "../../../js/versions/10"
-        );
-        expect(
-          fs.existsSync(path.join(authoritativeJsRoot, "package.json"))
-        ).to.equal(true);
-
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-        const entryPath = path.join(srcDir, "test.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            'import type { IncomingMessage, ServerResponse } from "node:http";',
-            "let req: IncomingMessage | undefined;",
-            "let res: ServerResponse | undefined;",
-            "void req;",
-            "void res;",
-          ].join("\n")
-        );
-
-        const nodejsRoot = path.join(tempDir, "node_modules", "@tsonic", "nodejs");
-        fs.mkdirSync(path.join(nodejsRoot, "src", "http"), { recursive: true });
-        fs.writeFileSync(
-          path.join(nodejsRoot, "package.json"),
-          JSON.stringify(
-            {
-              name: "@tsonic/nodejs",
-              version: "1.0.0",
-              type: "module",
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(nodejsRoot, "tsonic.package.json"),
-          JSON.stringify(
-            {
-              schemaVersion: 1,
-              kind: "tsonic-source-package",
-              surfaces: ["@tsonic/js"],
-              source: {
-                namespace: "nodejs",
-                moduleAliases: {
-                  "node:http": "./http.js",
-                },
-                exports: {
-                  "./http.js": "./src/http/index.ts",
-                },
-              },
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(nodejsRoot, "src", "http", "index.ts"),
-          [
-            "export interface IncomingMessage {}",
-            "export interface ServerResponse {}",
-          ].join("\n")
-        );
+        const entryPath = fixture.path("app/src/test.ts");
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
 
         const programResult = createProgram([entryPath], {
-          projectRoot: tempDir,
-          sourceRoot: srcDir,
+          projectRoot,
+          sourceRoot,
           rootNamespace: "TestApp",
           surface: "@tsonic/js",
-          typeRoots: [authoritativeJsRoot, nodejsRoot],
         });
         expect(programResult.ok).to.equal(true);
         if (!programResult.ok) return;
@@ -935,13 +771,14 @@ describe("IR Builder", function () {
         if (!sourceFile) return;
 
         const ctx = createProgramContext(program, {
-          sourceRoot: srcDir,
+          sourceRoot,
           rootNamespace: "TestApp",
         });
         const options = {
-          sourceRoot: srcDir,
+          sourceRoot,
           rootNamespace: "TestApp",
         };
+        (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
         const result = buildIrModule(
           sourceFile,
@@ -960,15 +797,7 @@ describe("IR Builder", function () {
         expect(imp.resolvedClrType).to.equal(undefined);
         expect(imp.resolvedNamespace).to.equal(undefined);
         expect(imp.resolvedPath).to.equal(
-          path.join(
-            tempDir,
-            "node_modules",
-            "@tsonic",
-            "nodejs",
-            "src",
-            "http",
-            "index.ts"
-          )
+          fixture.path("app/node_modules/@tsonic/nodejs/src/http/index.ts")
         );
 
         const incoming = imp.specifiers[0];
@@ -985,115 +814,26 @@ describe("IR Builder", function () {
         expect(incoming.resolvedClrType).to.equal(undefined);
         expect(response.resolvedClrType).to.equal(undefined);
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("preserves node alias source-package redirect metadata without CLR bindings", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-import-node-alias-source-redirect-")
-      );
+      const fixture = materializeImportExtractionFixture([
+        "fragments/minimal-surfaces/tsonic-js",
+        "node-alias-source-package-redirect",
+      ]);
 
       try {
-        const authoritativeJsRoot = path.resolve(
-          process.cwd(),
-          "../../../js/versions/10"
-        );
-        expect(
-          fs.existsSync(path.join(authoritativeJsRoot, "package.json"))
-        ).to.equal(true);
-
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-        const entryPath = path.join(srcDir, "test.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            'import { resolve } from "node:path";',
-            'import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";',
-            "",
-            "let req: IncomingMessage | undefined;",
-            "let server: Server | undefined;",
-            "let res: ServerResponse | undefined;",
-            "const handler = (req: IncomingMessage, res: ServerResponse) => {",
-            "  void req;",
-            "  void res;",
-            "};",
-            "void resolve;",
-            "void createServer;",
-            "void handler;",
-            "void req;",
-            "void server;",
-            "void res;",
-          ].join("\n")
-        );
-
-        const nodejsRoot = path.join(tempDir, "node_modules", "@tsonic", "nodejs");
-        fs.mkdirSync(path.join(nodejsRoot, "src", "http"), { recursive: true });
-        fs.writeFileSync(
-          path.join(nodejsRoot, "package.json"),
-          JSON.stringify(
-            {
-              name: "@tsonic/nodejs",
-              version: "1.0.0",
-              type: "module",
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(nodejsRoot, "tsonic.package.json"),
-          JSON.stringify(
-            {
-              schemaVersion: 1,
-              kind: "tsonic-source-package",
-              surfaces: ["@tsonic/js"],
-              source: {
-                namespace: "nodejs",
-                moduleAliases: {
-                  "node:http": "./http.js",
-                  "node:path": "./path.js",
-                },
-                exports: {
-                  "./http.js": "./src/http/index.ts",
-                  "./path.js": "./src/path-module.ts",
-                },
-              },
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(nodejsRoot, "src", "http", "index.ts"),
-          [
-            "export interface IncomingMessage {}",
-            "export interface Server {}",
-            "export interface ServerResponse {}",
-            "export const createServer = (): void => {};",
-          ].join("\n")
-        );
-        fs.writeFileSync(
-          path.join(nodejsRoot, "src", "path-module.ts"),
-          'export const resolve = (...parts: string[]): string => parts.join("/");\n'
-        );
+        const entryPath = fixture.path("app/src/test.ts");
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
 
         const programResult = createProgram([entryPath], {
-          projectRoot: tempDir,
-          sourceRoot: srcDir,
+          projectRoot,
+          sourceRoot,
           rootNamespace: "TestApp",
           surface: "@tsonic/js",
-          typeRoots: [authoritativeJsRoot, nodejsRoot],
         });
         expect(programResult.ok).to.equal(true);
         if (!programResult.ok) return;
@@ -1106,13 +846,14 @@ describe("IR Builder", function () {
         if (!sourceFile) return;
 
         const ctx = createProgramContext(program, {
-          sourceRoot: srcDir,
+          sourceRoot,
           rootNamespace: "TestApp",
         });
         const options = {
-          sourceRoot: srcDir,
+          sourceRoot,
           rootNamespace: "TestApp",
         };
+        (ctx as { surface: "@tsonic/js" }).surface = "@tsonic/js";
 
         const result = buildIrModule(
           sourceFile,
@@ -1136,14 +877,7 @@ describe("IR Builder", function () {
         expect(pathImport.resolvedClrType).to.equal(undefined);
         expect(pathImport.resolvedNamespace).to.equal(undefined);
         expect(pathImport.resolvedPath).to.equal(
-          path.join(
-            tempDir,
-            "node_modules",
-            "@tsonic",
-            "nodejs",
-            "src",
-            "path-module.ts"
-          )
+          fixture.path("app/node_modules/@tsonic/nodejs/src/path.ts")
         );
 
         expect(httpImport.source).to.equal("node:http");
@@ -1152,15 +886,7 @@ describe("IR Builder", function () {
         expect(httpImport.resolvedClrType).to.equal(undefined);
         expect(httpImport.resolvedNamespace).to.equal(undefined);
         expect(httpImport.resolvedPath).to.equal(
-          path.join(
-            tempDir,
-            "node_modules",
-            "@tsonic",
-            "nodejs",
-            "src",
-            "http",
-            "index.ts"
-          )
+          fixture.path("app/node_modules/@tsonic/nodejs/src/http/index.ts")
         );
 
         const createServer = httpImport.specifiers[0];
@@ -1237,7 +963,7 @@ describe("IR Builder", function () {
         expect(requestType.typeId?.assemblyName).to.equal("@tsonic/nodejs");
         expect(responseType.typeId?.assemblyName).to.equal("@tsonic/nodejs");
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 

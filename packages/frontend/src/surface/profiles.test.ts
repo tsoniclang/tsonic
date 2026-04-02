@@ -1,14 +1,7 @@
 import { expect } from "chai";
 import { describe, it } from "mocha";
-import {
-  mkdtempSync,
-  mkdirSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
+import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 import {
   hasResolvedSurfaceProfile,
   resolveSurfaceCapabilities,
@@ -22,7 +15,6 @@ describe("Frontend Surface Profiles", () => {
     expect(caps.requiredTypeRoots).to.deep.equal([
       "node_modules/@tsonic/globals",
     ]);
-    expect(caps.useStandardLib).to.equal(false);
   });
 
   it("should default to clr when mode is undefined", () => {
@@ -39,69 +31,16 @@ describe("Frontend Surface Profiles", () => {
     expect(caps.mode).to.equal("@acme/surface-web");
     expect(caps.includesClr).to.equal(false);
     expect(caps.requiredTypeRoots).to.deep.equal([]);
-    expect(caps.useStandardLib).to.equal(false);
   });
 
   it("should load custom surface manifest from installed package", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-surface-"));
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/custom-surface-manifest"
+    );
     try {
-      writeFileSync(
-        join(projectRoot, "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
-      );
-      const jsRoot = join(projectRoot, "node_modules", "@tsonic", "js");
-      mkdirSync(jsRoot, { recursive: true });
-      writeFileSync(
-        join(jsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(jsRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: ["types"],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
-      const packageRoot = join(
-        projectRoot,
-        "node_modules",
-        "@acme",
-        "surface-web"
-      );
-      mkdirSync(packageRoot, { recursive: true });
-      writeFileSync(
-        join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/surface-web", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(packageRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@acme/surface-web",
-            extends: ["@tsonic/js"],
-            requiredTypeRoots: ["types", "globals"],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
+      const projectRoot = fixture.path("app");
+      const jsRoot = fixture.path("app/node_modules/@tsonic/js");
+      const packageRoot = fixture.path("app/node_modules/@acme/surface-web");
 
       const caps = resolveSurfaceCapabilities("@acme/surface-web", {
         projectRoot,
@@ -120,274 +59,90 @@ describe("Frontend Surface Profiles", () => {
         resolve(packageRoot, "globals")
       );
       expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
-      expect(caps.useStandardLib).to.equal(false);
     } finally {
-      rmSync(projectRoot, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should resolve js capabilities only when a surface manifest exists", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-js-"));
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/js-surface-manifest"
+    );
     try {
-      writeFileSync(
-        join(projectRoot, "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
-      );
-      const jsRoot = join(projectRoot, "node_modules", "@tsonic", "js");
-      mkdirSync(jsRoot, { recursive: true });
-      writeFileSync(
-        join(jsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(jsRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: ["types"],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
+      const projectRoot = fixture.path("app");
+      const jsRoot = fixture.path("app/node_modules/@tsonic/js");
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
       expect(caps.includesClr).to.equal(false);
       expect(caps.resolvedModes).to.deep.equal(["@tsonic/js"]);
       expect(caps.requiredTypeRoots).to.deep.equal([resolve(jsRoot, "types")]);
-      expect(caps.useStandardLib).to.equal(false);
       expect(hasResolvedSurfaceProfile("@tsonic/js", { projectRoot })).to.equal(
         true
       );
     } finally {
-      rmSync(projectRoot, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("prefers a project-installed symlinked surface package over a sibling checkout", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-link-"));
-    const externalRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-pkg-"));
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/project-symlinked-surface"
+    );
     try {
-      writeFileSync(
-        join(projectRoot, "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
-      );
-
-      writeFileSync(
-        join(externalRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(externalRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: ["linked-types"],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
-
-      const scopeRoot = join(projectRoot, "node_modules", "@tsonic");
-      mkdirSync(scopeRoot, { recursive: true });
-      symlinkSync(externalRoot, join(scopeRoot, "js"), "dir");
+      const projectRoot = fixture.path("project");
+      const externalRoot = fixture.path("external/js");
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
       expect(caps.requiredTypeRoots).to.include(
         resolve(externalRoot, "linked-types")
       );
     } finally {
-      rmSync(projectRoot, { recursive: true, force: true });
-      rmSync(externalRoot, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("prefers an ancestor workspace-installed surface package over a sibling checkout", () => {
-    const workspaceRoot = mkdtempSync(
-      join(tmpdir(), "tsonic-frontend-workspace-link-")
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/ancestor-workspace-symlinked-surface"
     );
-    const projectRoot = join(workspaceRoot, "packages", "app");
-    const externalRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-pkg-"));
     try {
-      mkdirSync(projectRoot, { recursive: true });
-      writeFileSync(
-        join(workspaceRoot, "package.json"),
-        JSON.stringify(
-          { name: "workspace", private: true, type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(projectRoot, "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
-      );
-
-      writeFileSync(
-        join(externalRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(externalRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: ["linked-types"],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
-
-      const scopeRoot = join(workspaceRoot, "node_modules", "@tsonic");
-      mkdirSync(scopeRoot, { recursive: true });
-      symlinkSync(externalRoot, join(scopeRoot, "js"), "dir");
+      const projectRoot = fixture.path("workspace/packages/app");
+      const externalRoot = fixture.path("external/js");
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
       expect(caps.requiredTypeRoots).to.include(
         resolve(externalRoot, "linked-types")
       );
     } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
-      rmSync(externalRoot, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("finds an ancestor installed surface package even when the active roots have no package.json", () => {
-    const workspaceRoot = mkdtempSync(
-      join(tmpdir(), "tsonic-frontend-nopkg-ancestor-")
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/ancestor-installed-no-package-json"
     );
-    const projectRoot = join(workspaceRoot, "packages", "app");
-    const externalRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-pkg-"));
     try {
-      mkdirSync(projectRoot, { recursive: true });
-
-      writeFileSync(
-        join(externalRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(externalRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: ["linked-types"],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
-
-      const scopeRoot = join(workspaceRoot, "node_modules", "@tsonic");
-      mkdirSync(scopeRoot, { recursive: true });
-      symlinkSync(externalRoot, join(scopeRoot, "js"), "dir");
+      const projectRoot = fixture.path("workspace/packages/app");
+      const externalRoot = fixture.path("external/js");
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
       expect(caps.requiredTypeRoots).to.include(
         resolve(externalRoot, "linked-types")
       );
     } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
-      rmSync(externalRoot, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("prefers sibling @tsonic surface packages over stray ancestor node_modules installs", () => {
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-stray-"));
-    const strayJsRoot = join(workspaceRoot, "node_modules", "@tsonic", "js");
-    const strayPackageJsonPath = join(strayJsRoot, "package.json");
-    const strayManifestPath = join(strayJsRoot, "tsonic.surface.json");
-    const projectRoot = join(workspaceRoot, "nodejs");
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/sibling-source-over-stray-ancestor"
+    );
     try {
-      mkdirSync(projectRoot, { recursive: true });
-      mkdirSync(strayJsRoot, { recursive: true });
-      writeFileSync(
-        strayPackageJsonPath,
-        JSON.stringify(
-          { name: "@tsonic/js", version: "0.0.0-test", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        strayManifestPath,
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: ["types"],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
-
-      writeFileSync(
-        join(projectRoot, "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
-      );
-
-      const siblingJsRoot = join(workspaceRoot, "js", "versions", "10");
-      mkdirSync(join(siblingJsRoot, "src"), { recursive: true });
-      writeFileSync(
-        join(siblingJsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "10.0.49-next.0", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(siblingJsRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "js",
-              exports: {
-                ".": "./src/index.ts",
-                "./index.js": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      writeFileSync(join(siblingJsRoot, "src", "index.ts"), "export {};\n");
+      const strayJsRoot = fixture.path("workspace/node_modules/@tsonic/js");
+      const projectRoot = fixture.path("workspace/nodejs");
+      const siblingJsRoot = fixture.path("workspace/js/versions/10");
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
       expect(caps.requiredTypeRoots).to.include(resolve(siblingJsRoot));
@@ -395,86 +150,18 @@ describe("Frontend Surface Profiles", () => {
         resolve(strayJsRoot, "types")
       );
     } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("prefers a sibling source package over an installed legacy surface package relative to the project root", () => {
-    const workspaceRoot = mkdtempSync(
-      join(tmpdir(), "tsonic-frontend-source-surface-")
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/sibling-source-over-legacy-installed"
     );
-    const projectRoot = join(workspaceRoot, "nodejs");
     try {
-      mkdirSync(projectRoot, { recursive: true });
-      writeFileSync(
-        join(projectRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/nodejs", private: true, type: "module" },
-          null,
-          2
-        )
-      );
-
-      const installedJsRoot = join(
-        projectRoot,
-        "node_modules",
-        "@tsonic",
-        "js"
-      );
-      mkdirSync(installedJsRoot, { recursive: true });
-      writeFileSync(
-        join(installedJsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "10.0.48", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(installedJsRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: ["legacy-types"],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
-
-      const siblingJsRoot = join(workspaceRoot, "js", "versions", "10");
-      mkdirSync(join(siblingJsRoot, "src"), { recursive: true });
-      writeFileSync(
-        join(siblingJsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "10.0.49-next.0", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(siblingJsRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "js",
-              exports: {
-                ".": "./src/index.ts",
-                "./index.js": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      writeFileSync(join(siblingJsRoot, "src", "index.ts"), "export {};\n");
+      const projectRoot = fixture.path("workspace/nodejs");
+      const installedJsRoot = fixture.path("workspace/nodejs/node_modules/@tsonic/js");
+      const siblingJsRoot = fixture.path("workspace/js/versions/10");
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { projectRoot });
       expect(caps.requiredTypeRoots).to.include(resolve(siblingJsRoot));
@@ -483,104 +170,38 @@ describe("Frontend Surface Profiles", () => {
       );
       expect(caps.resolvedModes).to.deep.equal(["@tsonic/js"]);
     } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should not treat installed regular packages as surfaces without manifest", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-nodejs-"));
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/regular-package-not-surface"
+    );
     try {
-      writeFileSync(
-        join(projectRoot, "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
-      );
-      const nodejsRoot = join(projectRoot, "node_modules", "@tsonic", "nodejs");
-      mkdirSync(nodejsRoot, { recursive: true });
-      writeFileSync(
-        join(nodejsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
+      const projectRoot = fixture.path("app");
 
       const caps = resolveSurfaceCapabilities("@tsonic/nodejs", {
         projectRoot,
       });
       expect(caps.includesClr).to.equal(false);
       expect(caps.requiredTypeRoots).to.deep.equal([]);
-      expect(caps.useStandardLib).to.equal(false);
       expect(
         hasResolvedSurfaceProfile("@tsonic/nodejs", { projectRoot })
       ).to.equal(false);
     } finally {
-      rmSync(projectRoot, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should resolve custom surface -> js chain from package manifests", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-frontend-custom-"));
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/custom-surface-js-chain"
+    );
     try {
-      writeFileSync(
-        join(projectRoot, "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
-      );
-
-      const jsRoot = join(projectRoot, "node_modules", "@tsonic", "js");
-      mkdirSync(jsRoot, { recursive: true });
-      writeFileSync(
-        join(jsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(jsRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: ["types"],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
-
-      const customRoot = join(
-        projectRoot,
-        "node_modules",
-        "@acme",
-        "surface-node"
-      );
-      mkdirSync(customRoot, { recursive: true });
-      writeFileSync(
-        join(customRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/surface-node", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      writeFileSync(
-        join(customRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@acme/surface-node",
-            extends: ["@tsonic/js"],
-            requiredTypeRoots: ["types"],
-            useStandardLib: false,
-          },
-          null,
-          2
-        )
-      );
+      const projectRoot = fixture.path("app");
+      const jsRoot = fixture.path("app/node_modules/@tsonic/js");
+      const customRoot = fixture.path("app/node_modules/@acme/surface-node");
 
       const caps = resolveSurfaceCapabilities("@acme/surface-node", {
         projectRoot,
@@ -604,9 +225,32 @@ describe("Frontend Surface Profiles", () => {
             /[/\\]surface-node[/\\]types$/.test(root)
         )
       ).to.equal(true);
-      expect(caps.useStandardLib).to.equal(false);
     } finally {
-      rmSync(projectRoot, { recursive: true, force: true });
+      fixture.cleanup();
+    }
+  });
+
+  it("loads sibling source-package surface manifests before falling back to source-package defaults", () => {
+    const fixture = materializeFrontendFixture(
+      "surface/profiles/sibling-nodejs-surface-before-default"
+    );
+    try {
+      const projectRoot = fixture.path("workspace/app");
+      const jsRoot = fixture.path("workspace/js/versions/10");
+      const nodejsRoot = fixture.path("workspace/nodejs/versions/10");
+
+      const caps = resolveSurfaceCapabilities("@tsonic/nodejs", {
+        projectRoot,
+      });
+      expect(caps.includesClr).to.equal(false);
+      expect(caps.resolvedModes).to.deep.equal([
+        "@tsonic/js",
+        "@tsonic/nodejs",
+      ]);
+      expect(caps.requiredTypeRoots).to.include(resolve(jsRoot));
+      expect(caps.requiredTypeRoots).to.include(resolve(nodejsRoot));
+    } finally {
+      fixture.cleanup();
     }
   });
 });

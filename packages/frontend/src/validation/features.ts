@@ -44,6 +44,23 @@ const isLengthElementAccess = (
   ts.isStringLiteralLike(node.argumentExpression) &&
   node.argumentExpression.text === "length";
 
+const isArrayNamespaceExpression = (expression: ts.Expression): boolean => {
+  const candidate = unwrapComparableExpression(expression);
+  if (ts.isIdentifier(candidate)) {
+    return candidate.text === "Array";
+  }
+
+  if (ts.isPropertyAccessExpression(candidate)) {
+    return (
+      ts.isIdentifier(candidate.expression) &&
+      candidate.expression.text === "globalThis" &&
+      candidate.name.text === "Array"
+    );
+  }
+
+  return false;
+};
+
 const isFunctionLikeType = (
   type: ts.Type,
   checker: ts.TypeChecker,
@@ -197,6 +214,153 @@ const traceLengthAccessOrigin = (
   return { expression, throughAssertion };
 };
 
+const unwrapComparableExpression = (expression: ts.Expression): ts.Expression => {
+  let current = expression;
+  for (;;) {
+    if (
+      ts.isParenthesizedExpression(current) ||
+      ts.isNonNullExpression(current)
+    ) {
+      current = current.expression;
+      continue;
+    }
+
+    if (
+      ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current)
+    ) {
+      current = current.expression;
+      continue;
+    }
+
+    return current;
+  }
+};
+
+const areSameExpressionTarget = (
+  left: ts.Expression,
+  right: ts.Expression
+): boolean => {
+  const normalizedLeft = unwrapComparableExpression(left);
+  const normalizedRight = unwrapComparableExpression(right);
+
+  if (ts.isIdentifier(normalizedLeft) && ts.isIdentifier(normalizedRight)) {
+    return normalizedLeft.text === normalizedRight.text;
+  }
+
+  if (normalizedLeft.kind === ts.SyntaxKind.ThisKeyword) {
+    return normalizedRight.kind === ts.SyntaxKind.ThisKeyword;
+  }
+
+  if (
+    ts.isPropertyAccessExpression(normalizedLeft) &&
+    ts.isPropertyAccessExpression(normalizedRight)
+  ) {
+    return (
+      normalizedLeft.name.text === normalizedRight.name.text &&
+      areSameExpressionTarget(
+        normalizedLeft.expression,
+        normalizedRight.expression
+      )
+    );
+  }
+
+  if (
+    ts.isElementAccessExpression(normalizedLeft) &&
+    ts.isElementAccessExpression(normalizedRight)
+  ) {
+    return (
+      normalizedLeft.argumentExpression.getText() ===
+        normalizedRight.argumentExpression.getText() &&
+      areSameExpressionTarget(
+        normalizedLeft.expression,
+        normalizedRight.expression
+      )
+    );
+  }
+
+  return false;
+};
+
+const extractArrayIsArrayGuard = (
+  expression: ts.Expression
+): { readonly target: ts.Expression; readonly negated: boolean } | undefined => {
+  const candidate = unwrapComparableExpression(expression);
+  if (ts.isPrefixUnaryExpression(candidate)) {
+    if (candidate.operator !== ts.SyntaxKind.ExclamationToken) {
+      return undefined;
+    }
+
+    const inner = extractArrayIsArrayGuard(candidate.operand);
+    return inner
+      ? { target: inner.target, negated: !inner.negated }
+      : undefined;
+  }
+
+  if (!ts.isCallExpression(candidate) || candidate.arguments.length !== 1) {
+    return undefined;
+  }
+
+  const callee = unwrapComparableExpression(candidate.expression);
+  if (
+    !ts.isPropertyAccessExpression(callee) ||
+    callee.name.text !== "isArray" ||
+    !isArrayNamespaceExpression(callee.expression)
+  ) {
+    return undefined;
+  }
+
+  const [target] = candidate.arguments;
+  if (!target) {
+    return undefined;
+  }
+
+  return { target, negated: false };
+};
+
+const isWithinSameFunctionArrayGuard = (
+  node: ts.Node,
+  receiver: ts.Expression
+): boolean => {
+  for (
+    let current: ts.Node | undefined = node;
+    current && current.parent;
+    current = current.parent
+  ) {
+    const parent = current.parent;
+    if (
+      current !== node &&
+      (ts.isFunctionLike(parent) || ts.isClassStaticBlockDeclaration(parent))
+    ) {
+      return false;
+    }
+
+    if (!ts.isIfStatement(parent)) {
+      continue;
+    }
+
+    const guard = extractArrayIsArrayGuard(parent.expression);
+    if (!guard || !areSameExpressionTarget(guard.target, receiver)) {
+      continue;
+    }
+
+    if (!guard.negated && node.pos >= parent.thenStatement.pos && node.end <= parent.thenStatement.end) {
+      return true;
+    }
+
+    if (
+      guard.negated &&
+      parent.elseStatement &&
+      node.pos >= parent.elseStatement.pos &&
+      node.end <= parent.elseStatement.end
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 const getLengthAccessReceiver = (node: ts.Node): ts.Expression | undefined => {
   if (
     (ts.isPropertyAccessExpression(node) || ts.isPropertyAccessChain(node)) &&
@@ -226,7 +390,7 @@ const isUnsupportedFunctionLengthAccess = (
 
   const receiverType = checker.getTypeAtLocation(receiver);
   if (isFunctionLikeType(receiverType, checker)) {
-    return true;
+    return !isWithinSameFunctionArrayGuard(node, receiver);
   }
 
   if (isKnownRuntimeLengthCarrier(receiverType, checker)) {

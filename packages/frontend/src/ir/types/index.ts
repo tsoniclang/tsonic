@@ -48,9 +48,9 @@ export type {
 
 export type {
   IrOverloadOwnerKind,
-  IrOverloadFamilyRole,
   IrOverloadFamilyMember,
 } from "./overload-family.js";
+export { getIrMemberPublicName } from "./overload-family.js";
 
 // Expression types
 export type {

@@ -40,16 +40,31 @@ describe("Integration: CLR iterable overloads", () => {
   it("calls exact member overload wrappers after narrowing inside overload implementations", () => {
     const csharp = compileToCSharp(`
       import type { int } from "@tsonic/core/types.js";
+      import { overloads as O } from "@tsonic/core/lang.js";
 
       class Socket {
         connect(port: int, host?: string, connectionListener?: () => void): void;
         connect(path: string, connectionListener?: () => void): void;
         connect(
-          portOrPath: int | string,
-          hostOrListener?: string | (() => void),
+          _portOrPath: any,
+          _hostOrListener?: any,
+          _connectionListener?: any
+        ): any {
+          throw new Error("stub");
+        }
+        connect_port(
+          port: int,
+          host?: string,
+          connectionListener?: () => void
+        ): void {}
+        connect_path(
+          path: string,
           connectionListener?: () => void
         ): void {}
       }
+
+      O<Socket>().method(x => x.connect_port).family(x => x.connect);
+      O<Socket>().method(x => x.connect_path).family(x => x.connect);
 
       export function open(
         portOrPath: int | string,
@@ -67,7 +82,7 @@ describe("Integration: CLR iterable overloads", () => {
       }
     `);
 
-    expect(csharp).to.include("socket.connect((string)(portOrPath.As2()), listener);");
+    expect(csharp).to.include("socket.connect((portOrPath.As2()), listener);");
     expect(csharp).to.not.include(
       "socket.connect((string)(portOrPath.As2()), global::Tsonic.Runtime.Union<global::System.Action, string>.From1(listener));"
     );
@@ -97,9 +112,8 @@ describe("Integration: CLR iterable overloads", () => {
           {
             schemaVersion: 1,
             id: "@fixture/js",
-            extends: [],
+            extends: ["@tsonic/js"],
             requiredTypeRoots: ["."],
-            useStandardLib: false,
           },
           null,
           2
@@ -129,6 +143,8 @@ describe("Integration: CLR iterable overloads", () => {
           2
         ),
         "node_modules/@fixture/js/src/typed-array-core.ts": [
+          'import { overloads as O } from "@tsonic/core/lang.js";',
+          "",
           "export type TypedArrayInput<TElement extends number> =",
           "  | TElement[]",
           "  | Iterable<number>;",
@@ -141,17 +157,27 @@ describe("Integration: CLR iterable overloads", () => {
           "  public constructor() {}",
           "  public set(index: number, value: number): void;",
           "  public set(source: TypedArrayInput<TElement>, offset?: number): void;",
-          "  public set(",
-          "    sourceOrIndex: number | TypedArrayInput<TElement>,",
-          "    offsetOrValue: number = 0",
+          "  public set(_sourceOrIndex: any, _offsetOrValue: any = 0): any {",
+          '    throw new Error(\"stub\");',
+          "  }",
+          "  public set_index(index: number, value: number): void {",
+          "    void index;",
+          "    void value;",
+          "  }",
+          "  public set_source(",
+          "    source: TypedArrayInput<TElement>,",
+          "    offset?: number",
           "  ): void {",
-          "    void sourceOrIndex;",
-          "    void offsetOrValue;",
+          "    void source;",
+          "    void offset;",
           "  }",
           "  public *[Symbol.iterator](): Generator<TElement, undefined, undefined> {",
           "    return undefined as never;",
           "  }",
           "}",
+          "",
+          "O<InstanceType<typeof TypedArrayBase>>().method(x => x.set_index).family(x => x.set);",
+          "O<InstanceType<typeof TypedArrayBase>>().method(x => x.set_source).family(x => x.set);",
         ].join("\n"),
         "node_modules/@fixture/js/src/uint8-array.ts": [
           'import { TypedArrayBase } from "./typed-array-core.js";',
@@ -175,7 +201,7 @@ describe("Integration: CLR iterable overloads", () => {
     );
   });
 
-  it("keeps scalar equality overloads for unknown event payload assertions", () => {
+  it("keeps scalar equality overloads for JsValue event payload assertions", () => {
     const csharp = compileProjectToCSharp(
       {
         "package.json": JSON.stringify(
@@ -229,7 +255,7 @@ describe("Integration: CLR iterable overloads", () => {
           'import { Assert } from "xunit-types/Xunit.js";',
           "",
           "declare class EventEmitter {",
-          "  static once(emitter: EventEmitter, eventName: string): Promise<unknown[]>;",
+          "  static once(emitter: EventEmitter, eventName: string): Promise<JsValue[]>;",
           "}",
           "export async function run(): Promise<void> {",
           '  const task = EventEmitter.once(new EventEmitter(), "test");',
@@ -250,7 +276,7 @@ describe("Integration: CLR iterable overloads", () => {
     expect(assertLine).to.not.include("IEnumerable");
   });
 
-  it("boxes numeric literals for unknown equality assertions over real xunit overloads", () => {
+  it("boxes numeric literals for JsValue equality assertions over real xunit overloads", () => {
     const csharp = compileProjectToCSharp(
       {
         "package.json": JSON.stringify(
@@ -258,31 +284,6 @@ describe("Integration: CLR iterable overloads", () => {
           null,
           2
         ),
-        "node_modules/@tsonic/core/package.json": JSON.stringify(
-          { name: "@tsonic/core", version: "1.0.0", type: "module" },
-          null,
-          2
-        ),
-        "node_modules/@tsonic/js/package.json": JSON.stringify(
-          { name: "@tsonic/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        ),
-        "node_modules/@tsonic/js/tsonic.surface.json": JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: [],
-            useStandardLib: true,
-          },
-          null,
-          2
-        ),
-        "node_modules/@tsonic/core/types.js": "export {};",
-        "node_modules/@tsonic/core/types.d.ts": [
-          "export type double = number;",
-        ].join("\n"),
         "node_modules/xunit-types/package.json": JSON.stringify(
           { name: "xunit-types", version: "1.0.0", type: "module" },
           null,
@@ -306,7 +307,7 @@ describe("Integration: CLR iterable overloads", () => {
         "src/index.ts": [
           'import { Assert } from "xunit-types/Xunit.js";',
           "",
-          "export function run(received: unknown): void {",
+          "export function run(received: JsValue): void {",
           "  Assert.Equal(42, received);",
           "}",
         ].join("\n"),
@@ -319,7 +320,7 @@ describe("Integration: CLR iterable overloads", () => {
     expect(csharp).to.not.include("Assert.Equal(42, received);");
   });
 
-  it("preserves explicit unknown callback storage for later numeric equality assertions", () => {
+  it("preserves explicit JsValue callback storage for later numeric equality assertions", () => {
     const csharp = compileProjectToCSharp(
       {
         "package.json": JSON.stringify(
@@ -327,31 +328,6 @@ describe("Integration: CLR iterable overloads", () => {
           null,
           2
         ),
-        "node_modules/@tsonic/core/package.json": JSON.stringify(
-          { name: "@tsonic/core", version: "1.0.0", type: "module" },
-          null,
-          2
-        ),
-        "node_modules/@tsonic/js/package.json": JSON.stringify(
-          { name: "@tsonic/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        ),
-        "node_modules/@tsonic/js/tsonic.surface.json": JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: [],
-            useStandardLib: true,
-          },
-          null,
-          2
-        ),
-        "node_modules/@tsonic/core/types.js": "export {};",
-        "node_modules/@tsonic/core/types.d.ts": [
-          "export type double = number;",
-        ].join("\n"),
         "node_modules/xunit-types/package.json": JSON.stringify(
           { name: "xunit-types", version: "1.0.0", type: "module" },
           null,
@@ -376,12 +352,12 @@ describe("Integration: CLR iterable overloads", () => {
           'import { Assert } from "xunit-types/Xunit.js";',
           "",
           "declare class EventEmitter {",
-          "  on(eventName: string, listener: (value: unknown) => void): void;",
-          "  emit(eventName: string, value: unknown): void;",
+          "  on(eventName: string, listener: (value: JsValue) => void): void;",
+          "  emit(eventName: string, value: JsValue): void;",
           "}",
           "",
           "export function run(emitter: EventEmitter): void {",
-          "  let received: unknown = undefined;",
+          "  let received: JsValue = undefined;",
           '  emitter.on("test", (value) => {',
           "    received = value;",
           "  });",

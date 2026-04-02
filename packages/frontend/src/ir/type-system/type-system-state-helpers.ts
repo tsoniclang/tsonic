@@ -95,10 +95,18 @@ export const addUndefinedToType = (type: IrType): IrType => {
  * Resolve a surface name to a canonical TypeId.
  *
  * Order:
- * 1) UnifiedTypeCatalog source-authored tsName
- * 2) AliasTable (primitives/globals/System.* canonicalization)
+ * 1) AliasTable (primitives/globals/System.* canonicalization)
+ * 2) UnifiedTypeCatalog source-authored tsName
  * 3) UnifiedTypeCatalog assembly tsName
  * 4) UnifiedTypeCatalog by clrName
+ *
+ * Canonical aliases must win over source-authored global wrapper declarations.
+ * Example:
+ * - source `interface String extends String$instance, __String$views {}`
+ * - canonical alias `String -> System.String`
+ *
+ * Member lookup on `string` / `String` must resolve against the canonical CLR
+ * entry so instance members like `IndexOf` and `Substring` remain available.
  *
  * IMPORTANT (airplane-grade):
  * Resolution must be arity-aware when type arguments are present. Facade
@@ -135,8 +143,8 @@ export const resolveTypeIdByName = (
     directCandidates.push(candidate);
   };
 
-  pushCandidate(sourceTsNameCandidate);
   pushCandidate(state.aliasTable.get(name));
+  pushCandidate(sourceTsNameCandidate);
   pushCandidate(assemblyTsNameCandidate);
   pushCandidate(state.unifiedCatalog.resolveClrName(name));
 

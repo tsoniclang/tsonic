@@ -576,7 +576,7 @@ describe("Reference Type Emission", () => {
         }
       );
 
-      expect(printType(typeAst)).to.equal("global::js.ArrayBuffer");
+      expect(printType(typeAst)).to.equal("ArrayBuffer");
     });
 
     it("canonicalizes qualified cross-module local type names to the matched local symbol", () => {

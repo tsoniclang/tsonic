@@ -1,0 +1,8 @@
+{
+  "name": "@fixture/js",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@fixture/runtime": "1.0.0"
+  }
+}

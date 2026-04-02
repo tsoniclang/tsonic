@@ -15,7 +15,7 @@ namespace TestCases.common.extensions.linq
             numbers.Add(2);
             numbers.Add(3);
             numbers.Add(4);
-            var xs = (global::System.Collections.Generic.IEnumerable<int>)numbers;
+            global::System.Collections.Generic.IEnumerable<int> xs = numbers;
             var doubled = global::System.Linq.Enumerable.Select(global::System.Linq.Enumerable.Where(xs, (int n) => n % 2 == 0), (int n) => n * 2).ToList();
             global::System.Console.WriteLine(doubled.Count);
             global::System.Console.WriteLine(inc(5));

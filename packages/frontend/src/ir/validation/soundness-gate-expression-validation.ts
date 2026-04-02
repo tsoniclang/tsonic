@@ -9,6 +9,57 @@ import {
   validateType,
 } from "./soundness-gate-type-validation.js";
 import { validateStatement } from "./soundness-gate-statement-validation.js";
+import type { IrType } from "../types.js";
+
+const typeContainsPoison = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+
+  switch (type.kind) {
+    case "anyType":
+    case "unknownType":
+      return true;
+
+    case "arrayType":
+      return typeContainsPoison(type.elementType);
+
+    case "tupleType":
+      return type.elementTypes.some((element) => typeContainsPoison(element));
+
+    case "functionType":
+      return (
+        type.parameters.some((parameter) => typeContainsPoison(parameter.type)) ||
+        typeContainsPoison(type.returnType)
+      );
+
+    case "dictionaryType":
+      return (
+        typeContainsPoison(type.keyType) || typeContainsPoison(type.valueType)
+      );
+
+    case "unionType":
+    case "intersectionType":
+      return type.types.some((member) => typeContainsPoison(member));
+
+    case "referenceType":
+      return type.typeArguments?.some((arg) => typeContainsPoison(arg)) ?? false;
+
+    case "objectType":
+      return type.members.some((member) =>
+        member.kind === "propertySignature"
+          ? typeContainsPoison(member.type)
+          : member.parameters.some((parameter) =>
+                typeContainsPoison(parameter.type)
+              ) || typeContainsPoison(member.returnType)
+      );
+
+    case "primitiveType":
+    case "typeParameterType":
+    case "literalType":
+    case "voidType":
+    case "neverType":
+      return false;
+  }
+};
 
 export const validateExpression = (
   expr: IrExpression,
@@ -74,6 +125,13 @@ export const validateExpression = (
 
     case "memberAccess": {
       validateExpression(expr.object, ctx);
+      if (expr.isComputed && typeContainsPoison(expr.object.inferredType)) {
+        validateType(
+          expr.object.inferredType,
+          ctx,
+          "computed access receiver inferred type"
+        );
+      }
       if (typeof expr.property !== "string") {
         validateExpression(expr.property, ctx);
       }
@@ -249,7 +307,9 @@ export const validateExpression = (
         validateExpression(expr.size, ctx);
       }
       if (expr.inferredType) {
-        validateType(expr.inferredType, ctx, `${expr.kind} inferred type`);
+        validateType(expr.inferredType, ctx, `${expr.kind} inferred type`, {
+          allowRootUnknownType: true,
+        });
       }
       break;
 

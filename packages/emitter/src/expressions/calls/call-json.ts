@@ -17,40 +17,9 @@ import type {
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 import { identifierExpression } from "../../core/format/backend-ast/builders.js";
+import { normalizeClrQualifiedName } from "../../core/format/backend-ast/utils.js";
 import { emitTypeArgumentsAst } from "../identifiers.js";
 import { buildExactGlobalBindingReference } from "../exact-global-bindings.js";
-
-const getRuntimeObjectHelperParameterOverrides = (
-  expr: Extract<IrExpression, { kind: "call" }>,
-  argCount: number
-): readonly (IrType | undefined)[] | undefined => {
-  if (
-    expr.callee.kind !== "memberAccess" ||
-    expr.callee.isComputed ||
-    expr.callee.object.kind !== "identifier" ||
-    expr.callee.object.name !== "Object" ||
-    (expr.callee.property !== "entries" &&
-      expr.callee.property !== "keys" &&
-      expr.callee.property !== "values")
-  ) {
-    return undefined;
-  }
-
-  if (argCount === 0) {
-    return undefined;
-  }
-
-  const overrides: (IrType | undefined)[] = Array.from(
-    { length: argCount },
-    () => undefined
-  );
-  overrides[0] = {
-    kind: "referenceType",
-    name: "object",
-    resolvedClrType: "System.Object",
-  };
-  return overrides;
-};
 
 const isConcreteGlobalJsonParseTarget = (
   type: IrType | undefined
@@ -65,6 +34,14 @@ const isConcreteGlobalJsonParseTarget = (
     return false;
   }
   if (type.kind === "unionType" || type.kind === "intersectionType") {
+    return false;
+  }
+  if (
+    type.kind === "referenceType" &&
+    (type.name === "JsValue" ||
+      type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
+      type.resolvedClrType === "global::Tsonic.Runtime.JsValue")
+  ) {
     return false;
   }
   return !containsTypeParameter(type);
@@ -119,12 +96,19 @@ const emitRuntimeJsonParseCall = (
     currentContext = ctx;
   }
 
+  const jsonOwnerExpression =
+    expr.callee.kind === "memberAccess" && expr.callee.memberBinding
+      ? identifierExpression(
+          normalizeClrQualifiedName(expr.callee.memberBinding.type, true)
+        )
+      : buildExactGlobalBindingReference("JSON", context);
+
   return [
     {
       kind: "invocationExpression",
       expression: {
         kind: "memberAccessExpression",
-        expression: buildExactGlobalBindingReference("JSON", context),
+        expression: jsonOwnerExpression,
         memberName: "parse",
       },
       arguments: argAsts,
@@ -235,9 +219,8 @@ const emitJsonSerializerCall = (
   }
 
   // Only pass the generated JSON AOT options when this call site actually
-  // participates in the NativeAOT JSON rewrite. Non-generic JSON.parse(...)
-  // intentionally returns unknown and should emit plain JsonSerializer calls
-  // without requiring the generated helper.
+  // participates in the NativeAOT JSON rewrite. Broad global JSON.parse(...)
+  // calls stay on the js-surface parse path and should not force AOT metadata.
   if (context.options.jsonAotRegistry?.needsJsonAot) {
     argAsts.push(
       identifierExpression(
@@ -300,7 +283,6 @@ const emitGlobalJsonCall = (
 };
 
 export {
-  getRuntimeObjectHelperParameterOverrides,
   emitJsonSerializerCall,
   emitGlobalJsonCall,
 };

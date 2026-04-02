@@ -1,0 +1,11 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "MyApp",
+  "entryPoint": "src/App.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "tsonic",
+  "output": {
+    "type": "executable"
+  }
+}

@@ -4,7 +4,7 @@
  * Validates that the soundness gate correctly emits diagnostics when:
  * - Call return type recovery fails (TSN5201)
  * - Constructor type argument recovery fails (TSN5202)
- * - Calls with explicitly unknown return type are allowed
+ * - Root inferred unknown call types still use the targeted TSN5201 diagnostic
  */
 
 import { describe, it } from "mocha";
@@ -51,7 +51,7 @@ describe("IR Soundness Gate", () => {
       expect(result.diagnostics.some((d) => d.code === "TSN5201")).to.be.true;
     });
 
-    it("allows calls whose declared return type is explicitly unknown", () => {
+    it("still emits TSN5201 for root unknown inferred call types", () => {
       const module: IrModule = {
         kind: "module",
         filePath: "/src/test.ts",
@@ -81,7 +81,6 @@ describe("IR Soundness Gate", () => {
               ],
               isOptional: false,
               inferredType: { kind: "unknownType" },
-              allowUnknownInferredType: true,
             },
           },
         ],
@@ -90,8 +89,9 @@ describe("IR Soundness Gate", () => {
 
       const result = validateIrSoundness([module]);
 
-      expect(result.ok).to.be.true;
-      expect(result.diagnostics).to.have.length(0);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN5201")).to.be.true;
+      expect(result.diagnostics.some((d) => d.code === "TSN7414")).to.be.false;
     });
 
     it("emits TSN5202 when constructor type argument recovery fails", () => {

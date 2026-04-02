@@ -1,5 +1,6 @@
 import type { ExtensionMethods as SystemExt } from "@tsonic/dotnet/System.js";
 import { Console } from "@tsonic/dotnet/System.js";
+import { asinterface } from "@tsonic/core/lang.js";
 import { int } from "@tsonic/core/types.js";
 
 type Ext<T> = SystemExt<T>;
@@ -7,8 +8,8 @@ type Ext<T> = SystemExt<T>;
 export function run(): void {
   const s = "hello";
 
-  const a = (s as unknown as Ext<string>).AsSpan();
-  const b = (s as unknown as Ext<string>).AsSpan(1);
+  const a = asinterface<Ext<string>>(s).AsSpan();
+  const b = asinterface<Ext<string>>(s).AsSpan(1);
 
   let off: int = 0;
 

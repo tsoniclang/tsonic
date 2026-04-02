@@ -1,5 +1,5 @@
 import { Console } from "@tsonic/dotnet/System.js";
-import { istype } from "@tsonic/core/lang.js";
+import { overloads as O } from "@tsonic/core/lang.js";
 
 class X {}
 class Y {}
@@ -9,18 +9,21 @@ class Q {}
 class Overloads {
   Foo(a: X, b: Y): string;
   Foo(a: P, b: Q): string;
-  Foo(p0: unknown, p1: unknown): unknown {
-    if (istype<X>(p0) && istype<Y>(p1)) {
-      return "xy";
-    }
+  Foo(_p0: any, _p1: any): any {
+    throw new Error("stub");
+  }
 
-    if (istype<P>(p0) && istype<Q>(p1)) {
-      return "pq";
-    }
+  foo_xy(_a: X, _b: Y): string {
+    return "xy";
+  }
 
-    throw new Error("unreachable");
+  foo_pq(_a: P, _b: Q): string {
+    return "pq";
   }
 }
+
+O<Overloads>().method(x => x.foo_xy).family(x => x.Foo);
+O<Overloads>().method(x => x.foo_pq).family(x => x.Foo);
 
 const o = new Overloads();
 Console.WriteLine(o.Foo(new X(), new Y()));

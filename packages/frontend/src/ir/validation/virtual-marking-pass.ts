@@ -1,36 +1,517 @@
 /**
  * Virtual Marking Pass
  *
- * For each method/property with isOverride=true in derived classes,
- * finds and marks the corresponding base class member with isVirtual=true.
+ * Recomputes local TypeScript class override/shadow relationships after all IR
+ * collection passes have attached final emitted member names. This pass is the
+ * single source of truth for local class hierarchies:
+ * - no legacy overload helper bridges
+ * - no widened-signature compatibility bridges
+ * - no source-name-only matching
  *
- * It also synthesizes bridge overrides for TypeScript-style same-name method
- * widening across TS class hierarchies. This preserves runtime dispatch for
- * patterns like:
- *
- *   class Base { write(chunk: unknown): unknown }
- *   class Derived extends Base {
- *     write(chunk: unknown, encoding?: string, cb?: () => void): boolean
- *   }
- *
- * In C#, a base-typed receiver would otherwise bind statically to the base
- * method because the widened derived signature cannot override directly.
+ * A derived member overrides a local base member only when the emitted CLR name
+ * and full signature match exactly after base-class type-argument substitution.
+ * Otherwise, a same-name local member is marked as shadowing.
  */
 
 import {
-  IrModule,
+  getIrMemberPublicName,
   IrClassDeclaration,
-  IrStatement,
   IrClassMember,
   IrMethodDeclaration,
+  IrModule,
   IrParameter,
+  IrPropertyDeclaration,
+  IrStatement,
   IrType,
   stableIrTypeKey,
+  substituteIrType,
 } from "../types.js";
 
 export type VirtualMarkingResult = {
   readonly ok: true;
   readonly modules: readonly IrModule[];
+};
+
+type MemberOverrideUpdate = {
+  readonly isOverride?: true;
+  readonly isShadow?: true;
+};
+
+type LocalOverridePlan = {
+  readonly methodUpdates: ReadonlyMap<number, MemberOverrideUpdate>;
+  readonly propertyUpdates: ReadonlyMap<number, MemberOverrideUpdate>;
+  readonly baseClassName?: string;
+  readonly overriddenBaseMethodIndices: ReadonlySet<number>;
+  readonly overriddenBasePropertyIndices: ReadonlySet<number>;
+};
+
+type IndexedMethod = {
+  readonly index: number;
+  readonly member: IrMethodDeclaration;
+};
+
+type IndexedProperty = {
+  readonly index: number;
+  readonly member: IrPropertyDeclaration;
+};
+
+const VOID_TYPE: IrType = { kind: "voidType" };
+
+const normalizeBaseClassName = (raw: string): string => {
+  const withoutTypeArgs = raw.split("<")[0] ?? raw;
+  const simple = withoutTypeArgs.split(".").pop() ?? withoutTypeArgs;
+  return simple.trim();
+};
+
+const buildClassTypeSubstitution = (
+  baseClass: IrClassDeclaration,
+  superClass: IrClassDeclaration["superClass"]
+): ReadonlyMap<string, IrType> | undefined => {
+  const typeParameters = baseClass.typeParameters ?? [];
+  if (typeParameters.length === 0) {
+    return undefined;
+  }
+
+  if (
+    !superClass ||
+    superClass.kind !== "referenceType" ||
+    !superClass.typeArguments ||
+    superClass.typeArguments.length !== typeParameters.length
+  ) {
+    return undefined;
+  }
+
+  const substitution = new Map<string, IrType>();
+  for (let index = 0; index < typeParameters.length; index += 1) {
+    const typeParameter = typeParameters[index];
+    const typeArgument = superClass.typeArguments[index];
+    if (!typeParameter || !typeArgument) {
+      return undefined;
+    }
+    substitution.set(typeParameter.name, typeArgument);
+  }
+  return substitution;
+};
+
+const buildCanonicalMethodTypeSubstitution = (
+  typeParameters:
+    | readonly { readonly name: string }[]
+    | undefined
+): ReadonlyMap<string, IrType> | undefined => {
+  if (!typeParameters || typeParameters.length === 0) {
+    return undefined;
+  }
+
+  const substitution = new Map<string, IrType>();
+  for (let index = 0; index < typeParameters.length; index += 1) {
+    const typeParameter = typeParameters[index];
+    if (!typeParameter) continue;
+    substitution.set(typeParameter.name, {
+      kind: "typeParameterType",
+      name: `__method_${index}`,
+    });
+  }
+  return substitution;
+};
+
+const canonicalizeMethodType = (
+  type: IrType | undefined,
+  methodTypeParameters:
+    | readonly { readonly name: string }[]
+    | undefined,
+  classSubstitution?: ReadonlyMap<string, IrType>
+): IrType | undefined => {
+  if (!type) {
+    return undefined;
+  }
+
+  let current = type;
+  if (classSubstitution && classSubstitution.size > 0) {
+    current = substituteIrType(current, classSubstitution);
+  }
+
+  const methodSubstitution =
+    buildCanonicalMethodTypeSubstitution(methodTypeParameters);
+  if (!methodSubstitution || methodSubstitution.size === 0) {
+    return current;
+  }
+
+  return substituteIrType(current, methodSubstitution);
+};
+
+const buildSelfTypeSubstitution = (
+  classDecl: IrClassDeclaration,
+  instantiatedType: Extract<IrType, { kind: "referenceType" }>
+): ReadonlyMap<string, IrType> | undefined => {
+  const typeParameters = classDecl.typeParameters ?? [];
+  if (typeParameters.length === 0) {
+    return undefined;
+  }
+
+  if (
+    !instantiatedType.typeArguments ||
+    instantiatedType.typeArguments.length !== typeParameters.length
+  ) {
+    return undefined;
+  }
+
+  const substitution = new Map<string, IrType>();
+  for (let index = 0; index < typeParameters.length; index += 1) {
+    const typeParameter = typeParameters[index];
+    const typeArgument = instantiatedType.typeArguments[index];
+    if (!typeParameter || !typeArgument) {
+      return undefined;
+    }
+    substitution.set(typeParameter.name, typeArgument);
+  }
+
+  return substitution;
+};
+
+const typesEqual = (left: IrType | undefined, right: IrType | undefined): boolean => {
+  if (!left || !right) {
+    return left === right;
+  }
+  return stableIrTypeKey(left) === stableIrTypeKey(right);
+};
+
+const isLocalReferenceSubtype = (
+  derivedType: IrType | undefined,
+  baseType: IrType | undefined,
+  classRegistry: ReadonlyMap<string, IrClassDeclaration>
+): boolean => {
+  if (!derivedType || !baseType) {
+    return false;
+  }
+
+  if (typesEqual(derivedType, baseType)) {
+    return true;
+  }
+
+  if (derivedType.kind !== "referenceType" || baseType.kind !== "referenceType") {
+    return false;
+  }
+
+  const derivedClass = classRegistry.get(normalizeBaseClassName(derivedType.name));
+  if (!derivedClass?.superClass || derivedClass.superClass.kind !== "referenceType") {
+    return false;
+  }
+
+  const selfSubstitution = buildSelfTypeSubstitution(derivedClass, derivedType);
+  const instantiatedSuper =
+    selfSubstitution && selfSubstitution.size > 0
+      ? substituteIrType(derivedClass.superClass, selfSubstitution)
+      : derivedClass.superClass;
+
+  return isLocalReferenceSubtype(instantiatedSuper, baseType, classRegistry);
+};
+
+const parametersExactlyMatch = (
+  baseParameter: IrParameter,
+  derivedParameter: IrParameter,
+  baseMethodTypeParameters:
+    | readonly { readonly name: string }[]
+    | undefined,
+  derivedMethodTypeParameters:
+    | readonly { readonly name: string }[]
+    | undefined,
+  classSubstitution?: ReadonlyMap<string, IrType>
+): boolean =>
+  baseParameter.isOptional === derivedParameter.isOptional &&
+  baseParameter.isRest === derivedParameter.isRest &&
+  baseParameter.passing === derivedParameter.passing &&
+  typesEqual(
+    canonicalizeMethodType(
+      baseParameter.type,
+      baseMethodTypeParameters,
+      classSubstitution
+    ),
+    canonicalizeMethodType(
+      derivedParameter.type,
+      derivedMethodTypeParameters
+    )
+  );
+
+const methodsExactlyMatch = (
+  baseMethod: IrMethodDeclaration,
+  derivedMethod: IrMethodDeclaration,
+  classRegistry: ReadonlyMap<string, IrClassDeclaration>,
+  classSubstitution?: ReadonlyMap<string, IrType>
+): boolean => {
+  if (getIrMemberPublicName(baseMethod) !== getIrMemberPublicName(derivedMethod)) {
+    return false;
+  }
+
+  const baseTypeParameters = baseMethod.typeParameters;
+  const derivedTypeParameters = derivedMethod.typeParameters;
+  if ((baseTypeParameters?.length ?? 0) !== (derivedTypeParameters?.length ?? 0)) {
+    return false;
+  }
+
+  if (baseMethod.parameters.length !== derivedMethod.parameters.length) {
+    return false;
+  }
+
+  for (let index = 0; index < baseMethod.parameters.length; index += 1) {
+    const baseParameter = baseMethod.parameters[index];
+    const derivedParameter = derivedMethod.parameters[index];
+    if (!baseParameter || !derivedParameter) {
+      return false;
+    }
+    if (
+      !parametersExactlyMatch(
+        baseParameter,
+        derivedParameter,
+        baseTypeParameters,
+        derivedTypeParameters,
+        classSubstitution
+      )
+    ) {
+      return false;
+    }
+  }
+
+  const canonicalBaseReturn = canonicalizeMethodType(
+    baseMethod.returnType ?? VOID_TYPE,
+    baseTypeParameters,
+    classSubstitution
+  );
+  const canonicalDerivedReturn = canonicalizeMethodType(
+    derivedMethod.returnType ?? VOID_TYPE,
+    derivedTypeParameters
+  );
+
+  return (
+    typesEqual(canonicalBaseReturn, canonicalDerivedReturn) ||
+    isLocalReferenceSubtype(
+      canonicalDerivedReturn,
+      canonicalBaseReturn,
+      classRegistry
+    )
+  );
+};
+
+const propertiesExactlyMatch = (
+  baseProperty: IrPropertyDeclaration,
+  derivedProperty: IrPropertyDeclaration,
+  classSubstitution?: ReadonlyMap<string, IrType>
+): boolean =>
+  baseProperty.name === derivedProperty.name &&
+  typesEqual(
+    classSubstitution && baseProperty.type
+      ? substituteIrType(baseProperty.type, classSubstitution)
+      : baseProperty.type,
+    derivedProperty.type
+  );
+
+const buildEmptyPlan = (): LocalOverridePlan => ({
+  methodUpdates: new Map<number, MemberOverrideUpdate>(),
+  propertyUpdates: new Map<number, MemberOverrideUpdate>(),
+  overriddenBaseMethodIndices: new Set<number>(),
+  overriddenBasePropertyIndices: new Set<number>(),
+});
+
+const analyzeLocalOverrides = (
+  classDecl: IrClassDeclaration,
+  classRegistry: ReadonlyMap<string, IrClassDeclaration>
+): LocalOverridePlan => {
+  if (classDecl.superClass?.kind !== "referenceType") {
+    return buildEmptyPlan();
+  }
+
+  const baseClassName = normalizeBaseClassName(classDecl.superClass.name);
+  const baseClass = classRegistry.get(baseClassName);
+  if (!baseClass) {
+    return buildEmptyPlan();
+  }
+
+  const methodUpdates = new Map<number, MemberOverrideUpdate>();
+  const propertyUpdates = new Map<number, MemberOverrideUpdate>();
+  const overriddenBaseMethodIndices = new Set<number>();
+  const overriddenBasePropertyIndices = new Set<number>();
+  const classSubstitution = buildClassTypeSubstitution(
+    baseClass,
+    classDecl.superClass
+  );
+
+  const baseMethods: IndexedMethod[] = [];
+  const baseProperties: IndexedProperty[] = [];
+  for (let index = 0; index < baseClass.members.length; index += 1) {
+    const member = baseClass.members[index];
+    if (!member) {
+      continue;
+    }
+
+    if (member.kind === "methodDeclaration") {
+      if (member.isStatic) {
+        continue;
+      }
+      baseMethods.push({ index, member });
+      continue;
+    }
+
+    if (member.kind === "propertyDeclaration") {
+      if (member.isStatic) {
+        continue;
+      }
+      baseProperties.push({ index, member });
+    }
+  }
+
+  for (let index = 0; index < classDecl.members.length; index += 1) {
+    const member = classDecl.members[index];
+    if (!member) {
+      continue;
+    }
+
+    if (member.kind === "methodDeclaration") {
+      if (member.isStatic) {
+        continue;
+      }
+      const sameNameBaseMethods = baseMethods.filter(
+        (baseMethod) =>
+          getIrMemberPublicName(baseMethod.member) ===
+          getIrMemberPublicName(member)
+      );
+      if (sameNameBaseMethods.length === 0) {
+        continue;
+      }
+
+      const matchedBaseMethod = sameNameBaseMethods.find((baseMethod) =>
+        methodsExactlyMatch(
+          baseMethod.member,
+          member,
+          classRegistry,
+          classSubstitution
+        )
+      );
+      if (matchedBaseMethod) {
+        methodUpdates.set(index, { isOverride: true });
+        overriddenBaseMethodIndices.add(matchedBaseMethod.index);
+      } else {
+        methodUpdates.set(index, { isShadow: true });
+      }
+      continue;
+    }
+
+    if (member.kind === "propertyDeclaration") {
+      if (member.isStatic) {
+        continue;
+      }
+      const sameNameBaseProperties = baseProperties.filter(
+        (baseProperty) => baseProperty.member.name === member.name
+      );
+      if (sameNameBaseProperties.length === 0) {
+        continue;
+      }
+
+      const matchedBaseProperty = sameNameBaseProperties.find((baseProperty) =>
+        propertiesExactlyMatch(baseProperty.member, member, classSubstitution)
+      );
+      if (matchedBaseProperty) {
+        propertyUpdates.set(index, { isOverride: true });
+        overriddenBasePropertyIndices.add(matchedBaseProperty.index);
+      } else {
+        propertyUpdates.set(index, { isShadow: true });
+      }
+    }
+  }
+
+  return {
+    methodUpdates,
+    propertyUpdates,
+    baseClassName,
+    overriddenBaseMethodIndices,
+    overriddenBasePropertyIndices,
+  };
+};
+
+const applyMethodUpdate = (
+  member: IrMethodDeclaration,
+  update: MemberOverrideUpdate | undefined,
+  isVirtual: boolean
+): IrMethodDeclaration => {
+  if (!update && !isVirtual) {
+    return member;
+  }
+
+  const {
+    isOverride: _oldOverride,
+    isShadow: _oldShadow,
+    isVirtual: _oldVirtual,
+    ...rest
+  } = member;
+
+  return {
+    ...rest,
+    ...(update?.isOverride ? { isOverride: true } : {}),
+    ...(update?.isShadow ? { isShadow: true } : {}),
+    ...(isVirtual || member.isVirtual ? { isVirtual: true } : {}),
+  };
+};
+
+const applyPropertyUpdate = (
+  member: IrPropertyDeclaration,
+  update: MemberOverrideUpdate | undefined,
+  isVirtual: boolean
+): IrPropertyDeclaration => {
+  if (!update && !isVirtual) {
+    return member;
+  }
+
+  const {
+    isOverride: _oldOverride,
+    isShadow: _oldShadow,
+    isVirtual: _oldVirtual,
+    ...rest
+  } = member;
+
+  return {
+    ...rest,
+    ...(update?.isOverride ? { isOverride: true } : {}),
+    ...(update?.isShadow ? { isShadow: true } : {}),
+    ...(isVirtual || member.isVirtual ? { isVirtual: true } : {}),
+  };
+};
+
+const transformStatement = (
+  stmt: IrStatement,
+  overridePlans: ReadonlyMap<string, LocalOverridePlan>,
+  virtualMethodIndices: ReadonlyMap<string, ReadonlySet<number>>,
+  virtualPropertyIndices: ReadonlyMap<string, ReadonlySet<number>>
+): IrStatement => {
+  if (stmt.kind !== "classDeclaration") {
+    return stmt;
+  }
+
+  const plan = overridePlans.get(stmt.name);
+  const methodVirtuals = virtualMethodIndices.get(stmt.name);
+  const propertyVirtuals = virtualPropertyIndices.get(stmt.name);
+
+  const transformedMembers = stmt.members.map((member, index): IrClassMember => {
+    if (member.kind === "methodDeclaration") {
+      return applyMethodUpdate(
+        member,
+        plan?.methodUpdates.get(index),
+        methodVirtuals?.has(index) ?? false
+      );
+    }
+
+    if (member.kind === "propertyDeclaration") {
+      return applyPropertyUpdate(
+        member,
+        plan?.propertyUpdates.get(index),
+        propertyVirtuals?.has(index) ?? false
+      );
+    }
+
+    return member;
+  });
+
+  return {
+    ...stmt,
+    members: transformedMembers,
+  };
 };
 
 /**
@@ -39,7 +520,6 @@ export type VirtualMarkingResult = {
 export const runVirtualMarkingPass = (
   modules: readonly IrModule[]
 ): VirtualMarkingResult => {
-  // Build class registry: name -> class declaration
   const classRegistry = new Map<string, IrClassDeclaration>();
 
   for (const module of modules) {
@@ -58,68 +538,45 @@ export const runVirtualMarkingPass = (
     }
   }
 
-  const bridgePlans = new Map<string, BridgePlan>();
-  const virtualMethods = new Set<string>(); // "ClassName.methodName"
-  const virtualProperties = new Set<string>(); // "ClassName.propertyName"
-
-  const normalizeBaseClassName = (raw: string): string => {
-    // `Functor<T>` → `Functor`
-    const withoutTypeArgs = raw.split("<")[0] ?? raw;
-    // `Namespace.Functor` → `Functor`
-    const simple = withoutTypeArgs.split(".").pop() ?? withoutTypeArgs;
-    return simple.trim();
-  };
+  const overridePlans = new Map<string, LocalOverridePlan>();
+  const virtualMethodIndices = new Map<string, Set<number>>();
+  const virtualPropertyIndices = new Map<string, Set<number>>();
 
   for (const classDecl of classRegistry.values()) {
-    bridgePlans.set(classDecl.name, buildBridgePlan(classDecl, classRegistry));
+    const plan = analyzeLocalOverrides(classDecl, classRegistry);
+    overridePlans.set(classDecl.name, plan);
 
-    for (const member of classDecl.members) {
-      if (
-        member.kind === "methodDeclaration" &&
-        member.isOverride &&
-        !member.isStatic
-      ) {
-        // Find base class
-        if (classDecl.superClass?.kind === "referenceType") {
-          const baseClassName = normalizeBaseClassName(
-            classDecl.superClass.name
-          );
-          virtualMethods.add(`${baseClassName}.${member.name}`);
-        }
-      }
-
-      if (
-        member.kind === "propertyDeclaration" &&
-        member.isOverride &&
-        !member.isStatic
-      ) {
-        if (classDecl.superClass?.kind === "referenceType") {
-          const baseClassName = normalizeBaseClassName(
-            classDecl.superClass.name
-          );
-          virtualProperties.add(`${baseClassName}.${member.name}`);
-        }
-      }
+    if (!plan.baseClassName) {
+      continue;
     }
 
-    const bridgePlan = bridgePlans.get(classDecl.name);
-    if (classDecl.superClass?.kind === "referenceType") {
-      const baseClassName = normalizeBaseClassName(classDecl.superClass.name);
-      for (const bridge of bridgePlan?.bridges ?? []) {
-        virtualMethods.add(`${baseClassName}.${bridge.name}`);
+    if (plan.overriddenBaseMethodIndices.size > 0) {
+      const indices =
+        virtualMethodIndices.get(plan.baseClassName) ?? new Set<number>();
+      for (const index of plan.overriddenBaseMethodIndices) {
+        indices.add(index);
       }
+      virtualMethodIndices.set(plan.baseClassName, indices);
+    }
+
+    if (plan.overriddenBasePropertyIndices.size > 0) {
+      const indices =
+        virtualPropertyIndices.get(plan.baseClassName) ?? new Set<number>();
+      for (const index of plan.overriddenBasePropertyIndices) {
+        indices.add(index);
+      }
+      virtualPropertyIndices.set(plan.baseClassName, indices);
     }
   }
 
-  // Transform modules to mark virtual methods
   const transformedModules = modules.map((module) => ({
     ...module,
     body: module.body.map((stmt) =>
       transformStatement(
         stmt,
-        virtualMethods,
-        virtualProperties,
-        bridgePlans.get(stmt.kind === "classDeclaration" ? stmt.name : "")
+        overridePlans,
+        virtualMethodIndices,
+        virtualPropertyIndices
       )
     ),
     exports: module.exports.map((exp) =>
@@ -128,13 +585,9 @@ export const runVirtualMarkingPass = (
             ...exp,
             declaration: transformStatement(
               exp.declaration,
-              virtualMethods,
-              virtualProperties,
-              bridgePlans.get(
-                exp.declaration.kind === "classDeclaration"
-                  ? exp.declaration.name
-                  : ""
-              )
+              overridePlans,
+              virtualMethodIndices,
+              virtualPropertyIndices
             ) as IrStatement,
           }
         : exp
@@ -142,290 +595,4 @@ export const runVirtualMarkingPass = (
   }));
 
   return { ok: true, modules: transformedModules };
-};
-
-type BridgePlan = {
-  readonly bridges: readonly IrMethodDeclaration[];
-  readonly shadowedMethodNames: ReadonlySet<string>;
-};
-
-const unknownType: IrType = { kind: "unknownType" };
-const voidType: IrType = { kind: "voidType" };
-
-const normalizeBaseClassName = (raw: string): string => {
-  const withoutTypeArgs = raw.split("<")[0] ?? raw;
-  const simple = withoutTypeArgs.split(".").pop() ?? withoutTypeArgs;
-  return simple.trim();
-};
-
-const getMethodTypeKey = (type: IrType | undefined): string =>
-  stableIrTypeKey(type ?? unknownType);
-
-const parametersMatchForBridgePrefix = (
-  baseParameter: IrParameter,
-  derivedParameter: IrParameter
-): boolean =>
-  baseParameter.isRest === derivedParameter.isRest &&
-  baseParameter.passing === derivedParameter.passing &&
-  getMethodTypeKey(baseParameter.type) ===
-    getMethodTypeKey(derivedParameter.type);
-
-const canOmitDerivedTrailingParameters = (
-  parameters: readonly IrParameter[]
-): boolean =>
-  parameters.every(
-    (parameter) =>
-      parameter.isOptional ||
-      parameter.initializer !== undefined ||
-      parameter.isRest
-  );
-
-const buildBridgeArgument = (
-  parameter: IrParameter
-):
-  | {
-      readonly kind: "identifier";
-      readonly name: string;
-      readonly inferredType?: IrType;
-    }
-  | undefined => {
-  if (parameter.pattern.kind !== "identifierPattern") {
-    return undefined;
-  }
-
-  return {
-    kind: "identifier",
-    name: parameter.pattern.name,
-    inferredType: parameter.type,
-  };
-};
-
-const buildBridgeMethod = (
-  classDecl: IrClassDeclaration,
-  baseMethod: IrMethodDeclaration,
-  derivedMethod: IrMethodDeclaration
-): IrMethodDeclaration | undefined => {
-  if (
-    (baseMethod.typeParameters?.length ?? 0) > 0 ||
-    (derivedMethod.typeParameters?.length ?? 0) > 0 ||
-    baseMethod.parameters.length === derivedMethod.parameters.length ||
-    derivedMethod.parameters.length < baseMethod.parameters.length
-  ) {
-    return undefined;
-  }
-
-  for (let index = 0; index < baseMethod.parameters.length; index += 1) {
-    const baseParameter = baseMethod.parameters[index];
-    const derivedParameter = derivedMethod.parameters[index];
-    if (!baseParameter || !derivedParameter) {
-      return undefined;
-    }
-    if (!parametersMatchForBridgePrefix(baseParameter, derivedParameter)) {
-      return undefined;
-    }
-  }
-
-  if (
-    !canOmitDerivedTrailingParameters(
-      derivedMethod.parameters.slice(baseMethod.parameters.length)
-    )
-  ) {
-    return undefined;
-  }
-
-  const forwardedArgs: NonNullable<ReturnType<typeof buildBridgeArgument>>[] =
-    [];
-  for (const parameter of baseMethod.parameters) {
-    const argument = buildBridgeArgument(parameter);
-    if (!argument) {
-      return undefined;
-    }
-    forwardedArgs.push(argument);
-  }
-
-  const callExpression = {
-    kind: "call" as const,
-    callee: {
-      kind: "memberAccess" as const,
-      object: {
-        kind: "this" as const,
-        inferredType: {
-          kind: "referenceType" as const,
-          name: classDecl.name,
-        },
-      },
-      property: derivedMethod.name,
-      isComputed: false,
-      isOptional: false,
-      inferredType: {
-        kind: "functionType" as const,
-        parameters: derivedMethod.parameters,
-        returnType: derivedMethod.returnType ?? voidType,
-      },
-    },
-    arguments: forwardedArgs,
-    isOptional: false,
-    parameterTypes: derivedMethod.parameters.map((parameter) => parameter.type),
-    inferredType: derivedMethod.returnType ?? voidType,
-  };
-
-  const baseReturnType = baseMethod.returnType ?? voidType;
-  const derivedReturnType = derivedMethod.returnType ?? voidType;
-  const needsReturn = baseReturnType.kind !== "voidType";
-  const returnValueExpression =
-    derivedReturnType.kind === "voidType"
-      ? {
-          kind: "defaultof" as const,
-          targetType: baseReturnType,
-          inferredType: baseReturnType,
-        }
-      : getMethodTypeKey(baseReturnType) !== getMethodTypeKey(derivedReturnType)
-        ? {
-            kind: "typeAssertion" as const,
-            expression: callExpression,
-            targetType: baseReturnType,
-            inferredType: baseReturnType,
-          }
-        : callExpression;
-
-  const bodyStatements = needsReturn
-    ? derivedReturnType.kind === "voidType"
-      ? [
-          {
-            kind: "expressionStatement" as const,
-            expression: callExpression,
-          },
-          {
-            kind: "returnStatement" as const,
-            expression: returnValueExpression,
-          },
-        ]
-      : [
-          {
-            kind: "returnStatement" as const,
-            expression: returnValueExpression,
-          },
-        ]
-    : [
-        {
-          kind: "expressionStatement" as const,
-          expression: callExpression,
-        },
-      ];
-
-  return {
-    kind: "methodDeclaration",
-    name: baseMethod.name,
-    typeParameters: baseMethod.typeParameters,
-    parameters: baseMethod.parameters,
-    returnType: baseMethod.returnType,
-    body: {
-      kind: "blockStatement",
-      statements: bodyStatements,
-    },
-    isStatic: false,
-    isAsync: derivedMethod.isAsync,
-    isGenerator: false,
-    accessibility: baseMethod.accessibility,
-    isOverride: true,
-  };
-};
-
-const buildBridgePlan = (
-  classDecl: IrClassDeclaration,
-  classRegistry: ReadonlyMap<string, IrClassDeclaration>
-): BridgePlan => {
-  if (classDecl.superClass?.kind !== "referenceType") {
-    return { bridges: [], shadowedMethodNames: new Set<string>() };
-  }
-
-  const baseClass = classRegistry.get(
-    normalizeBaseClassName(classDecl.superClass.name)
-  );
-  if (!baseClass) {
-    return { bridges: [], shadowedMethodNames: new Set<string>() };
-  }
-
-  const baseMethods = baseClass.members.filter(
-    (member): member is IrMethodDeclaration =>
-      member.kind === "methodDeclaration" && !member.isStatic
-  );
-  const bridges: IrMethodDeclaration[] = [];
-  const shadowedMethodNames = new Set<string>();
-
-  for (const member of classDecl.members) {
-    if (
-      member.kind !== "methodDeclaration" ||
-      member.isStatic ||
-      member.isOverride
-    ) {
-      continue;
-    }
-
-    const sameNameBaseMethods = baseMethods.filter(
-      (baseMethod) => baseMethod.name === member.name
-    );
-    if (sameNameBaseMethods.length === 0) {
-      continue;
-    }
-
-    const methodBridges = sameNameBaseMethods
-      .map((baseMethod) => buildBridgeMethod(classDecl, baseMethod, member))
-      .filter((bridge): bridge is IrMethodDeclaration => bridge !== undefined);
-
-    if (methodBridges.length === 0) {
-      continue;
-    }
-
-    shadowedMethodNames.add(member.name);
-    bridges.push(...methodBridges);
-  }
-
-  return { bridges, shadowedMethodNames };
-};
-
-const transformStatement = (
-  stmt: IrStatement,
-  virtualMethods: Set<string>,
-  virtualProperties: Set<string>,
-  bridgePlan?: BridgePlan
-): IrStatement => {
-  if (stmt.kind !== "classDeclaration") return stmt;
-
-  const transformedMembers = stmt.members.map((member): IrClassMember => {
-    if (member.kind !== "methodDeclaration") return member;
-    if (member.isStatic || member.isOverride) return member;
-
-    const key = `${stmt.name}.${member.name}`;
-    const shouldShadow = bridgePlan?.shadowedMethodNames.has(member.name);
-    if (virtualMethods.has(key)) {
-      return {
-        ...member,
-        isVirtual: true,
-        isShadow: shouldShadow ? true : member.isShadow,
-      };
-    }
-    if (shouldShadow) {
-      return { ...member, isShadow: true };
-    }
-    return member;
-  });
-
-  const transformedMembersWithProps = transformedMembers.map(
-    (member): IrClassMember => {
-      if (member.kind !== "propertyDeclaration") return member;
-      if (member.isStatic || member.isOverride) return member;
-
-      const key = `${stmt.name}.${member.name}`;
-      if (virtualProperties.has(key)) {
-        return { ...member, isVirtual: true };
-      }
-      return member;
-    }
-  );
-
-  return {
-    ...stmt,
-    members: [...transformedMembersWithProps, ...(bridgePlan?.bridges ?? [])],
-  };
 };

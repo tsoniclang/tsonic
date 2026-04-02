@@ -22,17 +22,16 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
       expect(csharp).to.include(
-        "subscribe(new CreateParams { isPrivate = createParams.isPrivate });"
+        "CreateParams createParams = new CreateParams { isPrivate = (int?)inviteOnly };"
       );
-      expect(csharp).not.to.include(
-        "subscribe(((global::System.Func<CreateParams>)(() =>"
-      );
-      expect(csharp).not.to.include("subscribe(createParams);");
+      expect(csharp).to.include("subscribe(createParams);");
+      expect(csharp).not.to.include("new global::Test.__Anon_");
+      expect(csharp).not.to.include("subscribe(((global::System.Func<CreateParams>)(() =>");
     });
 
-    it("uses runtime equality for unknown-vs-boolean strict comparisons", () => {
+    it("uses runtime equality for JsValue-vs-boolean strict comparisons", () => {
       const source = `
-        export function hasSubdomain(body: Record<string, unknown>): boolean {
+        export function hasSubdomain(body: Record<string, JsValue>): boolean {
           return body.allow_subdomains === true;
         }
       `;
@@ -70,38 +69,6 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("__tsonic_union_compare_1.Is1()");
       expect(csharp).to.include("__tsonic_union_compare_1.As1() == true");
       expect(csharp).not.to.include("options?.sameSite.Match");
-    });
-
-    it("aligns typeof guards with emitted overload carrier slots when nested aliases include nullish members", () => {
-      const source = `
-        declare class Rx {}
-
-        type PathSpec = string | Rx | readonly PathSpec[] | null | undefined;
-        type RouteHandler = () => void;
-
-        declare class Router {
-          get(path: PathSpec, ...handlers: RouteHandler[]): this;
-        }
-
-        export class Application extends Router {
-          get(name: string): unknown;
-          override get(path: PathSpec, ...handlers: RouteHandler[]): this;
-          override get(nameOrPath: string | PathSpec, ...handlers: RouteHandler[]): unknown {
-            if (handlers.length === 0 && typeof nameOrPath === "string") {
-              return nameOrPath;
-            }
-
-            return super.get(nameOrPath as PathSpec, ...handlers);
-          }
-        }
-      `;
-
-      const csharp = compileToCSharp(source);
-      expect(csharp).to.include(
-        "private object? __tsonic_overload_impl_get(global::Tsonic.Runtime.Union<object?[], string, global::Test.Rx> nameOrPath"
-      );
-      expect(csharp).to.include("nameOrPath.Is2()");
-      expect(csharp).not.to.include("nameOrPath.Is3()");
     });
 
     it("preserves final fallback runtime-union slots after chained typeof guards", () => {
@@ -220,11 +187,11 @@ describe("End-to-End Integration", () => {
     it("passes boxed storage values through broad calls after typeof-number narrowing", () => {
       const csharp = compileToCSharp(
         `
-          const toNumberArg = (value: unknown): number => {
+          const toNumberArg = (value: JsValue): number => {
             return Number(value);
           };
 
-          export function run(args: readonly unknown[]): number {
+          export function run(args: readonly JsValue[]): number {
             const arg0 = args.length > 0 ? args[0] : undefined;
             if (typeof arg0 === "number") {
               return toNumberArg(arg0);
@@ -237,7 +204,9 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include('if (global::Tsonic.Runtime.Operators.@typeof((object?)arg0) == "number")');
+      expect(csharp).to.include(
+        'if (global::Tsonic.Runtime.Operators.@typeof(arg0) == "number")'
+      );
       expect(csharp).to.include("return toNumberArg(arg0);");
       expect(csharp).not.to.include("toNumberArg((object?)(double)arg0)");
     });
@@ -413,8 +382,41 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("casts preserved runtime-union carriers for nullish checks after callable branch elimination", () => {
+      const csharp = compileToCSharp(`
+        class TLSSocket {}
+        class TlsOptions {}
+        class TLSServer {
+          constructor(
+            options?: TlsOptions | ((socket: TLSSocket) => void),
+            listener?: ((socket: TLSSocket) => void) | null
+          ) {}
+        }
+
+        export const createServer = (
+          optionsOrListener?: TlsOptions | ((socket: TLSSocket) => void),
+          secureConnectionListener?: (socket: TLSSocket) => void,
+        ): TLSServer => {
+          if (typeof optionsOrListener === "function") {
+            return new TLSServer(optionsOrListener);
+          }
+          if (optionsOrListener !== undefined) {
+            return new TLSServer(optionsOrListener, secureConnectionListener ?? null);
+          }
+          return new TLSServer();
+        };
+      `);
+
+      expect(csharp).to.include(
+        "if (((global::System.Object)(optionsOrListener)) != null)"
+      );
+      expect(csharp).not.to.include("if (optionsOrListener != null)");
+    });
+
     it("uses declared out locals instead of bare discards for non-lvalue out arguments", () => {
       const csharp = compileToCSharp(`
+        import type { int, out } from "@tsonic/core/types.js";
+
         declare class Bytes {}
         declare class Reader {
           consume(bytes: Bytes, read: out<int>): void;
@@ -432,7 +434,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).not.to.include("reader.consume(bytes, (int)0);");
     });
 
-    it("materializes structural object arguments for inline object-type parameters", () => {
+    it("reuses inferred structural locals for inline object-type parameters when CLR surfaces already align", () => {
       const source = `
         import type { int } from "@tsonic/core/types.js";
 
@@ -445,15 +447,18 @@ describe("End-to-End Integration", () => {
       `;
 
       const csharp = compileToCSharp(source);
-      expect(csharp).to.include("createBotDomain(new global::Test.__Anon_");
       expect(csharp).to.include("new global::Test.__Anon_");
-      expect(csharp).to.include("fullName = input.fullName");
-      expect(csharp).to.include("shortName = input.shortName");
-      expect(csharp).to.include("botType = input.botType");
+      expect(csharp).to.include(
+        'var input = new global::Test.__Anon_'
+      );
+      expect(csharp).to.include('fullName = "Bot"');
+      expect(csharp).to.include('shortName = "bot"');
+      expect(csharp).to.include("botType = (int?)botType");
       expect(csharp).not.to.include(
         "createBotDomain(((global::System.Func<global::Test.__Anon_"
       );
-      expect(csharp).not.to.include("createBotDomain(input);");
+      expect(csharp).to.include("createBotDomain(input);");
+      expect(csharp).not.to.include("createBotDomain(new global::Test.__Anon_");
     });
 
     it("reuses named structural aliases for inline object-type parameters when CLR surfaces already align", () => {
@@ -550,7 +555,7 @@ describe("End-to-End Integration", () => {
 
     it("preserves compiler-generated anonymous carriers over unrelated structural globals", () => {
       const csharp = compileToCSharp(`
-        declare function deepEqual(left: unknown, right: unknown): void;
+        declare function deepEqual(left: JsValue, right: JsValue): void;
 
         export function run(): void {
           const first = { user: { name: "Alice" } };
@@ -599,7 +604,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(`
         import { FileNotFoundException } from "@tsonic/dotnet/System.IO.js";
 
-        export function isMissing(error: unknown): boolean {
+        export function isMissing(error: JsValue): boolean {
           return error instanceof FileNotFoundException;
         }
       `);
@@ -612,15 +617,28 @@ describe("End-to-End Integration", () => {
 
     it("directly specializes async promise-return overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
-        export async function readValue(flag: boolean): Promise<boolean>;
-        export async function readValue(flag: boolean, encoding: string): Promise<string>;
-        export async function readValue(flag: boolean, encoding?: string): Promise<boolean | string> {
-          if (encoding === undefined) {
-            return flag;
-          }
+        import { overloads as O } from "@tsonic/core/lang.js";
 
+        export function readValue(flag: boolean): Promise<boolean>;
+        export function readValue(flag: boolean, encoding: string): Promise<string>;
+        export async function readValue(_flag: any, _encoding?: any): Promise<any> {
+          throw new Error("stub");
+        }
+
+        export async function readValue_flag(flag: boolean): Promise<boolean> {
+          return flag;
+        }
+
+        export async function readValue_encoding(
+          flag: boolean,
+          encoding: string
+        ): Promise<string> {
+          void flag;
           return encoding;
         }
+
+        O(readValue_flag).family(readValue);
+        O(readValue_encoding).family(readValue);
       `);
 
       expect(csharp).to.include(
@@ -631,13 +649,13 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.include("return flag;");
       expect(csharp).to.include("return encoding;");
-      expect(csharp).not.to.include(
-        "__tsonic_overload_impl_readValue"
-      );
+      expect(csharp).not.to.include("readValue_flag");
+      expect(csharp).not.to.include("readValue_encoding");
     });
 
     it("directly specializes awaited array-or-string overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
         import type { byte } from "@tsonic/core/types.js";
 
         declare function implBytes(path: string): Promise<byte[]>;
@@ -645,16 +663,23 @@ describe("End-to-End Integration", () => {
 
         export function readFile(path: string): Promise<byte[]>;
         export function readFile(path: string, encoding: string): Promise<string>;
-        export async function readFile(
-          path: string,
-          encoding?: string
-        ): Promise<byte[] | string> {
-          if (encoding === undefined) {
-            return await implBytes(path);
-          }
+        export async function readFile(_path: any, _encoding?: any): Promise<any> {
+          throw new Error("stub");
+        }
 
+        export async function readFile_bytes(path: string): Promise<byte[]> {
+          return await implBytes(path);
+        }
+
+        export async function readFile_text(
+          path: string,
+          encoding: string
+        ): Promise<string> {
           return await implText(path, encoding);
         }
+
+        O(readFile_bytes).family(readFile);
+        O(readFile_text).family(readFile);
       `);
 
       expect(csharp).to.include(
@@ -665,7 +690,8 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.include("return await implBytes(path);");
       expect(csharp).to.include("return await implText(path, encoding);");
-      expect(csharp).not.to.include("__tsonic_overload_impl_readFile");
+      expect(csharp).not.to.include("readFile_bytes");
+      expect(csharp).not.to.include("readFile_text");
     });
 
     it("re-lowers refreshed anonymous array element carriers before emission", () => {
@@ -748,6 +774,8 @@ describe("End-to-End Integration", () => {
 
     it("preserves original runtime union slots across chained typeof object branches", () => {
       const csharp = compileToCSharp(`
+        import type { int } from "@tsonic/core/types.js";
+
         type BindOptions = {
           readonly fd?: int;
           readonly port?: int;
@@ -781,21 +809,30 @@ describe("End-to-End Integration", () => {
 
     it("directly specializes async void overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
+
         declare function implDefault(path: string): Promise<void>;
         declare function implRecursive(path: string, recursive: boolean): Promise<void>;
 
         export function mkdir(path: string): Promise<void>;
         export function mkdir(path: string, recursive: boolean): Promise<void>;
-        export async function mkdir(
-          path: string,
-          recursive?: boolean
-        ): Promise<void> {
-          if (recursive === undefined) {
-            return await implDefault(path);
-          }
+        export async function mkdir(_path: any, _recursive?: any): Promise<any> {
+          throw new Error("stub");
+        }
 
+        export async function mkdir_default(path: string): Promise<void> {
+          return await implDefault(path);
+        }
+
+        export async function mkdir_recursive(
+          path: string,
+          recursive: boolean
+        ): Promise<void> {
           return await implRecursive(path, recursive);
         }
+
+        O(mkdir_default).family(mkdir);
+        O(mkdir_recursive).family(mkdir);
       `);
 
       expect(csharp).to.include(
@@ -807,11 +844,13 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("await implDefault(path);");
       expect(csharp).to.include("await implRecursive(path, recursive);");
       expect(csharp).to.not.include("__tsonic_discard");
-      expect(csharp).to.not.include("__tsonic_overload_impl_mkdir");
+      expect(csharp).to.not.include("mkdir_default");
+      expect(csharp).to.not.include("mkdir_recursive");
     });
 
     it("reuses named structural option types in directly specialized overloads", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
         import type { int } from "@tsonic/core/types.js";
 
         export class MkdirOptions {
@@ -826,27 +865,35 @@ describe("End-to-End Integration", () => {
         export function mkdir(path: string): Promise<void>;
         export function mkdir(path: string, recursive: boolean): Promise<void>;
         export function mkdir(path: string, options: { recursive?: boolean; mode?: int }): Promise<void>;
-        export async function mkdir(
+        export async function mkdir(_path: any, _options?: any): Promise<any> {
+          throw new Error("stub");
+        }
+        export async function mkdir_default(path: string): Promise<void> {
+          return await implDefault(path);
+        }
+        export async function mkdir_recursive(
           path: string,
-          options?: boolean | { recursive?: boolean; mode?: int }
+          recursive: boolean
         ): Promise<void> {
-          if (options === undefined) {
-            return await implDefault(path);
-          }
-
-          if (typeof options === "boolean") {
-            return await implRecursive(path, options);
-          }
-
+          return await implRecursive(path, recursive);
+        }
+        export async function mkdir_options(
+          path: string,
+          options: MkdirOptions
+        ): Promise<void> {
           return await implOptions(path, options);
         }
+
+        O(mkdir_default).family(mkdir);
+        O(mkdir_recursive).family(mkdir);
+        O(mkdir_options).family(mkdir);
       `);
 
       expect(csharp).to.include(
         "public static async global::System.Threading.Tasks.Task mkdir(string path, MkdirOptions options)"
       );
       expect(csharp).to.include(
-        "await implOptions(path, new MkdirOptions { recursive = options.recursive, mode = options.mode });"
+        "await implOptions(path, options);"
       );
       expect(csharp).to.not.include(
         "public static global::System.Threading.Tasks.Task mkdir(string path, global::Test.__Anon_"
@@ -993,6 +1040,7 @@ describe("End-to-End Integration", () => {
 
     it("directly specializes promise-union overload families across module and class methods", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
         import type { byte } from "@tsonic/core/types.js";
 
         declare function implBytes(path: string): Promise<byte[]>;
@@ -1000,31 +1048,38 @@ describe("End-to-End Integration", () => {
 
         export function readFile(path: string): Promise<byte[]>;
         export function readFile(path: string, encoding: string): Promise<string>;
-        export async function readFile(
+        export async function readFile(_path: any, _encoding?: any): Promise<any> {
+          throw new Error("stub");
+        }
+        export async function readFile_bytes(path: string): Promise<byte[]> {
+          return await implBytes(path);
+        }
+        export async function readFile_text(
           path: string,
-          encoding?: string
-        ): Promise<byte[] | string> {
-          if (encoding === undefined) {
-            return await implBytes(path);
-          }
-
+          encoding: string
+        ): Promise<string> {
           return await implText(path, encoding);
         }
+
+        O(readFile_bytes).family(readFile);
+        O(readFile_text).family(readFile);
 
         export class FsPromises {
           public readFile(path: string): Promise<byte[]>;
           public readFile(path: string, encoding: string): Promise<string>;
-          public readFile(
-            path: string,
-            encoding?: string
-          ): Promise<string | byte[]> {
-            if (encoding === undefined) {
-              return readFile(path);
-            }
-
+          public readFile(_path: any, _encoding?: any): any {
+            throw new Error("stub");
+          }
+          public readFile_bytes(path: string): Promise<byte[]> {
+            return readFile(path);
+          }
+          public readFile_text(path: string, encoding: string): Promise<string> {
             return readFile(path, encoding);
           }
         }
+
+        O<FsPromises>().method(x => x.readFile_bytes).family(x => x.readFile);
+        O<FsPromises>().method(x => x.readFile_text).family(x => x.readFile);
       `);
 
       expect(csharp).to.include(
@@ -1034,10 +1089,10 @@ describe("End-to-End Integration", () => {
         "public global::System.Threading.Tasks.Task<string> readFile(string path, string encoding)"
       );
       expect(csharp).to.include(
-        "return global::Test.test.readFile(path);"
+        "return readFile(path);"
       );
       expect(csharp).to.include(
-        "return global::Test.test.readFile(path, encoding);"
+        "return readFile(path, encoding);"
       );
       expect(csharp).not.to.include("__tsonic_overload_impl_readFile");
       expect(csharp).to.not.include(
@@ -1047,6 +1102,7 @@ describe("End-to-End Integration", () => {
 
     it("directly specializes sync array-or-string overloads when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
         import type { byte } from "@tsonic/core/types.js";
 
         declare function implBytes(path: string): byte[];
@@ -1054,31 +1110,46 @@ describe("End-to-End Integration", () => {
 
         export function readFileSync(path: string): byte[];
         export function readFileSync(path: string, encoding: string): string;
-        export function readFileSync(
-          path: string,
-          encoding?: string
-        ): byte[] | string {
-          if (encoding === undefined) {
-            return implBytes(path);
-          }
+        export function readFileSync(_path: any, _encoding?: any): any {
+          throw new Error("stub");
+        }
 
+        export function readFileSync_bytes(path: string): byte[] {
+          return implBytes(path);
+        }
+
+        export function readFileSync_text(
+          path: string,
+          encoding: string
+        ): string {
           return implText(path, encoding);
         }
+
+        O(readFileSync_bytes).family(readFileSync);
+        O(readFileSync_text).family(readFileSync);
 
         export class FsModuleNamespace {
           public readFileSync(path: string): byte[];
           public readFileSync(path: string, encoding: string): string;
-          public readFileSync(
-            path: string,
-            encoding?: string
-          ): byte[] | string {
-            if (encoding === undefined) {
-              return readFileSync(path);
-            }
+          public readFileSync(_path: any, _encoding?: any): any {
+            throw new Error("stub");
+          }
 
+          public readFileSync_bytes(path: string): byte[] {
+            return readFileSync(path);
+          }
+
+          public readFileSync_text(path: string, encoding: string): string {
             return readFileSync(path, encoding);
           }
         }
+
+        O<FsModuleNamespace>().method(x => x.readFileSync_bytes).family(
+          x => x.readFileSync
+        );
+        O<FsModuleNamespace>().method(x => x.readFileSync_text).family(
+          x => x.readFileSync
+        );
       `);
 
       expect(csharp).to.include(
@@ -1095,15 +1166,16 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.include("return implBytes(path);");
       expect(csharp).to.include("return implText(path, encoding);");
-      expect(csharp).to.include("return global::Test.test.readFileSync(path);");
-      expect(csharp).to.include(
-        "return global::Test.test.readFileSync(path, encoding);"
-      );
-      expect(csharp).not.to.include("__tsonic_overload_impl_readFileSync");
+      expect(csharp).to.include("return readFileSync(path);");
+      expect(csharp).to.include("return readFileSync(path, encoding);");
+      expect(csharp).not.to.include("readFileSync_bytes");
+      expect(csharp).not.to.include("readFileSync_text");
     });
 
     it("directly specializes sync structural nominal unions when omitted parameters fold away", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
+
         declare class Buffer {
           readonly length: number;
         }
@@ -1113,23 +1185,31 @@ describe("End-to-End Integration", () => {
 
         export function readFileSync(path: string): Buffer;
         export function readFileSync(path: string, encoding: string): string;
-        export function readFileSync(
-          path: string,
-          encoding?: string
-        ): string | Buffer {
-          if (encoding === undefined) {
-            return implBytes(path);
-          }
+        export function readFileSync(_path: any, _encoding?: any): any {
+          throw new Error("stub");
+        }
 
+        export function readFileSync_buffer(path: string): Buffer {
+          return implBytes(path);
+        }
+
+        export function readFileSync_text(
+          path: string,
+          encoding: string
+        ): string {
           return implText(path, encoding);
         }
+
+        O(readFileSync_buffer).family(readFileSync);
+        O(readFileSync_text).family(readFileSync);
       `);
 
       expect(csharp).to.include("public static global::Test.Buffer readFileSync(string path)");
       expect(csharp).to.include("public static string readFileSync(string path, string encoding)");
       expect(csharp).to.include("return implBytes(path);");
       expect(csharp).to.include("return implText(path, encoding);");
-      expect(csharp).not.to.include("__tsonic_overload_impl_readFileSync");
+      expect(csharp).not.to.include("readFileSync_buffer");
+      expect(csharp).not.to.include("readFileSync_text");
       expect(csharp).not.to.include("global::Tsonic.Runtime.Union<string, global::Test.Buffer>");
     });
 
@@ -1225,13 +1305,13 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("?? 0");
     });
 
-    it("keeps unknown spread-array conditionals on object arrays instead of numeric unions", () => {
+    it("keeps JsValue spread-array conditionals on object arrays instead of numeric unions", () => {
       const csharp = compileToCSharp(`
-        declare function inspect(value: unknown): string;
+        declare function inspect(value: JsValue): string;
 
         export function format(
-          message?: unknown,
-          optionalParams: readonly unknown[] = []
+          message?: JsValue,
+          optionalParams: readonly JsValue[] = []
         ): string {
           const values =
             message === undefined ? [...optionalParams] : [message, ...optionalParams];
@@ -1265,7 +1345,7 @@ describe("End-to-End Integration", () => {
     it("widens narrowed runtime-subset handlers without re-matching extracted members", () => {
       const csharp = compileToCSharp(`
         type RequestHandler = (request: string) => void;
-        type ErrorRequestHandler = (error: unknown, request: string) => void;
+        type ErrorRequestHandler = (error: JsValue, request: string) => void;
 
         class Router {}
 
@@ -1324,22 +1404,93 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "accept((global::System.Action<string>)(handler.As2()));"
+        "accept(global::Tsonic.Runtime.Union<global::System.Action<string>, Router>.From1((handler.As2())));"
       );
       expect(csharp).not.to.include(
         "accept(global::Tsonic.Runtime.Union<global::System.Action<string>, Router>.From2((handler.As2())))"
       );
     });
 
+    it("reuses narrowed recursive array carriers for explicit assertions inside Array.isArray branches", () => {
+      const csharp = compileToCSharp(
+        `
+          type RequestHandler = (value: string) => void;
+          type MiddlewareParam = RequestHandler | readonly MiddlewareParam[];
+          type MiddlewareLike = MiddlewareParam | Router | readonly MiddlewareLike[];
+
+          class Router {}
+
+          export function flatten(entries: readonly MiddlewareLike[]): readonly (RequestHandler | Router)[] {
+            const result: (RequestHandler | Router)[] = [];
+
+            const append = (handler: MiddlewareLike): void => {
+              if (Array.isArray(handler)) {
+                const items = handler as readonly MiddlewareLike[];
+                for (let index = 0; index < items.length; index += 1) {
+                  append(items[index]!);
+                }
+                return;
+              }
+
+              result.push(handler);
+            };
+
+            for (const entry of entries) {
+              append(entry);
+            }
+
+            return result;
+          }
+        `,
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("object[] items = (object[])(handler.As1());");
+      expect(csharp).not.to.include("handler.Match<object?[]>");
+      expect(csharp).not.to.include(".Match<object[]>(");
+    });
+
+    it("packs rest arrays for local function values inferred from call results", () => {
+      const csharp = compileToCSharp(`
+        type DebugLogFunction = (message: string, ...args: JsValue[]) => void;
+
+        declare function debuglog(section: string): DebugLogFunction;
+        declare function deprecate(
+          fn: (...args: JsValue[]) => JsValue,
+          message: string
+        ): (...args: JsValue[]) => JsValue;
+
+        export function run(): void {
+          const debug = debuglog("test");
+          debug("test message");
+          debug("test message with args: {0}", 42);
+
+          const wrapped = deprecate(() => 42, "deprecated");
+          wrapped();
+        }
+      `);
+
+      expect(csharp).to.match(
+        /debug\("test message", (?:new object\?\[0\]|new object\?\[] \{\s*\})\);/
+      );
+      expect(csharp).to.match(
+        /debug\("test message with args: \{0\}", new object\?\[] \{[\s\S]*42[\s\S]*\}\);/
+      );
+      expect(csharp).to.match(
+        /wrapped\((?:new object\?\[0\]|new object\?\[] \{\s*\})\);/
+      );
+    });
+
     it("invokes narrowed handler assertions without matching extracted delegate members", () => {
       const csharp = compileToCSharp(`
         type RequestHandler = (request: string) => void;
-        type ErrorRequestHandler = (error: unknown, request: string) => void;
+        type ErrorRequestHandler = (error: JsValue, request: string) => void;
         type MiddlewareHandler = RequestHandler | ErrorRequestHandler;
 
         export function run(
           handlers: MiddlewareHandler[],
-          currentError?: unknown
+          currentError?: JsValue
         ): void {
           const entry = handlers[0]!;
           if (currentError === undefined) {
@@ -1372,26 +1523,26 @@ describe("End-to-End Integration", () => {
           request: Request,
           response: Response,
           next: NextFunction
-        ) => unknown | Promise<unknown>;
+        ) => JsValue | Promise<JsValue>;
         type ErrorRequestHandler = (
-          error: unknown,
+          error: JsValue,
           request: Request,
           response: Response,
           next: NextFunction
-        ) => unknown | Promise<unknown>;
+        ) => JsValue | Promise<JsValue>;
         type MiddlewareHandler = RequestHandler | ErrorRequestHandler;
 
-        declare function isMiddlewareHandler(value: unknown): value is MiddlewareHandler;
+        declare function isMiddlewareHandler(value: JsValue): value is MiddlewareHandler;
         declare function isErrorHandler(
           value: MiddlewareHandler,
           treatAsError: boolean
         ): value is ErrorRequestHandler;
 
         export async function run(
-          handlers: unknown[],
+          handlers: JsValue[],
           request: Request,
           response: Response,
-          currentError: unknown
+          currentError: JsValue
         ): Promise<void> {
           let error = currentError;
           const next = async (_value?: NextControl): Promise<void> => {};
@@ -1417,10 +1568,8 @@ describe("End-to-End Integration", () => {
       `);
 
       expect(csharp).to.include("isErrorHandler(");
-      expect(csharp).to.match(
-        /await \(\(global::System\.Func<object\?,[\s\S]*?\.As2\(\)\)\)\(error, request, response, next\)\.Match\(/
-      );
-      expect(csharp).to.include(".From2(");
+      expect(csharp).to.include(".As2())(request, response, next).Match(");
+      expect(csharp).to.include(".As1())(error, request, response, next).Match(");
       expect(csharp).not.to.include("handler.As2()");
       expect(csharp).not.to.include("handler.Is2()");
     });
@@ -1464,7 +1613,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("pathSpec.Is1()");
       expect(csharp).not.to.include("(pathSpec.As1()).Is1()");
       expect(csharp).not.to.include("((pathSpec.As1()).As1())[index]");
-      expect(csharp).to.include("(pathSpec.As1())[index]");
+      expect(csharp).to.include(
+        "((global::System.Array)(pathSpec.As1())).GetValue(index)"
+      );
     });
 
     it("preserves runtime carrier slot numbers in typeof string guards over aliased unions", () => {
@@ -1489,6 +1640,7 @@ describe("End-to-End Integration", () => {
 
     it("returns narrowed string members from overload implementations with broad return types", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
         import { FileInfo } from "@tsonic/dotnet/System.IO.js";
 
         type RouteHandler = () => void;
@@ -1502,42 +1654,62 @@ describe("End-to-End Integration", () => {
         type PathSpec = string | FileInfo | readonly PathSpec[];
 
         class Application extends Router {
-          get(name: string): unknown;
+          get(name: string): JsValue;
           override get(path: PathSpec, ...handlers: RouteHandler[]): this;
-          override get(nameOrPath: string | PathSpec, ...handlers: RouteHandler[]): unknown {
-            if (handlers.length === 0 && typeof nameOrPath === "string") {
-              return nameOrPath;
-            }
+          override get(_nameOrPath: any, ..._handlers: any[]): any {
+            throw new Error("stub");
+          }
 
-            return super.get(nameOrPath as PathSpec, ...handlers);
+          get_name(name: string): JsValue {
+            return name;
+          }
+
+          get_path(path: PathSpec, ...handlers: RouteHandler[]): this {
+            return super.get(path, ...handlers);
           }
         }
+
+        O<Application>().method(x => x.get_name).family(x => x.get);
+        O<Application>().method(x => x.get_path).family(x => x.get);
       `);
 
-      expect(csharp).to.include("nameOrPath.Is2()");
-      expect(csharp).to.include("nameOrPath.As2()");
-      expect(csharp).not.to.include("return nameOrPath;");
+      expect(csharp).to.include("public object? get(string name)");
+      expect(csharp).to.include("return name;");
+      expect(csharp).to.not.include("name.Is");
+      expect(csharp).not.to.include("get_name");
+      expect(csharp).not.to.include("get_path");
     });
 
     it("erases runtime-union member probes from specialized void overload bodies", () => {
       const csharp = compileToCSharp(`
+        import { overloads as O } from "@tsonic/core/lang.js";
+
         export class KeyStore {
           setValue(value: string): void;
           setValue(value: number): void;
-          setValue(value: string | number): void {
-            if (typeof value === "string") {
-              return;
-            }
+          setValue(_value: any): any {
+            throw new Error("stub");
+          }
 
+          setValue_string(value: string): void {
+            void value;
+          }
+
+          setValue_number(value: number): void {
             const stable = value;
             void stable;
           }
         }
+
+        O<KeyStore>().method(x => x.setValue_string).family(x => x.setValue);
+        O<KeyStore>().method(x => x.setValue_number).family(x => x.setValue);
       `);
 
       expect(csharp).to.not.include("publicKey.Is1()");
       expect(csharp).to.not.include("value.Is1()");
       expect(csharp).to.not.include("value.As2()");
+      expect(csharp).to.not.include("setValue_string");
+      expect(csharp).to.not.include("setValue_number");
     });
 
     it("lowers Uint8Array array-literal constructors through byte arrays", () => {
@@ -1645,7 +1817,8 @@ describe("End-to-End Integration", () => {
         }
       );
 
-      expect(csharp).to.include("data[i] = 255;");
+      expect(csharp).to.include("data.set(i, 255);");
+      expect(csharp).not.to.include("data[i] = 255;");
     });
 
     it("casts JS numeric expressions when assigning into int slots", () => {
@@ -1820,7 +1993,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("x.Is1()");
       expect(csharp).to.include("x.Is2()");
-      expect(csharp).to.include("y = b((string)(x.As2()));");
+      expect(csharp).to.include("y = b((x.As2()));");
       expect(csharp).not.to.include("y = b((string)x);");
     });
 
@@ -1846,7 +2019,7 @@ describe("End-to-End Integration", () => {
         { surface: "@tsonic/js" }
       );
 
-      expect(csharp).to.include("acceptBacklog((double)(hostname.As2()));");
+      expect(csharp).to.include("acceptBacklog((hostname.As2()));");
       expect(csharp).not.to.include(
         "global::Tsonic.Runtime.Union<global::System.Action, double>.From2((hostname.As2()))"
       );
@@ -1901,12 +2074,10 @@ describe("End-to-End Integration", () => {
           class TLSSocket {}
 
           class TLSServer {
-            constructor(listener?: ((socket: TLSSocket) => void) | null);
             constructor(
-              options?: TlsOptions | null,
+              options?: TlsOptions | ((socket: TLSSocket) => void) | null,
               listener?: ((socket: TLSSocket) => void) | null,
-            );
-            constructor(_a?: unknown, _b?: unknown) {}
+            ) {}
           }
 
           export const createServer = (
@@ -1935,10 +2106,10 @@ describe("End-to-End Integration", () => {
         "if (((global::System.Object)(optionsOrListener)) != null)"
       );
       expect(csharp).to.include(
-        "return new TLSServer((TlsOptions__Alias)(optionsOrListener.As2()), secureConnectionListener ?? null);"
+        "return new TLSServer(optionsOrListener, secureConnectionListener ?? null);"
       );
       expect(csharp).not.to.include(
-        "return new TLSServer((TlsOptions__Alias)optionsOrListener, secureConnectionListener ?? null);"
+        "return new TLSServer((TlsOptions__Alias)(optionsOrListener.As2()), secureConnectionListener ?? null);"
       );
     });
 
@@ -1979,7 +2150,7 @@ describe("End-to-End Integration", () => {
 
       expect(csharp).to.include("var value = chunkOrCallback.Match");
       expect(csharp).to.include(
-        "global::Tsonic.Runtime.Union<byte[], string, global::Test.Buffer, global::Test.Uint8Array>"
+        "global::Tsonic.Runtime.Union<byte[], string, global::js.Uint8Array, global::Test.Buffer>"
       );
       expect(csharp).to.include(
         "__tsonic_union_member_2 => throw new global::System.InvalidCastException(\"Cannot materialize runtime union functionType to unionType\")"
@@ -2017,10 +2188,10 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        'return new Hmac(algorithm, decodeInputBytes(global::Tsonic.Runtime.Union<string, global::Uint8Array>.From1((key.As1())), "utf8"));'
+        'return new Hmac(algorithm, decodeInputBytes(key, "utf8"));'
       );
       expect(csharp).not.to.include(
-        'decodeInputBytes(global::Tsonic.Runtime.Union<string, global::Uint8Array>.From1(key), "utf8")'
+        'decodeInputBytes(global::Tsonic.Runtime.Union<string, global::js.Uint8Array>.From1(key), "utf8")'
       );
     });
 
@@ -2059,11 +2230,11 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(
         `
           declare function isIterableObject(
-            value: unknown,
-          ): value is Iterable<unknown>;
+            value: JsValue,
+          ): value is Iterable<JsValue>;
           declare function consume<T>(value: T): void;
 
-          export function run<T>(item: unknown): void {
+          export function run<T>(item: JsValue): void {
             if (isIterableObject(item)) {
               for (const value of item as Iterable<T>) {
                 consume(value);
@@ -2194,8 +2365,8 @@ describe("End-to-End Integration", () => {
 
     it("materializes narrower function arrays into union-element arrays at call sites", () => {
       const csharp = compileToCSharp(`
-        type RouteHandler = (req: string) => unknown;
-        type ErrorHandler = (error: unknown, req: string) => unknown;
+        type RouteHandler = (req: string) => JsValue;
+        type ErrorHandler = (error: JsValue, req: string) => JsValue;
         type Handler = RouteHandler | ErrorHandler;
 
         class RouteBox {
@@ -2217,14 +2388,14 @@ describe("End-to-End Integration", () => {
 
     it("treats fixed lambda parameters against rest callbacks as positional values", () => {
       const csharp = compileToCSharp(`
-        type EventListener = (...args: unknown[]) => void;
+        type EventListener = (...args: JsValue[]) => void;
 
         declare function consume(listener: EventListener): void;
 
         export function main(): void {
-          let first: unknown = undefined;
-          let second: unknown = undefined;
-          let third: unknown = undefined;
+          let first: JsValue = undefined;
+          let second: JsValue = undefined;
+          let third: JsValue = undefined;
 
           consume((arg1, arg2, arg3) => {
             first = arg1;
@@ -2237,61 +2408,6 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("object? arg1 = __unused_args[0];");
       expect(csharp).to.include("first = arg1;");
       expect(csharp).to.not.include("first = (object?[])arg1;");
-    });
-
-    it("forwards optional callbacks through overload wrappers without eager wrapper lambdas", () => {
-      const csharp = compileToCSharp(`
-        class Socket {
-          bind(): void;
-          bind(port: number, address?: string, callback?: () => void): void;
-          bind(port: number, callback: () => void): void;
-          bind(callback: () => void): void;
-          bind(options: { port?: number }, callback?: () => void): void;
-          bind(
-            portOrCallbackOrOptions?: number | (() => void) | { port?: number },
-            addressOrCallback?: string | (() => void),
-            callback?: () => void
-          ): void {
-            let cb: (() => void) | undefined = undefined;
-
-            if (portOrCallbackOrOptions === undefined) {
-              cb =
-                typeof addressOrCallback === "function"
-                  ? addressOrCallback
-                  : callback;
-            } else if (typeof portOrCallbackOrOptions === "function") {
-              cb = portOrCallbackOrOptions;
-            } else if (
-              typeof portOrCallbackOrOptions === "object" &&
-              portOrCallbackOrOptions !== null &&
-              portOrCallbackOrOptions !== undefined
-            ) {
-              cb =
-                typeof addressOrCallback === "function"
-                  ? addressOrCallback
-                  : callback;
-            } else if (typeof addressOrCallback === "function") {
-              cb = addressOrCallback;
-            } else {
-              cb = callback;
-            }
-
-            if (cb !== undefined) {
-              cb();
-            }
-          }
-        }
-
-        export function main(socket: Socket): void {
-          socket.bind(0, "127.0.0.1");
-        }
-      `);
-
-      expect(csharp).to.match(
-        /this\.__tsonic_overload_impl_bind\(global::Tsonic\.Runtime\.Union<global::System\.Action,\s*double,\s*global::Test\.__Anon_[^>]+>\.From2\(portOrCallbackOrOptions\),\s*global::Tsonic\.Runtime\.Union<global::System\.Action,\s*string>\.From2\(addressOrCallback\),\s*callback\);/
-      );
-      expect(csharp).to.not.include("() =>");
-      expect(csharp).to.not.include("callback();");
     });
 
     it("preserves nullable array arguments when forwarding identical signatures", () => {
@@ -2319,7 +2435,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(
         `
           declare class Assert {
-            static Equal(expected: unknown, actual: unknown): void;
+            static Equal(expected: JsValue, actual: JsValue): void;
           }
 
           class Proc {

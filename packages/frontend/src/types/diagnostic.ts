@@ -22,6 +22,7 @@ export type DiagnosticCode =
   | "TSN2001" // Unsupported TypeScript feature
   | "TSN2002" // Invalid type mapping
   | "TSN2003" // File name conflicts with exported member name
+  | "TSN2004" // Legacy overload syntax not supported
   | "TSN3001" // C# reserved keyword used
   | "TSN3002" // Invalid C# identifier
   | "TSN3003" // C# identifier collision after naming policy
@@ -30,7 +31,7 @@ export type DiagnosticCode =
   | "TSN4002" // Missing .NET type declaration
   | "TSN4003" // Ambiguous CLR binding
   | "TSN4004" // Missing CLR binding
-  | "TSN4005" // Invalid attribute marker usage
+  | "TSN4005" // Invalid compiler marker usage
   | "TSN4006" // Invalid attribute argument
   | "TSN4007" // Attribute target not found
   | "TSN5001" // NativeAOT limitation
@@ -52,6 +53,7 @@ export type DiagnosticCode =
   | "TSN7301" // Class cannot implement nominalized interface
   // Static/AOT safety errors (TSN7401-TSN7499)
   | "TSN7401" // 'any' type not supported - requires explicit type
+  | "TSN7402" // 'unknown' type not supported outside erased overload stubs
   | "TSN7403" // Object literal requires contextual nominal type
   | "TSN7405" // Untyped lambda parameter - requires explicit type annotation
   | "TSN7406" // Mapped types not supported (retired)

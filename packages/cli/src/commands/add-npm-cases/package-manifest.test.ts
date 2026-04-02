@@ -27,7 +27,6 @@ const installJsSurface = (workspaceRoot: string): void => {
       extends: [],
       requiredTypeRoots: ["."],
       requiredNpmPackages: ["@tsonic/js"],
-      useStandardLib: false,
     },
   });
   writeFileSync(

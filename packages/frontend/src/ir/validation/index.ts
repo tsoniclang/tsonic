@@ -28,6 +28,16 @@ export {
 } from "./attribute-collection-pass.js";
 
 export {
+  runOverloadCollectionPass,
+  type OverloadCollectionResult,
+} from "./overload-collection-pass.js";
+
+export {
+  runOverloadFamilyConsistencyPass,
+  type OverloadFamilyConsistencyResult,
+} from "./overload-family-consistency-pass.js";
+
+export {
   runAnonymousTypeLoweringPass,
   type AnonymousTypeLoweringResult,
 } from "./anonymous-type-lowering-pass.js";

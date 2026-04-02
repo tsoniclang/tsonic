@@ -9,6 +9,10 @@ import { unwrapTransparentExpression } from "./transparent-expressions.js";
 import { resolveTypeAlias, stripNullish } from "./type-resolution.js";
 import { getPropertyType } from "./property-lookup-resolution.js";
 import { isAssignable } from "./index.js";
+import {
+  findExactRuntimeUnionMemberIndices,
+  getCanonicalRuntimeUnionMembers,
+} from "./runtime-unions.js";
 
 export type EmitExprAstFn = (
   expr: IrExpression,
@@ -104,17 +108,85 @@ const tryResolveAssignmentBindingTarget = (
   return undefined;
 };
 
+const resolveWritableCarrierType = (
+  binding: NarrowedBinding | undefined
+): IrExpression["inferredType"] => {
+  if (!binding) {
+    return undefined;
+  }
+
+  switch (binding.kind) {
+    case "expr":
+      return binding.carrierExprAst
+        ? (binding.sourceType ?? binding.storageType ?? binding.type)
+        : (binding.storageType ?? binding.sourceType ?? binding.type);
+    case "runtimeSubset":
+      return binding.sourceType ?? binding.type;
+    case "rename":
+      return binding.sourceType ?? binding.type;
+  }
+};
+
+const canonicalizeAssignedTypeAgainstWritableStorage = (
+  assignedType: IrExpression["inferredType"],
+  writableStorageType: IrExpression["inferredType"],
+  context: EmitterContext
+): IrExpression["inferredType"] => {
+  if (!assignedType || !writableStorageType) {
+    return assignedType;
+  }
+
+  const canonicalRuntimeMembers = getCanonicalRuntimeUnionMembers(
+    writableStorageType,
+    context
+  );
+  if (!canonicalRuntimeMembers) {
+    return assignedType;
+  }
+
+  const exactMatches = findExactRuntimeUnionMemberIndices(
+    canonicalRuntimeMembers,
+    assignedType,
+    context
+  );
+  if (exactMatches.length !== 1) {
+    return assignedType;
+  }
+
+  const [exactMatchIndex] = exactMatches;
+  return exactMatchIndex !== undefined
+    ? (canonicalRuntimeMembers[exactMatchIndex] ?? assignedType)
+    : assignedType;
+};
+
 export const resolveWritableTargetStorageType = (
   targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>,
   context: EmitterContext
 ): IrExpression["inferredType"] => {
   if (targetExpr.kind === "identifier") {
+    const narrowedCarrierType = resolveWritableCarrierType(
+      context.narrowedBindings?.get(targetExpr.name)
+    );
+    if (narrowedCarrierType) {
+      return narrowedCarrierType;
+    }
+
     return (
       context.localValueTypes?.get(targetExpr.name) ?? targetExpr.inferredType
     );
   }
 
   if (!targetExpr.isComputed && !targetExpr.isOptional) {
+    const narrowKey = getMemberAccessNarrowKey(targetExpr);
+    if (narrowKey) {
+      const narrowedCarrierType = resolveWritableCarrierType(
+        context.narrowedBindings?.get(narrowKey)
+      );
+      if (narrowedCarrierType) {
+        return narrowedCarrierType;
+      }
+    }
+
     const receiverType =
       resolveEffectiveExpressionType(targetExpr.object, context) ??
       targetExpr.object.inferredType;
@@ -165,9 +237,14 @@ export const applyAssignmentStatementNarrowing = (
   const storageType =
     resolveWritableTargetStorageType(bindingTarget.targetExpr, context) ??
     currentType;
+  const canonicalAssignedType = canonicalizeAssignedTypeAgainstWritableStorage(
+    assignedType,
+    storageType,
+    context
+  );
 
   const comparableAssignedType =
-    unwrapParameterModifierType(assignedType) ?? assignedType;
+    unwrapParameterModifierType(canonicalAssignedType) ?? canonicalAssignedType;
   const comparableReadableType =
     unwrapParameterModifierType(currentType) ?? currentType;
   const comparableStorageType =

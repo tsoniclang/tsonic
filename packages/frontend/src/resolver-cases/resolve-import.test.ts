@@ -11,6 +11,10 @@ import { resolveImport } from "../resolver.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { __resetDependencyPackageRootCachesForTests } from "../program/package-roots.js";
 import { __resetSourcePackageResolutionCachesForTests } from "../resolver/source-package-resolution.js";
+import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
+
+const materializeResolveImportFixture = (fixtureName: string) =>
+  materializeFrontendFixture(`resolver/resolve-import/${fixtureName}`);
 
 describe("Module Resolver", () => {
   describe("resolveImport", () => {
@@ -171,267 +175,146 @@ describe("Module Resolver", () => {
     });
 
     it("should resolve installed tsonic source packages", () => {
-      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/math", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "index.ts"),
-        "export const clamp = (x: number): number => x;\n"
-      );
+      const fixture = materializeResolveImportFixture("installed-source-package");
 
-      const result = resolveImport(
-        "@acme/math",
-        path.join(tempDir, "src", "index.ts"),
-        sourceRoot,
-        { projectRoot: tempDir, surface: "@tsonic/js" }
-      );
+      try {
+        const projectRoot = fixture.path("app");
+        const packageRoot = fixture.path("app/node_modules/@acme/math");
+        const containingFile = fixture.path("app/src/index.ts");
 
-      expect(result.ok).to.equal(true);
-      if (result.ok) {
-        expect(result.value.isLocal).to.equal(true);
-        expect(result.value.isSourcePackage).to.equal(true);
-        expect(result.value.resolvedPath).to.equal(
-          path.join(packageRoot, "src", "index.ts")
-        );
+        const result = resolveImport("@acme/math", containingFile, projectRoot, {
+          projectRoot,
+          surface: "@tsonic/js",
+        });
+
+        expect(result.ok).to.equal(true);
+        if (result.ok) {
+          expect(result.value.isLocal).to.equal(true);
+          expect(result.value.isSourcePackage).to.equal(true);
+          expect(result.value.resolvedPath).to.equal(
+            path.join(packageRoot, "src", "index.ts")
+          );
+        }
+      } finally {
+        fixture.cleanup();
       }
     });
 
     it("should resolve installed source-package subpath exports", () => {
-      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/math", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-                "./helpers.js": "./src/helpers.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "index.ts"),
-        'export { clampMin } from "./helpers.ts";\n'
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "helpers.ts"),
-        "export const clampMin = (x: number, min: number): number => x < min ? min : x;\n"
-      );
+      const fixture = materializeResolveImportFixture("installed-source-package");
 
-      const result = resolveImport(
-        "@acme/math/helpers.js",
-        path.join(tempDir, "src", "index.ts"),
-        sourceRoot,
-        { projectRoot: tempDir, surface: "@tsonic/js" }
-      );
+      try {
+        const projectRoot = fixture.path("app");
+        const packageRoot = fixture.path("app/node_modules/@acme/math");
+        const containingFile = fixture.path("app/src/index.ts");
 
-      expect(result.ok).to.equal(true);
-      if (result.ok) {
-        expect(result.value.isLocal).to.equal(true);
-        expect(result.value.isSourcePackage).to.equal(true);
-        expect(result.value.resolvedPath).to.equal(
-          path.join(packageRoot, "src", "helpers.ts")
+        const result = resolveImport(
+          "@acme/math/helpers.js",
+          containingFile,
+          projectRoot,
+          { projectRoot, surface: "@tsonic/js" }
         );
+
+        expect(result.ok).to.equal(true);
+        if (result.ok) {
+          expect(result.value.isLocal).to.equal(true);
+          expect(result.value.isSourcePackage).to.equal(true);
+          expect(result.value.resolvedPath).to.equal(
+            path.join(packageRoot, "src", "helpers.ts")
+          );
+        }
+      } finally {
+        fixture.cleanup();
       }
     });
 
     it("should resolve installed declaration package module imports", () => {
-      const packageRoot = path.join(
-        tempDir,
-        "node_modules",
-        "@tsonic",
-        "dotnet"
-      );
-      fs.mkdirSync(packageRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/dotnet", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "System.js"),
-        "throw new Error('stub');\n"
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "System.d.ts"),
-        "export declare class StringBuilder {}\n"
+      const fixture = materializeResolveImportFixture(
+        "installed-declaration-package"
       );
 
-      const result = resolveImport(
-        "@tsonic/dotnet/System.js",
-        path.join(tempDir, "src", "index.ts"),
-        sourceRoot,
-        { projectRoot: tempDir, surface: "@tsonic/js" }
-      );
+      try {
+        const projectRoot = fixture.path("app");
+        const packageRoot = fixture.path("app/node_modules/@tsonic/dotnet");
+        const containingFile = fixture.path("app/src/index.ts");
 
-      expect(result.ok).to.equal(true);
-      if (result.ok) {
-        expect(result.value.isLocal).to.equal(true);
-        expect(result.value.isClr).to.equal(false);
-        expect(result.value.isSourcePackage).to.equal(undefined);
-        expect(result.value.resolvedPath).to.equal(
-          path.join(packageRoot, "System.d.ts")
+        const result = resolveImport(
+          "@tsonic/dotnet/System.js",
+          containingFile,
+          projectRoot,
+          { projectRoot, surface: "@tsonic/js" }
         );
+
+        expect(result.ok).to.equal(true);
+        if (result.ok) {
+          expect(result.value.isLocal).to.equal(true);
+          expect(result.value.isClr).to.equal(false);
+          expect(result.value.isSourcePackage).to.equal(undefined);
+          expect(result.value.resolvedPath).to.equal(
+            path.join(packageRoot, "System.d.ts")
+          );
+        }
+      } finally {
+        fixture.cleanup();
       }
     });
 
     it("should prefer direct source-package imports over CLR resolution", () => {
-      const packageRoot = path.join(
-        tempDir,
-        "node_modules",
-        "@tsonic",
-        "nodejs"
-      );
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      const processEntry = path.join(packageRoot, "src", "process-module.ts");
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
+      const fixture = materializeResolveImportFixture("source-package-over-clr");
+
+      try {
+        const projectRoot = fixture.path("app");
+        const processEntry = fixture.path(
+          "app/node_modules/@tsonic/nodejs/src/process-module.ts"
+        );
+        const containingFile = fixture.path("app/src/index.ts");
+
+        const result = resolveImport(
+          "@tsonic/nodejs/process.js",
+          containingFile,
+          projectRoot,
           {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                "./process.js": "./src/process-module.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        processEntry,
-        "export const process = { version: 'v1.0.0-tsonic' };\n"
-      );
+            projectRoot,
+            surface: "@tsonic/js",
+            clrResolver: {
+              resolve: (specifier: string) =>
+                specifier === "@tsonic/nodejs/process.js"
+                  ? {
+                      isClr: true as const,
+                      resolvedNamespace: "process",
+                    }
+                  : { isClr: false as const },
+            } as never,
+          }
+        );
 
-      const result = resolveImport(
-        "@tsonic/nodejs/process.js",
-        path.join(tempDir, "src", "index.ts"),
-        sourceRoot,
-        {
-          projectRoot: tempDir,
-          surface: "@tsonic/js",
-          clrResolver: {
-            resolve: (specifier: string) =>
-              specifier === "@tsonic/nodejs/process.js"
-                ? {
-                    isClr: true as const,
-                    resolvedNamespace: "process",
-                  }
-                : { isClr: false as const },
-          } as never,
+        expect(result.ok).to.equal(true);
+        if (result.ok) {
+          expect(result.value.isLocal).to.equal(true);
+          expect(result.value.isSourcePackage).to.equal(true);
+          expect(result.value.isClr).to.equal(false);
+          expect(result.value.resolvedPath).to.equal(processEntry);
         }
-      );
-
-      expect(result.ok).to.equal(true);
-      if (result.ok) {
-        expect(result.value.isLocal).to.equal(true);
-        expect(result.value.isSourcePackage).to.equal(true);
-        expect(result.value.isClr).to.equal(false);
-        expect(result.value.resolvedPath).to.equal(processEntry);
+      } finally {
+        fixture.cleanup();
       }
     });
 
     it("should resolve declaration-module aliases into source-package files", () => {
-      const packageRoot = path.join(
-        tempDir,
-        "node_modules",
-        "@tsonic",
-        "nodejs"
+      const fixture = materializeResolveImportFixture(
+        "declaration-alias-source-package"
       );
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src", "net"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              namespace: "nodejs",
-              exports: {
-                "./net.js": "./src/net/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      const netEntry = path.join(packageRoot, "src", "net", "index.ts");
-      fs.writeFileSync(netEntry, "export const createServer = () => ({});\n");
 
-      const result = resolveImport(
-        "node:net",
-        path.join(tempDir, "src", "index.ts"),
-        sourceRoot,
-        {
-          projectRoot: tempDir,
+      try {
+        const projectRoot = fixture.path("app");
+        const packageRoot = fixture.path("app/node_modules/@tsonic/nodejs");
+        const netEntry = fixture.path(
+          "app/node_modules/@tsonic/nodejs/src/net/index.ts"
+        );
+        const containingFile = fixture.path("app/src/index.ts");
+
+        const result = resolveImport("node:net", containingFile, projectRoot, {
+          projectRoot,
           surface: "@tsonic/js",
           declarationModuleAliases: new Map([
             [
@@ -442,522 +325,181 @@ describe("Module Resolver", () => {
               },
             ],
           ]),
-        }
-      );
+        });
 
-      expect(result.ok).to.equal(true);
-      if (result.ok) {
-        expect(result.value.isLocal).to.equal(true);
-        expect(result.value.isSourcePackage).to.equal(true);
-        expect(result.value.isClr).to.equal(false);
-        expect(result.value.resolvedPath).to.equal(netEntry);
+        expect(result.ok).to.equal(true);
+        if (result.ok) {
+          expect(result.value.isLocal).to.equal(true);
+          expect(result.value.isSourcePackage).to.equal(true);
+          expect(result.value.isClr).to.equal(false);
+          expect(result.value.resolvedPath).to.equal(netEntry);
+        }
+      } finally {
+        fixture.cleanup();
       }
     });
 
     it("should reject source-package local imports that only match the package root by string prefix", () => {
-      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
-      const packageEntry = path.join(packageRoot, "src", "index.ts");
-      const siblingRoot = path.join(
-        tempDir,
-        "node_modules",
-        "@acme",
-        "math-private"
-      );
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.mkdirSync(path.join(siblingRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/math", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(packageEntry, "export const clamp = 1;\n");
-      fs.writeFileSync(
-        path.join(siblingRoot, "src", "secret.ts"),
-        "export const secret = 1;\n"
-      );
+      const fixture = materializeResolveImportFixture("installed-source-package");
 
-      const result = resolveImport(
-        "../../math-private/src/secret.ts",
-        packageEntry,
-        path.join(tempDir, "src")
-      );
-
-      expect(result.ok).to.equal(false);
-      if (!result.ok) {
-        expect(result.error.code).to.equal("TSN1004");
-        expect(result.error.message).to.include(
-          "Import outside allowed module root"
+      try {
+        const packageEntry = fixture.path(
+          "app/node_modules/@acme/math/src/index.ts"
         );
+
+        const result = resolveImport(
+          "../../math-private/src/secret.ts",
+          packageEntry,
+          fixture.path("app/src")
+        );
+
+        expect(result.ok).to.equal(false);
+        if (!result.ok) {
+          expect(result.error.code).to.equal("TSN1004");
+          expect(result.error.message).to.include(
+            "Import outside allowed module root"
+          );
+        }
+      } finally {
+        fixture.cleanup();
       }
     });
 
     it("should reject source packages on incompatible surfaces", () => {
-      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/math", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["clr"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "index.ts"),
-        "export const clamp = (x: number): number => x;\n"
-      );
+      const fixture = materializeResolveImportFixture("incompatible-surface");
 
-      const result = resolveImport(
-        "@acme/math",
-        path.join(tempDir, "src", "index.ts"),
-        sourceRoot,
-        { projectRoot: tempDir, surface: "@tsonic/js" }
-      );
+      try {
+        const projectRoot = fixture.path("app");
+        const containingFile = fixture.path("app/src/index.ts");
 
-      expect(result.ok).to.equal(false);
-      if (!result.ok) {
-        expect(result.error.message).to.include("not compatible with surface");
+        const result = resolveImport("@acme/math", containingFile, projectRoot, {
+          projectRoot,
+          surface: "@tsonic/js",
+        });
+
+        expect(result.ok).to.equal(false);
+        if (!result.ok) {
+          expect(result.error.message).to.include("not compatible with surface");
+        }
+      } finally {
+        fixture.cleanup();
       }
     });
 
     it("should allow source packages on compatible parent surfaces", () => {
-      const jsSurfaceRoot = path.join(tempDir, "node_modules", "@tsonic", "js");
-      fs.mkdirSync(jsSurfaceRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(jsSurfaceRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(jsSurfaceRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@tsonic/js",
-            extends: [],
-            requiredTypeRoots: ["."],
-          },
-          null,
-          2
-        )
-      );
+      const fixture = materializeResolveImportFixture("compatible-parent-surface");
 
-      const customSurfaceRoot = path.join(
-        tempDir,
-        "node_modules",
-        "@acme",
-        "surface-node"
-      );
-      fs.mkdirSync(customSurfaceRoot, { recursive: true });
-      fs.writeFileSync(
-        path.join(customSurfaceRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/surface-node", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(customSurfaceRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "@acme/surface-node",
-            extends: ["@tsonic/js"],
-            requiredTypeRoots: ["."],
-          },
-          null,
-          2
-        )
-      );
+      try {
+        const projectRoot = fixture.path("app");
+        const containingFile = fixture.path("app/src/index.ts");
 
-      const packageRoot = path.join(tempDir, "node_modules", "@acme", "math");
-      fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-      fs.writeFileSync(
-        path.join(packageRoot, "package.json"),
-        JSON.stringify(
-          { name: "@acme/math", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(packageRoot, "src", "index.ts"),
-        "export const clamp = (x: number): number => x;\n"
-      );
+        const result = resolveImport("@acme/math", containingFile, projectRoot, {
+          projectRoot,
+          surface: "@acme/surface-node",
+        });
 
-      const result = resolveImport(
-        "@acme/math",
-        path.join(tempDir, "src", "index.ts"),
-        sourceRoot,
-        { projectRoot: tempDir, surface: "@acme/surface-node" }
-      );
-
-      expect(result.ok).to.equal(true);
+        expect(result.ok).to.equal(true);
+      } finally {
+        fixture.cleanup();
+      }
     });
 
     it("should resolve authoritative @tsonic roots for source-package files outside the project graph", () => {
-      const jsRoot = path.join(tempDir, "wave", "js-next");
-      fs.mkdirSync(path.join(jsRoot, "src"), { recursive: true });
-      fs.mkdirSync(path.join(jsRoot, "tsonic"), { recursive: true });
-      fs.writeFileSync(
-        path.join(jsRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "1.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(jsRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-                "./index.js": "./src/index.ts",
-                "./console.js": "./src/console.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(jsRoot, "src", "index.ts"),
-        'export * as console from "./console.js";\n'
-      );
-      fs.writeFileSync(
-        path.join(jsRoot, "src", "console.ts"),
-        "export const error = (..._args: unknown[]): void => {};\n"
+      const fixture = materializeResolveImportFixture(
+        "authoritative-root-external-wave"
       );
 
-      const containingFile = path.join(
-        tempDir,
-        "wave",
-        "nodejs-next",
-        "src",
-        "events-module.ts"
-      );
-      fs.mkdirSync(path.dirname(containingFile), { recursive: true });
-      fs.writeFileSync(
-        containingFile,
-        'import { console } from "@tsonic/js/index.js";\nconsole.error("x");\n'
-      );
-
-      const result = resolveImport(
-        "@tsonic/js/index.js",
-        containingFile,
-        sourceRoot,
-        {
-          projectRoot: tempDir,
-          surface: "@tsonic/js",
-          authoritativeTsonicPackageRoots: new Map([["@tsonic/js", jsRoot]]),
-        }
-      );
-
-      expect(result.ok).to.equal(true);
-      if (result.ok) {
-        expect(result.value.isSourcePackage).to.equal(true);
-        expect(result.value.resolvedPath).to.equal(
-          path.join(jsRoot, "src", "index.ts")
+      try {
+        const projectRoot = fixture.path("workspace");
+        const jsRoot = fixture.path("workspace/wave/js-next");
+        const containingFile = fixture.path(
+          "workspace/wave/nodejs-next/src/events-module.ts"
         );
+
+        const result = resolveImport(
+          "@tsonic/js/index.js",
+          containingFile,
+          projectRoot,
+          {
+            projectRoot,
+            surface: "@tsonic/js",
+            authoritativeTsonicPackageRoots: new Map([["@tsonic/js", jsRoot]]),
+          }
+        );
+
+        expect(result.ok).to.equal(true);
+        if (result.ok) {
+          expect(result.value.isSourcePackage).to.equal(true);
+          expect(result.value.resolvedPath).to.equal(
+            path.join(jsRoot, "src", "index.ts")
+          );
+        }
+      } finally {
+        fixture.cleanup();
       }
     });
 
     it("should resolve sibling source-package dependencies from imported wave files", () => {
-      const jsRoot = path.join(tempDir, "wave", "js-next");
-      fs.mkdirSync(path.join(jsRoot, "src"), { recursive: true });
-      fs.mkdirSync(path.join(jsRoot, "tsonic"), { recursive: true });
-      fs.writeFileSync(
-        path.join(jsRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: "@tsonic/js",
-            version: "1.0.0",
-            type: "module",
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(jsRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-                "./index.js": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(jsRoot, "src", "index.ts"),
-        "export const ok = true;\n"
-      );
+      const fixture = materializeResolveImportFixture("sibling-wave-dependency");
 
-      const nodejsRoot = path.join(tempDir, "wave", "nodejs-next");
-      fs.mkdirSync(path.join(nodejsRoot, "src"), { recursive: true });
-      fs.mkdirSync(path.join(nodejsRoot, "tsonic"), { recursive: true });
-      fs.writeFileSync(
-        path.join(nodejsRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: "@tsonic/nodejs",
-            version: "1.0.0",
-            type: "module",
-            peerDependencies: {
-              "@tsonic/js": "1.0.0",
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(nodejsRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-
-      const containingFile = path.join(nodejsRoot, "src", "events-module.ts");
-      fs.writeFileSync(
-        containingFile,
-        'import { ok } from "@tsonic/js/index.js";\nvoid ok;\n'
-      );
-
-      const result = resolveImport(
-        "@tsonic/js/index.js",
-        containingFile,
-        sourceRoot,
-        {
-          projectRoot: tempDir,
-          surface: "@tsonic/js",
-        }
-      );
-
-      expect(result.ok).to.equal(true);
-      if (result.ok) {
-        expect(result.value.isSourcePackage).to.equal(true);
-        expect(result.value.resolvedPath).to.equal(
-          path.join(jsRoot, "src", "index.ts")
+      try {
+        const projectRoot = fixture.path("workspace");
+        const jsRoot = fixture.path("workspace/wave/js-next");
+        const containingFile = fixture.path(
+          "workspace/wave/nodejs-next/src/events-module.ts"
         );
+
+        const result = resolveImport(
+          "@tsonic/js/index.js",
+          containingFile,
+          projectRoot,
+          {
+            projectRoot,
+            surface: "@tsonic/js",
+          }
+        );
+
+        expect(result.ok).to.equal(true);
+        if (result.ok) {
+          expect(result.value.isSourcePackage).to.equal(true);
+          expect(result.value.resolvedPath).to.equal(
+            path.join(jsRoot, "src", "index.ts")
+          );
+        }
+      } finally {
+        fixture.cleanup();
       }
     });
 
     it("should prefer sibling source-package dependencies over installed CLR shadows", () => {
-      const jsClrRoot = path.join(
-        tempDir,
-        "wave",
-        "nodejs-next",
-        "versions",
-        "10",
-        "node_modules",
-        "@tsonic",
-        "js"
-      );
-      const jsSourceRoot = path.join(
-        tempDir,
-        "wave",
-        "js-next",
-        "versions",
-        "10"
-      );
-      const nodejsRoot = path.join(
-        tempDir,
-        "wave",
-        "nodejs-next",
-        "versions",
-        "10"
-      );
+      const fixture = materializeResolveImportFixture("sibling-wave-over-shadow");
 
-      fs.mkdirSync(path.join(jsClrRoot, "index"), { recursive: true });
-      fs.mkdirSync(path.join(jsSourceRoot, "src"), { recursive: true });
-      fs.mkdirSync(path.join(jsSourceRoot, "tsonic"), { recursive: true });
-      fs.mkdirSync(path.join(nodejsRoot, "src"), { recursive: true });
-      fs.mkdirSync(path.join(nodejsRoot, "tsonic"), { recursive: true });
-
-      fs.writeFileSync(
-        path.join(jsClrRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "10.0.48", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(jsClrRoot, "index.d.ts"),
-        "export declare class Error {}\n"
-      );
-      fs.writeFileSync(
-        path.join(jsSourceRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/js", version: "10.0.49-next.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(jsSourceRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-                "./index.js": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(jsSourceRoot, "src", "index.ts"),
-        "export const ok = true;\n"
-      );
-      fs.writeFileSync(
-        path.join(nodejsRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: "@tsonic/nodejs",
-            version: "10.0.49-next.0",
-            type: "module",
-            peerDependencies: {
-              "@tsonic/js": "10.0.49-next.0",
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(nodejsRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-
-      const containingFile = path.join(nodejsRoot, "src", "events-module.ts");
-      fs.writeFileSync(
-        containingFile,
-        'import { ok } from "@tsonic/js/index.js";\nvoid ok;\n'
-      );
-
-      const result = resolveImport(
-        "@tsonic/js/index.js",
-        containingFile,
-        sourceRoot,
-        {
-          projectRoot: tempDir,
-          surface: "@tsonic/js",
-        }
-      );
-
-      expect(result.ok).to.equal(true);
-      if (result.ok) {
-        expect(result.value.isSourcePackage).to.equal(true);
-        expect(result.value.resolvedPath).to.equal(
-          path.join(jsSourceRoot, "src", "index.ts")
+      try {
+        const projectRoot = fixture.path("workspace");
+        const jsSourceRoot = fixture.path("workspace/wave/js-next/versions/10");
+        const containingFile = fixture.path(
+          "workspace/wave/nodejs-next/versions/10/src/events-module.ts"
         );
+
+        const result = resolveImport(
+          "@tsonic/js/index.js",
+          containingFile,
+          projectRoot,
+          {
+            projectRoot,
+            surface: "@tsonic/js",
+          }
+        );
+
+        expect(result.ok).to.equal(true);
+        if (result.ok) {
+          expect(result.value.isSourcePackage).to.equal(true);
+          expect(result.value.resolvedPath).to.equal(
+            path.join(jsSourceRoot, "src", "index.ts")
+          );
+        }
+      } finally {
+        fixture.cleanup();
       }
     });
 

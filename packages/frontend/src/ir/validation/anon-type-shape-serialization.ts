@@ -8,6 +8,7 @@
 
 import { createHash } from "crypto";
 import type { IrType, IrObjectType, IrReferenceType } from "../types.js";
+import { normalizeStructuralPropertySignature } from "./anon-type-shape-collectors.js";
 
 export type SerializeState = {
   readonly seen: WeakMap<object, number>;
@@ -118,13 +119,13 @@ export const serializeType = (type: IrType, state?: SerializeState): string => {
           (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
             m.kind === "propertySignature"
         )
-        .map(
-          (m) =>
-            `prop:${m.isReadonly ? "ro:" : ""}${m.name}${m.isOptional ? "?" : ""}:${serializeType(
-              m.type,
+        .map((m) => {
+          const normalizedMember = normalizeStructuralPropertySignature(m);
+          return `prop:${normalizedMember.isReadonly ? "ro:" : ""}${normalizedMember.name}${normalizedMember.isOptional ? "?" : ""}:${serializeType(
+              normalizedMember.type,
               currentState
-            )}`
-        );
+            )}`;
+        });
 
       // Serialize method signatures
       const methodMembers = type.members

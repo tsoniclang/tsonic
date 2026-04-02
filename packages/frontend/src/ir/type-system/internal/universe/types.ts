@@ -42,6 +42,7 @@ export type {
 export {
   makeTypeId,
   parseStableId,
+  resolveRawTypeStableId,
   PRIMITIVE_TO_STABLE_ID,
   STABLE_ID_TO_PRIMITIVE,
 } from "./raw-bindings-types.js";

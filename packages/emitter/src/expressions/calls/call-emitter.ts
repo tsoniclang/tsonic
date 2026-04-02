@@ -28,14 +28,18 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
-import { identifierExpression } from "../../core/format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  identifierType,
+} from "../../core/format/backend-ast/builders.js";
+import { normalizeClrQualifiedName } from "../../core/format/backend-ast/utils.js";
 // Import from split modules
 import { emitDynamicImportCall } from "./call-dynamic-import.js";
 import {
   emitJsonSerializerCall,
   emitGlobalJsonCall,
-  getRuntimeObjectHelperParameterOverrides,
 } from "./call-json.js";
+import { emitGlobalSymbolCall } from "./call-symbol.js";
 import {
   emitPromiseStaticCall,
   emitPromiseThenCatchFinally,
@@ -48,6 +52,7 @@ import {
 import { emitRuntimeUnionArrayIsArrayCall } from "./call-runtime-union-guards.js";
 import { emitCallArguments, wrapIntCast } from "./call-arguments.js";
 import { tryEmitExtensionMethodCall } from "./call-extension-methods.js";
+import { stripClrGenericArity } from "../access-resolution.js";
 
 const buildCallTargetExpectedType = (
   expr: Extract<IrExpression, { kind: "call" }>
@@ -98,6 +103,110 @@ const extractTransparentIdentifier = (
   }
 
   return current.kind === "identifier" ? current : undefined;
+};
+
+const tryGetCallableStaticAccessorCall = (
+  expr: Extract<IrExpression, { kind: "call" }>
+):
+  | {
+      readonly kind: "property" | "field";
+      readonly binding: NonNullable<
+        Extract<IrExpression, { kind: "call" }>["callee"] extends infer T
+          ? T extends { kind: "memberAccess"; memberBinding?: infer B }
+            ? B
+            : never
+          : never
+      >;
+    }
+  | undefined => {
+  if (expr.callee.kind !== "memberAccess") {
+    return undefined;
+  }
+
+  const memberBinding = expr.callee.memberBinding;
+  const kind = memberBinding?.emitSemantics?.callableStaticAccessorKind;
+  if (!memberBinding || !kind) {
+    return undefined;
+  }
+
+  return { kind, binding: memberBinding };
+};
+
+const getCallableStaticAccessorOwnerTypeArgs = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  expectedArity: number
+): readonly IrType[] => {
+  if (expectedArity === 0) {
+    return [];
+  }
+
+  if (expr.typeArguments?.length === expectedArity) {
+    return expr.typeArguments;
+  }
+
+  const inferredResult = expr.inferredType;
+  if (
+    inferredResult?.kind === "referenceType" &&
+    inferredResult.typeArguments?.length === expectedArity
+  ) {
+    return inferredResult.typeArguments;
+  }
+
+  throw new Error(
+    `Internal Compiler Error: callable static accessor call '${expectedArity}' generic arity could not be specialized from call-site type arguments.`
+  );
+};
+
+const emitCallableStaticAccessorCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  binding: NonNullable<
+    Extract<IrExpression, { kind: "call" }>["callee"] extends infer T
+      ? T extends { kind: "memberAccess"; memberBinding?: infer B }
+        ? B
+        : never
+      : never
+  >,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (expr.arguments.length !== 0) {
+    throw new Error(
+      `Internal Compiler Error: callable static accessor '${binding.type}.${binding.member}' was invoked with arguments.`
+    );
+  }
+  if (expr.isOptional) {
+    throw new Error(
+      `Internal Compiler Error: callable static accessor '${binding.type}.${binding.member}' cannot be optional.`
+    );
+  }
+
+  const arityText = binding.type.match(/`(\d+)$/)?.[1];
+  const genericArity = arityText ? Number.parseInt(arityText, 10) : 0;
+  const ownerTypeArgs = getCallableStaticAccessorOwnerTypeArgs(expr, genericArity);
+
+  let currentContext = context;
+  const ownerTypeArgAsts: CSharpTypeAst[] = [];
+  for (const typeArgument of ownerTypeArgs) {
+    const [typeArgAst, typeArgContext] = emitTypeAst(typeArgument, currentContext);
+    ownerTypeArgAsts.push(typeArgAst);
+    currentContext = typeArgContext;
+  }
+
+  const ownerTypeAst = identifierType(
+    normalizeClrQualifiedName(stripClrGenericArity(binding.type), true),
+    ownerTypeArgAsts.length > 0 ? ownerTypeArgAsts : undefined
+  );
+
+  return [
+    {
+      kind: "memberAccessExpression",
+      expression: {
+        kind: "typeReferenceExpression",
+        type: ownerTypeAst,
+      },
+      memberName: binding.member,
+    },
+    currentContext,
+  ];
 };
 
 const castInvokedLambdaTarget = (
@@ -264,6 +373,10 @@ export const emitCall = (
     return emitJsonSerializerCall(expr, context, jsonCall.method);
   }
 
+  if (expr.intrinsicKind === "globalSymbol") {
+    return emitGlobalSymbolCall(expr, context);
+  }
+
   // Check for global JSON.stringify/parse calls
   const globalJsonCall = isGlobalJsonCall(expr.callee, context);
   if (globalJsonCall) {
@@ -340,6 +453,15 @@ export const emitCall = (
     return extensionResult;
   }
 
+  const callableStaticAccessor = tryGetCallableStaticAccessorCall(expr);
+  if (callableStaticAccessor) {
+    return emitCallableStaticAccessorCall(
+      expr,
+      callableStaticAccessor.binding,
+      context
+    );
+  }
+
   // Regular function call
   const calleeExprForEmission = expr.callee;
   const calleeExpectedType =
@@ -387,15 +509,10 @@ export const emitCall = (
     }
   }
 
-  const parameterTypeOverrides = getRuntimeObjectHelperParameterOverrides(
-    expr,
-    expr.arguments.length
-  );
   const [argAsts, argContext] = emitCallArguments(
     expr.arguments,
     expr,
-    currentContext,
-    parameterTypeOverrides
+    currentContext
   );
   currentContext = argContext;
 

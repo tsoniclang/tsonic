@@ -1,5 +1,5 @@
 /**
- * Tests for A.on(Class).method(selector).add(Attr) pattern.
+ * Tests for A<T>().method(selector).add(Attr) pattern.
  */
 
 import {
@@ -17,13 +17,14 @@ import {
   makeMethodMarkerCallWithTarget,
   makeSelector,
   makeSpreadArg,
+  makeTypeRootCall,
   makeWrappedSelector,
   runAttributeCollectionPass,
 } from "./helpers.js";
-import type { IrClassDeclaration } from "./helpers.js";
+import type { IrClassDeclaration, IrInterfaceDeclaration } from "./helpers.js";
 
 describe("Attribute Collection Pass", () => {
-  describe("A.on(Class).method(selector).add(Attr) pattern", () => {
+  describe("A<T>().method(selector).add(Attr) pattern", () => {
     it("should attach attribute to the selected method", () => {
       const module = createModule([
         {
@@ -58,6 +59,86 @@ describe("Attribute Collection Pass", () => {
       expect(
         method && "attributes" in method ? method.attributes : undefined
       ).to.have.length(1);
+    });
+
+    it("should attach attribute to the selected interface method", () => {
+      const module = createModule([
+        {
+          kind: "interfaceDeclaration",
+          name: "IUser",
+          extends: [],
+          typeParameters: [],
+          members: [
+            {
+              kind: "methodSignature",
+              name: "save",
+              parameters: [],
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrInterfaceDeclaration,
+        makeMethodMarkerCall("IUser", "PureAttribute", makeSelector("save")),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const ifaceDecl = mod.body[0] as IrInterfaceDeclaration;
+      const method = ifaceDecl.members.find((m) => m.kind === "methodSignature");
+      expect(
+        method && "attributes" in method ? method.attributes : undefined
+      ).to.have.length(1);
+    });
+
+    it("should reject selectors that are ambiguous across overloaded interface methods", () => {
+      const module = createModule([
+        {
+          kind: "interfaceDeclaration",
+          name: "IReader",
+          extends: [],
+          typeParameters: [],
+          members: [
+            {
+              kind: "methodSignature",
+              name: "read",
+              parameters: [
+                {
+                  kind: "parameter",
+                  pattern: { kind: "identifierPattern", name: "path" },
+                  type: { kind: "primitiveType", name: "string" },
+                  initializer: undefined,
+                  isOptional: false,
+                  isRest: false,
+                  passing: "value",
+                },
+              ],
+            },
+            {
+              kind: "methodSignature",
+              name: "read",
+              parameters: [
+                {
+                  kind: "parameter",
+                  pattern: { kind: "identifierPattern", name: "fd" },
+                  type: { kind: "primitiveType", name: "number" },
+                  initializer: undefined,
+                  isOptional: false,
+                  isRest: false,
+                  passing: "value",
+                },
+              ],
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrInterfaceDeclaration,
+        makeMethodMarkerCall("IReader", "PureAttribute", makeSelector("read")),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4005")).to.be.true;
     });
 
     it("should support method attribute targets (e.g., return)", () => {
@@ -283,15 +364,9 @@ describe("Attribute Collection Pass", () => {
             makeMemberAccess(
               makeCall(
                 makeMemberAccess(
-                  makeCall(
-                    makeMemberAccess(
-                      makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                        makeIdentifier("User"),
-                      ]),
-                      "method"
-                    ),
-                    [makeSelector("save")]
-                  ),
+                  makeCall(makeMemberAccess(makeTypeRootCall("User"), "method"), [
+                    makeSelector("save"),
+                  ]),
                   "target"
                 ),
                 [] // wrong arity

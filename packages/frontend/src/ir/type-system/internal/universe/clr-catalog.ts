@@ -15,6 +15,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { resolveDependencyPackageRoot } from "../../../../program/package-roots.js";
 import type {
   AssemblyTypeCatalog,
   TypeId,
@@ -194,11 +195,87 @@ export const loadClrCatalog = (
   const dtsFiles = new Set<string>();
 
   const packageRoots = new Set<string>();
-  for (const extra of extraPackageRoots) {
-    const resolvedExtra = resolveExistingDirectory(extra);
-    if (resolvedExtra) {
-      packageRoots.add(resolvedExtra);
+  const visitedPackageRoots = new Set<string>();
+
+  const visitPackageRoot = (
+    packageRoot: string,
+    forceDependencyTraversal: boolean
+  ): void => {
+    const resolvedRoot = resolveExistingDirectory(packageRoot);
+    if (!resolvedRoot || visitedPackageRoots.has(resolvedRoot)) {
+      return;
     }
+    visitedPackageRoots.add(resolvedRoot);
+
+    const sourcePackageRoot = isSourcePackageRoot(resolvedRoot);
+    if (!sourcePackageRoot) {
+      packageRoots.add(resolvedRoot);
+    }
+
+    const hasBindingsManifest =
+      !sourcePackageRoot &&
+      fs.existsSync(path.join(resolvedRoot, "tsonic.bindings.json"));
+    const hasSurfaceManifest = fs.existsSync(
+      path.join(resolvedRoot, "tsonic.surface.json")
+    );
+    const discoveredClrBindingsInPackage =
+      !sourcePackageRoot && findBindingsFiles(resolvedRoot).length > 0;
+    const shouldTraverseDependencies =
+      forceDependencyTraversal ||
+      sourcePackageRoot ||
+      hasBindingsManifest ||
+      hasSurfaceManifest ||
+      discoveredClrBindingsInPackage;
+
+    if (!shouldTraverseDependencies) {
+      return;
+    }
+
+    const packageJsonPath = path.join(resolvedRoot, "package.json");
+    if (!fs.existsSync(packageJsonPath)) {
+      return;
+    }
+
+    try {
+      const packageJson = JSON.parse(
+        fs.readFileSync(packageJsonPath, "utf-8")
+      ) as {
+        readonly dependencies?: Record<string, unknown>;
+        readonly optionalDependencies?: Record<string, unknown>;
+        readonly peerDependencies?: Record<string, unknown>;
+      };
+      const dependencyNames = new Set<string>();
+      const dependencyBuckets = [
+        packageJson.dependencies,
+        packageJson.optionalDependencies,
+        packageJson.peerDependencies,
+      ];
+
+      for (const bucket of dependencyBuckets) {
+        if (
+          bucket !== null &&
+          typeof bucket === "object" &&
+          !Array.isArray(bucket)
+        ) {
+          for (const depName of Object.keys(bucket)) {
+            dependencyNames.add(depName);
+          }
+        }
+      }
+
+      for (const depName of dependencyNames) {
+        const dependencyRoot = resolveDependencyPackageRoot(resolvedRoot, depName);
+        if (dependencyRoot) {
+          visitPackageRoot(dependencyRoot, false);
+        }
+      }
+    } catch {
+      // Ignore unreadable or invalid package manifests.
+    }
+  };
+
+  for (const extra of extraPackageRoots) {
+    visitPackageRoot(extra, true);
   }
 
   for (const packagePath of Array.from(packageRoots).sort()) {

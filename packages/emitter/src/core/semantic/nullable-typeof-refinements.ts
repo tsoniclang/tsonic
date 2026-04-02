@@ -22,9 +22,10 @@ import {
   buildUnionNarrowAst,
   withoutNarrowedBinding,
   applyBinding,
-  buildExprBinding,
+  buildProjectedExprBinding,
   tryStripConditionalNullishGuardAst,
   narrowTypeByArrayShape,
+  narrowTypeByNotAssignableTarget,
   isArrayLikeNarrowingCandidate,
   currentNarrowedType,
   resolveRuntimeUnionFrame,
@@ -129,6 +130,10 @@ export const applySimpleNullableRefinement = (
     existingBinding?.kind === "expr"
       ? (existingBinding.storageExprAst ?? rawTargetAst)
       : rawTargetAst;
+  const carrierExprAst =
+    existingBinding?.kind === "expr"
+      ? (existingBinding.carrierExprAst ?? storageExprAst)
+      : rawTargetAst;
   const projectedExprAst =
     existingBinding?.kind === "expr"
       ? existingBinding.exprAst
@@ -150,11 +155,12 @@ export const applySimpleNullableRefinement = (
 
   return applyBinding(
     nullableGuard.key,
-    buildExprBinding(
+    buildProjectedExprBinding(
       materializedExprAst,
       strippedType,
       sourceType,
-      storageExprAst
+      carrierExprAst,
+      strippedType
     ),
     materializedContext
   );
@@ -270,7 +276,7 @@ export const applyDirectTypeofRefinement = (
     if (matchTag) {
       return applyBinding(
         directGuard.bindingKey,
-        buildExprBinding(
+        buildProjectedExprBinding(
           buildUnionNarrowAst(rawTargetAst, memberN),
           narrowedType,
           resolveExistingNarrowingSourceType(
@@ -382,8 +388,22 @@ export const applyArrayIsArrayRefinement = (
     direct.targetExpr.inferredType,
     context
   );
+  const predicateTargetType =
+    condition.kind === "call" &&
+    condition.narrowing?.kind === "typePredicate"
+      ? condition.narrowing.targetType
+      : undefined;
 
-  const narrowedType = narrowTypeByArrayShape(currentType, wantArray, context);
+  const narrowedType =
+    narrowTypeByArrayShape(currentType, wantArray, context) ??
+    narrowTypeByArrayShape(direct.targetExpr.inferredType, wantArray, context) ??
+    (wantArray
+      ? predicateTargetType
+      : narrowTypeByNotAssignableTarget(
+          currentType,
+          predicateTargetType,
+          context
+        ));
   if (!narrowedType) {
     return undefined;
   }
@@ -414,7 +434,7 @@ export const applyArrayIsArrayRefinement = (
     if (wantArray) {
       return applyBinding(
         direct.bindingKey,
-        buildExprBinding(
+        buildProjectedExprBinding(
           buildUnionNarrowAst(rawTargetAst, runtimeArrayPair.runtimeMemberN),
           narrowedType,
           resolveExistingNarrowingSourceType(

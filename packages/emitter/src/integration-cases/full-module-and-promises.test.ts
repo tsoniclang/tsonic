@@ -150,7 +150,7 @@ describe("End-to-End Integration", () => {
 
     it("emits direct IteratorResult property access for async generator next results", () => {
       const source = `
-        export async function* ticks(): AsyncGenerator<string, void, unknown> {
+        export async function* ticks(): AsyncGenerator<string, void, JsValue> {
           yield "tick";
         }
 
@@ -181,7 +181,7 @@ describe("End-to-End Integration", () => {
           value: TReturn;
         };
 
-        type IteratorResult<T, TReturn = unknown> =
+        type IteratorResult<T, TReturn = JsValue> =
           | IteratorYieldResult<T>
           | IteratorReturnResult<TReturn>;
 
@@ -208,7 +208,7 @@ describe("End-to-End Integration", () => {
       const source = `
         declare class Promise<T> {
           then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
-          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          catch<U>(onRejected: (reason: JsValue) => U | PromiseLike<U>): Promise<T | U>;
           finally(onFinally: () => void): Promise<T>;
           static resolve<T>(value: T): Promise<T>;
         }
@@ -280,7 +280,7 @@ describe("End-to-End Integration", () => {
       const source = `
         declare class Promise<T> {
           then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
-          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          catch<U>(onRejected: (reason: JsValue) => U | PromiseLike<U>): Promise<T | U>;
           finally(onFinally: () => void): Promise<T>;
           static resolve<T>(value: T): Promise<T>;
         }
@@ -307,7 +307,7 @@ describe("End-to-End Integration", () => {
       const source = `
         declare class Promise<T> {
           then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
-          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          catch<U>(onRejected: (reason: JsValue) => U | PromiseLike<U>): Promise<T | U>;
           finally(onFinally: () => void): Promise<T>;
           static resolve<T>(value: T): Promise<T>;
         }
@@ -334,7 +334,7 @@ describe("End-to-End Integration", () => {
 
         declare class Promise<T> {
           then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
-          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          catch<U>(onRejected: (reason: JsValue) => U | PromiseLike<U>): Promise<T | U>;
           finally(onFinally: () => void): Promise<T>;
         }
         interface PromiseLike<T> {}
@@ -358,7 +358,7 @@ describe("End-to-End Integration", () => {
 
         declare class Promise<T> {
           catch<TResult>(
-            onrejected: ((reason: unknown) => TResult | PromiseLike<TResult>) | undefined | null
+            onrejected: ((reason: JsValue) => TResult | PromiseLike<TResult>) | undefined | null
           ): Promise<T | TResult>;
         }
         interface PromiseLike<T> {}
@@ -399,7 +399,7 @@ describe("End-to-End Integration", () => {
         interface PromiseLike<T> {
           then<TResult1 = T, TResult2 = never>(
             onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null,
-            onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | undefined | null
+            onrejected?: ((reason: JsValue) => TResult2 | PromiseLike<TResult2>) | undefined | null
           ): PromiseLike<TResult1 | TResult2>;
         }
 
@@ -456,7 +456,7 @@ describe("End-to-End Integration", () => {
     it("lowers Promise.reject to Task.FromException", () => {
       const source = `
         declare class Promise<T> {
-          static reject<T = never>(reason?: any): Promise<T>;
+          static reject<T = never>(reason?: JsValue): Promise<T>;
         }
 
         export function main(): Promise<number> {
@@ -478,11 +478,11 @@ describe("End-to-End Integration", () => {
         }
 
         declare class Promise<T> {
-          static reject<T = never>(reason?: any): Promise<T>;
+          static reject<T = never>(reason?: JsValue): Promise<T>;
         }
 
         export function main(): void {
-          const operation = (): Promise<unknown> => Promise.reject(new Error("boom"));
+          const operation = (): Promise<JsValue> => Promise.reject(new Error("boom"));
           void operation;
         }
       `;

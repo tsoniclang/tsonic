@@ -426,6 +426,67 @@ export const resolveTypeReference = (
   ctx: BindingContext,
   node: ts.TypeReferenceNode
 ): DeclId | undefined => {
+  const resolveLexicalTypeParameterSymbol = (
+    typeName: ts.Identifier
+  ): ts.Symbol | undefined => {
+    const getScopedTypeParameters = (
+      scope: ts.Node
+    ): readonly ts.TypeParameterDeclaration[] => {
+      if (
+        ts.isInterfaceDeclaration(scope) ||
+        ts.isClassDeclaration(scope) ||
+        ts.isClassExpression(scope) ||
+        ts.isTypeAliasDeclaration(scope) ||
+        ts.isFunctionDeclaration(scope) ||
+        ts.isFunctionExpression(scope) ||
+        ts.isArrowFunction(scope) ||
+        ts.isMethodDeclaration(scope) ||
+        ts.isMethodSignature(scope) ||
+        ts.isCallSignatureDeclaration(scope) ||
+        ts.isConstructSignatureDeclaration(scope) ||
+        ts.isFunctionTypeNode(scope) ||
+        ts.isConstructorTypeNode(scope)
+      ) {
+        return scope.typeParameters ?? [];
+      }
+
+      if (ts.isMappedTypeNode(scope)) {
+        return [scope.typeParameter];
+      }
+
+      if (ts.isInferTypeNode(scope)) {
+        return [scope.typeParameter];
+      }
+
+      return [];
+    };
+
+    for (let current = node.parent; current; current = current.parent) {
+      const typeParameter = getScopedTypeParameters(current).find(
+        (candidate) => candidate.name.text === typeName.text
+      );
+      if (!typeParameter) {
+        continue;
+      }
+
+      const declarationSymbol = (
+        typeParameter as ts.TypeParameterDeclaration & {
+          readonly symbol?: ts.Symbol;
+        }
+      ).symbol;
+      if (declarationSymbol) {
+        return declarationSymbol;
+      }
+
+      const checkerSymbol = ctx.checker.getSymbolAtLocation(typeParameter.name);
+      if (checkerSymbol) {
+        return checkerSymbol;
+      }
+    }
+
+    return undefined;
+  };
+
   const resolveTransparentTypeAliases = (input: ts.Symbol): ts.Symbol => {
     const seen = new Set<ts.Symbol>();
     let current = input;
@@ -479,7 +540,8 @@ export const resolveTypeReference = (
     typeName: ts.EntityName
   ): ts.Symbol | undefined => {
     const symbol = ts.isIdentifier(typeName)
-      ? ctx.checker.getSymbolAtLocation(typeName)
+      ? resolveLexicalTypeParameterSymbol(typeName) ??
+        ctx.checker.getSymbolAtLocation(typeName)
       : ctx.checker.getSymbolAtLocation(typeName.right);
     if (!symbol) return undefined;
 

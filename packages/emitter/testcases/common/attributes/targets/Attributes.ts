@@ -12,7 +12,7 @@ export class Native {
 }
 
 // C# emits: [return: MarshalAs(UnmanagedType.Bool)]
-A.on(Native)
+A<Native>()
   .method((x) => x.foo)
   .target(AttributeTargets.return)
   .add(MarshalAsAttribute, UnmanagedType.Bool);
@@ -22,7 +22,7 @@ export class Data {
 }
 
 // C# emits: [field: NonSerialized]
-A.on(Data)
+A<Data>()
   .prop((x) => x.value)
   .target("field")
   .add(NonSerializedAttribute);

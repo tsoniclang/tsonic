@@ -146,7 +146,17 @@ const printIfStatement = (
   indent: string
 ): string => {
   const cond = printExpression(stmt.condition, indent);
-  const thenBody = printStatement(stmt.thenStatement, indent);
+  const printIfBranch = (branch: CSharpStatementAst): string =>
+    branch.kind === "blockStatement"
+      ? printBlockStatement(branch, indent)
+      : printBlockStatement(
+          {
+            kind: "blockStatement",
+            statements: [branch],
+          },
+          indent
+        );
+  const thenBody = printIfBranch(stmt.thenStatement);
 
   if (!stmt.elseStatement) {
     return `${indent}if (${cond})\n${thenBody}`;
@@ -160,7 +170,7 @@ const printIfStatement = (
     return `${indent}if (${cond})\n${thenBody}\n${indent}else ${elseIfBody}`;
   }
 
-  const elseBody = printStatement(stmt.elseStatement, indent);
+  const elseBody = printIfBranch(stmt.elseStatement);
   return `${indent}if (${cond})\n${thenBody}\n${indent}else\n${elseBody}`;
 };
 

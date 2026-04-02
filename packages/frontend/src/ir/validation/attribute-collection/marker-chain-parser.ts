@@ -2,8 +2,8 @@
  * Attribute Collection — Marker Chain Parser
  *
  * Contains tryDetectAttributeMarker which parses the full marker call chain
- * pattern: A.on(Target).type.add(...), A.on(Target).ctor.add(...),
- * A.on(Target).method(selector).add(...), A.on(Target).prop(selector).add(...)
+ * pattern: A<T>().add(...), A<T>().ctor.add(...), A<T>().method(selector).add(...),
+ * A<T>().prop(selector).add(...), and A(fn).add(...)
  */
 
 import { createDiagnostic } from "../../../types/diagnostic.js";
@@ -11,8 +11,8 @@ import {
   IrModule,
   IrExpression,
   IrCallExpression,
-  IrMemberExpression,
   IrIdentifierExpression,
+  IrMemberExpression,
   IrAttributeTarget,
   IrAttributeArg,
   IrObjectExpression,
@@ -29,7 +29,7 @@ import {
 import {
   parseAttributeTarget,
   getMemberName,
-  parseOnCall,
+  parseRootCall,
   parseSelector,
 } from "./marker-detection.js";
 
@@ -41,10 +41,11 @@ import {
  * Try to detect if a call expression is an attribute marker pattern.
  *
  * Patterns:
- * - A.on(Target).type.add(...)
- * - A.on(Target).ctor.add(...)
- * - A.on(Target).method(selector).add(...)
- * - A.on(Target).prop(selector).add(...)
+ * - A<T>().add(...)
+ * - A<T>().ctor.add(...)
+ * - A<T>().method(selector).add(...)
+ * - A<T>().prop(selector).add(...)
+ * - A(fn).add(...)
  */
 export const tryDetectAttributeMarker = (
   call: IrCallExpression,
@@ -108,65 +109,88 @@ export const tryDetectAttributeMarker = (
     }
   }
 
-  // Determine the target selector: `.type`, `.ctor`, `.method(selector)`, `.prop(selector)`
+  // Determine the target selector: root `.add(...)`, `.ctor.add(...)`,
+  // `.method(selector).add(...)`, `.prop(selector).add(...)`
   let selector: AttributeMarker["targetSelector"] | undefined;
   let selectedMemberName: string | undefined;
-  let onCallExpr: IrExpression | undefined;
+  let rootCallExpr: IrExpression | undefined;
 
   if (selectorRoot.kind === "memberAccess") {
     const targetMember = selectorRoot as IrMemberExpression;
     const prop = getMemberName(targetMember);
-    if (prop !== "type" && prop !== "ctor") return { kind: "notMatch" };
+    if (prop !== "ctor") return { kind: "notMatch" };
     selector = prop;
-    onCallExpr = targetMember.object;
+    rootCallExpr = targetMember.object;
   } else if (selectorRoot.kind === "call") {
     const selectorCall = selectorRoot as IrCallExpression;
-    if (selectorCall.callee.kind !== "memberAccess")
-      return { kind: "notMatch" };
+    if (selectorCall.callee.kind !== "memberAccess") {
+      selector = "root";
+      rootCallExpr = selectorRoot;
+    } else {
     const selectorMember = selectorCall.callee as IrMemberExpression;
     const prop = getMemberName(selectorMember);
-    if (prop !== "method" && prop !== "prop") return { kind: "notMatch" };
-    selector = prop;
+      if (prop !== "method" && prop !== "prop") {
+        selector = "root";
+        rootCallExpr = selectorRoot;
+      } else {
+        selector = prop;
 
-    if (selectorCall.arguments.length !== 1) {
-      return {
-        kind: "error",
-        diagnostic: createDiagnostic(
-          "TSN4005",
-          "error",
-          `Invalid attribute marker: .${prop}(selector) expects exactly 1 argument`,
-          createLocation(module.filePath, selectorCall.sourceSpan)
-        ),
-      };
+        if (selectorCall.arguments.length !== 1) {
+          return {
+            kind: "error",
+            diagnostic: createDiagnostic(
+              "TSN4005",
+              "error",
+              `Invalid attribute marker: .${prop}(selector) expects exactly 1 argument`,
+              createLocation(module.filePath, selectorCall.sourceSpan)
+            ),
+          };
+        }
+
+        const arg0 = selectorCall.arguments[0];
+        if (!arg0 || arg0.kind === "spread") {
+          return {
+            kind: "error",
+            diagnostic: createDiagnostic(
+              "TSN4005",
+              "error",
+              `Invalid attribute marker: selector cannot be a spread argument`,
+              createLocation(module.filePath, selectorCall.sourceSpan)
+            ),
+          };
+        }
+
+        const sel = parseSelector(arg0, module);
+        if (sel.kind !== "ok") return sel;
+        selectedMemberName = sel.value;
+
+        rootCallExpr = selectorMember.object;
+      }
     }
-
-    const arg0 = selectorCall.arguments[0];
-    if (!arg0 || arg0.kind === "spread") {
-      return {
-        kind: "error",
-        diagnostic: createDiagnostic(
-          "TSN4005",
-          "error",
-          `Invalid attribute marker: selector cannot be a spread argument`,
-          createLocation(module.filePath, selectorCall.sourceSpan)
-        ),
-      };
-    }
-
-    const sel = parseSelector(arg0, module);
-    if (sel.kind !== "ok") return sel;
-    selectedMemberName = sel.value;
-
-    onCallExpr = selectorMember.object;
   } else {
     return { kind: "notMatch" };
   }
 
-  if (!onCallExpr) return { kind: "notMatch" };
+  if (!rootCallExpr) return { kind: "notMatch" };
 
-  const on = parseOnCall(onCallExpr, module, apiNames);
-  if (on.kind !== "ok") return on;
-  const targetName = on.value.target.name;
+  const root = parseRootCall(rootCallExpr, module, apiNames);
+  if (root.kind !== "ok") return root;
+
+  if (
+    selector === "root" &&
+    attributeTarget !== undefined &&
+    attributeTarget !== "type"
+  ) {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: declaration attributes only support .target("type").`,
+        createLocation(module.filePath, call.sourceSpan)
+      ),
+    };
+  }
 
   // Parse `.add(...)` arguments
   if (call.arguments.length < 1) {
@@ -217,7 +241,7 @@ export const tryDetectAttributeMarker = (
       return {
         kind: "ok",
         value: {
-          targetName,
+          target: root.value,
           targetSelector: selector,
           selectedMemberName,
           attributeTarget,
@@ -231,12 +255,12 @@ export const tryDetectAttributeMarker = (
 
     // .add(descriptorVar)
     if (first.kind === "identifier") {
-      const desc = descriptors.get((first as IrIdentifierExpression).name);
+      const desc = descriptors.get(first.name);
       if (desc) {
         return {
           kind: "ok",
           value: {
-            targetName,
+            target: root.value,
             targetSelector: selector,
             selectedMemberName,
             attributeTarget,
@@ -348,7 +372,7 @@ export const tryDetectAttributeMarker = (
   return {
     kind: "ok",
     value: {
-      targetName,
+      target: root.value,
       targetSelector: selector,
       selectedMemberName,
       attributeTarget,

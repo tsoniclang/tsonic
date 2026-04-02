@@ -27,7 +27,6 @@ describe("CLI Surface Profiles", () => {
       "@tsonic/globals",
       "@tsonic/dotnet",
     ]);
-    expect(caps.useStandardLib).to.equal(false);
   });
 
   it("should validate surface mode strings", () => {
@@ -54,7 +53,6 @@ describe("CLI Surface Profiles", () => {
     expect(caps.includesClr).to.equal(false);
     expect(caps.requiredTypeRoots).to.deep.equal([]);
     expect(caps.requiredNpmPackages).to.deep.equal([]);
-    expect(caps.useStandardLib).to.equal(false);
   });
 
   it("should prefer installed @tsonic/js manifest without clr inheritance", () => {
@@ -85,7 +83,6 @@ describe("CLI Surface Profiles", () => {
             extends: [],
             requiredTypeRoots: ["types"],
             requiredNpmPackages: ["@tsonic/js"],
-            useStandardLib: false,
           },
           null,
           2
@@ -131,7 +128,6 @@ describe("CLI Surface Profiles", () => {
             extends: [],
             requiredTypeRoots: ["types"],
             requiredNpmPackages: ["@tsonic/js"],
-            useStandardLib: false,
           },
           null,
           2
@@ -142,7 +138,6 @@ describe("CLI Surface Profiles", () => {
       expect(caps.includesClr).to.equal(false);
       expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/js"]);
       expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
-      expect(caps.useStandardLib).to.equal(false);
       expect(
         hasResolvedSurfaceProfile("@tsonic/js", { workspaceRoot })
       ).to.equal(true);
@@ -177,7 +172,6 @@ describe("CLI Surface Profiles", () => {
             extends: [],
             requiredTypeRoots: ["linked-types"],
             requiredNpmPackages: ["@tsonic/js"],
-            useStandardLib: false,
           },
           null,
           2
@@ -235,7 +229,6 @@ describe("CLI Surface Profiles", () => {
             id: "@tsonic/js",
             extends: [],
             requiredTypeRoots: ["linked-types"],
-            useStandardLib: false,
           },
           null,
           2
@@ -284,7 +277,6 @@ describe("CLI Surface Profiles", () => {
             extends: [],
             requiredTypeRoots: ["linked-types"],
             requiredNpmPackages: ["@tsonic/js"],
-            useStandardLib: false,
           },
           null,
           2
@@ -333,7 +325,6 @@ describe("CLI Surface Profiles", () => {
             extends: [],
             requiredTypeRoots: ["types"],
             requiredNpmPackages: ["@tsonic/js"],
-            useStandardLib: false,
           },
           null,
           2
@@ -424,7 +415,6 @@ describe("CLI Surface Profiles", () => {
             extends: [],
             requiredTypeRoots: ["legacy-types"],
             requiredNpmPackages: ["@tsonic/js"],
-            useStandardLib: false,
           },
           null,
           2
@@ -502,7 +492,6 @@ describe("CLI Surface Profiles", () => {
       expect(caps.includesClr).to.equal(false);
       expect(caps.requiredTypeRoots).to.deep.equal([]);
       expect(caps.requiredNpmPackages).to.deep.equal([]);
-      expect(caps.useStandardLib).to.equal(false);
       expect(
         hasResolvedSurfaceProfile("@tsonic/nodejs", { workspaceRoot })
       ).to.equal(false);
@@ -539,7 +528,6 @@ describe("CLI Surface Profiles", () => {
             extends: [],
             requiredTypeRoots: ["types"],
             requiredNpmPackages: ["@tsonic/js"],
-            useStandardLib: false,
           },
           null,
           2
@@ -569,7 +557,6 @@ describe("CLI Surface Profiles", () => {
             extends: ["@tsonic/js"],
             requiredTypeRoots: ["types", "globals"],
             requiredNpmPackages: ["@acme/surface-web", "@acme/runtime"],
-            useStandardLib: false,
           },
           null,
           2
@@ -623,7 +610,6 @@ describe("CLI Surface Profiles", () => {
             extends: [],
             requiredTypeRoots: ["types"],
             requiredNpmPackages: ["@tsonic/js"],
-            useStandardLib: false,
           },
           null,
           2
@@ -654,7 +640,6 @@ describe("CLI Surface Profiles", () => {
             extends: ["@tsonic/js"],
             requiredTypeRoots: ["types"],
             requiredNpmPackages: ["@acme/surface-node"],
-            useStandardLib: false,
           },
           null,
           2

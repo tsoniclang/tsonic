@@ -3,6 +3,7 @@
  *
  * Contains the main validation visitor and rule implementations for:
  * - TSN7401: 'any' type usage
+ * - TSN7402: 'unknown' type usage outside erased overload stubs
  * - TSN7403: Object literal without contextual nominal type
  * - TSN7405: Untyped function/arrow/lambda parameter
  * - TSN7413: Dictionary key must be string, number, or symbol
@@ -43,6 +44,93 @@ import {
 import { isAllowedKeyType } from "./static-safety-dictionary-keys.js";
 import { validateArrowEscapeHatch } from "./static-safety-arrow-rules.js";
 
+const getNamedMemberName = (
+  name: ts.PropertyName | ts.PrivateIdentifier | undefined
+): string | undefined => {
+  if (!name) {
+    return undefined;
+  }
+
+  if (ts.isIdentifier(name) || ts.isPrivateIdentifier(name)) {
+    return name.text;
+  }
+
+  if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+
+  return undefined;
+};
+
+const nodeIsWithin = (node: ts.Node, container: ts.Node | undefined): boolean =>
+  !!container && node.pos >= container.pos && node.end <= container.end;
+
+const isOverloadStubImplementation = (
+  node: ts.FunctionDeclaration | ts.MethodDeclaration
+): boolean => {
+  if (!node.body) {
+    return false;
+  }
+
+  if (ts.isFunctionDeclaration(node)) {
+    if (!node.name || !node.parent || !ts.isSourceFile(node.parent)) {
+      return false;
+    }
+
+    return node.parent.statements.some(
+      (statement) =>
+        ts.isFunctionDeclaration(statement) &&
+        statement !== node &&
+        statement.name?.text === node.name?.text &&
+        !statement.body
+    );
+  }
+
+  if (!node.parent || !ts.isClassLike(node.parent)) {
+    return false;
+  }
+
+  const memberName = getNamedMemberName(node.name);
+  if (!memberName) {
+    return false;
+  }
+
+  return node.parent.members.some(
+    (member) =>
+      ts.isMethodDeclaration(member) &&
+      member !== node &&
+      getNamedMemberName(member.name) === memberName &&
+      !member.body
+  );
+};
+
+const isInsideOverloadStubSignatureType = (node: ts.Node): boolean => {
+  for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
+    if (!ts.isFunctionDeclaration(current) && !ts.isMethodDeclaration(current)) {
+      continue;
+    }
+
+    if (!isOverloadStubImplementation(current)) {
+      return false;
+    }
+
+    if (nodeIsWithin(node, current.type)) {
+      return true;
+    }
+
+    return current.parameters.some((parameter) => nodeIsWithin(node, parameter.type));
+  }
+
+  return false;
+};
+
+const getAssertionTargetTypeNode = (node: ts.Node): ts.TypeNode | undefined => {
+  if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
+    return node.type;
+  }
+  return undefined;
+};
+
 /**
  * Validate a source file for static safety violations.
  */
@@ -65,33 +153,63 @@ export const validateStaticSafety = (
   ): DiagnosticsCollector => {
     let currentCollector = accCollector;
 
+    const isBroadOverloadStubType = isInsideOverloadStubSignatureType(node);
+
     // TSN7401: Check for explicit 'any' type annotations
-    if (node.kind === ts.SyntaxKind.AnyKeyword) {
+    if (node.kind === ts.SyntaxKind.AnyKeyword && !isBroadOverloadStubType) {
       currentCollector = addDiagnostic(
         currentCollector,
         createDiagnostic(
           "TSN7401",
           "error",
-          "'any' type is not supported. Provide a concrete type, use 'unknown', or define a nominal type.",
+          "'any' type is not supported. Provide a concrete type, or use a broad overload stub signature that is erased before emission.",
           getNodeLocation(sourceFile, node),
-          "Replace 'any' with a specific type like 'unknown', 'object', or a custom interface."
+          "Replace 'any' with a specific type, or keep it only on an erased overload stub implementation signature."
         )
       );
     }
 
-    // TSN7401: Check for 'as any' type assertions
+    // TSN7402: Check for explicit 'unknown' type annotations
     if (
-      ts.isAsExpression(node) &&
-      node.type.kind === ts.SyntaxKind.AnyKeyword
+      node.kind === ts.SyntaxKind.UnknownKeyword &&
+      !isBroadOverloadStubType
     ) {
+      currentCollector = addDiagnostic(
+        currentCollector,
+        createDiagnostic(
+          "TSN7402",
+          "error",
+          "'unknown' type is not supported. Provide a concrete type, use JsValue, or keep it only on an erased overload stub implementation signature.",
+          getNodeLocation(sourceFile, node),
+          "Replace 'unknown' with a specific type or JsValue, or keep it only on an erased overload stub implementation signature."
+        )
+      );
+    }
+
+    // TSN7401/TSN7402: Check for broad type assertions
+    const assertionTargetType = getAssertionTargetTypeNode(node);
+    if (assertionTargetType?.kind === ts.SyntaxKind.AnyKeyword) {
       currentCollector = addDiagnostic(
         currentCollector,
         createDiagnostic(
           "TSN7401",
           "error",
-          "'as any' type assertion is not supported. Use a specific type assertion.",
+          "'any' type assertion is not supported. Use a specific type assertion.",
           getNodeLocation(sourceFile, node),
-          "Replace 'as any' with a specific type like 'as unknown' or 'as YourType'."
+          "Replace this assertion with a specific type like 'as object' or 'as YourType'."
+        )
+      );
+    }
+
+    if (assertionTargetType?.kind === ts.SyntaxKind.UnknownKeyword) {
+      currentCollector = addDiagnostic(
+        currentCollector,
+        createDiagnostic(
+          "TSN7402",
+          "error",
+          "'unknown' type assertion is not supported. Use a specific type assertion or JsValue.",
+          getNodeLocation(sourceFile, node),
+          "Replace this assertion with a specific type or JsValue."
         )
       );
     }
