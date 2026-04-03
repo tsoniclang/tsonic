@@ -18,18 +18,11 @@ import {
   extractParameterNodes,
   convertTypeParameterDeclarations,
 } from "./binding-helpers.js";
+import { isOverloadSurfaceDeclaration } from "../syntax/overload-stubs.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CALL SIGNATURE CANDIDATES
 // ═══════════════════════════════════════════════════════════════════════════
-
-export const isOverloadSurfaceDeclaration = (
-  decl: ts.Declaration
-): decl is ts.SignatureDeclaration =>
-  ts.isFunctionLike(decl) &&
-  !ts.isConstructSignatureDeclaration(decl) &&
-  !ts.isConstructorDeclaration(decl) &&
-  (!("body" in decl) || decl.body === undefined);
 
 export const resolveCallTargetDeclarations = (
   ctx: BindingContext,

@@ -9,6 +9,7 @@
 import * as ts from "typescript";
 import type { IrType } from "../../types/index.js";
 import { normalizeToClrName } from "./universe/alias-table.js";
+import { isOverloadStubImplementation } from "../../syntax/overload-stubs.js";
 import { tryResolveDeterministicPropertyName } from "../../syntax/property-names.js";
 import type {
   ConvertTypeFn,
@@ -324,6 +325,9 @@ export const extractMembers = (
 
     // Method declarations (class)
     if (ts.isMethodDeclaration(member)) {
+      if (isOverloadStubImplementation(member)) {
+        continue;
+      }
       const name = tryResolveDeterministicPropertyName(member.name);
       if (!name) continue;
       const existing = result.get(name);

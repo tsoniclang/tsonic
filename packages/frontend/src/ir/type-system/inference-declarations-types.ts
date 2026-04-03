@@ -21,8 +21,21 @@ import type { TypeSystemState, DeclKind } from "./type-system-state.js";
 import { emitDiagnostic } from "./type-system-state.js";
 import { resolveTypeIdByName } from "./type-system-state.js";
 import { convertTypeNode } from "./type-system-call-resolution.js";
-import { makeOptionalReadType } from "./inference-utilities.js";
+import {
+  buildCallableOverloadFamilyType,
+  hasStaticModifier,
+  makeOptionalReadType,
+} from "./inference-utilities.js";
 import { tryInferTypeFromInitializer } from "./inference-initializers.js";
+import {
+  getMembersFromType,
+  memberValueType,
+} from "./internal/type-converter/type-operators.js";
+import {
+  isOverloadStubImplementation,
+  isOverloadSurfaceDeclaration,
+} from "../syntax/overload-stubs.js";
+import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 
 const CATCH_VARIABLE_JS_VALUE_TYPE: IrReferenceType = {
   kind: "referenceType",
@@ -82,6 +95,55 @@ const buildFunctionTypeFromSignatureDeclaration = (
     ? convertTypeNode(state, declaration.type)
     : unknownType,
 });
+
+const getOverloadSurfaceFamily = (
+  declaration: ts.FunctionDeclaration | ts.MethodDeclaration
+): readonly ts.SignatureDeclarationBase[] | undefined => {
+  if (!declaration.name) {
+    return undefined;
+  }
+
+  if (ts.isFunctionDeclaration(declaration)) {
+    const parent = declaration.parent;
+    if (!ts.isSourceFile(parent)) {
+      return undefined;
+    }
+
+    const family = parent.statements.filter(
+      (statement): statement is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(statement) &&
+        statement.name?.text === declaration.name?.text
+    );
+    if (family.length === 0) {
+      return undefined;
+    }
+
+    const overloadSurface = family.filter(isOverloadSurfaceDeclaration);
+    return overloadSurface.length > 0 ? overloadSurface : undefined;
+  }
+
+  const parent = declaration.parent;
+  if (!ts.isClassDeclaration(parent)) {
+    return undefined;
+  }
+
+  const methodName = tryResolveDeterministicPropertyName(declaration.name);
+  if (!methodName) {
+    return undefined;
+  }
+  const family = parent.members.filter(
+    (member): member is ts.MethodDeclaration =>
+      ts.isMethodDeclaration(member) &&
+      tryResolveDeterministicPropertyName(member.name) === methodName &&
+      hasStaticModifier(member) === hasStaticModifier(declaration)
+  );
+  if (family.length === 0) {
+    return undefined;
+  }
+
+  const overloadSurface = family.filter(isOverloadSurfaceDeclaration);
+  return overloadSurface.length > 0 ? overloadSurface : undefined;
+};
 
 const getNamedRuntimeDeclarationDeclId = (
   state: TypeSystemState,
@@ -219,6 +281,51 @@ const buildNamespaceImportType = (
   }
 
   return buildModuleNamespaceTypeFromSymbol(state, moduleSymbol, new Set());
+};
+
+const getTypeQuerySegments = (exprName: ts.EntityName): readonly string[] => {
+  if (ts.isIdentifier(exprName)) {
+    return [exprName.text];
+  }
+
+  return [...getTypeQuerySegments(exprName.left), exprName.right.text];
+};
+
+const buildTypeQueryValueType = (
+  state: TypeSystemState,
+  exprName: ts.EntityName
+): IrType => {
+  const [rootName, ...memberNames] = getTypeQuerySegments(exprName);
+  if (!rootName) {
+    return unknownType;
+  }
+
+  const rootDeclId = state.resolveIdentifier(rootName);
+  if (!rootDeclId) {
+    emitDiagnostic(
+      state,
+      "TSN5203",
+      `Cannot resolve type query root '${rootName}'`
+    );
+    return unknownType;
+  }
+
+  let currentType = typeOfValueRead(state, rootDeclId);
+  for (const memberName of memberNames) {
+    const members = getMembersFromType(currentType);
+    const member = members?.find((candidate) => candidate.name === memberName);
+    if (!member) {
+      emitDiagnostic(
+        state,
+        "TSN5203",
+        `Cannot resolve type query member '${memberName}'`
+      );
+      return unknownType;
+    }
+    currentType = memberValueType(member);
+  }
+
+  return currentType;
 };
 
 const buildSourceFileModuleNamespaceType = (
@@ -378,6 +485,26 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
       ts.isFunctionExpression(effectiveFunctionValueDecl) ||
       ts.isArrowFunction(effectiveFunctionValueDecl))
   ) {
+    if (
+      (ts.isFunctionDeclaration(effectiveFunctionValueDecl) ||
+        ts.isMethodDeclaration(effectiveFunctionValueDecl)) &&
+      (isOverloadSurfaceDeclaration(effectiveFunctionValueDecl) ||
+        isOverloadStubImplementation(effectiveFunctionValueDecl))
+    ) {
+      const overloadSurfaceFamily = getOverloadSurfaceFamily(
+        effectiveFunctionValueDecl
+      );
+      if (overloadSurfaceFamily && overloadSurfaceFamily.length > 0) {
+        result = buildCallableOverloadFamilyType(
+          overloadSurfaceFamily.map((member) =>
+            buildFunctionTypeFromSignatureDeclaration(state, member)
+          )
+        );
+        state.declTypeCache.set(declId.id, result);
+        return result;
+      }
+    }
+
     if (!effectiveFunctionValueDecl.type) {
       emitDiagnostic(
         state,
@@ -389,6 +516,8 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
       state,
       effectiveFunctionValueDecl
     );
+  } else if (effectiveTypeNode && ts.isTypeQueryNode(effectiveTypeNode)) {
+    result = buildTypeQueryValueType(state, effectiveTypeNode.exprName);
   } else if (effectiveTypeNode) {
     // Explicit type annotation - convert to IR
     result = convertTypeNode(state, effectiveTypeNode);

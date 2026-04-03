@@ -19,10 +19,10 @@ import {
 } from "./binding-helpers.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 import {
-  isOverloadSurfaceDeclaration,
   resolveCallSignatureCandidates,
   resolveCallTargetDeclarations,
 } from "./binding-call-resolution-candidates.js";
+import { isOverloadSurfaceDeclaration } from "../syntax/overload-stubs.js";
 // ═══════════════════════════════════════════════════════════════════════════
 // CALL SIGNATURE RESOLUTION
 // ═══════════════════════════════════════════════════════════════════════════

@@ -124,6 +124,27 @@ export function inferTypeFromValueDeclaration(
 ): IrType | undefined {
   if (!declaration) return undefined;
 
+  if (ts.isImportSpecifier(declaration)) {
+    const importedDeclId = binding.resolveImport(declaration);
+    if (!importedDeclId || seenDeclIds.has(importedDeclId.id)) {
+      return undefined;
+    }
+
+    seenDeclIds.add(importedDeclId.id);
+    const importedDeclInfo = (binding as BindingInternal)
+      ._getHandleRegistry()
+      .getDecl(importedDeclId);
+
+    return inferTypeFromValueDeclaration(
+      (importedDeclInfo?.valueDeclNode ??
+        importedDeclInfo?.declNode ??
+        importedDeclInfo?.typeDeclNode) as ts.Declaration | undefined,
+      binding,
+      seenDeclIds,
+      convertTypeFn
+    );
+  }
+
   if (
     ts.isFunctionDeclaration(declaration) ||
     ts.isMethodDeclaration(declaration)
@@ -432,6 +453,14 @@ export function inferTypeFromValueExpression(
       current,
       binding,
       seenDeclIds,
+      convertTypeFn
+    );
+  }
+
+  if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
+    return buildFunctionTypeFromSignatureDeclaration(
+      current,
+      binding,
       convertTypeFn
     );
   }

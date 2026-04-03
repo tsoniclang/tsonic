@@ -20,6 +20,7 @@
 
 import * as ts from "typescript";
 import { TsonicProgram } from "../program.js";
+import { isOverloadStubImplementation } from "../ir/syntax/overload-stubs.js";
 import {
   DiagnosticsCollector,
   addDiagnostic,
@@ -44,65 +45,8 @@ import {
 import { isAllowedKeyType } from "./static-safety-dictionary-keys.js";
 import { validateArrowEscapeHatch } from "./static-safety-arrow-rules.js";
 
-const getNamedMemberName = (
-  name: ts.PropertyName | ts.PrivateIdentifier | undefined
-): string | undefined => {
-  if (!name) {
-    return undefined;
-  }
-
-  if (ts.isIdentifier(name) || ts.isPrivateIdentifier(name)) {
-    return name.text;
-  }
-
-  if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
-    return name.text;
-  }
-
-  return undefined;
-};
-
 const nodeIsWithin = (node: ts.Node, container: ts.Node | undefined): boolean =>
   !!container && node.pos >= container.pos && node.end <= container.end;
-
-const isOverloadStubImplementation = (
-  node: ts.FunctionDeclaration | ts.MethodDeclaration
-): boolean => {
-  if (!node.body) {
-    return false;
-  }
-
-  if (ts.isFunctionDeclaration(node)) {
-    if (!node.name || !node.parent || !ts.isSourceFile(node.parent)) {
-      return false;
-    }
-
-    return node.parent.statements.some(
-      (statement) =>
-        ts.isFunctionDeclaration(statement) &&
-        statement !== node &&
-        statement.name?.text === node.name?.text &&
-        !statement.body
-    );
-  }
-
-  if (!node.parent || !ts.isClassLike(node.parent)) {
-    return false;
-  }
-
-  const memberName = getNamedMemberName(node.name);
-  if (!memberName) {
-    return false;
-  }
-
-  return node.parent.members.some(
-    (member) =>
-      ts.isMethodDeclaration(member) &&
-      member !== node &&
-      getNamedMemberName(member.name) === memberName &&
-      !member.body
-  );
-};
 
 const isInsideOverloadStubSignatureType = (node: ts.Node): boolean => {
   for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
