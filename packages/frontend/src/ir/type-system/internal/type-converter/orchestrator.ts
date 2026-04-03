@@ -283,6 +283,12 @@ export const convertType = (
     return convertFunctionType(typeNode, binding, convertType);
   }
 
+  // Constructor types project to their constructed value type.
+  // Static-side members are preserved separately by enclosing intersections.
+  if (ts.isConstructorTypeNode(typeNode)) {
+    return convertType(typeNode.type, binding);
+  }
+
   // Object/interface types
   if (ts.isTypeLiteralNode(typeNode)) {
     return convertObjectType(typeNode, binding, convertType);

@@ -11,6 +11,7 @@ import { substituteIrType } from "../../../types/ir-substitution.js";
 import { CLR_PRIMITIVE_TYPE_SET, getClrPrimitiveType } from "./primitives.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
+import { isOverloadStubImplementation } from "../../../syntax/overload-stubs.js";
 import {
   classifyDictionaryKeyTypeNode,
   normalizeExpandedAliasType,
@@ -259,6 +260,12 @@ export const extractStructuralMembersFromDeclarations = (
         if (
           ts.isMethodDeclaration(member) &&
           !isPublicInstanceClassMember(member)
+        ) {
+          continue;
+        }
+        if (
+          ts.isMethodDeclaration(member) &&
+          isOverloadStubImplementation(member)
         ) {
           continue;
         }
