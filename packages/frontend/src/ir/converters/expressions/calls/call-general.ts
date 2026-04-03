@@ -2319,12 +2319,19 @@ export const convertCallExpression = (
     sourceBackedCallParameterTypes?.surfaceParameterTypes ??
     lambdaContextResolved?.surfaceParameterTypes ??
     lambdaContextCallableResolution?.resolved?.surfaceParameterTypes;
+  const lambdaContextResolvedParameterTypes =
+    lambdaContextResolved?.parameterTypes ??
+    lambdaContextCallableResolution?.resolved?.parameterTypes ??
+    lambdaContextFunctionParameterTypes;
+  const deferredContextParameterTypes =
+    mergeContextualParameterTypes(
+      lambdaContextResolvedParameterTypes,
+      lambdaContextSurfaceParameterTypes
+    ) ?? lambdaContextSurfaceParameterTypes;
 
   const parameterTypesForDeferredContext =
     mergeContextualParameterTypes(
-      lambdaContextSurfaceParameterTypes ??
-        lambdaContextResolved?.parameterTypes ??
-        lambdaContextFunctionParameterTypes,
+      deferredContextParameterTypes,
       initialParameterTypesForContext
     ) ?? initialParameterTypesForContext;
 

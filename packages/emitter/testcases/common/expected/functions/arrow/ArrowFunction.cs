@@ -14,7 +14,7 @@ namespace TestCases.common.functions.arrow
 
         private static string greet__Impl(string name)
         {
-            return $"Hello {name}";
+            return $"Hello {(global::js.Globals.String(name))}";
         }
     }
 }

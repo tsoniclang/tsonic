@@ -5,7 +5,7 @@ namespace TestCases.common.types.conditional
     {
         public static string greet(string name)
         {
-            return $"Hello {name}";
+            return $"Hello {(global::js.Globals.String(name))}";
         }
     }
 }

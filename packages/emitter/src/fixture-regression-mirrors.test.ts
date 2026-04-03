@@ -730,7 +730,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        'global::System.Text.Json.JsonSerializer.Serialize(new global::System.Collections.Generic.Dictionary<string, object?> { ["ok"] = true, ["value"] = (object)(double)3 },'
+        'global::Test.TsonicJsonRuntime.Stringify(new global::System.Collections.Generic.Dictionary<string, object?> { ["ok"] = true, ["value"] = (object)(double)3 })'
       );
       expect(csharp).to.not.include("JSON.stringify(");
     });
@@ -754,8 +754,10 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include(
         'var parsedBool = global::System.Text.Json.JsonSerializer.Deserialize<bool>("true", global::Test.TsonicJson.Options);'
       );
-      expect(csharp).to.include("INLINE.stringify=");
-      expect(csharp).to.include("ESCAPES=");
+      expect(csharp).to.include(
+        "global::System.Text.Json.JsonSerializer.Serialize(inline, global::Test.TsonicJson.Options)"
+      );
+      expect(csharp).to.include("global::Test.TsonicJsonRuntime.Stringify(new global::System.Collections.Generic.Dictionary<string, object?>");
     });
 
     it("infers explicit JsValue through generic createWrapped calls used by flat", () => {

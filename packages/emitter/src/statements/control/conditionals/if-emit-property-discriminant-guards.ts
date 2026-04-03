@@ -464,6 +464,7 @@ export const tryEmitNegatedPredicateGuard = (
       kind: "rename",
       name: thenNarrowedName,
       type: otherMemberType,
+      sourceType: buildSubsetUnionType(candidateMembers),
     });
 
     const thenCastStmt = buildCastLocalDecl(

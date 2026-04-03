@@ -14,10 +14,25 @@ import {
   delegateToFunctionType,
   expandParameterTypesForArguments,
 } from "./call-resolution-utilities.js";
+import {
+  normalizeToNominal,
+  stripTsonicExtensionWrappers,
+} from "./type-system-state-helpers.js";
 
 type CandidateSelection = {
   readonly sigId: SignatureId | undefined;
   readonly resolved: ResolvedCall | undefined;
+};
+
+type CandidateDiagnostics = readonly TypeSystemState["diagnostics"][number][];
+
+type ScoredCandidate = {
+  readonly sigId: SignatureId;
+  readonly evaluation: {
+    readonly resolved: ResolvedCall;
+    readonly diagnostics: CandidateDiagnostics;
+  };
+  readonly score: CandidateScore;
 };
 
 type CandidateScore = readonly [
@@ -31,7 +46,45 @@ type CandidateScore = readonly [
   number,
   number,
   number,
+  number,
 ];
+
+const scoreReceiverCompatibility = (
+  state: TypeSystemState,
+  resolved: ResolvedCall,
+  receiverType: IrType | undefined
+): number => {
+  if (!receiverType || !resolved.thisParameterType) {
+    return 0;
+  }
+
+  const effectiveReceiverType = stripTsonicExtensionWrappers(receiverType);
+  const expectedReceiverType = resolved.thisParameterType;
+  const normalizedActual = normalizeToNominal(state, effectiveReceiverType);
+  const normalizedExpected = normalizeToNominal(state, expectedReceiverType);
+
+  if (
+    normalizedActual &&
+    normalizedExpected &&
+    normalizedActual.typeId.stableId === normalizedExpected.typeId.stableId
+  ) {
+    return 3;
+  }
+
+  if (
+    typesEqual(effectiveReceiverType, expectedReceiverType) ||
+    (isAssignableTo(state, effectiveReceiverType, expectedReceiverType) &&
+      isAssignableTo(state, expectedReceiverType, effectiveReceiverType))
+  ) {
+    return 2;
+  }
+
+  if (isAssignableTo(state, effectiveReceiverType, expectedReceiverType)) {
+    return 1;
+  }
+
+  return -1;
+};
 
 const scoreSurfaceTypeSpecificity = (type: IrType | undefined): number => {
   if (!type) {
@@ -497,9 +550,15 @@ const buildCandidateScore = (
   state: TypeSystemState,
   sigId: SignatureId,
   resolved: ResolvedCall,
+  receiverType: IrType | undefined,
   argTypes: readonly (IrType | undefined)[] | undefined,
   argumentCount: number
 ): CandidateScore => {
+  const receiverCompatibilityScore = scoreReceiverCompatibility(
+    state,
+    resolved,
+    receiverType
+  );
   const participatingParameterTypes = resolved.parameterTypes.slice(
     0,
     argumentCount
@@ -576,6 +635,7 @@ const buildCandidateScore = (
   const nonRest = resolved.selectionMeta && !resolved.selectionMeta.hasRestParameter ? 1 : 0;
 
   return [
+    receiverCompatibilityScore,
     broadNumberIndependentCompatibleArgumentCount,
     broadNumberExplicitlyAcceptedArgumentCount,
     compatibleArgumentCount,
@@ -662,53 +722,67 @@ export const selectBestCallCandidate = (
     };
   }
 
-  let bestSigId = fallbackSigId ?? orderedCandidates[0];
-  if (!bestSigId) {
+  const scoredCandidates: ScoredCandidate[] = orderedCandidates.flatMap(
+    (candidate): ScoredCandidate[] => {
+      const evaluation = resolveCandidateWithoutLeakingDiagnostics(state, {
+        ...query,
+        sigId: candidate,
+      });
+      const score = buildCandidateScore(
+        state,
+        candidate,
+        evaluation.resolved,
+        query.receiverType,
+        query.argTypes,
+        query.argumentCount
+      );
+
+      return [
+        {
+          sigId: candidate,
+          evaluation,
+          score,
+        },
+      ];
+    }
+  );
+
+  if (scoredCandidates.length === 0) {
     return {
       sigId: undefined,
       resolved: undefined,
     };
   }
 
-  let bestEvaluation = resolveCandidateWithoutLeakingDiagnostics(state, {
-    ...query,
-    sigId: bestSigId,
-  });
-  let bestScore = buildCandidateScore(
-    state,
-    bestSigId,
-    bestEvaluation.resolved,
-    query.argTypes,
-    query.argumentCount
+  const compatibleReceiverCandidates = scoredCandidates.filter(
+    (candidate) => candidate.score[0] >= 0
   );
+  const effectiveCandidates =
+    compatibleReceiverCandidates.length > 0
+      ? compatibleReceiverCandidates
+      : scoredCandidates;
 
-  for (const candidate of orderedCandidates) {
-    if (candidate.id === bestSigId.id) {
+  let bestCandidate = effectiveCandidates[0];
+  if (!bestCandidate) {
+    return {
+      sigId: undefined,
+      resolved: undefined,
+    };
+  }
+
+  for (const candidate of effectiveCandidates) {
+    if (candidate.sigId.id === bestCandidate.sigId.id) {
       continue;
     }
 
-    const evaluation = resolveCandidateWithoutLeakingDiagnostics(state, {
-      ...query,
-      sigId: candidate,
-    });
-    const score = buildCandidateScore(
-      state,
-      candidate,
-      evaluation.resolved,
-      query.argTypes,
-      query.argumentCount
-    );
-
-    if (compareCandidateScores(score, bestScore) > 0) {
-      bestSigId = candidate;
-      bestEvaluation = evaluation;
-      bestScore = score;
+    if (compareCandidateScores(candidate.score, bestCandidate.score) > 0) {
+      bestCandidate = candidate;
     }
   }
 
-  state.diagnostics.push(...bestEvaluation.diagnostics);
+  state.diagnostics.push(...bestCandidate.evaluation.diagnostics);
   return {
-    sigId: bestSigId,
-    resolved: bestEvaluation.resolved,
+    sigId: bestCandidate.sigId,
+    resolved: bestCandidate.evaluation.resolved,
   };
 };

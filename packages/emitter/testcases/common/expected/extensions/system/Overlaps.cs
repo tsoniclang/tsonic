@@ -11,8 +11,8 @@ namespace TestCases.common.extensions.system
             int off = 0;
             var ok1 = global::System.MemoryExtensions.Overlaps(a, b);
             var ok2 = global::System.MemoryExtensions.Overlaps(a, b, out off);
-            global::System.Console.WriteLine($"ok1: {ok1}");
-            global::System.Console.WriteLine($"ok2: {ok2} off: {off}");
+            global::System.Console.WriteLine($"ok1: {(global::js.Globals.String(ok1))}");
+            global::System.Console.WriteLine($"ok2: {(global::js.Globals.String(ok2))} off: {(global::js.Globals.String(off))}");
         }
     }
 }

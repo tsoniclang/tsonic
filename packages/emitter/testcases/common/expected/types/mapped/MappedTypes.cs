@@ -13,6 +13,19 @@ namespace TestCases.common.types.mapped
         public required double age { get; set; }
     }
 
+    public sealed class NullablePerson__Alias
+    {
+        [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute]
+        public NullablePerson__Alias()
+        {
+
+        }
+
+        public required string? name { get; set; }
+
+        public required double? age { get; set; }
+    }
+
     [global::Tsonic.Internal.ModuleContainerAttribute]
     public static class MappedTypes
     {

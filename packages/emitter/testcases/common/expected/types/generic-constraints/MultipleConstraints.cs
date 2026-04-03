@@ -29,7 +29,7 @@ namespace TestCases.common.types.genericconstraints
 
         public override string show()
         {
-            return $"Value: {this.value}";
+            return $"Value: {(global::js.Globals.String(this.value))}";
         }
     }
 

@@ -22,6 +22,25 @@ import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expres
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
+import { adaptValueToExpectedTypeAst } from "./expected-type-adaptation.js";
+import { unwrapTransparentExpression } from "../core/semantic/transparent-expressions.js";
+import { maybeCastNumericToExpectedIntegralAst } from "./post-emission-adaptation.js";
+
+const preserveScopedExpressionFlowContext = (
+  baseContext: EmitterContext,
+  nextContext: EmitterContext
+): EmitterContext => ({
+  ...nextContext,
+  typeParameters: baseContext.typeParameters,
+  typeParamConstraints: baseContext.typeParamConstraints,
+  typeParameterNameMap: baseContext.typeParameterNameMap,
+  returnType: baseContext.returnType,
+  localNameMap: baseContext.localNameMap,
+  conditionAliases: baseContext.conditionAliases,
+  localSemanticTypes: baseContext.localSemanticTypes,
+  localValueTypes: baseContext.localValueTypes,
+  narrowedBindings: baseContext.narrowedBindings,
+});
 
 const shouldCoerceArrayLiteralElementToExpectedType = (
   element: IrExpression,
@@ -93,6 +112,64 @@ const shouldCoerceArrayLiteralElementToExpectedType = (
   return actual !== expected;
 };
 
+const emitArrayElementAst = (
+  element: IrExpression,
+  expectedElementType: IrType | undefined,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const transparentElement = unwrapTransparentExpression(element);
+  const coercedExpectedElementType =
+    expectedElementType !== undefined &&
+    shouldCoerceArrayLiteralElementToExpectedType(
+      transparentElement,
+      expectedElementType,
+      context
+    )
+      ? expectedElementType
+      : undefined;
+  const elementExpr = coercedExpectedElementType
+    ? ({
+        kind: "typeAssertion",
+        expression: element,
+        targetType: coercedExpectedElementType,
+        inferredType: coercedExpectedElementType,
+      } satisfies IrExpression)
+    : element;
+
+  if (
+    expectedElementType &&
+    (transparentElement.kind === "identifier" ||
+      transparentElement.kind === "memberAccess")
+  ) {
+    const [rawElemAst, rawContext] = emitExpressionAst(
+      transparentElement,
+      context
+    );
+    const effectiveElementType =
+      resolveEffectiveExpressionType(transparentElement, context) ??
+      transparentElement.inferredType;
+    const actualElementType =
+      effectiveElementType ?? transparentElement.inferredType;
+
+    const [adaptedElementAst, adaptedElementContext] =
+      adaptValueToExpectedTypeAst({
+        valueAst: rawElemAst,
+        actualType: actualElementType,
+        context: rawContext,
+        expectedType: expectedElementType,
+      }) ?? [rawElemAst, rawContext];
+
+    return maybeCastNumericToExpectedIntegralAst(
+      adaptedElementAst,
+      actualElementType,
+      adaptedElementContext,
+      expectedElementType
+    );
+  }
+
+  return emitExpressionAst(elementExpr, context, expectedElementType);
+};
+
 /**
  * Emit an array literal as CSharpExpressionAst
  */
@@ -158,7 +235,10 @@ export const emitArray = (
       const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
       elementTypeAst = typeAst;
       elementTypeResolved = true;
-      currentContext = newContext;
+      currentContext = preserveScopedExpressionFlowContext(
+        currentContext,
+        newContext
+      );
     } else if (
       resolvedExpected.kind === "referenceType" &&
       resolvedExpected.name === "Array" &&
@@ -171,7 +251,10 @@ export const emitArray = (
         const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
         elementTypeAst = typeAst;
         elementTypeResolved = true;
-        currentContext = newContext;
+        currentContext = preserveScopedExpressionFlowContext(
+          currentContext,
+          newContext
+        );
       }
     } else if (
       resolvedExpected.kind === "referenceType" &&
@@ -185,7 +268,10 @@ export const emitArray = (
         const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
         elementTypeAst = typeAst;
         elementTypeResolved = true;
-        currentContext = newContext;
+        currentContext = preserveScopedExpressionFlowContext(
+          currentContext,
+          newContext
+        );
       }
     } else if (
       resolvedExpected.kind === "referenceType" &&
@@ -199,7 +285,10 @@ export const emitArray = (
         const [typeAst, newContext] = resolveExpectedArrayElementTypeAst();
         elementTypeAst = typeAst;
         elementTypeResolved = true;
-        currentContext = newContext;
+        currentContext = preserveScopedExpressionFlowContext(
+          currentContext,
+          newContext
+        );
       }
     }
   }
@@ -259,7 +348,10 @@ export const emitArray = (
         currentContext
       );
       elementTypeAst = typeAst;
-      currentContext = newContext;
+      currentContext = preserveScopedExpressionFlowContext(
+        currentContext,
+        newContext
+      );
     }
   }
 
@@ -298,27 +390,10 @@ export const emitArray = (
         continue;
       }
 
-      const coercedExpectedElementType =
-        expectedElementType !== undefined &&
-        shouldCoerceArrayLiteralElementToExpectedType(
-          element,
-          expectedElementType,
-          currentContext
-        )
-          ? expectedElementType
-          : undefined;
-      const elementExpr = coercedExpectedElementType
-        ? ({
-            kind: "typeAssertion",
-            expression: element,
-            targetType: coercedExpectedElementType,
-            inferredType: coercedExpectedElementType,
-          } satisfies IrExpression)
-        : element;
-      const [elemAst, newContext] = emitExpressionAst(
-        elementExpr,
-        currentContext,
-        expectedElementType
+      const [elemAst, newContext] = emitArrayElementAst(
+        element,
+        expectedElementType,
+        currentContext
       );
       inlineElements.push(elemAst);
       currentContext = newContext;
@@ -382,27 +457,10 @@ export const emitArray = (
       // Sparse array hole
       elementAsts.push({ kind: "defaultExpression" });
     } else {
-      const coercedExpectedElementType =
-        expectedElementType !== undefined &&
-        shouldCoerceArrayLiteralElementToExpectedType(
-          element,
-          expectedElementType,
-          currentContext
-        )
-          ? expectedElementType
-          : undefined;
-      const elementExpr = coercedExpectedElementType
-        ? ({
-            kind: "typeAssertion",
-            expression: element,
-            targetType: coercedExpectedElementType,
-            inferredType: coercedExpectedElementType,
-          } satisfies IrExpression)
-        : element;
-      const [elemAst, newContext] = emitExpressionAst(
-        elementExpr,
-        currentContext,
-        expectedElementType
+      const [elemAst, newContext] = emitArrayElementAst(
+        element,
+        expectedElementType,
+        currentContext
       );
       elementAsts.push(elemAst);
       currentContext = newContext;

@@ -8,6 +8,7 @@ import {
 } from "@tsonic/frontend";
 import type { EmitterContext, LocalTypeInfo } from "../../types.js";
 import { resolveLocalTypeInfo } from "./type-resolution.js";
+import { substituteTypeArgs } from "./type-substitution.js";
 
 type InterfaceCandidate = {
   readonly namespace: string;
@@ -59,12 +60,75 @@ const getReferenceLeafName = (
 
 const buildCanonicalInterfaceRef = (
   namespace: string,
-  name: string
+  name: string,
+  sourceRef?: Extract<IrType, { kind: "referenceType" }>
 ): Extract<IrType, { kind: "referenceType" }> => ({
+  ...sourceRef,
   kind: "referenceType",
   name,
-  resolvedClrType: `${namespace}.${name}`,
+  resolvedClrType:
+    sourceRef?.typeId?.clrName ??
+    (sourceRef?.resolvedClrType &&
+    sourceRef.resolvedClrType !== sourceRef.name
+      ? sourceRef.resolvedClrType
+      : undefined) ??
+    `${namespace}.${name}`,
 });
+
+const isInterfaceMarkerProperty = (
+  member: IrInterfaceMember
+): member is Extract<IrInterfaceMember, { kind: "propertySignature" }> =>
+  member.kind === "propertySignature" &&
+  member.name.startsWith("__tsonic_iface_");
+
+const specializeInterfaceMember = (
+  member: IrInterfaceMember,
+  typeParameterNames: readonly string[],
+  typeArguments: readonly IrType[]
+): IrInterfaceMember => {
+  if (member.kind === "propertySignature") {
+    return {
+      ...member,
+      type: substituteTypeArgs(member.type, typeParameterNames, typeArguments),
+    };
+  }
+
+  return {
+    ...member,
+    parameters: member.parameters.map((parameter) => ({
+      ...parameter,
+      type: parameter.type
+        ? substituteTypeArgs(parameter.type, typeParameterNames, typeArguments)
+        : undefined,
+    })),
+    returnType: member.returnType
+      ? substituteTypeArgs(member.returnType, typeParameterNames, typeArguments)
+      : undefined,
+  };
+};
+
+const getInterfaceCompatibilityInfo = (
+  info: Extract<LocalTypeInfo, { kind: "interface" }>,
+  ref?: Extract<IrType, { kind: "referenceType" }>
+): Extract<LocalTypeInfo, { kind: "interface" }> => {
+  const filteredMembers = info.members.filter(
+    (member) => !isInterfaceMarkerProperty(member)
+  );
+  const typeArguments = ref?.typeArguments ?? [];
+  if (info.typeParameters.length === 0 || typeArguments.length === 0) {
+    return filteredMembers === info.members ? info : { ...info, members: filteredMembers };
+  }
+
+  return {
+    ...info,
+    members: filteredMembers.map((member) =>
+      specializeInterfaceMember(member, info.typeParameters, typeArguments)
+    ),
+    extends: info.extends.map((base) =>
+      substituteTypeArgs(base, info.typeParameters, typeArguments)
+    ),
+  };
+};
 
 const isPublicInstanceClassMember = (member: IrClassMember): boolean => {
   if (member.kind === "constructorDeclaration") return false;
@@ -301,14 +365,15 @@ const resolveExplicitInterfaceMatches = (
     if (!resolved || resolved.info.kind !== "interface") continue;
 
     const name = getReferenceLeafName(impl);
-    const matches = collectCompatibleMembers(classInfo, resolved.info);
+    const compatibilityInfo = getInterfaceCompatibilityInfo(resolved.info, impl);
+    const matches = collectCompatibleMembers(classInfo, compatibilityInfo);
     if (!matches) continue;
 
     results.push({
       namespace: resolved.namespace,
       name,
-      ref: buildCanonicalInterfaceRef(resolved.namespace, name),
-      info: resolved.info,
+      ref: buildCanonicalInterfaceRef(resolved.namespace, name, impl),
+      info: compatibilityInfo,
       isExplicit: true,
       propertyMatches: matches.propertyMatches,
       methodMatches: matches.methodMatches,
@@ -359,7 +424,11 @@ export const resolveCompatibleImplementedInterfaces = (
     match.namespace === currentNamespace
       ? {
           ...match,
-          ref: buildCanonicalInterfaceRef(match.namespace, match.name),
+          ref: buildCanonicalInterfaceRef(
+            match.namespace,
+            match.name,
+            match.ref
+          ),
         }
       : match
   );

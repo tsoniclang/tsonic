@@ -18,6 +18,7 @@ import {
   getTypeAliasBodyCache,
 } from "./references-normalize.js";
 import { shouldExtractFromDeclaration } from "./references-structural-bindings.js";
+import { expandDirectAliasSyntax } from "./direct-alias-expansion.js";
 
 /**
  * Extract structural members from type declarations (AST-based).
@@ -389,6 +390,16 @@ export const expandTypeAliasBody = (
   binding: Binding,
   convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType | undefined => {
+  const directExpanded = expandDirectAliasSyntax(
+    declNode,
+    node,
+    binding,
+    convertType
+  );
+  if (directExpanded) {
+    return normalizeExpandedAliasType(directExpanded);
+  }
+
   const key = declId;
   const typeAliasBodyCache = getTypeAliasBodyCache(binding);
   const cached = typeAliasBodyCache.get(key);

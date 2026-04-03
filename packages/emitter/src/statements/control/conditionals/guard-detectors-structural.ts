@@ -113,6 +113,7 @@ export const tryResolveInGuard = (
     originalName,
     narrowedName,
     memberType,
+    unionSourceType,
     ctxWithId
   );
 
@@ -200,18 +201,19 @@ export const tryResolvePredicateGuard = (
   const rawContext = withoutNarrowedBinding(context, originalName);
   const [argAst] = emitExpressionAst(target, rawContext, unionSourceType);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
-  const narrowedMap = buildRenameNarrowedMap(
-    originalName,
-    narrowedName,
-    narrowing.targetType,
-    ctxWithId
-  );
   const currentSubsetBinding = context.narrowedBindings?.get(originalName);
   const sourceType =
     currentSubsetBinding?.sourceType ??
     currentSubsetBinding?.type ??
     buildSubsetUnionType(frame.members) ??
     unionSourceType;
+  const narrowedMap = buildRenameNarrowedMap(
+    originalName,
+    narrowedName,
+    narrowing.targetType,
+    sourceType,
+    ctxWithId
+  );
   const hasExplicitSourceFrame =
     currentSubsetBinding?.kind === "runtimeSubset" &&
     currentSubsetBinding.sourceMembers &&
@@ -336,20 +338,19 @@ export const tryResolveInstanceofGuard = (
   // Pattern variable name for the narrowed value.
   const narrowedName = makeNarrowedLocalName(originalName, "is", nextId);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
-
-  const narrowedMap = new Map(ctxAfterRhs.narrowedBindings ?? []);
-  narrowedMap.set(originalName, {
-    kind: "rename",
-    name: narrowedName,
-    type: inferredRhsType ?? undefined,
-  });
-
   const carrierSourceType =
     (target.kind === "identifier"
       ? resolveIdentifierCarrierStorageType(target, context)
       : undefined) ??
     context.narrowedBindings?.get(originalName)?.sourceType ??
     unionSourceType;
+  const narrowedMap = new Map(ctxAfterRhs.narrowedBindings ?? []);
+  narrowedMap.set(originalName, {
+    kind: "rename",
+    name: narrowedName,
+    type: inferredRhsType ?? undefined,
+    sourceType: carrierSourceType,
+  });
   const runtimeUnionFrame =
     currentType && inferredRhsType
       ? resolveAlignedRuntimeUnionMembers(

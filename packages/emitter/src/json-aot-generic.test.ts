@@ -154,7 +154,7 @@ describe("JSON NativeAOT registry", () => {
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
   });
 
-  it("routes global JSON.stringify on JsValue inputs through object AOT metadata", () => {
+  it("routes global JSON.stringify on JsValue inputs through runtime stringify", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/index.ts",
@@ -231,13 +231,13 @@ describe("JSON NativeAOT registry", () => {
     const runtimeFile = result.files.get("__tsonic_json_runtime.g.cs");
     expect(code).to.not.equal(undefined);
     expect(code).to.include(
-      "global::System.Text.Json.JsonSerializer.Serialize(value, global::MyApp.TsonicJson.Options)"
+      "global::MyApp.TsonicJsonRuntime.Stringify(value)"
     );
-    expect(runtimeFile).to.equal(undefined);
-    expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
+    expect(runtimeFile).to.not.equal(undefined);
+    expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
 
-  it("registers boxed JS numeric object-literal values for global JSON.stringify AOT metadata", () => {
+  it("routes boxed JS numeric object literals through runtime stringify", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/index.ts",
@@ -338,12 +338,13 @@ describe("JSON NativeAOT registry", () => {
     if (!result.ok) return;
 
     const code = result.files.get("index.cs");
-    const jsonFile = result.files.get("__tsonic_json.g.cs");
+    const runtimeFile = result.files.get("__tsonic_json_runtime.g.cs");
     expect(code).to.not.equal(undefined);
-    expect(jsonFile).to.not.equal(undefined);
+    expect(runtimeFile).to.not.equal(undefined);
+    expect(code).to.include("global::MyApp.TsonicJsonRuntime.Stringify(");
     expect(code).to.include('["value"] =');
     expect(code).to.include("double)3");
-    expect(jsonFile).to.include("typeof(double)");
+    expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
 
   it("does not register open generic type parameters (no typeof(global::T))", () => {

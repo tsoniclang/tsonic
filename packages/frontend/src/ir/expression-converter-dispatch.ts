@@ -52,6 +52,7 @@ import { shouldWrapExpressionWithAssertion } from "./converters/assertion-wrappi
 import {
   getNumericKindFromTypeNode,
   inferThisType,
+  inferYieldReceivedType,
   getIdentifierStorageType,
   shouldPreserveExplicitStorageType,
   stripNullish,
@@ -561,14 +562,13 @@ export const convertExpression = (
     };
   }
   if (ts.isYieldExpression(node)) {
-    // yield type depends on generator context - undefined for now
     return {
       kind: "yield",
       expression: node.expression
         ? convertExpression(node.expression, ctx, undefined)
         : undefined,
       delegate: !!node.asteriskToken,
-      inferredType: undefined,
+      inferredType: inferYieldReceivedType(node, ctx),
       sourceSpan: getSourceSpan(node),
     };
   }

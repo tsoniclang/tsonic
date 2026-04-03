@@ -239,12 +239,25 @@ export const emitClassDeclaration = (
 
   // Interfaces (implements clause)
   const implementedInterfaces: CSharpTypeAst[] = [];
+  const explicitInterfaceRefs = stmt.implements.filter(
+    (impl): impl is Extract<IrType, { kind: "referenceType" }> =>
+      impl.kind === "referenceType" && isInterfaceReference(impl, currentContext)
+  );
   const compatibleInterfaces = resolveCompatibleImplementedInterfaces(
     stmt.name,
     stmt.implements,
     currentContext
   );
   const emittedInterfaceKeys = new Set<string>();
+  for (const impl of explicitInterfaceRefs) {
+    const implKey = stableIrTypeKey(impl);
+    if (emittedInterfaceKeys.has(implKey)) continue;
+
+    const [implTypeAst, newContext] = emitTypeAst(impl, currentContext);
+    currentContext = newContext;
+    implementedInterfaces.push(implTypeAst);
+    emittedInterfaceKeys.add(implKey);
+  }
   for (const match of compatibleInterfaces) {
     const impl = match.ref;
     if (impl.kind !== "referenceType") continue;

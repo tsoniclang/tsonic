@@ -63,9 +63,16 @@ const isConcreteGlobalJsonStringifySource = (
   if (type.kind === "unionType" || type.kind === "intersectionType") {
     return false;
   }
+  if (type.kind === "dictionaryType") {
+    return false;
+  }
   if (
     type.kind === "referenceType" &&
-    (type.name === "object" || type.resolvedClrType === "System.Object")
+    (type.name === "object" ||
+      type.name === "JsValue" ||
+      type.resolvedClrType === "System.Object" ||
+      type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
+      type.resolvedClrType === "global::Tsonic.Runtime.JsValue")
   ) {
     return false;
   }

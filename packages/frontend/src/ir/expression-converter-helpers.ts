@@ -64,6 +64,61 @@ export const inferThisType = (node: ts.Node): IrType | undefined => {
   return undefined;
 };
 
+const entityNameToText = (entityName: ts.EntityName): string =>
+  ts.isIdentifier(entityName)
+    ? entityName.text
+    : `${entityNameToText(entityName.left)}.${entityName.right.text}`;
+
+const getEnclosingGeneratorNextTypeNode = (
+  node: ts.Node
+): ts.TypeNode | undefined => {
+  let current: ts.Node | undefined = node.parent;
+
+  while (current) {
+    if (
+      ts.isFunctionDeclaration(current) ||
+      ts.isFunctionExpression(current) ||
+      ts.isMethodDeclaration(current)
+    ) {
+      if (!current.asteriskToken) {
+        current = current.parent;
+        continue;
+      }
+
+      const returnType = current.type;
+      if (!returnType || !ts.isTypeReferenceNode(returnType)) {
+        return undefined;
+      }
+
+      const generatorName = entityNameToText(returnType.typeName);
+      const lastSegment = generatorName.split(".").pop() ?? generatorName;
+      if (lastSegment !== "Generator" && lastSegment !== "AsyncGenerator") {
+        return undefined;
+      }
+
+      return returnType.typeArguments?.[2];
+    }
+
+    current = current.parent;
+  }
+
+  return undefined;
+};
+
+export const inferYieldReceivedType = (
+  node: ts.YieldExpression,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const nextTypeNode = getEnclosingGeneratorNextTypeNode(node);
+  if (!nextTypeNode) {
+    return undefined;
+  }
+
+  return ctx.typeSystem.typeFromSyntax(
+    ctx.binding.captureTypeSyntax(nextTypeNode)
+  );
+};
+
 export const unwrapParens = (node: ts.Expression): ts.Expression => {
   let current = node;
   while (ts.isParenthesizedExpression(current)) {

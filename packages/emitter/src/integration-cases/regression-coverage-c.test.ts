@@ -1734,6 +1734,62 @@ describe("End-to-End Integration", () => {
       );
     });
 
+    it("preserves narrowed runtime-union members when coercing Uint8Array byte elements", () => {
+      const csharp = compileToCSharp(
+        `
+          export function create(
+            generatorOrEncoding: number | Uint8Array | string
+          ): Uint8Array {
+            if (typeof generatorOrEncoding === "number") {
+              return new Uint8Array([generatorOrEncoding]);
+            }
+
+            return new Uint8Array([2]);
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "new global::js.Uint8Array(new byte[] { (byte)(generatorOrEncoding.As1()) })"
+      );
+      expect(csharp).not.to.include(
+        "new global::js.Uint8Array(new byte[] { (byte)generatorOrEncoding })"
+      );
+    });
+
+    it("preserves narrowed runtime-union members in typed byte array literals", () => {
+      const csharp = compileToCSharp(
+        `
+          import type { byte } from "@tsonic/core/types.js";
+
+          declare function takesBytes(values: byte[]): void;
+
+          export function create(
+            generatorOrEncoding: number | Uint8Array | string
+          ): void {
+            if (typeof generatorOrEncoding === "number") {
+              takesBytes([generatorOrEncoding]);
+            }
+          }
+        `,
+        "/test/test.ts",
+        {
+          surface: "@tsonic/js",
+        }
+      );
+
+      expect(csharp).to.include(
+        "takesBytes(new byte[] { (byte)(generatorOrEncoding.As1()) })"
+      );
+      expect(csharp).not.to.include(
+        "takesBytes(new byte[] { (byte)generatorOrEncoding })"
+      );
+    });
+
     it("casts numeric Uint8Array length constructors to int", () => {
       const csharp = compileToCSharp(
         `

@@ -6,7 +6,7 @@ namespace TestCases.common.functions.defaultparams
         public static string greet(string name, string? greeting = default)
         {
             string __defaulted_greeting = greeting ?? "Hello";
-            return $"{__defaulted_greeting} {name}";
+            return $"{(global::js.Globals.String(__defaulted_greeting))} {(global::js.Globals.String(name))}";
         }
 
         public static double multiply(double a, double? b = default)

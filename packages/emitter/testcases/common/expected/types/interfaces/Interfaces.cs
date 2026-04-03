@@ -33,7 +33,7 @@ namespace TestCases.common.types.interfaces
     {
         public static string greetUser(User user)
         {
-            return $"Hello {user.name}, age {user.age}";
+            return $"Hello {(global::js.Globals.String(user.name))}, age {(global::js.Globals.String(user.age))}";
         }
     }
 }

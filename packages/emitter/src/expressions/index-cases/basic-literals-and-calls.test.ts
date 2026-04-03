@@ -182,6 +182,62 @@ describe("Expression Emission", () => {
     expect(result).not.to.include('$"flag={flag}"');
   });
 
+  it("should stringify js-surface boolean template literal holes through String()", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "message" },
+              initializer: {
+                kind: "templateLiteral",
+                quasis: ["flag=", ""],
+                expressions: [
+                  {
+                    kind: "identifier",
+                    name: "flag",
+                    inferredType: {
+                      kind: "primitiveType",
+                      name: "boolean",
+                    },
+                  },
+                ],
+                inferredType: { kind: "primitiveType", name: "string" },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: createExactGlobalBindingRegistry({
+        String: {
+          kind: "global",
+          assembly: "js",
+          type: "js.Globals.String",
+        },
+      }),
+    });
+
+    expect(result).to.include(
+      "global::js.Globals.String(flag)"
+    );
+    expect(result).not.to.include('$"flag={flag}"');
+  });
+
   it("should use csharpName for identifiers when provided", () => {
     const module: IrModule = {
       kind: "module",

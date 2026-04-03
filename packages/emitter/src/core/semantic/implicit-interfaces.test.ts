@@ -294,4 +294,119 @@ describe("implicit-interfaces", () => {
 
     expect(matches).to.deep.equal([]);
   });
+
+  it("ignores nominal interface marker properties during explicit compatibility", () => {
+    const localTypes = new Map<string, LocalTypeInfo>([
+      [
+        "IDisposable",
+        {
+          kind: "interface",
+          typeParameters: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "__tsonic_iface_System_IDisposable",
+              type: { kind: "neverType" },
+              isOptional: false,
+              isReadonly: true,
+            },
+            methodSignature("Dispose", [], voidType),
+          ],
+          extends: [],
+        },
+      ],
+      [
+        "Thing",
+        {
+          kind: "class",
+          typeParameters: [],
+          members: [methodDeclaration("Dispose", [], voidType)],
+          implements: [
+            {
+              kind: "referenceType",
+              name: "IDisposable",
+              resolvedClrType: "System.IDisposable",
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const matches = resolveCompatibleImplementedInterfaces(
+      "Thing",
+      [
+        {
+          kind: "referenceType",
+          name: "IDisposable",
+          resolvedClrType: "System.IDisposable",
+        },
+      ],
+      createContext(localTypes)
+    );
+
+    expect(matches).to.have.length(1);
+    expect(matches[0]?.isExplicit).to.equal(true);
+    expect(matches[0]?.ref.resolvedClrType).to.equal("System.IDisposable");
+    expect(matches[0]?.methodMatches.map((match) => match.classMember.name)).to.deep.equal(["Dispose"]);
+  });
+
+  it("specializes explicit generic interfaces with concrete type arguments", () => {
+    const localTypes = new Map<string, LocalTypeInfo>([
+      [
+        "Comparable",
+        {
+          kind: "interface",
+          typeParameters: ["T"],
+          members: [
+            methodSignature(
+              "compareTo",
+              [parameter("other", { kind: "typeParameterType", name: "T" })],
+              numberType
+            ),
+          ],
+          extends: [],
+        },
+      ],
+      [
+        "NumberValue",
+        {
+          kind: "class",
+          typeParameters: [],
+          members: [
+            methodDeclaration(
+              "compareTo",
+              [parameter("other", { kind: "referenceType", name: "NumberValue" })],
+              numberType
+            ),
+          ],
+          implements: [
+            {
+              kind: "referenceType",
+              name: "Comparable",
+              typeArguments: [{ kind: "referenceType", name: "NumberValue" }],
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const matches = resolveCompatibleImplementedInterfaces(
+      "NumberValue",
+      [
+        {
+          kind: "referenceType",
+          name: "Comparable",
+          typeArguments: [{ kind: "referenceType", name: "NumberValue" }],
+        },
+      ],
+      createContext(localTypes)
+    );
+
+    expect(matches).to.have.length(1);
+    expect(matches[0]?.isExplicit).to.equal(true);
+    expect(matches[0]?.ref.typeArguments).to.deep.equal([
+      { kind: "referenceType", name: "NumberValue" },
+    ]);
+    expect(matches[0]?.methodMatches.map((match) => match.classMember.name)).to.deep.equal(["compareTo"]);
+  });
 });

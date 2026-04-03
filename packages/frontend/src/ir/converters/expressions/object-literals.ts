@@ -121,11 +121,9 @@ export const convertObjectLiteral = (
   // - AOT-friendly (no runtime reflection required by downstream libraries)
   //
   // Non-plain literals (spreads, computed keys) still fall back to TSN7403 synthesis.
-  const isObjectLikeContext =
+  const isDynamicObjectLikeContext =
     contextualCandidate?.kind === "anyType" ||
-    contextualCandidate?.kind === "unknownType" ||
-    (contextualCandidate?.kind === "referenceType" &&
-      contextualCandidate.name === "object");
+    contextualCandidate?.kind === "unknownType";
 
   const isPlainObjectLiteralAst = node.properties.every(
     (p) =>
@@ -136,8 +134,12 @@ export const convertObjectLiteral = (
   );
 
   const shouldLowerToDictionary =
-    isObjectLikeContext && isPlainObjectLiteralAst;
-  const dictionaryValueExpectedType: IrType = { kind: "unknownType" };
+    isDynamicObjectLikeContext && isPlainObjectLiteralAst;
+  const dictionaryValueExpectedType: IrType = {
+    kind: "referenceType",
+    name: "JsValue",
+    resolvedClrType: "Tsonic.Runtime.JsValue",
+  };
 
   const getObjectLiteralPropertyExpectedType = (
     keyName: string | undefined
@@ -321,12 +323,12 @@ export const convertObjectLiteral = (
 
   let contextualType = contextualCandidate;
 
-  if (isObjectLikeContext) {
+  if (isDynamicObjectLikeContext) {
     contextualType = shouldLowerToDictionary
       ? ({
           kind: "dictionaryType",
           keyType: { kind: "primitiveType", name: "string" },
-          valueType: { kind: "unknownType" },
+          valueType: dictionaryValueExpectedType,
         } satisfies IrDictionaryType)
       : undefined;
   }

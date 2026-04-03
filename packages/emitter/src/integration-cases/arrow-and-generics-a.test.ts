@@ -570,6 +570,43 @@ describe("End-to-End Integration", () => {
       );
       expect(csharp).to.not.include("candidate.mountpath =");
     });
+
+    it("preserves storage-type reassignment after instanceof local narrowing", () => {
+      const source = `
+        class TemplateValue {}
+
+        class BoolValue extends TemplateValue {
+          readonly value: boolean;
+          constructor(value: boolean) {
+            super();
+            this.value = value;
+          }
+        }
+
+        class StrValue extends TemplateValue {
+          readonly value: string;
+          constructor(value: string) {
+            super();
+            this.value = value;
+          }
+        }
+
+        export function render(): TemplateValue {
+          let value: TemplateValue = new BoolValue(false);
+          if (value instanceof BoolValue) {
+            value = new StrValue("x");
+          }
+          return value;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("if (value is BoolValue value__is_1)");
+      expect(csharp).to.include('value = new StrValue("x");');
+      expect(csharp).to.not.include("return new BoolValue");
+      expect(csharp).to.not.include("new BoolValue { value = __struct.value }");
+    });
   });
 
   describe("Generic Functions", () => {

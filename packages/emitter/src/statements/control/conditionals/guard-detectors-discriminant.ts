@@ -156,6 +156,7 @@ export const tryResolveDiscriminantEqualityGuard = (
     originalName,
     narrowedName,
     memberType,
+    unionSourceType,
     ctxWithId
   );
 
@@ -311,6 +312,7 @@ export const tryResolvePropertyTruthinessGuard = (
     originalName,
     narrowedName,
     memberType,
+    unionSourceType,
     ctxWithId
   );
 
