@@ -4,8 +4,6 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
 import { IrFunctionDeclaration, IrVariableDeclaration } from "../types.js";
@@ -14,109 +12,27 @@ import {
   createProgram,
   createProgramContext,
 } from "./_test-helpers.js";
+import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
 describe("IR Builder", function () {
   this.timeout(90_000);
 
   describe("Native library port regressions – namespace imports and function narrowing", () => {
     it("recovers namespace-import member types from source-package const arrow exports", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-builder-source-package-namespace-")
+      const fixture = materializeFrontendFixture(
+        "ir/namespace-imports-and-function-narrowing/source-package-namespace"
       );
 
       try {
-        const jsRoot = path.resolve(process.cwd(), "../../../js/versions/10");
-        expect(fs.existsSync(path.join(jsRoot, "package.json"))).to.equal(true);
-
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-
-        const packageRoot = path.join(
-          tempDir,
-          "node_modules",
-          "@tsonic",
-          "nodejs"
-        );
-        fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true });
-        fs.mkdirSync(path.join(packageRoot, "tsonic"), { recursive: true });
-        fs.writeFileSync(
-          path.join(packageRoot, "package.json"),
-          JSON.stringify(
-            {
-              name: "@tsonic/nodejs",
-              version: "10.0.99-test",
-              type: "module",
-              exports: {
-                ".": "./src/index.ts",
-                "./index.js": "./src/index.ts",
-                "./path.js": "./src/path-module.ts",
-              },
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(packageRoot, "tsonic.package.json"),
-          JSON.stringify(
-            {
-              schemaVersion: 1,
-              kind: "tsonic-source-package",
-              surfaces: ["@tsonic/js"],
-              source: {
-                namespace: "nodejs",
-                exports: {
-                  ".": "./src/index.ts",
-                  "./path.js": "./src/path-module.ts",
-                },
-              },
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(packageRoot, "src", "index.ts"),
-          'export * as path from "./path-module.ts";\n'
-        );
-        fs.writeFileSync(
-          path.join(packageRoot, "src", "path-module.ts"),
-          [
-            "export type ParsedPath = {",
-            "  readonly base: string;",
-            "};",
-            "export const basename = (value: string): string => value;",
-            "export const parse = (value: string): ParsedPath => ({ base: value });",
-          ].join("\n")
-        );
-
-        const entryPath = path.join(srcDir, "index.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            'import * as nodePath from "@tsonic/nodejs/path.js";',
-            "export function run(): string {",
-            '  const parsed = nodePath.parse("file.txt");',
-            "  return nodePath.basename(parsed.base);",
-            "}",
-          ].join("\n")
-        );
+        const tempDir = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
 
         const programResult = createProgram([entryPath], {
           projectRoot: tempDir,
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           surface: "@tsonic/js",
-          typeRoots: [jsRoot, packageRoot],
         });
 
         expect(programResult.ok).to.equal(true);
@@ -171,6 +87,20 @@ describe("IR Builder", function () {
         if (!parseCall || parseCall.kind !== "call") return;
         expect(parseCall.callee.kind).to.equal("memberAccess");
         if (parseCall.callee.kind !== "memberAccess") return;
+        expect(parseCall.callee.object.inferredType?.kind).to.equal("objectType");
+        if (parseCall.callee.object.inferredType?.kind !== "objectType") return;
+        expect(
+          [...parseCall.callee.object.inferredType.members.map((member) => member.name)].sort()
+        ).to.deep.equal(["basename", "parse", "ParsedPathError"].sort());
+        const errorMember = parseCall.callee.object.inferredType.members.find(
+          (member) => member.name === "ParsedPathError"
+        );
+        expect(errorMember?.kind).to.equal("propertySignature");
+        if (!errorMember || errorMember.kind !== "propertySignature") return;
+        expect(errorMember.type.kind).to.equal("referenceType");
+        if (errorMember.type.kind !== "referenceType") return;
+        expect(errorMember.type.typeId).to.not.equal(undefined);
+        expect(errorMember.type.resolvedClrType).to.be.a("string");
         expect(parseCall.callee.inferredType?.kind).to.equal("functionType");
         if (parseCall.callee.inferredType?.kind !== "functionType") return;
         expect(parseCall.callee.inferredType.returnType.kind).to.not.equal(
@@ -191,11 +121,14 @@ describe("IR Builder", function () {
         }
         expect(returnStmt.expression.callee.kind).to.equal("memberAccess");
         if (returnStmt.expression.callee.kind !== "memberAccess") return;
+        expect(returnStmt.expression.callee.object.inferredType?.kind).to.equal(
+          "objectType"
+        );
         expect(returnStmt.expression.callee.inferredType?.kind).to.equal(
           "functionType"
         );
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
@@ -565,81 +498,20 @@ describe("IR Builder", function () {
     });
 
     it("preserves instanceof narrowing for declaration-package constructor values", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-builder-instanceof-decl-package-")
+      const fixture = materializeFrontendFixture(
+        "ir/namespace-imports-and-function-narrowing/instanceof-declaration-package"
       );
 
       try {
-        fs.writeFileSync(
-          path.join(tempDir, "package.json"),
-          JSON.stringify(
-            { name: "app", version: "1.0.0", type: "module" },
-            null,
-            2
-          )
-        );
-
-        const srcDir = path.join(tempDir, "src");
-        fs.mkdirSync(srcDir, { recursive: true });
-
-        const packageRoot = path.join(tempDir, "node_modules", "@acme", "crypto");
-        fs.mkdirSync(packageRoot, { recursive: true });
-        fs.writeFileSync(
-          path.join(packageRoot, "package.json"),
-          JSON.stringify(
-            {
-              name: "@acme/crypto",
-              version: "0.0.0",
-              type: "module",
-              exports: {
-                ".": "./index.d.ts",
-                "./index.js": "./index.d.ts",
-              },
-            },
-            null,
-            2
-          )
-        );
-        fs.writeFileSync(
-          path.join(packageRoot, "index.d.ts"),
-          [
-            "export interface RSA$instance {",
-            "  Encrypt(data: string): string;",
-            "}",
-            "export interface __RSA$views {",
-            "  AsKey(): RSA$instance;",
-            "}",
-            "export type RSA = RSA$instance & __RSA$views;",
-            "export const RSA: (abstract new() => RSA) & {",
-            "  Create(): RSA;",
-            "};",
-          ].join("\n")
-        );
-
-        const entryPath = path.join(srcDir, "index.ts");
-        fs.writeFileSync(
-          entryPath,
-          [
-            'import { RSA } from "@acme/crypto/index.js";',
-            'import type { RSA as RsaInstance } from "@acme/crypto/index.js";',
-            "declare function takesRsa(value: RsaInstance): void;",
-            "",
-            "export function encrypt(value: RsaInstance | string): string {",
-            "  if (value instanceof RSA) {",
-            "    takesRsa(value);",
-            '    return value.Encrypt("payload");',
-            "  }",
-            "  return value;",
-            "}",
-          ].join("\n")
-        );
+        const tempDir = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
 
         const programResult = createProgram([entryPath], {
           projectRoot: tempDir,
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
-          useStandardLib: true,
-          typeRoots: [packageRoot],
+          typeRoots: ["node_modules/@acme/crypto"],
         });
 
         expect(programResult.ok).to.equal(true);
@@ -669,7 +541,7 @@ describe("IR Builder", function () {
 
         expect(result.ok).to.equal(true);
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 

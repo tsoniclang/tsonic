@@ -19,6 +19,11 @@ export type RuntimeUnionFrame = {
 };
 
 export const UNKNOWN_TYPE: IrType = { kind: "unknownType" };
+export const BROAD_OBJECT_TYPE: IrType = {
+  kind: "referenceType",
+  name: "object",
+  resolvedClrType: "System.Object",
+};
 
 export const isRuntimeUnionTypeName = (name: string): boolean => {
   const normalized = name.startsWith("global::")

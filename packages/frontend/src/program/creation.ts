@@ -3,8 +3,6 @@
  */
 
 export {
-  CORE_GLOBALS_DECLARATIONS,
-  JS_SURFACE_GLOBAL_AUGMENTATIONS,
   scanForDeclarationFiles,
   collectProjectIncludedDeclarationFiles,
   createCompilerOptions,

@@ -9,6 +9,7 @@ import {
   IrStatement,
   IrType,
   normalizedUnionType,
+  stableIrTypeKey,
 } from "@tsonic/frontend";
 import { EmitterContext, NarrowedBinding } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
@@ -20,7 +21,7 @@ import type {
   CSharpTypeAst,
 } from "../../../core/format/backend-ast/types.js";
 import { emitStatementAst } from "../../../statement-emitter.js";
-import { withScoped } from "../../../emitter-types/context.js";
+import { materializeDirectNarrowingAst } from "../../../core/semantic/materialized-narrowing.js";
 import { normalizeRuntimeStorageType } from "../../../core/semantic/storage-types.js";
 
 export type EmitExprAstFn = (
@@ -44,6 +45,190 @@ export const mergeBranchContextMeta = (
     ...(alternate.usedLocalNames ?? []),
   ]),
 });
+
+const joinTypes = (
+  left: IrType | undefined,
+  right: IrType | undefined
+): IrType | undefined => {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return stableIrTypeKey(left) === stableIrTypeKey(right)
+    ? left
+    : normalizedUnionType([left, right]);
+};
+
+const getBindingEffectiveType = (
+  binding: NarrowedBinding | undefined
+): IrType | undefined => binding?.type ?? binding?.sourceType;
+
+const getBindingSourceType = (
+  binding: NarrowedBinding | undefined
+): IrType | undefined => binding?.sourceType ?? binding?.type;
+
+const getBindingCarrierAst = (
+  binding: NarrowedBinding | undefined
+): CSharpExpressionAst | undefined => {
+  if (!binding) {
+    return undefined;
+  }
+
+  switch (binding.kind) {
+    case "expr":
+      return binding.carrierExprAst ?? binding.storageExprAst ?? binding.exprAst;
+    case "runtimeSubset":
+      return binding.storageExprAst;
+    case "rename":
+      return undefined;
+  }
+};
+
+const getBindingStorageType = (
+  binding: NarrowedBinding | undefined
+): IrType | undefined => {
+  if (!binding) {
+    return undefined;
+  }
+
+  switch (binding.kind) {
+    case "expr":
+      return binding.storageType ?? binding.sourceType ?? binding.type;
+    case "runtimeSubset":
+      return binding.sourceType ?? binding.type;
+    case "rename":
+      return undefined;
+  }
+};
+
+const sameCarrierAst = (
+  left: CSharpExpressionAst | undefined,
+  right: CSharpExpressionAst | undefined
+): boolean =>
+  !left || !right || JSON.stringify(left) === JSON.stringify(right);
+
+const mergeJoinedBinding = (
+  baseBinding: NarrowedBinding | undefined,
+  preferredBinding: NarrowedBinding | undefined,
+  alternateBinding: NarrowedBinding | undefined,
+  context: EmitterContext
+): [NarrowedBinding | undefined, EmitterContext] => {
+  const preferredType =
+    getBindingEffectiveType(preferredBinding) ?? getBindingEffectiveType(baseBinding);
+  const alternateType =
+    getBindingEffectiveType(alternateBinding) ?? getBindingEffectiveType(baseBinding);
+  if (!preferredType || !alternateType) {
+    return [baseBinding, context];
+  }
+
+  const mergedType = joinTypes(preferredType, alternateType);
+  const mergedSourceType = joinTypes(
+    getBindingSourceType(preferredBinding) ?? getBindingSourceType(baseBinding),
+    getBindingSourceType(alternateBinding) ?? getBindingSourceType(baseBinding)
+  );
+  if (!mergedType || !mergedSourceType) {
+    return [baseBinding, context];
+  }
+
+  if (stableIrTypeKey(mergedType) === stableIrTypeKey(mergedSourceType)) {
+    return [undefined, context];
+  }
+
+  const preferredCarrierAst =
+    getBindingCarrierAst(preferredBinding) ?? getBindingCarrierAst(baseBinding);
+  const alternateCarrierAst =
+    getBindingCarrierAst(alternateBinding) ?? getBindingCarrierAst(baseBinding);
+  if (!sameCarrierAst(preferredCarrierAst, alternateCarrierAst)) {
+    return [baseBinding, context];
+  }
+
+  const carrierAst = preferredCarrierAst ?? alternateCarrierAst;
+  if (!carrierAst) {
+    return [baseBinding, context];
+  }
+
+  const mergedStorageType =
+    joinTypes(
+      getBindingStorageType(preferredBinding) ?? getBindingStorageType(baseBinding),
+      getBindingStorageType(alternateBinding) ??
+        getBindingStorageType(baseBinding)
+    ) ?? mergedSourceType;
+  const [mergedExprAst, nextContext] = materializeDirectNarrowingAst(
+    carrierAst,
+    mergedStorageType,
+    mergedType,
+    context
+  );
+
+  return [
+    buildExprBinding(
+      mergedExprAst,
+      mergedType,
+      mergedSourceType,
+      carrierAst,
+      mergedStorageType,
+      carrierAst
+    ),
+    nextContext,
+  ];
+};
+
+export const mergeBranchFlowState = (
+  base: EmitterContext,
+  preferred: EmitterContext,
+  alternate: EmitterContext,
+  context: EmitterContext
+): [ReadonlyMap<string, NarrowedBinding> | undefined, EmitterContext] => {
+  const baseBindings = base.narrowedBindings;
+  const preferredBindings = preferred.narrowedBindings;
+  const alternateBindings = alternate.narrowedBindings;
+  const keys = new Set<string>([
+    ...(baseBindings?.keys() ?? []),
+    ...(preferredBindings?.keys() ?? []),
+    ...(alternateBindings?.keys() ?? []),
+  ]);
+
+  const merged = new Map(baseBindings ?? []);
+  let currentContext = context;
+  for (const key of keys) {
+    const [nextBinding, nextContext] = mergeJoinedBinding(
+      baseBindings?.get(key),
+      preferredBindings?.get(key),
+      alternateBindings?.get(key),
+      currentContext
+    );
+    currentContext = nextContext;
+    if (nextBinding) {
+      merged.set(key, nextBinding);
+      continue;
+    }
+
+    merged.delete(key);
+  }
+
+  return [merged.size > 0 ? merged : undefined, currentContext];
+};
+
+export const mergeBranchExitContext = (
+  base: EmitterContext,
+  preferred: EmitterContext,
+  alternate: EmitterContext
+): EmitterContext => {
+  const mergedMeta = mergeBranchContextMeta(preferred, alternate);
+  const [narrowedBindings, mergedContext] = mergeBranchFlowState(
+    base,
+    preferred,
+    alternate,
+    mergedMeta
+  );
+
+  return {
+    ...mergedContext,
+    narrowedBindings,
+  };
+};
 
 export const resetBranchFlowState = (
   base: EmitterContext,
@@ -69,15 +254,33 @@ export const buildExprBinding = (
   type: IrType | undefined,
   sourceType: IrType | undefined,
   storageExprAst?: CSharpExpressionAst,
-  storageType?: IrType
+  storageType?: IrType,
+  carrierExprAst?: CSharpExpressionAst
 ): Extract<NarrowedBinding, { kind: "expr" }> => ({
   kind: "expr",
   exprAst,
   storageExprAst,
+  carrierExprAst,
   storageType,
   type,
   sourceType,
 });
+
+export const buildProjectedExprBinding = (
+  exprAst: CSharpExpressionAst,
+  type: IrType | undefined,
+  sourceType: IrType | undefined,
+  carrierExprAst: CSharpExpressionAst,
+  storageType?: IrType
+): Extract<NarrowedBinding, { kind: "expr" }> =>
+  buildExprBinding(
+    exprAst,
+    type,
+    sourceType,
+    exprAst,
+    storageType ?? type,
+    carrierExprAst
+  );
 
 /**
  * Build AST for a union narrowing expression: (escapedOrig.AsN())
@@ -136,9 +339,10 @@ export const buildComplementNarrowedBinding = (
   if (remainingPairs.length === 1) {
     const remaining = remainingPairs[0];
     if (!remaining) return undefined;
+    const narrowedAst = buildUnionNarrowAst(receiver, remaining.runtimeMemberN);
 
-    return buildExprBinding(
-      buildUnionNarrowAst(receiver, remaining.runtimeMemberN),
+    return buildProjectedExprBinding(
+      narrowedAst,
       remaining.memberType,
       sourceType,
       toReceiverAst(receiver)
@@ -190,9 +394,10 @@ export const buildComplementNarrowedBindingForMembers = (
   if (remainingPairs.length === 1) {
     const remaining = remainingPairs[0];
     if (!remaining) return undefined;
+    const narrowedAst = buildUnionNarrowAst(receiver, remaining.runtimeMemberN);
 
-    return buildExprBinding(
-      buildUnionNarrowAst(receiver, remaining.runtimeMemberN),
+    return buildProjectedExprBinding(
+      narrowedAst,
       remaining.memberType,
       sourceType,
       toReceiverAst(receiver)
@@ -237,7 +442,8 @@ export const applyExprFallthroughNarrowing = (
       narrowedType,
       undefined,
       exprAst,
-      storageType
+      storageType,
+      exprAst
     )
   );
 
@@ -366,17 +572,22 @@ export const withRuntimeUnionMemberNarrowing = (
   memberN: number,
   memberType: IrType,
   sourceType: IrType | undefined,
-  baseContext: EmitterContext
+  baseContext: EmitterContext,
+  storageType?: IrType
 ): EmitterContext => {
   const narrowedBindings = new Map(baseContext.narrowedBindings ?? []);
+  const narrowedAst = buildUnionNarrowAst(receiver, memberN);
   narrowedBindings.set(
     originalName,
     buildExprBinding(
-      buildUnionNarrowAst(receiver, memberN),
+      narrowedAst,
       memberType,
       sourceType,
-      toReceiverAst(receiver),
-      normalizeRuntimeStorageType(memberType, baseContext) ?? memberType
+      narrowedAst,
+      storageType ??
+        normalizeRuntimeStorageType(memberType, baseContext) ??
+        memberType,
+      toReceiverAst(receiver)
     )
   );
   return { ...baseContext, narrowedBindings };
@@ -390,6 +601,112 @@ export const wrapInBlock = (
   return { kind: "blockStatement", statements: [...stmts] };
 };
 
+const getNarrowBindingRoot = (bindingKey: string): string => {
+  if (bindingKey.startsWith("this.")) {
+    return "this";
+  }
+
+  const dotIndex = bindingKey.indexOf(".");
+  return dotIndex >= 0 ? bindingKey.slice(0, dotIndex) : bindingKey;
+};
+
+const collectScopedShadowRoots = (
+  outerLocalNames: ReadonlyMap<string, string> | undefined,
+  innerLocalNames: ReadonlyMap<string, string> | undefined
+): ReadonlySet<string> => {
+  if (!innerLocalNames || innerLocalNames.size === 0) {
+    return new Set<string>();
+  }
+
+  const shadowed = new Set<string>();
+  for (const [originalName, emittedName] of innerLocalNames) {
+    if (outerLocalNames?.get(originalName) !== emittedName) {
+      shadowed.add(originalName);
+    }
+  }
+
+  return shadowed;
+};
+
+const filterEscapedBranchNarrowings = (
+  outerContext: EmitterContext,
+  innerContext: EmitterContext
+): ReadonlyMap<string, NarrowedBinding> | undefined => {
+  const innerBindings = innerContext.narrowedBindings;
+  if (!innerBindings || innerBindings.size === 0) {
+    return undefined;
+  }
+
+  const shadowedRoots = collectScopedShadowRoots(
+    outerContext.localNameMap,
+    innerContext.localNameMap
+  );
+  if (shadowedRoots.size === 0) {
+    return innerBindings;
+  }
+
+  const escaped = new Map<string, NarrowedBinding>();
+  for (const [bindingKey, binding] of innerBindings) {
+    const root = getNarrowBindingRoot(bindingKey);
+    if (root !== "this" && shadowedRoots.has(root)) {
+      continue;
+    }
+    escaped.set(bindingKey, binding);
+  }
+
+  return escaped.size > 0 ? escaped : undefined;
+};
+
+const restoreEscapedBranchScope = (
+  outerContext: EmitterContext,
+  innerContext: EmitterContext
+): EmitterContext => ({
+  ...innerContext,
+  localNameMap: outerContext.localNameMap,
+  conditionAliases: outerContext.conditionAliases,
+  localSemanticTypes: outerContext.localSemanticTypes,
+  localValueTypes: outerContext.localValueTypes,
+  narrowedBindings: filterEscapedBranchNarrowings(outerContext, innerContext),
+});
+
+export const emitBranchScopedStatementAst = (
+  bodyStmt: IrStatement,
+  bodyCtx: EmitterContext
+): [readonly CSharpStatementAst[], EmitterContext] => {
+  const scopedContext: EmitterContext = {
+    ...bodyCtx,
+    localNameMap: new Map(bodyCtx.localNameMap ?? []),
+    conditionAliases: new Map(bodyCtx.conditionAliases ?? []),
+    localSemanticTypes: new Map(bodyCtx.localSemanticTypes ?? []),
+    localValueTypes: new Map(bodyCtx.localValueTypes ?? []),
+  };
+
+  let emittedStatements: readonly CSharpStatementAst[];
+  let innerContext: EmitterContext;
+
+  if (bodyStmt.kind === "blockStatement") {
+    const flattenedStatements: CSharpStatementAst[] = [];
+    let currentContext = scopedContext;
+    for (const statement of bodyStmt.statements) {
+      const [nextStatements, nextContext] = emitStatementAst(
+        statement,
+        currentContext
+      );
+      flattenedStatements.push(...nextStatements);
+      currentContext = nextContext;
+    }
+    emittedStatements = flattenedStatements;
+    innerContext = currentContext;
+  } else {
+    [emittedStatements, innerContext] = emitStatementAst(bodyStmt, scopedContext);
+  }
+
+  return [
+    emittedStatements,
+    restoreEscapedBranchScope(bodyCtx, innerContext),
+  ];
+};
+
 /**
  * Emit a forced block with a preamble line as AST.
  * Builds a blockStatement with preamble statements + body statements.
@@ -401,46 +718,17 @@ export const emitForcedBlockWithPreambleAst = (
   bodyStmt: IrStatement,
   bodyCtx: EmitterContext
 ): [CSharpBlockStatementAst, EmitterContext] => {
-  const outerNameMap = bodyCtx.localNameMap;
-  const outerConditionAliases = bodyCtx.conditionAliases;
-  const outerSemanticTypes = bodyCtx.localSemanticTypes;
-  const outerValueTypes = bodyCtx.localValueTypes;
-  return withScoped(
-    bodyCtx,
-    {
-      localNameMap: new Map(outerNameMap ?? []),
-      conditionAliases: new Map(outerConditionAliases ?? []),
-      localSemanticTypes: new Map(outerSemanticTypes ?? []),
-      localValueTypes: new Map(outerValueTypes ?? []),
-    },
-    (scopedContext) => {
-      const allStatements: CSharpStatementAst[] = [...preambleStmts];
-
-      const emitBodyStatements = (
-        statements: readonly IrStatement[],
-        ctx: EmitterContext
-      ): EmitterContext => {
-        let currentCtx = ctx;
-        for (const s of statements) {
-          const [stmts, next] = emitStatementAst(s, currentCtx);
-          allStatements.push(...stmts);
-          currentCtx = next;
-        }
-        return currentCtx;
-      };
-
-      const finalCtx =
-        bodyStmt.kind === "blockStatement"
-          ? emitBodyStatements(bodyStmt.statements, scopedContext)
-          : (() => {
-              const [stmts, next] = emitStatementAst(bodyStmt, scopedContext);
-              allStatements.push(...stmts);
-              return next;
-            })();
-
-      return [{ kind: "blockStatement", statements: allStatements }, finalCtx];
-    }
+  const [bodyStatements, finalContext] = emitBranchScopedStatementAst(
+    bodyStmt,
+    bodyCtx
   );
+  return [
+    {
+      kind: "blockStatement",
+      statements: [...preambleStmts, ...bodyStatements],
+    },
+    finalContext,
+  ];
 };
 
 /**

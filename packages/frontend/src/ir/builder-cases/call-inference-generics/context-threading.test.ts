@@ -162,6 +162,70 @@ describe("IR Builder", function () {
       );
     });
 
+    it("preserves constructor class type parameters from expected return context when names match", () => {
+      const source = `
+        export class Transformer<T> {
+          value: T;
+
+          constructor(value: T) {
+            this.value = value;
+          }
+
+          combine(other: Transformer<T>, fn: (a: T, b: T) => T): Transformer<T> {
+            return new Transformer(fn(this.value, other.value));
+          }
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const transformer = result.value.body.find(
+        (
+          stmt
+        ): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
+          stmt.kind === "classDeclaration" && stmt.name === "Transformer"
+      );
+      expect(transformer).to.not.equal(undefined);
+      if (!transformer) return;
+
+      const combine = transformer.members.find(
+        (
+          member
+        ): member is Extract<
+          (typeof transformer.members)[number],
+          { kind: "methodDeclaration" }
+        > => member.kind === "methodDeclaration" && member.name === "combine"
+      );
+      expect(combine).to.not.equal(undefined);
+      if (!combine?.body) return;
+
+      const returnStmt = combine.body.statements.find(
+        (
+          stmt
+        ): stmt is Extract<typeof stmt, { kind: "returnStatement" }> =>
+          stmt.kind === "returnStatement"
+      );
+      expect(returnStmt?.expression?.kind).to.equal("new");
+      if (!returnStmt?.expression || returnStmt.expression.kind !== "new") {
+        return;
+      }
+
+      expect(returnStmt.expression.inferredType).to.deep.equal({
+        kind: "referenceType",
+        name: "Transformer",
+        typeArguments: [{ kind: "typeParameterType", name: "T" }],
+      });
+      expect(returnStmt.expression.typeArguments).to.deep.equal([
+        { kind: "typeParameterType", name: "T" },
+      ]);
+    });
+
     it("does not invent a simple-name source type identity when multiple modules share that name", () => {
       const {
         sourceFile,

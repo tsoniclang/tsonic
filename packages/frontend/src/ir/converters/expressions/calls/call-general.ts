@@ -28,6 +28,7 @@ import type { ProgramContext } from "../../../program-context.js";
 import {
   buildResolvedRestParameter,
   expandParameterTypesForArguments,
+  substitutePolymorphicThis,
 } from "../../../type-system/type-system-call-resolution.js";
 import {
   type CallSiteArgModifier,
@@ -56,6 +57,56 @@ const stripParentheses = (expr: ts.Expression): ts.Expression => {
     current = current.expression;
   }
   return current;
+};
+
+const getDirectStructuralMemberType = (
+  receiverType: IrType | undefined,
+  memberName: string
+): IrType | undefined => {
+  const members =
+    receiverType?.kind === "referenceType"
+      ? receiverType.structuralMembers
+      : receiverType?.kind === "objectType"
+        ? receiverType.members
+        : undefined;
+  if (!members || members.length === 0) {
+    return undefined;
+  }
+
+  const matchingMembers = members.filter((member) => member.name === memberName);
+  if (matchingMembers.length === 0) {
+    return undefined;
+  }
+
+  const methodMembers = matchingMembers.filter(
+    (
+      member
+    ): member is Extract<(typeof matchingMembers)[number], { kind: "methodSignature" }> =>
+      member.kind === "methodSignature"
+  );
+  if (methodMembers.length > 0) {
+    const callableTypes = methodMembers.map((member) => ({
+      kind: "functionType" as const,
+      typeParameters: member.typeParameters,
+      parameters: member.parameters,
+      returnType: member.returnType ?? ({ kind: "unknownType" } as const),
+    }));
+
+    return callableTypes.length === 1
+      ? callableTypes[0]
+      : {
+          kind: "intersectionType",
+          types: callableTypes,
+        };
+  }
+
+  const propertyMember = matchingMembers.find(
+    (
+      member
+    ): member is Extract<(typeof matchingMembers)[number], { kind: "propertySignature" }> =>
+      member.kind === "propertySignature"
+  );
+  return propertyMember?.type;
 };
 
 const buildDeferredLambdaInferenceType = (
@@ -156,6 +207,56 @@ type SourceBackedIdentifierGlobalTarget = {
     | ts.FunctionExpression
     | ts.ArrowFunction
   )[];
+};
+
+const resolveSourceBackedExportedFunctionTarget = (
+  sourceFile: ts.SourceFile,
+  exportedSymbol: SourceExportedTopLevelSymbol,
+  resolvedSignatureDeclaration: ts.SignatureDeclaration | undefined
+): SourceBackedIdentifierGlobalTarget | undefined => {
+  if (exportedSymbol.kind === "function") {
+    const candidates = sourceFile.statements.flatMap((statement) =>
+      ts.isFunctionDeclaration(statement) &&
+      statement.name?.text === exportedSymbol.localName
+        ? [statement]
+        : []
+    );
+    if (candidates.length === 0) {
+      return undefined;
+    }
+
+    const declaration =
+      candidates.find((candidate) => candidate === resolvedSignatureDeclaration) ??
+      candidates[candidates.length - 1] ??
+      candidates[0];
+    if (!declaration) {
+      return undefined;
+    }
+
+    return {
+      declaration,
+      ownerTypeParameterNames: [],
+      overloadCandidates: candidates,
+    };
+  }
+
+  if (exportedSymbol.kind !== "variable") {
+    return undefined;
+  }
+
+  const initializer = (exportedSymbol.node as ts.VariableDeclaration).initializer;
+  if (
+    !initializer ||
+    (!ts.isArrowFunction(initializer) && !ts.isFunctionExpression(initializer))
+  ) {
+    return undefined;
+  }
+
+  return {
+    declaration: initializer,
+    ownerTypeParameterNames: [],
+    overloadCandidates: [initializer],
+  };
 };
 
 const isExportedTopLevelStatement = (statement: ts.Statement): boolean =>
@@ -428,52 +529,11 @@ const resolveSourceBackedIdentifierGlobalTarget = (
     return undefined;
   }
 
-  if (exportedSymbol.kind === "function") {
-    const candidates = sourceFile.statements.flatMap((statement) =>
-      ts.isFunctionDeclaration(statement) &&
-      statement.name?.text === exportedSymbol.localName
-        ? [statement]
-        : []
-    );
-    if (candidates.length === 0) {
-      return undefined;
-    }
-
-    const resolvedSignatureDeclaration = ctx.checker
-      .getResolvedSignature(node)
-      ?.getDeclaration();
-    const declaration =
-      candidates.find((candidate) => candidate === resolvedSignatureDeclaration) ??
-      candidates[candidates.length - 1] ??
-      candidates[0];
-    if (!declaration) {
-      return undefined;
-    }
-
-    return {
-      declaration,
-      ownerTypeParameterNames: [],
-      overloadCandidates: candidates,
-    };
-  }
-
-  if (exportedSymbol.kind !== "variable") {
-    return undefined;
-  }
-
-  const initializer = (exportedSymbol.node as ts.VariableDeclaration).initializer;
-  if (
-    !initializer ||
-    (!ts.isArrowFunction(initializer) && !ts.isFunctionExpression(initializer))
-  ) {
-    return undefined;
-  }
-
-  return {
-    declaration: initializer,
-    ownerTypeParameterNames: [],
-    overloadCandidates: [initializer],
-  };
+  return resolveSourceBackedExportedFunctionTarget(
+    sourceFile,
+    exportedSymbol,
+    ctx.checker.getResolvedSignature(node)?.getDeclaration()
+  );
 };
 
 const collectTopLevelClassDeclarations = (
@@ -592,6 +652,7 @@ const getDeclarationTextName = (
 type SourceBackedParameterSurface = {
   readonly parameterTypes: readonly (IrType | undefined)[];
   readonly returnType: IrType;
+  readonly methodTypeParameterNames: readonly string[];
   readonly restParameter:
     | {
         readonly index: number;
@@ -638,6 +699,8 @@ const buildSourceBackedParameterSurface = (
   return {
     parameterTypes,
     returnType: substitutedSurface.returnType ?? { kind: "unknownType" },
+    methodTypeParameterNames:
+      declaration.typeParameters?.map((parameter) => parameter.name.text) ?? [],
     restParameter: buildResolvedRestParameter(
       substitutedSurface.parameters.map((parameter) => ({
         isRest: parameter.isRest,
@@ -747,9 +810,31 @@ const scoreSourceSurfaceComplexity = (type: IrType | undefined): number => {
 const scoreSourceBackedSurfaceCandidate = (
   candidateParameterTypes: readonly (IrType | undefined)[],
   selectedParameterTypes: readonly (IrType | undefined)[],
+  actualArgTypes: readonly (IrType | undefined)[] | undefined,
   ctx: ProgramContext
-): readonly [number, number, number] => {
+): readonly [number, number, number, number] => {
+  const candidateCoversActualArg = (
+    candidateType: IrType | undefined,
+    actualType: IrType | undefined
+  ): boolean => {
+    if (!candidateType || !actualType) {
+      return false;
+    }
+
+    if (ctx.typeSystem.typesEqual(candidateType, actualType)) {
+      return true;
+    }
+
+    if (candidateType.kind === "unionType") {
+      return candidateType.types.some((member) =>
+        candidateCoversActualArg(member, actualType)
+      );
+    }
+
+    return false;
+  };
   let compatibleCount = 0;
+  let actualCoverageCount = 0;
   let exactCount = 0;
   let complexity = 0;
 
@@ -764,6 +849,11 @@ const scoreSourceBackedSurfaceCandidate = (
 
     if (!candidate || !selected) {
       continue;
+    }
+
+    const actualArgType = actualArgTypes?.[index];
+    if (candidateCoversActualArg(candidate, actualArgType)) {
+      actualCoverageCount += 1;
     }
 
     if (ctx.typeSystem.typesEqual(selected, candidate)) {
@@ -782,12 +872,12 @@ const scoreSourceBackedSurfaceCandidate = (
     }
   }
 
-  return [compatibleCount, exactCount, -complexity];
+  return [compatibleCount, actualCoverageCount, exactCount, -complexity];
 };
 
 const compareSourceSurfaceScores = (
-  left: readonly [number, number, number],
-  right: readonly [number, number, number]
+  left: readonly [number, number, number, number],
+  right: readonly [number, number, number, number]
 ): number => {
   for (let index = 0; index < left.length; index += 1) {
     const delta = left[index]! - right[index]!;
@@ -980,9 +1070,27 @@ const deriveSourceBackedTypeSubstitutions = (
   actualArgTypes: readonly (IrType | undefined)[] | undefined,
   returnType: IrType,
   expectedType: IrType | undefined,
+  methodTypeParameterNames: readonly string[],
+  explicitTypeArgs: readonly IrType[] | undefined,
   ctx: ProgramContext
 ): ReadonlyMap<string, IrType> | undefined => {
   const substitutions = new Map<string, IrType>();
+
+  if (explicitTypeArgs && methodTypeParameterNames.length > 0) {
+    for (
+      let index = 0;
+      index <
+      Math.min(methodTypeParameterNames.length, explicitTypeArgs.length);
+      index += 1
+    ) {
+      const typeParameterName = methodTypeParameterNames[index];
+      const explicitTypeArg = explicitTypeArgs[index];
+      if (!typeParameterName || !explicitTypeArg) {
+        continue;
+      }
+      substitutions.set(typeParameterName, explicitTypeArg);
+    }
+  }
 
   if (actualArgTypes) {
     const pairCount = Math.min(parameterTypes.length, actualArgTypes.length);
@@ -1397,19 +1505,46 @@ const applySourceReceiverTypeSubstitution = (
     ownerTypeParameterNames
   );
   if (!substitution) {
-    return { parameters, returnType };
+    return {
+      parameters: parameters.map((parameter) => ({
+        ...parameter,
+        type:
+          receiverType && parameter.type
+            ? (substitutePolymorphicThis(parameter.type, receiverType) ??
+              parameter.type)
+            : parameter.type,
+      })),
+      returnType:
+        receiverType && returnType
+          ? (substitutePolymorphicThis(returnType, receiverType) ?? returnType)
+          : returnType,
+    };
   }
 
+  const substitutedParameters = parameters.map((parameter) => ({
+    ...parameter,
+    type: parameter.type
+      ? ctx.typeSystem.substitute(parameter.type, substitution)
+      : parameter.type,
+  }));
+  const substitutedReturnType = returnType
+    ? (ctx.typeSystem.substitute(returnType, substitution) ?? returnType)
+    : returnType;
+
   return {
-    parameters: parameters.map((parameter) => ({
+    parameters: substitutedParameters.map((parameter) => ({
       ...parameter,
-      type: parameter.type
-        ? ctx.typeSystem.substitute(parameter.type, substitution)
-        : parameter.type,
+      type:
+        receiverType && parameter.type
+          ? (substitutePolymorphicThis(parameter.type, receiverType) ??
+            parameter.type)
+          : parameter.type,
     })),
-    returnType: returnType
-      ? (ctx.typeSystem.substitute(returnType, substitution) ?? returnType)
-      : returnType,
+    returnType:
+      receiverType && substitutedReturnType
+        ? (substitutePolymorphicThis(substitutedReturnType, receiverType) ??
+          substitutedReturnType)
+        : substitutedReturnType,
   };
 };
 
@@ -1421,6 +1556,7 @@ export const getSourceBackedCallParameterTypes = (
   selectedParameterTypes: readonly (IrType | undefined)[] | undefined,
   actualArgTypes: readonly (IrType | undefined)[] | undefined,
   expectedType: IrType | undefined,
+  explicitTypeArgs: readonly IrType[] | undefined,
   ctx: ProgramContext
 ):
   | {
@@ -1465,6 +1601,7 @@ export const getSourceBackedCallParameterTypes = (
       let bestScore = scoreSourceBackedSurfaceCandidate(
         runtimeSurface.parameterTypes,
         selectedParameterTypes,
+        actualArgTypes,
         ctx
       );
 
@@ -1479,6 +1616,7 @@ export const getSourceBackedCallParameterTypes = (
         const candidateScore = scoreSourceBackedSurfaceCandidate(
           candidateSurface.parameterTypes,
           selectedParameterTypes,
+          actualArgTypes,
           ctx
         );
         if (compareSourceSurfaceScores(candidateScore, bestScore) > 0) {
@@ -1495,13 +1633,15 @@ export const getSourceBackedCallParameterTypes = (
       actualArgTypes,
       surfaceParameterSurface.returnType,
       expectedType,
+      surfaceParameterSurface.methodTypeParameterNames,
+      explicitTypeArgs,
       ctx
     );
     const specializeType = (type: IrType | undefined): IrType | undefined =>
       substitutions ? substituteTypeParameters(type, substitutions) : type;
 
     return {
-      parameterTypes: runtimeSurface.parameterTypes.map((type) =>
+      parameterTypes: surfaceParameterSurface.parameterTypes.map((type) =>
         specializeType(type)
       ),
       surfaceParameterTypes: surfaceParameterSurface.parameterTypes.map((type) =>
@@ -1556,6 +1696,15 @@ export const getSourceBackedCallParameterTypes = (
     .getResolvedSignature(node)
     ?.getDeclaration();
   const topLevelClasses = collectTopLevelClassDeclarations(sourceFile);
+  const exportedCallableTarget = resolveSourceBackedExportedFunctionTarget(
+    sourceFile,
+    exportedSymbol,
+    resolvedSignatureDeclaration
+  );
+  const ownerClass = resolveInstantiatedExportClassDeclaration(
+    exportedSymbol,
+    topLevelClasses
+  );
 
   const resolveSignatureDeclaration = ():
     | {
@@ -1568,35 +1717,11 @@ export const getSourceBackedCallParameterTypes = (
       }
     | undefined => {
     if (!sourceOrigin.memberName) {
-      if (
-        exportedSymbol.kind === "function" &&
-        resolvedSignatureDeclaration &&
-        ts.isFunctionDeclaration(resolvedSignatureDeclaration) &&
-        resolvedSignatureDeclaration.name?.text === sourceOrigin.exportName
-      ) {
-        return {
-          declaration: resolvedSignatureDeclaration,
-          ownerTypeParameterNames: [],
-        };
-      }
+      return exportedCallableTarget;
+    }
 
-      if (exportedSymbol.kind === "variable") {
-        const initializer = (exportedSymbol.node as ts.VariableDeclaration)
-          .initializer;
-        if (
-          initializer &&
-          resolvedSignatureDeclaration &&
-          resolvedSignatureDeclaration === initializer &&
-          (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))
-        ) {
-          return {
-            declaration: initializer,
-            ownerTypeParameterNames: [],
-          };
-        }
-      }
-
-      return undefined;
+    if (exportedCallableTarget && !ownerClass) {
+      return exportedCallableTarget;
     }
 
     if (!resolvedSignatureDeclaration || !ts.isMethodDeclaration(resolvedSignatureDeclaration)) {
@@ -1614,10 +1739,6 @@ export const getSourceBackedCallParameterTypes = (
       return undefined;
     }
 
-    const ownerClass = resolveInstantiatedExportClassDeclaration(
-      exportedSymbol,
-      topLevelClasses
-    );
     if (!ownerClass) {
       return undefined;
     }
@@ -1664,14 +1785,14 @@ export const getSourceBackedCallParameterTypes = (
       return runtimeSurface;
     }
 
-    if (!sourceOrigin.memberName) {
+    if (!ts.isMethodDeclaration(signature.declaration)) {
       if (exportedSymbol.kind !== "function") {
         return runtimeSurface;
       }
 
       const candidates = sourceFile.statements.flatMap((statement) =>
         ts.isFunctionDeclaration(statement) &&
-        statement.name?.text === sourceOrigin.exportName
+        statement.name?.text === exportedSymbol.localName
           ? [statement]
           : []
       );
@@ -1683,6 +1804,7 @@ export const getSourceBackedCallParameterTypes = (
       let bestScore = scoreSourceBackedSurfaceCandidate(
         runtimeSurface.parameterTypes,
         selectedParameterTypes,
+        actualArgTypes,
         ctx
       );
       for (const candidate of candidates) {
@@ -1696,6 +1818,7 @@ export const getSourceBackedCallParameterTypes = (
         const candidateScore = scoreSourceBackedSurfaceCandidate(
           candidateSurface.parameterTypes,
           selectedParameterTypes,
+          actualArgTypes,
           ctx
         );
         if (compareSourceSurfaceScores(candidateScore, bestScore) > 0) {
@@ -1726,6 +1849,7 @@ export const getSourceBackedCallParameterTypes = (
     let bestScore = scoreSourceBackedSurfaceCandidate(
       runtimeSurface.parameterTypes,
       selectedParameterTypes,
+      actualArgTypes,
       ctx
     );
     for (const candidate of methodCandidates) {
@@ -1739,6 +1863,7 @@ export const getSourceBackedCallParameterTypes = (
       const candidateScore = scoreSourceBackedSurfaceCandidate(
         candidateSurface.parameterTypes,
         selectedParameterTypes,
+        actualArgTypes,
         ctx
       );
       if (compareSourceSurfaceScores(candidateScore, bestScore) > 0) {
@@ -1750,18 +1875,20 @@ export const getSourceBackedCallParameterTypes = (
     return bestSurface;
   })();
 
-  const substitutions = deriveSourceBackedTypeSubstitutions(
-    surfaceParameterSurface.parameterTypes,
-    actualArgTypes,
-    surfaceParameterSurface.returnType,
-    expectedType,
-    ctx
-  );
+    const substitutions = deriveSourceBackedTypeSubstitutions(
+      surfaceParameterSurface.parameterTypes,
+      actualArgTypes,
+      surfaceParameterSurface.returnType,
+      expectedType,
+      surfaceParameterSurface.methodTypeParameterNames,
+      explicitTypeArgs,
+      ctx
+    );
   const specializeType = (type: IrType | undefined): IrType | undefined =>
     substitutions ? substituteTypeParameters(type, substitutions) : type;
 
   return {
-    parameterTypes: runtimeSurface.parameterTypes.map((type) =>
+    parameterTypes: surfaceParameterSurface.parameterTypes.map((type) =>
       specializeType(type)
     ),
     surfaceParameterTypes: surfaceParameterSurface.parameterTypes.map((type) =>
@@ -1832,28 +1959,6 @@ const getExplicitExtensionReceiverExpectedType = (
   );
 };
 
-const hasSourceBackedMemberOverloads = (
-  binding:
-    | Extract<IrCallExpression["callee"], { kind: "memberAccess" }>["memberBinding"]
-    | undefined,
-  ctx: ProgramContext
-): boolean => {
-  if (!binding) {
-    return false;
-  }
-
-  const overloads = ctx.bindings.getClrMemberOverloads(
-    binding.assembly,
-    binding.type,
-    binding.member
-  );
-  if (!overloads || overloads.length === 0) {
-    return false;
-  }
-
-  return overloads.some((candidate) => candidate.sourceOrigin !== undefined);
-};
-
 /**
  * Convert call expression
  */
@@ -1900,19 +2005,20 @@ export const convertCallExpression = (
     if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
     if (!receiverIrType) return undefined;
 
+    const directStructuralMemberType = getDirectStructuralMemberType(
+      receiverIrType,
+      node.expression.name.text
+    );
+    if (directStructuralMemberType) {
+      return directStructuralMemberType;
+    }
+
     const memberId = ctx.binding.resolvePropertyAccess(node.expression);
     if (!memberId) return undefined;
 
     return typeSystem.typeOfMemberId(memberId, receiverIrType);
   })();
-  const prefersSourceBackedCallableResolution =
-    callee.kind === "memberAccess" &&
-    callee.memberBinding !== undefined &&
-    callee.inferredType !== undefined &&
-    callee.inferredType.kind !== "unknownType" &&
-    hasSourceBackedMemberOverloads(callee.memberBinding, ctx);
-  const useDirectCallableCandidateResolution =
-    !sigId || prefersSourceBackedCallableResolution;
+  const useDirectCallableCandidateResolution = !sigId;
   const argumentCount = node.arguments.length;
   const callSiteArgModifiers: (CallSiteArgModifier | undefined)[] = new Array(
     argumentCount
@@ -1923,21 +2029,26 @@ export const convertCallExpression = (
         typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
       )
     : undefined;
+  const usesAuthoritativeSurfaceBindings = ctx.surface !== "clr";
   const boundGlobalCallParameterTypes = getBoundGlobalCallParameterTypes(
     callee,
     argumentCount,
     ctx
   );
-  const sourceBackedCallParameterTypes = getSourceBackedCallParameterTypes(
-    node,
-    callee,
-    receiverIrType,
-    argumentCount,
-    undefined,
-    undefined,
-    expectedType,
-    ctx
-  );
+  const authoritativeBoundGlobalSurfaceParameterTypes =
+    usesAuthoritativeSurfaceBindings
+    ? boundGlobalCallParameterTypes?.parameterTypes
+    : undefined;
+  const ambientBoundGlobalSurfaceParameterTypes =
+    !usesAuthoritativeSurfaceBindings &&
+    boundGlobalCallParameterTypes &&
+    callee.inferredType?.kind === "functionType"
+      ? expandParameterTypesForArguments(
+          callee.inferredType.parameters,
+          callee.inferredType.parameters.map((parameter) => parameter.type),
+          argumentCount
+        )
+      : undefined;
 
   const callableCandidateSourceType =
     callee.inferredType === undefined || callee.inferredType.kind === "unknownType"
@@ -1970,6 +2081,18 @@ export const convertCallExpression = (
         expectedReturnType: expectedType,
       })
     : undefined;
+  const sourceBackedCallParameterTypes = getSourceBackedCallParameterTypes(
+    node,
+    callee,
+    receiverIrType,
+    argumentCount,
+    initialResolved?.parameterTypes ??
+      initialCallableResolution?.resolved?.parameterTypes,
+    undefined,
+    expectedType,
+    explicitTypeArgs,
+    ctx
+  );
   const expectedReturnCandidates = expectedType
     ? typeSystem.collectExpectedReturnCandidates(expectedType)
     : undefined;
@@ -2007,12 +2130,10 @@ export const convertCallExpression = (
     );
   })();
   const initialSurfaceParameterTypes = (() => {
-    if (boundGlobalCallParameterTypes?.parameterTypes) {
-      return boundGlobalCallParameterTypes.parameterTypes;
-    }
-
     return (
+      authoritativeBoundGlobalSurfaceParameterTypes ??
       sourceBackedCallParameterTypes?.surfaceParameterTypes ??
+      ambientBoundGlobalSurfaceParameterTypes ??
       initialResolved?.surfaceParameterTypes ??
       initialCallableResolution?.resolved?.surfaceParameterTypes
     );
@@ -2194,16 +2315,23 @@ export const convertCallExpression = (
       ? lambdaContextCallableResolution?.resolved?.parameterTypes
       : undefined;
   const lambdaContextSurfaceParameterTypes =
-    boundGlobalCallParameterTypes?.parameterTypes ??
+    authoritativeBoundGlobalSurfaceParameterTypes ??
     sourceBackedCallParameterTypes?.surfaceParameterTypes ??
     lambdaContextResolved?.surfaceParameterTypes ??
     lambdaContextCallableResolution?.resolved?.surfaceParameterTypes;
+  const lambdaContextResolvedParameterTypes =
+    lambdaContextResolved?.parameterTypes ??
+    lambdaContextCallableResolution?.resolved?.parameterTypes ??
+    lambdaContextFunctionParameterTypes;
+  const deferredContextParameterTypes =
+    mergeContextualParameterTypes(
+      lambdaContextResolvedParameterTypes,
+      lambdaContextSurfaceParameterTypes
+    ) ?? lambdaContextSurfaceParameterTypes;
 
   const parameterTypesForDeferredContext =
     mergeContextualParameterTypes(
-      lambdaContextSurfaceParameterTypes ??
-        lambdaContextResolved?.parameterTypes ??
-        lambdaContextFunctionParameterTypes,
+      deferredContextParameterTypes,
       initialParameterTypesForContext
     ) ?? initialParameterTypesForContext;
 
@@ -2249,6 +2377,14 @@ export const convertCallExpression = (
         : expectedType
           ? (typeSystem.delegateToFunctionType(expectedType) ?? expectedType)
           : undefined;
+
+    if (
+      shouldRecontextualizeAggregateLater &&
+      expectedType &&
+      ctx.typeSystem.containsTypeParameter(expectedType)
+    ) {
+      continue;
+    }
 
     argsWorking[index] = convertExpression(
       unwrapped.expression,
@@ -2299,6 +2435,8 @@ export const convertCallExpression = (
           expectedType
         )
       : undefined;
+  const directCalleeFunctionType =
+    callee.inferredType?.kind === "functionType" ? callee.inferredType : undefined;
   const exactMemberCallableResolution =
     exactMemberCallableType && exactMemberCallableType.kind !== "unknownType"
       ? resolveCallableCandidate(
@@ -2310,10 +2448,21 @@ export const convertCallExpression = (
           expectedType
         )
       : undefined;
+  const directCalleeCallableResolution = directCalleeFunctionType
+    ? resolveCallableCandidate(
+        directCalleeFunctionType,
+        finalResolutionArgumentCount,
+        ctx,
+        finalResolutionArgTypes,
+        explicitTypeArgs,
+        expectedType
+      )
+    : undefined;
   const finalFunctionType =
     finalCallableResolution?.callableType ??
     lambdaContextFunctionType ??
-    calleeFunctionType;
+    calleeFunctionType ??
+    directCalleeFunctionType;
   const finalFunctionParameterTypes =
     useDirectCallableCandidateResolution
       ? finalCallableResolution?.resolved?.parameterTypes
@@ -2328,12 +2477,76 @@ export const convertCallExpression = (
       initialParameterTypesForContext,
     finalResolutionArgTypes,
     expectedType,
+    explicitTypeArgs,
     ctx
   );
   const shouldPreferExactMemberType = (
     currentType: IrType | undefined,
     exactType: IrType | undefined
   ): exactType is IrType => {
+    const getNumericKind = (type: IrType | undefined): string | undefined => {
+      if (!type) {
+        return undefined;
+      }
+      if (type.kind === "primitiveType") {
+        return type.name;
+      }
+      if (type.kind === "referenceType") {
+        return type.name;
+      }
+      return undefined;
+    };
+    const hasStrongerNumericIntent = (
+      current: IrType | undefined,
+      exact: IrType | undefined
+    ): boolean => {
+      if (!current || !exact) {
+        return false;
+      }
+
+      const currentNumeric = getNumericKind(current);
+      const exactNumeric = getNumericKind(exact);
+      if (currentNumeric && exactNumeric) {
+        return currentNumeric === "number" && exactNumeric !== "number";
+      }
+
+      if (current.kind === "functionType" && exact.kind === "functionType") {
+        if (current.parameters.length !== exact.parameters.length) {
+          return false;
+        }
+
+        if (hasStrongerNumericIntent(current.returnType, exact.returnType)) {
+          return true;
+        }
+
+        return current.parameters.some((parameter, index) => {
+          const exactParameter = exact.parameters[index];
+          return (
+            exactParameter !== undefined &&
+            hasStrongerNumericIntent(parameter.type, exactParameter.type)
+          );
+        });
+      }
+
+      return false;
+    };
+    const isCompilerGeneratedStructuralCarrier = (
+      type: IrType | undefined
+    ): boolean =>
+      type?.kind === "referenceType" &&
+      (type.name.startsWith("__Anon_") || /__\d+$/.test(type.name));
+    const isInlineOrGeneratedStructuralCarrier = (
+      type: IrType | undefined
+    ): boolean =>
+      type?.kind === "objectType" ||
+      isCompilerGeneratedStructuralCarrier(type);
+    const isExplicitStructuralReference = (
+      type: IrType | undefined
+    ): type is Extract<IrType, { kind: "referenceType" }> =>
+      type?.kind === "referenceType" &&
+      !isCompilerGeneratedStructuralCarrier(type) &&
+      (type.structuralMembers?.length ?? 0) > 0;
+
     if (!exactType || exactType.kind === "unknownType") {
       return false;
     }
@@ -2343,6 +2556,19 @@ export const convertCallExpression = (
     }
 
     if (currentType.kind === "unknownType") {
+      return true;
+    }
+
+    if (hasStrongerNumericIntent(currentType, exactType)) {
+      return true;
+    }
+
+    if (
+      isInlineOrGeneratedStructuralCarrier(currentType) &&
+      isExplicitStructuralReference(exactType) &&
+      ctx.typeSystem.isAssignableTo(currentType, exactType) &&
+      ctx.typeSystem.isAssignableTo(exactType, currentType)
+    ) {
       return true;
     }
 
@@ -2370,7 +2596,10 @@ export const convertCallExpression = (
     const baselineParameterTypes =
       finalSourceBackedCallParameterTypes?.parameterTypes ??
       sourceBackedCallParameterTypes?.parameterTypes;
-    const exactParameterTypes = exactMemberCallableResolution?.resolved?.parameterTypes;
+    const exactParameterTypes =
+      exactMemberCallableResolution?.resolved?.parameterTypes ??
+      directCalleeCallableResolution?.resolved?.parameterTypes ??
+      finalResolved?.parameterTypes;
     if (!baselineParameterTypes || !exactParameterTypes) {
       return baselineParameterTypes;
     }
@@ -2386,7 +2615,9 @@ export const convertCallExpression = (
       finalSourceBackedCallParameterTypes?.surfaceParameterTypes ??
       sourceBackedCallParameterTypes?.surfaceParameterTypes;
     const exactSurfaceParameterTypes =
-      exactMemberCallableResolution?.resolved?.surfaceParameterTypes;
+      exactMemberCallableResolution?.resolved?.surfaceParameterTypes ??
+      directCalleeCallableResolution?.resolved?.surfaceParameterTypes ??
+      finalResolved?.surfaceParameterTypes;
     if (!baselineSurfaceParameterTypes || !exactSurfaceParameterTypes) {
       return baselineSurfaceParameterTypes;
     }
@@ -2401,7 +2632,10 @@ export const convertCallExpression = (
     const baselineReturnType =
       finalSourceBackedCallParameterTypes?.returnType ??
       sourceBackedCallParameterTypes?.returnType;
-    const exactReturnType = exactMemberCallableResolution?.resolved?.returnType;
+    const exactReturnType =
+      exactMemberCallableResolution?.resolved?.returnType ??
+      directCalleeCallableResolution?.resolved?.returnType ??
+      finalResolved?.returnType;
     return shouldPreferExactMemberType(baselineReturnType, exactReturnType)
       ? exactReturnType
       : baselineReturnType;
@@ -2440,8 +2674,9 @@ export const convertCallExpression = (
   const surfaceParameterTypes =
     (() => {
       const baselineSurfaceParameterTypes =
-        boundGlobalCallParameterTypes?.parameterTypes ??
+        authoritativeBoundGlobalSurfaceParameterTypes ??
         refinedSourceBackedSurfaceParameterTypes ??
+        ambientBoundGlobalSurfaceParameterTypes ??
         finalResolved?.surfaceParameterTypes ??
         finalCallableResolution?.resolved?.surfaceParameterTypes ??
         finalFunctionParameterTypes ??
@@ -2499,11 +2734,21 @@ export const convertCallExpression = (
     };
   })();
   const inferredType = (() => {
+    if (node.expression.kind === ts.SyntaxKind.SuperKeyword) {
+      return { kind: "voidType" } as const;
+    }
+
+    if (ts.isCallExpression(node) && isArrayIsArrayCall(node.expression)) {
+      return { kind: "primitiveType", name: "boolean" } as const;
+    }
+
     const resolvedReturnType =
       (() => {
         const baselineReturnType =
           refinedSourceBackedReturnType ?? finalResolved?.returnType;
-        const exactReturnType = exactMemberCallableResolution?.resolved?.returnType;
+        const exactReturnType =
+          exactMemberCallableResolution?.resolved?.returnType ??
+          directCalleeCallableResolution?.resolved?.returnType;
         return shouldPreferExactMemberType(baselineReturnType, exactReturnType)
           ? exactReturnType
           : baselineReturnType;
@@ -2520,22 +2765,31 @@ export const convertCallExpression = (
 
     // Airplane-grade rule:
     // When a call target is already typed as a function value and the resolved
-    // signature has no declared return annotation, the IR must preserve the
-    // callee's deterministically inferred function return type instead of
-    // collapsing the call to `void`.
+    // signature collapses the return to `void`/`unknown`/`any`, preserve the
+    // callee's concrete function return type instead.
     //
     // This matters for synthesized object-literal methods and other
-    // function-valued members where the TS signature handle may originate from
-    // syntax without an explicit return type while the frontend has already
-    // recovered a precise function type from the body.
+    // function-valued members where signature-handle recovery can lag behind
+    // the callee's already-deterministic function type.
+    const callableReturnType = finalFunctionType?.returnType;
     if (
-      finalResolved?.hasDeclaredReturnType === false &&
-      calleeFunctionType?.returnType &&
+      callableReturnType &&
+      callableReturnType.kind !== "voidType" &&
+      callableReturnType.kind !== "unknownType" &&
+      callableReturnType.kind !== "anyType" &&
       (resolvedReturnType.kind === "voidType" ||
         resolvedReturnType.kind === "unknownType" ||
         resolvedReturnType.kind === "anyType")
     ) {
-      return calleeFunctionType.returnType;
+      return callableReturnType;
+    }
+
+    if (
+      finalResolved?.typePredicate &&
+      (resolvedReturnType.kind === "unknownType" ||
+        resolvedReturnType.kind === "anyType")
+    ) {
+      return { kind: "primitiveType", name: "boolean" } as const;
     }
 
     return resolvedReturnType;
@@ -2614,6 +2868,64 @@ export const convertCallExpression = (
           },
         }
       : callee;
+  const finalAmbientBoundGlobalSurfaceParameterTypes =
+    !usesAuthoritativeSurfaceBindings &&
+    boundGlobalCallParameterTypes &&
+    finalCallee.inferredType?.kind === "functionType"
+      ? expandParameterTypesForArguments(
+          finalCallee.inferredType.parameters,
+          finalCallee.inferredType.parameters.map((parameter) => parameter.type),
+          finalResolutionArgumentCount
+        )
+      : ambientBoundGlobalSurfaceParameterTypes;
+  const finalAmbientBoundGlobalSurfaceRestParameter =
+    !usesAuthoritativeSurfaceBindings &&
+    boundGlobalCallParameterTypes &&
+    finalCallee.inferredType?.kind === "functionType"
+      ? buildResolvedRestParameter(
+          finalCallee.inferredType.parameters.map((parameter) => ({
+            isRest: parameter.isRest,
+          })),
+          finalAmbientBoundGlobalSurfaceParameterTypes ?? []
+        )
+      : undefined;
+  const applyCallReceiverPolymorphicThis = (
+    type: IrType | undefined
+  ): IrType | undefined =>
+    finalCallee.kind === "memberAccess" && receiverIrType
+      ? (type
+          ? (substitutePolymorphicThis(type, receiverIrType) ?? type)
+          : type)
+      : type;
+  const finalParameterTypes = parameterTypes?.map((type) =>
+    applyCallReceiverPolymorphicThis(type)
+  );
+  const finalSurfaceParameterTypes = (
+    finalAmbientBoundGlobalSurfaceParameterTypes ?? surfaceParameterTypes
+  )?.map((type) => applyCallReceiverPolymorphicThis(type));
+  const finalSourceBackedParameterTypes = refinedSourceBackedParameterTypes?.map(
+    (type) => applyCallReceiverPolymorphicThis(type)
+  );
+  const finalSourceBackedSurfaceParameterTypes =
+    refinedSourceBackedSurfaceParameterTypes?.map((type) =>
+      applyCallReceiverPolymorphicThis(type)
+    );
+  const finalSourceBackedReturnType = applyCallReceiverPolymorphicThis(
+    refinedSourceBackedReturnType
+  );
+  const finalInferredType = (() => {
+    const baselineInferredType =
+      applyCallReceiverPolymorphicThis(inferredType) ?? inferredType;
+    const directCallableReturnType = applyCallReceiverPolymorphicThis(
+      directCalleeCallableResolution?.resolved?.returnType
+    );
+    return shouldPreferExactMemberType(
+      baselineInferredType,
+      directCallableReturnType
+    )
+      ? directCallableReturnType
+      : baselineInferredType;
+  })();
 
   return {
     kind: "call",
@@ -2622,8 +2934,7 @@ export const convertCallExpression = (
     // This ensures `spreadArray([1,2,3], [4,5,6])` with `number[]` params produces `double[]`
     arguments: convertedArgs,
     isOptional: node.questionDotToken !== undefined,
-    inferredType,
-    allowUnknownInferredType: finalResolved?.hasDeclaredReturnType ?? false,
+    inferredType: finalInferredType,
     sourceSpan: getSourceSpan(node),
     signatureId: sigId,
     candidateSignatureIds: candidateSigIds,
@@ -2631,8 +2942,8 @@ export const convertCallExpression = (
     requiresSpecialization,
     resolutionExpectedReturnType: expectedType,
     argumentPassing: argumentPassingWithOverrides,
-    parameterTypes,
-    surfaceParameterTypes,
+    parameterTypes: finalParameterTypes,
+    surfaceParameterTypes: finalSurfaceParameterTypes,
     restParameter:
       boundGlobalCallParameterTypes
         ? boundGlobalCallParameterTypes.restParameter
@@ -2640,21 +2951,20 @@ export const convertCallExpression = (
           explicitSemanticRestParameter ??
           fallbackRestParameter,
     surfaceRestParameter:
-      boundGlobalCallParameterTypes
+      finalAmbientBoundGlobalSurfaceRestParameter ??
+      (boundGlobalCallParameterTypes
         ? boundGlobalCallParameterTypes.restParameter
         : finalSourceBackedCallParameterTypes
           ? finalSourceBackedCallParameterTypes.restParameter
           : finalResolved?.surfaceRestParameter ??
             explicitSemanticRestParameter ??
-            fallbackRestParameter,
-    sourceBackedParameterTypes:
-      refinedSourceBackedParameterTypes,
-    sourceBackedSurfaceParameterTypes:
-      refinedSourceBackedSurfaceParameterTypes,
+            fallbackRestParameter),
+    sourceBackedParameterTypes: finalSourceBackedParameterTypes,
+    sourceBackedSurfaceParameterTypes: finalSourceBackedSurfaceParameterTypes,
     sourceBackedRestParameter:
       finalSourceBackedCallParameterTypes?.restParameter ??
       sourceBackedCallParameterTypes?.restParameter,
-    sourceBackedReturnType: refinedSourceBackedReturnType,
+    sourceBackedReturnType: finalSourceBackedReturnType,
     narrowing,
   };
 };

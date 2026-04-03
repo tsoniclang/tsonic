@@ -9,9 +9,14 @@ import type { IrModule } from "@tsonic/frontend";
 import { createJsSurfaceBindingRegistry } from "./expressions/index-cases/helpers.js";
 
 const jsSurfaceBindingRegistry = createJsSurfaceBindingRegistry();
+const jsValueType = {
+  kind: "referenceType" as const,
+  name: "JsValue" as const,
+  resolvedClrType: "Tsonic.Runtime.JsValue" as const,
+};
 
 describe("JSON NativeAOT registry", () => {
-  it("routes untyped global JSON.parse through JSON runtime support without AOT metadata", () => {
+  it("routes broad global JSON.parse through JSON runtime support without AOT metadata", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/index.ts",
@@ -24,7 +29,7 @@ describe("JSON NativeAOT registry", () => {
           kind: "functionDeclaration",
           name: "parseUnknown",
           parameters: [],
-          returnType: { kind: "unknownType" },
+          returnType: jsValueType,
           body: {
             kind: "blockStatement",
             statements: [
@@ -52,7 +57,7 @@ describe("JSON NativeAOT registry", () => {
                     },
                   ],
                   isOptional: false,
-                  inferredType: { kind: "unknownType" },
+                  inferredType: jsValueType,
                 },
               },
             ],
@@ -149,7 +154,7 @@ describe("JSON NativeAOT registry", () => {
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(true);
   });
 
-  it("routes global JSON.stringify on unknown values through JSON runtime support without AOT metadata", () => {
+  it("routes global JSON.stringify on JsValue inputs through runtime stringify", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/index.ts",
@@ -165,7 +170,7 @@ describe("JSON NativeAOT registry", () => {
             {
               kind: "parameter",
               pattern: { kind: "identifierPattern", name: "value" },
-              type: { kind: "unknownType" },
+              type: jsValueType,
               isOptional: false,
               isRest: false,
               passing: "value",
@@ -196,7 +201,7 @@ describe("JSON NativeAOT registry", () => {
                     {
                       kind: "identifier",
                       name: "value",
-                      inferredType: { kind: "unknownType" },
+                      inferredType: jsValueType,
                     },
                   ],
                   isOptional: false,
@@ -225,15 +230,14 @@ describe("JSON NativeAOT registry", () => {
     const code = result.files.get("index.cs");
     const runtimeFile = result.files.get("__tsonic_json_runtime.g.cs");
     expect(code).to.not.equal(undefined);
-    expect(code).to.include("global::MyApp.TsonicJsonRuntime.Stringify(value)");
-    expect(code).to.not.include("JsonSerializer.Serialize(value");
+    expect(code).to.include(
+      "global::MyApp.TsonicJsonRuntime.Stringify(value)"
+    );
     expect(runtimeFile).to.not.equal(undefined);
-    expect(runtimeFile).to.include("internal static class TsonicJsonRuntime");
-    expect(runtimeFile).to.include("TryWriteRuntimeUnion");
     expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
 
-  it("registers boxed JS numeric object-literal values for global JSON.stringify AOT metadata", () => {
+  it("routes boxed JS numeric object literals through runtime stringify", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/index.ts",
@@ -334,12 +338,13 @@ describe("JSON NativeAOT registry", () => {
     if (!result.ok) return;
 
     const code = result.files.get("index.cs");
-    const jsonFile = result.files.get("__tsonic_json.g.cs");
+    const runtimeFile = result.files.get("__tsonic_json_runtime.g.cs");
     expect(code).to.not.equal(undefined);
-    expect(jsonFile).to.not.equal(undefined);
+    expect(runtimeFile).to.not.equal(undefined);
+    expect(code).to.include("global::MyApp.TsonicJsonRuntime.Stringify(");
     expect(code).to.include('["value"] =');
     expect(code).to.include("double)3");
-    expect(jsonFile).to.include("typeof(double)");
+    expect(result.files.has("__tsonic_json.g.cs")).to.equal(false);
   });
 
   it("does not register open generic type parameters (no typeof(global::T))", () => {

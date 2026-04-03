@@ -8,7 +8,7 @@ namespace TestCases.common.classes.basic
 
         public string greet()
         {
-            return $"Hello, I'm {this.name}";
+            return $"Hello, I'm {(global::js.Globals.String(this.name))}";
         }
 
         public void birthday()

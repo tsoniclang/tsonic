@@ -152,8 +152,19 @@ export const buildNullishComparisonContext = (
     return context;
   }
 
+  const comparisonCarrierAst =
+    narrowed.carrierExprAst ?? narrowed.storageExprAst ?? narrowed.exprAst;
+  const comparisonCarrierType =
+    narrowed.sourceType ?? narrowed.storageType ?? narrowed.type;
   const next = new Map(context.narrowedBindings);
-  next.delete(targetKey);
+  next.set(targetKey, {
+    ...narrowed,
+    exprAst: comparisonCarrierAst,
+    storageExprAst: comparisonCarrierAst,
+    carrierExprAst: comparisonCarrierAst,
+    storageType: comparisonCarrierType,
+    type: comparisonCarrierType,
+  });
   return {
     ...context,
     narrowedBindings: next,

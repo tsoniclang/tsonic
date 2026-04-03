@@ -7,8 +7,11 @@
  * deterministically, using only the UnifiedTypeCatalog (no TypeNodes).
  */
 
-import type { IrType } from "../../types/index.js";
-import { normalizedUnionType, stableIrTypeKey } from "../../types/type-ops.js";
+import {
+  substituteIrType as substituteSharedIrType,
+  type IrType,
+} from "../../types/index.js";
+import { stableIrTypeKey } from "../../types/type-ops.js";
 import type {
   UnifiedTypeCatalog,
   TypeId,
@@ -75,130 +78,7 @@ export type NominalEnv = {
 export const substituteIrType = (
   type: IrType,
   subst: InstantiationEnv
-): IrType => {
-  switch (type.kind) {
-    case "typeParameterType": {
-      const replacement = subst.get(type.name);
-      return replacement ?? type;
-    }
-
-    case "referenceType": {
-      // Substitute in type arguments and structural members
-      const hasTypeArgs = type.typeArguments && type.typeArguments.length > 0;
-      const hasStructural =
-        type.structuralMembers && type.structuralMembers.length > 0;
-
-      if (hasTypeArgs || hasStructural) {
-        return {
-          ...type,
-          typeArguments: hasTypeArgs
-            ? (type.typeArguments ?? []).map((arg) =>
-                substituteIrType(arg, subst)
-              )
-            : type.typeArguments,
-          structuralMembers: hasStructural
-            ? (type.structuralMembers ?? []).map((m) => {
-                if (m.kind === "propertySignature") {
-                  return {
-                    ...m,
-                    type: substituteIrType(m.type, subst),
-                  };
-                }
-                // methodSignature
-                return {
-                  ...m,
-                  returnType: m.returnType
-                    ? substituteIrType(m.returnType, subst)
-                    : m.returnType,
-                  parameters: m.parameters.map((p) => ({
-                    ...p,
-                    type: p.type ? substituteIrType(p.type, subst) : p.type,
-                  })),
-                };
-              })
-            : type.structuralMembers,
-        };
-      }
-      return type;
-    }
-
-    case "arrayType": {
-      return {
-        ...type,
-        elementType: substituteIrType(type.elementType, subst),
-      };
-    }
-
-    case "functionType": {
-      return {
-        ...type,
-        parameters: type.parameters.map((p) => ({
-          ...p,
-          type: p.type ? substituteIrType(p.type, subst) : p.type,
-        })),
-        returnType: type.returnType
-          ? substituteIrType(type.returnType, subst)
-          : type.returnType,
-      };
-    }
-
-    case "unionType": {
-      return normalizedUnionType(
-        type.types.map((t) => substituteIrType(t, subst))
-      );
-    }
-
-    case "tupleType": {
-      return {
-        ...type,
-        elementTypes: type.elementTypes.map((t) => substituteIrType(t, subst)),
-      };
-    }
-
-    case "dictionaryType": {
-      return {
-        ...type,
-        keyType: substituteIrType(type.keyType, subst),
-        valueType: substituteIrType(type.valueType, subst),
-      };
-    }
-
-    case "intersectionType": {
-      return {
-        ...type,
-        types: type.types.map((t) => substituteIrType(t, subst)),
-      };
-    }
-
-    case "objectType": {
-      return {
-        ...type,
-        members: type.members.map((m) => {
-          if (m.kind === "propertySignature") {
-            return {
-              ...m,
-              type: substituteIrType(m.type, subst),
-            };
-          }
-          // methodSignature
-          return {
-            ...m,
-            returnType: m.returnType
-              ? substituteIrType(m.returnType, subst)
-              : m.returnType,
-            parameters: m.parameters.map((p) => ({
-              ...p,
-              type: p.type ? substituteIrType(p.type, subst) : p.type,
-            })),
-          };
-        }),
-      };
-    }
-
-    default:
-      return type;
-  }
-};
+): IrType => substituteSharedIrType(type, subst);
 
 /**
  * Build a NominalEnv from a UnifiedTypeCatalog.

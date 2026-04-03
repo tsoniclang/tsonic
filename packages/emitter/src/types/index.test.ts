@@ -393,7 +393,7 @@ describe("Type Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include(
-      "global::Tsonic.Runtime.Union<object?[], string> value"
+      "global::Tsonic.Runtime.Union<object[], string> value"
     );
     expect(result).to.not.include(
       "global::Tsonic.Runtime.Union<object[], global::Tsonic.Runtime.Union"

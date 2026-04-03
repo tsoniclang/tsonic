@@ -166,6 +166,7 @@ export const emitComputedAccess = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
   objectAst: CSharpExpressionAst,
   objectType: IrType | undefined,
+  receiverSourceContext: EmitterContext,
   context: EmitterContext,
   usage: MemberAccessUsage = "value",
   expectedType?: IrType
@@ -308,10 +309,44 @@ export const emitComputedAccess = (
     ];
   }
 
+  const receiverResolutionContext =
+    expr.object.kind === "typeAssertion" ||
+    expr.object.kind === "asinterface" ||
+    expr.object.kind === "trycast"
+      ? receiverSourceContext
+      : finalContext;
   const preservedReceiver =
-    tryEmitBroadArrayAssertionReceiverStorageAst(expr.object, finalContext);
+    tryEmitBroadArrayAssertionReceiverStorageAst(
+      expr.object,
+      receiverResolutionContext
+    );
+  const desiredType = expectedType ?? expr.inferredType;
+  const adaptBroadArrayElementRead = (
+    valueAst: CSharpExpressionAst,
+    nextContext: EmitterContext
+  ): [CSharpExpressionAst, EmitterContext] => {
+    if (usage !== "value") {
+      return [valueAst, nextContext];
+    }
+
+    const storageReceiverType =
+      normalizeRuntimeStorageType(objectType, context) ?? objectType;
+    const storageElementType =
+      storageReceiverType &&
+      resolveArrayLikeReceiverType(storageReceiverType, context)?.elementType;
+    const adapted = adaptStorageErasedValueAst({
+      valueAst,
+      semanticType: expr.inferredType,
+      storageType: storageElementType,
+      expectedType: desiredType,
+      context: nextContext,
+      emitTypeAst,
+    });
+    return adapted ?? [valueAst, nextContext];
+  };
   const effectiveObjectAst = preservedReceiver?.[0] ?? objectAst;
-  const effectiveObjectContext = preservedReceiver?.[1] ?? finalContext;
+  const effectiveObjectContext =
+    preservedReceiver?.[1] ?? receiverResolutionContext;
   const [receiverTypeAst, receiverTypeContext] = resolveEmittedReceiverTypeAst(
     expr.object,
     effectiveObjectContext
@@ -320,7 +355,7 @@ export const emitComputedAccess = (
     ? stripNullableTypeAst(receiverTypeAst)
     : undefined;
   if (preservedReceiver && concreteReceiverTypeAst?.kind === "arrayType") {
-    return [
+    return adaptBroadArrayElementRead(
       {
         kind: "invocationExpression",
         expression: {
@@ -330,8 +365,8 @@ export const emitComputedAccess = (
         },
         arguments: [propAst],
       },
-      receiverTypeContext,
-    ];
+      receiverTypeContext
+    );
   }
   const receiverTypeName = concreteReceiverTypeAst
     ? getIdentifierTypeName(concreteReceiverTypeAst)
@@ -340,7 +375,7 @@ export const emitComputedAccess = (
     receiverTypeName === "global::System.Array" ||
     receiverTypeName === "System.Array"
   ) {
-    return [
+    return adaptBroadArrayElementRead(
       {
         kind: "invocationExpression",
         expression: {
@@ -350,8 +385,8 @@ export const emitComputedAccess = (
         },
         arguments: [propAst],
       },
-      receiverTypeContext,
-    ];
+      receiverTypeContext
+    );
   }
 
   const accessAst: CSharpExpressionAst = {
@@ -361,7 +396,6 @@ export const emitComputedAccess = (
   };
 
   const arrayLikeReceiver = resolveArrayLikeReceiverType(objectType, context);
-  const desiredType = expectedType ?? expr.inferredType;
   if (usage === "value" && arrayLikeReceiver && isRuntimeUnionMemberProjectionAst(objectAst)) {
     const storageReceiverType =
       normalizeRuntimeStorageType(objectType, context) ?? objectType;

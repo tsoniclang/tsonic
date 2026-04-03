@@ -2,9 +2,9 @@
  * Tests for IR Soundness Gate – Computed Member Access Typing
  *
  * Validates that the soundness gate correctly handles:
- * - Dictionary element access with unknown value type
+ * - Dictionary element access rejects surviving unknown value types
  * - Non-dictionary computed access rejecting unknown type
- * - Array element access with explicitly unknown element type
+ * - Array element access rejects surviving unknown element types
  */
 
 import { describe, it } from "mocha";
@@ -14,7 +14,7 @@ import { IrModule, IrType } from "../../types.js";
 
 describe("IR Soundness Gate", () => {
   describe("Computed Member Access Typing", () => {
-    it("allows unknown value type on dictionary element access", () => {
+    it("rejects unknown value type on dictionary element access", () => {
       const dictType: IrType = {
         kind: "dictionaryType",
         keyType: { kind: "primitiveType", name: "string" },
@@ -69,8 +69,8 @@ describe("IR Soundness Gate", () => {
 
       const result = validateIrSoundness([module]);
 
-      expect(result.ok).to.be.true;
-      expect(result.diagnostics).to.have.length(0);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN7414")).to.be.true;
     });
 
     it("still rejects unknown type on non-dictionary computed access", () => {
@@ -108,7 +108,7 @@ describe("IR Soundness Gate", () => {
       expect(result.diagnostics.some((d) => d.code === "TSN5203")).to.be.true;
     });
 
-    it("allows unknown value type on array element access when element type is explicitly unknown", () => {
+    it("rejects unknown value type on array element access when element type survives", () => {
       const arrayType: IrType = {
         kind: "arrayType",
         elementType: { kind: "unknownType" },
@@ -136,7 +136,6 @@ describe("IR Soundness Gate", () => {
               isOptional: false,
               accessKind: "clrIndexer",
               inferredType: { kind: "unknownType" },
-              allowUnknownInferredType: true,
             },
           },
         ],
@@ -145,8 +144,8 @@ describe("IR Soundness Gate", () => {
 
       const result = validateIrSoundness([module]);
 
-      expect(result.ok).to.be.true;
-      expect(result.diagnostics).to.have.length(0);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN7414")).to.be.true;
     });
   });
 });

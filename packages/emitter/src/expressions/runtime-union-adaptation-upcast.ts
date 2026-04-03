@@ -26,6 +26,8 @@ import {
 } from "../core/semantic/comparable-types.js";
 import { resolveDirectValueSurfaceType } from "../core/semantic/direct-value-surfaces.js";
 import { areIrTypesEquivalent } from "../core/semantic/type-equivalence.js";
+import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
+import { normalizeStructuralEmissionType } from "../core/semantic/type-resolution.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -67,18 +69,7 @@ const isObjectLikeTypeAst = (type: CSharpTypeAst | undefined): boolean => {
 const isBroadReificationSourceType = (
   type: IrType,
   context: EmitterContext
-): boolean => {
-  const resolved = resolveComparableType(type, context);
-  return (
-    resolved.kind === "unknownType" ||
-    resolved.kind === "anyType" ||
-    resolved.kind === "objectType" ||
-    (resolved.kind === "referenceType" &&
-      (resolved.name === "object" ||
-        resolved.resolvedClrType === "System.Object" ||
-        resolved.resolvedClrType === "global::System.Object"))
-  );
-};
+): boolean => isBroadObjectSlotType(type, context);
 
 export const maybeAdaptDictionaryUnionValueAst = (
   expr: IrExpression,
@@ -198,13 +189,22 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       return extractedMemberType;
     }
 
-    const [directLayout, directLayoutContext] = buildRuntimeUnionLayout(
+    const emissionDirectValueSurfaceType = normalizeStructuralEmissionType(
       directValueSurfaceType,
+      context
+    );
+    const emissionExtractedMemberType = normalizeStructuralEmissionType(
+      extractedMemberType,
+      context
+    );
+
+    const [directLayout, directLayoutContext] = buildRuntimeUnionLayout(
+      emissionDirectValueSurfaceType,
       context,
       emitTypeAst
     );
     const [actualLayout] = buildRuntimeUnionLayout(
-      extractedMemberType,
+      emissionExtractedMemberType,
       directLayoutContext,
       emitTypeAst
     );
@@ -229,19 +229,28 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
     })();
 
     if (layoutsDiffer) {
-      return directValueSurfaceType;
+      return emissionDirectValueSurfaceType;
     }
 
-    return extractedMemberType;
+    return emissionExtractedMemberType;
   })();
 
-  const emissionActualType = unwrapComparableType(preferredActualType);
-  const emissionExpectedType = unwrapComparableType(expectedType);
-  const normalizedActualType = resolveComparableType(
-    preferredActualType,
+  const emissionActualType = normalizeStructuralEmissionType(
+    unwrapComparableType(preferredActualType),
     context
   );
-  const normalizedExpectedType = resolveComparableType(expectedType, context);
+  const emissionExpectedType = normalizeStructuralEmissionType(
+    unwrapComparableType(expectedType),
+    context
+  );
+  const normalizedActualType = resolveComparableType(
+    emissionActualType,
+    context
+  );
+  const normalizedExpectedType = resolveComparableType(
+    emissionExpectedType,
+    context
+  );
 
   const runtimeUnionLayoutComparison = (() => {
     const [actualLayout, actualLayoutContext] = buildRuntimeUnionLayout(
@@ -280,20 +289,24 @@ export const maybeAdaptRuntimeUnionExpressionAst = (
       if (!actualMemberAst || !expectedMemberAst) {
         return { actualLayout, expectedLayout, differs: true };
       }
-      if (!sameTypeAstSurface(actualMemberAst, expectedMemberAst)) {
-        return { actualLayout, expectedLayout, differs: true };
-      }
       const actualMember = actualLayout.members[index];
       const expectedMember = expectedLayout.members[index];
       if (!actualMember || !expectedMember) {
         return { actualLayout, expectedLayout, differs: true };
       }
+      const membersEquivalent = areIrTypesEquivalent(
+        resolveComparableType(actualMember, expectedLayoutContext),
+        resolveComparableType(expectedMember, expectedLayoutContext),
+        expectedLayoutContext
+      );
       if (
-        !areIrTypesEquivalent(
-          resolveComparableType(actualMember, expectedLayoutContext),
-          resolveComparableType(expectedMember, expectedLayoutContext),
-          expectedLayoutContext
-        )
+        !sameTypeAstSurface(actualMemberAst, expectedMemberAst) &&
+        !membersEquivalent
+      ) {
+        return { actualLayout, expectedLayout, differs: true };
+      }
+      if (
+        !membersEquivalent
       ) {
         return { actualLayout, expectedLayout, differs: true };
       }

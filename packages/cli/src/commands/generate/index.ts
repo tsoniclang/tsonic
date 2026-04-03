@@ -22,7 +22,6 @@ import {
   type LibraryConfig,
 } from "@tsonic/backend";
 import type { ResolvedConfig, Result } from "../../types.js";
-import { resolveSurfaceCapabilities } from "../../surface/profiles.js";
 import { findMainEntryInfo, hasTopLevelExecutableStatements } from "./entry.js";
 import {
   collectProjectLibraries,
@@ -47,9 +46,6 @@ export const generateCommand = (
     frameworkReferences,
     packageReferences,
   } = config;
-  const surfaceCapabilities = resolveSurfaceCapabilities(config.surface, {
-    workspaceRoot,
-  });
 
   if (!entryPoint && config.outputConfig.type !== "library") {
     return {
@@ -103,7 +99,6 @@ export const generateCommand = (
       rootNamespace,
       typeRoots: allTypeRoots,
       surface: config.surface,
-      useStandardLib: surfaceCapabilities.useStandardLib,
       verbose: config.verbose,
     };
     const graphResult = buildModuleDependencyGraph(

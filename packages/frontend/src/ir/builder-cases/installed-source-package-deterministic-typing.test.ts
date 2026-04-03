@@ -1,7 +1,5 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
 import { createProgram } from "../../program/creation.js";
@@ -13,127 +11,19 @@ import {
 } from "../validation/index.js";
 import { validateProgram } from "../../validator.js";
 import type { IrFunctionDeclaration, IrExpressionStatement } from "../types.js";
+import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
-const writeFile = (baseDir: string, relativePath: string, contents: string) => {
-  const absolutePath = path.join(baseDir, relativePath);
-  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-  fs.writeFileSync(absolutePath, contents);
-};
-
-const writeCoreTypesPackage = (tempDir: string) => {
-  writeFile(
-    tempDir,
-    "node_modules/@tsonic/core/package.json",
-    JSON.stringify(
-      {
-        name: "@tsonic/core",
-        version: "1.0.0",
-        type: "module",
-      },
-      null,
-      2
+const materializeInstalledSourceFixture = (
+  fixtureNames: string | readonly string[]
+) =>
+  materializeFrontendFixture(
+    (Array.isArray(fixtureNames) ? fixtureNames : [fixtureNames]).map(
+      (fixtureName) =>
+        fixtureName.startsWith("fragments/")
+          ? fixtureName
+          : `ir/installed-source-deterministic/${fixtureName}`
     )
   );
-  writeFile(tempDir, "node_modules/@tsonic/core/types.js", "export {};\n");
-  writeFile(
-    tempDir,
-    "node_modules/@tsonic/core/types.d.ts",
-    [
-      "export type int = number;",
-      "export type byte = number;",
-    ].join("\n")
-  );
-};
-
-const writeDotnetSystemPackage = (tempDir: string) => {
-  writeFile(
-    tempDir,
-    "node_modules/@tsonic/dotnet/package.json",
-    JSON.stringify(
-      {
-        name: "@tsonic/dotnet",
-        version: "1.0.0",
-        type: "module",
-      },
-      null,
-      2
-    )
-  );
-  writeFile(tempDir, "node_modules/@tsonic/dotnet/System.js", "export {};\n");
-  writeFile(
-    tempDir,
-    "node_modules/@tsonic/dotnet/System.d.ts",
-    [
-      'import type * as Internal from "./System/internal/index.js";',
-      "export type Exception = Internal.Exception;",
-      "export const Exception: typeof Internal.Exception;",
-    ].join("\n")
-  );
-  writeFile(
-    tempDir,
-    "node_modules/@tsonic/dotnet/System/internal/index.js",
-    "export {};\n"
-  );
-  writeFile(
-    tempDir,
-    "node_modules/@tsonic/dotnet/System/internal/index.d.ts",
-    [
-      "export interface Exception$instance {",
-      "  readonly Message: string;",
-      "}",
-      "",
-      "export interface __Exception$views {}",
-      "",
-      "export const Exception: {",
-      "  new(): Exception;",
-      "  new(message: string): Exception;",
-      "};",
-      "",
-      "export type Exception = Exception$instance & __Exception$views;",
-    ].join("\n")
-  );
-};
-
-const writeFixtureSourcePackage = (
-  tempDir: string,
-  sourceFiles: Readonly<Record<string, string>>,
-  exportEntries: Readonly<Record<string, string>>
-) => {
-  writeFile(
-    tempDir,
-    "node_modules/@fixture/js/package.json",
-    JSON.stringify(
-      {
-        name: "@fixture/js",
-        version: "1.0.0",
-        type: "module",
-      },
-      null,
-      2
-    )
-  );
-  writeFile(
-    tempDir,
-    "node_modules/@fixture/js/tsonic.package.json",
-    JSON.stringify(
-      {
-        schemaVersion: 1,
-        kind: "tsonic-source-package",
-        surfaces: ["@fixture/js"],
-        source: {
-          namespace: "fixture.js",
-          exports: exportEntries,
-        },
-      },
-      null,
-      2
-    )
-  );
-
-  for (const [relativePath, contents] of Object.entries(sourceFiles)) {
-    writeFile(tempDir, `node_modules/@fixture/js/${relativePath}`, contents);
-  }
-};
 
 const expectNoDeterministicTypingDiagnostics = (
   tempDir: string,
@@ -235,8 +125,7 @@ const expectNoDeterministicTypingDiagnostics = (
 
     if (
       (expression.kind === "call" || expression.kind === "new") &&
-      expression.inferredType?.kind === "unknownType" &&
-      expression.allowUnknownInferredType !== true
+      expression.inferredType?.kind === "unknownType"
     ) {
       const span = expression.sourceSpan;
       unknownCalls.push(
@@ -257,80 +146,112 @@ describe("IR Builder", function () {
   this.timeout(90_000);
 
   describe("installed source-package deterministic typing", () => {
-    it("keeps source-backed instance export method overload parameter types on imported object calls", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-installed-source-fs-overload-")
-      );
+    it("preserves concrete generic array returns through call-resolution refresh passes", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "generic-array-return",
+      ]);
 
       try {
-        writeFile(
-          tempDir,
-          "package.json",
-          JSON.stringify({ name: "app", version: "1.0.0", type: "module" }, null, 2)
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
         );
-        writeFile(
-          tempDir,
-          "src/index.ts",
-          [
-            'import { fs } from "@fixture/js/fs.js";',
-            "export function ensure(dir: string): void {",
-            "  fs.mkdirSync(dir, { recursive: true });",
-            "}",
-          ].join("\n")
-        );
-        writeCoreTypesPackage(tempDir);
-        writeFixtureSourcePackage(
-          tempDir,
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
           {
-            "src/fs-module.ts": [
-              'import type { int } from "@tsonic/core/types.js";',
-              "",
-              "export class MkdirOptions {",
-              "  public recursive?: boolean;",
-              "  public mode?: int;",
-              "}",
-              "",
-              "export function mkdirSync(path: string): void;",
-              "export function mkdirSync(path: string, recursive: boolean): void;",
-              "export function mkdirSync(",
-              "  path: string,",
-              "  options: MkdirOptions",
-              "): void;",
-              "export function mkdirSync(",
-              "  path: string,",
-              "  options?: boolean | MkdirOptions",
-              "): void {",
-              "  void path;",
-              "  void options;",
-              "}",
-              "",
-              "export class FsModuleNamespace {",
-              "  public mkdirSync(path: string): void;",
-              "  public mkdirSync(path: string, recursive: boolean): void;",
-              "  public mkdirSync(",
-              "    path: string,",
-              "    options: MkdirOptions",
-              "  ): void;",
-              "  public mkdirSync(",
-              "    path: string,",
-              "    options?: boolean | MkdirOptions",
-              "  ): void {",
-              "    mkdirSync(path, options);",
-              "  }",
-              "}",
-              "",
-              "export const fs: FsModuleNamespace = new FsModuleNamespace();",
-            ].join("\n"),
+            sourceRoot,
+            rootNamespace: "TestApp",
           },
-          {
-            "./fs.js": "./src/fs-module.ts",
-          }
+          ctx
         );
 
-        const entryPath = path.join(tempDir, "src/index.ts");
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const proofResult = runNumericProofPass(lowered);
+        expect(proofResult.ok).to.equal(true);
+        if (!proofResult.ok) return;
+
+        const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+        const module = refreshed.modules[0];
+        expect(module).to.not.equal(undefined);
+        if (!module) return;
+
+        const arrayDecl = module.body.find(
+          (stmt): stmt is Extract<typeof stmt, { kind: "classDeclaration" }> =>
+            stmt.kind === "classDeclaration" && stmt.name === "Array"
+        );
+        expect(arrayDecl).to.not.equal(undefined);
+        if (!arrayDecl) return;
+
+        const impl = arrayDecl.members.at(-1);
+        expect(impl?.kind).to.equal("methodDeclaration");
+        if (!impl || impl.kind !== "methodDeclaration" || !impl.body) return;
+
+        const nonStringIf = impl.body.statements[1];
+        expect(nonStringIf?.kind).to.equal("ifStatement");
+        if (!nonStringIf || nonStringIf.kind !== "ifStatement") return;
+
+        const thenBlock = nonStringIf.thenStatement;
+        expect(thenBlock.kind).to.equal("blockStatement");
+        if (thenBlock.kind !== "blockStatement") return;
+
+        const returnStmt = thenBlock.statements[0];
+        expect(returnStmt?.kind).to.equal("returnStatement");
+        if (!returnStmt || returnStmt.kind !== "returnStatement") return;
+
+        const returnExpr = returnStmt.expression;
+        expect(returnExpr?.kind).to.equal("call");
+        if (!returnExpr || returnExpr.kind !== "call") return;
+
+        expect(returnExpr.inferredType?.kind).to.equal("arrayType");
+        if (returnExpr.inferredType?.kind !== "arrayType") return;
+
+        expect(returnExpr.inferredType.elementType).to.deep.equal({
+          kind: "typeParameterType",
+          name: "T",
+        });
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps source-backed instance export method overload parameter types on imported object calls", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "fragments/installed-source-deterministic/fixture-js-surface-root",
+        "fragments/installed-source-deterministic/fixture-fs-module",
+        "fs-overload-object-call",
+      ]);
+
+      try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
         const programResult = createProgram([entryPath], {
-          projectRoot: tempDir,
-          sourceRoot: path.join(tempDir, "src"),
+          projectRoot,
+          sourceRoot,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
         });
@@ -345,14 +266,14 @@ describe("IR Builder", function () {
         if (!sourceFile) return;
 
         const ctx = createProgramContext(program, {
-          sourceRoot: path.join(tempDir, "src"),
+          sourceRoot,
           rootNamespace: "TestApp",
         });
         const moduleResult = buildIrModule(
           sourceFile,
           program,
           {
-            sourceRoot: path.join(tempDir, "src"),
+            sourceRoot,
             rootNamespace: "TestApp",
           },
           ctx
@@ -383,203 +304,25 @@ describe("IR Builder", function () {
 
         expect(optionsType.name).to.equal("MkdirOptions");
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
-    it("keeps imported source-package typed array constructors deterministic", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-installed-source-typed-array-")
-      );
+    it("preserves named imported structural instances through refresh at overload call sites", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "fragments/installed-source-deterministic/fixture-js-surface-root",
+        "fragments/installed-source-deterministic/fixture-fs-module",
+        "fs-overload-named-instance",
+      ]);
 
       try {
-        writeFile(
-          tempDir,
-          "package.json",
-          JSON.stringify({ name: "app", version: "1.0.0", type: "module" }, null, 2)
-        );
-        writeFile(
-          tempDir,
-          "src/index.ts",
-          [
-            'import { Uint8Array } from "@fixture/js/uint8-array.js";',
-            "void Uint8Array;",
-          ].join("\n")
-        );
-        writeCoreTypesPackage(tempDir);
-        writeFixtureSourcePackage(
-          tempDir,
-          {
-            "src/typed-array-core.ts": [
-              'import type { byte, int } from "@tsonic/core/types.js";',
-              "",
-              "export type TypedArrayInput<TElement extends number> = TElement[];",
-              "export type TypedArrayConstructorInput<TElement extends number> =",
-              "  | int",
-              "  | TypedArrayInput<TElement>;",
-              "",
-              "export const numericIdentity = <TNumeric extends number>(value: TNumeric): number =>",
-              "  value;",
-              "",
-              "export const normalizeUint8 = (value: number): byte => value as byte;",
-              "",
-              "export class TypedArrayBase<",
-              "  TElement extends number,",
-              "  TSelf extends TypedArrayBase<TElement, TSelf>",
-              "> {",
-              "  protected constructor(",
-              "    lengthOrValues: int | TypedArrayInput<TElement>,",
-              "    bytesPerElement: int,",
-              "    zeroValue: TElement,",
-              "    normalizeElement: (value: number) => TElement,",
-              "    toNumericValue: (value: TElement) => number,",
-              "    wrap: (values: TElement[]) => TSelf",
-              "  ) {",
-              "    void lengthOrValues;",
-              "    void bytesPerElement;",
-              "    void zeroValue;",
-              "    void normalizeElement;",
-              "    void toNumericValue;",
-              "    void wrap;",
-              "  }",
-              "}",
-            ].join("\n"),
-            "src/uint8-array.ts": [
-              'import type { byte, int } from "@tsonic/core/types.js";',
-              "import {",
-              "  numericIdentity,",
-              "  normalizeUint8,",
-              "  TypedArrayConstructorInput,",
-              "  TypedArrayBase,",
-              '} from "./typed-array-core.js";',
-              "",
-              "function wrapUint8Array(values: byte[]): Uint8Array {",
-              "  return new Uint8Array(values);",
-              "}",
-              "",
-              "export class Uint8Array extends TypedArrayBase<byte, Uint8Array> {",
-              "  public static readonly BYTES_PER_ELEMENT: int = 1 as int;",
-              "",
-              "  public constructor(lengthOrValues: TypedArrayConstructorInput<byte>) {",
-              "    super(",
-              "      lengthOrValues,",
-              "      Uint8Array.BYTES_PER_ELEMENT,",
-              "      0 as byte,",
-              "      normalizeUint8,",
-              "      numericIdentity,",
-              "      wrapUint8Array",
-              "    );",
-              "  }",
-              "}",
-            ].join("\n"),
-          },
-          {
-            "./typed-array-core.js": "./src/typed-array-core.ts",
-            "./uint8-array.js": "./src/uint8-array.ts",
-          }
-        );
-
-        expectNoDeterministicTypingDiagnostics(
-          tempDir,
-          "src/index.ts",
-          "src/uint8-array.ts"
-        );
-      } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-      }
-    });
-
-    it("keeps imported source-package inherited typed-array overload surfaces authoritative", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-installed-source-typed-array-overload-")
-      );
-
-      try {
-        writeFile(
-          tempDir,
-          "package.json",
-          JSON.stringify({ name: "app", version: "1.0.0", type: "module" }, null, 2)
-        );
-        writeFile(
-          tempDir,
-          "src/index.ts",
-          [
-            'import { Uint8Array } from "@fixture/js/uint8-array.js";',
-            "",
-            "export function concatBytes(...buffers: Uint8Array[]): Uint8Array {",
-            "  let totalLength = 0;",
-            "  for (let index = 0; index < buffers.length; index += 1) {",
-            "    totalLength += buffers[index]!.length;",
-            "  }",
-            "",
-            "  const result = new Uint8Array(totalLength);",
-            "  let offset = 0;",
-            "  for (let index = 0; index < buffers.length; index += 1) {",
-            "    const buffer = buffers[index]!;",
-            "    result.set(buffer, offset);",
-            "    offset += buffer.length;",
-            "  }",
-            "  return result;",
-            "}",
-          ].join("\n")
-        );
-        writeCoreTypesPackage(tempDir);
-        writeFixtureSourcePackage(
-          tempDir,
-          {
-            "src/typed-array-core.ts": [
-              'import type { byte, int } from "@tsonic/core/types.js";',
-              "",
-              "export type TypedArrayInput<TElement extends number> =",
-              "  | TElement[]",
-              "  | Iterable<number>;",
-              "",
-              "export class TypedArrayBase<",
-              "  TElement extends number,",
-              "  TSelf extends TypedArrayBase<TElement, TSelf>",
-              "> {",
-              "  public length: int = 0 as int;",
-              "",
-              "  public constructor(lengthOrValues: int | TypedArrayInput<TElement>) {",
-              "    void lengthOrValues;",
-              "  }",
-              "",
-              "  public set(index: int, value: number): void;",
-              "  public set(source: TypedArrayInput<TElement>, offset?: int): void;",
-              "  public set(",
-              "    sourceOrIndex: int | TypedArrayInput<TElement>,",
-              "    offsetOrValue: int | number = 0 as int",
-              "  ): void {",
-              "    void sourceOrIndex;",
-              "    void offsetOrValue;",
-              "  }",
-              "}",
-            ].join("\n"),
-            "src/uint8-array.ts": [
-              'import type { byte, int } from "@tsonic/core/types.js";',
-              'import { TypedArrayBase } from "./typed-array-core.js";',
-              "",
-              "export class Uint8Array extends TypedArrayBase<byte, Uint8Array> {",
-              "  public constructor(lengthOrValues: int | byte[] | Iterable<number>) {",
-              "    super(lengthOrValues);",
-              "  }",
-              "",
-              "  public *[Symbol.iterator](): Generator<byte, undefined, undefined> {",
-              "    return undefined as never;",
-              "  }",
-              "}",
-            ].join("\n"),
-          },
-          {
-            "./typed-array-core.js": "./src/typed-array-core.ts",
-            "./uint8-array.js": "./src/uint8-array.ts",
-          }
-        );
-
-        const entryPath = path.join(tempDir, "src/index.ts");
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
         const programResult = createProgram([entryPath], {
-          projectRoot: tempDir,
-          sourceRoot: path.join(tempDir, "src"),
+          projectRoot,
+          sourceRoot,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
         });
@@ -594,14 +337,134 @@ describe("IR Builder", function () {
         if (!sourceFile) return;
 
         const ctx = createProgramContext(program, {
-          sourceRoot: path.join(tempDir, "src"),
+          sourceRoot,
           rootNamespace: "TestApp",
         });
         const moduleResult = buildIrModule(
           sourceFile,
           program,
           {
-            sourceRoot: path.join(tempDir, "src"),
+            sourceRoot,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(moduleResult.ok).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const lowered = runAnonymousTypeLoweringPass([moduleResult.value]).modules;
+        const proofResult = runNumericProofPass(lowered);
+        expect(proofResult.ok).to.equal(true);
+        if (!proofResult.ok) return;
+
+        const refreshed = runCallResolutionRefreshPass(proofResult.modules, ctx);
+        const module = refreshed.modules[0];
+        expect(module).to.not.equal(undefined);
+        if (!module) return;
+
+        const ensureDecl = module.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "ensure"
+        );
+        expect(ensureDecl).to.not.equal(undefined);
+        if (!ensureDecl?.body) return;
+
+        const callStmt = ensureDecl.body.statements.find(
+          (stmt): stmt is IrExpressionStatement =>
+            stmt.kind === "expressionStatement" &&
+            stmt.expression.kind === "call" &&
+            stmt.expression.callee.kind === "memberAccess" &&
+            stmt.expression.callee.property === "mkdirSync"
+        );
+        expect(callStmt).to.not.equal(undefined);
+        if (!callStmt) return;
+
+        const callExpr = callStmt.expression;
+        expect(callExpr.kind).to.equal("call");
+        if (callExpr.kind !== "call") return;
+
+        const optionsArg = callExpr.arguments[1];
+        expect(optionsArg?.kind).to.equal("identifier");
+        expect(optionsArg?.inferredType?.kind).to.equal("referenceType");
+        if (
+          !optionsArg ||
+          optionsArg.kind !== "identifier" ||
+          optionsArg.inferredType?.kind !== "referenceType"
+        ) {
+          return;
+        }
+
+        expect(optionsArg.name).to.equal("options");
+        expect(optionsArg.inferredType.name).to.equal("MkdirOptions");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps imported source-package typed array constructors deterministic", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "fragments/installed-source-deterministic/fixture-js-surface-root",
+        "fragments/installed-source-deterministic/fixture-typed-array-constructor-surface",
+        "typed-array-constructors",
+      ]);
+
+      try {
+        expectNoDeterministicTypingDiagnostics(
+          fixture.path("app"),
+          "src/index.ts",
+          "src/uint8-array.ts",
+          {
+            projectRoot: fixture.path("app"),
+            sourceRoot: fixture.path("app/src"),
+            rootNamespace: "TestApp",
+            surface: "@fixture/js",
+            packageRoot: fixture.path("app/node_modules/@fixture/js"),
+          }
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
+    it("keeps imported source-package inherited typed-array overload surfaces authoritative", () => {
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "fragments/installed-source-deterministic/fixture-js-surface-root",
+        "fragments/installed-source-deterministic/fixture-typed-array-set-surface",
+        "typed-array-inherited-overloads",
+      ]);
+
+      try {
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+        const programResult = createProgram([entryPath], {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "TestApp",
+          surface: "@fixture/js",
+        });
+        expect(programResult.ok).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot,
+          rootNamespace: "TestApp",
+        });
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot,
             rootNamespace: "TestApp",
           },
           ctx
@@ -727,98 +590,25 @@ describe("IR Builder", function () {
           { kind: "primitiveType", name: "undefined" },
         ]);
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("keeps imported source-package typed-array set calls on the iterable overload when offsets are broad numbers", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-installed-source-typed-array-offset-")
-      );
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "fragments/installed-source-deterministic/fixture-js-surface-root",
+        "fragments/installed-source-deterministic/fixture-typed-array-set-surface",
+        "typed-array-offset-overload",
+      ]);
 
       try {
-        writeFile(
-          tempDir,
-          "package.json",
-          JSON.stringify({ name: "app", version: "1.0.0", type: "module" }, null, 2)
-        );
-        writeFile(
-          tempDir,
-          "src/index.ts",
-          [
-            'import { Uint8Array } from "@fixture/js/uint8-array.js";',
-            "",
-            "export function leftPadBytes(",
-            "  buffer: Uint8Array,",
-            "  length: number",
-            "): Uint8Array {",
-            "  if (buffer.length >= length) {",
-            "    return buffer;",
-            "  }",
-            "",
-            "  const result = new Uint8Array(length);",
-            "  result.set(buffer, length - buffer.length);",
-            "  return result;",
-            "}",
-          ].join("\n")
-        );
-        writeCoreTypesPackage(tempDir);
-        writeFixtureSourcePackage(
-          tempDir,
-          {
-            "src/typed-array-core.ts": [
-              'import type { byte, int } from "@tsonic/core/types.js";',
-              "",
-              "export type TypedArrayInput<TElement extends number> =",
-              "  | TElement[]",
-              "  | Iterable<number>;",
-              "",
-              "export class TypedArrayBase<",
-              "  TElement extends number,",
-              "  TSelf extends TypedArrayBase<TElement, TSelf>",
-              "> {",
-              "  public length: int = 0 as int;",
-              "",
-              "  public constructor(lengthOrValues: int | TypedArrayInput<TElement>) {",
-              "    void lengthOrValues;",
-              "  }",
-              "",
-              "  public set(index: int, value: number): void;",
-              "  public set(source: TypedArrayInput<TElement>, offset?: int): void;",
-              "  public set(",
-              "    sourceOrIndex: int | TypedArrayInput<TElement>,",
-              "    offsetOrValue: int | number = 0 as int",
-              "  ): void {",
-              "    void sourceOrIndex;",
-              "    void offsetOrValue;",
-              "  }",
-              "}",
-            ].join("\n"),
-            "src/uint8-array.ts": [
-              'import type { byte, int } from "@tsonic/core/types.js";',
-              'import { TypedArrayBase } from "./typed-array-core.js";',
-              "",
-              "export class Uint8Array extends TypedArrayBase<byte, Uint8Array> {",
-              "  public constructor(lengthOrValues: int | byte[] | Iterable<number>) {",
-              "    super(lengthOrValues);",
-              "  }",
-              "",
-              "  public *[Symbol.iterator](): Generator<byte, undefined, undefined> {",
-              "    return undefined as never;",
-              "  }",
-              "}",
-            ].join("\n"),
-          },
-          {
-            "./typed-array-core.js": "./src/typed-array-core.ts",
-            "./uint8-array.js": "./src/uint8-array.ts",
-          }
-        );
-
-        const entryPath = path.join(tempDir, "src/index.ts");
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
         const programResult = createProgram([entryPath], {
-          projectRoot: tempDir,
-          sourceRoot: path.join(tempDir, "src"),
+          projectRoot,
+          sourceRoot,
           rootNamespace: "TestApp",
           surface: "@fixture/js",
         });
@@ -833,14 +623,14 @@ describe("IR Builder", function () {
         if (!sourceFile) return;
 
         const ctx = createProgramContext(program, {
-          sourceRoot: path.join(tempDir, "src"),
+          sourceRoot,
           rootNamespace: "TestApp",
         });
         const moduleResult = buildIrModule(
           sourceFile,
           program,
           {
-            sourceRoot: path.join(tempDir, "src"),
+            sourceRoot,
             rootNamespace: "TestApp",
           },
           ctx
@@ -914,213 +704,100 @@ describe("IR Builder", function () {
           { kind: "primitiveType", name: "undefined" },
         ]);
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("keeps imported source-package error hierarchies deterministic", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-installed-source-errors-")
-      );
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/minimal-core-types",
+        "fragments/installed-source-deterministic/fixture-js-surface-root",
+        "fragments/installed-source-deterministic/minimal-dotnet-system",
+        "error-hierarchy",
+      ]);
 
       try {
-        writeFile(
-          tempDir,
-          "package.json",
-          JSON.stringify({ name: "app", version: "1.0.0", type: "module" }, null, 2)
-        );
-        writeFile(
-          tempDir,
+        expectNoDeterministicTypingDiagnostics(
+          fixture.path("app"),
           "src/index.ts",
-          [
-            'import { RangeError } from "@fixture/js/range-error.js";',
-            "void RangeError;",
-          ].join("\n")
-        );
-        writeDotnetSystemPackage(tempDir);
-        writeFixtureSourcePackage(
-          tempDir,
+          "src/range-error.ts",
           {
-            "src/error-object.ts": [
-              'import { Exception } from "@tsonic/dotnet/System.js";',
-              "",
-              "export class Error extends Exception {",
-              '  public name: string = "Error";',
-              "  public message: string;",
-              "  public stack?: string;",
-              "",
-              "  public constructor(message?: string) {",
-              '    super(message ?? "");',
-              '    this.message = message ?? "";',
-              "  }",
-              "}",
-            ].join("\n"),
-            "src/range-error.ts": [
-              'import { Error } from "./error-object.js";',
-              "",
-              "export class RangeError extends Error {",
-              '  public name: string = "RangeError";',
-              "",
-              "  public constructor(message?: string) {",
-              "    super(message);",
-              "  }",
-              "}",
-            ].join("\n"),
-          },
-          {
-            "./error-object.js": "./src/error-object.ts",
-            "./range-error.js": "./src/range-error.ts",
+            projectRoot: fixture.path("app"),
+            sourceRoot: fixture.path("app/src"),
+            rootNamespace: "TestApp",
+            surface: "@fixture/js",
+            packageRoot: fixture.path("app/node_modules/@fixture/js"),
           }
         );
-
-        expectNoDeterministicTypingDiagnostics(
-          tempDir,
-          "src/index.ts",
-          "src/range-error.ts"
-        );
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("keeps authoritative sibling source-package constructors deterministic", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-authoritative-source-constructors-")
-      );
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/authoritative-tsonic-js",
+        "authoritative-sibling-constructors",
+      ]);
 
       try {
-        const sourceRoot = path.join(tempDir, "src");
-        const authoritativeCoreRoot = path.resolve(
-          process.cwd(),
-          "../../../core/versions/10"
-        );
-        const authoritativeDotnetRoot = path.resolve(
-          process.cwd(),
-          "../../../dotnet/versions/10"
-        );
-        const authoritativeJsRoot = path.resolve(
-          process.cwd(),
-          "../../../js/versions/10"
-        );
-
-        expect(fs.existsSync(path.join(authoritativeCoreRoot, "package.json"))).to.equal(
-          true
-        );
-        expect(
-          fs.existsSync(path.join(authoritativeDotnetRoot, "package.json"))
-        ).to.equal(true);
-        expect(fs.existsSync(path.join(authoritativeJsRoot, "package.json"))).to.equal(
-          true
-        );
-
-        writeFile(
-          tempDir,
-          "package.json",
-          JSON.stringify({ name: "app", version: "1.0.0", type: "module" }, null, 2)
-        );
-        writeFile(
-          tempDir,
-          "src/index.ts",
-          [
-            'import { Uint8Array } from "@tsonic/js/uint8-array.js";',
-            'import { RangeError } from "@tsonic/js/range-error.js";',
-            "void Uint8Array;",
-            "void RangeError;",
-          ].join("\n")
-        );
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
+        const packageRoot = fixture.path("app/node_modules/@tsonic/js");
 
         expectNoDeterministicTypingDiagnostics(
-          tempDir,
+          projectRoot,
           "src/index.ts",
           "src/uint8-array.ts",
           {
-            projectRoot: tempDir,
+            projectRoot,
             sourceRoot,
             rootNamespace: "TestApp",
             surface: "@tsonic/js",
-            typeRoots: [
-              authoritativeCoreRoot,
-              authoritativeDotnetRoot,
-              authoritativeJsRoot,
-            ],
-            packageRoot: authoritativeJsRoot,
+            packageRoot,
           }
         );
         expectNoDeterministicTypingDiagnostics(
-          tempDir,
+          projectRoot,
           "src/index.ts",
           "src/range-error.ts",
           {
-            projectRoot: tempDir,
+            projectRoot,
             sourceRoot,
             rootNamespace: "TestApp",
             surface: "@tsonic/js",
-            typeRoots: [
-              authoritativeCoreRoot,
-              authoritativeDotnetRoot,
-              authoritativeJsRoot,
-            ],
-            packageRoot: authoritativeJsRoot,
+            packageRoot,
           }
         );
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
 
     it("keeps authoritative sibling source-package global call sites deterministic", () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "tsonic-authoritative-source-global-calls-")
-      );
+      const fixture = materializeInstalledSourceFixture([
+        "fragments/installed-source-deterministic/authoritative-tsonic-js",
+        "authoritative-sibling-global-calls",
+      ]);
 
       try {
-        const sourceRoot = path.join(tempDir, "src");
-        const authoritativeCoreRoot = path.resolve(
-          process.cwd(),
-          "../../../core/versions/10"
-        );
-        const authoritativeDotnetRoot = path.resolve(
-          process.cwd(),
-          "../../../dotnet/versions/10"
-        );
-        const authoritativeJsRoot = path.resolve(
-          process.cwd(),
-          "../../../js/versions/10"
-        );
-
-        writeFile(
-          tempDir,
-          "package.json",
-          JSON.stringify({ name: "app", version: "1.0.0", type: "module" }, null, 2)
-        );
-        writeFile(
-          tempDir,
-          "src/index.ts",
-          [
-            'import { Array } from "@tsonic/js/Array.js";',
-            "void Array;",
-          ].join("\n")
-        );
+        const projectRoot = fixture.path("app");
+        const sourceRoot = fixture.path("app/src");
 
         expectNoDeterministicTypingDiagnostics(
-          tempDir,
+          projectRoot,
           "src/index.ts",
           "src/array-object.ts",
           {
-            projectRoot: tempDir,
+            projectRoot,
             sourceRoot,
             rootNamespace: "TestApp",
             surface: "@tsonic/js",
-            typeRoots: [
-              authoritativeCoreRoot,
-              authoritativeDotnetRoot,
-              authoritativeJsRoot,
-            ],
-            packageRoot: authoritativeJsRoot,
+            packageRoot: fixture.path("app/node_modules/@tsonic/js"),
           }
         );
       } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        fixture.cleanup();
       }
     });
   });

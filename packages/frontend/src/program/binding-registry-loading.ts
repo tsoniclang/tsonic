@@ -762,6 +762,7 @@ export const addBindingsToState = (
             type: prop.declaringClrType,
             member: prop.clrName,
           },
+          emitSemantics: prop.emitSemantics,
         });
       }
 
@@ -779,6 +780,7 @@ export const addBindingsToState = (
             type: field.declaringClrType,
             member: field.clrName,
           },
+          emitSemantics: field.emitSemantics,
         });
       }
 
@@ -911,6 +913,32 @@ export const addBindingsToState = (
           const simpleKey = `${simpleAlias}.${member.alias}`;
           state.members.set(simpleKey, member);
           addMemberOverload(simpleKey, member);
+        }
+
+        if (member.binding.type !== mergedTypeBinding.name) {
+          const explicitOwnerAlias =
+            state.typeLookupAliasMap.get(member.binding.type) ??
+            tsbindgenClrTypeNameToTsTypeName(member.binding.type);
+
+          if (
+            explicitOwnerAlias &&
+            explicitOwnerAlias !== mergedTypeBinding.alias &&
+            explicitOwnerAlias !== tsAlias &&
+            explicitOwnerAlias !== derivedAlias &&
+            explicitOwnerAlias !== simpleAlias
+          ) {
+            const explicitOwnerKey = `${explicitOwnerAlias}.${member.alias}`;
+            state.members.set(explicitOwnerKey, member);
+            addMemberOverload(explicitOwnerKey, member);
+            recordClrTypeAlias(explicitOwnerAlias, member.binding.type);
+
+            if (!state.typeLookupAliasMap.has(member.binding.type)) {
+              state.typeLookupAliasMap.set(
+                member.binding.type,
+                explicitOwnerAlias
+              );
+            }
+          }
         }
       }
     }

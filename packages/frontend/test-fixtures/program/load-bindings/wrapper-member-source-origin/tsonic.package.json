@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "kind": "tsonic-source-package",
+  "source": {
+    "namespace": "fixture.js",
+    "exports": {
+      "./Number.js": "./src/number-object.ts"
+    }
+  }
+}

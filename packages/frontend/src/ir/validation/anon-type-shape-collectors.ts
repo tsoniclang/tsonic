@@ -12,6 +12,7 @@ import type {
   IrClassDeclaration,
   IrStatement,
   IrModule,
+  IrPropertySignature,
 } from "../types.js";
 
 /**
@@ -395,6 +396,19 @@ export const stripUndefinedFromType = (type: IrType): IrType => {
     return nonUndefined[0] ?? type;
   }
   return { ...type, types: nonUndefined };
+};
+
+export const normalizeStructuralPropertySignature = (
+  member: IrPropertySignature
+): IrPropertySignature => {
+  const strippedType = stripUndefinedFromType(member.type);
+  const isOptional = member.isOptional || strippedType !== member.type;
+
+  return {
+    ...member,
+    type: isOptional ? strippedType : member.type,
+    isOptional,
+  };
 };
 
 /**

@@ -155,7 +155,8 @@ export const shouldEmitFluentExtensionCall = (memberBinding: {
   readonly type: string;
   readonly member: string;
   readonly emitSemantics?: {
-    readonly callStyle: "receiver" | "static";
+    readonly callStyle?: "receiver" | "static";
+    readonly callableStaticAccessorKind?: "property" | "field";
   };
 }): boolean => {
   if (memberBinding.emitSemantics?.callStyle === "receiver") {

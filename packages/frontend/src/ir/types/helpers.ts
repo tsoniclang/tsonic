@@ -4,6 +4,7 @@
 
 import { IrType, IrAttribute } from "./ir-types.js";
 import type { IrExpression } from "./expressions.js";
+import type { IrOverloadFamilyMember } from "./overload-family.js";
 
 // ============================================================================
 // Patterns (for destructuring)
@@ -102,6 +103,7 @@ export type IrPropertySignature = {
   readonly type: IrType;
   readonly isOptional: boolean;
   readonly isReadonly: boolean;
+  readonly attributes?: readonly IrAttribute[];
 };
 
 export type IrMethodSignature = {
@@ -110,6 +112,8 @@ export type IrMethodSignature = {
   readonly typeParameters?: readonly IrTypeParameter[];
   readonly parameters: readonly IrParameter[];
   readonly returnType?: IrType;
+  readonly attributes?: readonly IrAttribute[];
+  readonly overloadFamily?: IrOverloadFamilyMember;
 };
 
 // ============================================================================

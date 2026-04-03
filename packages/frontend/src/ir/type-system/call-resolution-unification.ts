@@ -10,7 +10,7 @@
 import type { IrType, IrReferenceType } from "../types/index.js";
 import { unwrapAsyncWrapperType } from "../types/type-ops.js";
 import { stableIrTypeKey } from "../types/type-ops.js";
-import { explicitUnknownType, unknownType } from "./types.js";
+import { unknownType } from "./types.js";
 import type { TypeParameterInfo } from "./types.js";
 import type { TypeSystemState } from "./type-system-state.js";
 import { normalizeToNominal, isNullishPrimitive } from "./type-system-state.js";
@@ -48,6 +48,9 @@ export const inferMethodTypeArgsFromArguments = (
   ): boolean =>
     typesEqual(left, right) ||
     (isAssignableTo(state, left, right) && isAssignableTo(state, right, left));
+
+  const isExplicitUnknownType = (type: IrType): boolean =>
+    type.kind === "unknownType" && type.explicit === true;
 
   const getAsyncWrapperInnerType = (type: IrType): IrType | undefined => {
     if (type.kind !== "referenceType") {
@@ -286,21 +289,21 @@ export const inferMethodTypeArgsFromArguments = (
         return true;
       }
 
-      if (argumentType.kind === "anyType") {
-        currentSubstitution.set(parameterType.name, argumentType);
-        return true;
-      }
-
-      if (argumentType.kind === "unknownType") {
-        currentSubstitution.set(
-          parameterType.name,
-          argumentType.explicit === true ? explicitUnknownType : argumentType
-        );
-        return true;
-      }
-
       const existing = currentSubstitution.get(parameterType.name);
       if (existing) {
+        if (
+          argumentType.kind === "anyType" ||
+          (argumentType.kind === "unknownType" &&
+            !isExplicitUnknownType(argumentType))
+        ) {
+          return true;
+        }
+
+        if (isExplicitUnknownType(argumentType)) {
+          currentSubstitution.set(parameterType.name, argumentType);
+          return true;
+        }
+
         if (existing.kind === "anyType") {
           return true;
         }
@@ -324,6 +327,24 @@ export const inferMethodTypeArgsFromArguments = (
           existing,
           argumentType
         );
+      }
+
+      // `any` / `unknown` do not provide deterministic inference evidence.
+      //
+      // This is critical for deferred lambdas:
+      //   Select(items, x => x * 2)
+      // Pass 1 models the lambda as `(unknown) => unknown` only to preserve arity.
+      // That placeholder must not overwrite concrete inference already obtained
+      // from other arguments like `items: IEnumerable<int>`.
+      if (argumentType.kind === "anyType") {
+        return true;
+      }
+
+      if (argumentType.kind === "unknownType") {
+        if (isExplicitUnknownType(argumentType)) {
+          currentSubstitution.set(parameterType.name, argumentType);
+        }
+        return true;
       }
 
       currentSubstitution.set(parameterType.name, argumentType);

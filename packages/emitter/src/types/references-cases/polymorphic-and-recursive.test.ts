@@ -87,7 +87,7 @@ describe("Reference Type Emission", () => {
 
       const printed = printType(typeAst);
       expect(printed).to.equal(
-        "global::Tsonic.Runtime.Union<object?[], string, global::System.Text.RegularExpressions.Regex>?"
+        "global::Tsonic.Runtime.Union<object[], string, global::System.Text.RegularExpressions.Regex>?"
       );
     });
 
@@ -127,7 +127,7 @@ describe("Reference Type Emission", () => {
 
       const printed = printType(typeAst);
       expect(printed).to.equal(
-        "global::Tsonic.Runtime.Union<object?[], global::System.Delegate>"
+        "global::Tsonic.Runtime.Union<object[], global::System.Delegate>"
       );
     });
 
@@ -203,7 +203,7 @@ describe("Reference Type Emission", () => {
       );
       expect(printType(firstTypeAst)).to.equal(printType(secondTypeAst));
       expect(printType(secondTypeAst)).to.equal(
-        "global::Tsonic.Runtime.Union<object?[], global::System.Delegate, global::Test.Router>"
+        "global::Tsonic.Runtime.Union<object[], global::System.Delegate, global::Test.Router>"
       );
     });
 
@@ -345,7 +345,7 @@ describe("Reference Type Emission", () => {
       );
       expect(printType(firstTypeAst)).to.equal(printType(secondTypeAst));
       expect(printType(secondTypeAst)).to.equal(
-        "global::Tsonic.Runtime.Union<object?[], string, global::System.Text.RegularExpressions.Regex>?"
+        "global::Tsonic.Runtime.Union<object[], string, global::System.Text.RegularExpressions.Regex>?"
       );
     });
 

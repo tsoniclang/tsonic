@@ -1,4 +1,4 @@
-import { IrExpression, IrType } from "@tsonic/frontend";
+import { IrExpression, IrType, stableIrTypeKey } from "@tsonic/frontend";
 import { EmitterContext, NarrowedBinding } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
@@ -30,6 +30,22 @@ import {
   getDictionaryValueType,
   isSameNominalType,
 } from "./structural-type-shapes.js";
+
+const getStorageIdentifierAst = (
+  expr: Extract<IrExpression, { kind: "identifier" }>,
+  context: EmitterContext
+): CSharpExpressionAst | undefined => {
+  const remappedLocal = context.localNameMap?.get(expr.name);
+  if (remappedLocal) {
+    return identifierExpression(remappedLocal);
+  }
+
+  if (context.localValueTypes?.has(expr.name)) {
+    return identifierExpression(escapeCSharpIdentifier(expr.name));
+  }
+
+  return undefined;
+};
 
 const needsStructuralCollectionMaterialization = (
   actualType: IrType | undefined,
@@ -93,12 +109,44 @@ export const isBroadStorageTarget = (
     return false;
   }
 
+  if (
+    expectedType.kind === "referenceType" &&
+    (expectedType.name === "JsValue" ||
+      expectedType.typeId?.tsName === "JsValue" ||
+      expectedType.resolvedClrType === "Tsonic.Runtime.JsValue" ||
+      expectedType.resolvedClrType === "global::Tsonic.Runtime.JsValue")
+  ) {
+    return true;
+  }
+
   const resolved = resolveTypeAlias(stripNullish(expectedType), context);
   return (
     resolved.kind === "unknownType" ||
     resolved.kind === "anyType" ||
     resolved.kind === "objectType" ||
-    (resolved.kind === "referenceType" && resolved.name === "object")
+    (resolved.kind === "unionType" &&
+      resolved.types.some(
+        (member) =>
+          member.kind === "objectType" ||
+          (member.kind === "referenceType" &&
+            (member.name === "object" ||
+              member.resolvedClrType === "System.Object" ||
+              member.resolvedClrType === "global::System.Object"))
+      ) &&
+      resolved.types.every(
+        (member) =>
+          member.kind === "objectType" ||
+          member.kind === "primitiveType" ||
+          member.kind === "literalType" ||
+          (member.kind === "referenceType" &&
+            (member.name === "object" ||
+              member.resolvedClrType === "System.Object" ||
+              member.resolvedClrType === "global::System.Object"))
+      )) ||
+    (resolved.kind === "referenceType" &&
+      (resolved.name === "object" ||
+        resolved.resolvedClrType === "System.Object" ||
+        resolved.resolvedClrType === "global::System.Object"))
   );
 };
 
@@ -137,9 +185,9 @@ export const buildRuntimeSubsetExpressionAst = (
     return undefined;
   }
 
-  const remappedLocal = context.localNameMap?.get(expr.name);
-  if (remappedLocal && isBroadStorageTarget(targetType, context)) {
-    return [identifierExpression(remappedLocal), context];
+  const storageIdentifierAst = getStorageIdentifierAst(expr, context);
+  if (storageIdentifierAst && isBroadStorageTarget(targetType, context)) {
+    return [storageIdentifierAst, context];
   }
 
   const sourceFrame: RuntimeMaterializationSourceFrame | undefined =
@@ -183,14 +231,14 @@ export const tryEmitStorageCompatibleIdentifier = (
     return undefined;
   }
 
-  const remappedLocal = context.localNameMap?.get(expr.name);
   const storageType = context.localValueTypes?.get(expr.name);
-  if (!remappedLocal || !storageType) {
+  const storageIdentifierAst = getStorageIdentifierAst(expr, context);
+  if (!storageIdentifierAst || !storageType) {
     return undefined;
   }
 
   if (isBroadStorageTarget(expectedType, context)) {
-    return identifierExpression(remappedLocal);
+    return storageIdentifierAst;
   }
 
   const effectiveType = resolveEffectiveExpressionType(expr, context);
@@ -211,16 +259,16 @@ export const tryEmitStorageCompatibleIdentifier = (
     return undefined;
   }
 
-  return identifierExpression(remappedLocal);
+  return storageIdentifierAst;
 };
 
 export const tryEmitCollapsedStorageIdentifier = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] | undefined => {
-  const remappedLocal = context.localNameMap?.get(expr.name);
   const storageType = context.localValueTypes?.get(expr.name);
-  if (!remappedLocal || !storageType) {
+  const storageIdentifierAst = getStorageIdentifierAst(expr, context);
+  if (!storageIdentifierAst || !storageType) {
     return undefined;
   }
 
@@ -229,16 +277,25 @@ export const tryEmitCollapsedStorageIdentifier = (
     return undefined;
   }
 
-  const [sameSurface, nextContext] = matchesEmittedStorageSurface(
-    storageType,
-    effectiveType,
-    context
-  );
+  let sameSurfaceResult: [boolean, EmitterContext];
+  try {
+    sameSurfaceResult = matchesEmittedStorageSurface(
+      storageType,
+      effectiveType,
+      context
+    );
+  } catch (err) {
+    if (err instanceof Error) {
+      throw new Error(`${err.message} [identifier=${expr.name}]`);
+    }
+    throw err;
+  }
+  const [sameSurface, nextContext] = sameSurfaceResult;
   if (!sameSurface) {
     return undefined;
   }
 
-  return [identifierExpression(remappedLocal), nextContext];
+  return [storageIdentifierAst, nextContext];
 };
 
 export const tryEmitImplicitNarrowedStorageIdentifier = (
@@ -395,15 +452,18 @@ export const tryEmitStorageCompatibleNarrowedIdentifier = (
     isBroadStorageTarget(expectedType, context) &&
     !shouldAvoidStorageReuse
   ) {
-    if (narrowed.storageExprAst) {
-      return [narrowed.storageExprAst, context];
+    if (narrowed.carrierExprAst) {
+      return [narrowed.carrierExprAst, context];
     }
     if (remappedLocal) {
       return [identifierExpression(remappedLocal), context];
     }
+    if (narrowed.storageExprAst) {
+      return [narrowed.storageExprAst, context];
+    }
   }
   if (canReuseOriginalRuntimeCarrier) {
-    return [narrowed.storageExprAst, context];
+    return [narrowed.carrierExprAst ?? narrowed.storageExprAst, context];
   }
 
   const [sameSurface, nextContext] = matchesEmittedStorageSurface(
@@ -573,15 +633,35 @@ export const matchesEmittedStorageSurface = (
   ) {
     return [false, context];
   }
-  const actualSurface = tryEmitSurfaceTypeAst(strippedActual, context);
+  let actualSurface: [ReturnType<typeof emitTypeAst>[0], EmitterContext] | undefined;
+  try {
+    actualSurface = tryEmitSurfaceTypeAst(strippedActual, context);
+  } catch (err) {
+    if (err instanceof Error) {
+      throw new Error(
+        `${err.message} [storage-surface originalActual=${stableIrTypeKey(actualType)} originalExpected=${stableIrTypeKey(expectedType)} actual=${stableIrTypeKey(strippedActual)} expected=${stableIrTypeKey(strippedExpected)}]`
+      );
+    }
+    throw err;
+  }
   if (!actualSurface) {
     return [false, context];
   }
   const [actualTypeAst, actualTypeContext] = actualSurface;
-  const expectedSurface = tryEmitSurfaceTypeAst(
-    strippedExpected,
-    actualTypeContext
-  );
+  let expectedSurface: [ReturnType<typeof emitTypeAst>[0], EmitterContext] | undefined;
+  try {
+    expectedSurface = tryEmitSurfaceTypeAst(
+      strippedExpected,
+      actualTypeContext
+    );
+  } catch (err) {
+    if (err instanceof Error) {
+      throw new Error(
+        `${err.message} [storage-surface originalActual=${stableIrTypeKey(actualType)} originalExpected=${stableIrTypeKey(expectedType)} actual=${stableIrTypeKey(strippedActual)} expected=${stableIrTypeKey(strippedExpected)}]`
+      );
+    }
+    throw err;
+  }
   if (!expectedSurface) {
     return [false, context];
   }

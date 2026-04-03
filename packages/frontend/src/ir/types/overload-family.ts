@@ -8,8 +8,6 @@
 
 export type IrOverloadOwnerKind = "function" | "method" | "constructor";
 
-export type IrOverloadFamilyRole = "publicOverload" | "implementation";
-
 export type IrOverloadFamilyMember = {
   /**
    * Stable family identity within the containing declaration owner.
@@ -30,8 +28,11 @@ export type IrOverloadFamilyMember = {
   readonly ownerKind: IrOverloadOwnerKind;
   readonly publicName: string;
   readonly isStatic: boolean;
-  readonly role: IrOverloadFamilyRole;
   readonly publicSignatureCount: number;
-  readonly publicSignatureIndex?: number;
-  readonly implementationName?: string;
+  readonly publicSignatureIndex: number;
 };
+
+export const getIrMemberPublicName = (member: {
+  readonly name: string;
+  readonly overloadFamily?: IrOverloadFamilyMember;
+}): string => member.overloadFamily?.publicName ?? member.name;

@@ -62,20 +62,42 @@ export const getRawSignature = (
   // Extract parameter names
   const parameterNames: string[] = sigInfo.parameters.map((p) => p.name);
 
-  // Extract type parameters
-  const typeParameters: TypeParameterInfo[] = (
-    sigInfo.typeParameters ?? []
-  ).map((tp) => ({
-    name: tp.name,
-    constraint: tp.constraintNode
-      ? convertTypeNode(state, tp.constraintNode)
-      : undefined,
-    defaultType: tp.defaultNode
-      ? convertTypeNode(state, tp.defaultNode)
-      : undefined,
-  }));
-
   const isConstructor = sigInfo.declaringMemberName === "constructor";
+  // Extract type parameters.
+  //
+  // Constructors of generic classes do not declare their own type-parameter list in
+  // TypeScript syntax, but constructor call resolution must still infer the enclosing
+  // class type parameters from arguments / expected return context so `new Box(value)`
+  // emits `new Box<T>(value)` when appropriate.
+  const typeParameters: TypeParameterInfo[] = (
+    isConstructor
+      ? (sigInfo.typeParameters && sigInfo.typeParameters.length > 0
+          ? sigInfo.typeParameters
+          : (sigInfo.declaringTypeParameterNames ?? []).map((name) => ({
+              name,
+              constraintNode: undefined,
+              defaultNode: undefined,
+            }))
+        ).map((tp) => ({
+          name: tp.name,
+          constraint: tp.constraintNode
+            ? convertTypeNode(state, tp.constraintNode)
+            : undefined,
+          defaultType: tp.defaultNode
+            ? convertTypeNode(state, tp.defaultNode)
+            : undefined,
+        }))
+      : (sigInfo.typeParameters ?? []).map((tp) => ({
+          name: tp.name,
+          constraint: tp.constraintNode
+            ? convertTypeNode(state, tp.constraintNode)
+            : undefined,
+          defaultType: tp.defaultNode
+            ? convertTypeNode(state, tp.defaultNode)
+            : undefined,
+        }))
+  );
+
   const hasDeclaredReturnType =
     sigInfo.returnTypeNode !== undefined || isConstructor;
 
@@ -185,9 +207,10 @@ export const lookupStructuralMember = (
       }
       // Method signature - return function type using the same parameters
       if (member.kind === "methodSignature") {
+        const typeParameters = member.typeParameters;
         const funcType: IrFunctionType = {
           kind: "functionType",
-          typeParameters: member.typeParameters,
+          ...(typeParameters ? { typeParameters } : {}),
           parameters: member.parameters,
           returnType: member.returnType ?? voidType,
         };
@@ -208,9 +231,10 @@ export const lookupStructuralMember = (
           : member.type;
       }
       if (member.kind === "methodSignature") {
+        const typeParameters = member.typeParameters;
         const funcType: IrFunctionType = {
           kind: "functionType",
-          typeParameters: member.typeParameters,
+          ...(typeParameters ? { typeParameters } : {}),
           parameters: member.parameters,
           returnType: member.returnType ?? voidType,
         };

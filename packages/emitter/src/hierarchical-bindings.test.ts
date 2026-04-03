@@ -19,10 +19,9 @@ import { emitModule } from "./emitter.js";
 describe("Hierarchical Bindings - Full Pipeline", () => {
   it("should compile TypeScript with hierarchical bindings to correct C#", () => {
     const source = `
-      export function processData() {
+      export function processData(): void {
         const arr = [1, 2, 3];
-        const result = systemLinq.enumerable.selectMany(arr, x => [x, x * 2]);
-        return result;
+        systemLinq.enumerable.selectMany(arr, x => [x, x * 2]);
       }
     `;
 
@@ -145,19 +144,17 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       "C# should not contain TS type identifier"
     );
 
-    // Verify function structure (may be void if return type not inferred)
-    expect(csharpCode).to.match(
-      /public static (void|object) processData\(/,
+    expect(csharpCode).to.include(
+      "public static void processData(",
       "C# should have processData function"
     );
   });
 
   it("should handle multiple hierarchical bindings in same code", () => {
     const source = `
-      export function multipleBindings() {
-        const a = myLib.typeA.methodA(1);
-        const b = myLib.typeB.methodB("test");
-        return a + b;
+      export function multipleBindings(): void {
+        myLib.typeA.methodA(1);
+        myLib.typeB.methodB("test");
       }
     `;
 

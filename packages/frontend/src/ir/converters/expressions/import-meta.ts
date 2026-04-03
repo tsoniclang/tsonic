@@ -1,6 +1,6 @@
 import * as ts from "typescript";
 import { pathToFileURL } from "node:url";
-import { dirname } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 import type { IrExpression, IrObjectExpression, IrType } from "../../types.js";
 import type { ProgramContext } from "../../program-context.js";
 import { getSourceSpan } from "./helpers.js";
@@ -18,14 +18,43 @@ export const isImportMetaMetaProperty = (
   node.keywordToken === ts.SyntaxKind.ImportKeyword &&
   node.name.text === "meta";
 
-const getImportMetaFilePath = (node: ts.Node): string =>
-  node.getSourceFile().fileName.replace(/\\/g, "/");
+const getImportMetaFilePath = (
+  node: ts.Node,
+  ctx: ProgramContext
+): string => {
+  const absoluteFilePath = resolve(node.getSourceFile().fileName).replace(
+    /\\/g,
+    "/"
+  );
+  const absoluteSourceRoot = resolve(ctx.sourceRoot).replace(/\\/g, "/");
+  const absoluteProjectRoot = resolve(ctx.projectRoot).replace(/\\/g, "/");
+
+  if (absoluteFilePath.startsWith(absoluteSourceRoot)) {
+    const relativeSourcePath = relative(
+      absoluteSourceRoot,
+      absoluteFilePath
+    ).replace(/\\/g, "/");
+    const sourceRootName = basename(absoluteSourceRoot);
+    return `/${sourceRootName}/${relativeSourcePath}`;
+  }
+
+  if (absoluteFilePath.startsWith(absoluteProjectRoot)) {
+    const relativeProjectPath = relative(
+      absoluteProjectRoot,
+      absoluteFilePath
+    ).replace(/\\/g, "/");
+    return `/${relativeProjectPath}`;
+  }
+
+  return absoluteFilePath;
+};
 
 export const getImportMetaFieldValue = (
   node: ts.Node,
+  ctx: ProgramContext,
   field: "url" | "filename" | "dirname"
 ): string => {
-  const filePath = getImportMetaFilePath(node);
+  const filePath = getImportMetaFilePath(node, ctx);
   if (field === "url") {
     return pathToFileURL(filePath).href;
   }
@@ -64,7 +93,7 @@ const importMetaObjectType = (): IrType => ({
 
 export const convertImportMetaObject = (
   node: ts.MetaProperty,
-  _ctx: ProgramContext
+  ctx: ProgramContext
 ): IrObjectExpression => {
   const sourceSpan = getSourceSpan(node);
   const metaType = importMetaObjectType();
@@ -75,7 +104,7 @@ export const convertImportMetaObject = (
     IrObjectExpression["properties"][number],
     { kind: "property" }
   > => {
-    const value = getImportMetaFieldValue(node, field);
+    const value = getImportMetaFieldValue(node, ctx, field);
     return {
       kind: "property",
       key: field,
@@ -101,7 +130,7 @@ export const convertImportMetaObject = (
 
 export const tryConvertImportMetaProperty = (
   node: ts.PropertyAccessExpression,
-  _ctx: ProgramContext
+  ctx: ProgramContext
 ): IrExpression | undefined => {
   if (!isImportMetaMetaProperty(node.expression)) return undefined;
 
@@ -113,6 +142,7 @@ export const tryConvertImportMetaProperty = (
   const sourceSpan = getSourceSpan(node);
   const value = getImportMetaFieldValue(
     node,
+    ctx,
     field as "url" | "filename" | "dirname"
   );
   return {

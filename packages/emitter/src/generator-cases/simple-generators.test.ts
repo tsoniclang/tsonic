@@ -185,4 +185,60 @@ describe("Generator Emission", () => {
     expect(code).to.not.include("asyncCounter_Generator");
     expect(code).to.include("yield return i;");
   });
+
+  it("does not synthesize exchange helpers for async generators with void next channels", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/test/ticks.ts",
+      namespace: "Test",
+      className: "Ticks",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "ticks",
+          parameters: [],
+          returnType: {
+            kind: "referenceType",
+            name: "AsyncGenerator",
+            typeArguments: [
+              {
+                kind: "unionType",
+                types: [
+                  { kind: "referenceType", name: "JsValue" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+              { kind: "voidType" },
+              { kind: "voidType" },
+            ],
+          },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "yield",
+                  expression: { kind: "literal", value: null },
+                  delegate: false,
+                },
+              },
+            ],
+          },
+          isAsync: true,
+          isGenerator: true,
+          isExported: true,
+        },
+      ],
+    };
+
+    const code = emitModule(module);
+
+    expect(code).to.not.include("ticks_exchange");
+    expect(code).to.not.include("ticks_Generator");
+    expect(code).to.not.include("void? Input");
+  });
 });

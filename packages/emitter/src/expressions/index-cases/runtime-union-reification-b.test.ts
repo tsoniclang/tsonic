@@ -11,6 +11,12 @@ import {
 } from "./helpers.js";
 import { identifierType } from "../../core/format/backend-ast/builders.js";
 
+const jsValueType: IrType = {
+  kind: "referenceType",
+  name: "JsValue",
+  resolvedClrType: "Tsonic.Runtime.JsValue",
+};
+
 describe("Expression Emission", () => {
   it("unwraps parameter-passing modifier wrappers before expected-type adaptation", () => {
     for (const wrapperName of ["out", "ref", "In", "inref"] as const) {
@@ -47,9 +53,15 @@ describe("Expression Emission", () => {
   });
 
   it("preserves explicit array assertions when flow narrowing only changes the semantic type", () => {
+    const broadObjectType: IrType = {
+      kind: "referenceType",
+      name: "object",
+      resolvedClrType: "System.Object",
+    };
+
     const targetType: IrType = {
       kind: "arrayType",
-      elementType: { kind: "unknownType" },
+      elementType: broadObjectType,
       origin: "explicit",
     };
 
@@ -59,7 +71,7 @@ describe("Expression Emission", () => {
         expression: {
           kind: "identifier",
           name: "value",
-          inferredType: { kind: "unknownType" },
+          inferredType: broadObjectType,
         },
         targetType,
         inferredType: targetType,
@@ -84,14 +96,14 @@ describe("Expression Emission", () => {
                 identifier: "value",
               },
               type: targetType,
-              sourceType: { kind: "unknownType" },
+              sourceType: broadObjectType,
             },
           ],
         ]),
       }
     );
 
-    expect(printExpression(result)).to.equal("(object?[])value");
+    expect(printExpression(result)).to.equal("(object[])value");
   });
 
   it("materializes runtime-union array locals when broad object arrays are expected", () => {
@@ -154,7 +166,7 @@ describe("Expression Emission", () => {
     expect(rendered).to.not.equal("rest");
   });
 
-  it("casts asserted unknown array elements when targeting generic array element types", () => {
+  it("casts asserted JsValue array elements when targeting generic array element types", () => {
     const targetType: IrType = {
       kind: "arrayType",
       elementType: {
@@ -172,7 +184,7 @@ describe("Expression Emission", () => {
           name: "flattened",
           inferredType: {
             kind: "arrayType",
-            elementType: { kind: "unknownType" },
+            elementType: jsValueType,
             origin: "explicit",
           },
         },
@@ -203,7 +215,7 @@ describe("Expression Emission", () => {
       {
         kind: "identifier",
         name: "e",
-        inferredType: { kind: "unknownType" },
+        inferredType: jsValueType,
       },
       {
         indentLevel: 0,
@@ -245,7 +257,7 @@ describe("Expression Emission", () => {
                   identifier: "e",
                 },
               },
-              type: { kind: "unknownType" },
+              type: jsValueType,
             },
           ],
         ]),
@@ -548,7 +560,7 @@ describe("Expression Emission", () => {
   it("prefers runtime-union carrier guards over narrowed semantic views for Array.isArray", () => {
     const pathSpecArrayType: IrType = {
       kind: "arrayType",
-      elementType: { kind: "unknownType" },
+      elementType: jsValueType,
       origin: "explicit",
     };
     const pathSpecCarrierType: IrType = {
@@ -622,7 +634,7 @@ describe("Expression Emission", () => {
   it("recovers identifier storage carriers for Array.isArray after narrowed expr bindings", () => {
     const pathSpecArrayType: IrType = {
       kind: "arrayType",
-      elementType: { kind: "unknownType" },
+      elementType: jsValueType,
       origin: "explicit",
     };
     const pathSpecCarrierType: IrType = {
@@ -804,16 +816,16 @@ describe("Expression Emission", () => {
 
     const text = printExpression(result);
     expect(text).to.include(
-      "handler.As1()[index] is global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>"
+      "handler.As1()[index] is global::Tsonic.Runtime.Union<object[], global::System.Action, global::Test.Router>"
     );
     expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>.From1"
+      "global::Tsonic.Runtime.Union<object[], global::System.Action, global::Test.Router>.From1"
     );
     expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>.From2"
+      "global::Tsonic.Runtime.Union<object[], global::System.Action, global::Test.Router>.From2"
     );
     expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object?[], global::System.Action, global::Test.Router>.From3"
+      "global::Tsonic.Runtime.Union<object[], global::System.Action, global::Test.Router>.From3"
     );
     expect(text).to.include("is global::System.Array");
   });
@@ -859,13 +871,13 @@ describe("Expression Emission", () => {
                     passing: "value",
                   },
                 ],
-                returnType: { kind: "unknownType" },
+                returnType: jsValueType,
               },
             },
             arguments: [],
             isOptional: false,
             parameterTypes: [tupleRestType],
-            inferredType: { kind: "unknownType" },
+            inferredType: jsValueType,
             sourceSpan: {
               file: "/src/test.ts",
               line: 1,

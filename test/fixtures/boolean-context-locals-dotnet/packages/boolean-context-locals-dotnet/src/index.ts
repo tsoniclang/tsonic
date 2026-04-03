@@ -1,6 +1,6 @@
 import { Console } from "@tsonic/dotnet/System.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
-import type { int, long } from "@tsonic/core/types.js";
+import type { int, long, JsValue } from "@tsonic/core/types.js";
 
 type BoolBox = { readonly __kind: "BoolBox"; readonly value: boolean };
 type WrappedBool = boolean | BoolBox;
@@ -69,18 +69,18 @@ export function main(): void {
   const bclBool = "x".Contains("y");
   Console.WriteLine(bclBool ? "T" : "F");
 
-  // 9) Unknown/any typed locals must use JS truthiness, not `!= null`.
-  // `false as unknown` boxes to a non-null object in C#, so `!= null` would miscompile to true.
-  const unkBool = false as unknown;
+  // 9) JsValue-typed locals must use JS truthiness, not `!= null`.
+  // `false as JsValue` boxes to a non-null object in C#, so `!= null` would miscompile to true.
+  const unkBool = false as JsValue;
   Console.WriteLine(unkBool ? "T" : "F");
 
-  const unkInt = 0 as unknown;
+  const unkInt = 0 as JsValue;
   Console.WriteLine(unkInt ? "T" : "F");
 
-  const unkString = "" as unknown;
+  const unkString = "" as JsValue;
   Console.WriteLine(unkString ? "T" : "F");
 
-  const unkObj = new List<int>() as unknown;
+  const unkObj = new List<int>() as JsValue;
   Console.WriteLine(unkObj ? "T" : "F");
 
   // 10) Union wrappers around falsy CLR primitives must not degrade to `!= null`.

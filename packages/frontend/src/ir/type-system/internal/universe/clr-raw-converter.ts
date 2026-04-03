@@ -24,7 +24,7 @@ import type {
   RawBindingsMethod,
   RawBindingsType,
 } from "./types.js";
-import { makeTypeId, parseStableId } from "./types.js";
+import { makeTypeId, parseStableId, resolveRawTypeStableId } from "./types.js";
 import { parseClrTypeString, splitTypeArguments } from "./clr-type-parser.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -267,13 +267,20 @@ export const convertRawType = (
   _namespace: string
 ): NominalEntry => {
   // Parse stableId
-  const parsed = parseStableId(rawType.stableId);
+  const stableId = resolveRawTypeStableId(rawType);
+  if (!stableId) {
+    throw new Error(
+      `Missing canonical CLR identity for type: ${rawType.clrName}`
+    );
+  }
+
+  const parsed = parseStableId(stableId);
   if (!parsed) {
-    throw new Error(`Invalid stableId: ${rawType.stableId}`);
+    throw new Error(`Invalid stableId: ${stableId}`);
   }
 
   const typeId = makeTypeId(
-    rawType.stableId,
+    stableId,
     rawType.clrName,
     parsed.assemblyName,
     tsbindgenClrTypeNameToTsTypeName(rawType.clrName)

@@ -14,6 +14,7 @@ export type TestEntry = {
   readonly title: string;
   readonly expectDiagnostics?: readonly string[];
   readonly expectDiagnosticsMode?: DiagnosticsMode;
+  readonly surface?: string;
 };
 
 export type Scenario = {
@@ -23,6 +24,7 @@ export type Scenario = {
   readonly expectedPath?: string; // Optional when expectDiagnostics is set
   readonly expectDiagnostics?: readonly string[];
   readonly expectDiagnosticsMode?: DiagnosticsMode;
+  readonly surface?: string;
 };
 
 export type DescribeNode = {

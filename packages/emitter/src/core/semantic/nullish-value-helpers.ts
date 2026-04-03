@@ -10,6 +10,7 @@
 import type { IrType } from "@tsonic/frontend";
 import { normalizedUnionType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
+import { getIdentifierTypeName } from "../format/backend-ast/utils.js";
 import { resolveLocalTypeInfo } from "./property-lookup-resolution.js";
 import { substituteTypeArgs } from "./type-substitution.js";
 
@@ -341,6 +342,83 @@ export const resolveTypeAlias = (
     }
 
     return importedAliasBinding.aliasType;
+  }
+
+  const moduleMap = context.options.moduleMap;
+  if (moduleMap) {
+    const importedBindingTypeName =
+      importedAliasBinding?.kind === "type"
+        ? getIdentifierTypeName(importedAliasBinding.typeAst)
+        : undefined;
+    const crossModuleAliasMatches: {
+      readonly namespace: string;
+      readonly type: IrType;
+      readonly typeParameters: readonly string[];
+    }[] = [];
+
+    for (const moduleInfo of moduleMap.values()) {
+      const aliasInfo = moduleInfo.localTypes?.get(lookupName);
+      if (!aliasInfo || aliasInfo.kind !== "typeAlias") {
+        continue;
+      }
+
+      crossModuleAliasMatches.push({
+        namespace: moduleInfo.namespace,
+        type: aliasInfo.type,
+        typeParameters: aliasInfo.typeParameters,
+      });
+    }
+
+    const resolveCrossModuleAlias = (
+      match:
+        | {
+            readonly namespace: string;
+            readonly type: IrType;
+            readonly typeParameters: readonly string[];
+          }
+        | undefined
+    ): IrType | undefined => {
+      if (!match) {
+        return undefined;
+      }
+
+      if (
+        options.preserveObjectTypeAliases &&
+        match.type.kind === "objectType"
+      ) {
+        return type;
+      }
+
+      if (type.typeArguments && type.typeArguments.length > 0) {
+        return substituteTypeArgs(
+          match.type,
+          match.typeParameters,
+          type.typeArguments
+        );
+      }
+
+      return match.type;
+    };
+
+    const fqnCandidate =
+      (importedBindingTypeName
+        ? stripGlobalPrefix(importedBindingTypeName)
+        : undefined) ??
+      type.resolvedClrType ??
+      type.typeId?.clrName ??
+      (type.name.includes(".") ? stripGlobalPrefix(type.name) : undefined);
+    if (fqnCandidate && fqnCandidate.includes(".")) {
+      const namespace = fqnCandidate.slice(0, fqnCandidate.lastIndexOf("."));
+      const scopedMatches = crossModuleAliasMatches.filter(
+        (match) => match.namespace === namespace
+      );
+      if (scopedMatches.length === 1) {
+        const resolved = resolveCrossModuleAlias(scopedMatches[0]);
+        if (resolved) {
+          return resolved;
+        }
+      }
+    }
   }
 
   const aliasIndex = context.options.typeAliasIndex;

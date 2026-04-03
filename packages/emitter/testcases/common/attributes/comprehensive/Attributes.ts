@@ -18,12 +18,12 @@ export class User {
   save(): void {}
 }
 
-A.on(User).type.add(SerializableAttribute);
-A.on(User).ctor.add(ObsoleteAttribute, "ctor");
-A.on(User)
+A<User>().add(SerializableAttribute);
+A<User>().ctor.add(ObsoleteAttribute, "ctor");
+A<User>()
   .method((u) => u.save)
   .add(ObsoleteAttribute, "method");
-A.on(User)
+A<User>()
   .prop((u) => u.name)
   .add(ObsoleteAttribute, "prop");
 
@@ -31,4 +31,4 @@ export class NoCtor {
   value!: number;
 }
 
-A.on(NoCtor).ctor.add(ObsoleteAttribute, "implicit");
+A<NoCtor>().ctor.add(ObsoleteAttribute, "implicit");

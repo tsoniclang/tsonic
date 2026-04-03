@@ -13,11 +13,14 @@ import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { emitCSharpName } from "../../naming-policy.js";
 import type {
   CSharpExpressionAst,
   CSharpLambdaParameterAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import { identifierExpression } from "../../core/format/backend-ast/builders.js";
+import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import { resolveEffectiveExpressionType } from "../../core/semantic/narrowed-expression-types.js";
 import {
   containsTypeParameter,
@@ -33,9 +36,18 @@ import {
 } from "../../core/semantic/type-resolution.js";
 import { resolveComparableType } from "../../core/semantic/comparable-types.js";
 import { resolveRuntimeMaterializationTargetType } from "../../core/semantic/runtime-materialization-targets.js";
+import { isBroadObjectSlotType } from "../../core/semantic/js-value-types.js";
+import { willCarryAsRuntimeUnion } from "../../core/semantic/union-semantics.js";
+import { getMemberAccessNarrowKey } from "../../core/semantic/narrowing-keys.js";
+import { isCompilerGeneratedStructuralReferenceType } from "../../core/semantic/structural-shape-matching.js";
 import { getPassingModifierFromCast, isLValue } from "./call-analysis.js";
-import { shouldPreferRuntimeExpectedType } from "./runtime-expected-type-preference.js";
 import { adaptValueToExpectedTypeAst } from "../expected-type-adaptation.js";
+import {
+  isExactArrayCreationToType,
+  isExactExpressionToType,
+  tryEmitExactComparisonTargetAst,
+} from "../exact-comparison.js";
+import { getDirectIterableElementType } from "../structural-type-shapes.js";
 import {
   normalizeCallArgumentExpectedType,
   expandTupleLikeSpreadArguments,
@@ -43,15 +55,25 @@ import {
   wrapArgModifier,
   emitFlattenedRestArguments,
 } from "./call-arguments-helpers.js";
+import { shouldPreferRuntimeExpectedType } from "./runtime-expected-type-preference.js";
 
 const getFunctionValueSignature = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): Extract<IrType, { kind: "functionType" }> | undefined => {
   if (expr.callee.kind === "identifier") {
+    const localType =
+      context.localSemanticTypes?.get(expr.callee.name) ??
+      context.localValueTypes?.get(expr.callee.name);
+    const resolvedLocalType = resolveFunctionType(localType, context);
+    if (resolvedLocalType) {
+      return resolvedLocalType;
+    }
+
     const symbolType = context.valueSymbols?.get(expr.callee.name)?.type;
-    if (symbolType?.kind === "functionType") {
-      return symbolType;
+    const resolvedSymbolType = resolveFunctionType(symbolType, context);
+    if (resolvedSymbolType) {
+      return resolvedSymbolType;
     }
   }
 
@@ -96,6 +118,375 @@ const resolveFunctionType = (
   const unwrapped = unwrapParameterModifierType(type) ?? type;
   const resolved = resolveTypeAlias(stripNullish(unwrapped), context);
   return resolved.kind === "functionType" ? resolved : undefined;
+};
+
+const matchesDirectCarrierAst = (
+  left: CSharpExpressionAst,
+  right: CSharpExpressionAst
+): boolean => {
+  if (left.kind !== right.kind) {
+    return false;
+  }
+
+  switch (left.kind) {
+    case "identifierExpression":
+      return right.kind === "identifierExpression" && left.identifier === right.identifier;
+    case "parenthesizedExpression":
+      return (
+        right.kind === "parenthesizedExpression" &&
+        matchesDirectCarrierAst(left.expression, right.expression)
+      );
+    case "castExpression":
+      return (
+        right.kind === "castExpression" &&
+        left.type.kind === right.type.kind &&
+        matchesDirectCarrierAst(left.expression, right.expression)
+      );
+    case "memberAccessExpression":
+      return (
+        right.kind === "memberAccessExpression" &&
+        left.memberName === right.memberName &&
+        matchesDirectCarrierAst(left.expression, right.expression)
+      );
+    default:
+      return false;
+  }
+};
+
+const resolveCarrierPassThroughArgumentType = (
+  arg: IrExpression,
+  valueAst: CSharpExpressionAst,
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!expectedType) {
+    return undefined;
+  }
+
+  if (arg.kind === "identifier") {
+    const storageType = context.localValueTypes?.get(arg.name);
+    const storageIdentifier =
+      context.localNameMap?.get(arg.name) ?? escapeCSharpIdentifier(arg.name);
+    if (
+      storageType &&
+      matchesDirectCarrierAst(valueAst, identifierExpression(storageIdentifier)) &&
+      matchesExpectedEmissionType(storageType, expectedType, context)
+    ) {
+      return storageType;
+    }
+  }
+
+  if (
+    !isBroadObjectSlotType(expectedType, context) &&
+    !willCarryAsRuntimeUnion(expectedType, context)
+  ) {
+    return undefined;
+  }
+
+  const narrowKey =
+    arg.kind === "identifier"
+      ? arg.name
+      : arg.kind === "memberAccess"
+        ? getMemberAccessNarrowKey(arg)
+        : undefined;
+  if (!narrowKey) {
+    return undefined;
+  }
+
+  const narrowed = context.narrowedBindings?.get(narrowKey);
+  if (narrowed?.kind !== "expr" || !narrowed.carrierExprAst) {
+    return undefined;
+  }
+
+  if (!matchesDirectCarrierAst(valueAst, narrowed.carrierExprAst)) {
+    return undefined;
+  }
+
+  const carrierSourceType = narrowed.sourceType;
+  if (!carrierSourceType) {
+    return undefined;
+  }
+
+  const strippedCarrierType = stripNullish(carrierSourceType);
+  return matchesExpectedEmissionType(
+    strippedCarrierType,
+    expectedType,
+    context
+  )
+    ? strippedCarrierType
+    : undefined;
+};
+
+const resolveContextualAdaptedArgumentType = (
+  valueAst: CSharpExpressionAst,
+  contextualExpectedType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!contextualExpectedType) {
+    return undefined;
+  }
+
+  const exactContextualTarget = tryEmitExactComparisonTargetAst(
+    contextualExpectedType,
+    context
+  );
+  if (
+    exactContextualTarget &&
+    (isExactExpressionToType(valueAst, exactContextualTarget[0]) ||
+      isExactArrayCreationToType(valueAst, exactContextualTarget[0]))
+  ) {
+    return contextualExpectedType;
+  }
+
+  const directIterableElementType = getDirectIterableElementType(
+    contextualExpectedType,
+    context
+  );
+  if (!directIterableElementType) {
+    return undefined;
+  }
+
+  const iteratorMethodName = emitCSharpName(
+    "[symbol:iterator]",
+    "methods",
+    context
+  );
+  const iteratorPropertyName = emitCSharpName(
+    "[symbol:iterator]",
+    "properties",
+    context
+  );
+  const calleeName =
+    valueAst.kind === "invocationExpression"
+      ? extractCalleeNameFromAst(valueAst.expression)
+      : undefined;
+  if (
+    calleeName === "global::System.Linq.Enumerable.Select" ||
+    (valueAst.kind === "memberAccessExpression" &&
+      (valueAst.memberName === iteratorMethodName ||
+        valueAst.memberName === iteratorPropertyName)) ||
+    (valueAst.kind === "invocationExpression" &&
+      valueAst.expression.kind === "memberAccessExpression" &&
+      valueAst.expression.memberName === iteratorMethodName)
+  ) {
+    return contextualExpectedType;
+  }
+
+  return undefined;
+};
+
+const isBroadOrStructuralObjectExpectedType = (type: IrType): boolean => {
+  const stripped = stripNullish(type);
+  return (
+    stripped.kind === "unknownType" ||
+    stripped.kind === "anyType" ||
+    stripped.kind === "objectType" ||
+    (stripped.kind === "referenceType" && stripped.name === "object")
+  );
+};
+
+const isInlineOrGeneratedStructuralCarrierType = (type: IrType | undefined): boolean => {
+  const stripped = type ? stripNullish(type) : undefined;
+  const simpleName =
+    stripped?.kind === "referenceType"
+      ? stripped.name.split(".").pop() ?? stripped.name
+      : undefined;
+  return (
+    stripped?.kind === "objectType" ||
+    (stripped?.kind === "referenceType" &&
+      (isCompilerGeneratedStructuralReferenceType(stripped) ||
+        !!simpleName?.match(/Like__\d+$/) ||
+        !!simpleName?.match(/__\d+$/)))
+  );
+};
+
+const isExplicitStructuralReferenceType = (type: IrType | undefined): boolean => {
+  const stripped = type ? stripNullish(type) : undefined;
+  return (
+    stripped?.kind === "referenceType" &&
+    !isCompilerGeneratedStructuralReferenceType(stripped) &&
+    (stripped.structuralMembers?.length ?? 0) > 0
+  );
+};
+
+const isNonGeneratedNamedReferenceType = (type: IrType | undefined): boolean => {
+  const stripped = type ? stripNullish(type) : undefined;
+  return (
+    stripped?.kind === "referenceType" &&
+    !isCompilerGeneratedStructuralReferenceType(stripped) &&
+    stripped.name !== "object"
+  );
+};
+
+const getStructuralSurfaceKey = (type: IrType | undefined): string | undefined => {
+  const stripped = type ? stripNullish(type) : undefined;
+  if (!stripped) {
+    return undefined;
+  }
+
+  if (stripped.kind === "objectType") {
+    return stableIrTypeKey(stripped);
+  }
+
+  if (
+    stripped.kind === "referenceType" &&
+    stripped.structuralMembers &&
+    stripped.structuralMembers.length > 0
+  ) {
+    return stableIrTypeKey({
+      kind: "objectType",
+      members: stripped.structuralMembers,
+    });
+  }
+
+  return undefined;
+};
+
+const hasEquivalentStructuralSurface = (
+  left: IrType | undefined,
+  right: IrType | undefined
+): boolean => {
+  const leftKey = getStructuralSurfaceKey(left);
+  const rightKey = getStructuralSurfaceKey(right);
+  return leftKey !== undefined && leftKey === rightKey;
+};
+
+const resolveFinalCallArgumentExpectedType = (
+  selectedExpectedType: IrType | undefined,
+  surfaceExpectedType: IrType | undefined,
+  actualArgumentType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (
+    actualArgumentType &&
+    (isExplicitStructuralReferenceType(actualArgumentType) ||
+      isNonGeneratedNamedReferenceType(actualArgumentType)) &&
+    ((selectedExpectedType &&
+      isInlineOrGeneratedStructuralCarrierType(selectedExpectedType) &&
+      (hasEquivalentStructuralSurface(
+        actualArgumentType,
+        selectedExpectedType
+      ) ||
+        (matchesExpectedEmissionType(
+          actualArgumentType,
+          selectedExpectedType,
+          context
+        ) &&
+          matchesExpectedEmissionType(
+            selectedExpectedType,
+            actualArgumentType,
+            context
+          )))) ||
+      (surfaceExpectedType &&
+        isInlineOrGeneratedStructuralCarrierType(surfaceExpectedType) &&
+        (hasEquivalentStructuralSurface(
+          actualArgumentType,
+          surfaceExpectedType
+        ) ||
+          (matchesExpectedEmissionType(
+            actualArgumentType,
+            surfaceExpectedType,
+            context
+          ) &&
+            matchesExpectedEmissionType(
+              surfaceExpectedType,
+              actualArgumentType,
+              context
+            )))))
+  ) {
+    return actualArgumentType;
+  }
+
+  if (!surfaceExpectedType) {
+    return selectedExpectedType;
+  }
+
+  if (!selectedExpectedType) {
+    return surfaceExpectedType;
+  }
+
+  if (
+    isBroadOrStructuralObjectExpectedType(surfaceExpectedType) &&
+    !preservesSurfaceRuntimeMaterialization(
+      surfaceExpectedType,
+      selectedExpectedType,
+      context
+    ) &&
+    (!actualArgumentType ||
+      matchesExpectedEmissionType(
+        actualArgumentType,
+        selectedExpectedType,
+        context
+      ))
+  ) {
+    return selectedExpectedType;
+  }
+
+  return surfaceExpectedType;
+};
+
+const resolveContextualCallArgumentExpectedType = (
+  arg: IrExpression,
+  selectedExpectedType: IrType | undefined,
+  runtimeExpectedType: IrType | undefined,
+  actualArgumentType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!runtimeExpectedType) {
+    return selectedExpectedType;
+  }
+
+  if (!selectedExpectedType) {
+    return runtimeExpectedType;
+  }
+
+  if (arg.kind === "identifier") {
+    const storageType = context.localValueTypes?.get(arg.name);
+    if (
+      storageType &&
+      matchesExpectedEmissionType(storageType, runtimeExpectedType, context) &&
+      matchesExpectedEmissionType(
+        selectedExpectedType,
+        runtimeExpectedType,
+        context
+      )
+    ) {
+      return runtimeExpectedType;
+    }
+  }
+
+  if (
+    actualArgumentType &&
+    matchesExpectedEmissionType(
+      actualArgumentType,
+      runtimeExpectedType,
+      context
+    )
+  ) {
+    return runtimeExpectedType;
+  }
+
+  if (
+    shouldPreferRuntimeExpectedType(
+      arg,
+      actualArgumentType,
+      runtimeExpectedType,
+      context
+    )
+  ) {
+    return runtimeExpectedType;
+  }
+
+  if (
+    runtimeExpectedType.kind === "unknownType" ||
+    runtimeExpectedType.kind === "anyType" ||
+    (runtimeExpectedType.kind === "referenceType" &&
+      runtimeExpectedType.name === "object")
+  ) {
+    return runtimeExpectedType;
+  }
+
+  return selectedExpectedType;
 };
 
 const countRequiredParameters = (parameters: readonly IrParameter[]): number => {
@@ -369,6 +760,12 @@ const findMemberBindingExpectedType = (
     return undefined;
   }
 
+  const actualArgumentTypes = expr.arguments.map((argument) =>
+    argument.kind === "spread"
+      ? undefined
+      : resolveEffectiveExpressionType(argument, context) ?? argument.inferredType
+  );
+
   const matchingParameterTypes = overloads
     .filter((overload) => {
       if (
@@ -400,6 +797,18 @@ const findMemberBindingExpectedType = (
         return false;
       }
 
+      for (let visibleIndex = 0; visibleIndex < expr.arguments.length; visibleIndex++) {
+        const actualArgumentType = actualArgumentTypes[visibleIndex];
+        const parameter = parameters[visibleIndex + parameterOffset];
+        const parameterType = parameter?.type;
+        if (!actualArgumentType || !parameterType) {
+          continue;
+        }
+        if (!matchesExpectedEmissionType(actualArgumentType, parameterType, context)) {
+          return false;
+        }
+      }
+
       return parameters[argIndex + parameterOffset]?.type !== undefined;
     })
     .map((overload) => {
@@ -425,8 +834,25 @@ const findMemberBindingExpectedType = (
     return [...uniqueParameterTypes.values()][0];
   }
 
-  const uniqueNumericParameterTypes = new Map<string, IrType>();
+  const uniqueNonBroadParameterTypes = new Map<string, IrType>();
   for (const parameterType of uniqueParameterTypes.values()) {
+    const stripped = stripNullish(parameterType);
+    const isBroadFallback =
+      stripped.kind === "anyType" ||
+      stripped.kind === "unknownType" ||
+      (stripped.kind === "referenceType" && stripped.name === "object");
+    if (isBroadFallback) {
+      continue;
+    }
+    uniqueNonBroadParameterTypes.set(stableIrTypeKey(stripped), parameterType);
+  }
+
+  if (uniqueNonBroadParameterTypes.size === 1) {
+    return [...uniqueNonBroadParameterTypes.values()][0];
+  }
+
+  const uniqueNumericParameterTypes = new Map<string, IrType>();
+  for (const parameterType of uniqueNonBroadParameterTypes.values()) {
     if (!isNumericBindingParameterType(parameterType, context)) {
       continue;
     }
@@ -454,20 +880,131 @@ const resolveActualFunctionTypeForArgument = (
   arg: IrExpression,
   context: EmitterContext
 ): Extract<IrType, { kind: "functionType" }> | undefined => {
+  const trimToDeclaredArity = (
+    functionType: Extract<IrType, { kind: "functionType" }> | undefined
+  ): Extract<IrType, { kind: "functionType" }> | undefined => {
+    if (
+      !functionType ||
+      (arg.kind !== "arrowFunction" && arg.kind !== "functionExpression")
+    ) {
+      return functionType;
+    }
+
+    const declaredArity = arg.parameters.length;
+    if (declaredArity >= functionType.parameters.length) {
+      return functionType;
+    }
+
+    return {
+      ...functionType,
+      parameters: functionType.parameters.slice(0, declaredArity),
+    };
+  };
+
   if (arg.kind === "identifier") {
-    return resolveFunctionType(
+    return trimToDeclaredArity(
+      resolveFunctionType(
       context.localSemanticTypes?.get(arg.name) ??
         context.localValueTypes?.get(arg.name) ??
         context.valueSymbols?.get(arg.name)?.type ??
         arg.inferredType,
       context
+      )
     );
   }
 
-  return resolveFunctionType(
-    resolveEffectiveExpressionType(arg, context) ?? arg.inferredType,
-    context
+  return trimToDeclaredArity(
+    resolveFunctionType(
+      resolveEffectiveExpressionType(arg, context) ?? arg.inferredType,
+      context
+    )
   );
+};
+
+const broadObjectIrType: IrType = {
+  kind: "referenceType",
+  name: "object",
+  resolvedClrType: "System.Object",
+};
+
+const resolveGenericBroadObjectFallbackExpectedType = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  args: readonly IrExpression[],
+  argIndex: number,
+  context: EmitterContext
+): IrType | undefined => {
+  const calleeType = expr.callee.inferredType;
+  if (!calleeType || calleeType.kind !== "intersectionType") {
+    return undefined;
+  }
+
+  const actualType = resolveActualFunctionTypeForArgument(args[argIndex]!, context) ??
+    resolveEffectiveExpressionType(args[argIndex]!, context) ??
+    args[argIndex]?.inferredType;
+  if (!actualType || !isNumericBindingParameterType(actualType, context)) {
+    return undefined;
+  }
+
+  const actualArgumentTypes = args.map((arg) =>
+    arg
+      ? resolveActualFunctionTypeForArgument(arg, context) ??
+        resolveEffectiveExpressionType(arg, context) ??
+        arg.inferredType
+      : undefined
+  );
+
+  for (const candidate of calleeType.types) {
+    if (
+      candidate.kind !== "functionType" ||
+      !candidate.typeParameters ||
+      candidate.typeParameters.length === 0
+    ) {
+      continue;
+    }
+
+    if (candidate.parameters.length !== args.length) {
+      continue;
+    }
+
+    if (
+      candidate.parameters.some(
+        (parameter) =>
+          !parameter ||
+          parameter.isRest ||
+          parameter.isOptional ||
+          parameter.initializer !== undefined
+      )
+    ) {
+      continue;
+    }
+
+    const groupedIndices = new Map<string, number[]>();
+    for (let index = 0; index < candidate.parameters.length; index += 1) {
+      const parameterType = candidate.parameters[index]?.type;
+      if (parameterType?.kind !== "typeParameterType") {
+        continue;
+      }
+      const existing = groupedIndices.get(parameterType.name) ?? [];
+      existing.push(index);
+      groupedIndices.set(parameterType.name, existing);
+    }
+
+    for (const indices of groupedIndices.values()) {
+      if (!indices.includes(argIndex) || indices.length < 2) {
+        continue;
+      }
+
+      const hasBroadObjectPeer = indices.some((index) =>
+        index !== argIndex &&
+        isBroadObjectSlotType(actualArgumentTypes[index], context)
+      );
+      if (hasBroadObjectPeer) {
+        return broadObjectIrType;
+      }
+    }
+  }
+
+  return undefined;
 };
 
 const adaptFunctionArgumentAst = (
@@ -654,8 +1191,9 @@ const emitFunctionValueCallArguments = (
         parameter?.type,
         !!parameter?.isOptional
       );
+      const surfaceParameterType = expr.surfaceParameterTypes?.[i];
       const selectedParameterType =
-        expr.parameterTypes?.[i] ?? expr.surfaceParameterTypes?.[i];
+        expr.parameterTypes?.[i] ?? surfaceParameterType;
       const selectedExpectedType =
         selectedParameterType === undefined
           ? undefined
@@ -674,6 +1212,10 @@ const emitFunctionValueCallArguments = (
               arg,
               currentContext
             );
+      const preEmitActualArgumentType =
+        resolveActualFunctionTypeForArgument(arg, currentContext) ??
+        resolveEffectiveExpressionType(arg, currentContext) ??
+        arg.inferredType;
       const contextualExpectedType =
         selectedExpectedType &&
         runtimeExpectedType &&
@@ -682,25 +1224,109 @@ const emitFunctionValueCallArguments = (
           runtimeExpectedType,
           currentContext
         )
-          ? runtimeExpectedType
+          ? (preEmitActualArgumentType &&
+              (runtimeExpectedType.kind === "unknownType" ||
+                runtimeExpectedType.kind === "anyType" ||
+                (runtimeExpectedType.kind === "referenceType" &&
+                  runtimeExpectedType.name === "object")) &&
+              matchesExpectedEmissionType(
+                preEmitActualArgumentType,
+                selectedExpectedType,
+                currentContext
+              )
+              ? selectedExpectedType
+              : runtimeExpectedType)
           : (selectedExpectedType ?? runtimeExpectedType);
-      const finalExpectedType = runtimeExpectedType ?? contextualExpectedType;
+      const preservedSurfaceRuntimeType =
+        surfaceParameterType &&
+        selectedExpectedType &&
+        !preservesSurfaceRuntimeMaterialization(
+          selectedExpectedType,
+          surfaceParameterType,
+          currentContext
+        ) &&
+        (willCarryAsRuntimeUnion(surfaceParameterType, currentContext) ||
+          (splitRuntimeNullishUnionMembers(surfaceParameterType)
+            ?.hasRuntimeNullish ??
+            false))
+          ? surfaceParameterType
+          : undefined;
+      const finalExpectedType =
+        preservedSurfaceRuntimeType ??
+        resolveFinalCallArgumentExpectedType(
+          selectedExpectedType,
+          surfaceParameterType,
+          preEmitActualArgumentType,
+          currentContext
+        ) ??
+        runtimeExpectedType ??
+        contextualExpectedType;
+      const suppressContextualStructuralCarrierEmission =
+        arg.kind === "identifier" &&
+        preEmitActualArgumentType !== undefined &&
+        isNonGeneratedNamedReferenceType(preEmitActualArgumentType) &&
+        contextualExpectedType !== undefined &&
+        isInlineOrGeneratedStructuralCarrierType(contextualExpectedType);
       const [rawArgAst, rawArgCtx] = emitExpressionAst(
         arg,
         currentContext,
-        contextualExpectedType
+        suppressContextualStructuralCarrierEmission
+          ? undefined
+          : contextualExpectedType
       );
+      const carrierPassThroughType = resolveCarrierPassThroughArgumentType(
+        arg,
+        rawArgAst,
+        finalExpectedType,
+        rawArgCtx
+      );
+      const contextualAdaptedActualType = resolveContextualAdaptedArgumentType(
+        rawArgAst,
+        contextualExpectedType,
+        rawArgCtx
+      );
+      const postEmitEffectiveArgumentType = resolveEffectiveExpressionType(
+        arg,
+        rawArgCtx
+      );
+      const effectiveArgumentType =
+        arg.kind === "identifier" &&
+        preEmitActualArgumentType !== undefined &&
+        isNonGeneratedNamedReferenceType(preEmitActualArgumentType) &&
+        postEmitEffectiveArgumentType !== undefined &&
+        isInlineOrGeneratedStructuralCarrierType(postEmitEffectiveArgumentType)
+          ? preEmitActualArgumentType
+          : (postEmitEffectiveArgumentType ?? preEmitActualArgumentType);
+      const preserveNamedIdentifierActualType =
+        arg.kind === "identifier" &&
+        effectiveArgumentType !== undefined &&
+        isNonGeneratedNamedReferenceType(effectiveArgumentType) &&
+        contextualAdaptedActualType !== undefined &&
+        isInlineOrGeneratedStructuralCarrierType(contextualAdaptedActualType);
       const actualArgumentType =
+        carrierPassThroughType ??
+        (preserveNamedIdentifierActualType
+          ? effectiveArgumentType
+          : contextualAdaptedActualType) ??
         resolveActualFunctionTypeForArgument(arg, rawArgCtx) ??
-        resolveEffectiveExpressionType(arg, rawArgCtx) ??
+        effectiveArgumentType ??
         arg.inferredType;
+      const preserveNamedStructuralInstance =
+        arg.kind !== "object" &&
+        arg.kind !== "array" &&
+        actualArgumentType !== undefined &&
+        finalExpectedType !== undefined &&
+        isNonGeneratedNamedReferenceType(actualArgumentType) &&
+        isInlineOrGeneratedStructuralCarrierType(finalExpectedType);
       const [materializedArgAst, materializedArgCtx] =
-        adaptValueToExpectedTypeAst({
-          valueAst: rawArgAst,
-          actualType: actualArgumentType,
-          context: rawArgCtx,
-          expectedType: finalExpectedType,
-        }) ?? [rawArgAst, rawArgCtx];
+        carrierPassThroughType || preserveNamedStructuralInstance
+          ? [rawArgAst, rawArgCtx]
+          : (adaptValueToExpectedTypeAst({
+              valueAst: rawArgAst,
+              actualType: actualArgumentType,
+              context: rawArgCtx,
+              expectedType: finalExpectedType,
+            }) ?? [rawArgAst, rawArgCtx]);
       const [argAst, argCtx] = adaptFunctionArgumentAst(
         expr,
         arg,
@@ -914,11 +1540,38 @@ const resolveCallArgumentExpectedType = (
       resolvedBinding.name === "UInt64"
     );
   })();
+  const prefersBindingStructuralType = (() => {
+    if (!expectedType || !bindingExpectedType) {
+      return false;
+    }
+
+    const resolvedExpected = resolveTypeAlias(stripNullish(expectedType), context);
+    const resolvedBinding = resolveTypeAlias(
+      stripNullish(bindingExpectedType),
+      context
+    );
+
+    const expectedIsInlineOrGeneratedStructural =
+      resolvedExpected.kind === "objectType" ||
+      (resolvedExpected.kind === "referenceType" &&
+        isCompilerGeneratedStructuralReferenceType(resolvedExpected));
+    if (!expectedIsInlineOrGeneratedStructural) {
+      return false;
+    }
+
+    return (
+      resolvedBinding.kind === "referenceType" &&
+      !isCompilerGeneratedStructuralReferenceType(resolvedBinding) &&
+      (resolvedBinding.structuralMembers?.length ?? 0) > 0
+    );
+  })();
 
   const narrowedExpectedType =
     !expectedType || prefersBindingNumericType
       ? bindingExpectedType ?? expectedType
-      : expectedType;
+      : prefersBindingStructuralType
+        ? bindingExpectedType ?? expectedType
+        : expectedType;
 
   return selectDeterministicUnionParameterMember(
     narrowedExpectedType,
@@ -988,11 +1641,6 @@ const emitCallArguments = (
         (memberObjectImportBinding.memberKinds?.get(expr.callee.property) ===
           "variable" ||
           memberObjectImportBinding.moduleObject === true)));
-  const hasResolvedCallSurface =
-    ((expr.parameterTypes?.length ?? 0) > 0) ||
-    ((expr.surfaceParameterTypes?.length ?? 0) > 0) ||
-    expr.restParameter !== undefined ||
-    expr.surfaceRestParameter !== undefined;
   const directCallableTarget =
     (expr.callee.kind === "identifier" &&
       (context.importBindings?.get(expr.callee.name)?.kind === "value" ||
@@ -1000,20 +1648,27 @@ const emitCallArguments = (
     (expr.callee.kind === "memberAccess" &&
       !expr.callee.isComputed &&
       typeof expr.callee.property === "string");
+  const localFunctionValueTarget =
+    expr.callee.kind === "identifier" &&
+    ((context.localSemanticTypes?.has(expr.callee.name) ?? false) ||
+      (context.localValueTypes?.has(expr.callee.name) ?? false));
+  const functionValueHasAuthoredCallSemantics =
+    functionValueSignature?.parameters.some(
+      (parameter) =>
+        parameter?.isRest ||
+        parameter?.isOptional ||
+        parameter?.initializer !== undefined
+    ) ?? false;
   const valueSymbolSignature =
     expr.callee.kind === "identifier"
       ? context.valueSymbols?.get(expr.callee.name)?.type
       : undefined;
   if (
     functionValueSignature &&
-    !hasResolvedCallSurface &&
-    (!directCallableTarget || importedFunctionValueTarget) &&
-    functionValueSignature.parameters.some(
-      (parameter) =>
-        parameter?.isRest ||
-        parameter?.isOptional ||
-        parameter?.initializer !== undefined
-    )
+    functionValueHasAuthoredCallSemantics &&
+    (localFunctionValueTarget ||
+      !directCallableTarget ||
+      importedFunctionValueTarget)
   ) {
     return emitFunctionValueCallArguments(
       args,
@@ -1034,14 +1689,11 @@ const emitCallArguments = (
   const runtimeParameterTypes =
     parameterTypeOverrides && parameterTypeOverrides.length > 0
       ? parameterTypeOverrides
-      : expr.surfaceParameterTypes && expr.surfaceParameterTypes.length > 0
-        ? expr.surfaceParameterTypes
-        : expr.parameterTypes && expr.parameterTypes.length > 0
-          ? expr.parameterTypes
-        : selectedParameterTypes;
-  const selectedRestParameter = expr.restParameter ?? expr.surfaceRestParameter;
-  const runtimeRestParameter =
+      : selectedParameterTypes;
+  const selectedRestParameter =
     expr.surfaceRestParameter ?? expr.restParameter;
+  const runtimeRestParameter =
+    expr.restParameter ?? expr.surfaceRestParameter;
   const transparentRestPassthroughExpression =
     runtimeRestParameter?.arrayType &&
     args.length === (runtimeRestParameter.index ?? 0) + 1
@@ -1141,12 +1793,13 @@ const emitCallArguments = (
         : undefined;
     const runtimeParameterType =
       runtimeRestElementType ?? runtimeParameterTypes[i];
-    const prefersSelectedExpectedTypeOverRuntime =
-      !parameterTypeOverrides &&
-      expectedType !== undefined &&
-      normalizedArgs.length > 0 &&
-      runtimeParameterType !== undefined &&
-      stableIrTypeKey(expectedType) !== stableIrTypeKey(runtimeParameterType);
+    const genericBroadObjectFallbackType =
+      resolveGenericBroadObjectFallbackExpectedType(
+        expr,
+        normalizedArgs,
+        i,
+        currentContext
+      );
     const normalizedRuntime =
       runtimeParameterType === undefined
         ? undefined
@@ -1155,68 +1808,43 @@ const emitCallArguments = (
             arg,
             currentContext
           );
-    const contextualExpectedType = (() => {
-      if (!normalizedRuntime) {
-        return expectedType;
-      }
-
-      if (
-        expectedType &&
-        !preservesSurfaceRuntimeMaterialization(
-          expectedType,
-          normalizedRuntime,
-          currentContext
-        )
-      ) {
-        return normalizedRuntime;
-      }
-
-      const actualArgumentType =
-        resolveEffectiveExpressionType(arg, currentContext) ?? arg.inferredType;
-
-      if (
-        actualArgumentType &&
-        matchesExpectedEmissionType(
-          actualArgumentType,
-          normalizedRuntime,
-          currentContext
-        )
-      ) {
-        if (prefersSelectedExpectedTypeOverRuntime) {
-          return expectedType;
-        }
-        return normalizedRuntime;
-      }
-
-      if (
-        shouldPreferRuntimeExpectedType(
-          arg,
-          actualArgumentType,
-          normalizedRuntime,
-          currentContext
-        )
-      ) {
-        if (
-          expectedType &&
-          isNumericBindingParameterType(expectedType, currentContext) &&
-          isNumericBindingParameterType(normalizedRuntime, currentContext)
-        ) {
-          return expectedType;
-        }
-        return normalizedRuntime;
-      }
-
-      if (
-        normalizedRuntime.kind === "unknownType" ||
-        normalizedRuntime.kind === "anyType" ||
-        (normalizedRuntime.kind === "referenceType" &&
-          normalizedRuntime.name === "object")
-      ) {
-        return normalizedRuntime;
-      }
-      return expectedType ?? normalizedRuntime;
-    })();
-    const finalExpectedType = normalizedRuntime ?? contextualExpectedType;
+    const preEmitActualArgumentType =
+      resolveActualFunctionTypeForArgument(arg, currentContext) ??
+      resolveEffectiveExpressionType(arg, currentContext) ??
+      arg.inferredType;
+    const surfaceParameterType = expr.surfaceParameterTypes?.[i];
+    const contextualExpectedType =
+      genericBroadObjectFallbackType ??
+      resolveContextualCallArgumentExpectedType(
+        arg,
+        expectedType,
+        normalizedRuntime,
+        preEmitActualArgumentType,
+        currentContext
+      );
+    const preservedSurfaceRuntimeType =
+      surfaceParameterType &&
+      expectedType &&
+      !preservesSurfaceRuntimeMaterialization(
+        expectedType,
+        surfaceParameterType,
+        currentContext
+      ) &&
+      (willCarryAsRuntimeUnion(surfaceParameterType, currentContext) ||
+        (splitRuntimeNullishUnionMembers(surfaceParameterType)?.hasRuntimeNullish ??
+          false))
+        ? surfaceParameterType
+        : undefined;
+    const finalExpectedType =
+      genericBroadObjectFallbackType ??
+      preservedSurfaceRuntimeType ??
+      resolveFinalCallArgumentExpectedType(
+        expectedType,
+        normalizedRuntime,
+        preEmitActualArgumentType,
+        currentContext
+      ) ??
+      contextualExpectedType;
 
     if (arg.kind === "spread") {
       const [spreadAst, ctx] = emitExpressionAst(
@@ -1246,22 +1874,74 @@ const emitCallArguments = (
           currentContext = discardCtx;
           continue;
         }
+        const preEmitEffectiveArgumentType =
+          resolveEffectiveExpressionType(arg, currentContext) ?? arg.inferredType;
+        const suppressContextualStructuralCarrierEmission =
+          arg.kind === "identifier" &&
+          preEmitEffectiveArgumentType !== undefined &&
+          isNonGeneratedNamedReferenceType(preEmitEffectiveArgumentType) &&
+          contextualExpectedType !== undefined &&
+          isInlineOrGeneratedStructuralCarrierType(contextualExpectedType);
         const [rawArgAst, emittedContext] = emitExpressionAst(
           arg,
           currentContext,
-          contextualExpectedType
+          suppressContextualStructuralCarrierEmission
+            ? undefined
+            : contextualExpectedType
         );
+        const carrierPassThroughType = resolveCarrierPassThroughArgumentType(
+          arg,
+          rawArgAst,
+          finalExpectedType,
+          emittedContext
+        );
+        const contextualAdaptedActualType =
+          resolveContextualAdaptedArgumentType(
+            rawArgAst,
+            contextualExpectedType,
+            emittedContext
+          );
+        const postEmitEffectiveArgumentType = resolveEffectiveExpressionType(
+          arg,
+          emittedContext
+        );
+        const effectiveArgumentType =
+          arg.kind === "identifier" &&
+          preEmitEffectiveArgumentType !== undefined &&
+          isNonGeneratedNamedReferenceType(preEmitEffectiveArgumentType) &&
+          postEmitEffectiveArgumentType !== undefined &&
+          isInlineOrGeneratedStructuralCarrierType(postEmitEffectiveArgumentType)
+            ? preEmitEffectiveArgumentType
+            : (postEmitEffectiveArgumentType ?? preEmitEffectiveArgumentType);
+        const preserveNamedIdentifierActualType =
+          arg.kind === "identifier" &&
+          effectiveArgumentType !== undefined &&
+          isNonGeneratedNamedReferenceType(effectiveArgumentType) &&
+          contextualAdaptedActualType !== undefined &&
+          isInlineOrGeneratedStructuralCarrierType(contextualAdaptedActualType);
         const actualArgumentType =
+          carrierPassThroughType ??
+          (preserveNamedIdentifierActualType
+            ? effectiveArgumentType
+            : contextualAdaptedActualType) ??
           resolveActualFunctionTypeForArgument(arg, emittedContext) ??
-          resolveEffectiveExpressionType(arg, emittedContext) ??
-          arg.inferredType;
+          effectiveArgumentType;
+        const preserveNamedStructuralInstance =
+          arg.kind !== "object" &&
+          arg.kind !== "array" &&
+          actualArgumentType !== undefined &&
+          finalExpectedType !== undefined &&
+          isNonGeneratedNamedReferenceType(actualArgumentType) &&
+          isInlineOrGeneratedStructuralCarrierType(finalExpectedType);
         const [materializedArgAst, materializedContext] =
-          adaptValueToExpectedTypeAst({
-            valueAst: rawArgAst,
-            actualType: actualArgumentType,
-            context: emittedContext,
-            expectedType: finalExpectedType,
-          }) ?? [rawArgAst, emittedContext];
+          carrierPassThroughType || preserveNamedStructuralInstance
+            ? [rawArgAst, emittedContext]
+            : (adaptValueToExpectedTypeAst({
+                valueAst: rawArgAst,
+                actualType: actualArgumentType,
+                context: emittedContext,
+                expectedType: finalExpectedType,
+              }) ?? [rawArgAst, emittedContext]);
         const [adaptedArgAst, ctx] = adaptFunctionArgumentAst(
           expr,
           arg,

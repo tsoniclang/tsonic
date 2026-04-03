@@ -235,7 +235,7 @@ describe("build command (native library port regressions)", function () {
     }
   });
 
-  it("builds source-package class properties explicitly annotated as unknown", () => {
+  it("builds source-package class properties explicitly annotated as JsValue", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-build-unknown-member-"));
     try {
       mkdirSync(join(dir, "node_modules"), { recursive: true });
@@ -297,27 +297,29 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(sourcePackageRoot, "src/index.ts"),
         [
+          'import type { JsValue } from "@tsonic/core/types.js";',
+          "",
           "export class AssertionErrorLike extends Error {",
-          "  public actual: unknown = undefined;",
-          "  public expected: unknown = undefined;",
+          "  public actual: JsValue | undefined = undefined;",
+          "  public expected: JsValue | undefined = undefined;",
           '  public operator: string = "";',
           "  public generatedMessage: boolean = false;",
           "",
           "  public constructor(",
           "    message?: string,",
-          "    actual?: unknown,",
-          "    expected?: unknown,",
+          "    actual?: JsValue,",
+          "    expected?: JsValue,",
           '    operator: string = ""',
           "  ) {",
           "    super(message);",
-          "    this.actual = actual as unknown;",
-          "    this.expected = expected as unknown;",
+          "    this.actual = actual;",
+          "    this.expected = expected;",
           "    this.operator = operator;",
           "    this.generatedMessage = message === undefined;",
           "  }",
           "}",
           "",
-          "export function readActual(error: AssertionErrorLike): unknown {",
+          "export function readActual(error: AssertionErrorLike): JsValue | undefined {",
           "  return error.actual;",
           "}",
         ].join("\n"),
@@ -355,9 +357,11 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "src", "index.ts"),
         [
+          'import type { JsValue } from "@tsonic/core/types.js";',
+          "",
           'import { AssertionErrorLike, readActual } from "@demo/pkg";',
           "",
-          "export function main(): unknown {",
+          "export function main(): JsValue | undefined {",
           '  return readActual(new AssertionErrorLike("boom", 1, 2, "==="));',
           "}",
         ].join("\n"),

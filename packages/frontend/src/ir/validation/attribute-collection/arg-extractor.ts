@@ -69,8 +69,16 @@ export type ParsedAttributeDescriptor = {
  * Intermediate representation of a detected attribute marker call
  */
 export type AttributeMarker = {
-  readonly targetName: string;
-  readonly targetSelector: "type" | "ctor" | "method" | "prop";
+  readonly target:
+    | {
+        readonly kind: "type";
+        readonly name: string;
+      }
+    | {
+        readonly kind: "function";
+        readonly name: string;
+      };
+  readonly targetSelector: "root" | "ctor" | "method" | "prop";
   readonly selectedMemberName?: string;
   readonly attributeTarget?: IrAttributeTarget;
   readonly attributeType: IrType;

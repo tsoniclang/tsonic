@@ -168,6 +168,7 @@ export const extractGeneratorTypeArgs = (
         const nextTypeArg = typeRef.typeArguments[2];
         if (
           nextTypeArg &&
+          nextTypeArg.kind !== "voidType" &&
           !(
             nextTypeArg.kind === "primitiveType" &&
             nextTypeArg.name === "undefined"
@@ -345,6 +346,7 @@ export const needsBidirectionalSupport = (func: GeneratorLike): boolean => {
       const nextTypeArg = typeRef.typeArguments[2];
       if (
         nextTypeArg &&
+        nextTypeArg.kind !== "voidType" &&
         !(
           nextTypeArg.kind === "primitiveType" &&
           nextTypeArg.name === "undefined"

@@ -28,7 +28,10 @@ import {
   convertDynamicImportNamespaceObject,
   getDynamicImportPromiseType,
 } from "../dynamic-import.js";
-import { isIdentifierFromCore } from "../../../../core-intrinsics/provenance.js";
+import {
+  isIdentifierFromCore,
+  isIdentifierFromGlobals,
+} from "../../../../core-intrinsics/provenance.js";
 
 /**
  * Try to convert a call expression as an intrinsic.
@@ -51,6 +54,10 @@ export const tryConvertIntrinsicCall = (
     ts.isIdentifier(node.expression) &&
     node.expression.text === name &&
     isIdentifierFromCore(ctx.checker, node.expression, "lang");
+  const isGlobalIntrinsicCall = (name: string): boolean =>
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === name &&
+    isIdentifierFromGlobals(ctx.checker, node.expression);
 
   const extractNameofTarget = (expr: ts.Expression): string | undefined => {
     if (ts.isIdentifier(expr)) return expr.text;
@@ -262,6 +269,27 @@ export const tryConvertIntrinsicCall = (
       kind: "sizeof",
       targetType,
       inferredType: { kind: "primitiveType", name: "int" },
+      sourceSpan: getSourceSpan(node),
+    };
+  }
+
+  if (
+    isGlobalIntrinsicCall("Symbol") &&
+    (!node.typeArguments || node.typeArguments.length === 0) &&
+    node.arguments.length <= 1
+  ) {
+    const callee = convertExpression(node.expression, ctx, undefined);
+    const argExpr = node.arguments[0]
+      ? convertExpression(node.arguments[0], ctx, undefined)
+      : undefined;
+
+    return {
+      kind: "call",
+      callee,
+      arguments: argExpr ? [argExpr] : [],
+      isOptional: false,
+      intrinsicKind: "globalSymbol",
+      inferredType: { kind: "referenceType", name: "object", typeArguments: [] },
       sourceSpan: getSourceSpan(node),
     };
   }

@@ -95,4 +95,21 @@ describe("clr-type-parser d.ts utility typing", () => {
     expect(result.name).to.equal("Record");
     expect(result.typeArguments?.length).to.equal(2);
   });
+
+  it("converts null literal type nodes inside unions", () => {
+    const typeNode = parseAliasTypeNode(`type X = string | null;`, "X");
+    const result = dtsTypeNodeToIrType(
+      typeNode,
+      inScopeTypeParams,
+      tsNameToTypeId
+    );
+
+    expect(result).to.deep.equal({
+      kind: "unionType",
+      types: [
+        { kind: "primitiveType", name: "string" },
+        { kind: "primitiveType", name: "null" },
+      ],
+    });
+  });
 });

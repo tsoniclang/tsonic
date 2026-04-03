@@ -17,6 +17,12 @@ import {
   maybeUnwrapNullableValueTypeAst,
 } from "./post-emission-adaptation.js";
 
+const jsValueType: IrType = {
+  kind: "referenceType",
+  name: "JsValue",
+  resolvedClrType: "Tsonic.Runtime.JsValue",
+};
+
 describe("expected-type-adaptation", () => {
   it("uses the shared planner for runtime-union narrowing", () => {
     const requestHandlerType: IrType = {
@@ -36,7 +42,7 @@ describe("expected-type-adaptation", () => {
           passing: "value",
         },
       ],
-      returnType: { kind: "unknownType" },
+      returnType: jsValueType,
     };
 
     const routerType: IrType = {
@@ -50,7 +56,7 @@ describe("expected-type-adaptation", () => {
       types: [
         {
           kind: "arrayType",
-          elementType: { kind: "unknownType" },
+          elementType: jsValueType,
           origin: "explicit",
         },
         { kind: "primitiveType", name: "string" },
@@ -83,7 +89,7 @@ describe("expected-type-adaptation", () => {
     expect(printExpression(result![0])).to.include("first.Match");
   });
 
-  it("boxes JS numbers as doubles when adapting into unknown/object slots", () => {
+  it("boxes JS numbers as doubles when adapting into JsValue/object slots", () => {
     const context = createContext({
       rootNamespace: "Test",
       surface: "@tsonic/js",
@@ -98,13 +104,13 @@ describe("expected-type-adaptation", () => {
       },
       { kind: "primitiveType", name: "number" },
       context,
-      { kind: "unknownType" }
+      jsValueType
     );
 
     expect(printExpression(boxedAst)).to.equal("(object)(double)42");
   });
 
-  it("boxes JS numbers when expected type is unknown | undefined", () => {
+  it("boxes JS numbers when expected type is JsValue | undefined", () => {
     const context = createContext({
       rootNamespace: "Test",
       surface: "@tsonic/js",
@@ -121,14 +127,31 @@ describe("expected-type-adaptation", () => {
       context,
       {
         kind: "unionType",
-        types: [
-          { kind: "unknownType" },
-          { kind: "primitiveType", name: "undefined" },
-        ],
+        types: [jsValueType, { kind: "primitiveType", name: "undefined" }],
       }
     );
 
     expect(printExpression(boxedAst)).to.equal("(object)(double)42");
+  });
+
+  it("does not bypass JS-number boxing when emitting numeric values into JsValue slots", () => {
+    const context = createContext({
+      rootNamespace: "Test",
+      surface: "@tsonic/js",
+    });
+
+    const [adaptedAst] = adaptEmittedExpressionAst({
+      expr: {
+        kind: "literal",
+        value: 42,
+        inferredType: { kind: "primitiveType", name: "number" },
+      },
+      valueAst: parseNumericLiteral("42"),
+      context,
+      expectedType: jsValueType,
+    });
+
+    expect(printExpression(adaptedAst)).to.equal("(object)(double)42");
   });
 
   it("preserves null when boxing nullable JS numbers into object slots", () => {
@@ -158,7 +181,7 @@ describe("expected-type-adaptation", () => {
         ],
       },
       context,
-      { kind: "unknownType" }
+      jsValueType
     );
 
     const rendered = printExpression(boxedAst);
@@ -188,7 +211,7 @@ describe("expected-type-adaptation", () => {
         object: {
           kind: "identifier",
           name: "map",
-          inferredType: { kind: "unknownType" },
+          inferredType: jsValueType,
         },
         property: "get",
         isComputed: false,
@@ -209,7 +232,7 @@ describe("expected-type-adaptation", () => {
         ],
       },
       context,
-      { kind: "unknownType" }
+      jsValueType
     );
 
     const rendered = printExpression(boxedAst);
@@ -242,12 +265,157 @@ describe("expected-type-adaptation", () => {
       valueAst: identifierExpression("handler"),
       actualType: valueType,
       context,
-      expectedType: { kind: "unknownType" },
+      expectedType: jsValueType,
       allowUnionNarrowing: false,
     });
 
     expect(result).to.not.equal(undefined);
     expect(printExpression(result![0])).to.include("handler.Match");
+  });
+
+  it("selects the exact runtime-union array arm for generic call returns", () => {
+    const context = {
+      ...createContext({
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+      }),
+      typeParameters: new Set<string>(["T", "TResult"]),
+    };
+
+    const exactArrayReturnType: IrType = {
+      kind: "arrayType",
+      elementType: {
+        kind: "typeParameterType",
+        name: "T",
+      },
+      origin: "explicit",
+    };
+    const expectedUnionType: IrType = {
+      kind: "unionType",
+      types: [
+        {
+          kind: "arrayType",
+          elementType: {
+            kind: "primitiveType",
+            name: "string",
+          },
+          origin: "explicit",
+        },
+        exactArrayReturnType,
+        {
+          kind: "arrayType",
+          elementType: {
+            kind: "typeParameterType",
+            name: "TResult",
+          },
+          origin: "explicit",
+        },
+      ],
+    };
+
+    const [adaptedAst] = adaptEmittedExpressionAst({
+      expr: {
+        kind: "call",
+        callee: {
+          kind: "identifier",
+          name: "mapIterable",
+          inferredType: {
+            kind: "functionType",
+            typeParameters: [
+              {
+                kind: "typeParameter",
+                name: "T",
+                isStructuralConstraint: false,
+              },
+            ],
+            parameters: [
+              {
+                kind: "parameter",
+                pattern: { kind: "identifierPattern", name: "source" },
+                type: {
+                  kind: "referenceType",
+                  name: "Iterable",
+                  typeArguments: [
+                    {
+                      kind: "typeParameterType",
+                      name: "T",
+                    },
+                  ],
+                },
+                initializer: undefined,
+                isOptional: false,
+                isRest: false,
+                passing: "value",
+              },
+            ],
+            returnType: exactArrayReturnType,
+          },
+        },
+        arguments: [
+          {
+            kind: "typeAssertion",
+            expression: {
+              kind: "identifier",
+              name: "source",
+              inferredType: {
+                kind: "referenceType",
+                name: "Iterable",
+                typeArguments: [
+                  {
+                    kind: "typeParameterType",
+                    name: "T",
+                  },
+                ],
+              },
+            },
+            targetType: {
+              kind: "referenceType",
+              name: "Iterable",
+              typeArguments: [
+                {
+                  kind: "typeParameterType",
+                  name: "T",
+                },
+              ],
+            },
+            inferredType: {
+              kind: "referenceType",
+              name: "Iterable",
+              typeArguments: [
+                {
+                  kind: "typeParameterType",
+                  name: "T",
+                },
+              ],
+            },
+          },
+        ],
+        isOptional: false,
+        inferredType: exactArrayReturnType,
+        allowUnknownInferredType: true,
+      },
+      valueAst: {
+        kind: "invocationExpression",
+        expression: identifierExpression("mapIterable"),
+        arguments: [
+          {
+            kind: "invocationExpression",
+            expression: {
+              kind: "memberAccessExpression",
+              expression: identifierExpression("source"),
+              memberName: "As1",
+            },
+            arguments: [],
+          },
+        ],
+      },
+      context,
+      expectedType: expectedUnionType,
+    });
+
+    expect(printExpression(adaptedAst)).to.equal(
+      "global::Tsonic.Runtime.Union<string[], T[], TResult[]>.From2(mapIterable(source.As1()))"
+    );
   });
 
   it("does not re-project asserted arrays when the emitted cast already matches the expected surface", () => {
@@ -261,7 +429,7 @@ describe("expected-type-adaptation", () => {
           "args",
           {
             kind: "arrayType",
-            elementType: { kind: "unknownType" },
+            elementType: jsValueType,
             origin: "explicit",
           },
         ],
@@ -315,7 +483,7 @@ describe("expected-type-adaptation", () => {
 
     const expectedArrayType: IrType = {
       kind: "arrayType",
-      elementType: { kind: "unknownType" },
+      elementType: jsValueType,
       origin: "explicit",
     };
 

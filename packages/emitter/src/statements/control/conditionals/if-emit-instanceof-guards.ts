@@ -7,7 +7,6 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
-import { emitStatementAst } from "../../../statement-emitter.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
 import { emitBooleanConditionAst } from "../../../core/semantic/boolean-context.js";
 import { applyConditionBranchNarrowing } from "../../../core/semantic/condition-branch-narrowing.js";
@@ -20,18 +19,20 @@ import {
 } from "./guard-analysis.js";
 import { narrowTypeByNotAssignableTarget } from "./guard-extraction.js";
 import {
-  buildExprBinding,
+  buildProjectedExprBinding,
   buildIsNCondition,
   buildIsPatternCondition,
   buildUnionNarrowAst,
   buildCastLocalDecl,
   emitForcedBlockWithPreambleAst,
+  mergeBranchExitContext,
   mergeBranchContextMeta,
   resetBranchFlowState,
   wrapInBlock,
   withComplementNarrowing,
   applyExprFallthroughNarrowing,
   emitExprAstCb,
+  emitBranchScopedStatementAst,
 } from "./branch-context.js";
 
 type IfStatement = Extract<IrStatement, { kind: "ifStatement" }>;
@@ -93,7 +94,7 @@ export const tryEmitInstanceofGuard = (
     thenStatementAst = thenBlock;
     thenCtxAfter = thenBlockCtx;
   } else {
-    const [thenStmts, nextCtx] = emitStatementAst(stmt.thenStatement, {
+    const [thenStmts, nextCtx] = emitBranchScopedStatementAst(stmt.thenStatement, {
       ...ctxAfterRhs,
       narrowedBindings: narrowedMap,
     });
@@ -106,25 +107,29 @@ export const tryEmitInstanceofGuard = (
     ctxAfterRhs,
     thenCtxAfter
   );
-  let finalContext: EmitterContext = basePostConditionContext;
+  const fallthroughBaseContext: EmitterContext = {
+    ...basePostConditionContext,
+    narrowedBindings: ctxAfterRhs.narrowedBindings,
+  };
+  const falsyFallthroughContext =
+    applyConditionBranchNarrowing(
+      stmt.condition,
+      "falsy",
+      fallthroughBaseContext,
+      emitExprAstCb
+    ) ?? fallthroughBaseContext;
+  let finalContext: EmitterContext = thenTerminates
+    ? falsyFallthroughContext
+    : mergeBranchExitContext(
+        ctxAfterRhs,
+        thenCtxAfter,
+        falsyFallthroughContext
+      );
 
   let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
-    const elseEntryContext =
-      applyConditionBranchNarrowing(
-        stmt.condition,
-        "falsy",
-        {
-          ...basePostConditionContext,
-          narrowedBindings: ctxAfterRhs.narrowedBindings,
-        },
-        emitExprAstCb
-      ) ??
-      ({
-        ...basePostConditionContext,
-        narrowedBindings: ctxAfterRhs.narrowedBindings,
-      } satisfies EmitterContext);
-    const [elseStmts, elseCtx] = emitStatementAst(
+    const elseEntryContext = falsyFallthroughContext;
+    const [elseStmts, elseCtx] = emitBranchScopedStatementAst(
       stmt.elseStatement,
       elseEntryContext
     );
@@ -136,18 +141,15 @@ export const tryEmitInstanceofGuard = (
     } else if (!thenTerminates && elseTerminates) {
       finalContext = mergeBranchContextMeta(thenCtxAfter, elseCtx);
     } else {
-      finalContext = mergeBranchContextMeta(
-        resetBranchFlowState(ctxAfterRhs, elseCtx),
-        thenCtxAfter
+      finalContext = mergeBranchExitContext(
+        ctxAfterRhs,
+        thenCtxAfter,
+        elseCtx
       );
     }
   }
 
   if (!stmt.elseStatement && thenTerminates) {
-    const fallthroughBaseContext: EmitterContext = {
-      ...basePostConditionContext,
-      narrowedBindings: ctxAfterRhs.narrowedBindings,
-    };
     const fallthroughContext = applyConditionBranchNarrowing(
       stmt.condition,
       "falsy",
@@ -280,7 +282,7 @@ export const tryEmitNegatedInstanceofGuard = (
     thenStatementAst = thenBlock;
     thenCtxAfter = thenBlockCtx;
   } else {
-    const [thenStmts, nextCtx] = emitStatementAst(stmt.elseStatement, {
+    const [thenStmts, nextCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
       ...ctxAfterRhs,
       narrowedBindings: narrowedMap,
     });
@@ -303,7 +305,7 @@ export const tryEmitNegatedInstanceofGuard = (
       ...resetBranchFlowState(ctxAfterRhs, thenCtxAfter),
       narrowedBindings: ctxAfterRhs.narrowedBindings,
     } satisfies EmitterContext);
-  const [elseStmts, elseCtxAfter] = emitStatementAst(
+  const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
     stmt.thenStatement,
     elseEntryContext
   );
@@ -352,7 +354,7 @@ export const tryEmitNullableGuard = (
   const narrowedMap = new Map(context.narrowedBindings ?? []);
   narrowedMap.set(
     key,
-    buildExprBinding(
+    buildProjectedExprBinding(
       {
         kind: "memberAccessExpression",
         expression: idAst,
@@ -387,7 +389,7 @@ export const tryEmitNullableGuard = (
       : condCtxAfterCond.narrowedBindings,
   };
 
-  const [thenStmts, thenCtxAfter] = emitStatementAst(
+  const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
     stmt.thenStatement,
     thenCtx
   );
@@ -407,7 +409,7 @@ export const tryEmitNullableGuard = (
           : context.narrowedBindings
         : context.narrowedBindings,
     };
-    const [elseStmts, elseCtxAfter] = emitStatementAst(
+    const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
       stmt.elseStatement,
       elseCtx
     );

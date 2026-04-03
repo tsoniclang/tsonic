@@ -1,4 +1,6 @@
-function writeJson(value: unknown): void {
+import type { JsValue } from "@tsonic/core/types.js";
+
+function writeJson(value: JsValue): void {
   console.log(JSON.stringify(value));
 }
 

@@ -16,6 +16,7 @@ export {
   withoutNarrowedBinding,
   applyBinding,
   buildExprBinding,
+  buildProjectedExprBinding,
   resolveExistingNarrowingSourceType,
   buildRuntimeSubsetExpressionAst,
   buildConditionalNullishGuardAst,

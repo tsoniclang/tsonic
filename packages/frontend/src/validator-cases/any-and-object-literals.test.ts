@@ -3,6 +3,7 @@
  *
  * Covers:
  * - TSN7401: 'any' type banned
+ * - TSN7402: 'unknown' type banned outside erased overload stubs
  * - TSN7403: Object literal requires nominal type
  */
 
@@ -36,10 +37,41 @@ describe("Static Safety Validation", () => {
 
       const anyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7401");
       expect(anyDiag).not.to.equal(undefined);
-      expect(anyDiag?.message).to.include("'as any'");
+      expect(anyDiag?.message).to.include("'any' type assertion");
     });
 
-    it("should allow unknown type", () => {
+    it("should allow broad any signatures on erased overload stubs", () => {
+      const source = `
+        import { overloads as O } from "@tsonic/core/lang.js";
+
+        export function parse(text: string): string;
+        export function parse(bytes: Uint8Array): string;
+        export function parse(value: any): any {
+          return value;
+        }
+
+        export function parse_text(text: string): string {
+          return text;
+        }
+
+        export function parse_bytes(bytes: Uint8Array): string {
+          return String(bytes.length);
+        }
+
+        O(parse_text).family(parse);
+        O(parse_bytes).family(parse);
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const anyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7401");
+      expect(anyDiag).to.equal(undefined);
+    });
+  });
+
+  describe("TSN7402 - 'unknown' type banned", () => {
+    it("should reject explicit unknown type annotation", () => {
       const source = `
         export function process(data: unknown): void {
           console.log(data);
@@ -49,8 +81,51 @@ describe("Static Safety Validation", () => {
       const program = createTestProgram(source);
       const diagnostics = validateProgram(program);
 
-      const anyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7401");
-      expect(anyDiag).to.equal(undefined);
+      const unknownDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7402");
+      expect(unknownDiag).not.to.equal(undefined);
+      expect(unknownDiag?.message).to.include("'unknown' type is not supported");
+    });
+
+    it("should reject 'as unknown' type assertion", () => {
+      const source = `
+        export const x = (123 as unknown);
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const unknownDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7402");
+      expect(unknownDiag).not.to.equal(undefined);
+      expect(unknownDiag?.message).to.include("'unknown' type assertion");
+    });
+
+    it("should allow broad unknown signatures on erased overload stubs", () => {
+      const source = `
+        import { overloads as O } from "@tsonic/core/lang.js";
+
+        export function parse(text: string): string;
+        export function parse(bytes: Uint8Array): string;
+        export function parse(value: unknown): unknown {
+          return value;
+        }
+
+        export function parse_text(text: string): string {
+          return text;
+        }
+
+        export function parse_bytes(bytes: Uint8Array): string {
+          return String(bytes.length);
+        }
+
+        O(parse_text).family(parse);
+        O(parse_bytes).family(parse);
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const unknownDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7402");
+      expect(unknownDiag).to.equal(undefined);
     });
   });
 

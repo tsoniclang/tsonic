@@ -122,6 +122,15 @@ export const parseConfigYaml = (yamlContent: string): readonly TestEntry[] => {
         const expectDiagnosticsMode = parseDiagnosticsMode(
           (item as Record<string, unknown>).expectDiagnosticsMode
         );
+        const surface = (item as Record<string, unknown>).surface;
+
+        if (
+          surface !== undefined &&
+          surface !== null &&
+          typeof surface !== "string"
+        ) {
+          throw new Error(`surface must be a string when provided for ${input}`);
+        }
 
         // Validate that mode is only set when diagnostics are expected
         if (expectDiagnosticsMode && !expectDiagnostics) {
@@ -135,6 +144,7 @@ export const parseConfigYaml = (yamlContent: string): readonly TestEntry[] => {
           title,
           expectDiagnostics,
           expectDiagnosticsMode,
+          ...(typeof surface === "string" ? { surface } : {}),
         });
       } else {
         throw new Error(`Invalid test entry: ${JSON.stringify(item)}`);

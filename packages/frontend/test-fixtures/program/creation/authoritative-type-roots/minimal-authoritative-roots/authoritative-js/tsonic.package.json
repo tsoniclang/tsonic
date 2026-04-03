@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "kind": "tsonic-source-package",
+  "surfaces": [
+    "@fixture/js"
+  ],
+  "source": {
+    "namespace": "fixture.js",
+    "exports": {
+      ".": "./src/index.ts",
+      "./index.js": "./src/index.ts",
+      "./path.js": "./src/path.ts",
+      "./unused.js": "./src/unused.ts"
+    }
+  }
+}

@@ -151,6 +151,7 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(sourcePackageRoot, "src", "types.ts"),
         [
+          'import type { JsValue } from "@tsonic/core/types.js";',
           'import type { Router } from "./router.js";',
           "",
           "export interface TransportRequest {",
@@ -196,7 +197,7 @@ describe("build command (native library port regressions)", function () {
           "}",
           "",
           "export interface RequestHandler {",
-          "  (req: Request, res: Response, next: NextFunction): unknown | Promise<unknown>;",
+          "  (req: Request, res: Response, next: NextFunction): JsValue | Promise<JsValue>;",
           "}",
           "",
           "export type MiddlewareHandler = RequestHandler;",
@@ -213,6 +214,7 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(sourcePackageRoot, "src", "router.ts"),
         [
+          'import type { JsValue } from "@tsonic/core/types.js";',
           'import { Request, Response } from "./types.js";',
           'import type { MiddlewareHandler, MiddlewareLike, MiddlewareParam, PathSpec, RequestHandler, RouteLayer, TransportContext } from "./types.js";',
           "",
@@ -224,12 +226,6 @@ describe("build command (native library port regressions)", function () {
           "    return this;",
           "  }",
           "",
-          "  use(...handlers: RequestHandler[]): this;",
-          "  use(...handlers: MiddlewareParam[]): this;",
-          "  use(...handlers: Router[]): this;",
-          "  use(path: PathSpec, ...handlers: RequestHandler[]): this;",
-          "  use(path: PathSpec, ...handlers: MiddlewareParam[]): this;",
-          "  use(path: PathSpec, ...handlers: Router[]): this;",
           "  use(first: PathSpec | MiddlewareLike, ...rest: MiddlewareLike[]): this {",
           '    const mountedAt = isPathSpec(first) ? first : "/";',
           "    const candidates: readonly MiddlewareLike[] = isPathSpec(first) ? rest : [first, ...rest];",
@@ -262,14 +258,14 @@ describe("build command (native library port regressions)", function () {
           "  }",
           "}",
           "",
-          "function isPathSpec(value: unknown): value is PathSpec {",
+          "function isPathSpec(value: JsValue): value is PathSpec {",
           '  if (value == null || typeof value === "string" || value instanceof RegExp) {',
           "    return true;",
           "  }",
           "  if (!Array.isArray(value)) {",
           "    return false;",
           "  }",
-          "  const items = value as readonly unknown[];",
+          "  const items = value as readonly JsValue[];",
           "  for (let index = 0; index < items.length; index += 1) {",
           "    if (!isPathSpec(items[index])) {",
           "      return false;",
@@ -283,36 +279,37 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(sourcePackageRoot, "src", "application.ts"),
         [
+          'import { overloads as O } from "@tsonic/core/lang.js";',
+          'import type { JsValue } from "@tsonic/core/types.js";',
           'import { Router } from "./router.js";',
           'import type { MiddlewareLike, PathSpec, RequestHandler, TransportContext } from "./types.js";',
           "",
           "export class Application extends Router {",
-          "  readonly settings: Record<string, unknown> = {};",
+          "  readonly settings: Record<string, JsValue> = {};",
           "",
-          "  get(name: string): unknown;",
+          "  get(name: string): JsValue;",
           "  override get(path: PathSpec, ...handlers: RequestHandler[]): this;",
-          "  override get(nameOrPath: string | PathSpec, ...handlers: RequestHandler[]): unknown {",
-          '    if (handlers.length === 0 && typeof nameOrPath === "string") {',
-          "      return this.settings[nameOrPath];",
-          "    }",
-          "    return super.get(nameOrPath as PathSpec, ...handlers);",
+          "  override get(_nameOrPath: any, ..._handlers: any[]): any {",
+          '    throw new Error("stub");',
+          "  }",
+          "  get_name(name: string): JsValue {",
+          "    return this.settings[name];",
+          "  }",
+          "  get_route(path: PathSpec, ...handlers: RequestHandler[]): this {",
+          "    return super.get(path, ...handlers);",
           "  }",
           "",
-          "  override use(...handlers: RequestHandler[]): this;",
-          "  override use(...handlers: MiddlewareLike[]): this;",
-          "  override use(...handlers: Router[]): this;",
-          "  override use(path: PathSpec, ...handlers: RequestHandler[]): this;",
-          "  override use(path: PathSpec, ...handlers: MiddlewareLike[]): this;",
-          "  override use(path: PathSpec, ...handlers: Router[]): this;",
           "  override use(first: PathSpec | MiddlewareLike, ...rest: MiddlewareLike[]): this {",
-          "    const args = [first, ...rest] as unknown as [PathSpec, ...RequestHandler[]];",
-          "    return super.use(...args);",
+          "    return super.use(first, ...rest);",
           "  }",
           "",
           "  async handle(context: TransportContext): Promise<void> {",
           "    await super.handle(context);",
           "  }",
           "}",
+          "",
+          "O<Application>().method(x => x.get_name).family(x => x.get);",
+          "O<Application>().method(x => x.get_route).family(x => x.get);",
         ].join("\n"),
         "utf-8"
       );
@@ -381,12 +378,14 @@ describe("build command (native library port regressions)", function () {
           "    this.headers[name.toLowerCase()] = value;",
           "  }",
           "",
-          "  sendBytes(_bytes: Uint8Array): void {",
+          "  sendBytes(_bytes: Uint8Array): Promise<void> | void {",
           "    this.headersSent = true;",
+          "    return undefined;",
           "  }",
           "",
-          "  sendText(_text: string): void {",
+          "  sendText(_text: string): Promise<void> | void {",
           "    this.headersSent = true;",
+          "    return undefined;",
           "  }",
           "}",
           "",
@@ -441,13 +440,13 @@ describe("build command (native library port regressions)", function () {
         "global::App._._._.node_modules.demo.expresslike.src.types.App._._._.node_modules.demo.expresslike.src.types.TransportResponse"
       );
       expect(tree).to.match(
-        /global::.*TransportResponse\.sendText\(string text\)/
+        /public global::System\.Threading\.Tasks\.Task\? sendText\(string [A-Za-z_][A-Za-z0-9_]*\)/
       );
       expect(tree).to.match(
-        /global::.*TransportResponse\.sendBytes\(global::js\.Uint8Array bytes\)/
+        /public global::System\.Threading\.Tasks\.Task\? sendBytes\(global::js\.Uint8Array [A-Za-z_][A-Za-z0-9_]*\)/
       );
       expect(tree).to.include(
-        "return global::System.Threading.Tasks.Task.CompletedTask;"
+        "return default(global::System.Threading.Tasks.Task?);"
       );
 
       // Semantic alias preservation: the mountedAt ternary must preserve

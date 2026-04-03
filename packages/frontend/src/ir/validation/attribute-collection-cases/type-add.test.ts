@@ -1,5 +1,5 @@
 /**
- * Tests for A.on(Class).type.add(Attr) pattern and alias imports.
+ * Tests for A<T>().add(Attr) pattern and alias imports.
  */
 
 import {
@@ -18,17 +18,18 @@ import {
   makeRefType,
   makeTypedIdentifier,
   makeTypeMarkerCallWithTarget,
+  makeTypeRootCall,
   makeUnaryTypeof,
   runAttributeCollectionPass,
 } from "./helpers.js";
-import type { IrClassDeclaration } from "./helpers.js";
+import type { IrClassDeclaration, IrInterfaceDeclaration } from "./helpers.js";
 
 describe("Attribute Collection Pass", () => {
-  describe("A.on(Class).type.add(Attr) pattern", () => {
+  describe("A<T>().add(Attr) pattern", () => {
     it("should attach attribute to class declaration", () => {
       // IR representation of:
       // class User {}
-      // A.on(User).type.add(SerializableAttribute);
+      // A<User>().add(SerializableAttribute);
       const module = createModule([
         {
           kind: "classDeclaration",
@@ -62,10 +63,38 @@ describe("Attribute Collection Pass", () => {
       expect(attr0.attributeType.kind).to.equal("referenceType");
     });
 
+    it("should attach attribute to interface declaration", () => {
+      const module = createModule([
+        {
+          kind: "interfaceDeclaration",
+          name: "IUser",
+          typeParameters: [],
+          extends: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrInterfaceDeclaration,
+        makeMarkerCall(
+          "IUser",
+          "SerializableAttribute",
+          [],
+          "System.SerializableAttribute"
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+
+      const processedModule = assertDefined(result.modules[0]);
+      const ifaceDecl = processedModule.body[0] as IrInterfaceDeclaration;
+      expect(ifaceDecl.kind).to.equal("interfaceDeclaration");
+      expect(ifaceDecl.attributes).to.have.length(1);
+    });
+
     it("should attach attribute with positional arguments", () => {
       // IR representation of:
       // class User {}
-      // A.on(User).type.add(ObsoleteAttribute, "Use NewUser instead");
+      // A<User>().add(ObsoleteAttribute, "Use NewUser instead");
       const module = createModule([
         {
           kind: "classDeclaration",
@@ -111,15 +140,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
-              "add"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "add"),
             [
               makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
               makeObject([
@@ -162,15 +183,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
-              "add"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "add"),
             [
               makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
               makeLiteral("Deprecated"),
@@ -208,15 +221,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
-              "add"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "add"),
             [
               makeIdentifier(
                 "TypeConverterAttribute",
@@ -260,15 +265,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
-              "add"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "add"),
             [
               makeIdentifier("MyAttr", "Test.MyAttr"),
               {
@@ -317,15 +314,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
-              "add"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "add"),
             [
               makeIdentifier("MyAttr", "Test.MyAttr"),
               {

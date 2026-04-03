@@ -10,7 +10,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import {
   compileWithGlobals,
-  compileWithJsSurfaceAndStandardLib,
+  compileWithJsSurface,
   findExpression,
 } from "./test-helpers.js";
 import type { IrMemberExpression } from "./test-helpers.js";
@@ -46,15 +46,37 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       });
     });
 
-    it("keeps js-surface string.indexOf() as int with standard lib enabled", () => {
+    it("keeps js-surface string.indexOf() as int", () => {
       const code = `
         export function findIndex(source: string, value: string): number {
           return source.indexOf(value);
         }
       `;
 
-      const { modules, ok, error } =
-        compileWithJsSurfaceAndStandardLib(code);
+      const { modules, ok, error } = compileWithJsSurface(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const indexOfCall = findExpression(modules, (expr) => {
+        if (expr.kind !== "call") return false;
+        if (expr.callee.kind !== "memberAccess") return false;
+        return expr.callee.property === "indexOf";
+      });
+
+      expect(indexOfCall).to.not.be.undefined;
+      expect(indexOfCall?.inferredType).to.deep.equal({
+        kind: "primitiveType",
+        name: "int",
+      });
+    });
+
+    it("recovers 'int' from explicit String.indexOf() receiver type", () => {
+      const code = `
+        export function findIndex(str: String, search: string): number {
+          return str.indexOf(search);
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsSurface(code);
       expect(ok, `Compile failed: ${error}`).to.be.true;
 
       const indexOfCall = findExpression(modules, (expr) => {

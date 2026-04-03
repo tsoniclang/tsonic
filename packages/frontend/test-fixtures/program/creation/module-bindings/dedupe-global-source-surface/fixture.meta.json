@@ -1,0 +1,19 @@
+{
+  "copyDirectories": [
+    {
+      "from": "../core/versions/10",
+      "to": "workspace/node_modules/@tsonic/core"
+    },
+    {
+      "from": "../globals/versions/10",
+      "to": "workspace/node_modules/@tsonic/globals"
+    }
+  ],
+  "symlinks": [
+    {
+      "from": "external/js-surface",
+      "to": "workspace/node_modules/@fixture/js",
+      "type": "dir"
+    }
+  ]
+}

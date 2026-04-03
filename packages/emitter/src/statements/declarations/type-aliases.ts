@@ -60,9 +60,7 @@ export const emitTypeAliasDeclaration = (
     return [result[0], { ...result[1], ...savedScoped }];
   }
 
-  // Non-structural aliases are type-only in TS and do not emit C# declarations.
-  const [, newContext] = emitTypeAst(stmt.type, baseContext);
-  return [null, { ...newContext, ...savedScoped }];
+  return [null, { ...baseContext, ...savedScoped }];
 };
 
 /**

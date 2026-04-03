@@ -32,16 +32,14 @@ import type {
   IrClassDeclaration,
   IrTypeAliasDeclaration,
 } from "../types.js";
-import type { TypeBinding as FrontendTypeBinding } from "../../program/binding-types.js";
-
 import {
   computeShapeSignature,
   collectPubliclyReachableAnonymousTypes,
-  stripUndefinedFromType,
 } from "./anon-type-shape-analysis.js";
 
 import {
   classMembersToInterfaceMembers,
+  interfaceMembersToClassMembers,
   isReusableStructuralCarrierName,
 } from "./anon-type-declaration-synthesis.js";
 
@@ -57,9 +55,8 @@ export type AnonymousTypeLoweringResult = {
   readonly modules: readonly IrModule[];
 };
 
-export type AnonymousTypeLoweringOptions = {
-  readonly bindings?: ReadonlyMap<string, FrontendTypeBinding>;
-};
+const SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH =
+  "__tsonic/__tsonic_anonymous_types.g.ts";
 
 /**
  * Lower a single module
@@ -122,27 +119,83 @@ const collectLocalNamedStructuralReferences = (
   module: IrModule
 ): ReadonlyMap<string, IrReferenceType> => {
   const byShape = new Map<string, IrReferenceType | null>();
-
-  for (const stmt of module.body) {
-    if (
-      stmt.kind !== "typeAliasDeclaration" ||
-      stmt.type.kind !== "objectType"
-    ) {
-      continue;
-    }
-
-    const signature = computeShapeSignature(stmt.type);
+  const registerReference = (
+    signature: string,
+    reference: IrReferenceType
+  ): void => {
     const existing = byShape.get(signature);
     if (existing === null) {
-      continue;
+      return;
     }
 
     if (existing) {
       byShape.set(signature, null);
+      return;
+    }
+
+    byShape.set(signature, reference);
+  };
+
+  for (const stmt of module.body) {
+    if (
+      "name" in stmt &&
+      typeof stmt.name === "string" &&
+      isReusableStructuralCarrierName(stmt.name)
+    ) {
       continue;
     }
 
-    byShape.set(signature, typeAliasToStructuralReference(stmt));
+    if (stmt.kind === "typeAliasDeclaration" && stmt.type.kind === "objectType") {
+      registerReference(
+        computeShapeSignature(stmt.type),
+        typeAliasToStructuralReference(stmt)
+      );
+      continue;
+    }
+
+    if (stmt.kind === "interfaceDeclaration" && stmt.extends.length === 0) {
+      registerReference(computeShapeSignature({
+        kind: "objectType",
+        members: stmt.members,
+      }), {
+        kind: "referenceType",
+        name: stmt.name,
+        resolvedClrType: `${module.namespace}.${stmt.name}`,
+        typeArguments:
+          stmt.typeParameters?.map(
+            (parameter): IrType => ({
+              kind: "typeParameterType",
+              name: parameter.name,
+            })
+          ) ?? undefined,
+        structuralMembers: stmt.members,
+      });
+      continue;
+    }
+
+    if (stmt.kind === "classDeclaration") {
+      const members = classMembersToInterfaceMembers(stmt.members);
+      if (members.length === 0) {
+        continue;
+      }
+
+      registerReference(computeShapeSignature({
+        kind: "objectType",
+        members,
+      }), {
+        kind: "referenceType",
+        name: stmt.name,
+        resolvedClrType: `${module.namespace}.${stmt.name}`,
+        typeArguments:
+          stmt.typeParameters?.map(
+            (parameter): IrType => ({
+              kind: "typeParameterType",
+              name: parameter.name,
+            })
+          ) ?? undefined,
+        structuralMembers: members,
+      });
+    }
   }
 
   const resolved = new Map<string, IrReferenceType>();
@@ -219,6 +272,9 @@ const findCommonNamespacePrefix = (namespaces: readonly string[]): string => {
 
   return first.slice(0, commonLength).join(".");
 };
+
+const isInstalledDependencyModule = (filePath: string): boolean =>
+  filePath.includes("/node_modules/") || filePath.startsWith("node_modules/");
 
 const isAnonymousReferenceType = (
   value: unknown
@@ -325,88 +381,125 @@ const collectExistingAnonymousReferences = (
   }
 };
 
-const collectAnonymousReferencesFromBindings = (
-  bindings: ReadonlyMap<string, FrontendTypeBinding> | undefined,
-  shapeToExistingReference: Map<string, IrReferenceType>
+const collectAnonymousReferenceDeclarations = (
+  value: unknown,
+  declarationsByName: Map<string, IrClassDeclaration>,
+  seen: WeakSet<object>
 ): void => {
-  if (!bindings || bindings.size === 0) {
+  if (!value || typeof value !== "object") {
     return;
   }
 
-  for (const binding of bindings.values()) {
-    const simpleAlias = binding.alias.split(".").pop() ?? binding.alias;
-    const simpleName = binding.name.split(".").pop() ?? binding.name;
-    if (
-      !simpleAlias.startsWith("__Anon_") &&
-      !simpleName.startsWith("__Anon_")
-    ) {
-      continue;
-    }
-    if (binding.members.some((member) => member.kind === "method")) {
-      continue;
-    }
+  if (seen.has(value)) {
+    return;
+  }
+  seen.add(value);
 
-    const members = binding.members
-      .filter(
-        (
-          member
-        ): member is (typeof binding.members)[number] & { kind: "property" } =>
-          member.kind === "property" && member.semanticType !== undefined
-      )
-      .map((member): IrInterfaceMember => {
-        const semanticType = member.semanticType;
-        if (!semanticType) {
-          throw new Error(
-            "Anonymous binding property matched without semanticType"
-          );
-        }
-
-        const hasUndefinedBranch =
-          semanticType.kind === "unionType" &&
-          semanticType.types.some(
-            (type) => type.kind === "primitiveType" && type.name === "undefined"
-          );
-        const isOptional =
-          member.semanticOptional === true || hasUndefinedBranch;
-
-        return {
-          kind: "propertySignature",
-          name: member.alias,
-          type: isOptional
-            ? stripUndefinedFromType(semanticType)
-            : semanticType,
-          isOptional,
-          isReadonly: false,
-        };
+  if (isAnonymousReferenceType(value) && value.resolvedClrType === undefined) {
+    if (!declarationsByName.has(value.name)) {
+      declarationsByName.set(value.name, {
+        kind: "classDeclaration",
+        name: value.name,
+        typeParameters:
+          value.typeArguments
+            ?.filter(
+              (
+                argument
+              ): argument is Extract<IrType, { kind: "typeParameterType" }> =>
+                argument.kind === "typeParameterType"
+            )
+            .map((argument) => ({
+              kind: "typeParameter" as const,
+              name: argument.name,
+            })) ?? undefined,
+        superClass: undefined,
+        implements: [],
+        members: interfaceMembersToClassMembers(value.structuralMembers),
+        isExported: true,
+        isStruct: false,
       });
-
-    if (members.length === 0) {
-      continue;
     }
+  }
 
-    registerExistingAnonymousReference(
-      {
-        kind: "referenceType",
-        name: simpleAlias.startsWith("__Anon_") ? simpleAlias : simpleName,
-        resolvedClrType: binding.name,
-        structuralMembers: members,
-      },
-      shapeToExistingReference
-    );
+  const asRecord = value as Record<string, unknown>;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectAnonymousReferenceDeclarations(entry, declarationsByName, seen);
+    }
+    return;
+  }
+
+  for (const entry of Object.values(asRecord)) {
+    collectAnonymousReferenceDeclarations(entry, declarationsByName, seen);
   }
 };
+
+const collectReferencedAnonymousTypeNames = (
+  value: unknown,
+  referencedNames: Set<string>,
+  seen: WeakSet<object>
+): void => {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  if (seen.has(value)) {
+    return;
+  }
+  seen.add(value);
+
+  const asReference = value as Partial<IrReferenceType> & {
+    readonly kind?: unknown;
+    readonly name?: unknown;
+  };
+  if (
+    asReference.kind === "referenceType" &&
+    typeof asReference.name === "string" &&
+    asReference.name.startsWith("__Anon_")
+  ) {
+    referencedNames.add(asReference.name);
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectReferencedAnonymousTypeNames(entry, referencedNames, seen);
+    }
+    return;
+  }
+
+  for (const entry of Object.values(value as Record<string, unknown>)) {
+    collectReferencedAnonymousTypeNames(entry, referencedNames, seen);
+  }
+};
+
+const collectPriorSyntheticAnonymousDeclarations = (
+  modules: readonly IrModule[]
+): readonly IrClassDeclaration[] =>
+  modules
+    .filter((module) => module.filePath === SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH)
+    .flatMap((module) =>
+      module.body.filter(
+        (statement): statement is IrClassDeclaration =>
+          statement.kind === "classDeclaration" &&
+          statement.name.startsWith("__Anon_")
+      )
+    );
 
 /**
  * Run anonymous type lowering pass on all modules
  */
 export const runAnonymousTypeLoweringPass = (
-  modules: readonly IrModule[],
-  options?: AnonymousTypeLoweringOptions
+  modules: readonly IrModule[]
 ): AnonymousTypeLoweringResult => {
+  const priorSyntheticAnonymousDeclarations =
+    collectPriorSyntheticAnonymousDeclarations(modules);
+  const inputModules = modules.filter(
+    (module) => module.filePath !== SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH
+  );
   const existingTypeNames = new Set<string>();
   const shapeToExistingReference = new Map<string, IrReferenceType>();
   const existingReferenceTraversalSeen = new WeakSet<object>();
-  for (const module of modules) {
+  for (const module of inputModules) {
     for (const stmt of module.body) {
       switch (stmt.kind) {
         case "classDeclaration":
@@ -468,11 +561,6 @@ export const runAnonymousTypeLoweringPass = (
     );
   }
 
-  collectAnonymousReferencesFromBindings(
-    options?.bindings,
-    shapeToExistingReference
-  );
-
   const shared = {
     generatedDeclarations: [] as IrClassDeclaration[],
     shapeToName: new Map<string, string>(),
@@ -482,29 +570,91 @@ export const runAnonymousTypeLoweringPass = (
     loweredReferenceByStableKey: new Map<string, IrReferenceType>(),
   };
 
-  const loweredModules = modules.map((m) => lowerModule(m, shared));
+  const loweredModules = inputModules.map((m) => lowerModule(m, shared));
+  const recoveredAnonymousDeclarations = new Map<string, IrClassDeclaration>();
+  const recoveredDeclarationTraversalSeen = new WeakSet<object>();
+  for (const module of loweredModules) {
+    collectAnonymousReferenceDeclarations(
+      module,
+      recoveredAnonymousDeclarations,
+      recoveredDeclarationTraversalSeen
+    );
+  }
+  for (const declaration of priorSyntheticAnonymousDeclarations) {
+    recoveredAnonymousDeclarations.set(declaration.name, declaration);
+  }
+  for (const declaration of shared.generatedDeclarations) {
+    recoveredAnonymousDeclarations.set(declaration.name, declaration);
+  }
+  const allAnonymousDeclarations = Array.from(
+    recoveredAnonymousDeclarations.values()
+  );
+  const referencedAnonymousNames = new Set<string>();
+  const referencedNameTraversalSeen = new WeakSet<object>();
+  for (const module of loweredModules) {
+    collectReferencedAnonymousTypeNames(
+      module,
+      referencedAnonymousNames,
+      referencedNameTraversalSeen
+    );
+  }
+  const anonymousDeclarationByName = new Map(
+    allAnonymousDeclarations.map((declaration) => [declaration.name, declaration])
+  );
+  const declarationQueue = Array.from(referencedAnonymousNames);
+  while (declarationQueue.length > 0) {
+    const name = declarationQueue.shift();
+    if (!name) {
+      continue;
+    }
+    const declaration = anonymousDeclarationByName.get(name);
+    if (!declaration) {
+      continue;
+    }
+    const nestedNames = new Set<string>();
+    collectReferencedAnonymousTypeNames(
+      declaration,
+      nestedNames,
+      new WeakSet<object>()
+    );
+    for (const nestedName of nestedNames) {
+      if (referencedAnonymousNames.has(nestedName)) {
+        continue;
+      }
+      referencedAnonymousNames.add(nestedName);
+      declarationQueue.push(nestedName);
+    }
+  }
+  const emittedAnonymousDeclarations = allAnonymousDeclarations.filter(
+    (declaration) => referencedAnonymousNames.has(declaration.name)
+  );
 
   // If any anonymous classes were generated, emit them once in a shared module
   // in the common root namespace so they are visible to all nested namespaces.
-  if (shared.generatedDeclarations.length > 0) {
+  if (emittedAnonymousDeclarations.length > 0) {
     const publicAnonymousTypes = collectPubliclyReachableAnonymousTypes(
       loweredModules,
-      shared.generatedDeclarations
+      emittedAnonymousDeclarations
     );
-    const commonNamespace =
-      findCommonNamespacePrefix(modules.map((m) => m.namespace)) ||
-      (modules[0]?.namespace ?? "");
+    const authoredModules = inputModules.filter(
+      (module) => !isInstalledDependencyModule(module.filePath)
+    );
+    const namespaceSeedModules =
+      authoredModules.length > 0 ? authoredModules : inputModules;
+    const commonNamespace = findCommonNamespacePrefix(
+      namespaceSeedModules.map((module) => module.namespace)
+    );
 
     const anonModule: IrModule = {
       kind: "module",
       // Special synthetic module prefix: downstream CLI code uses this to skip
       // source-based augmentation steps (no corresponding .ts file exists).
-      filePath: "__tsonic/__tsonic_anonymous_types.g.ts",
+      filePath: SYNTHETIC_ANONYMOUS_TYPES_FILE_PATH,
       namespace: commonNamespace,
       className: "__tsonic_anonymous_types",
       isStaticContainer: true,
       imports: [],
-      body: shared.generatedDeclarations.map((declaration) => ({
+      body: emittedAnonymousDeclarations.map((declaration) => ({
         ...declaration,
         isExported: publicAnonymousTypes.has(declaration.name),
       })),

@@ -5,7 +5,7 @@
  * - Rejects anyType in variable declarations (TSN7414)
  * - Rejects anyType in nested positions (array element type)
  * - Rejects anyType in function parameters
- * - Allows unknownType (explicit unknown is valid)
+ * - Rejects unknownType in successful IR
  * - Allows primitive types (string, number, void)
  */
 
@@ -77,13 +77,13 @@ describe("IR Soundness Gate", () => {
       expect(result.diagnostics[0]?.code).to.equal("TSN7414");
     });
 
-    it("should allow unknownType (explicit unknown is valid)", () => {
+    it("should reject unknownType in successful IR", () => {
       const module = createModuleWithType({ kind: "unknownType" });
 
       const result = validateIrSoundness([module]);
 
-      expect(result.ok).to.be.true;
-      expect(result.diagnostics).to.have.length(0);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN7414");
     });
   });
 

@@ -81,6 +81,36 @@ export const isAssignable = (
 ): boolean => {
   if (!fromType || !toType) return false;
 
+  if (toType.kind === "unionType") {
+    return toType.types.some((member) => isAssignable(fromType, member));
+  }
+
+  if (fromType.kind === "unionType") {
+    return fromType.types.every((member) => isAssignable(member, toType));
+  }
+
+  const fromIsObjectLike =
+    fromType.kind === "objectType" ||
+    fromType.kind === "dictionaryType" ||
+    fromType.kind === "arrayType" ||
+    fromType.kind === "tupleType" ||
+    fromType.kind === "functionType" ||
+    fromType.kind === "referenceType";
+
+  if (toType.kind === "objectType" && fromIsObjectLike) {
+    return true;
+  }
+
+  if (
+    toType.kind === "referenceType" &&
+    (toType.name === "object" ||
+      toType.resolvedClrType === "System.Object" ||
+      toType.resolvedClrType === "global::System.Object") &&
+    fromIsObjectLike
+  ) {
+    return true;
+  }
+
   // Exact kind and name match
   if (fromType.kind === toType.kind) {
     if (fromType.kind === "primitiveType" && toType.kind === "primitiveType") {

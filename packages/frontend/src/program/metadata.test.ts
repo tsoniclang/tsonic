@@ -1,362 +1,63 @@
 import { expect } from "chai";
 import { describe, it } from "mocha";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { loadDotnetMetadata } from "./metadata.js";
+import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 
 describe("Program Metadata", () => {
   it("should load CLR metadata through surface package dependencies", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-metadata-")
+    const fixture = materializeFrontendFixture(
+      "program/metadata/surface-dependency"
     );
 
     try {
-      const globalsRoot = path.join(tempDir, "node_modules/@tsonic/globals");
-      const dotnetRoot = path.join(tempDir, "node_modules/@tsonic/dotnet");
-      const dotnetBindingsRoot = path.join(dotnetRoot, "System");
-
-      fs.mkdirSync(globalsRoot, { recursive: true });
-      fs.mkdirSync(dotnetBindingsRoot, { recursive: true });
-
-      fs.writeFileSync(
-        path.join(globalsRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: "@tsonic/globals",
-            version: "0.0.0",
-            type: "module",
-            dependencies: {
-              "@tsonic/dotnet": "0.0.0",
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(globalsRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "clr",
-            extends: [],
-            requiredTypeRoots: ["."],
-            requiredNpmPackages: ["@tsonic/globals", "@tsonic/dotnet"],
-          },
-          null,
-          2
-        )
-      );
-
-      fs.writeFileSync(
-        path.join(dotnetRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/dotnet", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(dotnetBindingsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "System",
-            types: [
-              {
-                clrName: "System.String",
-                kind: "Class",
-                methods: [
-                  {
-                    clrName: "Trim",
-                    parameterCount: 0,
-                    canonicalSignature: "():System.String",
-                  },
-                ],
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
+      const globalsRoot = fixture.path("app/node_modules/@tsonic/globals");
 
       const metadata = loadDotnetMetadata([globalsRoot]);
       expect(metadata.getTypeMetadata("System.String")).to.not.equal(undefined);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should load CLR metadata through sibling workspace package dependencies", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-metadata-sibling-")
+    const fixture = materializeFrontendFixture(
+      "program/metadata/sibling-workspace-dependency"
     );
 
     try {
-      const workspaceRoot = path.join(tempDir, "tsoniclang");
-      const globalsRoot = path.join(workspaceRoot, "globals", "versions", "10");
-      const dotnetRoot = path.join(workspaceRoot, "dotnet", "versions", "10");
-      const dotnetBindingsRoot = path.join(dotnetRoot, "System");
-
-      fs.mkdirSync(globalsRoot, { recursive: true });
-      fs.mkdirSync(dotnetBindingsRoot, { recursive: true });
-
-      fs.writeFileSync(
-        path.join(globalsRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: "@tsonic/globals",
-            version: "0.0.0",
-            type: "module",
-            dependencies: {
-              "@tsonic/dotnet": "0.0.0",
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(globalsRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "clr",
-            extends: [],
-            requiredTypeRoots: ["."],
-            requiredNpmPackages: ["@tsonic/globals", "@tsonic/dotnet"],
-          },
-          null,
-          2
-        )
-      );
-
-      fs.writeFileSync(
-        path.join(dotnetRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/dotnet", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(dotnetBindingsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "System",
-            types: [
-              {
-                clrName: "System.String",
-                kind: "Class",
-                methods: [
-                  {
-                    clrName: "Trim",
-                    parameterCount: 0,
-                    canonicalSignature: "():System.String",
-                  },
-                ],
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
+      const globalsRoot = fixture.path("workspace/globals/versions/10");
 
       const metadata = loadDotnetMetadata([globalsRoot]);
       expect(metadata.getTypeMetadata("System.String")).to.not.equal(undefined);
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("should load CLR metadata from the dotnet payload of first-party bindings v2 manifests", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-metadata-v2-")
+    const fixture = materializeFrontendFixture(
+      "program/metadata/firstparty-bindings-v2"
     );
 
     try {
-      const globalsRoot = path.join(tempDir, "node_modules/@tsonic/globals");
-      const libraryRoot = path.join(tempDir, "node_modules/@tsonic/acme-lib");
-      const bindingsRoot = path.join(libraryRoot, "Acme", "Core");
-
-      fs.mkdirSync(globalsRoot, { recursive: true });
-      fs.mkdirSync(bindingsRoot, { recursive: true });
-
-      fs.writeFileSync(
-        path.join(globalsRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: "@tsonic/globals",
-            version: "0.0.0",
-            type: "module",
-            dependencies: {
-              "@tsonic/acme-lib": "0.0.0",
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(globalsRoot, "tsonic.surface.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            id: "clr",
-            extends: [],
-            requiredTypeRoots: ["."],
-            requiredNpmPackages: ["@tsonic/globals", "@tsonic/acme-lib"],
-          },
-          null,
-          2
-        )
-      );
-
-      fs.writeFileSync(
-        path.join(libraryRoot, "package.json"),
-        JSON.stringify(
-          { name: "@tsonic/acme-lib", version: "0.0.0", type: "module" },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(bindingsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "Acme.Core",
-            producer: {
-              tool: "tsonic",
-              mode: "tsonic-firstparty",
-            },
-            semanticSurface: {
-              types: [{ alias: "Widget" }],
-              exports: { createWidget: { kind: "functionType" } },
-            },
-            dotnet: {
-              types: [
-                {
-                  clrName: "Acme.Core.Widget",
-                  assemblyName: "Acme.Core",
-                  kind: "Class",
-                  methods: [],
-                  properties: [],
-                  fields: [],
-                },
-              ],
-            },
-          },
-          null,
-          2
-        )
-      );
+      const globalsRoot = fixture.path("app/node_modules/@tsonic/globals");
 
       const metadata = loadDotnetMetadata([globalsRoot]);
       expect(metadata.getTypeMetadata("Acme.Core.Widget")).to.not.equal(
         undefined
       );
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 
   it("ignores CLR metadata files inside source package roots while traversing dependencies", () => {
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-program-metadata-source-package-")
+    const fixture = materializeFrontendFixture(
+      "program/metadata/ignore-source-package-bindings"
     );
 
     try {
-      const sourceRoot = path.join(tempDir, "node_modules/@tsonic/js");
-      const dependencyRoot = path.join(tempDir, "node_modules/@tsonic/dotnet");
-      const ignoredBindingsRoot = path.join(sourceRoot, "Ignored");
-      const dependencyBindingsRoot = path.join(dependencyRoot, "System");
-
-      fs.mkdirSync(ignoredBindingsRoot, { recursive: true });
-      fs.mkdirSync(dependencyBindingsRoot, { recursive: true });
-
-      fs.writeFileSync(
-        path.join(sourceRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: "@tsonic/js",
-            version: "1.0.0",
-            type: "module",
-            dependencies: {
-              "@tsonic/dotnet": "1.0.0",
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(sourceRoot, "tsonic.package.json"),
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: "tsonic-source-package",
-            surfaces: ["@tsonic/js"],
-            source: {
-              exports: {
-                ".": "./src/index.ts",
-              },
-            },
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(ignoredBindingsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "Ignored",
-            types: [
-              {
-                clrName: "Ignored.ShouldNotLoad",
-                kind: "Class",
-                methods: [],
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
-
-      fs.writeFileSync(
-        path.join(dependencyRoot, "package.json"),
-        JSON.stringify(
-          {
-            name: "@tsonic/dotnet",
-            version: "1.0.0",
-            type: "module",
-          },
-          null,
-          2
-        )
-      );
-      fs.writeFileSync(
-        path.join(dependencyBindingsRoot, "bindings.json"),
-        JSON.stringify(
-          {
-            namespace: "System",
-            types: [
-              {
-                clrName: "System.String",
-                kind: "Class",
-                methods: [],
-                properties: [],
-                fields: [],
-              },
-            ],
-          },
-          null,
-          2
-        )
-      );
+      const sourceRoot = fixture.path("app/node_modules/@tsonic/js");
 
       const metadata = loadDotnetMetadata([sourceRoot]);
       expect(metadata.getTypeMetadata("Ignored.ShouldNotLoad")).to.equal(
@@ -366,7 +67,7 @@ describe("Program Metadata", () => {
         undefined
       );
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fixture.cleanup();
     }
   });
 });

@@ -14,7 +14,10 @@ import {
 } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import { resolveEffectiveVariableInitializerType } from "../../core/semantic/variable-type-resolution.js";
+import {
+  resolveAsInterfaceTargetType,
+  resolveEffectiveVariableInitializerType,
+} from "../../core/semantic/variable-type-resolution.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -89,8 +92,15 @@ export const resolveLocalTypeAst = (
   }
 
   // asinterface<T>(x) - preserve target type in LHS
-  if (!decl.type && decl.initializer?.kind === "asinterface") {
-    return [{ kind: "varType" }, context];
+  if (
+    !decl.type &&
+    decl.initializer?.kind === "asinterface" &&
+    decl.initializer.targetType
+  ) {
+    return emitTypeAst(
+      resolveAsInterfaceTargetType(decl.initializer.targetType, context),
+      context
+    );
   }
 
   // Explicit TypeScript annotation that is C#-emittable

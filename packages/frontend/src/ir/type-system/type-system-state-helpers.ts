@@ -95,10 +95,18 @@ export const addUndefinedToType = (type: IrType): IrType => {
  * Resolve a surface name to a canonical TypeId.
  *
  * Order:
- * 1) UnifiedTypeCatalog source-authored tsName
- * 2) AliasTable (primitives/globals/System.* canonicalization)
+ * 1) AliasTable (primitives/globals/System.* canonicalization)
+ * 2) UnifiedTypeCatalog source-authored tsName
  * 3) UnifiedTypeCatalog assembly tsName
  * 4) UnifiedTypeCatalog by clrName
+ *
+ * Canonical aliases must win over source-authored global wrapper declarations.
+ * Example:
+ * - source `interface String extends String$instance, __String$views {}`
+ * - canonical alias `String -> System.String`
+ *
+ * Member lookup on `string` / `String` must resolve against the canonical CLR
+ * entry so instance members like `IndexOf` and `Substring` remain available.
  *
  * IMPORTANT (airplane-grade):
  * Resolution must be arity-aware when type arguments are present. Facade
@@ -111,16 +119,43 @@ export const resolveTypeIdByName = (
   name: string,
   arity?: number
 ): TypeId | undefined => {
+  const normalizeTsbindgenWrapperTypeName = (candidate: string): string => {
+    if (candidate.endsWith("$instance")) {
+      return candidate.slice(0, -"$instance".length);
+    }
+    if (candidate.startsWith("__") && candidate.endsWith("$views")) {
+      return candidate.slice(2, -"$views".length);
+    }
+    return candidate;
+  };
+
+  const canonicalName = normalizeTsbindgenWrapperTypeName(name);
   const tsNameCandidate = state.unifiedCatalog.resolveTsName(name);
+  const canonicalTsNameCandidate =
+    canonicalName !== name
+      ? state.unifiedCatalog.resolveTsName(canonicalName)
+      : undefined;
   const sourceTsNameCandidate =
     tsNameCandidate &&
     state.unifiedCatalog.getByTypeId(tsNameCandidate)?.origin === "source"
       ? tsNameCandidate
       : undefined;
+  const canonicalSourceTsNameCandidate =
+    canonicalTsNameCandidate &&
+    state.unifiedCatalog.getByTypeId(canonicalTsNameCandidate)?.origin ===
+      "source"
+      ? canonicalTsNameCandidate
+      : undefined;
   const assemblyTsNameCandidate =
     tsNameCandidate &&
     state.unifiedCatalog.getByTypeId(tsNameCandidate)?.origin !== "source"
       ? tsNameCandidate
+      : undefined;
+  const canonicalAssemblyTsNameCandidate =
+    canonicalTsNameCandidate &&
+    state.unifiedCatalog.getByTypeId(canonicalTsNameCandidate)?.origin !==
+      "source"
+      ? canonicalTsNameCandidate
       : undefined;
   const directCandidates: TypeId[] = [];
   const pushCandidate = (candidate: TypeId | undefined): void => {
@@ -135,10 +170,16 @@ export const resolveTypeIdByName = (
     directCandidates.push(candidate);
   };
 
-  pushCandidate(sourceTsNameCandidate);
   pushCandidate(state.aliasTable.get(name));
+  pushCandidate(sourceTsNameCandidate);
   pushCandidate(assemblyTsNameCandidate);
   pushCandidate(state.unifiedCatalog.resolveClrName(name));
+  if (canonicalName !== name) {
+    pushCandidate(state.aliasTable.get(canonicalName));
+    pushCandidate(canonicalSourceTsNameCandidate);
+    pushCandidate(canonicalAssemblyTsNameCandidate);
+    pushCandidate(state.unifiedCatalog.resolveClrName(canonicalName));
+  }
 
   if (arity === undefined) {
     return directCandidates[0];
@@ -153,6 +194,8 @@ export const resolveTypeIdByName = (
   // Facade name without arity suffix → try tsbindgen's structural encoding.
   if (arity > 0) {
     const suffixed = `${name}_${arity}`;
+    const canonicalSuffixed =
+      canonicalName !== name ? `${canonicalName}_${arity}` : undefined;
     const suffixedCandidates: TypeId[] = [];
     const pushSuffixedCandidate = (candidate: TypeId | undefined): void => {
       if (!candidate) return;
@@ -169,6 +212,15 @@ export const resolveTypeIdByName = (
     pushSuffixedCandidate(state.aliasTable.get(suffixed));
     pushSuffixedCandidate(state.unifiedCatalog.resolveTsName(suffixed));
     pushSuffixedCandidate(state.unifiedCatalog.resolveClrName(suffixed));
+    if (canonicalSuffixed) {
+      pushSuffixedCandidate(state.aliasTable.get(canonicalSuffixed));
+      pushSuffixedCandidate(
+        state.unifiedCatalog.resolveTsName(canonicalSuffixed)
+      );
+      pushSuffixedCandidate(
+        state.unifiedCatalog.resolveClrName(canonicalSuffixed)
+      );
+    }
 
     const suffixedMatch = suffixedCandidates.find(matchesArity);
     if (suffixedMatch) return suffixedMatch;

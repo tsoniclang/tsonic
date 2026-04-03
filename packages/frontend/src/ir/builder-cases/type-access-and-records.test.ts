@@ -121,10 +121,12 @@ describe("IR Builder", function () {
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
     });
 
-    it("allows declared unknown members on structural callback parameters", () => {
+    it("allows declared JsValue members on structural callback parameters", () => {
       const source = `
+        import type { JsValue } from "@tsonic/core/types.js";
+
         export function project(
-          rawUpdates: { stream_id: string; property: string; value: unknown }[]
+          rawUpdates: { stream_id: string; property: string; value: JsValue }[]
         ): string[] {
           return rawUpdates.map((update) => String(update.value ?? ""));
         }
@@ -139,10 +141,12 @@ describe("IR Builder", function () {
       expect(ctx.diagnostics.some((d) => d.code === "TSN5203")).to.equal(false);
     });
 
-    it("allows explicitly unknown nominal members without poisoning property access", () => {
+    it("allows explicit JsValue nominal members without poisoning property access", () => {
       const source = `
+        import type { JsValue } from "@tsonic/core/types.js";
+
         class Box {
-          public value: unknown = undefined;
+          public value: JsValue = null;
         }
 
         export function read(box: Box): string {

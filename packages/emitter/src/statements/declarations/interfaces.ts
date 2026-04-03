@@ -5,6 +5,7 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
+import { emitAttributes } from "../../core/format/attributes.js";
 import {
   extractInlineObjectTypes,
   emitExtractedType,
@@ -75,13 +76,19 @@ export const emitInterfaceDeclaration = (
 
   const modifiers: string[] = [accessibility];
   if (needsUnsafe) modifiers.push("unsafe");
+  const [declAttributes, contextWithDeclAttributes] = emitAttributes(
+    stmt.attributes,
+    currentContext
+  );
+  currentContext = contextWithDeclAttributes;
 
   // Type parameters
   const reservedTypeParamNames = new Set<string>();
   for (const member of stmt.members) {
     if (member.kind === "methodSignature") {
+      const publicName = member.overloadFamily?.publicName ?? member.name;
       reservedTypeParamNames.add(
-        emitCSharpName(member.name, "methods", context)
+        emitCSharpName(publicName, "methods", context)
       );
       continue;
     }
@@ -144,10 +151,15 @@ export const emitInterfaceDeclaration = (
         member.name,
         currentContext
       );
+      const [memberAttributes, memberContext] = emitAttributes(
+        member.attributes,
+        currentContext
+      );
+      currentContext = memberContext;
 
       members.push({
         kind: "propertyDeclaration",
-        attributes: [],
+        attributes: memberAttributes,
         modifiers: [],
         type: typeAst,
         name: emitCSharpName(member.name, "properties", context),
@@ -173,13 +185,22 @@ export const emitInterfaceDeclaration = (
         currentContext
       );
       currentContext = paramContext;
+      const [memberAttributes, memberContext] = emitAttributes(
+        member.attributes,
+        currentContext
+      );
+      currentContext = memberContext;
 
       members.push({
         kind: "methodDeclaration",
-        attributes: [],
+        attributes: memberAttributes,
         modifiers: [],
         returnType: returnTypeAst,
-        name: emitCSharpName(member.name, "methods", context),
+        name: emitCSharpName(
+          member.overloadFamily?.publicName ?? member.name,
+          "methods",
+          context
+        ),
         parameters: paramAsts,
       });
       continue;
@@ -213,7 +234,7 @@ export const emitInterfaceDeclaration = (
   const mainDecl: CSharpTypeDeclarationAst = hasMethodSignatures
     ? {
         kind: "interfaceDeclaration",
-        attributes: [],
+        attributes: declAttributes,
         modifiers,
         name: escapeCSharpIdentifier(stmt.name),
         typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
@@ -224,7 +245,7 @@ export const emitInterfaceDeclaration = (
     : stmt.isStruct
       ? {
           kind: "structDeclaration",
-          attributes: [],
+          attributes: declAttributes,
           modifiers,
           name: escapeCSharpIdentifier(stmt.name),
           typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
@@ -234,7 +255,7 @@ export const emitInterfaceDeclaration = (
         }
       : {
           kind: "classDeclaration",
-          attributes: [],
+          attributes: declAttributes,
           modifiers,
           name: classLikeName,
           typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,

@@ -14,36 +14,8 @@ import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertBlockStatement } from "../statements/control.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
+import { withParameterTypeEnv } from "../type-env.js";
 import type { ProgramContext } from "../../program-context.js";
-
-const makeOptionalReadType = (type: IrType): IrType => {
-  if (type.kind === "unionType") {
-    const hasUndefined = type.types.some(
-      (member) => member.kind === "primitiveType" && member.name === "undefined"
-    );
-    if (hasUndefined) return type;
-    return {
-      kind: "unionType",
-      types: [...type.types, { kind: "primitiveType", name: "undefined" }],
-    };
-  }
-
-  if (type.kind === "primitiveType" && type.name === "undefined") {
-    return type;
-  }
-
-  return {
-    kind: "unionType",
-    types: [type, { kind: "primitiveType", name: "undefined" }],
-  };
-};
-
-const getParameterReadType = (parameter: IrParameter): IrType | undefined => {
-  if (!parameter.type) return undefined;
-  return parameter.isOptional
-    ? makeOptionalReadType(parameter.type)
-    : parameter.type;
-};
 
 const isNullishPrimitive = (type: IrType): boolean =>
   type.kind === "primitiveType" &&
@@ -272,22 +244,7 @@ export const convertFunctionExpression = (
     expectedFnType ?? expectedType
   );
 
-  const bodyCtx: ProgramContext = (() => {
-    const env = new Map<number, IrType>(ctx.typeEnv ?? []);
-    for (let i = 0; i < parameters.length; i++) {
-      const p = parameters[i];
-      const paramDecl = node.parameters[i];
-      if (!p || !paramDecl) continue;
-      const readType = getParameterReadType(p);
-      if (p.pattern.kind !== "identifierPattern" || !readType) continue;
-      if (!ts.isIdentifier(paramDecl.name)) continue;
-
-      const declId = ctx.binding.resolveIdentifier(paramDecl.name);
-      if (!declId) continue;
-      env.set(declId.id, readType);
-    }
-    return { ...ctx, typeEnv: env };
-  })();
+  const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
 
   const returnType =
     declaredReturnType ?? (useExpectedReturnType ? expectedReturnType : undefined);
@@ -355,22 +312,7 @@ export const convertArrowFunction = (
     expectedFnType ?? expectedType
   );
 
-  const bodyCtx: ProgramContext = (() => {
-    const env = new Map<number, IrType>(ctx.typeEnv ?? []);
-    for (let i = 0; i < parameters.length; i++) {
-      const p = parameters[i];
-      const paramDecl = node.parameters[i];
-      if (!p || !paramDecl) continue;
-      const readType = getParameterReadType(p);
-      if (p.pattern.kind !== "identifierPattern" || !readType) continue;
-      if (!ts.isIdentifier(paramDecl.name)) continue;
-
-      const declId = ctx.binding.resolveIdentifier(paramDecl.name);
-      if (!declId) continue;
-      env.set(declId.id, readType);
-    }
-    return { ...ctx, typeEnv: env };
-  })();
+  const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
 
   // Pass return type to body for contextual typing:
   // - Block body: return statements get the expected type

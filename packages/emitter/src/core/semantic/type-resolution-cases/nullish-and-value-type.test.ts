@@ -198,6 +198,54 @@ describe("type-resolution", () => {
       expect(result).to.deep.equal(ref);
     });
 
+    it("resolves non-alias imports through the exact imported namespace", () => {
+      const readableAliasType: IrType = {
+        kind: "primitiveType",
+        name: "string",
+      };
+
+      const result = resolveTypeAlias(
+        { kind: "referenceType", name: "Readable" },
+        {
+          ...makeContext(undefined, {
+            moduleMap: new Map([
+              [
+                "/nodejs/stream/readable.ts",
+                {
+                  namespace: "nodejs.stream",
+                  className: "readable",
+                  filePath: "/nodejs/stream/readable.ts",
+                  hasRuntimeContainer: true,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "Readable",
+                      {
+                        kind: "typeAlias",
+                        typeParameters: [],
+                        type: readableAliasType,
+                      },
+                    ],
+                  ]),
+                },
+              ],
+            ]),
+          }),
+          importBindings: new Map([
+            [
+              "Readable",
+              {
+                kind: "type",
+                typeAst: identifierType("global::nodejs.stream.Readable"),
+              },
+            ],
+          ]),
+        }
+      );
+
+      expect(result).to.deep.equal(readableAliasType);
+    });
+
     it("resolves cross-module callable aliases from exact type identity", () => {
       const requestHandlerType: IrType = {
         kind: "functionType",

@@ -18,7 +18,7 @@ import {
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import {
   resolveIdentifierCarrierStorageType,
-  resolveDirectStorageExpressionAst,
+  resolveRuntimeCarrierExpressionAst,
   resolveDirectStorageExpressionType,
 } from "../direct-storage-types.js";
 
@@ -171,7 +171,10 @@ export const emitRuntimeUnionArrayIsArrayCall = (
         );
   const runtimeCarrierAst =
     (directStorageType
-      ? resolveDirectStorageExpressionAst(target ?? argument, argumentContext)
+      ? resolveRuntimeCarrierExpressionAst(
+          target ?? argument,
+          argumentContext
+        )
       : undefined) ?? argumentAst;
   const runtimeCarrierType = directStorageType
     ? willCarryAsRuntimeUnion(directStorageType, argumentContext)

@@ -11,6 +11,7 @@ import {
   convertParameters,
 } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
+import { withParameterTypeEnv } from "../../type-env.js";
 
 /**
  * Convert function declaration
@@ -26,17 +27,20 @@ export const convertFunctionDeclaration = (
   const returnType = node.type
     ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
     : undefined;
+  const parameters = convertParameters(node.parameters, ctx);
+  const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
 
   return {
     kind: "functionDeclaration",
     name: node.name.text,
     typeParameters: convertTypeParameters(node.typeParameters, ctx),
-    parameters: convertParameters(node.parameters, ctx),
+    parameters,
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, ctx, returnType)
+      ? convertBlockStatement(node.body, bodyCtx, returnType)
       : { kind: "blockStatement", statements: [] },
+    isDeclarationOnly: node.body ? undefined : true,
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
     ),

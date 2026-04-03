@@ -21,6 +21,8 @@ import {
   generateShapeHash,
   generateModuleHash,
   addUndefinedToType,
+  normalizeStructuralPropertySignature,
+  stripUndefinedFromType,
 } from "./anon-type-shape-analysis.js";
 
 import type { LoweringContext } from "./anon-type-ir-rewriting.js";
@@ -37,19 +39,20 @@ export const interfaceMembersToClassMembers = (
         m.kind === "propertySignature"
     )
     .map((m): IrPropertyDeclaration => {
-      // For optional properties (title?: string), make type nullable and don't require
-      // For required properties (title: string), use required modifier
-      const isOptional = m.isOptional ?? false;
+      const normalizedMember = normalizeStructuralPropertySignature(m);
+      const isOptional = normalizedMember.isOptional;
       return {
         kind: "propertyDeclaration",
-        name: m.name,
-        type: isOptional ? addUndefinedToType(m.type) : m.type,
+        name: normalizedMember.name,
+        type: isOptional
+          ? addUndefinedToType(normalizedMember.type)
+          : normalizedMember.type,
         initializer: undefined,
         emitAsAutoProperty: true,
         isStatic: false,
-        isReadonly: m.isReadonly ?? false,
+        isReadonly: normalizedMember.isReadonly ?? false,
         accessibility: "public",
-        isRequired: !isOptional, // C# 11 required modifier - must be set in object initializer
+        isRequired: !isOptional,
       };
     });
 };
@@ -58,17 +61,39 @@ export const classMembersToInterfaceMembers = (
   members: readonly IrClassMember[]
 ): readonly IrInterfaceMember[] =>
   members.flatMap<IrInterfaceMember>((member) => {
-    if (member.kind !== "propertyDeclaration" || !member.type) {
-      return [];
+    if (
+      member.kind === "propertyDeclaration" &&
+      member.type &&
+      member.accessibility === "public" &&
+      !member.isStatic
+    ) {
+      const strippedType = stripUndefinedFromType(member.type);
+      const isOptional = strippedType !== member.type;
+      return {
+        kind: "propertySignature",
+        name: member.name,
+        type: isOptional ? strippedType : member.type,
+        isOptional,
+        isReadonly: member.isReadonly,
+      };
     }
 
-    return {
-      kind: "propertySignature",
-      name: member.name,
-      type: member.type,
-      isOptional: false,
-      isReadonly: member.isReadonly,
-    };
+    if (
+      member.kind === "methodDeclaration" &&
+      member.accessibility === "public" &&
+      !member.isStatic
+    ) {
+      return {
+        kind: "methodSignature",
+        name: member.name,
+        typeParameters: member.typeParameters,
+        parameters: member.parameters,
+        returnType: member.returnType,
+        overloadFamily: member.overloadFamily,
+      };
+    }
+
+    return [];
   });
 
 /**

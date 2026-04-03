@@ -476,7 +476,7 @@ describe("Statement Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("return takeC((Shape__2)(s.As3()));");
+    expect(result).to.include("return takeC((s.As3()));");
     expect(result).to.not.include("return takeC((Shape__2)(s.Match");
   });
 

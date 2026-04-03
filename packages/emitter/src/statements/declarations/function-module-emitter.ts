@@ -74,7 +74,8 @@ export const emitFunctionDeclaration = (
   context: EmitterContext
 ): [readonly CSharpMemberAst[], EmitterContext] => {
   const savedScoped = captureFunctionScopeContext(context);
-  const csharpBaseName = getCSharpName(stmt.name, "methods", context);
+  const publicName = stmt.overloadFamily?.publicName ?? stmt.name;
+  const csharpBaseName = getCSharpName(publicName, "methods", context);
 
   const funcTypeParams = new Set<string>([
     ...(context.typeParameters ?? []),
@@ -429,7 +430,7 @@ export const emitFunctionDeclaration = (
 
   const [attrs, attrContext] = emitAttributes(stmt.attributes, currentContext);
   currentContext = attrContext;
-  const emittedName = emitCSharpName(stmt.name, "methods", context);
+  const emittedName = emitCSharpName(publicName, "methods", context);
   const wrapperTypeArguments =
     typeParamAsts.length > 0
       ? typeParamAsts.map((typeParameter) => identifierType(typeParameter.name))

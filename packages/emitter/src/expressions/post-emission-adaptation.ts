@@ -13,6 +13,7 @@ import {
 import { isAssignable } from "../core/semantic/type-compatibility.js";
 import { resolveEffectiveExpressionType } from "../core/semantic/narrowed-expression-types.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
+import { isBroadObjectSlotType } from "../core/semantic/js-value-types.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 import {
   getIdentifierTypeName,
@@ -848,23 +849,7 @@ const isJsNumberIrType = (
 const expectsBoxedObjectIrType = (
   type: IrType | undefined,
   context: EmitterContext
-): boolean => {
-  if (!type) return false;
-  if (type.kind === "unknownType" || type.kind === "anyType") {
-    return true;
-  }
-
-  const resolved = resolveTypeAlias(stripNullish(type), context);
-  if (resolved.kind === "unknownType" || resolved.kind === "anyType") {
-    return true;
-  }
-  return (
-    resolved.kind === "referenceType" &&
-    (resolved.name === "object" ||
-      resolved.resolvedClrType === "System.Object" ||
-      resolved.resolvedClrType === "global::System.Object")
-  );
-};
+): boolean => isBroadObjectSlotType(type, context);
 
 export const maybeBoxJsNumberAsObjectAst = (
   ast: CSharpExpressionAst,

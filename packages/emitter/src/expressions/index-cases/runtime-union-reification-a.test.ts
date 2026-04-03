@@ -10,6 +10,12 @@ import {
   type IrType,
 } from "./helpers.js";
 
+const jsValueType: IrType = {
+  kind: "referenceType",
+  name: "JsValue",
+  resolvedClrType: "Tsonic.Runtime.JsValue",
+};
+
 describe("Expression Emission", () => {
   it("should lower union-rest function value calls with contextual array members", () => {
     const middlewareLike: IrType = {
@@ -51,7 +57,7 @@ describe("Expression Emission", () => {
                     passing: "value",
                   },
                 ],
-                returnType: { kind: "unknownType" },
+                returnType: jsValueType,
               },
             },
             arguments: [
@@ -67,7 +73,7 @@ describe("Expression Emission", () => {
             ],
             isOptional: false,
             parameterTypes: [middlewareLike],
-            inferredType: { kind: "unknownType" },
+            inferredType: jsValueType,
             sourceSpan: {
               file: "/src/test.ts",
               line: 1,
@@ -101,7 +107,7 @@ describe("Expression Emission", () => {
           passing: "value",
         },
       ],
-      returnType: { kind: "unknownType" },
+      returnType: jsValueType,
     };
 
     const middlewareParam: IrType = {
@@ -167,7 +173,7 @@ describe("Expression Emission", () => {
             {
               kind: "functionType",
               parameters: [],
-              returnType: { kind: "unknownType" },
+              returnType: jsValueType,
             },
             {
               kind: "arrayType",
@@ -199,7 +205,7 @@ describe("Expression Emission", () => {
             inferredType: {
               kind: "functionType",
               parameters: [],
-              returnType: { kind: "unknownType" },
+              returnType: jsValueType,
             },
           },
         ],
@@ -208,7 +214,7 @@ describe("Expression Emission", () => {
           elementType: {
             kind: "functionType",
             parameters: [],
-            returnType: { kind: "unknownType" },
+            returnType: jsValueType,
           },
           origin: "explicit",
         },
@@ -333,7 +339,7 @@ describe("Expression Emission", () => {
     );
 
     expect(printExpression(result)).to.equal(
-      "global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From1(new object[] { global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From2(handler) })"
+      "global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>.From1(new object[] { global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>.From2(handler) })"
     );
   });
 
@@ -430,16 +436,16 @@ describe("Expression Emission", () => {
 
     const text = printExpression(result);
     expect(text).to.include(
-      "handler.As1()[index] is global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>"
+      "handler.As1()[index] is global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>"
     );
     expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From1"
+      "global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>.From1"
     );
     expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From2"
+      "global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>.From2"
     );
     expect(text).to.include(
-      "global::Tsonic.Runtime.Union<object?[], global::System.Action<string>, global::Test.Router>.From3"
+      "global::Tsonic.Runtime.Union<object[], global::System.Action<string>, global::Test.Router>.From3"
     );
     expect(text).to.include("is global::System.Array");
     expect(text).to.not.equal("(handler.As1())[index]");

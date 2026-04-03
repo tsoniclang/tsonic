@@ -28,6 +28,8 @@ import {
   getProvisionalAccessorPropertyType,
   collectSynthesizedObjectMembers,
   finalizeObjectLiteralMethodExpression,
+  rebindObjectLiteralThisInClassMember,
+  rebindObjectLiteralThisInExpression,
 } from "./object-literal-helpers.js";
 
 /**
@@ -119,11 +121,9 @@ export const convertObjectLiteral = (
   // - AOT-friendly (no runtime reflection required by downstream libraries)
   //
   // Non-plain literals (spreads, computed keys) still fall back to TSN7403 synthesis.
-  const isObjectLikeContext =
+  const isDynamicObjectLikeContext =
     contextualCandidate?.kind === "anyType" ||
-    contextualCandidate?.kind === "unknownType" ||
-    (contextualCandidate?.kind === "referenceType" &&
-      contextualCandidate.name === "object");
+    contextualCandidate?.kind === "unknownType";
 
   const isPlainObjectLiteralAst = node.properties.every(
     (p) =>
@@ -134,8 +134,12 @@ export const convertObjectLiteral = (
   );
 
   const shouldLowerToDictionary =
-    isObjectLikeContext && isPlainObjectLiteralAst;
-  const dictionaryValueExpectedType: IrType = { kind: "unknownType" };
+    isDynamicObjectLikeContext && isPlainObjectLiteralAst;
+  const dictionaryValueExpectedType: IrType = {
+    kind: "referenceType",
+    name: "JsValue",
+    resolvedClrType: "Tsonic.Runtime.JsValue",
+  };
 
   const getObjectLiteralPropertyExpectedType = (
     keyName: string | undefined
@@ -319,12 +323,12 @@ export const convertObjectLiteral = (
 
   let contextualType = contextualCandidate;
 
-  if (isObjectLikeContext) {
+  if (isDynamicObjectLikeContext) {
     contextualType = shouldLowerToDictionary
       ? ({
           kind: "dictionaryType",
           keyType: { kind: "primitiveType", name: "string" },
-          valueType: { kind: "unknownType" },
+          valueType: dictionaryValueExpectedType,
         } satisfies IrDictionaryType)
       : undefined;
   }
@@ -464,13 +468,42 @@ export const convertObjectLiteral = (
     };
   }
 
+  const finalObjectLiteralThisType =
+    contextualType && contextualType.kind !== "dictionaryType"
+      ? contextualType
+      : undefined;
+  const finalProperties = finalObjectLiteralThisType
+    ? properties.map((property) =>
+        property.kind === "property" &&
+        property.value.kind === "functionExpression" &&
+        property.value.capturesObjectLiteralThis
+          ? {
+              ...property,
+              value: rebindObjectLiteralThisInExpression(
+                property.value,
+                finalObjectLiteralThisType
+              ),
+            }
+          : property
+      )
+    : properties;
+  const finalBehaviorMembers = finalObjectLiteralThisType
+    ? behaviorMembers.map((member) =>
+        rebindObjectLiteralThisInClassMember(
+          member,
+          finalObjectLiteralThisType
+        )
+      )
+    : behaviorMembers;
+
   // DETERMINISTIC TYPING: Object's inferredType comes from contextualType
   // (which may be from LHS annotation or synthesized type).
   // We don't derive from properties because that would require TS inference.
   return {
     kind: "object",
-    properties,
-    behaviorMembers: behaviorMembers.length > 0 ? behaviorMembers : undefined,
+    properties: finalProperties,
+    behaviorMembers:
+      finalBehaviorMembers.length > 0 ? finalBehaviorMembers : undefined,
     inferredType: contextualType, // Use contextual type if available
     sourceSpan: getSourceSpan(node),
     contextualType,

@@ -15,13 +15,13 @@ import {
   resolveStructuralReferenceType,
 } from "../core/semantic/type-resolution.js";
 import {
-  SYSTEM_ARRAY_STORAGE_TYPE,
-  isBroadArrayStorageTarget,
   isSystemArrayStorageType,
-  resolveBroadArrayAssertionStorageType,
+  resolveBroadArrayReceiverAssertionStorageType,
 } from "../core/semantic/broad-array-storage.js";
-import { resolveDirectStorageExpressionAst } from "./direct-storage-types.js";
-import { identifierType } from "../core/format/backend-ast/builders.js";
+import {
+  identifierExpression,
+  identifierType,
+} from "../core/format/backend-ast/builders.js";
 import { stripNullableTypeAst } from "../core/format/backend-ast/utils.js";
 import { getMemberAccessNarrowKey } from "../core/semantic/narrowing-keys.js";
 import { buildRuntimeUnionLayout } from "../core/semantic/runtime-unions.js";
@@ -35,6 +35,7 @@ import type {
   CSharpExpressionAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
+import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import {
   isObjectTypeAst,
   isPlainObjectIrType,
@@ -42,6 +43,24 @@ import {
 
 const looksLikeTypeParameterName = (name: string): boolean =>
   /^T($|[A-Z0-9_])/.test(name);
+
+const resolveReceiverStorageAst = (
+  sourceExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>,
+  narrowed: NarrowedBinding | undefined,
+  context: EmitterContext
+): CSharpExpressionAst | undefined => {
+  if (narrowed?.kind === "expr") {
+    return narrowed.storageExprAst;
+  }
+
+  if (sourceExpr.kind !== "identifier") {
+    return undefined;
+  }
+
+  return identifierExpression(
+    context.localNameMap?.get(sourceExpr.name) ?? escapeCSharpIdentifier(sourceExpr.name)
+  );
+};
 
 export const eraseOutOfScopeArrayWrapperTypeParameters = (
   typeAst: CSharpTypeAst,
@@ -379,11 +398,7 @@ const tryResolveBroadArrayAssertionReceiverTypeAst = (
           ? context.localValueTypes?.get(sourceExpr.name)
           : undefined;
     const sourceStorageAst =
-      narrowed?.kind === "expr"
-        ? narrowed.storageExprAst
-        : sourceExpr.kind === "identifier"
-          ? resolveDirectStorageExpressionAst(sourceExpr, context)
-          : undefined;
+      resolveReceiverStorageAst(sourceExpr, narrowed, context);
 
     return { narrowed, sourceStorageType, sourceStorageAst };
   };
@@ -396,14 +411,11 @@ const tryResolveBroadArrayAssertionReceiverTypeAst = (
       }
 
       const { sourceStorageType } = resolveSourceInfo(sourceExpr);
-      return resolveBroadArrayAssertionStorageType(
+      return resolveBroadArrayReceiverAssertionStorageType(
         receiverExpr.targetType,
         sourceStorageType,
         context
-      ) ??
-        (isBroadArrayStorageTarget(receiverExpr.targetType, context)
-          ? SYSTEM_ARRAY_STORAGE_TYPE
-          : undefined);
+      );
     }
 
     if (receiverExpr.kind !== "identifier" && receiverExpr.kind !== "memberAccess") {
@@ -414,7 +426,7 @@ const tryResolveBroadArrayAssertionReceiverTypeAst = (
       resolveEffectiveExpressionType(receiverExpr, context) ??
       receiverExpr.inferredType;
     const { sourceStorageType } = resolveSourceInfo(receiverExpr);
-    return resolveBroadArrayAssertionStorageType(
+    return resolveBroadArrayReceiverAssertionStorageType(
       targetType,
       sourceStorageType,
       context
@@ -464,25 +476,17 @@ export const tryEmitBroadArrayAssertionReceiverStorageAst = (
         ? context.localValueTypes?.get(sourceExpr.name)
         : undefined;
   const preservedStorageType =
-    resolveBroadArrayAssertionStorageType(
+    resolveBroadArrayReceiverAssertionStorageType(
       targetType,
       sourceStorageType,
       context
-    ) ??
-    (receiverExpr.kind === "typeAssertion" &&
-    isBroadArrayStorageTarget(targetType, context)
-      ? SYSTEM_ARRAY_STORAGE_TYPE
-      : undefined);
+    );
   if (!preservedStorageType) {
     return undefined;
   }
 
   const sourceStorageAst =
-    narrowed?.kind === "expr"
-      ? narrowed.storageExprAst
-      : sourceExpr.kind === "identifier"
-        ? resolveDirectStorageExpressionAst(sourceExpr, context)
-        : undefined;
+    resolveReceiverStorageAst(sourceExpr, narrowed, context);
   if (!sourceStorageAst) {
     return undefined;
   }

@@ -3,12 +3,11 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
-import { emitStatementAst } from "../../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { makeNarrowedLocalName } from "../../../core/semantic/narrowing-keys.js";
 import {
   buildAnyIsNCondition,
-  buildExprBinding,
+  buildProjectedExprBinding,
   buildSubsetUnionType,
   toReceiverAst,
   buildUnionNarrowAst,
@@ -18,6 +17,7 @@ import {
   emitForcedBlockWithPreambleAst,
   buildCastLocalDecl,
   buildIsNCondition,
+  emitBranchScopedStatementAst,
 } from "./branch-context.js";
 import {
   tryResolvePredicateGuard,
@@ -82,7 +82,7 @@ export const tryEmitPropertyTruthinessGuard = (
         finalContext
       );
 
-      const [elseStmts, elseCtxAfter] = emitStatementAst(
+      const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
         stmt.elseStatement,
         elseCtx
       );
@@ -105,7 +105,7 @@ export const tryEmitPropertyTruthinessGuard = (
       ];
     }
 
-    const [elseStmts, elseCtx] = emitStatementAst(stmt.elseStatement, {
+    const [elseStmts, elseCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
       ...finalContext,
       narrowedBindings: ctxWithId.narrowedBindings,
     });
@@ -202,7 +202,7 @@ export const tryEmitDiscriminantEqualityGuard = (
     let elseStmt: CSharpStatementAst | undefined;
     if (stmt.elseStatement) {
       if (unionArity === 2) {
-        const [elseStmts, elseCtxAfter] = emitStatementAst(
+        const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
           stmt.elseStatement,
           withComplementNarrowing(
             originalName,
@@ -232,7 +232,7 @@ export const tryEmitDiscriminantEqualityGuard = (
         ];
       }
 
-      const [elseStmts, elseCtx] = emitStatementAst(stmt.elseStatement, {
+      const [elseStmts, elseCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
         ...finalContext,
         narrowedBindings: ctxWithId.narrowedBindings,
       });
@@ -293,7 +293,7 @@ export const tryEmitDiscriminantEqualityGuard = (
     let thenCtx: EmitterContext;
 
     if (unionArity === 2) {
-      const [thenStmts, thenCtxAfter] = emitStatementAst(stmt.thenStatement, {
+      const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(stmt.thenStatement, {
         ...withComplementNarrowing(
           originalName,
           escapedOrig,
@@ -307,7 +307,7 @@ export const tryEmitDiscriminantEqualityGuard = (
       thenStmt = wrapInBlock(thenStmts);
       thenCtx = thenCtxAfter;
     } else {
-      const [thenStmts, thenCtxAfter] = emitStatementAst(
+      const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
         stmt.thenStatement,
         ctxWithId
       );
@@ -348,7 +348,7 @@ export const tryEmitDiscriminantEqualityGuard = (
       const narrowedBindings = new Map(finalContext.narrowedBindings ?? []);
       narrowedBindings.set(
         originalName,
-        buildExprBinding(
+        buildProjectedExprBinding(
           buildUnionNarrowAst(escapedOrig, memberN),
           candidateMembers[
             candidateMemberNs.findIndex(
@@ -464,6 +464,7 @@ export const tryEmitNegatedPredicateGuard = (
       kind: "rename",
       name: thenNarrowedName,
       type: otherMemberType,
+      sourceType: buildSubsetUnionType(candidateMembers),
     });
 
     const thenCastStmt = buildCastLocalDecl(
@@ -480,7 +481,7 @@ export const tryEmitNegatedPredicateGuard = (
     thenStmt = thenBlock;
     thenCtx = thenBlockCtx;
   } else {
-    const [thenStmts, thenCtxAfter] = emitStatementAst(
+    const [thenStmts, thenCtxAfter] = emitBranchScopedStatementAst(
       thenStatement,
       withComplementNarrowingForMembers(
         originalName,
@@ -518,7 +519,7 @@ export const tryEmitNegatedPredicateGuard = (
               type: targetType,
               sourceType: sourceType ?? buildSubsetUnionType(candidateMembers),
             });
-            const [elseStmts, nextElseCtx] = emitStatementAst(
+            const [elseStmts, nextElseCtx] = emitBranchScopedStatementAst(
               stmt.elseStatement,
               {
                 ...ctxWithId,
@@ -558,7 +559,7 @@ export const tryEmitNegatedPredicateGuard = (
 
       narrowedBindings.set(
         originalName,
-        buildExprBinding(
+        buildProjectedExprBinding(
           buildUnionNarrowAst(receiverAst, memberN),
           selectedMemberType,
           sourceType,

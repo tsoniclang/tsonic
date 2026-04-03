@@ -199,12 +199,20 @@ describe("runtime-unions", () => {
         },
         {
           kind: "arrayType",
-          elementType: { kind: "unknownType" },
+          elementType: {
+            kind: "referenceType",
+            name: "object",
+            resolvedClrType: "System.Object",
+          },
           origin: "explicit",
         },
         {
           kind: "arrayType",
-          elementType: { kind: "unknownType" },
+          elementType: {
+            kind: "referenceType",
+            name: "object",
+            resolvedClrType: "System.Object",
+          },
           origin: "explicit",
         },
       ],
@@ -362,7 +370,11 @@ describe("runtime-unions", () => {
       return;
     }
 
-    expect(recursiveArray.elementType.kind).to.equal("unknownType");
+    expect(recursiveArray.elementType).to.deep.equal({
+      kind: "referenceType",
+      name: "object",
+      resolvedClrType: "System.Object",
+    });
   });
 
   it("finds all runtime union members that satisfy a recursive alias subset target", () => {

@@ -84,6 +84,7 @@ const discoverCommonScenarios = (commonDir: string): readonly Scenario[] => {
           expectedPath: expectDiagnostics?.length ? undefined : expectedPath,
           expectDiagnostics,
           expectDiagnosticsMode: entry.expectDiagnosticsMode,
+          surface: entry.surface,
         });
       }
     }

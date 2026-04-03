@@ -66,7 +66,7 @@ describe("field<T> marker", function () {
     );
 
     const compileResult = compile([filePath], {
-      projectRoot: monorepoRoot,
+      projectRoot: tmpDir,
       sourceRoot: tmpDir,
       rootNamespace: "Test",
       typeRoots: [globalsPath, stubCore, corePath],

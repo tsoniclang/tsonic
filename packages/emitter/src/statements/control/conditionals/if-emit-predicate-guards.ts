@@ -7,7 +7,6 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import type { CSharpStatementAst } from "../../../core/format/backend-ast/types.js";
-import { emitStatementAst } from "../../../statement-emitter.js";
 import {
   buildAnyIsNCondition,
   buildIsNCondition,
@@ -17,6 +16,7 @@ import {
   withComplementNarrowingForMembers,
   wrapInBlock,
   emitForcedBlockWithPreambleAst,
+  emitBranchScopedStatementAst,
 } from "./branch-context.js";
 import {
   tryResolvePredicateGuard,
@@ -84,7 +84,7 @@ export const tryEmitPredicateGuard = (
             type: targetType,
             sourceType: sourceType ?? buildSubsetUnionType(candidateMembers),
           });
-          const [thenStmts, nextThenCtx] = emitStatementAst(
+          const [thenStmts, nextThenCtx] = emitBranchScopedStatementAst(
             stmt.thenStatement,
             {
               ...ctxWithId,
@@ -121,7 +121,7 @@ export const tryEmitPredicateGuard = (
             memberNs,
             finalContext
           );
-    const [elseStmts, elseCtx] = emitStatementAst(
+    const [elseStmts, elseCtx] = emitBranchScopedStatementAst(
       stmt.elseStatement,
       elseCtxBase
     );
@@ -230,7 +230,7 @@ export const tryEmitInGuard = (
         finalContext
       );
 
-      const [elseStmts, elseCtxAfter] = emitStatementAst(
+      const [elseStmts, elseCtxAfter] = emitBranchScopedStatementAst(
         stmt.elseStatement,
         elseCtx
       );
@@ -254,7 +254,7 @@ export const tryEmitInGuard = (
     }
 
     // Can't narrow ELSE safely, emit without narrowing.
-    const [elseStmts, elseCtx] = emitStatementAst(stmt.elseStatement, {
+    const [elseStmts, elseCtx] = emitBranchScopedStatementAst(stmt.elseStatement, {
       ...finalContext,
       narrowedBindings: ctxWithId.narrowedBindings,
     });

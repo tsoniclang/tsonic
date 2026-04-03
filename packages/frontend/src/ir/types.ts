@@ -43,7 +43,6 @@ export type {
   IrYieldStatement,
   IrGeneratorReturnStatement,
   IrOverloadOwnerKind,
-  IrOverloadFamilyRole,
   IrOverloadFamilyMember,
   // Expression types
   IrExpression,
@@ -139,6 +138,7 @@ export {
   irTypesEqual,
   normalizedUnionType,
   substituteIrType,
+  getIrMemberPublicName,
   // Numeric helpers (literal type inference)
   isValidIntegerLexeme,
   parseBigIntFromRaw,

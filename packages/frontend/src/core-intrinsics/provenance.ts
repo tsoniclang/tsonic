@@ -4,6 +4,7 @@ import * as path from "node:path";
 export type CoreModule = "types" | "lang";
 
 export const CORE_PACKAGE_NAME = "@tsonic/core";
+export const GLOBALS_PACKAGE_NAME = "@tsonic/globals";
 
 export const CORE_TYPES_TYPE_NAMES = new Set([
   "sbyte",
@@ -84,14 +85,31 @@ const readNearestPackageName = (fileName: string): string | undefined => {
   }
 };
 
+export const isDeclarationFileFromPackage = (
+  fileName: string,
+  packageName: string,
+  expectedBase?: string
+): boolean => {
+  if (expectedBase && path.basename(fileName) !== expectedBase) {
+    return false;
+  }
+  return readNearestPackageName(fileName) === packageName;
+};
+
 export const isCoreDeclarationFile = (
   fileName: string,
   module: CoreModule
 ): boolean => {
-  const base = path.basename(fileName);
   const expectedBase = module === "types" ? "types.d.ts" : "lang.d.ts";
-  if (base !== expectedBase) return false;
-  return readNearestPackageName(fileName) === CORE_PACKAGE_NAME;
+  return isDeclarationFileFromPackage(fileName, CORE_PACKAGE_NAME, expectedBase);
+};
+
+export const isGlobalsDeclarationFile = (fileName: string): boolean => {
+  return isDeclarationFileFromPackage(
+    fileName,
+    GLOBALS_PACKAGE_NAME,
+    "core-globals.d.ts"
+  );
 };
 
 export const resolveAliasedSymbol = (
@@ -118,9 +136,59 @@ export const isSymbolFromCore = (
   );
 };
 
+export const isSymbolFromPackage = (
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol | undefined,
+  packageName: string,
+  expectedBase?: string
+): boolean => {
+  const resolved = resolveAliasedSymbol(checker, symbol);
+  if (!resolved) return false;
+
+  const decls = resolved.getDeclarations?.() ?? [];
+  return decls.some((decl) =>
+    isDeclarationFileFromPackage(
+      decl.getSourceFile().fileName,
+      packageName,
+      expectedBase
+    )
+  );
+};
+
+export const isSymbolFromGlobals = (
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol | undefined
+): boolean => {
+  const resolved = resolveAliasedSymbol(checker, symbol);
+  if (!resolved) return false;
+
+  const decls = resolved.getDeclarations?.() ?? [];
+  return decls.some((decl) =>
+    isGlobalsDeclarationFile(decl.getSourceFile().fileName)
+  );
+};
+
 export const isIdentifierFromCore = (
   checker: ts.TypeChecker,
   node: ts.Identifier,
   module: CoreModule
 ): boolean =>
   isSymbolFromCore(checker, checker.getSymbolAtLocation(node), module);
+
+export const isIdentifierFromPackage = (
+  checker: ts.TypeChecker,
+  node: ts.Identifier,
+  packageName: string,
+  expectedBase?: string
+): boolean =>
+  isSymbolFromPackage(
+    checker,
+    checker.getSymbolAtLocation(node),
+    packageName,
+    expectedBase
+  );
+
+export const isIdentifierFromGlobals = (
+  checker: ts.TypeChecker,
+  node: ts.Identifier
+): boolean => isSymbolFromGlobals(checker, checker.getSymbolAtLocation(node));

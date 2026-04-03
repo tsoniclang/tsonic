@@ -206,6 +206,49 @@ export const emitMemberName = (
   usage: MemberAccessUsage
 ): string => {
   if (usage === "call") {
+    if (receiverType) {
+      const resolved = resolveTypeAlias(stripNullish(receiverType), context);
+      if (resolved.kind === "referenceType") {
+        const localInfo = resolveLocalTypeInfo(resolved, context)?.info;
+        if (localInfo?.kind === "class") {
+          const method = localInfo.members.find(
+            (
+              member
+            ): member is Extract<
+              (typeof localInfo.members)[number],
+              { kind: "methodDeclaration" }
+            > =>
+              member.kind === "methodDeclaration" && member.name === memberName
+          );
+          if (method?.overloadFamily?.publicName) {
+            return emitCSharpName(
+              method.overloadFamily.publicName,
+              "methods",
+              context
+            );
+          }
+        }
+        if (localInfo?.kind === "interface") {
+          const method = localInfo.members.find(
+            (
+              member
+            ): member is Extract<
+              (typeof localInfo.members)[number],
+              { kind: "methodSignature" }
+            > =>
+              member.kind === "methodSignature" && member.name === memberName
+          );
+          if (method?.overloadFamily?.publicName) {
+            return emitCSharpName(
+              method.overloadFamily.publicName,
+              "methods",
+              context
+            );
+          }
+        }
+      }
+    }
+
     return emitCSharpName(memberName, "methods", context);
   }
 

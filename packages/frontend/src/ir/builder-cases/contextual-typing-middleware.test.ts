@@ -222,6 +222,62 @@ describe("IR Builder", function () {
       }
     });
 
+    it("propagates tuple element types into destructured callback parameters", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "type JsPrimitive = string | number | boolean | bigint | symbol;",
+            "type JsValue = object | JsPrimitive | null;",
+            "declare function enumerateEntries(value: JsValue): [string, JsValue][];",
+            "export function keys(value: JsValue): string[] {",
+            "  return enumerateEntries(value).map(([key]) => key);",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const keysFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "keys"
+        );
+        expect(keysFn).to.not.equal(undefined);
+        if (!keysFn) return;
+
+        const returnStmt = keysFn.body.statements.find(
+          (stmt): stmt is IrReturnStatement => stmt.kind === "returnStatement"
+        );
+        expect(returnStmt?.expression?.kind).to.equal("call");
+        if (!returnStmt?.expression || returnStmt.expression.kind !== "call") {
+          return;
+        }
+
+        const callback = returnStmt.expression.arguments[0];
+        expect(callback?.kind).to.equal("arrowFunction");
+        if (!callback || callback.kind !== "arrowFunction") return;
+
+        expect(callback.body.kind).to.equal("identifier");
+        if (callback.body.kind !== "identifier") return;
+
+        expect(callback.body.inferredType?.kind).to.equal("primitiveType");
+        if (callback.body.inferredType?.kind !== "primitiveType") return;
+        expect(callback.body.inferredType.name).to.equal("string");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("preserves recursive middleware element types after Array.isArray branch narrowing", () => {
       const fixture = createFilesystemTestProgram(
         {

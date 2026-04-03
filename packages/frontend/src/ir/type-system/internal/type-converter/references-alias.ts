@@ -23,6 +23,7 @@ import {
   isRecursiveUserTypeAliasDeclaration,
   expandTypeAliasBody,
 } from "./references-structural.js";
+import { expandDirectAliasSyntax } from "./direct-alias-expansion.js";
 
 export const entityNameToText = (entityName: ts.EntityName): string =>
   ts.isIdentifier(entityName)
@@ -120,6 +121,18 @@ export const handleTypeAliasDeclaration = (
   }
 
   // User-defined type aliases are TS-only and have no CLR identity.
+  if (!declNode.getSourceFile().isDeclarationFile) {
+    const directExpanded = expandDirectAliasSyntax(
+      declNode,
+      node,
+      binding,
+      convertType
+    );
+    if (directExpanded) {
+      return normalizeExpandedAliasType(directExpanded);
+    }
+  }
+
   if (
     !declNode.getSourceFile().isDeclarationFile &&
     isSafeToEraseUserTypeAliasTarget(declNode.type) &&

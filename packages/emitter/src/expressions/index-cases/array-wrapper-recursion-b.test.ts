@@ -386,7 +386,7 @@ describe("Expression Emission", () => {
     });
 
     const text = printExpression(result);
-    expect(text).to.include("new global::js.Array<object>(result)");
+    expect(text).to.include("global::js.ArrayObject.wrapArray(result)");
     expect(text).to.not.include(
       "new global::js.Array<global::Tsonic.Runtime.Union"
     );

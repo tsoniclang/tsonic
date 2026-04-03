@@ -7,8 +7,8 @@ import {
   substituteTypeArgs,
 } from "./type-resolution.js";
 import {
+  BROAD_OBJECT_TYPE,
   getRuntimeUnionReferenceMembers,
-  UNKNOWN_TYPE,
 } from "./runtime-union-shared.js";
 
 const toRecursiveFallbackType = (type: IrType): IrType => {
@@ -24,7 +24,7 @@ const toRecursiveFallbackType = (type: IrType): IrType => {
     }
   }
 
-  return UNKNOWN_TYPE;
+  return BROAD_OBJECT_TYPE;
 };
 
 export const expandRuntimeUnionMembers = (
@@ -134,7 +134,7 @@ export const expandRuntimeUnionMembers = (
       return [
         {
           kind: "arrayType",
-          elementType: UNKNOWN_TYPE,
+          elementType: BROAD_OBJECT_TYPE,
           origin: type.origin,
         },
       ];
@@ -143,7 +143,7 @@ export const expandRuntimeUnionMembers = (
     return [
       {
         ...type,
-        elementType: elementMembers[0] ?? UNKNOWN_TYPE,
+        elementType: elementMembers[0] ?? BROAD_OBJECT_TYPE,
       },
     ];
   }
@@ -381,4 +381,24 @@ export const isRuntimeUnionElementFamily = (
   }
 
   return false;
+};
+
+export const hasRuntimeUnionArrayMemberWithRuntimeUnionElements = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  return collectRuntimeUnionRawMembers(type, context).some((member) => {
+    const resolvedMember = resolveTypeAlias(member, context);
+    return (
+      resolvedMember.kind === "arrayType" &&
+      isRuntimeUnionElementFamily(resolvedMember.elementType, context)
+    );
+  });
+};
+
+export const shouldEraseRecursiveRuntimeUnionArrayElement = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  return hasRuntimeUnionArrayMemberWithRuntimeUnionElements(type, context);
 };

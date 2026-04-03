@@ -28,6 +28,7 @@ import {
   tryEmitStorageCompatibleNarrowedIdentifier,
 } from "./identifier-storage.js";
 import { matchesExpectedEmissionType } from "../core/semantic/expected-type-matching.js";
+import { stripNullish } from "../core/semantic/type-resolution.js";
 import { willCarryAsRuntimeUnion } from "../core/semantic/union-semantics.js";
 import {
   isExpectedIntegralIrType,
@@ -141,6 +142,32 @@ export const emitIdentifier = (
           : undefined;
         if (storageCompatibleExpected && expectedType) {
           return [storageCompatibleExpected, context];
+        }
+
+        const canReuseOriginalCarrierForExpectedTarget =
+          !!expectedType &&
+          !!narrowed.sourceType &&
+          ((willCarryAsRuntimeUnion(expectedType, context) &&
+            matchesExpectedEmissionType(
+              stripNullish(narrowed.sourceType),
+              expectedType,
+              context
+            )) ||
+            (isBroadStorageTarget(expectedType, context) &&
+              matchesExpectedEmissionType(
+                stripNullish(narrowed.sourceType),
+                expectedType,
+                context
+              )));
+        if (canReuseOriginalCarrierForExpectedTarget) {
+          const originalCarrier = tryEmitStorageCompatibleIdentifier(
+            expr,
+            context,
+            expectedType
+          );
+          if (originalCarrier) {
+            return [originalCarrier, context];
+          }
         }
 
         const shouldPreferNarrowedSubsetTarget =

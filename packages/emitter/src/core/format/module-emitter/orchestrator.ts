@@ -55,7 +55,9 @@ const typeSuppressionKey = (
 
 const walkTypeRefs = (
   type: IrType | undefined,
-  onReference: (name: string) => void,
+  onReference: (
+    ref: Extract<IrType, { kind: "referenceType" }>
+  ) => void,
   seen: WeakSet<object> = new WeakSet<object>()
 ): void => {
   if (!type) return;
@@ -68,7 +70,7 @@ const walkTypeRefs = (
 
   switch (type.kind) {
     case "referenceType":
-      onReference(type.name);
+      onReference(type);
       if (type.typeArguments) {
         for (const arg of type.typeArguments) {
           walkTypeRefs(arg, onReference, seen);
@@ -134,6 +136,12 @@ const collectPublicLocalTypes = (
   module: IrModule,
   localTypes: ReadonlyMap<string, LocalTypeInfo>
 ): ReadonlySet<string> => {
+  const localTypeLookup = new Map<string, string>();
+  for (const localName of localTypes.keys()) {
+    localTypeLookup.set(localName, localName);
+    localTypeLookup.set(`${module.namespace}.${localName}`, localName);
+  }
+
   const result = new Set<string>();
   const queue: string[] = [];
   const enqueueLocalType = (name: string): void => {
@@ -141,9 +149,32 @@ const collectPublicLocalTypes = (
     result.add(name);
     queue.push(name);
   };
+  const resolveLocalTypeName = (
+    ref: Extract<IrType, { kind: "referenceType" }>
+  ): string | undefined => {
+    const candidates = [
+      ref.name,
+      ref.resolvedClrType,
+      ref.typeId?.clrName,
+      ref.typeId?.tsName,
+    ];
+
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const localName = localTypeLookup.get(candidate);
+      if (localName) {
+        return localName;
+      }
+    }
+
+    return undefined;
+  };
   const addType = (type: IrType | undefined): void => {
-    walkTypeRefs(type, (name) => {
-      if (localTypes.has(name)) enqueueLocalType(name);
+    walkTypeRefs(type, (ref) => {
+      const localName = resolveLocalTypeName(ref);
+      if (localName) {
+        enqueueLocalType(localName);
+      }
     });
   };
 

@@ -80,5 +80,42 @@ describe("validateUnsupportedFeatures", () => {
 
       expect(hasDiagnostic(result, "TSN5001")).to.equal(false);
     });
+
+    it("allows recursive middleware array branches narrowed by Array.isArray", () => {
+      const result = runValidation(`
+        type RequestHandler = (value: string) => void;
+        type MiddlewareLike = RequestHandler | Router | readonly MiddlewareLike[];
+
+        class Router {}
+
+        export function flatten(entries: readonly MiddlewareLike[]): readonly (RequestHandler | Router)[] {
+          const result: (RequestHandler | Router)[] = [];
+
+          const append = (handler: MiddlewareLike): void => {
+            if (Array.isArray(handler)) {
+              for (let index = 0; index < handler.length; index += 1) {
+                append(handler[index]!);
+              }
+              return;
+            }
+
+            if (handler instanceof Router) {
+              result.push(handler);
+              return;
+            }
+
+            result.push(handler);
+          };
+
+          for (const entry of entries) {
+            append(entry);
+          }
+
+          return result;
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN5001")).to.equal(false);
+    });
   });
 });

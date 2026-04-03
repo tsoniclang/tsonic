@@ -1,0 +1,5 @@
+{
+  "name": "@tsonic/nodejs",
+  "private": true,
+  "type": "module"
+}

@@ -352,7 +352,7 @@ describe("Expression Emission", () => {
       bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result).to.include(
-      "new global::js.Array<int>(nums).map(project).toArray()"
+      "global::js.ArrayObject.wrapArray(nums).map(project).toArray()"
     );
   });
 
@@ -407,7 +407,7 @@ describe("Expression Emission", () => {
       bindingRegistry: jsSurfaceBindingRegistry,
     });
     expect(result).to.include(
-      "new global::js.Array<string>(items).filter(predicate).toArray()"
+      "global::js.ArrayObject.wrapArray(items).filter(predicate).toArray()"
     );
   });
 

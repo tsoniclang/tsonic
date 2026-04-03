@@ -24,7 +24,9 @@ import {
   extractStatementsWithGroups,
   isExecutableStatement,
 } from "./statements.js";
-import { validateClassImplements } from "./validation.js";
+import {
+  validateClassImplements,
+} from "./validation.js";
 import { resolveSourceFileIdentity } from "../../program/source-file-identity.js";
 
 /**

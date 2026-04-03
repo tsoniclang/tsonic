@@ -53,13 +53,14 @@ export function buildFunctionTypeFromSignatureDeclaration(
   binding: Binding,
   convertTypeFn: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrFunctionType {
+  const typeParameters = convertFunctionTypeParameters(
+    declaration.typeParameters,
+    binding,
+    convertTypeFn
+  );
   return {
     kind: "functionType",
-    typeParameters: convertFunctionTypeParameters(
-      declaration.typeParameters,
-      binding,
-      convertTypeFn
-    ),
+    ...(typeParameters ? { typeParameters } : {}),
     parameters: declaration.parameters.map((parameter) => ({
       kind: "parameter",
       pattern: ts.isIdentifier(parameter.name)

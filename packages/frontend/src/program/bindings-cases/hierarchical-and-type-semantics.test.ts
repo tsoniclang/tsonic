@@ -483,17 +483,43 @@ describe("Binding System", () => {
                 },
               },
             ],
-            properties: [],
-            fields: [],
+            properties: [
+              {
+                clrName: "Shared",
+                declaringClrType: "System.Buffers.ArrayPool`1",
+                declaringAssemblyName: "System.Memory",
+                emitSemantics: {
+                  callableStaticAccessorKind: "property",
+                },
+              },
+            ],
+            fields: [
+              {
+                clrName: "Empty",
+                declaringClrType: "System.Memory`1",
+                declaringAssemblyName: "System.Memory",
+                emitSemantics: {
+                  callableStaticAccessorKind: "field",
+                },
+              },
+            ],
           },
         ],
       });
 
       const where = registry.getMemberOverloads("Enumerable", "Where")?.[0];
       const toList = registry.getMemberOverloads("Enumerable", "ToList")?.[0];
+      const shared = registry.getMemberOverloads("ArrayPool_1", "Shared")?.[0];
+      const empty = registry.getMemberOverloads("Memory_1", "Empty")?.[0];
 
       expect(where?.emitSemantics?.callStyle).to.equal("static");
       expect(toList?.emitSemantics?.callStyle).to.equal("receiver");
+      expect(shared?.emitSemantics?.callableStaticAccessorKind).to.equal(
+        "property"
+      );
+      expect(empty?.emitSemantics?.callableStaticAccessorKind).to.equal(
+        "field"
+      );
       expect(
         registry.getClrMemberOverloads(
           "System.Linq",

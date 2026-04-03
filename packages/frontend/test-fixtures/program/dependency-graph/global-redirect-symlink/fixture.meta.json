@@ -1,0 +1,19 @@
+{
+  "copyDirectories": [
+    {
+      "from": "../core/versions/10",
+      "to": "app/node_modules/@tsonic/core"
+    },
+    {
+      "from": "../globals/versions/10",
+      "to": "app/node_modules/@tsonic/globals"
+    }
+  ],
+  "symlinks": [
+    {
+      "from": "external/@fixture/js",
+      "to": "app/node_modules/@fixture/js",
+      "type": "dir"
+    }
+  ]
+}

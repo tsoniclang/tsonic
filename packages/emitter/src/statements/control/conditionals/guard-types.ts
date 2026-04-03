@@ -275,13 +275,17 @@ export const buildRenameNarrowedMap = (
   originalName: string,
   narrowedName: string,
   memberType: IrType,
+  sourceType: IrType | undefined,
   ctxWithId: EmitterContext
 ): Map<string, NarrowedBinding> => {
   const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
+  const existingBinding = ctxWithId.narrowedBindings?.get(originalName);
   narrowedMap.set(originalName, {
     kind: "rename",
     name: narrowedName,
     type: memberType,
+    sourceType:
+      sourceType ?? existingBinding?.sourceType ?? existingBinding?.type,
   });
   return narrowedMap;
 };

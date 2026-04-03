@@ -1,0 +1,30 @@
+{
+  "$schema": "https://tsonic.org/schema/workspace/v1.json",
+  "dotnetVersion": "net10.0",
+  "surface": "@tsonic/js",
+  "dotnet": {
+    "typeRoots": [
+      "/home/jester/repos/tsoniclang/js/versions/10",
+      "node_modules/@tsonic/nodejs"
+    ],
+    "libraries": [],
+    "frameworkReferences": [
+      {
+        "id": "Microsoft.AspNetCore.App",
+        "types": "@tsonic/aspnetcore"
+      }
+    ],
+    "packageReferences": [
+      {
+        "id": "Tsonic.JSRuntime",
+        "version": "0.0.9",
+        "types": "@tsonic/js"
+      },
+      {
+        "id": "Tsonic.Nodejs",
+        "version": "1.0.6",
+        "types": "@tsonic/nodejs"
+      }
+    ]
+  }
+}

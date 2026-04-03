@@ -7,19 +7,16 @@ import { IrClassDeclaration, IrClassMember } from "../../../../types.js";
 import {
   hasExportModifier,
   convertTypeParameters,
-  hasStaticModifier,
   hasDeclareModifier,
 } from "../../helpers.js";
 import { convertAccessorProperty, convertProperty } from "./properties.js";
-import { convertMethod, convertMethodOverloadGroup } from "./methods.js";
+import { convertMethod } from "./methods.js";
 import {
   convertConstructor,
-  convertConstructorOverloadGroup,
   extractParameterProperties,
 } from "./constructors.js";
 import {
   getClassMemberName,
-  hasNonComputedClassMemberName,
 } from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
 import { resolveHeritageReferenceType } from "../../../heritage-reference-type.js";
@@ -155,28 +152,15 @@ export const convertClassDeclaration = (
 
   // Filter to only include members declared directly on this class (not inherited)
   const ownMembers = filterOwnMembers(node);
-  const constructorNodes = ownMembers.filter(
+  const constructorImplementation = ownMembers.find(
     ts.isConstructorDeclaration
-  ) as readonly ts.ConstructorDeclaration[];
-  const constructorImplementation =
-    constructorNodes.find((member) => !!member.body) ?? constructorNodes[0];
+  );
 
   // Extract parameter properties from the implementation constructor when present.
   const parameterProperties = extractParameterProperties(
     constructorImplementation,
     ctx
   );
-
-  // Pre-group overload method declarations by (static, name) so we can emit one C# method per signature.
-  const methodGroups = new Map<string, ts.MethodDeclaration[]>();
-  for (const member of ownMembers) {
-    if (!ts.isMethodDeclaration(member)) continue;
-    if (!hasNonComputedClassMemberName(member.name)) continue; // computed names: don't group
-    const key = `${hasStaticModifier(member) ? "static" : "instance"}:${getClassMemberName(member.name)}`;
-    const list = methodGroups.get(key);
-    if (list) list.push(member);
-    else methodGroups.set(key, [member]);
-  }
 
   const accessorPairs = new Map<
     string,
@@ -200,8 +184,6 @@ export const convertClassDeclaration = (
 
   const convertedMembers: IrClassMember[] = [];
   const seenAccessors = new Set<string>();
-  const seenMethodGroups = new Set<string>();
-  let emittedConstructors = false;
   for (const member of ownMembers) {
     if (
       ts.isGetAccessorDeclaration(member) ||
@@ -224,33 +206,13 @@ export const convertClassDeclaration = (
     }
 
     if (ts.isMethodDeclaration(member)) {
-      if (hasNonComputedClassMemberName(member.name)) {
-        const key = `${hasStaticModifier(member) ? "static" : "instance"}:${getClassMemberName(member.name)}`;
-        if (seenMethodGroups.has(key)) continue;
-        seenMethodGroups.add(key);
-        const group = methodGroups.get(key);
-        if (!group) {
-          throw new Error(`ICE: missing method group for key '${key}'`);
-        }
-        convertedMembers.push(
-          ...convertMethodOverloadGroup(group, ctx, superClass)
-        );
-        continue;
-      }
-
-      // Computed method names: no overload grouping.
       convertedMembers.push(convertMethod(member, ctx, superClass));
       continue;
     }
 
     if (ts.isConstructorDeclaration(member)) {
-      if (emittedConstructors) {
-        continue;
-      }
-
-      emittedConstructors = true;
       convertedMembers.push(
-        ...convertConstructorOverloadGroup(constructorNodes, ctx)
+        convertConstructor(member, ctx, constructorImplementation?.parameters)
       );
       continue;
     }

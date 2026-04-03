@@ -1,5 +1,5 @@
 /**
- * Tests for A.on(Class).ctor.add(Attr) pattern.
+ * Tests for A<T>().ctor.add(Attr) pattern.
  */
 
 import {
@@ -16,7 +16,7 @@ import {
 import type { IrClassDeclaration } from "./helpers.js";
 
 describe("Attribute Collection Pass", () => {
-  describe("A.on(Class).ctor.add(Attr) pattern", () => {
+  describe("A<T>().ctor.add(Attr) pattern", () => {
     it("should attach attribute to class ctorAttributes", () => {
       const module = createModule([
         {

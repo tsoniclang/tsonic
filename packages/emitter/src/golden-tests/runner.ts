@@ -7,11 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import {
-  compile,
-  buildIr,
-  runNumericProofPass,
-  runAttributeCollectionPass,
-  runAnonymousTypeLoweringPass,
+  buildModuleDependencyGraph,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import { DiagnosticsMode, Scenario } from "./types.js";
@@ -61,6 +57,8 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   ); // Strip hyphens
   const rootNamespace = ["TestCases", ...namespaceParts].join(".");
 
+  const surface = scenario.surface ?? "@tsonic/js";
+
   // Step 1: Compile TypeScript → Program
   // Allow per-scenario extra typeRoots (used by some tests to provide minimal
   // declarations for upcoming core intrinsics without depending on published packages).
@@ -97,25 +95,23 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   collectTs(sourceRoot);
   tsFiles.sort();
 
-  const compileResult = compile(
-    tsFiles.length ? tsFiles : [scenario.inputPath],
-    {
-      projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
-      sourceRoot,
-      rootNamespace,
-      typeRoots,
-    }
-  );
+  const graphResult = buildModuleDependencyGraph(scenario.inputPath, {
+    projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
+    sourceRoot,
+    rootNamespace,
+    typeRoots,
+    surface,
+  });
 
   // Handle expected diagnostics tests
   if (scenario.expectDiagnostics?.length) {
-    if (compileResult.ok) {
+    if (graphResult.ok) {
       throw new Error(
         `Expected diagnostics ${scenario.expectDiagnostics.join(", ")} but compilation succeeded for ${scenario.inputPath}`
       );
     }
 
-    const actualDiagnostics = compileResult.error.diagnostics;
+    const actualDiagnostics = graphResult.error;
     const actualCodes = new Set(actualDiagnostics.map((d) => d.code as string));
     const expected = scenario.expectDiagnostics; // readonly string[], already validated as TSN####
     const expectedSet = new Set(expected);
@@ -159,55 +155,19 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
     return;
   }
 
-  if (!compileResult.ok) {
+  if (!graphResult.ok) {
     // Show diagnostics if compilation failed
-    const errors = compileResult.error.diagnostics
+    const errors = graphResult.error
       .map((d) => `${d.code}: ${d.message}`)
       .join("\n");
     throw new Error(`Compilation failed:\n${errors}`);
   }
 
-  // Step 2: Build IR from Program
-  const irResult = buildIr(compileResult.value.program, {
-    sourceRoot,
+  // Step 2: Emit the fully processed dependency-graph modules.
+  const emitResult = emitCSharpFiles(graphResult.value.modules, {
     rootNamespace,
-  });
-
-  if (!irResult.ok) {
-    const errors = irResult.error
-      .map((d) => `${d.code}: ${d.message}`)
-      .join("\n");
-    throw new Error(`IR build failed:\n${errors}`);
-  }
-
-  // Step 2.4: Run anonymous type lowering pass (synthesizes types for anonymous object literals)
-  const anonTypeResult = runAnonymousTypeLoweringPass(irResult.value);
-  const loweredModules = anonTypeResult.modules;
-
-  // Step 2.5: Run numeric proof pass (validates and annotates numeric types)
-  const proofResult = runNumericProofPass(loweredModules);
-  if (!proofResult.ok) {
-    const errors = proofResult.diagnostics
-      .map((d) => `${d.code}: ${d.message}`)
-      .join("\n");
-    throw new Error(`Numeric proof validation failed:\n${errors}`);
-  }
-
-  // Step 2.6: Run attribute collection pass (extracts A.on(X).type(Y) markers)
-  const attributeResult = runAttributeCollectionPass(proofResult.modules);
-  if (!attributeResult.ok) {
-    const errors = attributeResult.diagnostics
-      .map((d) => `${d.code}: ${d.message}`)
-      .join("\n");
-    throw new Error(`Attribute collection failed:\n${errors}`);
-  }
-
-  // Step 3: Emit IR → C#
-  // Note: Don't set entryPointPath - golden tests are NOT entry points
-  // Use the processed modules from the attribute pass
-  const emitResult = emitCSharpFiles(attributeResult.modules, {
-    rootNamespace,
-    bindingRegistry: compileResult.value.program.bindings,
+    bindingRegistry: graphResult.value.bindingRegistry,
+    surface,
   });
 
   if (!emitResult.ok) {

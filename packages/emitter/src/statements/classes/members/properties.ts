@@ -152,10 +152,8 @@ export const emitPropertyMember = (
 
   // Case 2: Auto-property (no explicit accessors)
   if (!hasAccessors) {
-    const needsCtorHelperSetter =
-      member.isReadonly && !!context.hasConstructorHelper && !member.isStatic;
     const usesPrivateSetter =
-      member.isReadonly && (needsMutableStorage || needsCtorHelperSetter);
+      member.isReadonly && needsMutableStorage;
     const setterAccessibility =
       usesPrivateSetter && accessibility !== "private" ? "private" : undefined;
     const propAst: CSharpMemberAst = {

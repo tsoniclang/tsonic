@@ -41,12 +41,44 @@ const deriveTupleIterationElementType = (
   return normalizedUnionType(concrete);
 };
 
+const deriveUnionIterationElementType = (
+  memberTypes: readonly (IrExpression["inferredType"] | undefined)[],
+  context: EmitterContext
+): IrExpression["inferredType"] | undefined => {
+  const elementTypes: NonNullable<IrExpression["inferredType"]>[] = [];
+
+  for (const memberType of memberTypes) {
+    if (!memberType) {
+      return undefined;
+    }
+    const elementType = deriveForOfElementType(memberType, context);
+    if (!elementType) {
+      return undefined;
+    }
+    elementTypes.push(elementType);
+  }
+
+  if (elementTypes.length === 0) {
+    return undefined;
+  }
+
+  if (elementTypes.length === 1) {
+    return elementTypes[0];
+  }
+
+  return normalizedUnionType(elementTypes);
+};
+
 export const deriveForOfElementType = (
   type: IrExpression["inferredType"],
   context: EmitterContext
 ): IrExpression["inferredType"] | undefined => {
   const normalized = normalizeForIteration(type, context);
   if (!normalized) return undefined;
+
+  if (normalized.kind === "unionType") {
+    return deriveUnionIterationElementType(normalized.types, context);
+  }
 
   if (normalized.kind === "arrayType") {
     return normalized.elementType;

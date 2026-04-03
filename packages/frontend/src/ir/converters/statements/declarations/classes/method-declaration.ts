@@ -11,6 +11,7 @@ import {
   convertTypeParameters,
   convertParameters,
 } from "../../helpers.js";
+import { withParameterTypeEnv } from "../../../type-env.js";
 import { detectOverride } from "./override-detection.js";
 import {
   getClassMemberName,
@@ -56,6 +57,7 @@ export const convertMethod = (
   const returnType = node.type
     ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
     : undefined;
+  const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
 
   return {
     kind: "methodDeclaration",
@@ -65,7 +67,7 @@ export const convertMethod = (
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, ctx, returnType)
+      ? convertBlockStatement(node.body, bodyCtx, returnType)
       : undefined,
     isStatic: hasStaticModifier(node),
     isAsync: !!node.modifiers?.some(

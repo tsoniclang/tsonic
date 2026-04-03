@@ -59,8 +59,7 @@ import { isExactExpressionToType } from "./exact-comparison.js";
 import { isExactArrayCreationToType } from "./exact-comparison.js";
 import { tryAdaptStructuralCollectionExpressionAst } from "./structural-collection-adaptation.js";
 import {
-  SYSTEM_ARRAY_STORAGE_TYPE,
-  isBroadArrayStorageTarget,
+  resolveBroadArrayAssertionStorageType,
 } from "../core/semantic/broad-array-storage.js";
 
 // ---------------------------------------------------------------------------
@@ -378,12 +377,12 @@ export const emitTypeAssertion = (
     isDegenerateDuplicateUnion(sourceExpressionTypeAtEntry) ||
     isDegenerateDuplicateUnion(expectedType);
   const currentTransparentSourceType =
-    resolveEffectiveExpressionType(expr.expression, context) ??
+    resolveEffectiveExpressionType(transparentSourceExpression, context) ??
     sourceExpressionTypeAtEntry;
   const sourceNarrowedBinding =
-    expr.expression.kind === "identifier" ||
-    expr.expression.kind === "memberAccess"
-      ? getNarrowedBindingForExpression(expr.expression, context)
+    transparentSourceExpression.kind === "identifier" ||
+    transparentSourceExpression.kind === "memberAccess"
+      ? getNarrowedBindingForExpression(transparentSourceExpression, context)
       : undefined;
   const narrowedSourceAlreadyMatches =
     !!sourceNarrowedBinding &&
@@ -439,6 +438,11 @@ export const emitTypeAssertion = (
     runtimeAssertionTarget.kind !== "arrayType" &&
     runtimeAssertionTarget.kind !== "dictionaryType" &&
     !willCarryAsRuntimeUnion(runtimeAssertionTarget, context);
+  const preservedBroadArrayStorageAtEntry = resolveBroadArrayAssertionStorageType(
+    resolvedAssertionTarget,
+    sourceStorageTypeAtEntry,
+    context
+  );
 
   if (
     (resolvedAssertionTarget.kind === "primitiveType" &&
@@ -454,7 +458,11 @@ export const emitTypeAssertion = (
     preservesStorageSurfaceAtEntry &&
     !involvesDegenerateDuplicateUnion
   ) {
-    return emitExpressionAst(expr.expression, context, expectedType);
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      expectedType
+    );
   }
 
   if (
@@ -464,7 +472,11 @@ export const emitTypeAssertion = (
     !mustPreserveExplicitRuntimeAssertion &&
     !involvesDegenerateDuplicateUnion
   ) {
-    return emitExpressionAst(expr.expression, context, expectedType);
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      expectedType
+    );
   }
 
   if (
@@ -484,7 +496,11 @@ export const emitTypeAssertion = (
         context
       ))
   ) {
-    return emitExpressionAst(expr.expression, context, expectedType);
+    return emitExpressionAst(
+      transparentSourceExpression,
+      context,
+      expectedType
+    );
   }
 
   if (shouldEraseTypeAssertion(resolvedAssertionTarget)) {
@@ -578,14 +594,19 @@ export const emitTypeAssertion = (
   const preserveNarrowedSourceStorage =
     preserveTransparentFlowNarrowing ||
     (!!sourceNarrowedBinding &&
+      sourceNarrowedBinding.kind === "expr" &&
+      !!sourceNarrowedBinding.storageExprAst &&
+      runtimeEmissionTarget.kind === "arrayType") ||
+    !!preservedBroadArrayStorageAtEntry ||
+    (!!sourceNarrowedBinding &&
       sourceNarrowedBinding.kind !== "runtimeSubset" &&
       willCarryAsRuntimeUnion(runtimeEmissionTarget, context));
   const rawSourceContext =
-    expr.expression.kind === "identifier" ||
-    expr.expression.kind === "memberAccess"
+    transparentSourceExpression.kind === "identifier" ||
+    transparentSourceExpression.kind === "memberAccess"
       ? preserveNarrowedSourceStorage
         ? context
-        : withoutNarrowedBinding(expr.expression, context)
+        : withoutNarrowedBinding(transparentSourceExpression, context)
       : context;
   const innerExpectedType =
     expr.expression.kind === "array" ||
@@ -633,7 +654,7 @@ export const emitTypeAssertion = (
       ? buildRuntimeUnionLayout(sourceExpressionType, ctx1, emitTypeAst)
       : [undefined, ctx1];
   const activeNarrowedBinding = getNarrowedBindingForExpression(
-    expr.expression,
+    transparentSourceExpression,
     sourceLayoutContext
   );
   const strippedSourceNarrowing =
@@ -644,16 +665,17 @@ export const emitTypeAssertion = (
     sourceRuntimeUnionLayout &&
     (activeNarrowedBinding?.kind === "runtimeSubset" || strippedSourceNarrowing)
       ? (sourceNarrowedBinding?.sourceType ?? sourceExpressionType)
-      : resolveEffectiveExpressionType(expr.expression, sourceLayoutContext);
-  const mustPreserveBroadArrayStorageCast =
-    isBroadArrayStorageTarget(
-      resolvedAssertionTarget,
-      sourceLayoutContext
-    ) && !preservesStorageSurfaceAtEntry;
+      : resolveEffectiveExpressionType(
+          transparentSourceExpression,
+          sourceLayoutContext
+        );
+  const preservedBroadArrayStorageType = resolveBroadArrayAssertionStorageType(
+    resolvedAssertionTarget,
+    sourceStorageTypeAtEntry,
+    sourceLayoutContext
+  );
   const runtimeCastTarget =
-    mustPreserveBroadArrayStorageCast
-      ? SYSTEM_ARRAY_STORAGE_TYPE
-      : runtimeTarget;
+    preservedBroadArrayStorageType ?? runtimeTarget;
   const [
     runtimeTargetTypeAst,
     runtimeTargetUnionLayout,
@@ -671,7 +693,12 @@ export const emitTypeAssertion = (
     !sourceRuntimeUnionLayout &&
     !runtimeTargetUnionLayout &&
     !areIrTypesEquivalent(sourceExpressionType, runtimeTarget, ctx1);
-  const castSourceAst = innerAst;
+  const castSourceAst =
+    preservedBroadArrayStorageType &&
+    sourceNarrowedBinding?.kind === "expr" &&
+    sourceNarrowedBinding.storageExprAst
+      ? sourceNarrowedBinding.storageExprAst
+      : innerAst;
 
   if (
     isExactExpressionToType(
@@ -800,8 +827,8 @@ export const emitAsInterface = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
-  const expected = expectedType ?? expr.targetType;
-  return emitExpressionAst(expr.expression, context, expected);
+  void expectedType;
+  return emitExpressionAst(expr.expression, context);
 };
 
 // ---------------------------------------------------------------------------

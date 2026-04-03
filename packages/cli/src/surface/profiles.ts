@@ -8,7 +8,6 @@ type SurfaceProfile = {
   readonly extends: readonly SurfaceMode[];
   readonly requiredTypeRoots: readonly string[];
   readonly requiredNpmPackages: readonly string[];
-  readonly useStandardLib: boolean;
 };
 
 export type SurfaceCapabilities = {
@@ -17,7 +16,6 @@ export type SurfaceCapabilities = {
   readonly resolvedModes: readonly SurfaceMode[];
   readonly requiredTypeRoots: readonly string[];
   readonly requiredNpmPackages: readonly string[];
-  readonly useStandardLib: boolean;
 };
 
 type SurfaceManifest = {
@@ -26,7 +24,6 @@ type SurfaceManifest = {
   readonly extends?: unknown;
   readonly requiredTypeRoots?: unknown;
   readonly requiredNpmPackages?: unknown;
-  readonly useStandardLib?: unknown;
 };
 
 type ResolveSurfaceOptions = {
@@ -39,7 +36,6 @@ const BUILTIN_SURFACE_PROFILES: Readonly<Record<string, SurfaceProfile>> = {
     extends: [],
     requiredTypeRoots: ["node_modules/@tsonic/globals"],
     requiredNpmPackages: ["@tsonic/globals", "@tsonic/dotnet"],
-    useStandardLib: false,
   },
 };
 
@@ -349,7 +345,6 @@ const loadCustomSurfaceProfile = (
       extends: [],
       requiredTypeRoots: [packageRoot],
       requiredNpmPackages: [resolvedPackage.packageName],
-      useStandardLib: false,
     };
   }
 
@@ -373,14 +368,11 @@ const loadCustomSurfaceProfile = (
   const requiredNpmPackages = parseManifestStringArray(
     parsed.requiredNpmPackages
   ) ?? [resolvedPackage.packageName];
-  const useStandardLib = parsed.useStandardLib === true;
-
   return {
     mode,
     extends: extendsList,
     requiredTypeRoots: typeRoots,
     requiredNpmPackages,
-    useStandardLib,
   };
 };
 
@@ -402,7 +394,6 @@ const getSurfaceProfile = (
     extends: [],
     requiredTypeRoots: [],
     requiredNpmPackages: [],
-    useStandardLib: false,
   };
 };
 
@@ -443,7 +434,6 @@ export const resolveSurfaceCapabilities = (
     requiredNpmPackages: mergeUnique(
       chain.map((profile) => profile.requiredNpmPackages)
     ),
-    useStandardLib: chain.some((profile) => profile.useStandardLib),
   };
 };
 

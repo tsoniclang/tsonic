@@ -7,7 +7,6 @@ type SurfaceProfile = {
   readonly mode: SurfaceMode;
   readonly extends: readonly SurfaceMode[];
   readonly requiredTypeRoots: readonly string[];
-  readonly useStandardLib: boolean;
 };
 
 export type SurfaceCapabilities = {
@@ -15,7 +14,6 @@ export type SurfaceCapabilities = {
   readonly includesClr: boolean;
   readonly resolvedModes: readonly SurfaceMode[];
   readonly requiredTypeRoots: readonly string[];
-  readonly useStandardLib: boolean;
 };
 
 type SurfaceManifest = {
@@ -23,7 +21,6 @@ type SurfaceManifest = {
   readonly id?: unknown;
   readonly extends?: unknown;
   readonly requiredTypeRoots?: unknown;
-  readonly useStandardLib?: unknown;
 };
 
 type ResolveSurfaceOptions = {
@@ -36,7 +33,6 @@ const BUILTIN_SURFACE_PROFILES: Readonly<Record<string, SurfaceProfile>> = {
     mode: "clr",
     extends: [],
     requiredTypeRoots: ["node_modules/@tsonic/globals"],
-    useStandardLib: false,
   },
 };
 
@@ -353,41 +349,39 @@ const loadCustomSurfaceProfile = (
   const resolvedPackage = resolveSurfacePackage(mode, projectRoot, options);
   if (!resolvedPackage) return undefined;
   const packageRoot = resolvedPackage.packageRoot;
+  const manifestPath = join(packageRoot, "tsonic.surface.json");
+
+  if (existsSync(manifestPath)) {
+    let parsed: SurfaceManifest;
+    try {
+      parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as SurfaceManifest;
+    } catch {
+      return undefined;
+    }
+
+    const extendsList = (parseManifestStringArray(parsed.extends) ?? []).map(
+      (parent) => normalizeExtendsMode(mode, parent)
+    );
+    const requiredTypeRoots = resolveManifestTypeRoots(
+      packageRoot,
+      parseManifestStringArray(parsed.requiredTypeRoots)
+    );
+    return {
+      mode,
+      extends: extendsList,
+      requiredTypeRoots,
+    };
+  }
 
   if (isSourceSurfacePackageRoot(packageRoot)) {
     return {
       mode,
       extends: [],
       requiredTypeRoots: [packageRoot],
-      useStandardLib: false,
     };
   }
 
-  const manifestPath = join(packageRoot, "tsonic.surface.json");
-  if (!existsSync(manifestPath)) return undefined;
-
-  let parsed: SurfaceManifest;
-  try {
-    parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as SurfaceManifest;
-  } catch {
-    return undefined;
-  }
-
-  const extendsList = (parseManifestStringArray(parsed.extends) ?? []).map(
-    (parent) => normalizeExtendsMode(mode, parent)
-  );
-  const requiredTypeRoots = resolveManifestTypeRoots(
-    packageRoot,
-    parseManifestStringArray(parsed.requiredTypeRoots)
-  );
-  const useStandardLib = parsed.useStandardLib === true;
-
-  return {
-    mode,
-    extends: extendsList,
-    requiredTypeRoots,
-    useStandardLib,
-  };
+  return undefined;
 };
 
 const getSurfaceProfile = (
@@ -408,7 +402,6 @@ const getSurfaceProfile = (
     mode,
     extends: [],
     requiredTypeRoots: [],
-    useStandardLib: false,
   };
 };
 
@@ -446,7 +439,6 @@ export const resolveSurfaceCapabilities = (
     requiredTypeRoots: mergeUnique(
       chain.map((profile) => profile.requiredTypeRoots)
     ),
-    useStandardLib: chain.some((profile) => profile.useStandardLib),
   };
 };
 

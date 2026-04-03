@@ -118,23 +118,24 @@ describe("End-to-End Integration", () => {
             null,
             2
           ),
-          "node_modules/@fixture/js/tsonic.surface.json": JSON.stringify(
-            {
-              schemaVersion: 1,
-              id: "@fixture/js",
-              extends: [],
-              requiredTypeRoots: ["."],
-              useStandardLib: false,
-            },
-            null,
-            2
-          ),
-          "node_modules/@fixture/js/globals.ts": [
-            "declare global {",
-            "  function setInterval(",
-            "    handler: (...args: unknown[]) => void,",
+        "node_modules/@fixture/js/tsonic.surface.json": JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: "@fixture/js",
+            extends: ["@tsonic/js"],
+            requiredTypeRoots: ["."],
+          },
+          null,
+          2
+        ),
+        "node_modules/@fixture/js/globals.ts": [
+          'import type { JsValue } from "@tsonic/core/types.js";',
+          "",
+          "declare global {",
+          "  function setInterval(",
+          "    handler: (...args: JsValue[]) => void,",
             "    timeout?: number,",
-            "    ...args: unknown[]",
+            "    ...args: JsValue[]",
             "  ): number;",
             "}",
             "",
@@ -330,7 +331,7 @@ describe("End-to-End Integration", () => {
 
     it("lowers rest-only contextual callbacks through a synthesized rest carrier", () => {
       const source = `
-        type Tick = (...args: unknown[]) => void;
+        type Tick = (...args: JsValue[]) => void;
 
         function consume(tick: Tick): void {
           tick("ok", 1);
@@ -348,7 +349,7 @@ describe("End-to-End Integration", () => {
 
     it("preserves fixed contextual parameters and synthesizes a rest carrier after them", () => {
       const source = `
-        type Tick = (value: string, ...rest: unknown[]) => void;
+        type Tick = (value: string, ...rest: JsValue[]) => void;
 
         function consume(tick: Tick): void {
           tick("ok", 1);
@@ -389,7 +390,7 @@ describe("End-to-End Integration", () => {
 
     it("binds explicit lambda parameters from synthesized rest carriers", () => {
       const source = `
-        type Tick = (...args: unknown[]) => void;
+        type Tick = (...args: JsValue[]) => void;
 
         function consume(tick: Tick): void {
           tick("ok", 1, true);
@@ -416,7 +417,7 @@ describe("End-to-End Integration", () => {
 
     it("lowers expression-bodied undefined callbacks for void contextual delegates without void casts", () => {
       const source = `
-        type Tick = (...args: unknown[]) => void;
+        type Tick = (...args: JsValue[]) => void;
 
         function consume(tick: Tick): void {
           tick("ok");
@@ -437,7 +438,7 @@ describe("End-to-End Integration", () => {
 
     it("emits static arrow fields with params delegates for rest parameters", () => {
       const source = `
-        export const tick = (...args: unknown[]): void => {
+        export const tick = (...args: JsValue[]): void => {
           void args;
         };
 
@@ -568,6 +569,43 @@ describe("End-to-End Integration", () => {
         "return global::Tsonic.Runtime.Union<string[], string>.From2(candidate__is_1.mountpath);"
       );
       expect(csharp).to.not.include("candidate.mountpath =");
+    });
+
+    it("preserves storage-type reassignment after instanceof local narrowing", () => {
+      const source = `
+        class TemplateValue {}
+
+        class BoolValue extends TemplateValue {
+          readonly value: boolean;
+          constructor(value: boolean) {
+            super();
+            this.value = value;
+          }
+        }
+
+        class StrValue extends TemplateValue {
+          readonly value: string;
+          constructor(value: string) {
+            super();
+            this.value = value;
+          }
+        }
+
+        export function render(): TemplateValue {
+          let value: TemplateValue = new BoolValue(false);
+          if (value instanceof BoolValue) {
+            value = new StrValue("x");
+          }
+          return value;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.include("if (value is BoolValue value__is_1)");
+      expect(csharp).to.include('value = new StrValue("x");');
+      expect(csharp).to.not.include("return new BoolValue");
+      expect(csharp).to.not.include("new BoolValue { value = __struct.value }");
     });
   });
 

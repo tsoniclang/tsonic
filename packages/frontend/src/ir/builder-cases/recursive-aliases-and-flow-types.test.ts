@@ -14,6 +14,7 @@ import {
   IrType,
   IrVariableDeclaration,
 } from "../types.js";
+import { runVirtualMarkingPass } from "../validation/index.js";
 import { createFilesystemTestProgram } from "./_test-helpers.js";
 
 describe("IR Builder", function () {
@@ -170,7 +171,12 @@ describe("IR Builder", function () {
         expect(result.ok).to.equal(true);
         if (!result.ok) return;
 
-        const numberValueClass = result.value.body.find(
+        const virtualResult = runVirtualMarkingPass([result.value]);
+        const transformedModule = virtualResult.modules[0];
+        expect(transformedModule).to.not.equal(undefined);
+        if (!transformedModule) return;
+
+        const numberValueClass = transformedModule.body.find(
           (stmt): stmt is IrClassDeclaration =>
             stmt.kind === "classDeclaration" && stmt.name === "NumberValue"
         );

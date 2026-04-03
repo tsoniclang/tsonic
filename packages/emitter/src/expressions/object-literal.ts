@@ -152,7 +152,11 @@ export const emitObject = (
     const dictionaryType = {
       kind: "dictionaryType",
       keyType: { kind: "primitiveType", name: "string" },
-      valueType: { kind: "unknownType" },
+      valueType: {
+        kind: "referenceType",
+        name: "JsValue",
+        resolvedClrType: "Tsonic.Runtime.JsValue",
+      },
     } as const;
 
     if (expr.hasSpreads) {

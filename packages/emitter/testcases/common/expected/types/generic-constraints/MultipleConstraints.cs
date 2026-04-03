@@ -2,12 +2,12 @@ namespace TestCases.common.types.genericconstraints
 {
     public class ComparableShowable<T>
     {
-        public int compareTo(T other)
+        public virtual int compareTo(T other)
         {
             return 0;
         }
 
-        public string show()
+        public virtual string show()
         {
             return "";
         }
@@ -29,7 +29,7 @@ namespace TestCases.common.types.genericconstraints
 
         public override string show()
         {
-            return $"Value: {this.value}";
+            return $"Value: {(global::js.Globals.String(this.value))}";
         }
     }
 

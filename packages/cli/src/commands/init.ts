@@ -359,7 +359,6 @@ export const initWorkspace = (
         resolvedModes: [surface],
         requiredTypeRoots: bootstrapTypeRoots,
         requiredNpmPackages: [surface],
-        useStandardLib: false,
       };
     }
 

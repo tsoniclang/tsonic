@@ -1,0 +1,9 @@
+{
+  "bindings": {
+    "SerializableAttribute": {
+      "kind": "global",
+      "assembly": "System.Runtime",
+      "type": "System.SerializableAttribute"
+    }
+  }
+}

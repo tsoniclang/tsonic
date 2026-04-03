@@ -1,0 +1,16 @@
+{
+  "copyDirectories": [
+    {
+      "from": "../js/versions/10",
+      "to": "type-roots/@tsonic/js"
+    },
+    {
+      "from": "../globals/versions/10",
+      "to": "type-roots/@tsonic/globals"
+    },
+    {
+      "from": "../core/versions/10",
+      "to": "type-roots/@tsonic/core"
+    }
+  ]
+}

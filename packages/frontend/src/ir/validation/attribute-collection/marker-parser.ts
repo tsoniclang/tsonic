@@ -3,7 +3,7 @@
  *
  * Re-exports from sub-modules:
  * - marker-detection: parseAttributeTarget, getMemberName,
- *     looksLikeAttributesApiUsage, parseOnCall, parseSelector
+ *     looksLikeAttributesApiUsage, parseRootCall, parseSelector
  * - marker-chain-parser: tryDetectAttributeMarker
  */
 
@@ -11,7 +11,7 @@ export {
   parseAttributeTarget,
   getMemberName,
   looksLikeAttributesApiUsage,
-  parseOnCall,
+  parseRootCall,
   parseSelector,
 } from "./marker-detection.js";
 

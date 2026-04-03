@@ -16,7 +16,8 @@ import { validateExpression } from "./soundness-gate-expression-validation.js";
 export const validateType = (
   type: IrType | undefined,
   ctx: ValidationContext,
-  typeContext: string
+  typeContext: string,
+  options: { readonly allowRootUnknownType?: boolean } = {}
 ): void => {
   if (!type) return;
   if (typeof type === "object" && type !== null) {
@@ -169,7 +170,21 @@ export const validateType = (
       case "literalType":
       case "voidType":
       case "neverType":
+        break;
+
       case "unknownType":
+        if (options.allowRootUnknownType) {
+          break;
+        }
+        ctx.diagnostics.push(
+          createDiagnostic(
+            "TSN7414",
+            "error",
+            `Type cannot be represented in compiler subset: ${typeContext}. The type resolved to 'unknown' which must have been eliminated before emission.`,
+            moduleLocation(ctx),
+            "Replace explicit 'unknown' with a concrete type or JsValue, and ensure unresolved placeholder types are eliminated before the soundness gate."
+          )
+        );
         break;
     }
   } finally {

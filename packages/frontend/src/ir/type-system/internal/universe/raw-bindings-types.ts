@@ -180,6 +180,33 @@ export const parseStableId = (
   };
 };
 
+/**
+ * Resolve the canonical stableId for a raw CLR type entry.
+ *
+ * tsbindgen payloads should provide `stableId` directly. Some synthetic test
+ * fixtures still only provide the canonical components (`assemblyName`,
+ * `clrName`). When both components are present, the canonical stableId is
+ * deterministic and identical to what tsbindgen would have emitted.
+ */
+export const resolveRawTypeStableId = (
+  rawType: Pick<RawBindingsType, "stableId" | "assemblyName" | "clrName">
+): string | undefined => {
+  if (typeof rawType.stableId === "string" && rawType.stableId.length > 0) {
+    return rawType.stableId;
+  }
+
+  if (
+    typeof rawType.assemblyName === "string" &&
+    rawType.assemblyName.length > 0 &&
+    typeof rawType.clrName === "string" &&
+    rawType.clrName.length > 0
+  ) {
+    return `${rawType.assemblyName}:${rawType.clrName}`;
+  }
+
+  return undefined;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // PRIMITIVE ↔ NOMINAL MAPPINGS
 // ═══════════════════════════════════════════════════════════════════════════

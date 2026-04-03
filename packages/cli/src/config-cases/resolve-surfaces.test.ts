@@ -55,7 +55,6 @@ const createInstalledJsSourceSurfaceWorkspace = (): {
         extends: [],
         requiredTypeRoots: ["."],
         requiredNpmPackages: ["@tsonic/js"],
-        useStandardLib: false,
       },
       null,
       2

@@ -105,10 +105,10 @@ export const canEmitParameterDefaultInSignature = (
   for (let index = parameterIndex + 1; index < parameters.length; index += 1) {
     const later = parameters[index];
     if (!later) continue;
-    if (later.isRest) {
-      return false;
-    }
     if (!later.isOptional && !later.initializer) {
+      if (later.isRest && index === parameters.length - 1) {
+        continue;
+      }
       return false;
     }
   }

@@ -4,8 +4,6 @@ import * as ts from "typescript";
 import type { CompilerOptions } from "./types.js";
 import { resolveDependencyPackageRoot } from "./package-roots.js";
 import {
-  CORE_GLOBALS_DECLARATIONS,
-  JS_SURFACE_GLOBAL_AUGMENTATIONS,
   collectProjectIncludedDeclarationFiles,
   createCompilerOptions,
   scanForDeclarationFiles,
@@ -132,6 +130,17 @@ const readTsonicDependencyNames = (packageRoot: string): readonly string[] => {
   }
 };
 
+const isExplicitAuthoritativePackageRoot = (packageRoot: string): boolean => {
+  if (readSourcePackageMetadata(packageRoot)) {
+    return true;
+  }
+
+  return (
+    fs.existsSync(path.join(packageRoot, "tsonic.surface.json")) ||
+    fs.existsSync(path.join(packageRoot, "tsonic.bindings.json"))
+  );
+};
+
 const addInstalledSourcePackageCandidate = (
   packageIndex: Map<string, string>,
   packageRoot: string
@@ -210,7 +219,6 @@ export type ProgramInputDiscovery = {
   readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
   readonly namespaceIndexFiles: readonly string[];
   readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
-  readonly virtualDeclarationSources: ReadonlyMap<string, string>;
   readonly allFiles: readonly string[];
   readonly tsOptions: ts.CompilerOptions;
 };
@@ -260,6 +268,7 @@ export const discoverProgramInputs = (
   });
   const authoritativeTsonicPackageRoots = new Map<string, string>();
   const explicitAuthoritativeRoots = new Map<string, string>();
+  const activeAuthoritativeSourcePackageRoots = new Map<string, string>();
   const currentProjectPackageName = readPackageName(
     path.join(options.projectRoot, "package.json")
   );
@@ -279,12 +288,19 @@ export const discoverProgramInputs = (
       currentProjectPackageName,
       normalizedProjectRoot
     );
+    activeAuthoritativeSourcePackageRoots.set(
+      currentProjectPackageName,
+      normalizedProjectRoot
+    );
   }
   for (const typeRoot of resolvedRequestedTypeRoots) {
     const packageName = readPackageName(path.join(typeRoot, "package.json"));
-    if (packageName && readSourcePackageMetadata(typeRoot)) {
+    if (packageName && isExplicitAuthoritativePackageRoot(typeRoot)) {
       authoritativeTsonicPackageRoots.set(packageName, typeRoot);
       explicitAuthoritativeRoots.set(packageName, typeRoot);
+      if (readSourcePackageMetadata(typeRoot)) {
+        activeAuthoritativeSourcePackageRoots.set(packageName, typeRoot);
+      }
     }
   }
 
@@ -305,10 +321,6 @@ export const discoverProgramInputs = (
       continue;
     }
     visitedWaveRoots.add(visitKey);
-
-    if (!readSourcePackageMetadata(packageRoot)) {
-      continue;
-    }
 
     for (const dependencyName of readTsonicDependencyNames(packageRoot)) {
       const dependencyRoot = resolveDependencyPackageRoot(
@@ -336,6 +348,17 @@ export const discoverProgramInputs = (
 
       if (existingRoot !== dependencyRoot) {
         authoritativeTsonicPackageRoots.set(dependencyName, dependencyRoot);
+      }
+
+      if (
+        dependencyIsSourcePackage &&
+        activeAuthoritativeSourcePackageRoots.get(dependencyName) !==
+          dependencyRoot
+      ) {
+        activeAuthoritativeSourcePackageRoots.set(
+          dependencyName,
+          dependencyRoot
+        );
         waveQueue.push([dependencyName, dependencyRoot]);
       }
     }
@@ -350,7 +373,7 @@ export const discoverProgramInputs = (
   const typeRoots = Array.from(
     new Set<string>([
       ...nonAuthoritativeTypeRoots,
-      ...authoritativeTsonicPackageRoots.values(),
+      ...activeAuthoritativeSourcePackageRoots.values(),
     ])
   );
 
@@ -404,7 +427,7 @@ export const discoverProgramInputs = (
       tsOptions.rootDir,
       ...absolutePaths,
       ...sourcePackageAmbientPaths,
-      ...authoritativeTsonicPackageRoots.values(),
+      ...activeAuthoritativeSourcePackageRoots.values(),
     ]);
   }
   const projectDeclarationFiles = collectProjectIncludedDeclarationFiles(
@@ -412,36 +435,11 @@ export const discoverProgramInputs = (
     tsOptions
   );
 
-  const coreGlobalsVirtualPath = path.join(
-    options.projectRoot,
-    ".tsonic",
-    "__core_globals__.d.ts"
-  );
-  const jsSurfaceAugmentationsVirtualPath = path.join(
-    options.projectRoot,
-    ".tsonic",
-    "__js_surface_globals__.d.ts"
-  );
-  const isJsSurfaceCompilation =
-    surfaceCapabilities.resolvedModes.includes("@tsonic/js");
-  const hasAuthoritativeJsSurfacePackage =
-    authoritativeTsonicPackageRoots.has("@tsonic/js");
-  const virtualDeclarationSources = new Map<string, string>([
-    ...(!hasAuthoritativeJsSurfacePackage
-      ? [[path.resolve(coreGlobalsVirtualPath), CORE_GLOBALS_DECLARATIONS] as const]
-      : []),
-    ...(isJsSurfaceCompilation && !hasAuthoritativeJsSurfacePackage
-      ? [
-          [
-            path.resolve(jsSurfaceAugmentationsVirtualPath),
-            JS_SURFACE_GLOBAL_AUGMENTATIONS,
-          ] as const,
-        ]
-      : []),
-  ]);
-  const virtualDeclarationFiles = Array.from(virtualDeclarationSources.keys());
   const declarationModuleAliases = new Map(
-    collectSourcePackageModuleAliases(typeRoots)
+    collectSourcePackageModuleAliases([
+      ...typeRoots,
+      ...authoritativeTsonicPackageRoots.values(),
+    ])
   );
   for (const [specifier, alias] of discoverDeclarationModuleAliases([
     ...projectDeclarationFiles,
@@ -462,7 +460,6 @@ export const discoverProgramInputs = (
       ...projectDeclarationFiles,
       ...declarationFiles,
       ...namespaceIndexFiles,
-      ...virtualDeclarationFiles,
     ])
   );
 
@@ -472,7 +469,6 @@ export const discoverProgramInputs = (
     authoritativeTsonicPackageRoots,
     namespaceIndexFiles,
     declarationModuleAliases,
-    virtualDeclarationSources,
     allFiles,
     tsOptions,
   };

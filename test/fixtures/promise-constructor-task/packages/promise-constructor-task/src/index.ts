@@ -8,10 +8,7 @@ function resolveOne(value: boolean): Promise<boolean> {
 
 function resolveTwo(value: boolean): Promise<boolean> {
   return new Promise<boolean>(
-    (
-      resolve: (result: boolean) => void,
-      _reject: (reason: unknown) => void
-    ) => {
+    (resolve: (result: boolean) => void, _reject) => {
       resolve(value);
     }
   );

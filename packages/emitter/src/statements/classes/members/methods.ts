@@ -230,7 +230,8 @@ export const emitMethodMember = (
     returnTypeAst = { kind: "predefinedType", keyword: "void" };
   }
 
-  const name = emitCSharpName(member.name, "methods", context);
+  const publicName = member.overloadFamily?.publicName ?? member.name;
+  const name = emitCSharpName(publicName, "methods", context);
 
   const paramsResult = emitParametersWithDestructuring(
     member.parameters,

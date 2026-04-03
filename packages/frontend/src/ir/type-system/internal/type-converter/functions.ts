@@ -23,13 +23,14 @@ export const convertFunctionType = (
   binding: Binding,
   convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrFunctionType => {
+  const typeParameters = convertFunctionTypeParameters(
+    node.typeParameters,
+    binding,
+    convertType
+  );
   return {
     kind: "functionType",
-    typeParameters: convertFunctionTypeParameters(
-      node.typeParameters,
-      binding,
-      convertType
-    ),
+    ...(typeParameters ? { typeParameters } : {}),
     parameters: convertTypeParameters(node.parameters, binding, convertType),
     returnType: convertType(node.type, binding),
   };

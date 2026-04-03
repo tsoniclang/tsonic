@@ -13,6 +13,7 @@ import * as ts from "typescript";
 import type { ProgramContext } from "../program-context.js";
 import type {
   IrExpression,
+  IrParameter,
   IrType,
   IrVariableDeclaration,
   IrVariableDeclarator,
@@ -54,6 +55,36 @@ const normalizeEnvType = (type: IrType | undefined): IrType | undefined => {
   if (!type) return undefined;
   if (type.kind === "unknownType" || type.kind === "anyType") return undefined;
   return type;
+};
+
+const makeOptionalReadType = (type: IrType): IrType => {
+  if (type.kind === "unionType") {
+    const hasUndefined = type.types.some(
+      (member) =>
+        member.kind === "primitiveType" && member.name === "undefined"
+    );
+    if (hasUndefined) return type;
+    return {
+      kind: "unionType",
+      types: [...type.types, { kind: "primitiveType", name: "undefined" }],
+    };
+  }
+
+  if (type.kind === "primitiveType" && type.name === "undefined") {
+    return type;
+  }
+
+  return {
+    kind: "unionType",
+    types: [type, { kind: "primitiveType", name: "undefined" }],
+  };
+};
+
+const getParameterReadType = (parameter: IrParameter): IrType | undefined => {
+  if (!parameter.type) return undefined;
+  return parameter.isOptional
+    ? makeOptionalReadType(parameter.type)
+    : parameter.type;
 };
 
 const getTupleElementType = (
@@ -168,6 +199,43 @@ const extendEnvForBindingName = (
   }
 };
 
+export const withBindingNameTypeEnv = (
+  ctx: ProgramContext,
+  name: ts.BindingName,
+  type: IrType | undefined
+): ProgramContext => {
+  const normalizedType = normalizeEnvType(type);
+  if (!normalizedType) return ctx;
+
+  let nextEnv: Map<number, IrType> | undefined;
+  const ensureEnv = (): Map<number, IrType> => {
+    if (!nextEnv) nextEnv = new Map<number, IrType>(ctx.typeEnv ?? []);
+    return nextEnv;
+  };
+
+  extendEnvForBindingName(ctx, name, normalizedType, ensureEnv);
+  return nextEnv ? { ...ctx, typeEnv: nextEnv } : ctx;
+};
+
+export const withParameterTypeEnv = (
+  ctx: ProgramContext,
+  tsParameters: readonly ts.ParameterDeclaration[],
+  parameters: readonly IrParameter[]
+): ProgramContext => {
+  let nextCtx = ctx;
+  for (let i = 0; i < parameters.length; i++) {
+    const parameter = parameters[i];
+    const tsParameter = tsParameters[i];
+    if (!parameter || !tsParameter) continue;
+    nextCtx = withBindingNameTypeEnv(
+      nextCtx,
+      tsParameter.name,
+      getParameterReadType(parameter)
+    );
+  }
+  return nextCtx;
+};
+
 const deriveDeclaratorType = (
   decl: IrVariableDeclarator
 ): IrType | undefined => {
@@ -185,16 +253,7 @@ export const withVariableDeclaratorTypeEnv = (
   decl: IrVariableDeclarator
 ): ProgramContext => {
   const type = deriveDeclaratorType(decl);
-  if (!type) return ctx;
-
-  let nextEnv: Map<number, IrType> | undefined;
-  const ensureEnv = (): Map<number, IrType> => {
-    if (!nextEnv) nextEnv = new Map<number, IrType>(ctx.typeEnv ?? []);
-    return nextEnv;
-  };
-
-  extendEnvForBindingName(ctx, name, type, ensureEnv);
-  return nextEnv ? { ...ctx, typeEnv: nextEnv } : ctx;
+  return withBindingNameTypeEnv(ctx, name, type);
 };
 
 /**

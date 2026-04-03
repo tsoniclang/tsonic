@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { Result } from "../../types.js";
@@ -25,6 +25,11 @@ const readPackageName = (pkgJsonPath: string): string | undefined => {
   } catch {
     return undefined;
   }
+};
+
+const isPathWithin = (rootPath: string, candidatePath: string): boolean => {
+  const rel = relative(resolve(rootPath), resolve(candidatePath));
+  return rel === "" || (!rel.startsWith("..") && rel.length > 0);
 };
 
 const sortVersionDirs = (dirs: readonly string[]): readonly string[] => {
@@ -127,9 +132,19 @@ export const resolveTsbindgenDllPath = (
     : null;
 
   const selfReq = createRequire(import.meta.url);
+  const selfBundled = (() => {
+    const resolved = tryResolve(selfReq);
+    if (!resolved) {
+      return null;
+    }
+
+    return isPathWithin(resolveMonorepoRoot(), resolved) ? resolved : null;
+  })();
 
   const direct =
-    (projectReq ? tryResolve(projectReq) : null) ?? tryResolve(selfReq);
+    (projectReq ? tryResolve(projectReq) : null) ??
+    selfBundled ??
+    tryResolve(selfReq);
   if (direct) return { ok: true, value: direct };
 
   return {

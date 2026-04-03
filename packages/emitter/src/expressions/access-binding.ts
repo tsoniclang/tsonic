@@ -9,6 +9,10 @@ import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { resolveArrayLikeReceiverType } from "../core/semantic/type-resolution.js";
+import { resolveTypeMemberKind } from "../core/semantic/member-surfaces.js";
+import {
+  unwrapTransparentExpression,
+} from "../core/semantic/transparent-expressions.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import {
   identifierExpression,
@@ -37,6 +41,7 @@ import {
 } from "./access-resolution.js";
 import { buildExactGlobalBindingType } from "./exact-global-bindings.js";
 import {
+  isStringReceiverType,
   isLengthPropertyName,
   tryEmitJsSurfaceArrayLikeLengthAccess,
 } from "./access-length.js";
@@ -78,6 +83,36 @@ export const tryEmitMemberBindingAccess = (
     usage,
     context
   );
+  const receiverHasDeterministicMember =
+    !!receiverType &&
+    resolveTypeMemberKind(receiverType, sourcePropertyName, context) !== undefined;
+  const bindingTargetsStringLength =
+    usage === "value" &&
+    typeof expr.property === "string" &&
+    isLengthPropertyName(expr.property) &&
+    (bindingTypeLeaf === "String" ||
+      normalizedBindingTypeWithoutArity === "global::js.String" ||
+      normalizedBindingTypeWithoutArity === "js.String");
+  const [emittedReceiverTypeAst] = bindingTargetsStringLength
+    ? resolveEmittedReceiverTypeAst(expr.object, context)
+    : [undefined, context];
+  const emittedReceiverTypeName = emittedReceiverTypeAst
+    ? getIdentifierTypeName(stripNullableTypeAst(emittedReceiverTypeAst))
+    : undefined;
+  const emittedReceiverIsConcreteNonString =
+    !!emittedReceiverTypeName &&
+    emittedReceiverTypeName !== "global::System.String" &&
+    emittedReceiverTypeName !== "System.String" &&
+    emittedReceiverTypeName !== "global::js.String" &&
+    emittedReceiverTypeName !== "js.String";
+  if (
+    bindingTargetsStringLength &&
+    ((receiverHasDeterministicMember &&
+      !isStringReceiverType(receiverType, context)) ||
+      emittedReceiverIsConcreteNonString)
+  ) {
+    return undefined;
+  }
   if (
     usage === "value" &&
     typeof expr.property === "string" &&
@@ -282,7 +317,28 @@ export const tryEmitMemberBindingAccess = (
     ];
   } else {
     // Instance access: emit object.ClrMemberName
-    const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+    const transparentReceiver =
+      expr.object.kind === "typeAssertion" ||
+      expr.object.kind === "asinterface" ||
+      expr.object.kind === "trycast"
+        ? unwrapTransparentExpression(expr.object.expression)
+        : undefined;
+    const transparentReceiverType =
+      transparentReceiver !== undefined
+        ? resolveEffectiveReceiverType(transparentReceiver, context) ??
+          transparentReceiver.inferredType
+        : undefined;
+    const transparentReceiverAlreadyExposesMember =
+      transparentReceiverType !== undefined &&
+      resolveTypeMemberKind(
+        transparentReceiverType,
+        sourcePropertyName,
+        context
+      ) !== undefined;
+    const [objectAst, newContext] =
+      transparentReceiverAlreadyExposesMember && transparentReceiver
+        ? emitExpressionAst(transparentReceiver, context)
+        : emitExpressionAst(expr.object, context);
     const emittedSourceMemberName = emitMemberName(
       expr.object,
       receiverType,

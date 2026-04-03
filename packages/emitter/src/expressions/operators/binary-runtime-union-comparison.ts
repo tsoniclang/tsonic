@@ -19,7 +19,7 @@ import {
   widenLiteralComparisonType,
 } from "./binary-helpers.js";
 import {
-  resolveDirectStorageExpressionAst,
+  resolveRuntimeCarrierExpressionAst,
   resolveDirectStorageExpressionType,
   resolveIdentifierCarrierStorageType,
 } from "../direct-storage-types.js";
@@ -184,7 +184,7 @@ export const emitRuntimeUnionLiteralComparison = (
       : runtimeCarrierSourceType;
   const runtimeCarrierAst =
     (directStorageType
-      ? resolveDirectStorageExpressionAst(unionTarget, unionContext)
+      ? resolveRuntimeCarrierExpressionAst(unionTarget, unionContext)
       : undefined) ?? unionAst;
 
   const [layout, layoutContext] = buildRuntimeUnionLayout(

@@ -5,8 +5,8 @@ type KindOf<T> = T extends number ? "num" : "other";
 
 function assertType<T>(_value: T): void {}
 
-const value = 42 as unknown as UnwrapPromise<Promise<number>>;
-const kind = "num" as unknown as KindOf<number>;
+const value: UnwrapPromise<Promise<number>> = 42;
+const kind: KindOf<number> = "num";
 
 assertType<UnwrapPromise<Promise<number>>>(value);
 assertType<KindOf<number>>(kind);

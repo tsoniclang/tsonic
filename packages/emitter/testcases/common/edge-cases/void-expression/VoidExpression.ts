@@ -1,4 +1,4 @@
-import { int } from "@tsonic/core/types.js";
+import { int, type JsValue } from "@tsonic/core/types.js";
 
 export function voidStatementMarker(): void {
   const x: int = 1;
@@ -9,7 +9,7 @@ export function voidReturnInVoidFunc(): void {
   return void sideEffect();
 }
 
-export function voidReturnValue(): unknown {
+export function voidReturnValue(): JsValue {
   return void sideEffect();
 }
 

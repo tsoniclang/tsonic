@@ -7,7 +7,6 @@
 
 export { convertVariableStatement } from "./variables.js";
 export { convertFunctionDeclaration } from "./functions.js";
-export { convertFunctionOverloadGroup } from "./function-overloads.js";
 export { convertClassDeclaration } from "./classes.js";
 export {
   convertInterfaceDeclaration,

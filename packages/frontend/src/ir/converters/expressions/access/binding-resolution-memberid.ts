@@ -234,11 +234,25 @@ export const resolveHierarchicalBindingFromMemberId = (
       "global"
     );
     if (!simpleBinding?.staticType) return undefined;
-    const staticAlias = tsbindgenClrTypeNameToTsTypeName(
-      simpleBinding.staticType
-    );
-    if (!staticAlias) return undefined;
-    return ctx.bindings.getMemberOverloads(staticAlias, propertyName);
+
+    const ownerCandidates = [
+      ...getAliasesForExactClrType(ctx, simpleBinding.staticType, "static"),
+      simpleBinding.staticType,
+      tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType),
+    ].filter((candidate): candidate is string => typeof candidate === "string");
+
+    for (const candidate of ownerCandidates) {
+      const resolved = ctx.bindings.getMemberOverloads(
+        candidate,
+        propertyName,
+        simpleBinding.staticType
+      );
+      if (resolved && resolved.length > 0) {
+        return resolved;
+      }
+    }
+
+    return undefined;
   })();
   const globalOwnerOverloads = (() => {
     if (!ts.isIdentifier(node.expression)) return undefined;
@@ -267,10 +281,37 @@ export const resolveHierarchicalBindingFromMemberId = (
 
     return undefined;
   })();
+  const sourceOwnedGlobalOwner = (() => {
+    if (!ts.isIdentifier(node.expression)) return false;
+    const simpleBinding = ctx.bindings.getExactBindingByKind(
+      node.expression.text,
+      "global"
+    );
+    if (!simpleBinding) return false;
+
+    const aliases = [
+      simpleBinding.type
+        ? tsbindgenClrTypeNameToTsTypeName(simpleBinding.type)
+        : undefined,
+      simpleBinding.staticType
+        ? tsbindgenClrTypeNameToTsTypeName(simpleBinding.staticType)
+        : undefined,
+    ].filter((candidate): candidate is string => typeof candidate === "string");
+
+    return aliases.some((alias) => ctx.bindings.hasSourceOwnedTypeAlias(alias));
+  })();
 
   let overloadsAll =
-    staticOverloads ??
-    globalOwnerOverloads ??
+    staticOverloads ?? globalOwnerOverloads;
+  if (
+    sourceOwnedGlobalOwner &&
+    (!overloadsAll || overloadsAll.length === 0)
+  ) {
+    return undefined;
+  }
+
+  overloadsAll =
+    overloadsAll ??
     (expectedClrOwner
       ? ctx.bindings.getMemberOverloads(
           expectedClrOwner,
@@ -516,16 +557,66 @@ export const resolveExtensionMethodsBinding = (
       const thisTypeNode = ctx.binding.getThisTypeNodeOfSignature(sigId);
       if (!thisTypeNode) return undefined;
 
+      const isNullishTypeNode = (typeNode: ts.TypeNode): boolean => {
+        if (typeNode.kind === ts.SyntaxKind.UndefinedKeyword) {
+          return true;
+        }
+
+        if (typeNode.kind === ts.SyntaxKind.NullKeyword) {
+          return true;
+        }
+
+        return (
+          ts.isLiteralTypeNode(typeNode) &&
+          typeNode.literal.kind === ts.SyntaxKind.NullKeyword
+        );
+      };
+
       const extractReceiverTypeName = (
         typeNode: ts.TypeNode
       ): string | undefined => {
         let current = typeNode;
         while (ts.isParenthesizedTypeNode(current)) current = current.type;
 
+        if (ts.isUnionTypeNode(current)) {
+          const nonNullishMembers = current.types.filter(
+            (member) => !isNullishTypeNode(member)
+          );
+          if (nonNullishMembers.length === 0) {
+            return undefined;
+          }
+
+          const extractedNames = nonNullishMembers
+            .map((member) => extractReceiverTypeName(member))
+            .filter((name): name is string => typeof name === "string");
+          if (extractedNames.length !== nonNullishMembers.length) {
+            return undefined;
+          }
+
+          const uniqueNames = [...new Set(extractedNames)];
+          return uniqueNames.length === 1 ? uniqueNames[0] : undefined;
+        }
+
+        if (ts.isIntersectionTypeNode(current)) {
+          const extractedNames = current.types
+            .map((member) => extractReceiverTypeName(member))
+            .filter((name): name is string => typeof name === "string");
+          if (extractedNames.length === 0) {
+            return undefined;
+          }
+
+          const uniqueNames = [...new Set(extractedNames)];
+          return uniqueNames.length === 1 ? uniqueNames[0] : undefined;
+        }
+
         if (ts.isTypeReferenceNode(current)) {
           const tn = current.typeName;
           if (ts.isIdentifier(tn)) return tn.text;
           if (ts.isQualifiedName(tn)) return tn.right.text;
+        }
+
+        if (ts.isArrayTypeNode(current) || ts.isTupleTypeNode(current)) {
+          return "Array";
         }
 
         if (current.kind === ts.SyntaxKind.StringKeyword) return "String";

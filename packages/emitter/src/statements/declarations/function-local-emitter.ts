@@ -72,8 +72,9 @@ export const emitFunctionDeclarationAst = (
   context: EmitterContext
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   const savedScoped = captureFunctionScopeContext(context);
-  const csharpBaseName = getCSharpName(stmt.name, "methods", context);
-  const emittedName = emitCSharpName(stmt.name, "methods", context);
+  const publicName = stmt.overloadFamily?.publicName ?? stmt.name;
+  const csharpBaseName = getCSharpName(publicName, "methods", context);
+  const emittedName = emitCSharpName(publicName, "methods", context);
 
   const funcTypeParams = new Set<string>([
     ...(context.typeParameters ?? []),

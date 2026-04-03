@@ -12,6 +12,7 @@ import {
   IrStatement,
   IrClassDeclaration,
   IrFunctionDeclaration,
+  IrInterfaceDeclaration,
 } from "../../types.js";
 import {
   type CollectedAttributes,
@@ -60,9 +61,12 @@ const rebuildModuleBody = (
   const {
     removedStatementIndices,
     classAttributes,
+    interfaceAttributes,
     classCtorAttributes,
     classMethodAttributes,
     classPropAttributes,
+    interfaceMethodAttributes,
+    interfacePropAttributes,
     functionAttributes,
   } = collected;
 
@@ -148,6 +152,53 @@ const rebuildModuleBody = (
       return;
     }
 
+    if (stmt.kind === "interfaceDeclaration") {
+      const ifaceStmt = stmt as IrInterfaceDeclaration;
+      const existingAttrs = ifaceStmt.attributes ?? [];
+      const typeAttrs = interfaceAttributes.get(i) ?? [];
+      const methodAttrs = interfaceMethodAttributes.get(i);
+      const propAttrs = interfacePropAttributes.get(i);
+
+      const updatedMembers =
+        methodAttrs || propAttrs
+          ? ifaceStmt.members.map((m) => {
+              if (m.kind === "methodSignature" && methodAttrs) {
+                const extras = methodAttrs.get(m.name);
+                if (extras && extras.length > 0) {
+                  return {
+                    ...m,
+                    attributes: [...(m.attributes ?? []), ...extras],
+                  };
+                }
+              }
+              if (m.kind === "propertySignature" && propAttrs) {
+                const extras = propAttrs.get(m.name);
+                if (extras && extras.length > 0) {
+                  return {
+                    ...m,
+                    attributes: [...(m.attributes ?? []), ...extras],
+                  };
+                }
+              }
+              return m;
+            })
+          : ifaceStmt.members;
+
+      if (typeAttrs.length === 0 && !methodAttrs && !propAttrs) {
+        newBody.push(ifaceStmt);
+      } else {
+        newBody.push({
+          ...ifaceStmt,
+          members: updatedMembers,
+          attributes:
+            typeAttrs.length > 0
+              ? [...existingAttrs, ...typeAttrs]
+              : ifaceStmt.attributes,
+        });
+      }
+      return;
+    }
+
     // Keep statement unchanged
     newBody.push(stmt);
   });
@@ -166,7 +217,7 @@ const rebuildModuleBody = (
  * Run the attribute collection pass on a set of modules.
  *
  * This pass:
- * 1. Detects attribute marker calls (A.on(X).type.add(Y))
+ * 1. Detects attribute marker calls
  * 2. Attaches IrAttribute nodes to the corresponding declarations
  * 3. Removes the marker statements from the module body
  * 4. Emits diagnostics for invalid patterns

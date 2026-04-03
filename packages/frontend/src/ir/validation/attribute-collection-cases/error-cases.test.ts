@@ -17,9 +17,13 @@ import {
   makeObject,
   makeObjectProp,
   makeObjectSpread,
+  makeTypeRootCall,
   runAttributeCollectionPass,
 } from "./helpers.js";
-import type { IrClassDeclaration, IrFunctionDeclaration } from "./helpers.js";
+import type {
+  IrClassDeclaration,
+  IrInterfaceDeclaration,
+} from "./helpers.js";
 
 describe("Attribute Collection Pass", () => {
   describe("Error cases", () => {
@@ -78,7 +82,7 @@ describe("Attribute Collection Pass", () => {
 
     it("should emit diagnostic when target not found", () => {
       // IR representation of:
-      // A.on(NotExist).type.add(SomeAttribute);
+      // A<NotExist>().add(SomeAttribute);
       const module = createModule([
         makeMarkerCall("NotExist", "SomeAttribute", [], "Test.SomeAttribute"),
       ]);
@@ -105,15 +109,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
-              "add"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "add"),
             [
               makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
               makeIdentifier("notConst"),
@@ -140,15 +136,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
-              "add"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "add"),
             [
               makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
               makeObject([makeObjectProp("IsError", makeLiteral(true))]),
@@ -176,15 +164,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
-              "add"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "add"),
             [
               makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
               makeObject([makeObjectSpread(makeIdentifier("x"))]),
@@ -211,15 +191,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
-              "add"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "add"),
             [
               makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
               makeObject([
@@ -248,15 +220,7 @@ describe("Attribute Collection Pass", () => {
         {
           kind: "expressionStatement",
           expression: makeCall(
-            makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
-              "add"
-            ),
+            makeMemberAccess(makeTypeRootCall("User"), "add"),
             [
               makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
               makeObject([
@@ -286,12 +250,7 @@ describe("Attribute Collection Pass", () => {
           kind: "expressionStatement",
           expression: makeCall(
             makeMemberAccess(
-              makeMemberAccess(
-                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
-                  makeIdentifier("User"),
-                ]),
-                "type"
-              ),
+              makeTypeRootCall("User"),
               "nope"
             ),
             [
@@ -309,7 +268,7 @@ describe("Attribute Collection Pass", () => {
       expect(result.diagnostics.some((d) => d.code === "TSN4005")).to.be.true;
     });
 
-    it("should error when type target is ambiguous (class and function share name)", () => {
+    it("should error when type target is ambiguous (class and interface share name)", () => {
       const module = createModule([
         {
           kind: "classDeclaration",
@@ -320,14 +279,14 @@ describe("Attribute Collection Pass", () => {
           isStruct: false,
         } as IrClassDeclaration,
         {
-          kind: "functionDeclaration",
+          kind: "interfaceDeclaration",
           name: "User",
-          parameters: [],
-          body: { kind: "blockStatement", statements: [] },
-          isAsync: false,
-          isGenerator: false,
           isExported: true,
-        } as IrFunctionDeclaration,
+          isStruct: false,
+          typeParameters: [],
+          extends: [],
+          members: [],
+        } as unknown as IrInterfaceDeclaration,
         makeMarkerCall(
           "User",
           "SerializableAttribute",

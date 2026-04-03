@@ -7,6 +7,7 @@
 import * as ts from "typescript";
 import type { ProgramContext } from "../../../../program-context.js";
 import type { IrParameter, IrType } from "../../../../types.js";
+import { resolveHeritageReferenceType } from "../../../heritage-reference-type.js";
 
 export type OverrideInfo = {
   readonly isOverride: boolean;
@@ -75,18 +76,15 @@ export const detectOverride = (
       ctx,
       parameters
     );
-  } else if (declId) {
-    const baseClassType = ctx.typeSystem.typeFromSyntax(
-      ctx.binding.captureTypeSyntax(superClass)
-    );
+  }
 
-    // ALICE'S SPEC (Phase 5): Use semantic method instead of getDeclInfo
+  if (declId) {
     return ctx.typeSystem.checkTsClassMemberOverride(
       declId,
       memberName,
       memberKind,
       parameters,
-      baseClassType
+      resolveHeritageReferenceType(superClass, ctx)
     );
   }
 

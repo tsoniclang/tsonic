@@ -327,7 +327,6 @@ describe("tsonic.package bindings", function () {
           id: "@tsonic/js",
           extends: [],
           requiredTypeRoots: ["."],
-          useStandardLib: false,
         },
         packageManifest: createSourcePackageManifest({
           requiredTypeRoots: ["."],

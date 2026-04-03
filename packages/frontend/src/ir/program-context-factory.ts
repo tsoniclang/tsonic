@@ -93,13 +93,6 @@ export const createProgramContext = (
     return symbols as ReadonlySet<ts.Symbol>;
   })();
 
-  const sourceFilesByPath = new Map<string, ts.SourceFile>(
-    program.sourceFiles.map((sourceFile) => [
-      sourceFile.fileName.replace(/\\/g, "/"),
-      sourceFile,
-    ])
-  );
-
   // Build TypeRegistry from all source files INCLUDING declaration files from typeRoots
   // Declaration files contain globals (String, Array, etc.) needed for method resolution
   //
@@ -137,9 +130,19 @@ export const createProgramContext = (
     );
   });
 
-  const allSourceFiles = [...program.sourceFiles, ...declarationSourceFiles];
+  const catalogSourceFiles = [...program.sourceFiles, ...declarationSourceFiles];
+  const lookupSourceFiles = [
+    ...program.sourceFiles,
+    ...program.declarationSourceFiles,
+  ];
+  const sourceFilesByPath = new Map<string, ts.SourceFile>(
+    lookupSourceFiles.map((sourceFile) => [
+      sourceFile.fileName.replace(/\\/g, "/"),
+      sourceFile,
+    ])
+  );
   const { typeRegistry } = buildSourceCatalog({
-    sourceFiles: allSourceFiles,
+    sourceFiles: catalogSourceFiles,
     checker: program.checker,
     sourceRoot: options.sourceRoot,
     rootNamespace: options.rootNamespace,
@@ -192,7 +195,10 @@ export const createProgramContext = (
   }
 
   const assemblyCatalog = withSimpleTypeAliases(
-    loadClrCatalog(nodeModulesPath, extraPackageRoots),
+    loadClrCatalog(nodeModulesPath, [
+      ...(program.options.typeRoots ?? []),
+      ...extraPackageRoots,
+    ]),
     program.bindings
   );
   const aliasTable = buildAliasTable(assemblyCatalog);

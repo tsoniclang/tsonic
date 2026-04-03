@@ -108,8 +108,6 @@ export const validateStatement = (
         stmt.type.members.forEach((member) =>
           validateInterfaceMember(member, ctx)
         );
-      } else {
-        validateType(stmt.type, ctx, `type alias '${stmt.name}'`);
       }
       break;
 

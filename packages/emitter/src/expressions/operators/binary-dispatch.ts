@@ -39,7 +39,6 @@ import {
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 import {
   getTransparentComparisonTarget,
-  getNarrowingTargetKey,
   resolveComparisonOperandType,
   isNumericOperandType,
   chooseComparisonExpectedType,
@@ -51,6 +50,7 @@ import {
   emitTypeofComparison,
 } from "./binary-special-ops.js";
 import { emitRuntimeUnionLiteralComparison } from "./binary-runtime-union-comparison.js";
+import { isBroadObjectSlotType } from "../../core/semantic/js-value-types.js";
 
 const BITWISE_OPERATORS = new Set(["&", "|", "^", "<<", ">>", ">>>"]);
 
@@ -329,26 +329,40 @@ export const emitBinary = (
       resultContext
     );
     const base = inferred ? stripNullish(inferred) : undefined;
+    const sourceBase = nonNullishTarget.inferredType
+      ? stripNullish(nonNullishTarget.inferredType)
+      : undefined;
+    const activeNarrowedBinding = (() => {
+      const targetKey =
+        nonNullishTarget.kind === "identifier"
+          ? nonNullishTarget.name
+          : undefined;
+      return targetKey ? resultContext.narrowedBindings?.get(targetKey) : undefined;
+    })();
+    const narrowedSourceBase =
+      activeNarrowedBinding?.sourceType
+        ? stripNullish(activeNarrowedBinding.sourceType)
+        : undefined;
     const emissionType =
       resolveEffectiveExpressionType(nonNullishTarget, nonNullishContext) ??
       nonNullishTarget.inferredType;
     const emissionBase = emissionType ? stripNullish(emissionType) : undefined;
-    const activeNarrowedBinding = (() => {
-      const targetKey = getNarrowingTargetKey(nonNullishTarget);
-      return targetKey ? context.narrowedBindings?.get(targetKey) : undefined;
-    })();
-    const hasRuntimeUnionCarrier =
+    const runtimeUnionCarrierType =
       emissionBase !== undefined &&
-      willCarryAsRuntimeUnion(emissionBase, resultContext);
-    const hasNarrowedRuntimeUnionStorageCarrier =
+      willCarryAsRuntimeUnion(emissionBase, resultContext)
+        ? emissionBase
+        : narrowedSourceBase !== undefined &&
+            willCarryAsRuntimeUnion(narrowedSourceBase, resultContext)
+          ? narrowedSourceBase
+          : sourceBase !== undefined &&
+              willCarryAsRuntimeUnion(sourceBase, resultContext)
+            ? sourceBase
+            : undefined;
+    const runtimeCarrierAst =
       activeNarrowedBinding?.kind === "expr" &&
-      activeNarrowedBinding.storageExprAst !== undefined &&
-      activeNarrowedBinding.storageExprAst !== activeNarrowedBinding.exprAst &&
-      activeNarrowedBinding.sourceType !== undefined &&
-      willCarryAsRuntimeUnion(
-        stripNullish(activeNarrowedBinding.sourceType),
-        resultContext
-      );
+      activeNarrowedBinding.carrierExprAst !== undefined
+        ? activeNarrowedBinding.carrierExprAst
+        : nonNullishAst;
     const bareTypeParamName = (() => {
       if (!base) return undefined;
       if (base.kind === "typeParameterType") return base.name;
@@ -379,7 +393,7 @@ export const emitBinary = (
         typeParamConstraint === "struct");
     const needsObjectCastForValueType = isDefiniteNonUnionValueType;
     const needsObjectCastForRuntimeUnion =
-      hasRuntimeUnionCarrier || hasNarrowedRuntimeUnionStorageCarrier;
+      runtimeUnionCarrierType !== undefined;
 
     const nullLiteralAst = nullLiteral();
     const nullOp = op === "==" ? "==" : "!=";
@@ -395,7 +409,7 @@ export const emitBinary = (
         type: identifierType("global::System.Object"),
         expression: {
           kind: "parenthesizedExpression",
-          expression: nonNullishAst,
+          expression: needsObjectCastForRuntimeUnion ? runtimeCarrierAst : nonNullishAst,
         },
       };
       return [
@@ -435,10 +449,8 @@ export const emitBinary = (
     (op === "==" || op === "!=") &&
     (leftResolved?.kind === "unknownType" ||
       rightResolved?.kind === "unknownType" ||
-      (leftResolved?.kind === "referenceType" &&
-        leftResolved.name === "object") ||
-      (rightResolved?.kind === "referenceType" &&
-        rightResolved.name === "object"));
+      isBroadObjectSlotType(leftResolvedType, context) ||
+      isBroadObjectSlotType(rightResolvedType, context));
 
   if (needsRuntimeEquality) {
     const [leftAst, leftContext] = emitExpressionAst(expr.left, context);

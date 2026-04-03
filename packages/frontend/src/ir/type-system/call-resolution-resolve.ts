@@ -12,6 +12,7 @@ import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
+import type { IrType } from "../types/index.js";
 import type {
   TypeSystemState,
   CallQuery,
@@ -27,6 +28,7 @@ import {
   expandParameterTypesForArguments,
   buildResolvedRestParameter,
   containsMethodTypeParameter,
+  collectExpectedReturnCandidates,
 } from "./call-resolution-utilities.js";
 import {
   getRawSignature,
@@ -36,10 +38,54 @@ import {
 } from "./call-resolution-inference.js";
 import { applyReceiverSubstitution } from "./call-resolution-receiver-substitution.js";
 import { resolveMethodTypeSubstitution } from "./call-resolution-method-substitution.js";
+import { isAssignableTo, typesEqual } from "./type-system-relations.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // resolveCall — Main entry point for call resolution
 // ─────────────────────────────────────────────────────────────────────────
+
+const matchesConstructorExpectedReturnShape = (
+  actual: IrType,
+  expected: IrType
+): boolean => {
+  if (typesEqual(actual, expected)) {
+    return true;
+  }
+
+  if (
+    actual.kind === "referenceType" &&
+    expected.kind === "referenceType"
+  ) {
+    if (
+      actual.typeId &&
+      expected.typeId &&
+      actual.typeId.stableId !== expected.typeId.stableId
+    ) {
+      return false;
+    }
+
+    if (actual.name !== expected.name) {
+      return false;
+    }
+
+    const actualTypeArguments = actual.typeArguments ?? [];
+    const expectedTypeArguments = expected.typeArguments ?? [];
+    if (actualTypeArguments.length !== expectedTypeArguments.length) {
+      return false;
+    }
+
+    return actualTypeArguments.every((argument: IrType, index: number) => {
+      const expectedArgument = expectedTypeArguments[index];
+      return (
+        argument !== undefined &&
+        expectedArgument !== undefined &&
+        matchesConstructorExpectedReturnShape(argument, expectedArgument)
+      );
+    });
+  }
+
+  return false;
+};
 
 export const resolveCall = (
   state: TypeSystemState,
@@ -155,9 +201,19 @@ export const resolveCall = (
         .map((tp) => tp.name)
         .filter((name) => !callSubst.has(name))
     );
+    const preservesExpectedConstructorReturn =
+      rawSig.declaringMemberName === "constructor" &&
+      query.expectedReturnType !== undefined &&
+      collectExpectedReturnCandidates(state, query.expectedReturnType).some(
+        (candidate) =>
+          matchesConstructorExpectedReturnShape(workingReturn, candidate) ||
+          (isAssignableTo(state, workingReturn, candidate) &&
+            isAssignableTo(state, candidate, workingReturn))
+      );
     if (
       unresolved.size > 0 &&
-      containsMethodTypeParameter(workingReturn, unresolved)
+      containsMethodTypeParameter(workingReturn, unresolved) &&
+      !preservesExpectedConstructorReturn
     ) {
       emitDiagnostic(
         state,

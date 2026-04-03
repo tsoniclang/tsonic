@@ -1,5 +1,5 @@
 /**
- * Tests for A.on(Class).prop(selector).add(Attr) pattern and AttributeDescriptor forms.
+ * Tests for A<T>().prop(selector).add(Attr) pattern and AttributeDescriptor forms.
  */
 
 import {
@@ -17,10 +17,10 @@ import {
   makeWrappedSelector,
   runAttributeCollectionPass,
 } from "./helpers.js";
-import type { IrClassDeclaration } from "./helpers.js";
+import type { IrClassDeclaration, IrInterfaceDeclaration } from "./helpers.js";
 
 describe("Attribute Collection Pass", () => {
-  describe("A.on(Class).prop(selector).add(Attr) pattern", () => {
+  describe("A<T>().prop(selector).add(Attr) pattern", () => {
     it("should attach attribute to the selected property", () => {
       const module = createModule([
         {
@@ -49,6 +49,35 @@ describe("Attribute Collection Pass", () => {
       const prop = classDecl.members.find(
         (m) => m.kind === "propertyDeclaration"
       );
+      expect(
+        prop && "attributes" in prop ? prop.attributes : undefined
+      ).to.have.length(1);
+    });
+
+    it("should attach attribute to the selected interface property", () => {
+      const module = createModule([
+        {
+          kind: "interfaceDeclaration",
+          name: "IUser",
+          extends: [],
+          typeParameters: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "name",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrInterfaceDeclaration,
+        makePropMarkerCall("IUser", "name", "DataMemberAttribute"),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const ifaceDecl = mod.body[0] as IrInterfaceDeclaration;
+      const prop = ifaceDecl.members.find((m) => m.kind === "propertySignature");
       expect(
         prop && "attributes" in prop ? prop.attributes : undefined
       ).to.have.length(1);

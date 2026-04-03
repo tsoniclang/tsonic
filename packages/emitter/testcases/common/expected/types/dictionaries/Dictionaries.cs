@@ -15,7 +15,12 @@ namespace TestCases.common.types.dictionaries
 
         public static string? lookupByNumber(global::System.Collections.Generic.Dictionary<double, string> dict, double key)
         {
-            return dict[key];
+            return ((global::System.Func<string?>)(() =>
+                {
+                var __tsonic_dict = dict;
+                var __tsonic_key = key;
+                return __tsonic_dict.ContainsKey(__tsonic_key) ? __tsonic_dict[__tsonic_key] : default;
+                }))();
         }
     }
 }

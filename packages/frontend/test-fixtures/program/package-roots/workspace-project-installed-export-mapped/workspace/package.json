@@ -1,0 +1,8 @@
+{
+  "name": "workspace",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/nodejs": "10.0.0"
+  }
+}

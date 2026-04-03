@@ -255,9 +255,11 @@ describe("build command (native library port regressions)", function () {
       writeFileSync(
         join(projectRoot, "src", "index.ts"),
         [
-          "export function getArity(handler: unknown): number {",
+          'import type { JsValue } from "@tsonic/core/types.js";',
+          "",
+          "export function getArity(handler: JsValue): number {",
           '  if (typeof handler !== "function") return 0;',
-          "  const maybeFunction = handler as unknown as { readonly length?: number };",
+          "  const maybeFunction = handler as { readonly length?: number };",
           '  return typeof maybeFunction.length === "number" ? maybeFunction.length : 0;',
           "}",
         ].join("\n"),

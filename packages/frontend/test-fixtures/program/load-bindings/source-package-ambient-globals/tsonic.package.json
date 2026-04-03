@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "kind": "tsonic-source-package",
+  "source": {
+    "namespace": "fixture.js",
+    "ambient": ["./globals.ts"],
+    "exports": {
+      "./date-object.js": "./src/date-object.ts",
+      "./Globals.js": "./src/Globals.ts"
+    }
+  }
+}

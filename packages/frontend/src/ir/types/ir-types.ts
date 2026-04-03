@@ -197,13 +197,13 @@ export type IrNeverType = {
 /**
  * C# Attribute attached to a declaration (class, function, method, property, parameter)
  *
- * Attributes are collected from marker calls like `A.on(Class).type(Attr)` and
+ * Attributes are collected from marker calls like `A<T>().add(Attr)` and
  * attached to the corresponding IR declaration nodes.
  *
  * Example:
  * ```typescript
- * A.on(User).type(SerializableAttribute);
- * A.on(User).type(DataContractAttribute, { Name: "UserDTO" });
+ * A<User>().add(SerializableAttribute);
+ * A<User>().add(DataContractAttribute, { Name: "UserDTO" });
  * ```
  *
  * Emits to C#:

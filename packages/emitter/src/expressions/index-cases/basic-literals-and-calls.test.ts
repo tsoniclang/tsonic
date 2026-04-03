@@ -124,6 +124,12 @@ describe("Expression Emission", () => {
   });
 
   it("should coerce js-surface template literal holes through runtime stringify", () => {
+    const jsValueType = {
+      kind: "referenceType" as const,
+      name: "JsValue" as const,
+      resolvedClrType: "Tsonic.Runtime.JsValue" as const,
+    };
+
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -147,7 +153,63 @@ describe("Expression Emission", () => {
                   {
                     kind: "identifier",
                     name: "flag",
-                    inferredType: { kind: "primitiveType", name: "boolean" },
+                    inferredType: jsValueType,
+                  },
+                ],
+                inferredType: { kind: "primitiveType", name: "string" },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: createExactGlobalBindingRegistry({
+        String: {
+          kind: "global",
+          assembly: "js",
+          type: "js.Globals.String",
+        },
+      }),
+    });
+
+    expect(result).to.include(
+      "global::js.Globals.String(flag)"
+    );
+    expect(result).not.to.include('$"flag={flag}"');
+  });
+
+  it("should stringify js-surface boolean template literal holes through String()", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "message" },
+              initializer: {
+                kind: "templateLiteral",
+                quasis: ["flag=", ""],
+                expressions: [
+                  {
+                    kind: "identifier",
+                    name: "flag",
+                    inferredType: {
+                      kind: "primitiveType",
+                      name: "boolean",
+                    },
                   },
                 ],
                 inferredType: { kind: "primitiveType", name: "string" },
@@ -364,16 +426,20 @@ describe("Expression Emission", () => {
     expect(result).to.not.include("string text = source[0].ToString();");
   });
 
-  it("boxes numeric literals when constructor arguments flow into optional unknown slots", () => {
+  it("boxes numeric literals when constructor arguments flow into optional JsValue slots", () => {
     const assertionErrorType = {
       kind: "referenceType" as const,
       name: "AssertionError" as const,
       resolvedClrType: "MyApp.AssertionError",
     };
-    const unknownOrUndefinedType = {
+    const jsValueOrUndefinedType = {
       kind: "unionType" as const,
       types: [
-        { kind: "unknownType" as const },
+        {
+          kind: "referenceType" as const,
+          name: "JsValue" as const,
+          resolvedClrType: "Tsonic.Runtime.JsValue" as const,
+        },
         { kind: "primitiveType" as const, name: "undefined" as const },
       ],
     };
@@ -424,14 +490,14 @@ describe("Expression Emission", () => {
                 inferredType: assertionErrorType,
                 parameterTypes: [
                   { kind: "primitiveType", name: "string" },
-                  unknownOrUndefinedType,
-                  unknownOrUndefinedType,
+                  jsValueOrUndefinedType,
+                  jsValueOrUndefinedType,
                   { kind: "primitiveType", name: "string" },
                 ],
                 surfaceParameterTypes: [
                   { kind: "primitiveType", name: "string" },
-                  unknownOrUndefinedType,
-                  unknownOrUndefinedType,
+                  jsValueOrUndefinedType,
+                  jsValueOrUndefinedType,
                   { kind: "primitiveType", name: "string" },
                 ],
               },

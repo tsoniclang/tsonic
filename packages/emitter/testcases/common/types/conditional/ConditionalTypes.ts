@@ -1,10 +1,12 @@
+import type { JsValue } from "@tsonic/core/types.js";
+
 export type StringOrNumberOrBoolean = string | number | boolean;
 
 export type OnlyStrings = Extract<StringOrNumberOrBoolean, string>;
 export type NoStrings = Exclude<StringOrNumberOrBoolean, string>;
 export type NonNullableValue = NonNullable<string | null | undefined>;
 
-export type IsArray<T> = T extends readonly unknown[] ? true : false;
+export type IsArray<T> = T extends readonly JsValue[] ? true : false;
 export type ArrayCheck1 = IsArray<readonly string[]>;
 export type ArrayCheck2 = IsArray<string>;
 
