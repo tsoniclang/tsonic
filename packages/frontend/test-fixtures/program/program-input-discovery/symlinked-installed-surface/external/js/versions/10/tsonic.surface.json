@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "@tsonic/js",
+  "requiredTypeRoots": [
+    "."
+  ]
+}

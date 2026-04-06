@@ -136,6 +136,39 @@ describe("discoverProgramInputs", () => {
     }
   });
 
+  it("treats symlinked installed source surface packages as authoritative", () => {
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/symlinked-installed-surface"
+    );
+
+    try {
+      const projectRoot = fixture.path("app");
+      const sourceRoot = fixture.path("app/src");
+      const entryFile = fixture.path("app/src/index.ts");
+      const linkedJsRoot = fixture.path("app/node_modules/@tsonic/js");
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "App",
+          surface: "@tsonic/js",
+        },
+        {
+          requiredTypeRoots: [],
+          resolvedModes: [],
+        }
+      );
+
+      expect(
+        discovery.authoritativeTsonicPackageRoots.get("@tsonic/js")
+      ).to.equal(linkedJsRoot);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("expands sibling source-package waves beyond stale installed @tsonic roots", () => {
     const fixture = materializeFrontendFixture(
       "program/program-input-discovery/sibling-wave"

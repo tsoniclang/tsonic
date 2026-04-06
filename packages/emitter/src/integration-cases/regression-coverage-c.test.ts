@@ -1079,7 +1079,7 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include(
-        "return new global::nodejs.MkdirOptions { recursive = __struct.recursive, mode = __struct.mode };"
+        "fs.mkdirSync(dir, new global::nodejs.MkdirOptions { recursive = options.recursive, mode = (int?)options.mode });"
       );
       expect(csharp).to.not.include("fs.mkdirSync(dir, new global::js.__Anon_");
     });
@@ -1121,6 +1121,28 @@ describe("End-to-End Integration", () => {
         "public T?[] items { get; set; } = global::System.Array.Empty<T?>();"
       );
       expect(csharp).not.to.include("Select<double, T?>");
+    });
+
+    it("emits generic undefined constructor arguments using the generic default type", () => {
+      const csharp = compileToCSharp(`
+        export class IntervalIterationResult<T> {
+          public constructor(
+            public readonly done: boolean,
+            public readonly value: T | undefined
+          ) {}
+        }
+
+        export class IntervalAsyncIterator<T> {
+          public close(): IntervalIterationResult<T> {
+            return new IntervalIterationResult(true, undefined);
+          }
+        }
+      `);
+
+      expect(csharp).to.include(
+        "new IntervalIterationResult<T>(true, default(T))"
+      );
+      expect(csharp).not.to.include("default(object)");
     });
 
     it("directly specializes promise-union overload families across module and class methods", () => {
@@ -1933,7 +1955,8 @@ describe("End-to-End Integration", () => {
       );
 
       expect(csharp).to.include("if (chunk.Is4())");
-      expect(csharp).to.include("chunk__is_1.at(index__1)");
+      expect(csharp).to.include("chunk__is_1.length");
+      expect(csharp).to.include("chunk__is_1.at(index)");
       expect(csharp).not.to.include("new global::js.Array<object>(chunk__is_1).length");
     });
 

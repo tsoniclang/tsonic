@@ -594,6 +594,82 @@ describe("IR Builder", function () {
       }
     });
 
+    it("emits anonymous carriers for local ambient call surfaces retained in source-backed return metadata", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare function render(flag: boolean):",
+            "  | { success: true; rendered: string }",
+            "  | { success: false; error: string };",
+            "",
+            "export async function run(flag: boolean): Promise<string> {",
+            "  const result = await render(flag);",
+            '  if ("error" in result) {',
+            "    return result.error;",
+            "  }",
+            "  return result.rendered;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const moduleResults = fixture.testProgram.sourceFiles.map((sourceFile) =>
+          buildIrModule(sourceFile, fixture.testProgram, fixture.options, fixture.ctx)
+        );
+        expect(moduleResults.every((result) => result.ok)).to.equal(true);
+        if (!moduleResults.every((result) => result.ok)) return;
+
+        const lowered = runAnonymousTypeLoweringPass(
+          moduleResults.map((result) => result.value)
+        );
+
+        expect(lowered.ok).to.equal(true);
+        const anonModule = lowered.modules.find(
+          (module) => module.filePath === "__tsonic/__tsonic_anonymous_types.g.ts"
+        );
+        expect(anonModule).to.not.equal(undefined);
+        if (!anonModule) return;
+
+        const runModule = lowered.modules.find(
+          (module) => module.filePath === "index.ts"
+        );
+        const runFn = runModule?.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "run"
+        );
+        expect(runFn).to.not.equal(undefined);
+        if (!runFn) return;
+
+        const resultDecl = runFn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations.some(
+              (decl) =>
+                decl.name.kind === "identifierPattern" &&
+                decl.name.name === "result"
+            )
+        );
+        const initializer = resultDecl?.declarations[0]?.initializer;
+        expect(initializer?.kind).to.equal("await");
+        if (!initializer || initializer.kind !== "await") return;
+        expect(initializer.expression.kind).to.equal("call");
+        if (initializer.expression.kind !== "call") return;
+
+        const sourceBackedReturnType = initializer.expression.sourceBackedReturnType;
+        expect(sourceBackedReturnType?.kind).to.equal("unionType");
+        if (!sourceBackedReturnType || sourceBackedReturnType.kind !== "unionType") {
+          return;
+        }
+        for (const branch of sourceBackedReturnType.types) {
+          expect(branch.kind).to.equal("referenceType");
+        }
+      } finally {
+        fixture.cleanup();
+      }
+    });
+
     it("treats optional exact-numeric parameters as nullable at read sites", () => {
       const fixture = createFilesystemTestProgram(
         {

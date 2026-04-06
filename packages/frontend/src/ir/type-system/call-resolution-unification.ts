@@ -49,6 +49,37 @@ export const inferMethodTypeArgsFromArguments = (
     typesEqual(left, right) ||
     (isAssignableTo(state, left, right) && isAssignableTo(state, right, left));
 
+  const isBroadObjectInferenceType = (type: IrType): boolean =>
+    type.kind === "referenceType" &&
+    (type.name === "object" ||
+      type.name === "JsValue" ||
+      type.resolvedClrType === "System.Object" ||
+      type.resolvedClrType === "global::System.Object" ||
+      type.resolvedClrType === "Tsonic.Runtime.JsValue" ||
+      type.resolvedClrType === "global::Tsonic.Runtime.JsValue");
+
+  const tryMergeInferenceTypes = (
+    existing: IrType,
+    next: IrType
+  ): IrType | undefined => {
+    const existingIsBroadObject = isBroadObjectInferenceType(existing);
+    const nextIsBroadObject = isBroadObjectInferenceType(next);
+
+    if (existingIsBroadObject && nextIsBroadObject) {
+      return { kind: "referenceType", name: "object" };
+    }
+
+    if (existingIsBroadObject && !nextIsBroadObject) {
+      return next;
+    }
+
+    if (!existingIsBroadObject && nextIsBroadObject) {
+      return existing;
+    }
+
+    return undefined;
+  };
+
   const isExplicitUnknownType = (type: IrType): boolean =>
     type.kind === "unknownType" && type.explicit === true;
 
@@ -320,6 +351,12 @@ export const inferMethodTypeArgsFromArguments = (
           existing.name === parameterType.name
         ) {
           currentSubstitution.set(parameterType.name, argumentType);
+          return true;
+        }
+
+        const merged = tryMergeInferenceTypes(existing, argumentType);
+        if (merged) {
+          currentSubstitution.set(parameterType.name, merged);
           return true;
         }
 

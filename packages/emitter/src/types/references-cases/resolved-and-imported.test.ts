@@ -449,6 +449,99 @@ describe("Reference Type Emission", () => {
       expect(printType(typeAst)).to.equal("global::nodejs.net.Server");
     });
 
+    it("keeps explicit imported type bindings authoritative over same-namespace local collisions", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "Object",
+          resolvedClrType: "System.Object",
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "js",
+          importBindings: new Map([
+            [
+              "Object",
+              {
+                kind: "namespace",
+                clrName: "global::System.Object",
+              },
+            ],
+          ]),
+          options: {
+            ...baseContext.options,
+            moduleMap: new Map([
+              [
+                "src/object-object",
+                {
+                  namespace: "js",
+                  className: "object_object",
+                  filePath: "src/object-object",
+                  hasRuntimeContainer: false,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "Object",
+                      {
+                        kind: "class",
+                        typeParameters: [],
+                        members: [],
+                        implements: [],
+                      },
+                    ],
+                  ]),
+                },
+              ],
+            ]),
+          },
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("global::System.Object");
+    });
+
+    it("keeps System.Object resolvedClrType authoritative over same-namespace local collisions", () => {
+      const [typeAst] = emitReferenceType(
+        {
+          kind: "referenceType",
+          name: "Object",
+          resolvedClrType: "System.Object",
+        },
+        {
+          ...baseContext,
+          moduleNamespace: "js",
+          options: {
+            ...baseContext.options,
+            moduleMap: new Map([
+              [
+                "src/object-object",
+                {
+                  namespace: "js",
+                  className: "object_object",
+                  filePath: "src/object-object",
+                  hasRuntimeContainer: false,
+                  hasTypeCollision: false,
+                  localTypes: new Map([
+                    [
+                      "Object",
+                      {
+                        kind: "class",
+                        typeParameters: [],
+                        members: [],
+                        implements: [],
+                      },
+                    ],
+                  ]),
+                },
+              ],
+            ]),
+          },
+        }
+      );
+
+      expect(printType(typeAst)).to.equal("global::System.Object");
+    });
+
     it("keeps explicit imported type bindings authoritative over structural registry rebound", () => {
       const [typeAst] = emitReferenceType(
         {

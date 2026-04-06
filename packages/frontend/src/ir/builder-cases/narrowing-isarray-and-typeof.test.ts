@@ -754,5 +754,85 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
+
+    it("does not leak instanceof narrowing past early-return conjunction fallthrough", () => {
+      const fixture = createFilesystemTestProgram(
+        {
+          "src/index.ts": [
+            "declare function stringToBytes(value: string): Uint8Array;",
+            "",
+            "const toBytes = (msg: Uint8Array | string): Uint8Array => {",
+            '  if (typeof msg === "string") {',
+            "    return stringToBytes(msg);",
+            "  }",
+            "  return msg;",
+            "};",
+            "",
+            "export function parseSendArgs(",
+            "  msg: Uint8Array | string,",
+            "  args: unknown[],",
+            "  arg0: unknown,",
+            "  arg1: unknown,",
+            "): Uint8Array {",
+            '  if (msg instanceof Uint8Array && args.length >= 2 && typeof arg0 === "number" && typeof arg1 === "number") {',
+            "    return msg;",
+            "  }",
+            "  const data = toBytes(msg);",
+            "  return data;",
+            "}",
+          ].join("\n"),
+        },
+        "src/index.ts"
+      );
+
+      try {
+        const result = buildIrModule(
+          fixture.sourceFile,
+          fixture.testProgram,
+          fixture.options,
+          fixture.ctx
+        );
+
+        expect(result.ok).to.equal(true);
+        if (!result.ok) return;
+
+        const fn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "parseSendArgs"
+        );
+        expect(fn).to.not.equal(undefined);
+        if (!fn) return;
+
+        const dataDecl = fn.body.statements.find(
+          (stmt): stmt is IrVariableDeclaration =>
+            stmt.kind === "variableDeclaration" &&
+            stmt.declarations[0]?.name.kind === "identifierPattern" &&
+            stmt.declarations[0].name.name === "data"
+        );
+        expect(dataDecl).to.not.equal(undefined);
+        const init = dataDecl?.declarations[0]?.initializer;
+        expect(init?.kind).to.equal("call");
+        if (!init || init.kind !== "call") return;
+
+        expect(init.arguments[0]?.inferredType?.kind).to.equal("unionType");
+        if (init.arguments[0]?.inferredType?.kind !== "unionType") return;
+        expect(init.arguments[0].inferredType.types).to.have.length(2);
+        expect(init.arguments[0].inferredType.types[0]).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+        expect(init.arguments[0].inferredType.types[1]?.kind).to.equal(
+          "referenceType"
+        );
+        if (init.arguments[0].inferredType.types[1]?.kind !== "referenceType") {
+          return;
+        }
+        expect(init.arguments[0].inferredType.types[1].name).to.equal(
+          "Uint8Array"
+        );
+      } finally {
+        fixture.cleanup();
+      }
+    });
   });
 });

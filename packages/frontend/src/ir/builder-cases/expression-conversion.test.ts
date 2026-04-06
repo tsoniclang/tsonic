@@ -122,6 +122,113 @@ describe("IR Builder", function () {
       }
     });
 
+    it("preserves generic constructor parameter surfaces instead of degrading them to any", () => {
+      const source = `
+        export class IntervalIterationResult<T> {
+          public constructor(
+            public readonly done: boolean,
+            public readonly value: T | undefined
+          ) {}
+        }
+
+        export class IntervalAsyncIterator<T> {
+          public close(): IntervalIterationResult<T> {
+            return new IntervalIterationResult(true, undefined);
+          }
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) {
+        return;
+      }
+
+      const iteratorClass = result.value.body.find(
+        (stmt) =>
+          stmt.kind === "classDeclaration" && stmt.name === "IntervalAsyncIterator"
+      );
+      expect(iteratorClass?.kind).to.equal("classDeclaration");
+      if (!iteratorClass || iteratorClass.kind !== "classDeclaration") {
+        return;
+      }
+
+      const closeMethod = iteratorClass.members.find(
+        (member) => member.kind === "methodDeclaration" && member.name === "close"
+      );
+      expect(closeMethod?.kind).to.equal("methodDeclaration");
+      if (
+        !closeMethod ||
+        closeMethod.kind !== "methodDeclaration" ||
+        !closeMethod.body
+      ) {
+        return;
+      }
+
+      const returnStmt = closeMethod.body.statements.find(
+        (stmt) => stmt.kind === "returnStatement"
+      );
+      expect(returnStmt?.kind).to.equal("returnStatement");
+      if (
+        !returnStmt ||
+        returnStmt.kind !== "returnStatement" ||
+        !returnStmt.expression
+      ) {
+        return;
+      }
+
+      const newExpr = returnStmt.expression;
+      expect(newExpr.kind).to.equal("new");
+      if (newExpr.kind !== "new") {
+        return;
+      }
+
+      const assertGenericUndefinedUnion = (
+        type:
+          | {
+              readonly kind: "unionType";
+              readonly types: readonly unknown[];
+            }
+          | undefined
+      ): void => {
+        expect(type?.kind).to.equal("unionType");
+        if (!type || type.kind !== "unionType") {
+          return;
+        }
+
+        expect(type.types).to.deep.include({
+          kind: "typeParameterType",
+          name: "T",
+        });
+        expect(type.types).to.deep.include({
+          kind: "primitiveType",
+          name: "undefined",
+        });
+      };
+
+      assertGenericUndefinedUnion(
+        newExpr.parameterTypes?.[1] as
+          | {
+              readonly kind: "unionType";
+              readonly types: readonly unknown[];
+            }
+          | undefined
+      );
+      assertGenericUndefinedUnion(
+        newExpr.surfaceParameterTypes?.[1] as
+          | {
+              readonly kind: "unionType";
+              readonly types: readonly unknown[];
+            }
+          | undefined
+      );
+    });
+
     it("preserves unknown array element types through conditional spread arrays", () => {
       const source = `
         function inspect(value: unknown): string {

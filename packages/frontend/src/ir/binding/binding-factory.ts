@@ -190,6 +190,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       if (!entry) return undefined;
       return {
         parameters: entry.parameters,
+        resolvedParameters: entry.resolvedParameters,
         thisTypeNode: entry.thisTypeNode,
         returnTypeNode: entry.returnTypeNode,
         typeParameters: entry.typeParameters,

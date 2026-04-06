@@ -244,7 +244,7 @@ describe("Dependency Graph", function () {
         return;
       }
 
-      expectEqualCallTypes(callStatement, ["double", "double"]);
+      expectEqualCallTypes(callStatement, ["int", "int"]);
     } finally {
       fixture.cleanup();
     }
@@ -264,7 +264,7 @@ describe("Dependency Graph", function () {
         return;
       }
 
-      expectEqualCallTypes(callStatement, ["double", "double"]);
+      expectEqualCallTypes(callStatement, ["int", "int"]);
     } finally {
       fixture.cleanup();
     }

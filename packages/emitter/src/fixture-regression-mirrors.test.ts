@@ -74,7 +74,9 @@ describe("End-to-End Integration", () => {
         'var value = global::js.String.trim("  hello,world  ");'
       );
       expect(csharp).to.include("var now = new global::js.Date();");
-      expect(csharp).to.include('var regex = new global::js.RegExp("HELLO");');
+      expect(csharp).to.include(
+        'var regex = new global::js.RegExp(global::Tsonic.Runtime.Union<global::js.RegExp, string>.From2("HELLO"));'
+      );
       expect(csharp).to.include('var chars = global::js.Array.from("abcd");');
       expect(csharp).to.include("var more = global::js.Array.of(6, 7, 8);");
       expect(csharp).to.include(
@@ -84,6 +86,50 @@ describe("End-to-End Integration", () => {
         "var joinedDefault = global::Tsonic.Internal.ArrayInterop.WrapArray(filtered).join();"
       );
       expect(csharp).to.include("global::js.Globals.parseInt(\"123\")");
+    });
+
+    it("does not leak instanceof conjunction narrowing into dgram send fallthrough byte conversion", () => {
+      const csharp = compileToCSharp(
+        [
+          'declare function stringToBytes(value: string, encoding: "utf8"): Uint8Array;',
+          "",
+          "const toBytes = (msg: Uint8Array | string): Uint8Array => {",
+          '  if (typeof msg === "string") {',
+          '    return stringToBytes(msg, "utf8");',
+          "  }",
+          "  return msg;",
+          "};",
+          "",
+          "type ParsedSendArgs = {",
+          "  data: Uint8Array;",
+          "  port?: number;",
+          "  address?: string;",
+          "  callback?: (error: Error | null, bytes: number) => void;",
+          "};",
+          "",
+          "export const parseSendArgs = (",
+          "  msg: Uint8Array | string,",
+          "  args: readonly JsValue[],",
+          "): ParsedSendArgs => {",
+          "  const arg0 = args.length > 0 ? args[0] : undefined;",
+          "  const arg1 = args.length > 1 ? args[1] : undefined;",
+          "",
+          '  if (msg instanceof Uint8Array && args.length >= 2 && typeof arg0 === "number" && typeof arg1 === "number") {',
+          "    return { data: msg };",
+          "  }",
+          "",
+          "  const data = toBytes(msg);",
+          "  return { data };",
+          "};",
+        ].join("\n"),
+        "/test/test.ts",
+        { surface: "@tsonic/js" }
+      );
+
+      expect(csharp).to.include("var data = toBytes(msg);");
+      expect(csharp).to.not.include(
+        "var data = toBytes(global::Tsonic.Runtime.Union<string, global::js.Uint8Array>.From2(msg));"
+      );
     });
 
     it("mirrors js-string-array-returns", () => {

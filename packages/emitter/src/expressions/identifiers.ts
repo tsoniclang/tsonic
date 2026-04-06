@@ -70,9 +70,8 @@ export const emitIdentifier = (
   // Special case for undefined -> default
   if (expr.name === "undefined") {
     if (
-      expectedType?.kind === "typeParameterType" ||
-      (expectedType?.kind === "primitiveType" &&
-        expectedType.name === "undefined")
+      expectedType?.kind === "primitiveType" &&
+      expectedType.name === "undefined"
     ) {
       return [
         {

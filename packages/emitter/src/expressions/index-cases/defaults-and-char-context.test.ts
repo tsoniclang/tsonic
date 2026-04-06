@@ -125,6 +125,124 @@ describe("Expression Emission", () => {
     expect(result).to.include("ok(default(object))");
   });
 
+  it("should emit default(T) for undefined identifiers in generic type-parameter contexts", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "wrap",
+          typeParameters: [
+            {
+              kind: "typeParameter",
+              name: "T",
+            },
+          ],
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "value" },
+              type: {
+                kind: "unionType",
+                types: [
+                  { kind: "typeParameterType", name: "T" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: {
+            kind: "unionType",
+            types: [
+              { kind: "typeParameterType", name: "T" },
+              { kind: "primitiveType", name: "undefined" },
+            ],
+          },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: { kind: "identifier", name: "value" },
+              },
+            ],
+          },
+          isAsync: false,
+          isGenerator: false,
+          isExported: false,
+        },
+        {
+          kind: "functionDeclaration",
+          name: "test",
+          typeParameters: [
+            {
+              kind: "typeParameter",
+              name: "T",
+            },
+          ],
+          parameters: [],
+          returnType: {
+            kind: "unionType",
+            types: [
+              { kind: "typeParameterType", name: "T" },
+              { kind: "primitiveType", name: "undefined" },
+            ],
+          },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: {
+                  kind: "call",
+                  callee: {
+                    kind: "identifier",
+                    name: "wrap",
+                  },
+                  arguments: [{ kind: "identifier", name: "undefined" }],
+                  typeArguments: [{ kind: "typeParameterType", name: "T" }],
+                  parameterTypes: [
+                    {
+                      kind: "unionType",
+                      types: [
+                        { kind: "typeParameterType", name: "T" },
+                        { kind: "primitiveType", name: "undefined" },
+                      ],
+                    },
+                  ],
+                  isOptional: false,
+                  inferredType: {
+                    kind: "unionType",
+                    types: [
+                      { kind: "typeParameterType", name: "T" },
+                      { kind: "primitiveType", name: "undefined" },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+          isAsync: false,
+          isGenerator: false,
+          isExported: true,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("wrap<T>(default(T))");
+    expect(result).not.to.include("wrap<T>(default(object))");
+  });
+
   it("should emit typed defaults for undefined arguments in nullable and reference contexts", () => {
     const module: IrModule = {
       kind: "module",

@@ -275,8 +275,25 @@ export const emitBooleanConditionAst = (
     );
     const finalContext: EmitterContext = {
       ...rightCtx,
-      tempVarId: Math.max(leftCtx.tempVarId ?? 0, rightCtx.tempVarId ?? 0),
-      usings: new Set([...(leftCtx.usings ?? []), ...(rightCtx.usings ?? [])]),
+      localNameMap: context.localNameMap,
+      conditionAliases: context.conditionAliases,
+      localSemanticTypes: context.localSemanticTypes,
+      localValueTypes: context.localValueTypes,
+      tempVarId: Math.max(
+        context.tempVarId ?? 0,
+        leftCtx.tempVarId ?? 0,
+        rightCtx.tempVarId ?? 0
+      ),
+      usings: new Set([
+        ...(context.usings ?? []),
+        ...(leftCtx.usings ?? []),
+        ...(rightCtx.usings ?? []),
+      ]),
+      usedLocalNames: new Set([
+        ...(context.usedLocalNames ?? []),
+        ...(leftCtx.usedLocalNames ?? []),
+        ...(rightCtx.usedLocalNames ?? []),
+      ]),
       narrowedBindings: leftCtx.narrowedBindings,
     };
 
